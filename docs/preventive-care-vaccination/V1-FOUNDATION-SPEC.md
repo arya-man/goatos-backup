@@ -170,7 +170,8 @@ Procurement vertical for v1.
 - Preserve the matrix interpretation: kid boards show only actual due ages
   (4w, 7w, 12w, 16w, and applicable 20w follow-through), while adult/fattening
   steady state follows repeat intervals from accepted completions and adult
-  procurement follows its own first-step/+4w path.
+  procurement follows its own first-step path: ET+TT dose 2 at +21 days and
+  pox/live spacing at +28 days.
 - Preserve the SOP proof shape: scheduled date, operator, animal scan, vaccine
   name, medicine batch/vial-lot, dose ml, administered date/time, proof media,
   adverse reaction + notes/follow-up, and verifier/park-head review.

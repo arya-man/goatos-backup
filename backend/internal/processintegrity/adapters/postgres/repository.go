@@ -443,7 +443,7 @@ func splitCSV(v string) []string {
 // exactly): (a) sop_tasks.state and obligation_batches.status remain current-state, so a task/batch
 // transition recorded after as_of is trusted as-is; (b) a missed->reschedule->missed churn is not reopen-
 // aware. Full task/batch + reopen event-history replay is a later pass.
-// projection-review: membership=obligation_instances rows for the tenant in the $4/$5 due window (one obligation per goat/rule/dose), collapsed in the grouped CTE to one grain per park/shed/batch/rule/protocol/business-date; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_id, protocol_version_id, protocol_name, dose_code, unbatched-business-date); join_cardinality=completions/asof_terminal deduplicated to 1:1 via DISTINCT ON / ARRAY_AGG-[1] before the join and the goat/sop/batch joins are keyed 1:1, so the COUNT/SUM in the grouped and aggregate wrappers cannot fan-out double-count; pagination=aggregate wrappers (counts/adherence) produce full-window totals independent of the LIST keyset/limit; scope=park/shed via located.park_uuid/shed_uuid + $2/$3, protocol via $9, owner via $8, category via $15, with the every-status buckets driven by the as_of-effective eff_status/work_state.
+// projection-review: membership=obligation_instances rows for the tenant in the $4/$5 due window (one obligation per goat/rule/dose), collapsed in the grouped CTE to one grain per park/shed/batch/rule/protocol/business-date; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_id, protocol_version_id, protocol_name, dose_code, unbatched-business-date) with batched due/window display sourced from obligation_batches.planned_date and unbatched rows falling back to obligation due_at/window_start; join_cardinality=completions/asof_terminal deduplicated to 1:1 via DISTINCT ON / ARRAY_AGG-[1] before the join and the goat/sop/batch joins are keyed 1:1, so the COUNT/SUM in the grouped and aggregate wrappers cannot fan-out double-count; pagination=aggregate wrappers (counts/adherence) produce full-window totals independent of the LIST keyset/limit; scope=park/shed via located.park_uuid/shed_uuid + $2/$3, protocol via $9, owner via $8, category via $15, with the every-status buckets driven by the as_of-effective eff_status/work_state.
 // scale-guard:ignore: 5k-50k operational-kernel envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md). This base join is the canonical request-path read AND the off-request projector recompute source. It is tenant-scoped, bounded by the $4/$5 due window on the tenant+due_at index, keyset-paginated ($16-$19) at the LIST wrapper, and its aggregate wrappers pre-group in the DB — not an unbounded compute-on-read. The projection tables it also feeds are retained additively and removed in unit U7.
 const processIntegrityBaseSQL = `
 WITH completions AS (
@@ -524,6 +524,7 @@ raw AS (
     pv.published_at,
     pd.name AS protocol_name,
     pr.dose_code,
+    ob.planned_date::timestamptz AS batch_planned_at,
     ob.status AS batch_status,
     ob.sop_task_id AS batch_sop_task_id,
     ob.conducted_by,
@@ -624,6 +625,7 @@ located AS (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
+    COALESCE(raw.batch_planned_at, raw.due_at) AS execution_due_at,
     -- as_of-effective obligation status. Reconstructs the state AT as_of instead of reading the current
     -- obligation_instances.status, so a transition recorded after as_of is not treated as already true.
     CASE
@@ -631,19 +633,19 @@ located AS (
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $10::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           -- The latest terminal transition at/before as_of was in effect at as_of.
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
           -- Terminal events exist but only AFTER as_of: the obligation was still open at as_of.
-          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
           -- No terminal history at all: cannot reconstruct, trust the current stored status (documented residual).
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
@@ -652,6 +654,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_id,protocol_version_id,protocol_name,dose_code,unbatched-business-date); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply expected counts; pagination=grouped/all_rows feed keyset list plus full-window count/adherence aggregates independent of page size; scope=park/shed/protocol/owner/category filters are applied before grouping.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -663,16 +666,16 @@ grouped AS (
     located.protocol_name,
     located.dose_code,
     MIN(located.obligation_id::text) AS obligation_id,
-    (ARRAY_AGG(located.task_id::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_id,
-    (ARRAY_AGG(located.task_row_version ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_row_version,
+    (ARRAY_AGG(located.task_id::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_id,
+    (ARRAY_AGG(located.task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_row_version,
     (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
     (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
     CASE WHEN COUNT(DISTINCT located.goat_id) = 1 THEN MAX(located.goat_id::text) ELSE NULL END AS goat_id,
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
     COALESCE(MAX(located.configured_sop_version_id::text), MAX(located.task_sop_version_id::text)) AS sop_version_id,
     MAX(located.proof_policy) AS proof_policy,
-    MIN(located.due_at) AS due_at,
-    MIN(located.window_start) AS window_start,
+    MIN(located.execution_due_at) AS due_at,
+    MIN(COALESCE(located.batch_planned_at, located.window_start)) AS window_start,
     MAX(located.window_end) AS window_end,
     COUNT(*)::int AS expected_count,
     -- Representative status + bucket counts use the as_of-effective status, not the stored status.
@@ -688,6 +691,7 @@ grouped AS (
         WHEN 'completed' THEN 7
         ELSE 8
       END,
+      located.execution_due_at ASC,
       located.due_at ASC
     ))[1] AS obligation_status,
     COUNT(*) FILTER (WHERE located.eff_status = 'scheduled')::int AS scheduled_count,
@@ -709,6 +713,7 @@ grouped AS (
         WHEN 'canceled' THEN 4
         ELSE 5
       END,
+      located.execution_due_at DESC NULLS LAST,
       located.due_at DESC NULLS LAST
     ) FILTER (WHERE located.batch_status IS NOT NULL))[1] AS batch_status,
     (ARRAY_AGG(located.task_state ORDER BY
@@ -721,6 +726,7 @@ grouped AS (
         WHEN 'accepted' THEN 5
         ELSE 6
       END,
+      located.execution_due_at DESC NULLS LAST,
       located.due_at DESC NULLS LAST
     ) FILTER (WHERE located.task_state IS NOT NULL))[1] AS task_state,
     (ARRAY_AGG(located.submission_state ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_state IS NOT NULL))[1] AS submission_state,
@@ -728,15 +734,15 @@ grouped AS (
     MAX(jsonb_array_length(COALESCE(located.proof_refs, '[]'::jsonb)))::int AS proof_count,
     MAX(located.submitted_at) AS latest_evidence_at,
     (ARRAY_AGG(located.rejection_reason ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.rejection_reason IS NOT NULL AND located.rejection_reason <> ''))[1] AS latest_rejection_reason,
-    (ARRAY_AGG(located.conducted_by::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.conducted_by IS NOT NULL))[1] AS explicit_conducted_by,
-    (ARRAY_AGG(located.assigned_to::text ORDER BY located.due_at DESC NULLS LAST) FILTER (WHERE located.assigned_to IS NOT NULL))[1] AS assigned_to,
+    (ARRAY_AGG(located.conducted_by::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.conducted_by IS NOT NULL))[1] AS explicit_conducted_by,
+    (ARRAY_AGG(located.assigned_to::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.assigned_to IS NOT NULL))[1] AS assigned_to,
     (ARRAY_AGG(located.verified_by::text ORDER BY located.verified_at DESC NULLS LAST) FILTER (WHERE located.verified_by IS NOT NULL))[1] AS verified_by,
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
     COUNT(*) FILTER (
       WHERE located.eff_status NOT IN ('waived', 'deferred')
         AND (
           located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
         )
     )::int AS health_deferred_count
   FROM located
@@ -761,7 +767,7 @@ grouped AS (
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
     AND ($9::text = '' OR located.protocol_version_id = $9::uuid)
   GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
-    CASE WHEN located.batch_id IS NULL THEN (located.due_at AT TIME ZONE 'Asia/Kolkata')::date ELSE NULL END
+    CASE WHEN located.batch_id IS NULL THEN (located.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date ELSE NULL END
 ),
 enriched AS (
   SELECT
@@ -872,7 +878,7 @@ derived AS (
       WHEN NOT stateful.usable_for_vaccination THEN 'Shed is not marked usable for vaccination'
       WHEN stateful.is_icu THEN 'Shed is ICU; PC defer/approval required'
       WHEN stateful.is_quarantine THEN 'Shed is quarantine; PC defer/approval required'
-      WHEN stateful.health_deferred_count > 0 THEN 'Some goats are sick, under treatment, quarantined, or in ICU'
+      WHEN stateful.health_deferred_count > 0 THEN 'Some goats are sick, under treatment, recovering, quarantined, or in ICU'
       WHEN stateful.missed_count > 0 THEN 'Missed dose escalation required'
       WHEN stateful.conducted_by IS NULL AND stateful.assigned_to IS NULL AND stateful.completed_count < stateful.expected_count THEN 'Operator assignment required before execution'
       ELSE NULL
@@ -1355,4 +1361,3 @@ SELECT
 FROM all_rows
 WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz);
 `
-

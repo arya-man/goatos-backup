@@ -9,11 +9,12 @@ the same patch must update the seed path.
 The accepted ADR
 [`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../decisions/operational-kernel-5k-50k-scale-envelope.md)
 is the authority for the current deployment scale target (approximately 5,000
-animals today, up to 50,000 within the year). Under that envelope the five named
+animals today, up to 50,000 within the year). Under that envelope the six named
 screen projections — `calendar_event_projections`,
 `process_integrity_projection_rows`, `vaccination_shed_projection_rows`,
 `vaccination_execution_projection_rows`, and
-`vaccination_operations_projection_rows` — are dropped, and those screens are
+`vaccination_operations_projection_rows`, plus Full Schedule's
+`vaccination_schedule_projection_*` family — are dropped, and those screens are
 served directly from canonical indexed SQL. There is no separate projector
 schedule or partition-maintenance job for them at this envelope; one kernel
 worker owns the operational cadences, and the split-worker/projection topology
@@ -71,12 +72,13 @@ usable:
 - notification/reminder/verification tables that make seeded work executable.
 
 Under the 5k-to-50k envelope, the calendar/process-integrity/vaccination-screen
-reads are served from canonical indexed SQL rather than from the five removed
+reads, including Full Schedule, are served from canonical indexed SQL rather than from the removed
 projection tables, so a fresh environment becomes usable once the canonical rows
 are seeded and those APIs return 200. That is why "seed green" for those screens
 means the canonical-read APIs answer (for example `/vaccination/sheds`,
-`/vaccination/execution`, `/vaccination/operations` serving from canonical
-indexed SQL), not "the five projectors completed / no `projection_unavailable`".
+`/vaccination/execution`, `/vaccination/operations`, and `/vaccination/schedule`
+serving from canonical indexed SQL), not "the projectors completed / no
+`projection_unavailable`".
 
 Pure index-only migrations are allowed without a seed change. Creating or
 altering a read-model table is not index-only. But adding one no longer
@@ -98,6 +100,16 @@ the seed command blindly fill every table.
 | Derived/read model | Canonical SQL by default; recompute only for a surviving summary | Seed never hand-writes these rows. Under the 5k-to-50k envelope the default is to serve the screen from canonical indexed SQL and add NO projector. Only a summary that survives the envelope (for example `vaccination_eligibility_rollups`, Counts) is rebuilt by a deterministic recompute from canonical tables; register that recompute in `tools/dev/seed-closeout.sh`. A new hot-path projection added later via the scale-out ladder registers its closeout step the same way. |
 | Static catalog/config | Migration or reviewed config seed | Migration may insert safe global catalog rows; environment-specific config must come from source-backed seed/config, never guessed defaults. |
 | Operational/audit/event | Runtime workers/events | Starts empty unless replaying real events. Notification attempts, dirty scopes, outbox-derived rows, reminder fires, and audit ledgers must not be faked during seed. |
+
+`sop_task_scan_captures` and `sop_task_scan_attempts` are operational runtime
+tables. A clean-slate seed must create both empty; rows are written only by
+authenticated operator RFID reader events through the mobile outbox and app API.
+Do not seed synthetic scan captures or attempts to make a vaccination drive look
+complete. `sop_task_scan_captures` is the de-duplicated Submit draft source;
+`sop_task_scan_attempts` is append-only reader audit for accepted, duplicate,
+not-due, and unknown physical reads. Seed verification for these tables is only
+that the migration applied and Submit can validate/finalize runtime captures
+when they exist.
 
 The standard setup shape is:
 
@@ -201,16 +213,16 @@ GOATOS_E2E_DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmo
 
 The canonical source seed writes goats, HRMS, protocol config, completions, and
 obligations. Under the 5k-to-50k envelope the calendar/process-integrity/
-vaccination screens read that canonical state directly through indexed SQL, so a
-correctly seeded canonical environment makes those pages usable without any
-projector step. A migration can still be "safe" for source data but break a
+vaccination screens, including Full Schedule, read that canonical state directly
+through indexed SQL, so a correctly seeded canonical environment makes those pages
+usable without any projector step. A migration can still be "safe" for source data but break a
 fresh setup if it grows a surviving summary the app reads (for example an
 eligibility-rollup or Counts summary) and the seed does not recompute it, or if
 it changes a canonical read path without the supporting index.
 
 Concrete examples:
 
-- serving Calendar/execution/operations/shed from canonical SQL: a migration that
+- serving Calendar/execution/operations/shed/Full Schedule from canonical SQL: a migration that
   adds the supporting index or column does not corrupt goat source data, and the
   screen is green as soon as the canonical rows are seeded and the API returns
   200 — there is no projection to warm;

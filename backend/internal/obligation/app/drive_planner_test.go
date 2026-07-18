@@ -29,26 +29,23 @@ func TestBatchSessionUsesComboWhenKnown(t *testing.T) {
 }
 
 func TestVaccineMatrixPriority(t *testing.T) {
-	if got := VaccineMatrixPriority("ET+TT"); got != 1 {
-		t.Fatalf("ET+TT priority = %d, want 1", got)
+	cases := map[string]int32{
+		"ET+TT":       1,
+		"ET_TT":       1,
+		"PPR":         2,
+		"Goat Pox":    3,
+		"GOAT_POX":    3,
+		"Sheep Pox":   3,
+		"SHEEP_POX":   3,
+		"Blue Tongue": 4,
+		"BLUE_TONGUE": 4,
+		"FMD":         5,
+		"HS":          5,
 	}
-	if got := VaccineMatrixPriority("PPR"); got != 2 {
-		t.Fatalf("PPR priority = %d, want 2", got)
-	}
-	if got := VaccineMatrixPriority("Goat Pox"); got != 3 {
-		t.Fatalf("Goat Pox priority = %d, want 3", got)
-	}
-	if got := VaccineMatrixPriority("Sheep Pox"); got != 3 {
-		t.Fatalf("Sheep Pox priority = %d, want 3", got)
-	}
-	if got := VaccineMatrixPriority("Blue Tongue"); got != 4 {
-		t.Fatalf("Blue Tongue priority = %d, want 4", got)
-	}
-	if got := VaccineMatrixPriority("FMD"); got != 5 {
-		t.Fatalf("FMD priority = %d, want 5", got)
-	}
-	if got := VaccineMatrixPriority("HS"); got != 5 {
-		t.Fatalf("HS priority = %d, want 5", got)
+	for code, want := range cases {
+		if got := VaccineMatrixPriority(code); got != want {
+			t.Fatalf("%s priority = %d, want %d", code, got, want)
+		}
 	}
 }
 
@@ -59,6 +56,19 @@ func TestDrivePlannerFromRuleDSLUsesMatrixPriority(t *testing.T) {
 	}
 	if planner.MaxGoatsPerDrive != 0 {
 		t.Fatalf("max goats = %d, want unlimited (0)", planner.MaxGoatsPerDrive)
+	}
+}
+
+func TestExtractRuleVaccineIdentityUsesPublishedPriority(t *testing.T) {
+	got := ExtractRuleVaccineIdentity([]byte(`{"vaccine":{"code":"HS","priority":6,"compatibility_group":"HS","inventory_item_id":"item-hs"}}`))
+	if got.VaccineCode != "HS" {
+		t.Fatalf("vaccine code = %q, want HS", got.VaccineCode)
+	}
+	if got.VaccinePriority != 6 {
+		t.Fatalf("vaccine priority = %d, want published metadata priority 6", got.VaccinePriority)
+	}
+	if got.CompatibilityGrp != "HS" || got.VaccineItemID != "item-hs" {
+		t.Fatalf("identity = %#v, want compatibility/item metadata preserved", got)
 	}
 }
 
@@ -80,7 +90,7 @@ func TestPickBestDriveDatePrefersMaxCoverage(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected planned date")
 	}
-	// Both obligations fit on Jul 8; scorer prefers later date with equal coverage when urgency rises.
+	// Both obligations first fit on Jul 8; later window-end dates are not better unless they add coverage.
 	want := businessDate(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC))
 	if !got.Equal(want) {
 		t.Fatalf("planned=%s want %s", got, want)
@@ -110,7 +120,7 @@ func TestSpeciesGroupingKeyMixesKidsOnly(t *testing.T) {
 	}
 }
 
-func TestPickBestDriveDateWithHoldIsOneTimeAndCapped(t *testing.T) {
+func TestPickBestDriveDateWithHoldOnlyWhenCoverageImproves(t *testing.T) {
 	now := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	winEnd := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	rows := []driveCandidate{{
@@ -120,15 +130,53 @@ func TestPickBestDriveDateWithHoldIsOneTimeAndCapped(t *testing.T) {
 	}}
 	planner := domain.DefaultDrivePlannerSettings()
 	got := pickBestDriveDateWithHold(now, rows, planner)
-	want := businessDate(now).AddDate(0, 0, int(planner.MaxBatchingHoldDays))
+	if got == nil || !got.Equal(businessDate(now)) {
+		t.Fatalf("single-animal date = %v, want due date %v", got, businessDate(now))
+	}
+
+	laterDue := now.AddDate(0, 0, 5)
+	rows = append(rows, driveCandidate{ObligationID: "obl-2", DueAt: laterDue, WindowEnd: &winEnd})
+	got = pickBestDriveDateWithHold(now, rows, planner)
+	want := businessDate(laterDue)
 	if got == nil || !got.Equal(want) {
-		t.Fatalf("held date = %v, want capped hold date %v", got, want)
+		t.Fatalf("clubbed date = %v, want first max-output date %v", got, want)
 	}
 
 	rows[0].BatchingHoldCount = planner.MaxBatchingHoldCount
 	got = pickBestDriveDateWithHold(now, rows, planner)
 	if got == nil || !got.Equal(businessDate(now)) {
 		t.Fatalf("held-once date = %v, want due date %v", got, businessDate(now))
+	}
+
+	rows[0].BatchingHoldCount = 0
+	rows[1].DueAt = now.AddDate(0, 0, int(planner.MaxBatchingHoldDays)+1)
+	got = pickBestDriveDateWithHold(now, rows, planner)
+	if got == nil || !got.Equal(businessDate(now)) {
+		t.Fatalf("beyond-hold date = %v, want due date %v", got, businessDate(now))
+	}
+}
+
+func TestPickBestDriveDateWithHoldDoesNotBackdateOverdueHoldCap(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	planner := domain.DefaultDrivePlannerSettings()
+	rows := []driveCandidate{{
+		ObligationID: "overdue-valid",
+		DueAt:        due,
+		WindowEnd:    &winEnd,
+	}}
+
+	got := pickBestDriveDateWithHold(now, rows, planner)
+	want := businessDate(now)
+	if got == nil || !got.Equal(want) {
+		t.Fatalf("overdue held date = %v, want sweep day %v", got, want)
+	}
+
+	rows[0].BatchingHoldCount = planner.MaxBatchingHoldCount
+	got = pickBestDriveDateWithHold(now, rows, planner)
+	if got == nil || !got.Equal(want) {
+		t.Fatalf("already-held overdue date = %v, want sweep day %v", got, want)
 	}
 }
 
@@ -163,5 +211,40 @@ func TestNormalizedDrivePlannerSettingsDefaults(t *testing.T) {
 	}
 	if got.MaxShotsPerAnimalPerDrive != 2 || got.MaxBatchingHoldCount != 1 || got.MaxBatchingHoldDays != 7 {
 		t.Fatalf("planner defaults = %#v, want shot cap/hold defaults", got)
+	}
+}
+
+func TestComboAlignmentSettingsForPlansUsesStrictestPolicy(t *testing.T) {
+	plans := []SweepVersionPriority{
+		{
+			VersionID: "fmd",
+			Config: SweepConfig{
+				VaccineCode: "FMD",
+				DrivePlanner: domain.DrivePlannerSettings{
+					Enabled:                   true,
+					ComboAlignWindowDays:      10,
+					MaxShotsPerAnimalPerDrive: 2,
+				},
+			},
+		},
+		{
+			VersionID: "hs",
+			Config: SweepConfig{
+				VaccineCode: "HS",
+				DrivePlanner: domain.DrivePlannerSettings{
+					Enabled:                   true,
+					ComboAlignWindowDays:      3,
+					MaxShotsPerAnimalPerDrive: 1,
+				},
+			},
+		},
+	}
+
+	alignWindowDays, maxShotsPerAnimalPerDrive := ComboAlignmentSettingsForPlans(plans)
+	if alignWindowDays != 3 {
+		t.Fatalf("align window = %d, want strictest 3", alignWindowDays)
+	}
+	if maxShotsPerAnimalPerDrive != 1 {
+		t.Fatalf("max shots = %d, want strictest 1", maxShotsPerAnimalPerDrive)
 	}
 }

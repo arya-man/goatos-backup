@@ -93,7 +93,7 @@ assert_calendar_missed_status_allowed() {
   constraint="$(psqlq "select pg_get_constraintdef(oid) from pg_constraint where conname='calendar_event_status_check'" 2>/dev/null || true)"
   case "$constraint" in
     *"'missed'"*) ;;
-    *) fail "local Postgres has stale calendar_event_status_check; re-apply backend/migrations/postgres/000103_calendar_missed_status_check.sql before running vaccination smoke" ;;
+    *) fail "local Postgres has stale calendar_event_status_check; rebuild it from the clean-slate baseline before running vaccination smoke" ;;
   esac
 }
 
@@ -280,12 +280,6 @@ JSON
     echo "open visual seed did not create a recorded completion for goat=$goat_id task=$task_id" >&2
     return 1
   fi
-  (
-    cd "$backend_dir"
-    GOATOS_TENANT_ID="$GOATOS_TENANT_ID" DATABASE_URL="$DATABASE_URL" \
-      go run ./cmd/process-integrity-projection-recompute \
-        -tenant-id "$GOATOS_TENANT_ID" >/dev/null
-  )
   export GOATOS_SMOKE_GOAT_ID="$goat_id"
   export GOATOS_SMOKE_SHED_ID="$seed_shed"
   export GOATOS_SMOKE_BATCH_ID="$batch_id"

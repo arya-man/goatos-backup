@@ -4,6 +4,16 @@ const TEST_ONLY_LABEL_RE = /\s*\(test-only local development\)\s*/gi;
 const SEED_SUFFIX_RE = /\s*(?:-|\u2013)\s*seed_[a-z0-9]+-[a-z0-9_]+/gi;
 const DOSE_RE = /\b(primary|booster[\s_-]?\d*|annual|catch[\s_-]?up)\b/i;
 const DOSE_STRIP_RE = /(?:^|[\s_-]+)(primary|booster[\s_-]?\d*|annual|catch[\s_-]?up)(?:[\s_-]*\d+)?(?=$|[\s_-]+)/gi;
+const VACCINE_LABELS: Record<string, string> = {
+  BLUE_TONGUE: "Blue Tongue",
+  ETTT: "ET+TT",
+  ET_TT: "ET+TT",
+  FMD: "FMD",
+  GOAT_POX: "Goat Pox",
+  HS: "HS",
+  PPR: "PPR",
+  SHEEP_POX: "Sheep Pox",
+};
 
 function normalizedProtocolName(protocol: VaccinationOperationsProtocol): string {
   return protocol.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -50,6 +60,14 @@ export function vaccinationDriveDisplayName(raw: string | undefined | null): str
   if (label) return label;
   if (dose) return dose;
   return compactDisplayLabel(source) || "Vaccination drive";
+}
+
+export function vaccinationVaccineDisplayName(raw: string | undefined | null): string {
+  const source = cleanDisplayLabel(raw ?? "");
+  if (!source) return "";
+  const key = source.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (VACCINE_LABELS[key]) return VACCINE_LABELS[key];
+  return compactDisplayLabel(source.replace(/[_-]+/g, " ").replace(/\s+/g, " "));
 }
 
 export function sortVaccinationProtocols(protocols: VaccinationOperationsProtocol[]): VaccinationOperationsProtocol[] {

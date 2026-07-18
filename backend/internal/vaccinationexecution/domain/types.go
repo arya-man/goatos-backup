@@ -1,9 +1,7 @@
 // Package domain holds vaccination-execution read-model types.
 package domain
 
-import (
-	"time"
-)
+import "time"
 
 const SourceAPI = "api"
 
@@ -58,6 +56,10 @@ type ProjectionFreshness struct {
 	AsOf              time.Time `json:"asOf"`
 	Status            string    `json:"status"`
 	LagSeconds        int64     `json:"lagSeconds"`
+	ServingState      string    `json:"servingState,omitempty"`
+	Stale             bool      `json:"stale,omitempty"`
+	RebuildRequired   bool      `json:"rebuildRequired,omitempty"`
+	RowCount          int       `json:"rowCount,omitempty"`
 }
 
 type VerificationStatus string
@@ -180,11 +182,12 @@ type OperationsCounts struct {
 }
 
 type OperationsCell struct {
-	ProtocolID string           `json:"protocolId"`
-	WorkState  WorkState        `json:"workState"`
-	LastDose   *time.Time       `json:"lastDose,omitempty"`
-	NextDue    *time.Time       `json:"nextDue,omitempty"`
-	Counts     OperationsCounts `json:"counts"`
+	ProtocolID   string           `json:"protocolId"`
+	WorkState    WorkState        `json:"workState"`
+	LastDose     *time.Time       `json:"lastDose,omitempty"`
+	NextDue      *time.Time       `json:"nextDue,omitempty"`
+	VaccineNames []string         `json:"vaccineNames"`
+	Counts       OperationsCounts `json:"counts"`
 }
 
 type OperationsCohort struct {
@@ -223,6 +226,7 @@ type OperationsRow struct {
 	Animals           int
 	NextDue           *time.Time
 	LastDose          *time.Time
+	VaccineNames      []string
 	OverdueCount      int
 	DueCount          int
 	InProgressCount   int
@@ -247,6 +251,17 @@ type OperationsQuery struct {
 	HistoricalAsOf bool
 	Limit          int
 	Cursor         *OperationsCursor
+}
+
+// ScheduleQuery reads the Full Schedule canonical month/window.
+// MonthStart is the first local business day of the requested month, stored as
+// midnight in the Goat OS business timezone.
+type ScheduleQuery struct {
+	TenantID   string
+	ParkID     *string
+	MonthStart time.Time
+	Limit      int
+	Cursor     *OperationsCursor
 }
 
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
@@ -609,7 +624,8 @@ type ShedVaccineRow struct {
 
 // ShedAnimalRow is one animal in the shed-detail roster: the three identities the UI shows. Tag1/Tag2
 // are nil when the animal has no such identifier on record — the UI renders "-", never a "missing id"
-// badge. goatId is the opaque keyset cursor.
+// badge. LastDose is the latest accepted vaccination timestamp for the animal. goatId is the opaque
+// keyset cursor.
 type ShedAnimalRow struct {
 	GoatID    string  `json:"goatId"`
 	DisplayID string  `json:"displayId"`
@@ -618,6 +634,10 @@ type ShedAnimalRow struct {
 	Breed     *string `json:"breed,omitempty"`
 	Sex       string  `json:"sex"`
 	Age       *string `json:"age,omitempty"`
+	Lifecycle string  `json:"lifecycleStatus"`
+	Health    *string `json:"healthStatus,omitempty"`
+	LastDose  *string `json:"lastDose,omitempty"`
+	NextDue   *string `json:"nextDue,omitempty"`
 	Status    string  `json:"status"`
 }
 
@@ -649,6 +669,7 @@ type ShedDetailResponse struct {
 type ShedAnimalQuery struct {
 	TenantID string
 	ShedID   string
+	AsOf     time.Time
 	Cursor   *string // last goat_id seen (exclusive)
 	Limit    int
 }

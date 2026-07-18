@@ -87,6 +87,8 @@ class MainActivity : ComponentActivity() {
                 // unconfigured environment (e.g. the dev flavor) renders the app normally.
                 val updateGate by updateGateViewModel.state.collectAsStateWithLifecycle()
                 when (val gate = updateGate) {
+                    UpdateGateUiState.Checking -> BootstrapLoading()
+
                     is UpdateGateUiState.Blocked ->
                         ForceUpdateScreen(
                             updateUrl = gate.updateUrl,

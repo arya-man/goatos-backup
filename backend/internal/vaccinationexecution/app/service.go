@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -120,6 +121,20 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 	if err != nil {
 		return domain.OperationsResponse{}, err
 	}
+	return operationsResponseFromRows(rows, q.Limit)
+}
+
+func (s *Service) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) (domain.OperationsResponse, error) {
+	rows, err := s.repo.VaccinationSchedule(ctx, q)
+	if err != nil {
+		return domain.OperationsResponse{}, err
+	}
+	return operationsResponseFromRows(rows, q.Limit)
+}
+
+// operationsResponseFromRows rolls the flat cohort × protocol rows into the matrix + per-cohort
+// detail shape shared by /vaccination/operations and /vaccination/schedule.
+func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.OperationsResponse, error) {
 	protocolSeen := map[string]bool{}
 	protocols := []domain.OperationsProtocol{}
 	cohortIndex := map[string]int{}
@@ -142,7 +157,14 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 		c := &cohorts[idx]
 		cellState := cellWorkState(r)
 		cellCounts := countsFromRow(r)
-		c.Cells = append(c.Cells, domain.OperationsCell{ProtocolID: r.ProtocolID, WorkState: cellState, LastDose: r.LastDose, NextDue: r.NextDue, Counts: cellCounts})
+		c.Cells = append(c.Cells, domain.OperationsCell{
+			ProtocolID:   r.ProtocolID,
+			WorkState:    cellState,
+			LastDose:     r.LastDose,
+			NextDue:      r.NextDue,
+			VaccineNames: append([]string(nil), r.VaccineNames...),
+			Counts:       cellCounts,
+		})
 		// Cohort rollup: headcount = max across protocols (same goats), worst status, latest last_dose, earliest next_due.
 		// Counts roll up by summing across protocol cells (obligations differ per vaccine, so a sum is the
 		// cohort's total work across all its vaccines).
@@ -164,8 +186,8 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 		}
 	}
 	var nextCursor *string
-	if q.Limit > 0 && len(cohorts) > q.Limit {
-		last := cohorts[q.Limit-1]
+	if limit > 0 && len(cohorts) > limit {
+		last := cohorts[limit-1]
 		encoded, err := domain.EncodeOperationsCursor(domain.OperationsCursor{
 			ParkID:   last.ParkID,
 			ParkName: last.ParkName,
@@ -177,7 +199,7 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 			return domain.OperationsResponse{}, err
 		}
 		nextCursor = &encoded
-		cohorts = cohorts[:q.Limit]
+		cohorts = cohorts[:limit]
 		visibleProtocols := make(map[string]bool)
 		for _, cohort := range cohorts {
 			for _, cell := range cohort.Cells {
@@ -475,7 +497,7 @@ func blockerReason(p domain.ExecutionProjection, workState domain.WorkState) *st
 	case p.IsQuarantine:
 		reason = "Shed is quarantine; PC defer/approval required"
 	case p.HealthDeferredCount > 0:
-		reason = "Some goats are sick, under treatment, quarantined, or in ICU"
+		reason = "Some goats are sick, under treatment, recovering, quarantined, or in ICU"
 	case p.MissedCount > 0:
 		reason = "Missed dose escalation required"
 	case workState == domain.WorkStateBlocked && p.OperatorName == nil && p.CompletedCount < p.ObligationCount:
@@ -769,6 +791,9 @@ func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (do
 		limit = 500
 	}
 	q.Limit = limit
+	if q.AsOf.IsZero() {
+		q.AsOf = time.Now().In(biztime.DefaultLocation())
+	}
 	rows, err := s.repo.ShedAnimals(ctx, q)
 	if err != nil {
 		return domain.ShedAnimalPage{}, err
@@ -798,7 +823,11 @@ func aggregateShedVaccines(rows []domain.OperationsRow) []domain.ShedVaccineRow 
 	for _, r := range rows {
 		v, ok := byProto[r.ProtocolID]
 		if !ok {
-			v = &domain.ShedVaccineRow{ProtocolID: r.ProtocolID, Name: r.ProtocolName, WorkState: domain.WorkStateCompleted}
+			name := r.ProtocolName
+			if len(r.VaccineNames) > 0 {
+				name = strings.Join(r.VaccineNames, ", ")
+			}
+			v = &domain.ShedVaccineRow{ProtocolID: r.ProtocolID, Name: name, WorkState: domain.WorkStateCompleted}
 			byProto[r.ProtocolID] = v
 			order = append(order, r.ProtocolID)
 		}

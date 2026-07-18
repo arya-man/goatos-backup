@@ -103,6 +103,28 @@ explain_natural_index() {
   echo "Natural indexed plan observed: $label"
 }
 
+# Natural-plan proof for an order-sensitive keyset read. It requires the named covering index and
+# rejects bitmap access or an explicit sort: either would materialize/filter a growing candidate
+# tail instead of walking the B-tree in cursor order. Sequential scans remain enabled.
+explain_natural_named_index_no_sort() {
+  local label="$1"
+  local required_index="$2"
+  local sql="$3"
+  local plan
+  plan="$(printf '%s\n' "$sql" | run_psql)"
+  if ! grep -E "(Index Scan|Index Only Scan) using $required_index" <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Expected natural ordered plan in $label to use $required_index" >&2
+    exit 1
+  fi
+  if grep -E '(Seq Scan on obligation_instances|Bitmap (Heap|Index) Scan|(^|[[:space:]])(Sort|Incremental Sort)([[:space:]]|$))' <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Unexpected scan/sort node in ordered keyset plan $label" >&2
+    exit 1
+  fi
+  echo "Natural ordered named-index plan observed: $label -> $required_index"
+}
+
 validate_identity_lookup_plans() {
   explain_must_use_index "GoatByID" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
 SELECT goat_id
@@ -127,7 +149,34 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND status = 'active'
 LIMIT 10;"
 
-  explain_must_use_index "GoatTimeline" 'Seq Scan on goat_identity_events' "EXPLAIN (COSTS OFF)
+  printf '%s\n' "
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ('00000000-0000-4000-8000-000000000001', 'sqlc-plan-tenant', 'active')
+ON CONFLICT (tenant_id) DO NOTHING;
+INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ('00000000-0000-4000-8000-000000001001', 'system', 'sqlc-plan-system', 'active')
+ON CONFLICT (party_id) DO NOTHING;
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, lifecycle_status, custodian_party_id)
+VALUES ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'G-990101', 'female', 'alive', '00000000-0000-4000-8000-000000001001')
+ON CONFLICT (goat_id) DO NOTHING;
+INSERT INTO goat_identity_events (
+  identity_event_id, tenant_id, goat_id, event_type, event_version,
+  occurred_at, recorded_at, payload, idempotency_key
+)
+SELECT
+  ('21000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '10000000-0000-4000-8000-000000000001'::uuid,
+  'goat.timeline_plan', 1,
+  TIMESTAMPTZ '2026-07-01 00:00:00+00' + i * INTERVAL '1 second',
+  TIMESTAMPTZ '2026-07-01 00:00:00+00' + i * INTERVAL '1 second',
+  '{}'::jsonb, 'sqlc-plan-goat-timeline-' || i::text
+FROM generate_series(1, 10000) AS s(i)
+ON CONFLICT DO NOTHING;
+ANALYZE goat_identity_events;
+" | run_psql
+
+  explain_natural_named_index_no_sort "GoatTimeline" 'goat_identity_events_tenant_goat_timeline_keyset_idx' "EXPLAIN (COSTS OFF)
 SELECT identity_event_id, occurred_at
 FROM goat_identity_events
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
@@ -296,6 +345,25 @@ ORDER BY ob.created_at ASC, ob.batch_id ASC
 LIMIT 100;"
 }
 
+validate_combo_align_keyset_plan() {
+  # R2-06b: ListPlannedComboBatchesKeyset (AlignComboDrives, runs every sweep) keyset-pages planned
+  # combo batches ORDER BY (scope_type, scope_id, session, batch_id) filtered to status='planned',
+  # sop_task_id IS NULL, session LIKE 'combo:%'. It must ride the partial composite index
+  # obligation_batches_combo_align_keyset_idx (migration 000209), never a tenant-wide sequential scan
+  # + sort. The extra_forbidden Sort assertion proves the index also supplies the ordering.
+  explain_must_use_index "ComboAlignKeyset" 'Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
+SELECT b.batch_id
+FROM obligation_batches b
+WHERE b.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND b.status = 'planned'
+  AND b.session LIKE 'combo:%'
+  AND b.sop_task_id IS NULL
+  AND NOT (b.context ? 'stock_reservation')
+  AND (b.planned_date IS NULL OR b.planned_date <= '2026-08-15'::date)
+ORDER BY b.scope_type, b.scope_id, b.session, b.batch_id
+LIMIT 1000;" '(Sort|Incremental Sort)'
+}
+
 validate_kernel_sweeper_hot_path_plans() {
   explain_must_use_index "ObligationListUnbatchedDueForVersion" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
 SELECT oi.obligation_id::text AS obligation_id,
@@ -330,6 +398,14 @@ LIMIT 1000;"
   # (tenant+due-window keyset over obligation_instances) is exactly what
   # validate_calendar_canonical_read_plan's CalendarCanonicalReadKeysetDriver proves is index-backed;
   # the full assembled query shape is proven by the Go-level canonical_read_plan_test.go.
+  #
+  # NOTE: the write-free preflight's OWN full-scan sibling of the query above --
+  # ListUnbatchedDueForVersionKeyset / ListUnbatchedDueForVersionHWM's unbatchedDueKeysetSelect CTE
+  # (internal/obligation/adapters/postgres/repository.go) -- is a SEPARATE raw-SQL query this
+  # ObligationListUnbatchedDueForVersion check does NOT cover (RV-06). It is validated below by
+  # validate_obligation_unbatched_due_keyset_plan with realistic seeded row counts, since that query
+  # keyset-pages across MANY pages while the caller holds the per-tenant sweep advisory lock -- a
+  # scale hazard the empty-table COSTS-OFF style check above cannot surface.
 
   explain_must_use_index "ObligationMarkMissedBefore" 'Seq Scan on obligation_instances|Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
 WITH candidate AS (
@@ -362,6 +438,124 @@ WITH candidate AS (
 )
 SELECT obligation_id
 FROM candidate;"
+}
+
+# RV-06: exercise the exact production query (joins, health filters, HWM, snapshot predicate,
+# projection, raw UUID cursor, and ORDER BY) at the accepted 50k ceiling. Sequential scans are not
+# disabled. Both the first and late page must naturally walk the named partial index in order with
+# no Sort/Bitmap fallback.
+validate_obligation_unbatched_due_keyset_plan() {
+  printf '%s\n' "
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ('00000000-0000-4000-8000-000000000001', 'sqlc-plan-tenant', 'active')
+ON CONFLICT (tenant_id) DO NOTHING;
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ('40000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'vaccination.rv06.plan', 'RV-06 plan gate', 'vaccination', 'active')
+ON CONFLICT (protocol_id) DO NOTHING;
+INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
+VALUES ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '40000000-0000-4000-8000-000000000001', 'tenant', 1, 'draft', DATE '2026-01-01', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (protocol_version_id) DO NOTHING;
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, catch_up, eligibility_json, proof_policy)
+VALUES ('50000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'primary', 1, 'birth_age', 'pc_approval', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (rule_id) DO NOTHING;
+-- target_type='tenant' (not 'goat') deliberately bypasses the goat-existence/health JOIN filters
+-- entirely (oi.target_type <> 'goat' short-circuits true), so this fixture needs no goats table
+-- rows to exercise the driving scan + ORDER BY at realistic scale.
+INSERT INTO obligation_instances (
+  obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, status, idempotency_key, sequence
+)
+SELECT
+  ('60000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '10000000-0000-4000-8000-000000000001'::uuid,
+  '50000000-0000-4000-8000-000000000001'::uuid,
+  'tenant',
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  'tenant',
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  -- Every row must get a DISTINCT due_at: obligation_instances_dup_guard is UNIQUE NULLS NOT
+  -- DISTINCT on (tenant_id, protocol_version_id, rule_id, target_type, target_id, due_at), and every
+  -- row here shares the same tenant/version/rule/target -- a repeating due_at (e.g. i modulo N) would
+  -- silently drop all but the first row per bucket via ON CONFLICT DO NOTHING.
+  TIMESTAMPTZ '2026-01-01 00:00:00+00' + i * INTERVAL '1 minute',
+  'scheduled',
+  'rv06-plan-gate-' || i::text,
+  1
+FROM generate_series(1, 50000) AS s(i)
+ON CONFLICT DO NOTHING;
+ANALYZE obligation_instances;
+" | run_psql
+
+  local query_prefix="WITH candidates AS (
+  SELECT oi.obligation_id AS obligation_id_key,
+         oi.rule_id AS rule_id_key,
+         oi.scope_type,
+         oi.scope_id AS scope_id_key,
+         oi.target_id AS target_id_key,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text ELSE '' END AS target_reproductive_status,
+         oi.due_at,
+         oi.window_start,
+         oi.window_end,
+         COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
+         oi.first_batching_hold_until
+  FROM obligation_instances oi
+  LEFT JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+  LEFT JOIN location_operational_attributes loa
+    ON loa.tenant_id = g.tenant_id AND loa.location_id = g.current_location_id
+  LEFT JOIN shed_profiles sp
+    ON sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+  LEFT JOIN animal_stage_lookup asl
+    ON asl.tenant_id = sp.tenant_id AND asl.animal_stage_id = sp.animal_stage_id AND asl.status = 'active'
+  WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND oi.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
+    AND oi.status IN ('scheduled', 'due', 'missed')
+    AND oi.batch_id IS NULL
+    AND oi.due_at <= TIMESTAMPTZ '2027-12-31 00:00:00+00'
+    AND (TIMESTAMPTZ '2027-12-31 00:00:00+00' IS NULL OR oi.created_at <= TIMESTAMPTZ '2027-12-31 00:00:00+00')
+    AND (NULL::uuid[] IS NULL OR oi.obligation_id = ANY(NULL::uuid[]))
+    AND (
+      oi.target_type <> 'goat'
+      OR (
+        g.goat_id IS NOT NULL
+        AND g.lifecycle_status = 'alive'
+        AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
+        AND COALESCE(loa.usable_for_vaccination, true)
+        AND NOT COALESCE(loa.is_quarantine, false)
+        AND NOT COALESCE(loa.is_icu, false)
+      )
+    )
+)
+SELECT obligation_id_key::text AS obligation_id,
+       rule_id_key::text AS rule_id,
+       scope_type,
+       scope_id_key::text AS scope_id,
+       target_id_key::text AS target_id,
+       target_species, target_animal_stage, target_reproductive_status, due_at, window_start,
+       window_end, batching_hold_count, first_batching_hold_until
+FROM candidates"
+
+  explain_natural_named_index_no_sort "ObligationUnbatchedDueKeysetFirstPage" 'obligation_instances_unbatched_due_version_idx' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+${query_prefix}
+ORDER BY scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key
+LIMIT 1000;"
+
+  # Cursor after 49k rows: the final page must seek into the B-tree rather than re-read/filter/sort
+  # the preceding 49k rows.
+  explain_natural_named_index_no_sort "ObligationUnbatchedDueKeysetLatePage" 'obligation_instances_unbatched_due_version_idx' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+${query_prefix}
+WHERE (scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key) > (
+  'tenant',
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '50000000-0000-4000-8000-000000000001'::uuid,
+  TIMESTAMPTZ '2026-02-04 00:40:00+00',
+  '60000000-0000-4000-8000-000000049000'::uuid
+)
+ORDER BY scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key
+LIMIT 1000;"
 }
 
 validate_inventory_fefo_plan() {
@@ -486,7 +680,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)
@@ -538,7 +732,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)
@@ -585,7 +779,7 @@ WITH earliest_by_goat AS (
     AND oi.due_at <= TIMESTAMPTZ '2026-06-22 12:00:00+00'
     AND pd.category = 'vaccination'
     AND g.lifecycle_status = 'alive'
-    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     AND COALESCE(loa.usable_for_vaccination, true)
     AND NOT COALESCE(loa.is_quarantine, false)
     AND NOT COALESCE(loa.is_icu, false)
@@ -759,7 +953,7 @@ grouped AS (
     MAX(sp.capacity) AS shed_capacity,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::bigint AS health_deferred_count
   FROM located
   JOIN locations shed
@@ -965,7 +1159,7 @@ grouped AS (
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::int AS health_deferred_count
   FROM located
   JOIN locations shed
@@ -1282,7 +1476,9 @@ validate_obligation_due_window_plan
 validate_obligation_scope_count_plan
 validate_obligation_open_by_goat_plan
 validate_obligation_planned_batch_finalization_plan
+validate_combo_align_keyset_plan
 validate_kernel_sweeper_hot_path_plans
+validate_obligation_unbatched_due_keyset_plan
 validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
 validate_inventory_batch_reconcile_plan

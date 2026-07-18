@@ -39,6 +39,12 @@ resumable, and measurable.
 - capped read-time rollups that fetch a larger raw slice, aggregate it in
   app/service/frontend state, then hide pagination/truncation and present the
   collapsed result as business truth
+- admin-web route prefetch for operational links whose target performs
+  authenticated SSR/API reads; navigation must be user-triggered, not fired by
+  link visibility or hover in the background
+- business-calendar hardcodes that derive operational month/year/window state
+  from the server/browser default timezone instead of the Goat OS business
+  timezone
 
 ## Indexed predicates and guard-authoring safety
 
@@ -80,6 +86,71 @@ That pattern is still compute-on-read, still partial when the raw slice is
 truncated, and still unsafe at 1M animals even if it looks fine on a local
 fixture. If a temporary UI collapse is needed for a mock/demo, it must be
 clearly partial/debug-only and must not invent authoritative totals.
+
+## Business-calendar timezone anti-pattern
+
+Goat OS operational dates are business-calendar facts, not server-local display
+facts. Any schedule, calendar, freshness window, SLA bucket, or month/year
+filter must use the declared business timezone explicitly (`Asia/Kolkata` for
+the current Mesha/VGoats operating model). It is a hardcoded correctness
+anti-pattern to compute those buckets with runtime-local extraction such as:
+
+- JavaScript `new Date(iso).getMonth()` / `getFullYear()` for business month
+  checks;
+- Go `time.Now()` / `t.Month()` without converting to `biztime.DefaultLocation()`
+  for operational windows;
+- SQL `date_trunc` without the intended business timezone when the source value
+  is `timestamptz`;
+- frontend filtering that uses the browser/server timezone and then displays
+  the result as the business schedule.
+
+The failure mode is subtle: `2026-08-01T00:00:00+05:30` is August in IST but
+July on a UTC server. A Full Schedule, Calendar, or Action Center month filter
+that uses server-local month extraction can drop or mis-bucket exactly the
+boundary rows operators care about.
+
+Fixes must normalize through the business timezone at the layer where the
+bucket is computed. In admin-web, use `Intl.DateTimeFormat(..., { timeZone:
+"Asia/Kolkata" })` or an equivalent shared helper for business month/year
+checks. In Go, use `biztime.DefaultLocation()` before deriving dates. In SQL,
+use `AT TIME ZONE 'Asia/Kolkata'` intentionally and cover the expression with
+tests or plan evidence when it is on a hot path. Every new date-window fix needs
+a boundary test for an IST-midnight value that crosses the UTC day/month.
+
+## STG stale-content anti-pattern
+
+A staging environment running mixed commits is not a valid E2E target. It is the
+deployment equivalent of a stale read model: API, admin-web, workers, jobs,
+migrations, seeds, and database-generated rows can each be correct in isolation
+while the combined system lies. This is especially dangerous for Calendar,
+Action Center, Protocol Adherence, vaccination execution, and Full Schedule,
+where frontend screens read backend-owned contracts and derived operational
+state.
+
+Before calling any deployed-STG check green, prove all of these at the same
+time:
+
+- local `HEAD` equals current `origin/main`;
+- API Cloud Run service image matches that exact SHA;
+- admin-web Cloud Run service image matches that exact SHA;
+- kernel worker service image matches that backend SHA;
+- migration, DLQ, analytics, seed, and any other feature-involved Cloud Run jobs
+  match that exact backend/migration SHA;
+- database migrations and generated/seeded rows were produced after that code
+  reached the environment, or were explicitly rerun from that SHA;
+- browser proof uses `https://stg.dashboard.mesha.sg`, not localhost.
+
+If `origin/main` moves while a deploy is building, rolling out, or being tested,
+the environment is stale again. Create a new Cloud Deploy release for the new
+main SHA, wait for rollout success, and re-run service/job image parity before
+continuing. Do not debug UI symptoms, performance, grants, or data correctness
+against mixed frontend/backend/job/database state.
+
+The normal staging authority is Cloud Deploy. For an explicitly authorized
+break-glass local repair, `tools/deploy/stg-clouddeploy-release.sh` must wait
+for the rollout and verify image parity for API, admin-web, kernel worker,
+migrate, DLQ, and analytics. Skipping rollout wait or image parity invalidates
+the handoff.
 
 The narrow Calendar exception is accepted vaccination completion history: a
 read-only timeline behind the explicit `status=completed` path. That history is
@@ -125,6 +196,35 @@ This keeps the machine gate honest: the anti-pattern rule is suspended only for
 these specific, measured, plan-tested envelope reads, never blanket-disabled.
 This document backs `make scale-guard`; the guard code itself is unchanged by
 this reconciliation note.
+
+## Vaccination Drive Planner Anti-Patterns
+
+Vaccination scheduling is not "DOB + offset = one animal drive." Per-animal
+`due_at` rows are canonical obligation truth, but they are only inputs to the
+drive planner. A scheduler that groups by exact due date and emits one drive per
+animal/day is a defect even if every individual obligation date is medically
+correct.
+
+Forbidden:
+
+- using exact `due_at` / exact `window_start` / exact `window_end` as mandatory
+  drive boundaries before the planner scores compatible work;
+- creating 1-2 animal micro-drives while compatible animals in the same shed or
+  park are due nearby and can be delayed within the authored medical window plus
+  the one-time batching hold;
+- hiding bad drive fragmentation in Calendar by merging rows in the frontend;
+- repeatedly rolling a held animal forward to chase larger future drives.
+
+Required behavior: maximize compatible animals per shed/park visit inside the
+selected animals' safe windows. Default policy allows one batching hold of up to
+seven days (`max_batching_hold_days=7`, `max_batching_hold_count=1`). Micro-drives
+are valid only when no compatible work can be clubbed before the earliest
+selected animal's last safe date. Backfills and proof sweeps must not reuse the
+eligibility horizon as "today": keep `asOf` for planner date math and
+`dueBefore` for loading candidates. Batched read models must use batch
+`planned_date` as the drive date; using the earliest member animal `due_at` for
+execution/control-tower rows is the same micro-drive leak in projection form. CI guard:
+`make vaccination-drive-clubbing-guard`.
 
 ## Projection rebuild anti-patterns
 
@@ -293,3 +393,24 @@ no page bound (e.g. `getOperationsAuditSummary`); only the actual drain loop is.
 `make admin-web-request-reads-guard-audit` runs the whole-tree audit; the legacy
 `OutboxDao.observeAll` and any other pre-existing whole-set reader surface there
 and should migrate to a projection/keyset read.
+
+## Admin-web route prefetch request reads
+
+Next.js `Link` prefetch is also a request-path scale anti-pattern for Goat OS
+admin-web. It can start a server navigation before the operator clicks a link:
+when a link becomes visible or is hovered, Next.js may load the target route in
+the background. That is useful for mostly-static pages. It is harmful for
+authenticated operational screens such as Full Schedule because the target route
+can execute SSR helpers and backend API reads while the user is still looking at
+the current screen.
+
+For example, a Vaccination page that renders Full Schedule/month/year links must
+not silently fire expensive schedule reads for those targets in the background.
+Those reads should happen only after the operator chooses the schedule view.
+
+Admin-web code must import `Link` from
+`@/components/no-prefetch-link`, never directly from `next/link`, and must not
+set `prefetch={true}`. `make admin-web-prefetch-guard`
+(`tools/agent-hooks/check-admin-web-prefetch.mjs`) enforces that globally for
+`apps/admin-web/**`, with `apps/admin-web/components/no-prefetch-link.tsx` as
+the only allowed direct `next/link` import.

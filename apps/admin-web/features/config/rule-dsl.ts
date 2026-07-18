@@ -241,9 +241,11 @@ export function newProcurementPolicy(): ProcurementPolicy {
     kidsNormalScheduleUntilWeeks: 16,
     adultPriorVaccinationAllowed: true,
     firstWave: "ET+TT,PPR",
+    // Pox/live second visit spacing. ET+TT adult dose 2 is authored on the ET+TT
+    // matrix row with a 21-day minimum gap, same as the kid ET+TT booster.
     secondWaveAfterDays: 28,
-    goatSecondWave: "Goat Pox,ET+TT booster",
-    sheepSecondWave: "ET+TT booster,Sheep Pox",
+    goatSecondWave: "Goat Pox",
+    sheepSecondWave: "Sheep Pox",
   };
 }
 
@@ -510,7 +512,6 @@ export function buildVaccinationMatrixPreview(
       name: "Vaccination matrix",
       type: "matrix",
       pathogen_class: "mixed",
-      course_type: "matrix",
       inventory_item_id: null,
       manufacturer: "mesha-config",
       disease: "Preventive Care vaccination",

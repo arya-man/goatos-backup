@@ -29,10 +29,12 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_TASK
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.forms.FormField
@@ -293,6 +295,7 @@ class SubmitViewModel @Inject constructor(
             is SubmitEvent.CaptureVideoRequested -> requestVideoCapture(event.key)
             is SubmitEvent.ProofCaptionChanged -> updateProofCaption(event.proofId, event.caption)
             is SubmitEvent.ProofRemoved -> removeProof(event.proofId)
+            is SubmitEvent.ProofRetryRequested -> retryProofUpload(event.proofId)
         }
     }
 
@@ -345,8 +348,8 @@ class SubmitViewModel @Inject constructor(
         val task = currentTask ?: return
         if (outboxItemId != null || captureAllowed == false) return
         if (captureInFlightKey != null) return // one capture at a time
-        val totalCaptured = currentProofs.size
-        if (totalCaptured >= MAX_PROOFS_PER_TASK) return
+        val activeCaptured = currentProofs.count { it.syncStatus != CaptureSyncStatus.FAILED }
+        if (activeCaptured >= MAX_PROOFS_PER_TASK) return
         captureInFlightKey = key
         viewModelScope.launch {
             try {
@@ -382,6 +385,12 @@ class SubmitViewModel @Inject constructor(
         val task = currentTask ?: return
         if (outboxItemId != null) return
         viewModelScope.launch { proofCaptureRepository.remove(task.taskId, proofId) }
+    }
+
+    private fun retryProofUpload(proofId: String) {
+        val task = currentTask ?: return
+        if (outboxItemId != null) return
+        viewModelScope.launch { proofCaptureRepository.retryUpload(task.taskId, proofId) }
     }
 
     private fun renderDraft() {
@@ -599,13 +608,15 @@ class SubmitViewModel @Inject constructor(
     private fun buildFormRunnerState(form: FormSpec, task: TaskSummaryDto): FormRunnerState? {
         if (form.isEmpty) return null
         val fields = form.fields.map { field -> field.toFieldUi() }
+        val requiredUnansweredProofKeys = form.requiredUnansweredVideoProofKeys()
+        val unreadyProof = currentProofs.firstOrNull { it.blocksSubmission(requiredUnansweredProofKeys) }
         val unmet = form.fields.firstOrNull { field -> !field.isAnswered() }
         return FormRunnerState(
             title = "Recording form",
             subtitle = task.title,
             fields = fields,
             submitLabel = "Submit",
-            blockedReason = unmet?.let { blockedReasonFor(it) },
+            blockedReason = unreadyProof?.let { blockedReasonForProofUpload(it) } ?: unmet?.let { blockedReasonFor(it) },
         )
     }
 
@@ -617,11 +628,35 @@ class SubmitViewModel @Inject constructor(
             FormFieldType.NUMBER, FormFieldType.TEXT -> !(answer as? JsonPrimitive)?.content.isNullOrBlank()
             FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER ->
                 !(answer as? JsonPrimitive)?.content.isNullOrBlank()
-            FormFieldType.GOAT_SCAN -> currentScans.any { it.fieldKey == key }
-            FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key }
+            FormFieldType.GOAT_SCAN -> currentScans.any { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
+            FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key && it.isCompletedProofRef() }
             FormFieldType.UNKNOWN -> false
         }
     }
+
+    private fun ProofCaptureRow.isCompletedProofRef(): Boolean =
+        syncStatus == CaptureSyncStatus.SYNCED && !serverProofId.isNullOrBlank()
+
+    private fun FormSpec.requiredUnansweredVideoProofKeys(): Set<String> =
+        fields
+            .filter { it.type == FormFieldType.VIDEO_PROOF && it.required && !it.isAnswered() }
+            .map { it.key }
+            .toSet()
+
+    private fun ProofCaptureRow.blocksSubmission(requiredUnansweredProofKeys: Set<String>): Boolean {
+        if (isCompletedProofRef()) return false
+        return when (syncStatus) {
+            CaptureSyncStatus.FAILED -> fieldKey in requiredUnansweredProofKeys
+            CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT, CaptureSyncStatus.SYNCED -> true
+        }
+    }
+
+    private fun blockedReasonForProofUpload(proof: ProofCaptureRow): String =
+        if (proof.syncStatus == CaptureSyncStatus.FAILED) {
+            proof.lastError?.takeIf { it.isNotBlank() } ?: "Proof upload failed. Record this video again before submitting."
+        } else {
+            "Wait for proof upload to finish before submitting."
+        }
 
     private fun blockedReasonFor(field: FormField): String = when (field.type) {
         FormFieldType.GOAT_SCAN -> "Scan the required goats (\"${field.label}\") before submitting."
@@ -667,7 +702,7 @@ class SubmitViewModel @Inject constructor(
             )
         }
         FormFieldType.GOAT_SCAN -> {
-            val count = currentScans.count { it.fieldKey == key }
+            val count = currentScans.count { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
             FormFieldUi(
                 key = key,
                 label = label,
@@ -681,7 +716,7 @@ class SubmitViewModel @Inject constructor(
         FormFieldType.VIDEO_PROOF -> {
             val items = currentProofs.filter { it.fieldKey == key }
             val isExtraSlot = repeat
-            val totalCaptured = currentProofs.size
+            val activeCaptured = currentProofs.count { it.syncStatus != CaptureSyncStatus.FAILED }
             FormFieldUi(
                 key = key,
                 label = label,
@@ -690,7 +725,11 @@ class SubmitViewModel @Inject constructor(
                 helpText = helpText,
                 proofCaptured = items.isNotEmpty(),
                 proofItems = items.map { it.toProofItemUi(label, isExtraSlot) },
-                canCaptureMore = if (isExtraSlot) totalCaptured < MAX_PROOFS_PER_TASK else items.isEmpty(),
+                canCaptureMore = if (isExtraSlot) {
+                    activeCaptured < MAX_PROOFS_PER_TASK
+                } else {
+                    items.none { it.syncStatus != CaptureSyncStatus.FAILED }
+                },
             )
         }
         FormFieldType.UNKNOWN -> FormFieldUi(key = key, label = label, kind = FieldKindUi.UNKNOWN, required = required)
@@ -701,6 +740,7 @@ class SubmitViewModel @Inject constructor(
         label = if (isExtraSlot) caption?.ifBlank { null } ?: "Extra video" else fieldLabel,
         caption = caption.orEmpty(),
         editableCaption = isExtraSlot,
+        retryable = syncStatus == CaptureSyncStatus.FAILED,
         syncStatus = syncStatus.name,
     )
 
@@ -738,7 +778,10 @@ class SubmitViewModel @Inject constructor(
         ): Map<String, JsonElement> = form.fields.mapNotNull { field ->
             when (field.type) {
                 FormFieldType.GOAT_SCAN -> {
-                    val tags = scans.filter { it.fieldKey == field.key }.map { it.tag }
+                    val tags = scans
+                        .filter { it.matchesGoatScanField(field.key, form.rosterScanTargetFieldKey()) }
+                        .map { it.tag }
+                        .distinct()
                     if (tags.isEmpty()) null else field.key to JsonArray(tags.map { JsonPrimitive(it) })
                 }
                 FormFieldType.VIDEO_PROOF -> null
@@ -746,17 +789,19 @@ class SubmitViewModel @Inject constructor(
             }
         }.toMap()
 
-        /** Every captured proof (across every `video_proof` field) as the wire proof-ref list.
-         *  [ProofReferenceDto.proofId] prefers the backend-registered id once the metadata
-         *  registration has synced; a row still PENDING/IN_FLIGHT sends its stable local id so
-         *  the backend at least sees a consistent reference for retries. */
-        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.map { row ->
+        /** Every completed backend proof (across every `video_proof` field) as the wire proof-ref
+         *  list. Submit gating requires [serverProofId] to be present; never send a local Room id
+         *  as a proof ref, because the backend review path requires completed server proof rows. */
+        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.mapNotNull { row ->
+            val serverProofId = row.serverProofId
+                ?.takeIf { row.syncStatus == CaptureSyncStatus.SYNCED && it.isNotBlank() }
+                ?: return@mapNotNull null
             ProofReferenceDto(
-                proofId = row.serverProofId ?: row.id,
+                proofId = serverProofId,
                 proofType = "video",
                 subjectType = row.proofSubject.wireValue,
                 subjectId = null,
-                uploadState = row.syncStatus.name.lowercase(),
+                uploadState = "completed",
                 metadata = buildMap {
                     put("field_key", JsonPrimitive(row.fieldKey))
                     row.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
@@ -765,3 +810,9 @@ class SubmitViewModel @Inject constructor(
         }
     }
 }
+
+private fun FormSpec.rosterScanTargetFieldKey(): String? =
+    fields.singleOrNull { it.type == FormFieldType.GOAT_SCAN }?.key
+
+private fun ScannedGoatRow.matchesGoatScanField(scanFieldKey: String, rosterScanTargetFieldKey: String?): Boolean =
+    fieldKey == scanFieldKey || (fieldKey == ROSTER_SCAN_FIELD_KEY && scanFieldKey == rosterScanTargetFieldKey)

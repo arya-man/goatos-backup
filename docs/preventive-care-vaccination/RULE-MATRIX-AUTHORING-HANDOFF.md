@@ -250,7 +250,7 @@ matrix cells inside the selected active version.
 5. Vaccine catalog rail: code, label, class, pathogen, dose amount, vial size,
    revaccination interval, inventory item binding.
 6. Compatibility tab: live/killed gaps, same-day allowed combinations,
-   same-vaccine minimum gaps, kid booster minimum gap.
+   same-vaccine minimum gaps, ET+TT kid/adult course booster minimum gap.
 7. Impact preview: affected animals, deferred animals, excluded animals, due rows,
    catch-up rows, stock estimate, batch estimate, missing data blockers, open
    obligations to supersede, and in-progress batches requiring review.
@@ -609,7 +609,7 @@ Hard validation rules for this sample and the production schema:
           "max": 140
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["non_pregnant"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -627,7 +627,7 @@ Hard validation rules for this sample and the production schema:
           "max": 140
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["non_pregnant"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -645,7 +645,7 @@ Hard validation rules for this sample and the production schema:
           "max": 140
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["non_pregnant"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -663,7 +663,7 @@ Hard validation rules for this sample and the production schema:
           "max": null
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -681,7 +681,7 @@ Hard validation rules for this sample and the production schema:
           "max": null
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["buck"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -699,7 +699,7 @@ Hard validation rules for this sample and the production schema:
           "max": null
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["non_pregnant", "pregnant", "lactating", "mother"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -717,7 +717,7 @@ Hard validation rules for this sample and the production schema:
           "max": null
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["buck"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -735,7 +735,7 @@ Hard validation rules for this sample and the production schema:
           "max": null
         },
         "lifecycle_status": ["alive"],
-        "health_status": ["healthy", "recovering"],
+        "health_status": ["healthy"],
         "reproductive_status": ["lactating", "mother"],
         "procurement_path": ["farm_born", "procured", "imported"]
       }
@@ -748,7 +748,7 @@ Hard validation rules for this sample and the production schema:
         "breed_ids": ["*"],
         "sex": ["female", "male"],
         "stage_codes": ["K0", "K1", "K2", "K3"],
-        "health_status": ["sick", "under_treatment", "quarantine", "icu"],
+        "health_status": ["sick", "under_treatment", "recovering", "quarantine", "icu"],
         "lifecycle_status": ["alive"]
       }
     },
@@ -760,7 +760,7 @@ Hard validation rules for this sample and the production schema:
         "breed_ids": ["*"],
         "sex": ["female"],
         "stage_codes": ["FATTENING_FEMALE", "NON_PREGNANT", "PREGNANT_EARLY", "PREGNANT_LATE", "BREEDING", "MOTHER"],
-        "health_status": ["sick", "under_treatment", "quarantine", "icu"],
+        "health_status": ["sick", "under_treatment", "recovering", "quarantine", "icu"],
         "lifecycle_status": ["alive"]
       }
     },
@@ -772,7 +772,7 @@ Hard validation rules for this sample and the production schema:
         "breed_ids": ["*"],
         "sex": ["male"],
         "stage_codes": ["FATTENING_MALE", "BUCK"],
-        "health_status": ["sick", "under_treatment", "quarantine", "icu"],
+        "health_status": ["sick", "under_treatment", "recovering", "quarantine", "icu"],
         "lifecycle_status": ["alive"]
       }
     },
@@ -784,7 +784,7 @@ Hard validation rules for this sample and the production schema:
         "breed_ids": ["*"],
         "sex": ["female"],
         "stage_codes": ["MOTHER_MILKING_WAITING", "MILKING_WARMUP", "MILKING"],
-        "health_status": ["sick", "under_treatment", "quarantine", "icu"],
+        "health_status": ["sick", "under_treatment", "recovering", "quarantine", "icu"],
         "lifecycle_status": ["alive"]
       }
     }
@@ -1202,28 +1202,28 @@ Hard validation rules for this sample and the production schema:
       "vaccine_code": "*",
       "action": "defer",
       "defer_reason": "clinical_hold",
-      "resume_when": { "health_status": ["healthy", "recovering"] }
+      "resume_when": { "health_status": ["healthy"] }
     },
     {
       "row_key": "clinical_hold_shared_female_adult_stages",
       "vaccine_code": "*",
       "action": "defer",
       "defer_reason": "clinical_hold",
-      "resume_when": { "health_status": ["healthy", "recovering"] }
+      "resume_when": { "health_status": ["healthy"] }
     },
     {
       "row_key": "clinical_hold_shared_male_adult_stages",
       "vaccine_code": "*",
       "action": "defer",
       "defer_reason": "clinical_hold",
-      "resume_when": { "health_status": ["healthy", "recovering"] }
+      "resume_when": { "health_status": ["healthy"] }
     },
     {
       "row_key": "clinical_hold_goat_commercial_milking_stages",
       "vaccine_code": "*",
       "action": "defer",
       "defer_reason": "clinical_hold",
-      "resume_when": { "health_status": ["healthy", "recovering"] }
+      "resume_when": { "health_status": ["healthy"] }
     }
   ],
   "global_policies": {
@@ -1232,10 +1232,11 @@ Hard validation rules for this sample and the production schema:
       "adult_prior_vaccination_allowed": true,
       "kids_normal_schedule_until_age_days": 112,
       "first_wave_vaccines": ["ET_TT", "PPR"],
+      "et_tt_course_booster_min_gap_days": 21,
       "second_wave_after_days": 28,
       "second_wave_vaccines_by_species": {
-        "goat": ["GOAT_POX", "ET_TT"],
-        "sheep": ["ET_TT", "SHEEP_POX"]
+        "goat": ["GOAT_POX"],
+        "sheep": ["SHEEP_POX"]
       }
     },
     "reproductive": {
@@ -1243,7 +1244,7 @@ Hard validation rules for this sample and the production schema:
       "pregnancy_blocked_months": [4, 5],
       "post_delivery_catchup_days": 14
     },
-    "clinical_defer_states": ["sick", "under_treatment", "quarantine", "icu"],
+    "clinical_defer_states": ["sick", "under_treatment", "recovering", "quarantine", "icu"],
     "compatibility": [
       {
         "from_class": "live",

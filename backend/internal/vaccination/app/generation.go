@@ -68,8 +68,11 @@ func IsGenerationAbortError(err error) bool {
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
-	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
-	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
+	// Replay reconciliation returns the row's final persisted status and due date from the same
+	// transaction. Cross-vaccine spacing must never depend on a stale page snapshot or a proposed
+	// recovery date that the database did not apply.
+	DeferOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
+	ReopenDeferredObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obldomain.ObligationRef, bool, error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
@@ -91,7 +94,7 @@ type GenerationRunRecorder interface {
 // optional generation dependency: the vaccination read/write repo implements it, so no constructor
 // change is needed. Idempotent on the supplied key — replayed generation never duplicates the item.
 type ReviewItemRecorder interface {
-	RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error
+	RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks, cutoffWeeks int, idempotencyKey string) error
 }
 
 // CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
@@ -169,8 +172,59 @@ func (l trustedEvidenceLookup) get(key string) (bool, bool) {
 	return l.trusted[key], true
 }
 
+// pendingVaccine tracks a vaccine being generated in the current genOneGoat pass,
+// used to enforce cross-vaccine spacing among co-due pending obligations (BUG #2).
+type pendingVaccine struct {
+	code  string
+	class vaccineImmunoClass
+	due   time.Time
+}
+
+func actionableObligationForSpacing(ref obldomain.ObligationRef) bool {
+	if ref.DueAt.IsZero() {
+		return false
+	}
+	switch strings.TrimSpace(ref.Status) {
+	case "scheduled", "due", "missed", "deferred":
+		return true
+	default:
+		return false
+	}
+}
+
+// applyCrossVaccineGapFloorFromPending floors a vaccine's due date against incompatible
+// pending vaccines already generated in this pass. Cross-vaccine spacing is a positive medical
+// assertion between two IDENTIFIED, DIFFERENT vaccine products, so it applies ONLY when both the
+// prior pending vaccine and next carry a non-empty vaccine code AND those codes differ:
+//   - Same code = two sequential doses of ONE course (e.g., ET+TT week-0 then week-7). These must
+//     never be pushed apart by the cross-vaccine gap — that would wrongly delay a legitimate
+//     same-course dose. This mirrors applyCrossVaccineGapFloor's own same-code guard.
+//   - Empty/unknown code on either side = we cannot establish the pair are distinct products, so
+//     we do not fabricate a gap between them. (Unknown-class fail-closed still applies against
+//     real administered history via applyCrossVaccineGapFloorFromHistory; upstream config/publish
+//     validation rejects vaccines without a valid classification before they can be scheduled.)
+//
+// Callers append pending in rule order, so results are deterministic across replayed generation.
+func applyCrossVaccineGapFloorFromPending(due time.Time, next vaccineProfile, pending []pendingVaccine, policy genCompatibilityPolicy) time.Time {
+	out := due
+	for _, p := range pending {
+		if p.code == "" || next.Code == "" || strings.EqualFold(p.code, next.Code) {
+			continue
+		}
+		gap := crossVaccineGapDays(p.class, next.Class, policy)
+		if gap <= 0 {
+			continue
+		}
+		floor := businessDayStart(p.due).AddDate(0, 0, int(gap))
+		if out.Before(floor) {
+			out = floor
+		}
+	}
+	return out
+}
+
 // GenerationService implements SM-1: expand a published protocol version's rules into per-goat
-// obligations over the in-care cohort, idempotently, deferring (visibly) ICU/quarantine/sick goats.
+// obligations over the in-care cohort, idempotently, deferring (visibly) recovering/ICU/quarantine/sick goats.
 type GenerationService struct {
 	proto           ProtocolReader
 	goats           GoatLister
@@ -427,18 +481,20 @@ func (s *GenerationService) GenerateManualCampaignForVersion(ctx context.Context
 // GenerateEffectiveForAllGoats backfills the current cohort by resolving the effective vaccination
 // version per goat/park. This is the safe no-version backfill path; it does not loop every published
 // version and therefore cannot double-materialize tenant defaults plus park overrides.
+//
+// Contract §89 (Authoritative Per-Vaccine Anchor Order) governs every caller of this path, including
+// the reviewed source-import seed (backend/cmd/seed-vaccination-real): anchoring is PER VACCINE
+// FAMILY, never goat-wide. A family with its own accepted history is course continuation (its next
+// dose flows through its own after_previous_completion rule, and the primary/catch-up rule for that
+// SAME dose is suppressed — see hasSameDoseAdministration/hasVaccineAdministrationHistory in
+// genOneGoat). A blank family — no accepted history of that specific vaccine — independently falls
+// through DOB → entry → adult catch-up at the next compatible drive, exactly as it would for a
+// zero-history goat; a recorded dose in an unrelated vaccine family (e.g. ET+TT) is never treated as
+// proof that this family was also administered (VAX-REV-02). There is no goat-wide "already enrolled"
+// checkpoint and no source-import-scoped variant of this function — every goat, imported or
+// pre-existing, is generated by the same per-vaccine rules (VAX-REV-03).
 func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, tenantID string, asOf time.Time) (domain.GenerateResult, error) {
 	return s.generateEffectiveForAllGoats(ctx, tenantID, asOf, generationOptions{healthRecoveryAlign: true})
-}
-
-// GenerateSeedCutoverForAllGoats is the reviewed source-import backfill path (VAX-SEED-01). Every
-// goat in the imported cohort is treated as already enrolled in the vaccination programme as of the
-// cutover checkpoint, so this pass reconstructs NO birth_age/post_arrival primary or catch-up work
-// from DOB/entry anchors (including blank vaccine families); it materializes only future recurrence
-// from vaccine families that carry real dated history, each anchored on that family's own latest
-// administration. Ordinary runtime generation uses GenerateEffectiveForAllGoats.
-func (s *GenerationService) GenerateSeedCutoverForAllGoats(ctx context.Context, tenantID string, asOf time.Time) (domain.GenerateResult, error) {
-	return s.generateEffectiveForAllGoats(ctx, tenantID, asOf, generationOptions{healthRecoveryAlign: true, seedCutoverCohort: true})
 }
 
 func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, tenantID string, asOf time.Time, baseOpts generationOptions) (domain.GenerateResult, error) {
@@ -762,13 +818,6 @@ type generationOptions struct {
 	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
 	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
 	healthRecoveryAlign bool
-	// seedCutoverCohort marks a reviewed source-import cohort whose dated vaccination facts are the
-	// goat-wide enrollment checkpoint (VAX-SEED-01). For these goats the import itself proves the
-	// animals are already enrolled in the programme, so no birth_age/post_arrival primary or catch-up
-	// obligation may be reconstructed from a DOB/entry anchor (blank vaccine cells are NOT proof of a
-	// missed earlier dose). Future recurrence for a family with real dated history still generates via
-	// its own after_previous_completion rule anchored on that family's own latest administration.
-	seedCutoverCohort bool
 	// heartbeat, when set, is invoked once per cohort page so a long run keeps its generation-run row
 	// fresh and is not reclaimed mid-flight. Best-effort: errors are intentionally swallowed by the
 	// caller closure so a transient heartbeat failure never aborts a multi-minute generation pass.
@@ -1101,12 +1150,21 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return fmt.Errorf("vaccination: detected stale kid stage for goat %s but review recorder is absent; cannot persist review item (VACC-REV-10A)", g.GoatID)
 		}
 		observedAgeWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
-		reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID + ":" + strings.ToUpper(strings.TrimSpace(g.Stage))
+		// One open review item per goat: the key is stable per (tenant, goat), NOT per stage. A goat
+		// moving from a stale K1 to a stale K2 updates the SAME open item, not a second one.
+		reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID
+		// Persist the EXACT cutoff that raised this item (this generation pass's effective procurement
+		// policy), so the 'corrected' re-check evaluates against the same invariant rather than a
+		// re-derived one (VACC-REV-10).
+		cutoffWeeks := kidFinishWeeks(policies.Procurement)
 		if err := s.review.RecordStageReviewItem(ctx, tenantID, g.GoatID,
-			"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, reviewKey); err != nil {
+			"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, cutoffWeeks, reviewKey); err != nil {
 			return err
 		}
 	}
+	// BUG #2: track pending obligations generated in this pass to enforce cross-vaccine spacing among co-due vaccines.
+	// Sorted by rule sequence to ensure deterministic spacing order across replays.
+	var pending []pendingVaccine
 	for _, rule := range rules {
 		ruleEligibility, ruleVaccine, err := ruleGenerationContext(rule, versionEligibility, vaccineProf)
 		if err != nil {
@@ -1116,25 +1174,6 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		if !ruleMatchesSchedulePath(rule, path) {
-			continue
-		}
-		// VAX-SEED-01 goat-wide enrollment checkpoint (reviewed source-import cohort only): the import
-		// itself proves every goat is already enrolled, so NO birth_age/post_arrival primary or catch-up
-		// dose is reconstructed from a DOB/entry anchor — including for blank vaccine families (a blank
-		// cell is not proof of a missed earlier dose). Every dated family is already committed as
-		// accepted history and its future recurrence flows through its own after_previous_completion
-		// rule below. Runtime generation keeps the narrower per-catch-up enrollment guard further down;
-		// this suppression is upstream of insert and never weakens the seed postflight verifier.
-		if opts.seedCutoverCohort && isPrimaryAnchorRule(rule) {
-			res.SuppressedByTrustedHistory++
-			// Supersede any stale no-anchor catch-up placeholder for THIS dose left by a pre-checkpoint
-			// pass so an enrolled goat never keeps an orphaned reconstructed obligation. No-op when no
-			// such placeholder exists (safe idempotent replay).
-			if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
-				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "seed_cutover_checkpoint", asOf); err != nil {
-					return err
-				}
-			}
 			continue
 		}
 		// History outranks DOB/arrival, per DOSE: once THIS rule's own dose has been administered, it
@@ -1155,7 +1194,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		anchorCatchUpKey := ""
-		baseDue, ok, skip := dueAt(rule, g, asOf, opts, policies)
+		baseDue, ok, skip := time.Time{}, false, false
+		if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
+			return err
+		} else if found {
+			baseDue = courseDue
+			ok = true
+		} else {
+			baseDue, ok, skip = dueAt(rule, g, asOf, opts, policies)
+		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
 			if err != nil {
@@ -1173,39 +1220,42 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// set, computed straight from vaccineHistory — never by reverse-
 			// engineering a DOB. Suppress this specific primary/wave rule instance
 			// instead of flagging a fabricated blocker.
+			// R2-03: For rules on the adult procurement path, respect the AdultPriorVaccinationAllowed flag:
+			// when false in an active procurement policy, adult prior vaccination history must NOT suppress.
+			// Default (when policy not active) is to allow adult prior vaccination for backward compat.
 			if hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
-				res.SuppressedByTrustedHistory++
-				// B7 (dynamic recompute): imported vaccination history triggers
-				// recomputation even when DOB/entry-date is STILL unknown. A B3
-				// no-anchor catch-up placeholder created on an earlier pass (before
-				// this vaccine's history existed) is now obsolete — supersede it here
-				// too, not only when the anchor itself later resolves (the
-				// missingKey/previousMissingDueDateKey path below only fires once
-				// DOB/entry-date becomes known, which is a DIFFERENT recompute
-				// trigger from "history just got imported").
-				if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
-					if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_now_available", asOf); err != nil {
-						return err
-					}
+				shouldSuppressByHistory := true
+				if path == schedulePathAdultProcurement && policies.Procurement.active() &&
+					!policies.Procurement.adultPriorAllowed() {
+					// Adult prior vaccination is disabled: schedule the full course
+					// as if this vaccine has no prior history.
+					shouldSuppressByHistory = false
 				}
-				continue
-			}
-			switch rule.TriggerType {
-			case "birth_age", "post_arrival":
-				// VAX-SEED-01 runtime enrollment guard: a missing-anchor catch-up reconstructs a
-				// possibly-missed earlier dose. It is allowed only when the goat has ZERO accepted
-				// vaccination history; once the goat is enrolled (>=1 accepted dose in ANY family) a
-				// blank family with no resolvable DOB/entry anchor is not proof of a missed dose, so
-				// suppress it rather than fabricate catch-up work (and clear any stale placeholder).
-				if goatHasAnyAcceptedVaccination(vaccineHistory) {
+				if shouldSuppressByHistory {
 					res.SuppressedByTrustedHistory++
+					// B7 (dynamic recompute): imported vaccination history triggers
+					// recomputation even when DOB/entry-date is STILL unknown. A B3
+					// no-anchor catch-up placeholder created on an earlier pass (before
+					// this vaccine's history existed) is now obsolete — supersede it here
+					// too, not only when the anchor itself later resolves (the
+					// missingKey/previousMissingDueDateKey path below only fires once
+					// DOB/entry-date becomes known, which is a DIFFERENT recompute
+					// trigger from "history just got imported").
 					if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
-						if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "enrolled_no_missing_anchor_catchup", asOf); err != nil {
+						if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_now_available", asOf); err != nil {
 							return err
 						}
 					}
 					continue
 				}
+			}
+			switch rule.TriggerType {
+			case "birth_age", "post_arrival":
+				// Contract §89: anchoring is per VACCINE FAMILY, never goat-wide. This branch is only
+				// reached when hasVaccineAdministrationHistory (above) already found this rule's own
+				// vaccine family blank — a dose recorded in an UNRELATED family (ET+TT, PPR, ...) is not
+				// proof this family was ever administered, so it must not suppress this family's catch-up
+				// (VAX-REV-02). Fall through to B3 exactly as a zero-history goat would.
 				// B3 (never-received vaccine + no anchor): route to the adult
 				// catch-up/primary path at the next compatible drive instead of
 				// deferring merely because DOB/entry-date is unknown. due=asOf lets
@@ -1233,9 +1283,26 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 		}
 		if !ok {
-			if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
-				baseDue = historyDue
-				ok = true
+			// R2-03: For rules on the adult procurement path, respect the AdultPriorVaccinationAllowed flag:
+			// when false in an active procurement policy, do not use adult prior vaccination history.
+			// Default (when policy not active) is to allow adult prior vaccination for backward compat.
+			allowHistoryDue := true
+			if path == schedulePathAdultProcurement && policies.Procurement.active() &&
+				!policies.Procurement.adultPriorAllowed() {
+				allowHistoryDue = false
+			}
+			if allowHistoryDue {
+				wait, err := repeatMustWaitForPrimaryCourse(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory)
+				if err != nil {
+					return err
+				}
+				if wait {
+					continue
+				}
+				if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
+					baseDue = historyDue
+					ok = true
+				}
 			}
 		}
 		if !ok {
@@ -1264,19 +1331,20 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if s.crossHistory != nil || s.crossVaccineGap != nil {
 			due = applyCrossVaccineGapFloorFromHistory(due, vaccineHistory, ruleVaccine, policies.Compatibility)
 		}
+		// BUG #2: also floor against incompatible pending vaccines in this pass. This ensures that
+		// two co-due live vaccines (e.g., PPR and Goat Pox both due today) are spaced LiveToLiveGapDays
+		// apart, not left same-day because neither is in the other's history yet.
+		due = applyCrossVaccineGapFloorFromPending(due, ruleVaccine, pending, policies.Compatibility)
 		if skipNonFutureOpenWork(due, asOf, policies.MissedDose) {
 			continue
 		}
 		if limitsHistoricalCatchUp(rule, baseDue, due, asOf, opts) {
-			// VAX-SEED-01 runtime enrollment guard: an anchored historical catch-up (its due window has
-			// already elapsed) for a family the goat has no dated history of reconstructs a
-			// possibly-missed earlier dose. Allowed only for a zero-history goat; suppress it for an
-			// enrolled goat with a blank family. A family WITH its own dated history is course
-			// continuation and is left untouched (hasVaccineAdministrationHistory guards it).
-			if isPrimaryAnchorRule(rule) && goatHasAnyAcceptedVaccination(vaccineHistory) && !hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
-				res.SuppressedByTrustedHistory++
-				continue
-			}
+			// Contract §89: an anchored historical catch-up (its due window has already elapsed) for a
+			// blank family (this rule's own vaccine has no accepted history — hasSameDoseAdministration
+			// and hasVaccineAdministrationHistory above already suppress a family WITH its own history)
+			// is treated exactly like a zero-history goat's catch-up: a dose recorded in an unrelated
+			// vaccine family is not proof this family was ever administered, so it is not suppressed here
+			// (VAX-REV-02). Still throttled to one materialized historical catch-up per goat per pass.
 			if historicalCatchUpMaterialized {
 				continue
 			}
@@ -1327,13 +1395,22 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return err
 		}
 		if !applied {
+			// R2-01: reconcile this obligation's persisted state FIRST (missing-key cancel, then
+			// defer or recovery-reopen), and only THEN append it to `pending` for co-due cross-vaccine
+			// spacing -- using the FINAL persisted due_at and skipping TERMINAL obligations. The prior
+			// code appended before reconciling and regardless of status, so a waived/superseded/
+			// completed obligation (no remaining shot) still delayed an unrelated co-due vaccine, and a
+			// recovery-reschedule that ran afterwards left the stale date in `pending`.
+			var finalRef obldomain.ObligationRef
+			var changed bool
+			var reschedule *obldomain.RecoveryReschedule
 			if missingKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
 					return err
 				}
 			}
 			if deferred {
-				_, changed, err := s.obl.DeferOpenObligationByIdempotencyKey(ctx, tenantID, key, deferReason, asOf)
+				finalRef, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, key, deferReason, asOf)
 				if err != nil {
 					return err
 				}
@@ -1344,14 +1421,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
 				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
-				var reschedule *obldomain.RecoveryReschedule
 				if opts.healthRecoveryAlign {
 					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, ruleVaccine, g, asOf, policies.Recovery, policies.Compatibility, vaccineHistory)
 					if err != nil {
 						return err
 					}
 				}
-				_, changed, err := s.obl.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, asOf, reschedule)
+				finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, key, asOf, reschedule)
 				if err != nil {
 					return err
 				}
@@ -1359,9 +1435,21 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 					res.Reopened++
 				}
 			}
+			// Only the state returned by the reconciliation transaction is authoritative. In
+			// particular, `reschedule` is merely a proposal and must not space another vaccine when a
+			// terminal obligation made reopening a no-op.
+			if actionableObligationForSpacing(finalRef) {
+				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: finalRef.DueAt})
+			}
 			continue // replay no-op
 		}
 		res.Generated++
+		// BUG #2: track this newly generated obligation so subsequent vaccines in this pass respect cross-vaccine spacing.
+		pending = append(pending, pendingVaccine{
+			code:  ruleVaccine.Code,
+			class: ruleVaccine.Class,
+			due:   due,
+		})
 		if missingKey != "" {
 			if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
 				return err
@@ -1458,6 +1546,20 @@ func missingDueDateKey(tenantID, versionID string, rule protodomain.Rule, g doma
 		reason = "missing_due_date"
 	}
 	return obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, "missing_due_date", reason, strconv.Itoa(int(rule.Sequence)))
+}
+
+// AnchorMissingCatchUpKey returns the durable idempotency key genOneGoat stamps on a Contract §89
+// option-4 adult catch-up obligation — the one materialized for a blank vaccine family whose
+// birth_age/post_arrival anchor (DOB / herd-entry date) is unavailable (genOneGoat's B3 branch sets
+// anchorCatchUpKey = missingDueDateKey(..., anchorMissingReason(triggerType))). It exists so seed
+// reconciliation can tell a contract-legitimate routed catch-up (§89 option 4 — "missing identity
+// dates alone are not a clinical defer reason", schedule at the next compatible drive) apart from a
+// fabricated NORMAL missing-anchor due (the defect §13 forbids). This exported facade keeps the key
+// derivation single-sourced with the generator, so the reconciliation classifier can never drift from
+// the exact bytes genOneGoat hashed. Inputs must be the same canonical (lowercase-uuid) string forms
+// the generator used; feed the raw uuid::text columns straight from obligation_instances.
+func AnchorMissingCatchUpKey(tenantID, versionID, ruleID, goatID, triggerType string, sequence int32) string {
+	return obligationKey(tenantID, versionID, ruleID, "goat", goatID, "missing_due_date", anchorMissingReason(triggerType), strconv.Itoa(int(sequence)))
 }
 
 func previousMissingDueDateKey(tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat) string {
@@ -1712,7 +1814,7 @@ func deferredReason(g domain.EligibleGoat, allowed []string) string {
 	for _, value := range []string{g.HealthStatus, g.LifecycleStatus} {
 		normalized := strings.ToLower(strings.TrimSpace(value))
 		switch normalized {
-		case "sick", "under_treatment", "quarantine", "icu":
+		case "sick", "under_treatment", "recovering", "quarantine", "icu":
 			if allowedStates[normalized] {
 				return normalized
 			}
@@ -1729,11 +1831,11 @@ func deferredReason(g domain.EligibleGoat, allowed []string) string {
 
 // deferStateSet resolves the effective clinical-defer set for a rule. Authored
 // defer_states may only ADD states; the mandatory clinical safety blocks (sick,
-// under_treatment, quarantine, icu) are always deferred regardless of what the
+// under_treatment, recovering, quarantine, icu) are always deferred regardless of what the
 // authored list contains. This keeps the runtime medically safe even for a
 // protocol version that was published before the publish-time guard existed:
-// a sick/under-treatment animal under a partial or empty defer list is held for
-// recovery, never cancelled/excluded. See protodomain.EffectiveClinicalDeferStates
+// a sick/under-treatment/recovering animal under a partial or empty defer list
+// is held until healthy, never cancelled/excluded. See protodomain.EffectiveClinicalDeferStates
 // and docs/preventive-care-vaccination/vaccination-rules.md (C35-010).
 func deferStateSet(allowed []string) map[string]bool {
 	effective := protodomain.EffectiveClinicalDeferStates(allowed)
@@ -1771,8 +1873,9 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPre
 		return false
 	}
 	// Clinical defer is a SAFETY HOLD, not an exclusion. A goat in a clinical
-	// state — represented via health_status OR lifecycle_status (sick/
-	// under_treatment/quarantine/icu) or via an ICU/quarantine location — is
+	// state — represented via health_status (sick/under_treatment/recovering/
+	// quarantine/icu), lifecycle_status (sick/under_treatment/quarantine/icu),
+	// or via an ICU/quarantine location — is
 	// INCLUDED as deferred, bypassing the normal lifecycle=alive and
 	// health=healthy selectors so its open work is held for recovery rather than
 	// cancelled/excluded. Without this, a canonical `lifecycle=alive` rule rejects
@@ -1943,24 +2046,135 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 	return businessDayStart(latest).AddDate(0, 0, int(gap)), true
 }
 
-// latestVaccineCompletion returns the MOST RECENT accepted administration of the
-// rule's own vaccine (matching protocol lineage), regardless of which rule
-// generated it. Selecting max(administered_at) explicitly — rather than trusting
-// the first entry in whatever order a caller's history slice happens to be in —
-// keeps this correct even when a goat has multiple real historical administrations
-// of the same vaccine (the common case for the years-long imported field history).
-func latestVaccineCompletion(rule protodomain.Rule, targetVaccine string, history []domain.RecentVaccineAdministration) (time.Time, bool) {
+// primaryCourseContinuationDueFromHistory handles course rows that are authored as DOB/arrival
+// anchored primaries (for example ET+TT adult dose 1/dose 2 or kid 4w/7w) but whose first dose was
+// imported as real history. In that case the next primary-course dose must continue from the actual
+// administered date plus the configured row-to-row gap, not from a stale/missing DOB or entry date.
+func primaryCourseContinuationDueFromHistory(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string, history []domain.RecentVaccineAdministration) (time.Time, bool, error) {
+	if !isPrimaryAnchorRule(rule) {
+		return time.Time{}, false, nil
+	}
+	prev, prevVaccine, found, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, fallbackEligibility, fallbackVaccine, path)
+	if err != nil || !found {
+		return time.Time{}, false, err
+	}
+	adminAt, administered := latestSameDoseAdministration(prev, prevVaccine, history)
+	if !administered {
+		return time.Time{}, false, nil
+	}
+	gap := rule.OffsetDays - prev.OffsetDays
+	if rule.MinGapDays > gap {
+		gap = rule.MinGapDays
+	}
+	if gap <= 0 {
+		return time.Time{}, false, nil
+	}
+	return businessDayStart(adminAt).AddDate(0, 0, int(gap)), true, nil
+}
+
+// repeatMustWaitForPrimaryCourse prevents an accepted first dose from being treated as a completed
+// course. Repeat/revac rows can anchor from history only after the latest accepted primary-course
+// dose has no later primary-course dose outstanding for this goat's schedule path.
+func repeatMustWaitForPrimaryCourse(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string, history []domain.RecentVaccineAdministration) (bool, error) {
+	if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "after_previous_completion") {
+		return false, nil
+	}
+	latest, found := latestVaccineAdministration(rule, strings.TrimSpace(ruleVaccine.Code), history)
+	if !found {
+		return false, nil
+	}
+	currentPrimary, currentVaccine, matched, err := primaryRuleForAdministration(ruleVaccine, latest, rules, fallbackEligibility, fallbackVaccine, path)
+	if err != nil || !matched {
+		return false, err
+	}
+	for _, candidate := range rules {
+		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		candidateEligibility, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return false, err
+		}
+		_ = candidateEligibility
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(currentVaccine.Code)) {
+			continue
+		}
+		if !primaryRuleAfter(candidate, currentPrimary) {
+			continue
+		}
+		if hasSameDoseAdministration(candidate, candidateVaccine, history) {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string) (protodomain.Rule, vaccineProfile, bool, error) {
+	var best protodomain.Rule
+	var bestVaccine vaccineProfile
+	found := false
+	for _, candidate := range rules {
+		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return protodomain.Rule{}, vaccineProfile{}, false, err
+		}
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(ruleVaccine.Code)) {
+			continue
+		}
+		if !primaryRuleBefore(candidate, rule) {
+			continue
+		}
+		if !found || primaryRuleAfter(candidate, best) {
+			best = candidate
+			bestVaccine = candidateVaccine
+			found = true
+		}
+	}
+	return best, bestVaccine, found, nil
+}
+
+func primaryRuleForAdministration(ruleVaccine vaccineProfile, admin domain.RecentVaccineAdministration, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string) (protodomain.Rule, vaccineProfile, bool, error) {
+	for _, candidate := range rules {
+		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return protodomain.Rule{}, vaccineProfile{}, false, err
+		}
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(ruleVaccine.Code)) {
+			continue
+		}
+		if sameDoseAdministration(candidate, candidateVaccine, admin) {
+			return candidate, candidateVaccine, true, nil
+		}
+	}
+	return protodomain.Rule{}, vaccineProfile{}, false, nil
+}
+
+func primaryRuleBefore(a, b protodomain.Rule) bool {
+	if a.OffsetDays != b.OffsetDays {
+		return a.OffsetDays < b.OffsetDays
+	}
+	return a.Sequence < b.Sequence
+}
+
+func primaryRuleAfter(a, b protodomain.Rule) bool {
+	if a.OffsetDays != b.OffsetDays {
+		return a.OffsetDays > b.OffsetDays
+	}
+	return a.Sequence > b.Sequence
+}
+
+func latestSameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) (time.Time, bool) {
 	var latest time.Time
 	found := false
 	for _, admin := range history {
-		if admin.AdministeredAt.IsZero() {
-			continue
-		}
-		if !sameProtocolLineage(rule, admin) {
-			continue
-		}
-		adminVaccine := strings.TrimSpace(admin.VaccineCode)
-		if adminVaccine == "" || !strings.EqualFold(targetVaccine, adminVaccine) {
+		if !sameDoseAdministration(rule, vaccine, admin) {
 			continue
 		}
 		if !found || admin.AdministeredAt.After(latest) {
@@ -1969,6 +2183,69 @@ func latestVaccineCompletion(rule protodomain.Rule, targetVaccine string, histor
 		}
 	}
 	return latest, found
+}
+
+func sameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, admin domain.RecentVaccineAdministration) bool {
+	if admin.AdministeredAt.IsZero() {
+		return false
+	}
+	if !sameProtocolLineage(rule, admin) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+		return false
+	}
+	ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+	adminDose := strings.ToLower(strings.TrimSpace(admin.DoseCode))
+	if ruleDose != "" && adminDose != "" {
+		return ruleDose == adminDose
+	}
+	return rule.Sequence != 0 && admin.Sequence == rule.Sequence
+}
+
+// latestVaccineCompletion returns the MOST RECENT accepted administration of the
+// rule's own vaccine, regardless of which rule OR PROTOCOL/VERSION produced it
+// (RV-03). Continuation anchors on the vaccine's real-world latest dose: a goat
+// whose latest FMD was administered under an older protocol still has its next FMD
+// scheduled from that administration + the CURRENT protocol's interval (screenshot
+// example: latest FMD 1 Jan under old protocol, current interval 9 months → next
+// FMD 1 Oct). Requiring same-protocol lineage here left an animal with cross-protocol
+// same-vaccine history and a missing DOB/entry anchor with NOTHING scheduled: the
+// primary is suppressed by hasVaccineAdministrationHistory (which matches by vaccine
+// code across any protocol) while continuation was rejected for lineage — the two
+// signals must use ONE consistent lineage rule (RV-03), and per the product decision
+// that rule is "latest administration of this vaccine, any protocol, anchors the next
+// dose". Dose-level anti-duplication stays protocol-scoped in hasSameDoseAdministration
+// (a different protocol's "dose 1" is not our dose), so no earlier dose is recreated.
+//
+// Selecting max(administered_at) explicitly — rather than trusting the first entry in
+// whatever order a caller's history slice happens to be in — keeps this correct even
+// when a goat has multiple real historical administrations of the same vaccine (the
+// common case for the years-long imported field history).
+func latestVaccineCompletion(rule protodomain.Rule, targetVaccine string, history []domain.RecentVaccineAdministration) (time.Time, bool) {
+	admin, found := latestVaccineAdministration(rule, targetVaccine, history)
+	return admin.AdministeredAt, found
+}
+
+func latestVaccineAdministration(rule protodomain.Rule, targetVaccine string, history []domain.RecentVaccineAdministration) (domain.RecentVaccineAdministration, bool) {
+	var latestAdmin domain.RecentVaccineAdministration
+	var latestAt time.Time
+	found := false
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		adminVaccine := strings.TrimSpace(admin.VaccineCode)
+		if adminVaccine == "" || !strings.EqualFold(targetVaccine, adminVaccine) {
+			continue
+		}
+		if !found || admin.AdministeredAt.After(latestAt) {
+			latestAt = admin.AdministeredAt
+			latestAdmin = admin
+			found = true
+		}
+	}
+	return latestAdmin, found
 }
 
 // hasVaccineAdministrationHistory reports whether the goat has any accepted
@@ -1985,17 +2262,6 @@ func hasVaccineAdministrationHistory(vaccine vaccineProfile, history []domain.Re
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(admin.VaccineCode), code) {
-			return true
-		}
-	}
-	return false
-}
-
-// goatHasAnyAcceptedVaccination reports whether the goat carries at least one accepted/trusted
-// dated administration of ANY vaccine family — i.e. it is already enrolled in the programme.
-func goatHasAnyAcceptedVaccination(history []domain.RecentVaccineAdministration) bool {
-	for _, admin := range history {
-		if !admin.AdministeredAt.IsZero() && strings.TrimSpace(admin.VaccineCode) != "" {
 			return true
 		}
 	}

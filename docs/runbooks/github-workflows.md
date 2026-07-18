@@ -3,6 +3,9 @@
 When hosted Actions cannot allocate jobs because of billing/platform state,
 follow [Local CI Mirror](local-ci.md). The hosted workflows call the same
 `make ci-local JOB=...` implementation, so local proof is command-identical.
+For Codex/Claude pushes to `main`, `make land-main` is the required outer
+command: it rebases onto fresh main before calling the same local CI, rechecks
+main afterward, and only then uses the guarded push path.
 
 This runbook explains the GitHub Actions workflows for project and engineering
 review.
@@ -922,7 +925,7 @@ publish              downloads all report artifacts, assembles _site/ with a
 
 The scale-audit-e2e-report job generates an HTML report that binds the
 scale-audit findings (local/backend E2E proof) to the results of the latency
-gates (api-latency-gate and process-integrity-latency-check) for the same
+gates (api-latency-gate plus canonical request-path evidence) for the same
 commit SHA.
 
 **Certification states:**

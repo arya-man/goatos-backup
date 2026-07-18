@@ -1,5 +1,7 @@
 package sg.mesha.goatos.feature.submit
 
+// telemetry:exempt pure stateless renderer; SubmitViewModel owns submit/proof intents and the sync/outbox layer owns write lifecycle telemetry.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -127,6 +129,8 @@ sealed interface SubmitEvent {
     data class ProofCaptionChanged(val key: String, val proofId: String, val caption: String) : SubmitEvent
     /** Removed an operator-added EXTRA proof video (named/mandatory subjects cannot be removed). */
     data class ProofRemoved(val key: String, val proofId: String) : SubmitEvent
+    /** Re-armed a terminal failed proof upload without changing the captured file. */
+    data class ProofRetryRequested(val key: String, val proofId: String) : SubmitEvent
 }
 
 // --- Goat OS dark tokens (exact values from docs/mobile/design-system.md). ---
@@ -239,6 +243,7 @@ fun SubmitScreen(
                         onCaptureVideo = { key -> onEvent(SubmitEvent.CaptureVideoRequested(key)) },
                         onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
                         onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
+                        onRetryProof = { key, proofId -> onEvent(SubmitEvent.ProofRetryRequested(key, proofId)) },
                     )
                 }
                 runner.blockedReason?.let { reason ->

@@ -2,8 +2,8 @@
 
 // check-clinical-defer-states.mjs — blocks the C35-010 medical-safety anti-pattern:
 // a PARTIAL clinical defer_states list on ANY authoring or seed surface. Per
-// docs/preventive-care-vaccination/vaccination-rules.md the four clinical states
-// (sick, under_treatment, quarantine, icu) are mandatory safety blocks, not
+// docs/preventive-care-vaccination/vaccination-rules.md the five clinical states
+// (sick, under_treatment, recovering, quarantine, icu) are mandatory safety blocks, not
 // optional planner choices: an animal in any of them must have its open
 // vaccination work DEFERRED (held for recovery), never scheduled/cancelled.
 //
@@ -18,7 +18,7 @@
 //   - raw-string JSON in Go seeds, admin-web .ts/.tsx, the ops-console mock HTML.
 // Test files are excluded: negative tests legitimately carry partial fixtures.
 //
-// The guard also asserts the canonical Go constant still lists exactly the four
+// The guard also asserts the canonical Go constant still lists exactly the five
 // mandatory states, so nobody can silently weaken the single source of truth.
 //
 // Modes:
@@ -35,7 +35,7 @@ import { resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
 
-export const MANDATORY_CLINICAL_DEFER_STATES = ["sick", "under_treatment", "quarantine", "icu"];
+export const MANDATORY_CLINICAL_DEFER_STATES = ["sick", "under_treatment", "recovering", "quarantine", "icu"];
 
 // Whole-file, newline-spanning matchers. Each captures the array/brace inner text.
 const MATCHERS = [
@@ -153,28 +153,28 @@ function assertCanonicalConstantIntact() {
 
 function runSelfTest() {
   const cases = [
-    { name: "json_full_set", pass: true, src: '"defer_states":["sick","under_treatment","quarantine","icu"]' },
-    { name: "json_superset", pass: true, src: '"defer_states":["sick","under_treatment","quarantine","icu","post_breeding_hold"]' },
-    { name: "json_case_insensitive", pass: true, src: '"defer_states":["Sick","UNDER_TREATMENT","ICU","Quarantine"]' },
+    { name: "json_full_set", pass: true, src: '"defer_states":["sick","under_treatment","recovering","quarantine","icu"]' },
+    { name: "json_superset", pass: true, src: '"defer_states":["sick","under_treatment","recovering","quarantine","icu","post_breeding_hold"]' },
+    { name: "json_case_insensitive", pass: true, src: '"defer_states":["Sick","UNDER_TREATMENT","Recovering","ICU","Quarantine"]' },
     { name: "json_empty", pass: true, src: '"defer_states":[]' },
     { name: "json_partial", pass: false, src: '"defer_states":["icu","quarantine"]' },
     // historical bypass 1: multiline JSON
     { name: "json_multiline_partial", pass: false, src: '{\n  "defer_states": [\n    "icu",\n    "quarantine"\n  ]\n}' },
-    { name: "json_multiline_full", pass: true, src: '{\n  "defer_states": [\n    "sick",\n    "under_treatment",\n    "icu",\n    "quarantine"\n  ]\n}' },
+    { name: "json_multiline_full", pass: true, src: '{\n  "defer_states": [\n    "sick",\n    "under_treatment",\n    "recovering",\n    "icu",\n    "quarantine"\n  ]\n}' },
     // historical bypass 2: Go struct literal (field-name form, no `defer_states` string)
     { name: "go_struct_partial", pass: false, src: 'Eligibility{DeferStates: []string{"icu", "quarantine"}}' },
-    { name: "go_struct_full", pass: true, src: 'Eligibility{DeferStates: []string{"sick", "under_treatment", "icu", "quarantine"}}' },
+    { name: "go_struct_full", pass: true, src: 'Eligibility{DeferStates: []string{"sick", "under_treatment", "recovering", "icu", "quarantine"}}' },
     { name: "go_struct_any_partial", pass: false, src: 'DeferStates: []any{"icu", "quarantine"}' },
     // real seed-vaccination-real shape: quoted JSON key + Go slice value
     { name: "go_seed_map_partial", pass: false, src: '"defer_states": []string{"sick", "quarantine", "icu"}' },
-    { name: "go_seed_map_full", pass: true, src: '"defer_states": []string{"sick", "under_treatment", "quarantine", "icu"}' },
+    { name: "go_seed_map_full", pass: true, src: '"defer_states": []string{"sick", "under_treatment", "recovering", "quarantine", "icu"}' },
     // historical bypass 3: TS/JS camelCase and object literal
     { name: "ts_camel_partial", pass: false, src: "const e = { deferStates: ['icu', 'quarantine'] };" },
     { name: "ts_type_decl_ok", pass: true, src: "interface E { deferStates: string[]; }" },
     { name: "js_mock_partial", pass: false, src: "_elig(o){return {defer_states:['ICU','quarantine','sick']};}" },
-    { name: "js_mock_full", pass: true, src: "_elig(o){return {defer_states:['ICU','quarantine','sick','under_treatment']};}" },
+    { name: "js_mock_full", pass: true, src: "_elig(o){return {defer_states:['ICU','quarantine','sick','under_treatment','recovering']};}" },
     { name: "js_or_fallback_partial", pass: false, src: "var def=e.defer_states||['ICU','quarantine','sick'];" },
-    { name: "js_or_fallback_full", pass: true, src: "var def=e.defer_states||['ICU','quarantine','sick','under_treatment'];" },
+    { name: "js_or_fallback_full", pass: true, src: "var def=e.defer_states||['ICU','quarantine','sick','under_treatment','recovering'];" },
     // exception handling: complete ignore passes, incomplete ignore still fails
     {
       name: "complete_ignore_passes",

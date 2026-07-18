@@ -7,9 +7,25 @@ import org.junit.Test
 class UpdateGateDecisionTest {
 
     @Test
-    fun `build below the minimum is forced to update`() {
-        val d = decideUpdate(currentVersionCode = 3, minSupportedVersionCode = 5, updateUrl = "u")
-        assertEquals(UpdateDecision.ForceUpdate("u"), d)
+    fun `build below the minimum is forced to update when url is usable`() {
+        val d = decideUpdate(
+            currentVersionCode = 3,
+            minSupportedVersionCode = 5,
+            updateUrl = "https://appdistribution.firebase.dev/i/x",
+        )
+        assertEquals(UpdateDecision.ForceUpdate("https://appdistribution.firebase.dev/i/x"), d)
+    }
+
+    @Test
+    fun `build below the minimum is allowed when update url is blank`() {
+        val d = decideUpdate(currentVersionCode = 3, minSupportedVersionCode = 5, updateUrl = " ")
+        assertEquals(UpdateDecision.Allowed, d)
+    }
+
+    @Test
+    fun `build below the minimum is allowed when update url is not actionable`() {
+        val d = decideUpdate(currentVersionCode = 3, minSupportedVersionCode = 5, updateUrl = "mesha-internal")
+        assertEquals(UpdateDecision.Allowed, d)
     }
 
     @Test

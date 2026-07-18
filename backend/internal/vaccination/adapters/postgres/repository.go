@@ -64,25 +64,136 @@ func (r *Repository) Ping(ctx context.Context) error {
 }
 
 // RecordStageReviewItem durably records a goat-scoped vaccination stage/age review item (VACC-REV-10).
-// Dedup is scoped to OPEN items (partial unique index): replayed generation never duplicates an open
-// item, but a recurrence AFTER an operator resolved the prior occurrence opens a new actionable one.
-// When replayed with changed observed_stage or observed_age_weeks, the OPEN item is updated so stale
-// payload data is never left behind (VACC-REV-10A).
-func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
+// One OPEN item per (tenant, goat): a replay updates the existing open item's observed stage/age;
+// a recurrence AFTER a resolution opens a new actionable one.
+//
+// BRIDGE WRITER (migrate-first safety, defense in depth): this writer itself does NOT depend on any one
+// index target for correctness — it takes a per-(tenant, goat) transaction advisory lock and
+// UPDATE-open-else-INSERT + self-heal collapse, so it enforces one open item per goat regardless of
+// which index exists. That is what keeps THIS writer working across a migrate-first rollout where a
+// still-live previous-release binary runs against the newly-migrated schema. BUT the advisory lock only
+// serializes writers that take it; a predecessor binary using `ON CONFLICT (tenant, idempotency_key)`
+// with a stage-suffixed key does not, and could otherwise insert a second open row for a goat. So
+// the baseline schema keeps a hard `(tenant_id, goat_id) WHERE status='open'` unique index: any writer's
+// DUPLICATE insert now FAILS CLOSED against it (error, retried next pass) instead of creating a second
+// open row. It also keeps the pre-existing (tenant, idempotency_key) open index, so a predecessor's
+// FIRST (non-duplicate) insert still succeeds via its ON CONFLICT target during rollout — only an actual
+// second stage-keyed row is rejected. The INSERT below carries `ON CONFLICT (tenant, goat) DO NOTHING`
+// so the bridge writer respects the per-goat index without erroring. cutoffWeeks is the effective age
+// cutoff that raised this item; it is persisted so the 'corrected' re-check evaluates against the same
+// policy that flagged the goat (a NULL/unknown cutoff fails the re-check closed).
+func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks, cutoffWeeks int, idempotencyKey string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO vaccination_stage_review_items
-			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
-		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)
-		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
-		SET observed_stage = EXCLUDED.observed_stage,
-		    observed_age_weeks = EXCLUDED.observed_age_weeks`,
-		tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("vaccination: record stage review item: %w", err)
+		return fmt.Errorf("vaccination: record stage review item: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize concurrent recorders for the same goat (held until commit) so the update-else-insert
+	// below cannot race a second open row in.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))`, tenantID, goatID); err != nil {
+		return fmt.Errorf("vaccination: record stage review item: lock: %w", err)
+	}
+
+	// Self-heal: if a mixed-version rollout (an older writer with a different conflict target running
+	// concurrently) left more than one OPEN row for this goat, collapse to the newest and resolve the
+	// rest. This converges any transient rollout duplicate back to one open item per goat.
+	if _, err := tx.Exec(ctx, `
+		UPDATE vaccination_stage_review_items
+		SET status = 'resolved', resolved_at = now(),
+		    resolution_note = 'auto-resolved: superseded by newest open stage/age mismatch (per-goat uniqueness)',
+		    updated_at = now()
+		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'open'
+		  AND review_item_id <> (
+		    SELECT review_item_id FROM vaccination_stage_review_items
+		    WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'open'
+		    ORDER BY created_at DESC, review_item_id DESC
+		    LIMIT 1
+		  )`, tenantID, goatID); err != nil {
+		return fmt.Errorf("vaccination: record stage review item: collapse: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE vaccination_stage_review_items
+		SET observed_stage = $3, observed_age_weeks = $4, age_cutoff_weeks = $5, updated_at = now()
+		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'open'`,
+		tenantID, goatID, observedStage, observedAgeWeeks, cutoffWeeks)
+	if err != nil {
+		return fmt.Errorf("vaccination: record stage review item: update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// ON CONFLICT on the (tenant, goat) open-unique index makes the insert race-safe even if a
+		// non-advisory-lock predecessor writer slipped a row in between the update and this insert.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO vaccination_stage_review_items
+				(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, age_cutoff_weeks, idempotency_key)
+			VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6, $7)
+			ON CONFLICT (tenant_id, goat_id) WHERE status = 'open' DO NOTHING`,
+			tenantID, goatID, reason, observedStage, observedAgeWeeks, cutoffWeeks, idempotencyKey); err != nil {
+			return fmt.Errorf("vaccination: record stage review item: insert: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("vaccination: record stage review item: commit: %w", err)
 	}
 	return nil
+}
+
+// ResolveStageReviewItemCorrected atomically resolves an OPEN review item as 'corrected' ONLY IF the
+// goat still exists, the item carries a KNOWN cutoff (age_cutoff_weeks IS NOT NULL), AND the goat no
+// longer trips the stale-stage/age condition (effective stage is a kid stage K* AND DOB-derived age >
+// the cutoff THAT RAISED THIS ITEM). The check and the resolve are a single locked statement (FOR UPDATE
+// on the item), so a concurrent goat/item change cannot slip a stale mismatch closed. Fails CLOSED when
+// the goat is missing OR the cutoff is NULL (legacy row written before age_cutoff_weeks existed, or by a
+// predecessor binary): a missing cutoff means the raising policy is unknown, so we must NOT invent one —
+// the item stays open (409) until generation re-records the exact cutoff or an operator resolves it as an
+// explicit 'exception'. Returns resolved and wasOpen so the caller distinguishes 200 (resolved), 409
+// (open but still active / goat missing / cutoff unknown), and 404 (not open).
+func (r *Repository) ResolveStageReviewItemCorrected(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (resolved bool, wasOpen bool, err error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	err = r.pool.QueryRow(ctx, `
+		WITH target AS (
+		  SELECT review_item_id, goat_id, age_cutoff_weeks AS cutoff_weeks
+		  FROM vaccination_stage_review_items
+		  WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'
+		  FOR UPDATE
+		),
+		goatrow AS (
+		  SELECT COALESCE(asl.stage_code, g.management_stage, '') AS stage, g.dob, t.cutoff_weeks
+		  FROM target t
+		  JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = t.goat_id
+		  LEFT JOIN shed_profiles sp ON sp.tenant_id = g.tenant_id AND sp.location_id = g.shed_id
+		  LEFT JOIN animal_stage_lookup asl
+		    ON asl.tenant_id = sp.tenant_id AND asl.animal_stage_id = sp.animal_stage_id AND asl.status = 'active'
+		),
+		upd AS (
+		  UPDATE vaccination_stage_review_items v
+		  SET status = 'resolved', resolved_by = $3::uuid, resolved_at = $4::timestamptz,
+		      resolution_note = $5, resolution_mode = 'corrected', updated_at = now()
+		  WHERE v.tenant_id = $1::uuid AND v.review_item_id = $2::uuid AND v.status = 'open'
+		    AND EXISTS (SELECT 1 FROM goatrow)
+		    -- Fail closed on an unknown cutoff: never manufacture policy provenance for a NULL row.
+		    AND (SELECT cutoff_weeks FROM target) IS NOT NULL
+		    AND NOT EXISTS (
+		      SELECT 1 FROM goatrow
+		      WHERE length(btrim(stage)) >= 2
+		        AND upper(btrim(stage)) LIKE 'K%'
+		        AND dob IS NOT NULL
+		        AND cutoff_weeks IS NOT NULL
+		        AND (((now() AT TIME ZONE 'Asia/Kolkata')::date - dob) / 7) > cutoff_weeks
+		    )
+		  RETURNING 1
+		)
+		SELECT (SELECT count(*) FROM target) > 0 AS was_open,
+		       (SELECT count(*) FROM upd) > 0 AS resolved`,
+		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note).Scan(&wasOpen, &resolved)
+	if err != nil {
+		return false, false, fmt.Errorf("vaccination: resolve stage review item (corrected): %w", err)
+	}
+	return resolved, wasOpen, nil
 }
 
 // ListOpenStageReviewItems returns one keyset-bounded page of OPEN stage review items for the tenant,
@@ -151,15 +262,15 @@ func (r *Repository) ListOpenStageReviewItems(ctx context.Context, tenantID stri
 
 // ResolveStageReviewItem marks an OPEN stage review item resolved. It returns false (no error) when
 // the item does not exist or was already resolved, so a replayed resolve is a safe no-op.
-func (r *Repository) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error) {
+func (r *Repository) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE vaccination_stage_review_items
 		SET status = 'resolved', resolved_by = $3::uuid, resolved_at = $4::timestamptz,
-		    resolution_note = $5, updated_at = now()
+		    resolution_note = $5, resolution_mode = $6, updated_at = now()
 		WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'`,
-		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note)
+		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note, resolutionMode)
 	if err != nil {
 		return false, fmt.Errorf("vaccination: resolve stage review item: %w", err)
 	}
@@ -1872,7 +1983,7 @@ SELECT
   COALESCE(g.breed, '')::text,
   COALESCE(g.health_status, '')::text,
   (
-    COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     AND COALESCE(loa.usable_for_vaccination, true)
     AND NOT COALESCE(loa.is_quarantine, false)
     AND NOT COALESCE(loa.is_icu, false)
@@ -1902,7 +2013,7 @@ GROUP BY g.tenant_id, g.park_id, g.shed_id,
          COALESCE(g.breed, ''),
          COALESCE(g.health_status, ''),
          (
-           COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+           COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
            AND COALESCE(loa.usable_for_vaccination, true)
            AND NOT COALESCE(loa.is_quarantine, false)
            AND NOT COALESCE(loa.is_icu, false)
@@ -1976,7 +2087,7 @@ WITH earliest_by_goat AS (
     AND oi.due_at <= $2::timestamptz
     AND pd.category = 'vaccination'
     AND g.lifecycle_status = 'alive'
-    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     AND COALESCE(loa.usable_for_vaccination, true)
     AND NOT COALESCE(loa.is_quarantine, false)
     AND NOT COALESCE(loa.is_icu, false)
@@ -2046,7 +2157,7 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.due_at <= $2::timestamptz
   AND pd.category = 'vaccination'
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)

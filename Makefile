@@ -7,11 +7,9 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails guardrail-registration-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard scale-certification-docs-guard scale-guard clinical-defer-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard
+.PHONY: seed-state-guard check guardrails guardrail-registration-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
-.PHONY: vaccination-execution-projection-recompute vaccination-operations-projection-recompute
-
 setup-crg: ai-setup
 
 ai-setup:
@@ -103,6 +101,7 @@ guardrails:
 	node tools/agent-hooks/check-refresh-binding.mjs
 	bash tools/agent-hooks/check-contract-drift.sh
 	$(MAKE) aggregate-projection-guard
+	$(MAKE) vaccination-schedule-canonical-guard
 	$(MAKE) scale-certification-docs-guard
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
 	$(MAKE) api-latency-policy-test
@@ -111,6 +110,7 @@ guardrails:
 	$(MAKE) sweeper-deployment-guard
 	$(MAKE) deployed-job-flags-guard
 	$(MAKE) kernel-worker-cutover-guard
+	$(MAKE) stg-disposable-topology-guard
 	$(MAKE) secret-accessors-guard
 	$(MAKE) worker-stage-budgets-guard
 	$(MAKE) idempotency-writes-guard
@@ -125,6 +125,7 @@ guardrails:
 	$(MAKE) room-migration-guard
 	$(MAKE) mobile-guard
 	$(MAKE) admin-web-request-reads-guard
+	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
 	$(MAKE) local-gcp-kernel-parity-guard
@@ -135,6 +136,7 @@ guardrail-registration-guard:
 
 local-ci-evidence-guard:
 	node tools/ci/check-local-ci-evidence.mjs --self-test
+	bash tools/ci/land-main.test.sh
 
 kernel-worker-retirement-gate-guard:
 	node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs --self-test
@@ -150,6 +152,10 @@ stg-promotion-guard-install:
 aggregate-projection-guard:
 	node tools/agent-hooks/check-aggregate-projection-review.mjs --self-test
 	node tools/agent-hooks/check-aggregate-projection-review.mjs
+
+vaccination-schedule-canonical-guard:
+	node tools/agent-hooks/check-vaccination-schedule-canonical.mjs --self-test
+	node tools/agent-hooks/check-vaccination-schedule-canonical.mjs
 
 scale-certification-docs-guard:
 	node tools/agent-hooks/check-scale-certification-docs.mjs --self-test
@@ -190,6 +196,11 @@ clinical-defer-guard:
 	node tools/agent-hooks/check-clinical-defer-states.mjs --self-test
 	node tools/agent-hooks/check-clinical-defer-states.mjs
 
+vaccination-drive-clubbing-guard:
+	cd backend && go test ./internal/obligation/app -run 'Test(DrivePlanner|BatchSession|Normalized|Pick|Park|Combo)' -count=1 -timeout=60s
+	cd backend && go test ./internal/obligation/adapters/postgres -run 'TestSM4Sweeper(ClubsNearbyDueDatesWithinSafeWindow|RecordsOneTimeBatchingHoldMetadata|DoesNotBackdateOverdueHoldCap|EnforcesTwoShotsPerAnimalPerDrive)' -count=1
+	cd backend && go test ./tests/e2e -run TestKernelStoryAK_DriveClubbingWithinBuffer -count=1 -timeout=5m
+
 sweeper-deployment-guard:
 	node tools/agent-hooks/check-sweeper-deployment.mjs --self-test
 	node tools/agent-hooks/check-sweeper-deployment.mjs
@@ -219,6 +230,10 @@ deployed-job-flags-guard:
 kernel-worker-cutover-guard:
 	node tools/agent-hooks/check-kernel-worker-cutover.mjs --self-test
 	node tools/agent-hooks/check-kernel-worker-cutover.mjs
+
+stg-disposable-topology-guard:
+	node tools/agent-hooks/check-stg-disposable-topology.mjs --self-test
+	node tools/agent-hooks/check-stg-disposable-topology.mjs
 
 # secret-accessors-guard (KERN-REV-04): terraform validate cannot detect a
 # google_service_account.runtime["X"] index or a secret_containers accessor
@@ -337,6 +352,15 @@ local-single-db-guard:
 ci-local:
 	bash tools/ci/run-local-ci.sh $(if $(JOB),$(JOB),$(MODE))
 
+# land-main is the Codex/Claude landing entry point. It refuses dirty worktrees,
+# rebases onto fresh origin/main before CI, reruns CI if main moves, and pushes
+# only the exact certified SHA through the Mesha credential path.
+land-main:
+	bash tools/ci/land-main.sh
+
+land-main-self-test:
+	bash tools/ci/land-main.test.sh
+
 e2e-integrity-guard:
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
 
@@ -353,10 +377,13 @@ scale-guard:
 # a commit with no mobile Kotlin passes instantly. See
 # docs/decisions/mobile-data-fetch-anti-patterns.md. `mobile-guard-audit` scans the whole tree.
 mobile-guard:
+	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test
+	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
 	node tools/agent-hooks/check-mobile-list-fetch.mjs
 
 mobile-guard-audit:
+	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
 
 # nav-composition-guard: block hardcoded per-role/per-module nav templates. Navigation (nav bar,
@@ -390,6 +417,14 @@ admin-web-request-reads-guard:
 
 admin-web-request-reads-guard-audit:
 	node tools/agent-hooks/check-admin-web-request-reads.mjs --all
+
+# admin-web-prefetch-guard: block Next.js route prefetch in admin-web. Route
+# prefetch is cheap for static pages but dangerous for authenticated operational
+# pages because hovering/seeing links can silently trigger expensive SSR/API
+# reads before a user clicks. Admin-web links must use the no-prefetch wrapper.
+admin-web-prefetch-guard:
+	node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test
+	node tools/agent-hooks/check-admin-web-prefetch.mjs
 
 # android-bounded-memory-guard: block unbounded in-memory growth in the Android data layer
 # (an in-heap cache/accumulator with no cap/TTL/eviction, or a DAO reading a whole table into
@@ -435,7 +470,7 @@ sqlc-generate:
 sqlc-check: sqlc-generate
 	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc backend/internal/protocol/adapters/postgres/sqlc backend/internal/obligation/adapters/postgres/sqlc backend/internal/inventory/adapters/postgres/sqlc backend/internal/vaccination/adapters/postgres/sqlc backend/internal/feed/adapters/postgres/sqlc
 
-check: guardrails docker-storage-scripts-test db-mutation-guard-test
+check: guardrails docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard
 	$(MAKE) test
 
 dev-local:
@@ -534,23 +569,8 @@ legacy-god-sheet-sync-apply:
 verify-google-dev-seed-fixtures:
 	python3 tools/dev/verify-google-dev-seed-fixtures.py
 
-process-integrity-projection-recompute:
-	cd backend && go run ./cmd/process-integrity-projection-recompute
-
-vaccination-shed-projection-recompute:
-	cd backend && go run ./cmd/vaccination-shed-projection-recompute
-
-vaccination-execution-projection-recompute:
-	cd backend && go run ./cmd/vaccination-execution-projection-recompute
-
-vaccination-operations-projection-recompute:
-	cd backend && go run ./cmd/vaccination-operations-projection-recompute
-
-process-integrity-latency-gate:
-	cd backend && go run ./cmd/process-integrity-latency-check
-
 api-latency-policy-test:
-	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/scale-plan-evidence.test.mjs tools/perf/request-path-evidence.test.mjs
+	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/request-path-evidence.test.mjs
 
 api-latency-gate:
 	node tools/perf/api-latency-gate.mjs --manifest tools/perf/hot-paths.vaccination.json
@@ -611,6 +631,9 @@ docker-storage-scripts-test:
 db-mutation-guard-test:
 	bash tools/dev/test-db-mutation-guard.sh
 	node --test apps/admin-web/scripts/lib/db-mutation-guard.test.mjs
+
+local-stack-service-guard:
+	bash tools/dev/test-local-stack-service-guard.sh
 
 # Diagnose the pinned JDK/SDK/AVD setup. The scripts resolve their own environment
 # and do not rely on an agent session having sourced ~/.zshrc.

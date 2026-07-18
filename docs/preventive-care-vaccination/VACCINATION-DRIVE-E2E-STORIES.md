@@ -121,7 +121,8 @@ Proof:
   - Sheep scope shows 6 active rows and JSON species `sheep`.
   - Goats + sheep restores 7 active rows.
   - One park selects a `park:*` scope; Whole company restores `tenant`.
-  - ET+TT business summary includes `primary: 4w` and `repeat 6 months`.
+  - ET+TT business summary includes kid `primary: 4w/7w`, adult dose 2 after
+    3 weeks, and `repeat 6 months` only after dose 2/course completion.
   - Read-only safety copy includes live-live, pregnancy, mother-unknown ignore,
     and trusted holding-source rules.
   - Blue Tongue toggle changes active count from 7 to 6 and back to 7.

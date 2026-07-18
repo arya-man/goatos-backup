@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ArrowLeft, ArrowRight, Ban, Check, ChevronRight, Workflow } from "lucide-react";
 import { getVaccinationActionCenter } from "@/lib/api/server";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";

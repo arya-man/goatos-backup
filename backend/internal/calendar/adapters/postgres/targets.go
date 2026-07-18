@@ -51,7 +51,12 @@ SELECT
   g.display_id AS display_id,
   aid1.identifier_value AS animal_identifier_1,
   aid2.identifier_value AS animal_identifier_2,
+  shed.name AS shed_name,
   g.management_stage AS stage,
+  g.lifecycle_status,
+  g.health_status,
+  g.exit_reason,
+  defer_event.defer_status,
   oi.status,
   oi.due_at
 FROM obligation_instances oi
@@ -77,6 +82,44 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.goat_id = g.goat_id
  AND aid2.identifier_type = 'animal_identifier_2'
  AND aid2.status = 'active'
+LEFT JOIN locations goat_current_loc
+  ON goat_current_loc.tenant_id = g.tenant_id
+ AND goat_current_loc.location_id = COALESCE(g.current_location_id, g.shed_id, g.park_id)
+LEFT JOIN locations goat_current_parent
+  ON goat_current_parent.tenant_id = g.tenant_id
+ AND goat_current_parent.location_id = goat_current_loc.parent_location_id
+LEFT JOIN locations goat_current_grand
+  ON goat_current_grand.tenant_id = g.tenant_id
+ AND goat_current_grand.location_id = goat_current_parent.parent_location_id
+LEFT JOIN obligation_batches target_batch
+  ON target_batch.tenant_id = oi.tenant_id
+ AND target_batch.batch_id = oi.batch_id
+LEFT JOIN locations batch_scope_loc
+  ON batch_scope_loc.tenant_id = target_batch.tenant_id
+ AND batch_scope_loc.location_id = target_batch.scope_id
+LEFT JOIN locations batch_scope_parent
+  ON batch_scope_parent.tenant_id = target_batch.tenant_id
+ AND batch_scope_parent.location_id = batch_scope_loc.parent_location_id
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = COALESCE(
+      CASE WHEN goat_current_loc.location_type = 'shed' THEN goat_current_loc.location_id END,
+      CASE WHEN goat_current_parent.location_type = 'shed' THEN goat_current_parent.location_id END,
+      CASE WHEN goat_current_grand.location_type = 'shed' THEN goat_current_grand.location_id END,
+      CASE WHEN batch_scope_loc.location_type = 'shed' THEN batch_scope_loc.location_id END,
+      CASE WHEN batch_scope_parent.location_type = 'shed' THEN batch_scope_parent.location_id END,
+      g.shed_id
+    )
+ AND shed.location_type = 'shed'
+LEFT JOIN LATERAL (
+  SELECT ose.payload->>'defer_status' AS defer_status
+  FROM obligation_status_events ose
+  WHERE ose.tenant_id = oi.tenant_id
+    AND ose.obligation_id = oi.obligation_id
+    AND ose.event_type = 'deferred'
+  ORDER BY ose.occurred_at DESC, ose.obligation_event_id DESC
+  LIMIT 1
+) defer_event ON true
 LEFT JOIN locations scope_loc
   ON scope_loc.tenant_id = oi.tenant_id
  AND scope_loc.location_id = oi.scope_id
@@ -144,7 +187,12 @@ animal_targets AS (
     display_id,
     animal_identifier_1,
     animal_identifier_2,
+    shed_name,
     stage,
+    lifecycle_status,
+    health_status,
+    exit_reason,
+    defer_status,
     status,
     due_at
   FROM matched_obligations
@@ -156,11 +204,31 @@ SELECT
   display_id,
   animal_identifier_1,
   animal_identifier_2,
+  shed_name,
   stage,
+  lifecycle_status,
+  health_status,
+  exit_reason,
+  defer_status,
   status,
   due_at
 FROM animal_targets
 WHERE ($8::uuid IS NULL OR obligation_id > $8::uuid)
+  AND (
+    NULLIF($14::text, '') IS NULL
+    OR concat_ws(' ',
+      display_id,
+      animal_identifier_1,
+      animal_identifier_2,
+      shed_name,
+      stage,
+      lifecycle_status,
+      health_status,
+      exit_reason,
+      defer_status,
+      status
+    ) ILIKE '%' || $14::text || '%'
+  )
 ORDER BY obligation_id ASC
 LIMIT $13`
 
@@ -226,7 +294,7 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	rows, err := r.pool.Query(ctx, calendarDriveTargetsSQL,
 		q.TenantID, batchID, dueDay, parkID, shedID, tenantID, ruleID, cursorID,
-		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit)
+		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit, q.Search)
 	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: list drive targets: %w", err)
 	}
@@ -237,13 +305,23 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 		var item domain.CalendarDriveTarget
 		var animalIdentifier1 pgtype.Text
 		var animalIdentifier2 pgtype.Text
+		var shedName pgtype.Text
 		var stage pgtype.Text
-		if err := rows.Scan(&item.ObligationID, &item.AnimalID, &item.DisplayID, &animalIdentifier1, &animalIdentifier2, &stage, &item.Status, &item.DueAt); err != nil {
+		var lifecycleStatus pgtype.Text
+		var healthStatus pgtype.Text
+		var exitReason pgtype.Text
+		var deferReason pgtype.Text
+		if err := rows.Scan(&item.ObligationID, &item.AnimalID, &item.DisplayID, &animalIdentifier1, &animalIdentifier2, &shedName, &stage, &lifecycleStatus, &healthStatus, &exitReason, &deferReason, &item.Status, &item.DueAt); err != nil {
 			return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: scan drive target: %w", err)
 		}
 		item.AnimalIdentifier1 = textPtr(animalIdentifier1)
 		item.AnimalIdentifier2 = textPtr(animalIdentifier2)
+		item.ShedName = textPtr(shedName)
 		item.Stage = textPtr(stage)
+		item.LifecycleStatus = textPtr(lifecycleStatus)
+		item.HealthStatus = textPtr(healthStatus)
+		item.ExitReason = textPtr(exitReason)
+		item.DeferReason = textPtr(deferReason)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

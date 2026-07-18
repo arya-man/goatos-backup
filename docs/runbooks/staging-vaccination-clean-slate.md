@@ -19,15 +19,16 @@ ever disagree, stop the seed and resolve the contract first.
 
 This runbook assumes the 5k-to-50k operational-kernel envelope accepted in
 `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. That ADR drops the
-five screen projection tables (`calendar_event_projections`,
+screen projection tables (`calendar_event_projections`,
 `process_integrity_projection_rows`, `vaccination_shed_projection_rows`,
 `vaccination_execution_projection_rows`, and
-`vaccination_operations_projection_rows`), retires the separately scheduled
+`vaccination_operations_projection_rows`, plus Full Schedule's
+`vaccination_schedule_projection_*` family), retires the separately scheduled
 projectors and partition maintenance in favor of one kernel worker, and serves
-the vaccination shed/execution/operations, process-integrity, and Calendar
-screens from canonical indexed SQL per request. Dropping those projection tables
-in a destructive staging rebuild is therefore expected, not a defect: the current
-rows are test data, and the old split-worker/projection topology is recoverable
+the vaccination schedule/shed/execution/operations, process-integrity, and
+Calendar screens from canonical indexed SQL per request. Dropping those
+projection tables in a destructive staging rebuild is therefore expected, not a
+defect: the current rows are test data, and the old split-worker topology is recoverable
 from the `kernel-split-workers-v1` tag. The vaccination date/anchor business
 semantics below are orthogonal to projections and are unchanged; only the
 projection-backed verification and enable steps differ. Small indexed summaries
@@ -103,10 +104,23 @@ source shed.
    remains active.
 4. Take an on-demand Cloud SQL backup and wait for it to reach `SUCCESSFUL`.
    Record the backup identifier. Do not proceed on a pending or failed backup.
-5. Through the authenticated staging Cloud SQL path, drop and recreate only the
-   application `public` schema. Never copy the local database into staging.
+5. Through the authenticated staging Cloud SQL path, drop every
+   application-owned schema (`public` and `analytics` today), then recreate an
+   empty `public` schema owned by `goatos_app`. Never touch PostgreSQL system
+   schemas or copy the local database into staging. Dropping only `public` is
+   not a clean reset because migration 000168 owns tables in the separate
+   `analytics` schema.
 6. Apply every migration from the deployed artifact and verify the final
-   migration version.
+   migration version. Migration `000212` intentionally refuses to rewrite
+   non-empty operational history tables unless
+   `goatos.allow_nonempty_operational_history_departition=on` is set for that
+   migration session. In this clean-slate runbook the normal path is an empty
+   schema, so do not set the override. Set it only for a reviewed disposable
+   rehearsal where all writers are paused, the backup from step 4 is recorded,
+   and the operator explicitly accepts that `goat_identity_events`,
+   `audit_log`, and `obligation_status_events` will be rebuilt in place before
+   seed closeout. After such a rehearsal, rerun migration validation and the
+   FK/orphan checks before seeding.
 7. Seed, in order:
    - founder/builder email grants;
    - reviewed roster/workforce from roster mapping, attendance/leave, and
@@ -121,14 +135,15 @@ source shed.
    if any invariant below is violated. Do not bypass it or hand-edit its rows.
 9. Recompute the small indexed summaries the UI still serves using the deployed
    artifact: `vaccination_eligibility_rollups`, and the Counts summary if Counts
-   is visible. Under the 5k-to-50k envelope the five screen projection tables
+   is visible. Under the 5k-to-50k envelope the screen projection tables
    (`calendar_event_projections`, `process_integrity_projection_rows`,
    `vaccination_shed_projection_rows`, `vaccination_execution_projection_rows`,
-   and `vaccination_operations_projection_rows`) are dropped, not repopulated;
-   the vaccination shed, execution, operations, process-integrity, and Calendar
-   screens read canonical indexed SQL per request, so there is no projector
-   recompute step for them. Staging is green for those screens when their
-   canonical-read APIs return `200`, not when a projector reports complete.
+   and `vaccination_operations_projection_rows`, plus Full Schedule's
+   `vaccination_schedule_projection_*` family) are dropped, not repopulated; the
+   vaccination schedule, shed, execution, operations, process-integrity, and
+   Calendar screens read canonical indexed SQL per request, so there is no
+   projector recompute step for them. Staging is green for those screens when
+   their canonical-read APIs return `200`, not when a projector reports complete.
 10. Run the obligation sweeper's operational stage only after the seed and the
     surviving summaries are clean. It remains the backstop for time-derived
     due/missed state; it no longer refreshes any screen projection, and the
@@ -166,11 +181,11 @@ postflight must also record the surrounding counts.
   shared-staging test/story/dummy/local protocol or obligation data.
 - Every imported vaccination shed has reviewed manager and backup ownership.
 - `vaccination_eligibility_rollups` is populated and capacity buffer is 7 days.
-- The vaccination shed, execution, operations, process-integrity, and Calendar
+- The vaccination shed, execution, operations, Full Schedule, process-integrity, and Calendar
   screens have no projection tables to reconcile under this envelope; their
   correctness is proven by canonical-read APIs, not by a projector build time.
 - `GET /vaccination/sheds`, `GET /vaccination/execution`, and
-  `GET /vaccination/operations` return `200` served from canonical indexed SQL,
+  `GET /vaccination/operations`, plus `GET /vaccination/schedule`, return `200` served from canonical indexed SQL,
   and their grouped counts reconcile to canonical obligation counts. There is no
   `projection_unavailable` state to wait out; a non-`200` here means the seed or
   the canonical read path is not complete.
@@ -186,8 +201,8 @@ the dashboard look clean.
 
 ## Runtime Prevention
 
-- `goatos-stg-vaccination-generator` must have enough command and Cloud Run
-  timeout for a full tenant pass and must fail the execution on partial work.
+- The kernel worker's vaccination-generation stage must have enough execution
+  budget for a full tenant pass and must report partial work as a failed stage.
 - The kernel worker's operational stage runs on its configured cadence to keep
   time-derived due/missed state current; under this envelope there are no
   separate process-integrity, execution, operations, or shed projectors to

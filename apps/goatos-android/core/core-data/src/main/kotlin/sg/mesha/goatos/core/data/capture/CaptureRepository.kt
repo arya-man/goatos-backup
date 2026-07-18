@@ -15,6 +15,8 @@ import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -22,6 +24,8 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.syncJson
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import java.util.UUID
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus as EntitySyncStatus
 
@@ -43,7 +47,13 @@ interface ScanCaptureRepository {
 
     /** Persists one completed tag read to Room first; a repeat tag for the same field is a
      *  silent no-op (dedup). */
-    suspend fun recordScan(taskId: String, fieldKey: String, tag: String)
+    suspend fun recordScan(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String? = null,
+        obligationId: String? = null,
+    )
 
     /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
      *  shed-submit answer payload. */
@@ -54,6 +64,7 @@ interface ScanCaptureRepository {
 
 class DefaultScanCaptureRepository(
     private val dao: ScannedGoatDao,
+    private val syncRepository: SyncRepository? = null,
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -68,21 +79,44 @@ class DefaultScanCaptureRepository(
     override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> =
         dao.observeForTask(taskId).map { rows -> rows.map { it.toRow() } }.flowOn(dispatchers.default)
 
-    override suspend fun recordScan(taskId: String, fieldKey: String, tag: String) {
+    override suspend fun recordScan(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+    ) {
         val trimmed = tag.trim()
         if (trimmed.isEmpty()) return
-        withContext(dispatchers.io) {
+        val capturedAtMs = clock()
+        val inserted = withContext(dispatchers.io) {
             dao.insert(
                 ScannedGoatEntity(
                     id = idGenerator(),
                     taskId = taskId,
                     fieldKey = fieldKey,
                     tag = trimmed,
-                    capturedAtMs = clock(),
+                    goatId = goatId?.takeIf { it.isNotBlank() },
+                    obligationId = obligationId?.takeIf { it.isNotBlank() },
+                    capturedAtMs = capturedAtMs,
                     syncStatus = EntitySyncStatus.PENDING.name,
                 ),
             )
         }
+        if (inserted <= 0L) return
+        val syncKey = scanCaptureIdempotencyKey(taskId, fieldKey, trimmed)
+        syncRepository?.enqueueScanCapture(
+            taskId = taskId,
+            groupKey = taskId,
+            idempotencyKey = syncKey,
+            request = ScanCaptureRequestDto(
+                fieldKey = fieldKey,
+                tag = trimmed,
+                goatId = goatId?.takeIf { it.isNotBlank() },
+                obligationId = obligationId?.takeIf { it.isNotBlank() },
+                capturedAtMs = capturedAtMs,
+            ),
+        )
     }
 
     override suspend fun tagsForTask(taskId: String): List<String> = withContext(dispatchers.io) {
@@ -94,7 +128,121 @@ class DefaultScanCaptureRepository(
     }
 }
 
-private fun ScannedGoatEntity.toRow() = ScannedGoatRow(fieldKey = fieldKey, tag = tag, capturedAtMs = capturedAtMs)
+private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
+    fieldKey = fieldKey,
+    tag = tag,
+    goatId = goatId,
+    obligationId = obligationId,
+    capturedAtMs = capturedAtMs,
+)
+
+private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String): String =
+    "scan:$taskId:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}"
+
+interface ScanAttemptRepository {
+    fun observeAttempts(taskId: String): Flow<List<RfidScanAttemptRow>>
+
+    suspend fun recordAttempt(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+        outcome: RfidScanAttemptOutcome,
+        tagRole: RfidScanTagRole,
+        reason: String?,
+    )
+
+    suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow>
+
+    suspend fun clearForTask(taskId: String)
+}
+
+class DefaultScanAttemptRepository(
+    private val dao: RfidScanAttemptDao,
+    private val syncRepository: SyncRepository? = null,
+    private val dispatchers: DispatcherProvider = DefaultDispatchers,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+) : ScanAttemptRepository {
+    override fun observeAttempts(taskId: String): Flow<List<RfidScanAttemptRow>> =
+        dao.observeForTask(taskId).map { rows -> rows.map { it.toAttemptRow() } }.flowOn(dispatchers.default)
+
+    override suspend fun recordAttempt(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+        outcome: RfidScanAttemptOutcome,
+        tagRole: RfidScanTagRole,
+        reason: String?,
+    ) {
+        val trimmed = tag.trim()
+        val normalized = normalizeTag(trimmed)
+        if (trimmed.isEmpty() || normalized.isEmpty()) return
+        val id = idGenerator()
+        val capturedAtMs = clock()
+        val idempotencyKey = "scan-attempt:$taskId:$id"
+        val entity = RfidScanAttemptEntity(
+            id = id,
+            taskId = taskId,
+            fieldKey = fieldKey,
+            tag = trimmed,
+            normalizedTag = normalized,
+            goatId = goatId?.takeIf { it.isNotBlank() },
+            obligationId = obligationId?.takeIf { it.isNotBlank() },
+            outcome = outcome.wireValue,
+            tagRole = tagRole.wireValue,
+            reason = reason?.takeIf { it.isNotBlank() },
+            capturedAtMs = capturedAtMs,
+            syncStatus = EntitySyncStatus.PENDING.name,
+            idempotencyKey = idempotencyKey,
+        )
+        val inserted = withContext(dispatchers.io) { dao.insert(entity) }
+        if (inserted <= 0L) return
+        syncRepository?.enqueueScanAttempt(
+            taskId = taskId,
+            groupKey = taskId,
+            idempotencyKey = idempotencyKey,
+            request = ScanAttemptRequestDto(
+                fieldKey = fieldKey,
+                tag = trimmed,
+                normalizedTag = normalized,
+                goatId = goatId?.takeIf { it.isNotBlank() },
+                obligationId = obligationId?.takeIf { it.isNotBlank() },
+                outcome = outcome.wireValue,
+                tagRole = tagRole.wireValue,
+                reason = reason?.takeIf { it.isNotBlank() },
+                capturedAtMs = capturedAtMs,
+            ),
+        )
+    }
+
+    override suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow> = withContext(dispatchers.io) {
+        dao.listForTask(taskId).map { it.toAttemptRow() }
+    }
+
+    override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
+        dao.clearForTask(taskId)
+    }
+}
+
+private fun RfidScanAttemptEntity.toAttemptRow() = RfidScanAttemptRow(
+    id = id,
+    taskId = taskId,
+    fieldKey = fieldKey,
+    tag = tag,
+    normalizedTag = normalizedTag,
+    goatId = goatId,
+    obligationId = obligationId,
+    outcome = RfidScanAttemptOutcome.entries.firstOrNull { it.wireValue == outcome } ?: RfidScanAttemptOutcome.UNKNOWN,
+    tagRole = RfidScanTagRole.entries.firstOrNull { it.wireValue == tagRole } ?: RfidScanTagRole.UNKNOWN,
+    reason = reason,
+    capturedAtMs = capturedAtMs,
+)
+
+private fun normalizeTag(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
 
 /**
  * Room-first SSOT for a task's `video_proof` recording-form fields
@@ -137,6 +285,10 @@ interface ProofCaptureRepository {
 
     suspend fun remove(taskId: String, id: String): AppResult<Unit>
 
+    /** Re-arms a terminal FAILED proof upload row using the same proof idempotency key and
+     *  payload. No-op for rows that are already queued/in-flight/synced. */
+    suspend fun retryUpload(taskId: String, id: String): AppResult<Unit>
+
     suspend fun clearForTask(taskId: String)
 }
 
@@ -165,7 +317,7 @@ class DefaultProofCaptureRepository(
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
-        val existing = dao.countForTask(taskId)
+        val existing = dao.activeCountForTask(taskId)
         if (existing >= ProofCaptureDao.MAX_PROOFS_PER_TASK) {
             return@withContext AppResult.Err(
                 "Maximum ${ProofCaptureDao.MAX_PROOFS_PER_TASK} proof videos reached for this drive.",
@@ -203,6 +355,26 @@ class DefaultProofCaptureRepository(
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
         dao.delete(id, taskId)
         AppResult.Ok(Unit)
+    }
+
+    override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
+        val entity = dao.findById(id) ?: return@withContext AppResult.Err("Proof video not found.")
+        if (entity.taskId != taskId) return@withContext AppResult.Err("Proof video does not belong to this task.")
+        if (entity.syncStatus != EntitySyncStatus.FAILED.name) return@withContext AppResult.Ok(Unit)
+        val outboxItemId = entity.outboxItemId
+        if (outboxItemId.isNullOrBlank()) {
+            dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
+            enqueueRegistration(entity, scopeType = "task", scopeId = taskId)
+            return@withContext AppResult.Ok(Unit)
+        }
+        when (val retry = syncRepository.retry(outboxItemId)) {
+            is AppResult.Ok -> {
+                dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
+                followOutboxItem(entity.id, outboxItemId)
+                AppResult.Ok(Unit)
+            }
+            is AppResult.Err -> retry
+        }
     }
 
     override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
@@ -262,8 +434,14 @@ class DefaultProofCaptureRepository(
                     when {
                         item.status == SyncItemStatus.IN_FLIGHT ->
                             dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
-                        item.status == SyncItemStatus.SUCCEEDED ->
-                            dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, decodeServerProofId(item.resultJson), null)
+                        item.status == SyncItemStatus.SUCCEEDED -> {
+                            val proofId = decodeServerProofId(item.resultJson)
+                            if (proofId.isNullOrBlank()) {
+                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
+                            } else {
+                                dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
+                            }
+                        }
                         item.isDeadLetter || item.conflict ->
                             dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
                         else -> Unit // QUEUED / still-retrying FAILED — leave PENDING, another emission follows.
@@ -279,6 +457,8 @@ private fun decodeServerProofId(resultJson: String?): String? {
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
 }
+
+private const val corruptProofUploadResultMessage = "Proof upload finished without a server proof id. Record this video again."
 
 private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     id = id,

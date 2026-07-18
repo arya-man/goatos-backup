@@ -154,6 +154,10 @@ Calendar or dashboard label.
   the canonical reminder, deadline, escalation, proof, or obligation state.
 - Tokens stay server-side for admin-web. Do not put bearer tokens in
   `NEXT_PUBLIC_*`, localStorage, rendered HTML, query params, or static assets.
+- Android Remote Config force-update is fail-open unless there is a valid
+  `http(s)` update URL. Cold launch must start in a checking state and block
+  business UI until the first update decision resolves; never render app content
+  from an initial optimistic "allowed" state.
 
 ## Local Android Toolchain And Device Gate
 

@@ -1,5 +1,7 @@
 package sg.mesha.goatos.update
 
+import java.net.URI
+
 /**
  * Outcome of the launch-time version gate.
  *
@@ -13,8 +15,7 @@ sealed interface UpdateDecision {
 
     /**
      * This build is below the server-declared minimum and must update before use.
-     * [updateUrl] is the install link the CTA opens (empty if the operator has not
-     * configured one yet — the screen then shows a disabled-with-reason CTA).
+     * [updateUrl] is the validated install link the CTA opens.
      */
     data class ForceUpdate(val updateUrl: String) : UpdateDecision
 }
@@ -31,17 +32,28 @@ interface UpdateGate {
 
 /**
  * The pure gate rule (unit-tested in isolation from Firebase): force an update only
- * when the server declares a positive minimum AND this build is strictly below it.
- * A missing / zero / negative minimum means "no floor set" and always resolves to
- * [UpdateDecision.Allowed].
+ * when the server declares a positive minimum, this build is strictly below it, AND
+ * the server also provides a usable http(s) install URL. A missing / zero / negative
+ * minimum, blank URL, or malformed URL resolves to [UpdateDecision.Allowed] so Remote
+ * Config cannot hard-brick operators with no path to update.
  */
 internal fun decideUpdate(
     currentVersionCode: Long,
     minSupportedVersionCode: Long,
     updateUrl: String,
-): UpdateDecision =
-    if (minSupportedVersionCode > 0L && currentVersionCode < minSupportedVersionCode) {
-        UpdateDecision.ForceUpdate(updateUrl = updateUrl)
+): UpdateDecision {
+    val normalizedUrl = usableUpdateUrl(updateUrl)
+    return if (minSupportedVersionCode > 0L && currentVersionCode < minSupportedVersionCode && normalizedUrl != null) {
+        UpdateDecision.ForceUpdate(updateUrl = normalizedUrl)
     } else {
         UpdateDecision.Allowed
     }
+}
+
+internal fun usableUpdateUrl(raw: String): String? {
+    val trimmed = raw.trim()
+    if (trimmed.isBlank()) return null
+    val uri = runCatching { URI(trimmed) }.getOrNull() ?: return null
+    val scheme = uri.scheme?.lowercase()
+    return if ((scheme == "https" || scheme == "http") && !uri.host.isNullOrBlank()) trimmed else null
+}

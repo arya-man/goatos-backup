@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { AlertTriangle } from "lucide-react";
 import { GoogleLogin } from "@/components/auth/google-login";
 import { LoginSessionGuard } from "@/components/auth/login-session-guard";

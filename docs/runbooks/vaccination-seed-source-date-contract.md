@@ -76,6 +76,17 @@ open due work.
   `HH:MM:SS`, normalize it to `HH:MM` for JSON/source drift checks and seed
   manifests; seconds are ignored.
 
+Seed import must not carry a private kid/adult classifier. The published
+`vaccination.matrix` procurement policy and the live vaccination scheduler own
+that decision. In particular, `origin_type=birth` and `K1`/`K2` stage tags are
+not enough to force a kid-course mapping when trusted DOB/age proves the goat is
+past the configured kid finish window. A raw source vaccination cell also cannot
+prove its own kid/adult path: do not pre-map the same sheet row as `_kid_`
+history and feed it back into classification. Classify first from independent
+DOB, stage, entry-date, and already-accepted history evidence. Then keep the
+source vaccination date as history under the selected rule family and let kernel
+generation create only future work from that history.
+
 `Pending` has a single writer: the vaccination kernel. The source importer must
 not insert an open placeholder and then invoke generation for the same goat and
 rule. Accepted completion evidence must be checked before a missing-DOB or
@@ -107,6 +118,14 @@ This is per vaccine, not per goat. An ET+TT date cannot anchor FMD, PPR, pox,
 HS, or Blue Tongue. The kernel must never reverse-engineer or infer DOB from a
 field vaccination date.
 
+Multi-dose course history is not the same as a completed repeat anchor. If seed
+imports an accepted ET+TT dose 1, GoatOS must schedule ET+TT dose 2 from that
+source date plus 21 days for both kid and adult courses. The 182-day ET+TT
+repeat starts only after accepted ET+TT dose 2/course completion. Blue Tongue
+kid dose 2 stays 28 days after Blue Tongue kid dose 1. Single-dose vaccines
+such as FMD, HS, PPR, Goat Pox, and Sheep Pox repeat from their accepted
+same-vaccine administration because they have no second course dose.
+
 Identity corrections are recomputation signals, not authority to overwrite
 completion history. When DOB or entry date is added or corrected:
 
@@ -131,7 +150,8 @@ Example with backend business date `2026-07-11`:
 
 - `2026-06-21` in the sheet means the vaccine was already administered on
   June 21, 2026. It is done history. The next due item is calculated from
-  June 21 plus the active schedule.
+  June 21 plus the active schedule; past missed cards before July 11 are not
+  materialized by the seed.
 - `2026-07-09` in the sheet means the vaccine was already administered on
   July 9, 2026. It is done history. It must not create an overdue card on
   July 11.
@@ -279,15 +299,9 @@ The current reviewed bundle must include:
    that through `tools/dev/seed-closeout.sh --dry-run` output; otherwise a seed
    can log that the command ran while leaving that summary empty.
 
-   Where a pre-cutover checkout still contains the retired screen projectors
-   (`process-integrity-projection-recompute`,
-   `vaccination-shed-projection-recompute`,
-   `vaccination-execution-projection-recompute`,
-   `vaccination-operations-projection-recompute`, and the
-   `calendar-vaccination-projector` upcoming/history passes), they may still be
-   run for that checkout, but they are no longer the seed-green criterion for
-   those screens; the canonical-read APIs in step 11 are. After the cutover in
-   the ADR they are removed from `seed-closeout` entirely.
+   The retired screen projector commands are not a seed-green criterion and
+   must not be run to make dashboard pages look healthy. The canonical-read
+   APIs in step 11 are the proof.
 11. Verify Action Center buckets, shed status, execution rows, operations rows,
    next due dates, and capacity session splits through backend APIs using
    server-owned live time. Seed-green for these screens is the canonical-read

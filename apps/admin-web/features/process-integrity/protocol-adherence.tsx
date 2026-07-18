@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { Syringe, X } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
@@ -46,6 +46,20 @@ function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
   return labels;
 }
 
+function AdherenceInfo({ pageContract }: { pageContract: AdminUiPageContract }) {
+  return (
+    <details className="metric-help">
+      <summary aria-label={copy(pageContract, "adherence.help.aria")}>{copy(pageContract, "label.info_icon")}</summary>
+      <div className="metric-help-panel" role="note">
+        <b>{copy(pageContract, "adherence.help.title")}</b>
+        <span>{copy(pageContract, "adherence.help.window_prefix")}</span>
+        <span>{copy(pageContract, "adherence.help.formula")}</span>
+        <span>{copy(pageContract, "adherence.help.current_prefix")}</span>
+      </div>
+    </details>
+  );
+}
+
 function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string): string {
   return optionalCopy(pageContract, key) ?? fallback;
 }
@@ -69,6 +83,51 @@ function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string 
     default:
       return row.gap.replaceAll("_", " ");
   }
+}
+
+const VACCINE_CODE_COPY_KEYS: Array<[needle: string, copyKey: string]> = [
+  ["blue_tongue", "vaccine.blue_tongue"],
+  ["goat_pox", "vaccine.goat_pox"],
+  ["sheep_pox", "vaccine.sheep_pox"],
+  ["et_tt", "vaccine.et_tt"],
+  ["fmd", "vaccine.fmd"],
+  ["ppr", "vaccine.ppr"],
+  ["hs", "vaccine.hs"],
+];
+
+function readableAdherenceExpected(pageContract: AdminUiPageContract, raw: string): { title: string; detail: string } {
+  const withoutPrefix = raw.replace(/^Preventive Care Vaccination Matrix\s*/i, "").trim();
+  const code = withoutPrefix.match(/[a-z0-9]+(?:_[a-z0-9]+)+/i)?.[0]?.toLowerCase() ?? "";
+  const vaccineCopyKey = VACCINE_CODE_COPY_KEYS.find(([needle]) => code.includes(needle))?.[1] ?? "vaccine.generic";
+  const vaccine = copy(pageContract, vaccineCopyKey);
+  const path = code.includes("_kid_")
+    ? copy(pageContract, "schedule.kid_course")
+    : code.includes("_adult_")
+      ? copy(pageContract, "schedule.adult_course")
+      : copy(pageContract, "schedule.course");
+  const timing = readableScheduleTiming(pageContract, code);
+  const dueCount = raw.match(/:\s*(\d+)\s*(?:due|d\b)/i)?.[1];
+  const bits = [vaccine, path, timing].filter(Boolean);
+  return {
+    title: `${bits.join(" ")}${dueCount ? ` - ${dueCount} ${copy(pageContract, "label.due_lower")}` : ""}`,
+    detail: withoutPrefix || raw,
+  };
+}
+
+function readableAdherenceActual(pageContract: AdminUiPageContract, raw: string): string {
+  const text = raw.trim();
+  const deferred = text.match(/^(\d+)\s+deferred\/ex/i);
+  if (deferred) return `${deferred[1]} ${copy(pageContract, "actual.deferred_with_reason")}`;
+  if (text.toLowerCase() === "not completed") return copy(pageContract, "actual.not_completed_yet");
+  return text.replaceAll("_", " ");
+}
+
+function readableScheduleTiming(pageContract: AdminUiPageContract, code: string): string | undefined {
+  const match = code.match(/_(\d+)(w|m|yr)$/);
+  if (!match) return undefined;
+  const [, value, unit] = match;
+  const unitKey = unit === "w" ? "schedule.weeks" : unit === "m" ? "schedule.months" : "schedule.years";
+  return `${value} ${copy(pageContract, unitKey)}`;
 }
 
 function EvidenceCell({ evidence, pageContract }: { evidence: ProcessIntegrityEvidence; pageContract: AdminUiPageContract }) {
@@ -167,7 +226,10 @@ export async function ProtocolAdherencePage({
     <div className="screen on">
 	      <div className="phead">
 	        <div>
-	          <h1>{pageContract.title}</h1>
+	          <div className="title-with-help">
+	            <h1>{pageContract.title}</h1>
+	            <AdherenceInfo pageContract={pageContract} />
+	          </div>
 	          <div className="sub">{adherenceSubtitle(pageContract)}</div>
 	        </div>
 	      </div>
@@ -269,18 +331,21 @@ export async function ProtocolAdherencePage({
               ) : (
                 paged.items.map((row) => {
                   const href = rowDrawerHref(row);
+                  const expected = readableAdherenceExpected(pageContract, row.expected);
+                  const actual = readableAdherenceActual(pageContract, row.actual);
                   return (
                     <tr key={row.row_id}>
                       <td>
                         <Link href={href} className="celllink" scroll={false} title={row.expected}>
-                          <ClipText title={row.expected} className="strong">
-                            {row.expected}
+                          <ClipText title={expected.title} className="strong">
+                            {expected.title}
                           </ClipText>
+                          <span className="mt">{expected.detail}</span>
                         </Link>
                       </td>
                       <td className="muted">
                         <Link href={href} className="celllink" scroll={false} title={row.actual}>
-                          <ClipText title={row.actual}>{row.actual}</ClipText>
+                          <ClipText title={actual}>{actual}</ClipText>
                         </Link>
                       </td>
                       <td>
@@ -373,6 +438,8 @@ function AdherenceRecordDrawer({
   actionCenterHref: string;
   pageContract: AdminUiPageContract;
 }) {
+  const expected = readableAdherenceExpected(pageContract, row.expected);
+  const actual = readableAdherenceActual(pageContract, row.actual);
   return (
     <>
       <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false} />
@@ -383,7 +450,8 @@ function AdherenceRecordDrawer({
           </span>
           <div>
             <div className="mt">{copy(pageContract, "drawer.record.eyebrow")}</div>
-            <h2>{row.expected}</h2>
+            <h2>{expected.title}</h2>
+            <div className="mt">{expected.detail}</div>
           </div>
           <span className="sp" style={{ flex: 1 }} />
           <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false}>
@@ -394,11 +462,12 @@ function AdherenceRecordDrawer({
           <div className="metagrid">
             <div>
               <div className="k">{adherenceLedgerLabels(pageContract)[0]}</div>
-              <div className="v">{row.expected}</div>
+              <div className="v">{expected.title}</div>
+              <div className="mt">{row.expected}</div>
             </div>
             <div>
               <div className="k">{adherenceLedgerLabels(pageContract)[1]}</div>
-              <div className="v">{row.actual}</div>
+              <div className="v">{actual}</div>
             </div>
             <div>
               <div className="k">{adherenceLedgerLabels(pageContract)[2]}</div>

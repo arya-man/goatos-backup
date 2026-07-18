@@ -42,6 +42,46 @@ func TestSweeperSkipsSideEffectsWhenAttachClaimsNoRows(t *testing.T) {
 	}
 }
 
+func TestSweeperRollsBackShotCapClaimWhenAttachNoOps(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"version-noop": {
+				{ObligationID: "obl-noop", RuleID: "rule-noop", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due},
+			},
+			"version-valid": {
+				{ObligationID: "obl-valid", RuleID: "rule-valid", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due},
+			},
+		},
+		createBatchAttachedSeq: []int64{0, 1},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	cfg := SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 1},
+	}
+
+	first, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "version-noop", cfg, due, due, session)
+	if err != nil {
+		t.Fatalf("first SweepVersionWithSessionAsOf: %v", err)
+	}
+	if first.Obligations != 0 {
+		t.Fatalf("first result = %#v, want no attached obligations", first)
+	}
+	second, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "version-valid", cfg, due, due, session)
+	if err != nil {
+		t.Fatalf("second SweepVersionWithSessionAsOf: %v", err)
+	}
+	if second.Obligations != 1 {
+		t.Fatalf("second result = %#v, want later valid obligation to attach after rollback", second)
+	}
+	key := visitShotCountKey(due, "goat-1")
+	if session.visitShotCounts[key] != 1 {
+		t.Fatalf("shot count after no-op then attach = %d, want 1", session.visitShotCounts[key])
+	}
+}
+
 func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
@@ -104,7 +144,84 @@ func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
 	}
 }
 
-func TestSweeperGroupsByRuleAndDueDateAndReservesAgainstPlannedDate(t *testing.T) {
+func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
+	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA, WindowEnd: &windowEnd},
+			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB, WindowEnd: &windowEnd},
+		},
+		createBatchIDs: []string{"batch-a", "batch-b"},
+		attachAll:      true,
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	result, err := svc.SweepVersionAsOf(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SweepVersionAsOf: %v", err)
+	}
+	if result.Batches != 2 || result.Obligations != 2 {
+		t.Fatalf("result = %#v, want two separately planned batches", result)
+	}
+	if len(repo.createdBatches) != 2 {
+		t.Fatalf("created batches = %d, want 2", len(repo.createdBatches))
+	}
+	if repo.createdBatches[0].Session != "rule:rule-a" || repo.createdBatches[1].Session != "rule:rule-b" {
+		t.Fatalf("sessions = %q/%q, want rule sessions", repo.createdBatches[0].Session, repo.createdBatches[1].Session)
+	}
+	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-31" {
+		t.Fatalf("batch A planned date = %s, want 2026-08-31", got)
+	}
+	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-31" {
+		t.Fatalf("batch B planned date = %s, want 2026-08-31", got)
+	}
+	if reserver.calls != 2 {
+		t.Fatalf("reservation calls = %d, want 2", reserver.calls)
+	}
+	if got := validOnKeys(reserver.validOns); got != "2026-08-31,2026-08-31" {
+		t.Fatalf("reservation validOn dates = %s, want planned dates", got)
+	}
+}
+
+func TestSweeperDoesNotReserveNoWindowObligationsWeeksLate(t *testing.T) {
+	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA},
+			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB},
+		},
+		createBatchIDs: []string{"batch-a", "batch-b"},
+		attachAll:      true,
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	result, err := svc.SweepVersionAsOf(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SweepVersionAsOf: %v", err)
+	}
+	if result.Batches != 0 || result.Obligations != 0 {
+		t.Fatalf("result = %#v, want no late no-window work", result)
+	}
+	if len(repo.createdBatches) != 0 {
+		t.Fatalf("created batches = %d, want 0", len(repo.createdBatches))
+	}
+	if reserver.calls != 0 {
+		t.Fatalf("reservation calls = %d, want 0", reserver.calls)
+	}
+}
+
+func TestSweeperFutureHorizonDoesNotActAsOperationalDate(t *testing.T) {
 	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
 	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
@@ -126,13 +243,10 @@ func TestSweeperGroupsByRuleAndDueDateAndReservesAgainstPlannedDate(t *testing.T
 		t.Fatalf("SweepVersion: %v", err)
 	}
 	if result.Batches != 2 || result.Obligations != 2 {
-		t.Fatalf("result = %#v, want two separately planned batches", result)
+		t.Fatalf("result = %#v, want due rows batched under future horizon", result)
 	}
 	if len(repo.createdBatches) != 2 {
 		t.Fatalf("created batches = %d, want 2", len(repo.createdBatches))
-	}
-	if repo.createdBatches[0].Session != "rule:rule-a" || repo.createdBatches[1].Session != "rule:rule-b" {
-		t.Fatalf("sessions = %q/%q, want rule sessions", repo.createdBatches[0].Session, repo.createdBatches[1].Session)
 	}
 	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-14" {
 		t.Fatalf("batch A planned date = %s, want 2026-08-14", got)
@@ -143,17 +257,15 @@ func TestSweeperGroupsByRuleAndDueDateAndReservesAgainstPlannedDate(t *testing.T
 	if reserver.calls != 2 {
 		t.Fatalf("reservation calls = %d, want 2", reserver.calls)
 	}
-	if got := validOnKeys(reserver.validOns); got != "2026-08-14,2026-08-15" {
-		t.Fatalf("reservation validOn dates = %s, want planned dates", got)
-	}
 }
 
 func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
 	due := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
-			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: due},
-			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: due},
+			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: due, WindowEnd: &windowEnd},
+			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: due, WindowEnd: &windowEnd},
 		},
 		createBatchIDs: []string{"batch-a", "batch-b"},
 		attachAll:      true,
@@ -181,6 +293,51 @@ func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
 	}
 	if got := qtyKeys(reserver.quantities); got != "1,3" {
 		t.Fatalf("reservation quantities = %s, want per-rule doses", got)
+	}
+}
+
+func TestSweeperFinalizesRuleSpecificStockWithoutVersionStockItem(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-fmd",
+				RuleID:              "rule-fmd",
+				ScopeType:           "shed",
+				ScopeID:             "shed-1",
+				AttachedObligations: 2,
+				HasSOPTask:          true,
+			},
+			{
+				BatchID:             "batch-hs",
+				RuleID:              "rule-hs",
+				ScopeType:           "shed",
+				ScopeID:             "shed-1",
+				AttachedObligations: 3,
+				HasSOPTask:          true,
+			},
+		}},
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DosesPerGoat: 1,
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-fmd": {VaccineItemID: "item-fmd", DosesPerGoat: 1},
+			"rule-hs":  {VaccineItemID: "item-hs", DosesPerGoat: 2},
+		},
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if reserver.calls != 2 || reserver.batchCalls != 1 || repo.countBatchCalls != 1 {
+		t.Fatalf("stock finalization calls reserve=%d batchReserve=%d count=%d, want 2/1/1", reserver.calls, reserver.batchCalls, repo.countBatchCalls)
+	}
+	if got := strings.Join(reserver.itemIDs, ","); got != "item-fmd,item-hs" {
+		t.Fatalf("reservation item IDs = %s, want per-rule item-fmd,item-hs", got)
+	}
+	if got := qtyKeys(reserver.quantities); got != "2,6" {
+		t.Fatalf("reservation quantities = %s, want per-rule dose quantities 2,6", got)
 	}
 }
 
@@ -327,6 +484,155 @@ func TestSweepVersionWithSessionRetainsHighestPriorityPairNotArrivalOrder(t *tes
 	}
 	if dates["obl-fmd"] == "2026-07-01" {
 		t.Fatalf("dates=%#v, want lowest-priority FMD overflowed off 2026-07-01", dates)
+	}
+}
+
+func TestSweepVersionPrioritizesRuleVaccinesWithinSingleMatrix(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-matrix": {
+				{ObligationID: "obl-fmd", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+				{ObligationID: "obl-ettt", RuleID: "rule-ettt", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+				{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+			},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	_, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", "v-matrix", SweepConfig{
+		VaccineCode: "Matrix Version",
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxShotsPerAnimalPerDrive: 2,
+		},
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-fmd":  {VaccineCode: "FMD", VaccinePriority: 5},
+			"rule-ettt": {VaccineCode: "ET+TT", VaccinePriority: 1},
+			"rule-ppr":  {VaccineCode: "PPR", VaccinePriority: 2},
+		},
+	}, due, session)
+	if err != nil {
+		t.Fatalf("sweep matrix: %v", err)
+	}
+	dates := obligationIDPlannedDates(repo)
+	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want ET+TT and PPR retained on first drive", dates)
+	}
+	if dates["obl-fmd"] == "2026-07-01" {
+		t.Fatalf("dates=%#v, want lower-priority FMD overflowed off first drive", dates)
+	}
+}
+
+func TestSweepVersionSnapshotFallbackPrioritizesRuleVaccinesWithinSingleMatrix(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-fmd", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-ettt", RuleID: "rule-ettt", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+	}
+	baseRepo := &fakeSweepRepo{rows: rows, attachAll: true}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"v-matrix": {"obl-fmd", "obl-ettt", "obl-ppr"},
+	}}
+	cfg := SweepConfig{
+		VaccineCode: "Matrix Version",
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxShotsPerAnimalPerDrive: 2,
+		},
+		ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinShedDriveTargets: 10,
+			MinParkMergeTargets: 1,
+			MinParkMergeSheds:   2,
+		},
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-fmd":  {VaccineCode: "FMD", VaccinePriority: 5},
+			"rule-ettt": {VaccineCode: "ET+TT", VaccinePriority: 1},
+			"rule-ppr":  {VaccineCode: "PPR", VaccinePriority: 2},
+		},
+	}
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"v-matrix",
+		cfg,
+		due,
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Batches != 3 || result.Obligations != 3 {
+		t.Fatalf("result = %#v, want fallback to batch all three obligations", result)
+	}
+	dates := obligationIDPlannedDates(repo.fakeSweepRepo)
+	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want ET+TT and PPR retained on first fallback drive", dates)
+	}
+	if dates["obl-fmd"] == "2026-07-01" {
+		t.Fatalf("dates=%#v, want lower-priority FMD overflowed off first fallback drive", dates)
+	}
+}
+
+func TestSweepVersionSnapshotDrainsPartialShotCapLeftovers(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-capped", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-open", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-2", DueAt: due, WindowEnd: &winEnd},
+	}
+	baseRepo := &fakeSweepRepo{rows: rows, attachAll: true}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	key := visitShotCountKey(due, "goat-1")
+	session.claim(key, "ET+TT", 1)
+	session.claim(key, "PPR", 2)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"v-fmd": {"obl-capped", "obl-open"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"v-fmd",
+		SweepConfig{
+			VaccineCode: "FMD",
+			DrivePlanner: domain.DrivePlannerSettings{
+				Enabled:                   true,
+				MaxShotsPerAnimalPerDrive: 2,
+			},
+			ParkConsolidation: domain.ParkConsolidationSettings{Enabled: false},
+		},
+		due,
+		session,
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Obligations != 2 {
+		t.Fatalf("result = %#v, want both snapshot obligations drained", result)
+	}
+	dates := obligationIDPlannedDates(repo.fakeSweepRepo)
+	if dates["obl-open"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want open goat batched on original date", dates)
+	}
+	if dates["obl-capped"] != "2026-07-02" {
+		t.Fatalf("dates=%#v, want capped goat retried onto next safe date, not stranded", dates)
+	}
+	if len(repo.rows) != 0 {
+		t.Fatalf("remaining rows = %#v, want snapshot drained", repo.rows)
 	}
 }
 
@@ -583,6 +889,54 @@ func TestSweeperRetriesAndClearsBlockedBatchAfterStockRecovery(t *testing.T) {
 	}
 }
 
+func TestSweeperRetriesOnlyBlockedStockItemWhenBatchAlreadyHasReservation(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-1",
+				ScopeType:           "park",
+				ScopeID:             "park-1",
+				AttachedObligations: 3,
+				HasSOPTask:          true,
+				HasStockReservation: true,
+				StockBlocked:        true,
+				StockBlockItemID:    "item-hs",
+			},
+		}},
+		ruleCountsByBatch: map[string][]domain.RuleAttachmentCount{
+			"batch-1": {
+				{RuleID: "rule-fmd", Count: 2},
+				{RuleID: "rule-hs", Count: 1},
+			},
+		},
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DosesPerGoat: 1,
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-fmd": {VaccineItemID: "item-fmd", DosesPerGoat: 1},
+			"rule-hs":  {VaccineItemID: "item-hs", DosesPerGoat: 2},
+		},
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if reserver.calls != 1 || reserver.batchCalls != 1 || repo.countBatchCalls != 1 {
+		t.Fatalf("stock retry calls reserve=%d batchReserve=%d count=%d, want 1/1/1", reserver.calls, reserver.batchCalls, repo.countBatchCalls)
+	}
+	if got := strings.Join(reserver.itemIDs, ","); got != "item-hs" {
+		t.Fatalf("reservation item IDs = %s, want only blocked item-hs", got)
+	}
+	if got := qtyKeys(reserver.quantities); got != "2" {
+		t.Fatalf("reservation quantities = %s, want blocked item quantity 2", got)
+	}
+	if repo.clearStockBlockCalls != 1 {
+		t.Fatalf("clear stock block calls = %d, want 1", repo.clearStockBlockCalls)
+	}
+}
+
 func TestSweeperMarksExistingBatchBlockedWhenFinalizedReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		finalizationPages: [][]domain.PlannedBatchFinalization{{
@@ -636,6 +990,230 @@ func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
 	}
 }
 
+func TestSweepVersionSnapshotReadsCandidatesInBoundedChunks(t *testing.T) {
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
+		{ObligationID: "obl-3", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
+		{ObligationID: "obl-4", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
+		{ObligationID: "obl-5", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
+	}
+	baseRepo := &fakeSweepRepo{
+		rows:      rows,
+		attachAll: true,
+	}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	svc.SetPageSize(2)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"version-1": {"obl-1", "obl-2", "obl-3", "obl-4", "obl-5"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"version-1",
+		SweepConfig{ParkConsolidation: domain.ParkConsolidationSettings{Enabled: false}},
+		time.Now(),
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Batches != 1 || result.Obligations != 5 {
+		t.Fatalf("result = %#v, want one preserved group with five obligations", result)
+	}
+	wantSizes := []int{2, 2, 1}
+	if len(repo.snapshotListSizes) != len(wantSizes) {
+		t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+	}
+	for i := range wantSizes {
+		if repo.snapshotListSizes[i] != wantSizes[i] {
+			t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+		}
+	}
+	if got := repo.createdBatchObligationIDs; len(got) != 1 || len(got[0]) != 5 {
+		t.Fatalf("created batch ids = %#v, want one group containing all five snapshot rows", got)
+	}
+}
+
+func TestSweepVersionSnapshotFallbackReadsCandidatesInBoundedChunks(t *testing.T) {
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-3", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-4", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-5", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+	}
+	baseRepo := &fakeSweepRepo{
+		rows:      rows,
+		attachAll: true,
+	}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	svc.SetPageSize(2)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"version-1": {"obl-1", "obl-2", "obl-3", "obl-4", "obl-5"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"version-1",
+		SweepConfig{ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinShedDriveTargets: 10,
+			MinParkMergeTargets: 10,
+			MinParkMergeSheds:   10,
+		}},
+		time.Now(),
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Batches == 0 || result.Obligations == 0 {
+		t.Fatalf("result = %#v, want fallback to create at least one shed batch", result)
+	}
+	wantSizes := []int{2, 2, 1, 2, 2, 1}
+	if len(repo.snapshotListSizes) != len(wantSizes) {
+		t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+	}
+	for i := range wantSizes {
+		if repo.snapshotListSizes[i] != wantSizes[i] {
+			t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+		}
+	}
+	if wantParkSizes := []int{2, 2, 1}; len(repo.parkSnapshotListSizes) != len(wantParkSizes) {
+		t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+	} else {
+		for i := range wantParkSizes {
+			if repo.parkSnapshotListSizes[i] != wantParkSizes[i] {
+				t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+			}
+		}
+	}
+	if got := repo.createdBatchObligationIDs; len(got) == 0 {
+		t.Fatalf("created batch ids = %#v, want fallback to create a shed batch", got)
+	}
+}
+
+func TestSweepVersionSnapshotDoesNotLeakToFullHWMScanWhenNoParkCandidatesRemain(t *testing.T) {
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-raced", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-raced"},
+	}
+	baseRepo := &fakeSweepRepo{
+		rows:      rows,
+		attachAll: true,
+	}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	svc.SetPageSize(2)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"version-1": {"obl-1", "obl-2"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"version-1",
+		SweepConfig{ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinShedDriveTargets: 2,
+			MinParkMergeTargets: 2,
+			MinParkMergeSheds:   2,
+		}},
+		time.Now(),
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Batches != 1 || result.Obligations != 2 {
+		t.Fatalf("result = %#v, want only the two snapshot obligations batched", result)
+	}
+	for _, ids := range repo.createdBatchObligationIDs {
+		for _, id := range ids {
+			if id == "obl-raced" {
+				t.Fatalf("raced non-snapshot obligation was batched: %#v", repo.createdBatchObligationIDs)
+			}
+		}
+	}
+	wantSizes := []int{2, 0}
+	if len(repo.snapshotListSizes) != len(wantSizes) {
+		t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+	}
+	for i := range wantSizes {
+		if repo.snapshotListSizes[i] != wantSizes[i] {
+			t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+		}
+	}
+	wantParkSizes := []int{0}
+	if len(repo.parkSnapshotListSizes) != len(wantParkSizes) {
+		t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+	}
+	for i := range wantParkSizes {
+		if repo.parkSnapshotListSizes[i] != wantParkSizes[i] {
+			t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+		}
+	}
+}
+
+func TestPreflightSnapshotParkReplayReadsCandidatesInBoundedChunks(t *testing.T) {
+	due := time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-2", TargetID: "goat-2", DueAt: due},
+		{ObligationID: "obl-3", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-3", TargetID: "goat-3", DueAt: due},
+		{ObligationID: "obl-4", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-4", TargetID: "goat-4", DueAt: due},
+		{ObligationID: "obl-5", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-5", TargetID: "goat-5", DueAt: due},
+	}
+	parkRows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-1", RuleID: "rule-1", ParkID: "park-1", ShedID: "shed-1", TargetID: "goat-1", DueAt: due},
+		{ObligationID: "obl-2", RuleID: "rule-1", ParkID: "park-1", ShedID: "shed-2", TargetID: "goat-2", DueAt: due},
+		{ObligationID: "obl-3", RuleID: "rule-1", ParkID: "park-1", ShedID: "shed-3", TargetID: "goat-3", DueAt: due},
+		{ObligationID: "obl-4", RuleID: "rule-1", ParkID: "park-1", ShedID: "shed-4", TargetID: "goat-4", DueAt: due},
+		{ObligationID: "obl-5", RuleID: "rule-1", ParkID: "park-1", ShedID: "shed-5", TargetID: "goat-5", DueAt: due},
+	}
+	baseRepo := &fakeSweepRepo{rows: rows, parkRows: parkRows, attachAll: true}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	svc.SetPageSize(2)
+
+	_, err := svc.PreflightVisitShotCapTiesWithSnapshot(
+		context.Background(),
+		"tenant-1",
+		[]SweepVersionPriority{{VersionID: "version-1", Config: SweepConfig{ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinShedDriveTargets: 10,
+			MinParkMergeTargets: 10,
+			MinParkMergeSheds:   10,
+		}}}},
+		due,
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("PreflightVisitShotCapTiesWithSnapshot: %v", err)
+	}
+	wantParkSizes := []int{2, 2, 1}
+	if len(repo.parkSnapshotListSizes) != len(wantParkSizes) {
+		t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+	}
+	for i := range wantParkSizes {
+		if repo.parkSnapshotListSizes[i] != wantParkSizes[i] {
+			t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+		}
+	}
+}
+
 type fakeSweepRepo struct {
 	rows                      []domain.UnbatchedDue
 	rowsByVersion             map[string][]domain.UnbatchedDue // optional: per-version override for cross-version sweep tests
@@ -643,6 +1221,7 @@ type fakeSweepRepo struct {
 	createBatchID             string
 	createBatchIDs            []string
 	createBatchAttached       int64
+	createBatchAttachedSeq    []int64
 	attachAll                 bool
 	createBatchCalls          int
 	setTaskCalls              int
@@ -658,6 +1237,7 @@ type fakeSweepRepo struct {
 	finalizationPages         [][]domain.PlannedBatchFinalization
 	finalizationCalls         int
 	createdFinalization       []domain.PlannedBatchFinalization
+	ruleCountsByBatch         map[string][]domain.RuleAttachmentCount
 	parkListCalls             int
 	repeatParkPage            bool
 }
@@ -697,10 +1277,18 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.
 		batchID = f.createBatchIDs[idx]
 	}
 	attached := f.createBatchAttached
+	if idx := f.createBatchCalls - 1; idx >= 0 && idx < len(f.createBatchAttachedSeq) {
+		attached = f.createBatchAttachedSeq[idx]
+	}
 	if f.attachAll {
 		attached = int64(len(ids))
 	}
 	if attached > 0 {
+		attachedCount := int(attached)
+		if attachedCount > len(ids) {
+			attachedCount = len(ids)
+		}
+		f.removeAttachedObligations(ids[:attachedCount])
 		f.createdFinalization = append(f.createdFinalization, domain.PlannedBatchFinalization{
 			BatchID:             batchID,
 			RuleID:              ruleIDFromSession(in.Session),
@@ -712,6 +1300,43 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.
 		})
 	}
 	return batchID, attached, nil
+}
+
+func (f *fakeSweepRepo) removeAttachedObligations(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	attached := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		attached[id] = struct{}{}
+	}
+	f.rows = removeUnbatchedDueIDs(f.rows, attached)
+	for versionID, rows := range f.rowsByVersion {
+		f.rowsByVersion[versionID] = removeUnbatchedDueIDs(rows, attached)
+	}
+	f.parkRows = removeParkConsolidationIDs(f.parkRows, attached)
+}
+
+func removeUnbatchedDueIDs(rows []domain.UnbatchedDue, attached map[string]struct{}) []domain.UnbatchedDue {
+	out := rows[:0]
+	for _, row := range rows {
+		if _, ok := attached[row.ObligationID]; ok {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func removeParkConsolidationIDs(rows []domain.ParkConsolidationCandidate, attached map[string]struct{}) []domain.ParkConsolidationCandidate {
+	out := rows[:0]
+	for _, row := range rows {
+		if _, ok := attached[row.ObligationID]; ok {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func (f *fakeSweepRepo) SetBatchSOPTask(_ context.Context, _, _, taskID string) error {
@@ -770,6 +1395,25 @@ func (f *fakeSweepRepo) ListUnbatchedDueForVersion(_ context.Context, _, version
 	return f.rows, nil
 }
 
+type snapshotChunkFakeRepo struct {
+	*fakeSweepRepo
+	snapshotListSizes     []int
+	parkSnapshotListSizes []int
+}
+
+func (f *snapshotChunkFakeRepo) ListUnbatchedDueForVersionSnapshot(_ context.Context, _, versionID string, _ time.Time, limit int32, _ time.Time, candidateIDs []string) ([]domain.UnbatchedDue, error) {
+	f.snapshotListSizes = append(f.snapshotListSizes, len(candidateIDs))
+	rows := f.rows
+	if f.rowsByVersion != nil {
+		rows = f.rowsByVersion[versionID]
+	}
+	out := filterUnbatchedDueSnapshot(rows, candidateIDs)
+	if limit > 0 && int32(len(out)) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 func (f *fakeSweepRepo) ListUnbatchedShedDueForParkConsolidation(_ context.Context, _, _ string, _ time.Time, limit int32, after *domain.ParkConsolidationCursor) ([]domain.ParkConsolidationCandidate, error) {
 	f.parkListCalls++
 	if limit <= 0 {
@@ -801,7 +1445,21 @@ func (f *fakeSweepRepo) ListUnbatchedShedDueForParkConsolidation(_ context.Conte
 	return f.parkRows[start:end], nil
 }
 
+func (f *snapshotChunkFakeRepo) ListUnbatchedShedDueForParkConsolidationSnapshot(_ context.Context, _, _ string, _ time.Time, limit int32, _ *domain.ParkConsolidationCursor, _ time.Time, candidateIDs []string) ([]domain.ParkConsolidationCandidate, error) {
+	f.parkSnapshotListSizes = append(f.parkSnapshotListSizes, len(candidateIDs))
+	out := filterParkConsolidationSnapshot(f.parkRows, candidateIDs)
+	if limit > 0 && int32(len(out)) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 func (f *fakeSweepRepo) CountAttachedObligationsByRule(_ context.Context, _, batchID string) ([]domain.RuleAttachmentCount, error) {
+	if f.ruleCountsByBatch != nil {
+		if counts, ok := f.ruleCountsByBatch[batchID]; ok {
+			return counts, nil
+		}
+	}
 	for _, b := range f.createdFinalization {
 		if b.BatchID != batchID {
 			continue

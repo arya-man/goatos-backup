@@ -1,4 +1,5 @@
-// Package postgres implements vaccination-execution read-model projections over Postgres.
+// Package postgres implements canonical vaccination execution reads over Postgres.
+// projection-review: membership=tenant-scoped vaccination obligation/completion rows selected by each endpoint's date window and scope filter; group_key=endpoint-specific park/shed/stage/batch/rule/protocol grain carried through SQL comments below; join_cardinality=completion and terminal status history are pre-aggregated per obligation before joining and goat/location/protocol joins are keyed by tenant plus stable ids; pagination=all serving reads use keyset or bounded cohort pages with totals computed before page truncation; scope=tenant plus explicit park/shed filters resolved from canonical location ids.
 package postgres
 
 import (
@@ -104,8 +105,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	// list directly from the canonical obligation/completion/SOP tables via the keyset-paginated
 	// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
 	// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
-	// its read-through-vs-503 failure mode) is removed. The projection table + projector stay in the tree
-	// as additive read-through infrastructure for a later scale-out step. Freshness is nil (always current).
+	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
 		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
@@ -250,9 +250,8 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve operations
 	// directly from the canonical obligation/completion tables via the keyset-paginated
 	// vaccinationOperationsSQL instead of vaccination_operations_projection_rows. Canonical reads are never
-	// stale relative to the canonical write, so the serving-projection freshness gate is removed. The
-	// projection table + projector remain as additive read-through infrastructure for a later scale-out
-	// step. Freshness is nil (always current).
+	// stale relative to the canonical write, so the serving-projection freshness gate is removed.
+	// Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
 		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName)
 	if err != nil {
@@ -262,16 +261,112 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	return scanOperationsRows(rows, nil)
 }
 
+func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) ([]domain.OperationsRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	monthStart, monthEnd := scheduleMonthWindow(q.MonthStart)
+	asOf := time.Now().In(biztime.DefaultLocation())
+	rows, err := r.vaccinationScheduleWindowRows(ctx, q, monthStart, monthEnd, asOf, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *Repository) vaccinationScheduleWindowRows(ctx context.Context, q domain.ScheduleQuery, monthStart, monthEnd, asOf time.Time, limit int) ([]domain.OperationsRow, error) {
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = *q.ParkID
+	}
+	restrictParks := authorizedParkFilter(ctx, q.TenantID)
+	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorStage := "", "", "", "", ""
+	if q.Cursor != nil {
+		cursorParkID = q.Cursor.ParkID
+		cursorParkName = q.Cursor.ParkName
+		cursorShedID = q.Cursor.ShedID
+		cursorShedName = q.Cursor.ShedName
+		cursorStage = q.Cursor.Stage
+	}
+	rows, err := r.pool.Query(ctx, vaccinationScheduleWindowSQL, q.TenantID, asOf, monthStart, monthEnd, parkID,
+		cursorParkID, cursorShedID, cursorStage, cursorParkName, cursorShedName, limit, restrictParks)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: schedule source rows: %w", err)
+	}
+	defer rows.Close()
+	return scanOperationsRows(rows, nil)
+}
+
+func operationsRowsPage(rows []domain.OperationsRow, limit int) ([]domain.OperationsRow, *domain.OperationsCursor) {
+	if limit <= 0 {
+		limit = 500
+	}
+	out := make([]domain.OperationsRow, 0, len(rows))
+	currentKey := ""
+	cohorts := 0
+	var lastVisible *domain.OperationsRow
+	for _, row := range rows {
+		key := scheduleCohortKey(row)
+		if key != currentKey {
+			currentKey = key
+			cohorts++
+			if cohorts > limit {
+				if lastVisible == nil {
+					return out, nil
+				}
+				cursor := operationsCursorFromRow(*lastVisible)
+				return out, &cursor
+			}
+		}
+		rowCopy := row
+		out = append(out, rowCopy)
+		lastVisible = &rowCopy
+	}
+	return out, nil
+}
+
+func scheduleCohortKey(row domain.OperationsRow) string {
+	return row.ParkID + "|" + row.ShedID + "|" + row.Stage
+}
+
+func operationsCursorFromRow(row domain.OperationsRow) domain.OperationsCursor {
+	return domain.OperationsCursor{
+		ParkID:   row.ParkID,
+		ParkName: row.ParkName,
+		ShedID:   row.ShedID,
+		ShedName: row.ShedName,
+		Stage:    row.Stage,
+	}
+}
+
+func scheduleMonthWindow(anchor time.Time) (time.Time, time.Time) {
+	if anchor.IsZero() {
+		anchor = time.Now().In(biztime.DefaultLocation())
+	}
+	local := anchor.In(biztime.DefaultLocation())
+	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, biztime.DefaultLocation())
+	end := start.AddDate(0, 1, 0).Add(-time.Nanosecond)
+	return start, end
+}
+
 func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([]domain.OperationsRow, error) {
 	out := []domain.OperationsRow{}
 	for rows.Next() {
 		var row domain.OperationsRow
 		var ageBand pgtype.Text
 		var nextDue, lastDose pgtype.Timestamptz
+		var vaccineNames []string
 		var animals, overdue, due, inProgress, scheduled, missed, deferred, accepted, proofPending, rejected, total int64
 		if err := rows.Scan(
 			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Stage, &ageBand,
 			&row.ProtocolID, &row.ProtocolName, &animals, &nextDue, &lastDose,
+			&vaccineNames,
 			&overdue, &due, &inProgress, &scheduled, &missed, &deferred, &accepted, &proofPending, &rejected, &total,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan operations: %w", err)
@@ -280,6 +375,10 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 		row.NextDue = timePtr(nextDue)
 		row.LastDose = timePtr(lastDose)
 		row.Animals = int(animals)
+		if vaccineNames == nil {
+			vaccineNames = []string{}
+		}
+		row.VaccineNames = vaccineNames
 		row.OverdueCount = int(overdue)
 		row.DueCount = int(due)
 		row.InProgressCount = int(inProgress)
@@ -298,7 +397,6 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 	}
 	return out, nil
 }
-
 
 // VaccinationGaps returns the bounded, keyset-paginated per-animal exclusion rows (missing date of
 // birth / breed) for a tenant, optionally scoped to one park. Ordered and cursor-paginated by goat_id
@@ -346,6 +444,215 @@ func (r *Repository) VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([
 	}
 	return out, nil
 }
+
+const vaccinationScheduleWindowSQL = `
+-- projection-review: membership=obligation_instances whose due_at or accepted completion falls inside the requested month window; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name) with month-window due/accepted membership applied before cohort pagination; join_cardinality=completions/asof_terminal are pre-aggregated one row per obligation and goat/location/protocol joins are keyed 1:1, while COUNT(DISTINCT goat_id) protects animal counts from multi-vaccine one-to-many obligations; pagination=cohort_page keysets groups before the final aggregate so page boundaries never truncate a cohort or change total_count; scope=tenant plus optional park filter resolved through raw.direct_park_uuid or the shed parent, with status buckets derived from as_of-effective eff_status.
+WITH completions AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC))[1] AS effective_status,
+    MAX(administered_at) FILTER (WHERE asof_status = 'accepted') AS last_accepted_at
+  FROM (
+    SELECT
+      obligation_id, administered_at, created_at,
+      CASE
+        WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $2::timestamptz THEN 'recorded'
+        ELSE status
+      END AS asof_status
+    FROM vaccination_completions
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, created_at) <= $2::timestamptz
+  ) c
+  GROUP BY obligation_id
+),
+asof_terminal AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $2::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND event_type IN ('missed', 'waived', 'deferred')
+  GROUP BY obligation_id
+),
+raw AS (
+  SELECT
+    oi.obligation_id,
+    oi.rule_id,
+    oi.due_at,
+    oi.window_start,
+    oi.window_end,
+    oi.completed_at,
+    oi.status AS stored_status,
+    te.asof_terminal_type,
+    te.has_terminal_event,
+    pd.protocol_id,
+    pd.name AS protocol_name,
+    COALESCE(
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'display_name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+      NULLIF(pr.dose_code, '')
+    ) AS vaccine_name,
+    g.age_band,
+    COALESCE(NULLIF(g.management_stage, ''), 'Unknown') AS stage,
+    oi.target_id AS goat_id,
+    g.shed_id AS shed_uuid,
+    g.park_id AS direct_park_uuid,
+    c.effective_status AS completion_status,
+    c.last_accepted_at
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
+  LEFT JOIN goats g
+    ON oi.target_type = 'goat'
+   AND g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+  LEFT JOIN completions c
+    ON c.obligation_id = oi.obligation_id
+  LEFT JOIN asof_terminal te
+    ON te.obligation_id = oi.obligation_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    AND (
+      oi.due_at <= $4::timestamptz
+      OR c.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz
+    )
+),
+located AS (
+  SELECT
+    raw.*,
+    COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
+    CASE
+      WHEN raw.due_at < $2::timestamptz THEN 'overdue'
+      WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      ELSE 'scheduled'
+    END AS open_bucket
+  FROM raw
+  LEFT JOIN locations shed_loc
+    ON shed_loc.tenant_id = $1::uuid
+   AND shed_loc.location_id = raw.shed_uuid
+   AND shed_loc.location_type = 'shed'
+  WHERE raw.shed_uuid IS NOT NULL
+),
+effective AS (
+  SELECT
+    located.*,
+    CASE
+      WHEN located.stored_status = 'completed' THEN
+        CASE
+          WHEN located.completed_at IS NOT NULL AND located.completed_at <= $2::timestamptz THEN 'completed'
+          WHEN located.completed_at IS NULL AND located.completion_status IS NOT NULL THEN 'completed'
+          ELSE located.open_bucket
+        END
+      WHEN located.stored_status IN ('missed', 'waived', 'deferred') THEN
+        CASE
+          WHEN located.asof_terminal_type IS NOT NULL THEN located.asof_terminal_type
+          WHEN located.has_terminal_event THEN located.open_bucket
+          ELSE located.stored_status
+        END
+      WHEN located.stored_status = 'in_progress' THEN 'in_progress'
+      ELSE located.open_bucket
+    END AS eff_status,
+    (located.due_at BETWEEN $3::timestamptz AND $4::timestamptz) AS due_in_window,
+    (located.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz) AS accepted_in_window
+  FROM located
+),
+windowed AS (
+  SELECT *
+  FROM effective
+  WHERE park_uuid IS NOT NULL
+    AND (due_in_window OR accepted_in_window)
+    AND ($5::text = '' OR park_uuid = NULLIF($5, '')::uuid)
+    AND ($12::uuid[] IS NULL OR park_uuid = ANY($12::uuid[]))
+),
+cohort_page AS (
+  SELECT windowed.park_uuid, windowed.shed_uuid, windowed.stage
+  FROM windowed
+  JOIN locations shed
+    ON shed.tenant_id = $1::uuid
+   AND shed.location_id = windowed.shed_uuid
+   AND shed.location_type = 'shed'
+   AND shed.status = 'active'
+  JOIN locations park
+    ON park.tenant_id = $1::uuid
+   AND park.location_id = windowed.park_uuid
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  WHERE (
+    NULLIF($6::text, '') IS NULL
+    OR (park.name, shed.name, windowed.stage, windowed.park_uuid, windowed.shed_uuid) >
+       ($9::text, $10::text, $8::text, NULLIF($6::text, '')::uuid, NULLIF($7::text, '')::uuid)
+  )
+  GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage
+  ORDER BY park.name, shed.name, windowed.stage, windowed.park_uuid, windowed.shed_uuid
+  LIMIT $11::int
+)
+SELECT
+  windowed.park_uuid,
+  park.name AS park_name,
+  windowed.shed_uuid,
+  shed.name AS shed_name,
+  windowed.stage,
+  (ARRAY_AGG(windowed.age_band) FILTER (WHERE windowed.age_band IS NOT NULL))[1] AS age_band,
+  windowed.protocol_id,
+  windowed.protocol_name,
+  COUNT(DISTINCT windowed.goat_id)::bigint AS animals,
+  MIN(windowed.due_at) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
+  MAX(windowed.last_accepted_at) FILTER (WHERE windowed.accepted_in_window) AS last_dose,
+  COALESCE(
+    ARRAY_REMOVE(
+      ARRAY_AGG(DISTINCT windowed.vaccine_name ORDER BY windowed.vaccine_name)
+        FILTER (WHERE windowed.vaccine_name IS NOT NULL AND windowed.vaccine_name <> ''),
+      NULL
+    ),
+    ARRAY[]::text[]
+  ) AS vaccine_names,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'overdue')::bigint AS overdue_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'due')::bigint AS due_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'in_progress')::bigint AS in_progress_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'scheduled')::bigint AS scheduled_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'missed')::bigint AS missed_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('waived', 'deferred'))::bigint AS deferred_count,
+  COUNT(*) FILTER (WHERE windowed.eff_status = 'completed' AND windowed.completion_status = 'accepted' AND (windowed.due_in_window OR windowed.accepted_in_window))::bigint AS accepted_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.completion_status = 'recorded')::bigint AS proof_pending_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.completion_status = 'rejected')::bigint AS rejected_count,
+  COUNT(*)::bigint AS total_count
+FROM windowed
+JOIN cohort_page page
+  ON page.park_uuid = windowed.park_uuid
+ AND page.shed_uuid = windowed.shed_uuid
+ AND page.stage = windowed.stage
+JOIN locations shed
+  ON shed.tenant_id = $1::uuid
+ AND shed.location_id = windowed.shed_uuid
+ AND shed.location_type = 'shed'
+ AND shed.status = 'active'
+JOIN locations park
+  ON park.tenant_id = $1::uuid
+ AND park.location_id = windowed.park_uuid
+ AND park.location_type = 'park'
+ AND park.status = 'active'
+GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage, windowed.protocol_id, windowed.protocol_name
+ORDER BY
+  park.name COLLATE "C" ASC, windowed.park_uuid ASC,
+  shed.name COLLATE "C" ASC, windowed.shed_uuid ASC,
+  windowed.stage COLLATE "C" ASC,
+  windowed.protocol_name COLLATE "C" ASC, windowed.protocol_id ASC;`
 
 const zeroUUID = "00000000-0000-0000-0000-000000000000"
 
@@ -415,6 +722,14 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
+func timeStringPtr(v pgtype.Timestamptz) *string {
+	if !v.Valid {
+		return nil
+	}
+	s := v.Time.Format(time.RFC3339)
+	return &s
+}
+
 func int32Ptr(v pgtype.Int4) *int32 {
 	if !v.Valid || v.Int32 <= 0 {
 		return nil
@@ -423,7 +738,6 @@ func int32Ptr(v pgtype.Int4) *int32 {
 	return &i
 }
 
-
 // vaccinationExecutionSQL is point-in-time correct as of $7 (as_of): completions are bounded by as_of and
 // the obligation bucket is reconstructed AT as_of (completed via completed_at/as_of-bounded completion;
 // missed/waived/deferred via the obligation_status_events log; scheduled/due/overdue from due_at/window) rather than
@@ -431,6 +745,7 @@ func int32Ptr(v pgtype.Int4) *int32 {
 // sop_tasks.state / obligation_batches.status stay current-state.
 //
 // This is now the request-path serving read (ListVaccinationExecutionPage), not only the projector replay.
+// projection-review: membership=obligation_instances rows for one tenant due by $4, joined to obligation_batches by batch_id so batched rows use the canonical batch planned_date while unbatched rows fall back to obligation due_at; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_name, dose_code); join_cardinality=each obligation has at most one batch/task/goat row, vaccination_completions is filtered to the as_of-bounded effective row per obligation through the obligation_id join, and grouped COUNT/ARRAY_AGG operate on obligation grain so target counts cannot fan out; pagination=classified rows are keyset paginated after grouped aggregation with total_count over the full filtered set; scope=park/shed filters are resolved through located.park_uuid/shed_uuid with tenant scoping and status buckets from as_of-effective eff_status/work_state.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 rows) canonical execution list, query-plan-tested (canonical_read_plan_test.go).
 const vaccinationExecutionSQL = `
 WITH asof_terminal AS (
@@ -465,6 +780,7 @@ raw AS (
     te.has_terminal_event,
     pr.dose_code,
     pd.name AS protocol_name,
+    ob.planned_date::timestamptz AS batch_planned_at,
     ob.status AS batch_status,
     ob.conducted_by,
     st.state AS task_state,
@@ -537,22 +853,23 @@ located AS (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
+    COALESCE(raw.batch_planned_at, raw.due_at) AS execution_due_at,
     -- as_of-effective obligation status (reconstructed AT as_of, not the current stored status).
     CASE
       WHEN raw.obligation_status = 'completed' THEN
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $7::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
@@ -561,6 +878,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply target counts; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -569,7 +887,7 @@ grouped AS (
     located.rule_id,
     located.protocol_name,
     located.dose_code,
-    MIN(located.due_at) AS due_at,
+    MIN(located.execution_due_at) AS due_at,
     COUNT(*)::bigint AS obligation_count,
     -- Bucket counts use the as_of-effective status; completion counts below use the as_of-bounded vc join.
     COUNT(*) FILTER (WHERE located.eff_status = 'scheduled')::bigint AS scheduled_count,
@@ -592,7 +910,7 @@ grouped AS (
         WHEN 'canceled' THEN 4
         ELSE 5
       END,
-      located.due_at DESC NULLS LAST
+      located.execution_due_at DESC NULLS LAST
     ) FILTER (WHERE located.batch_status IS NOT NULL))[1] AS batch_status,
     (ARRAY_AGG(located.task_state ORDER BY
       CASE located.task_state
@@ -604,7 +922,7 @@ grouped AS (
         WHEN 'accepted' THEN 5
         ELSE 6
       END,
-      located.due_at DESC NULLS LAST
+      located.execution_due_at DESC NULLS LAST
     ) FILTER (WHERE located.task_state IS NOT NULL))[1] AS task_state,
     COALESCE(
       (ARRAY_AGG(operator.display_name ORDER BY
@@ -613,7 +931,7 @@ grouped AS (
           WHEN located.assigned_to IS NOT NULL THEN 1
           ELSE 2
         END,
-        located.due_at DESC NULLS LAST,
+        located.execution_due_at DESC NULLS LAST,
         operator.updated_at DESC NULLS LAST,
         operator.workforce_member_id DESC
       ) FILTER (WHERE operator.display_name IS NOT NULL))[1],
@@ -623,7 +941,7 @@ grouped AS (
           WHEN default_operator.primary_location_id = located.park_uuid THEN 1
           ELSE 2
         END,
-        located.due_at DESC NULLS LAST,
+        located.execution_due_at DESC NULLS LAST,
         default_operator.updated_at DESC NULLS LAST,
         default_operator.workforce_member_id DESC
       ) FILTER (WHERE default_operator.display_name IS NOT NULL))[1]
@@ -631,13 +949,13 @@ grouped AS (
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::bigint AS health_deferred_count,
-    (ARRAY_AGG(located.obligation_id ORDER BY located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
-    (ARRAY_AGG(located.sop_task_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
-    (ARRAY_AGG(located.sop_version_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_version_id IS NOT NULL))[1]::text AS sop_version_id,
-    (ARRAY_AGG(located.sop_task_row_version ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
-    (ARRAY_AGG(located.completion_id ORDER BY located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
+    (ARRAY_AGG(located.obligation_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
+    (ARRAY_AGG(located.sop_task_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
+    (ARRAY_AGG(located.sop_version_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_version_id IS NOT NULL))[1]::text AS sop_version_id,
+    (ARRAY_AGG(located.sop_task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
+    (ARRAY_AGG(located.completion_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
   FROM located
   JOIN locations shed
     ON shed.tenant_id = $1::uuid
@@ -831,7 +1149,6 @@ ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
 LIMIT ($5::int + 1);
 `
 
-
 // vaccinationOperationsSQL is point-in-time correct as of $2 (as_of). It does NOT bucket off the stored
 // obligation_instances.status (which is the state NOW); it reconstructs the state the obligation had AT
 // as_of so a transition recorded after as_of is not treated as already true:
@@ -921,6 +1238,7 @@ asof_terminal AS (
 raw AS (
   SELECT
     oi.obligation_id,
+    oi.rule_id,
     oi.due_at,
     oi.window_start,
     oi.window_end,
@@ -930,6 +1248,12 @@ raw AS (
     te.has_terminal_event,
     pd.protocol_id,
     pd.name AS protocol_name,
+    COALESCE(
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'display_name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+      NULLIF(pr.dose_code, '')
+    ) AS vaccine_name,
     g.age_band,
     COALESCE(NULLIF(g.management_stage, ''), 'Unknown') AS stage,
     oi.target_id AS goat_id,
@@ -945,6 +1269,9 @@ raw AS (
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
    AND pd.category = 'vaccination'
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
   LEFT JOIN goats g
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
@@ -1047,6 +1374,14 @@ SELECT
   COUNT(DISTINCT effective.goat_id)::bigint AS animals,
   MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
   MAX(effective.last_accepted_at) AS last_dose,
+  COALESCE(
+    ARRAY_REMOVE(
+      ARRAY_AGG(DISTINCT effective.vaccine_name ORDER BY effective.vaccine_name)
+        FILTER (WHERE effective.vaccine_name IS NOT NULL AND effective.vaccine_name <> ''),
+      NULL
+    ),
+    ARRAY[]::text[]
+  ) AS vaccine_names,
   COUNT(*) FILTER (WHERE effective.eff_status = 'overdue')::bigint AS overdue_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'due')::bigint AS due_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'in_progress')::bigint AS in_progress_count,
@@ -1758,7 +2093,11 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 	if q.Cursor != nil && *q.Cursor != "" {
 		cursor = *q.Cursor
 	}
-	rows, err := r.pool.Query(ctx, shedAnimalListSQL, q.TenantID, q.ShedID, cursor, limit)
+	asOf := q.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	rows, err := r.pool.Query(ctx, shedAnimalListSQL, q.TenantID, q.ShedID, cursor, limit, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: shed animals: %w", err)
 	}
@@ -1766,14 +2105,18 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 	out := []domain.ShedAnimalRow{}
 	for rows.Next() {
 		var row domain.ShedAnimalRow
-		var tag1, tag2, breed, age pgtype.Text
-		if err := rows.Scan(&row.GoatID, &row.DisplayID, &tag1, &tag2, &breed, &row.Sex, &age, &row.Status); err != nil {
+		var tag1, tag2, breed, age, health pgtype.Text
+		var lastDose, nextDue pgtype.Timestamptz
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &tag1, &tag2, &breed, &row.Sex, &age, &row.Lifecycle, &health, &lastDose, &nextDue, &row.Status); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed animals: %w", err)
 		}
 		row.Tag1 = textPtr(tag1)
 		row.Tag2 = textPtr(tag2)
 		row.Breed = textPtr(breed)
 		row.Age = textPtr(age)
+		row.Health = textPtr(health)
+		row.LastDose = timeStringPtr(lastDose)
+		row.NextDue = timeStringPtr(nextDue)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -1784,8 +2127,9 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 
 // shedAnimalListSQL is a bounded keyset scan of alive goats in one shed (goat_id > $3 drives the
 // PK-ordered window, LIMIT bounds the page). Display ID + both tag identities are returned as-is; a null
-// tag becomes NULL -> the UI renders "-", never a "missing id" badge. status is 'due' when the animal
-// has any actionable-now vaccination obligation, else 'done'.
+// tag becomes NULL -> the UI renders "-", never a "missing id" badge. Last dose is the latest accepted
+// vaccination completion; next due is the earliest open vaccination obligation date. status describes
+// current vaccination work, not animal health or lifecycle.
 const shedAnimalListSQL = `
 SELECT
   g.goat_id::text,
@@ -1796,27 +2140,20 @@ SELECT
   g.sex,
   CASE
     WHEN g.dob IS NOT NULL THEN
-      floor(extract(epoch FROM (now() - g.dob::timestamptz)) / 86400)::int::text || 'd'
+      floor(extract(epoch FROM ($5::timestamptz - g.dob::timestamptz)) / 86400)::int::text || 'd'
     ELSE NULLIF(g.age_band, '')
   END AS age,
+  g.lifecycle_status,
+  NULLIF(g.health_status, '') AS health_status,
+  vhist.last_dose,
+  vnext.next_due,
   CASE
-    WHEN EXISTS (
-      SELECT 1
-      FROM obligation_instances oi
-      JOIN protocol_versions pv
-        ON pv.tenant_id = oi.tenant_id
-       AND pv.protocol_version_id = oi.protocol_version_id
-      JOIN protocol_definitions pd
-        ON pd.tenant_id = pv.tenant_id
-       AND pd.protocol_id = pv.protocol_id
-       AND pd.category = 'vaccination'
-      WHERE oi.tenant_id = g.tenant_id
-        AND oi.target_type = 'goat'
-        AND oi.target_id = g.goat_id
-        AND ( oi.status IN ('due', 'in_progress')
-              OR (oi.status = 'scheduled' AND oi.due_at <= now()) )
-    ) THEN 'due'
-    ELSE 'done'
+    WHEN g.lifecycle_status <> 'alive' THEN g.lifecycle_status
+    WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu') THEN g.health_status
+    WHEN vnext.actionable_now THEN 'due'
+    WHEN vnext.next_due IS NOT NULL THEN 'scheduled'
+    WHEN vhist.last_dose IS NOT NULL THEN 'up_to_date'
+    ELSE 'no_record'
   END AS status
 FROM goats g
 LEFT JOIN goat_identifiers aid1
@@ -1831,9 +2168,32 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.status = 'active'
 LEFT JOIN breeds b
   ON b.breed_id = g.breed_id
+LEFT JOIN LATERAL (
+  SELECT MAX(vc.administered_at) AS last_dose
+  FROM vaccination_completions vc
+  WHERE vc.tenant_id = g.tenant_id
+    AND vc.goat_id = g.goat_id
+    AND vc.status = 'accepted'
+) vhist ON true
+LEFT JOIN LATERAL (
+  SELECT
+    MIN(oi.due_at) AS next_due,
+    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND oi.due_at <= $5::timestamptz)) AS actionable_now
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  WHERE oi.tenant_id = g.tenant_id
+    AND oi.target_type = 'goat'
+    AND oi.target_id = g.goat_id
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+) vnext ON true
 WHERE g.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
-  AND g.lifecycle_status = 'alive'
   AND g.merged_into_goat_id IS NULL
   AND g.goat_id > $3::uuid
 ORDER BY g.goat_id ASC

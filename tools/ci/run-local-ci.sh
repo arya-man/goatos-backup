@@ -9,6 +9,7 @@
 # Mirrors ci.yml:
 #   job `common`      -> repository/agent/contract/large-file/diff guards
 #   job `backend`     -> backend/kernel/scale/E2E/Go/sqlc/migration gates
+#   job `query-plans` -> mandatory PostgreSQL production-query plan gates
 #   job `admin-web`   -> lint, typecheck, mock-fidelity, request-plan, build
 #   job `android`     -> mobile static guards + :app compile/unit gate
 #
@@ -16,6 +17,7 @@
 #   tools/ci/run-local-ci.sh             # auto: common + affected components
 #   tools/ci/run-local-ci.sh all         # force every component job
 #   tools/ci/run-local-ci.sh backend     # one partial job (no push receipt)
+#   tools/ci/run-local-ci.sh query-plans # one required DB-plan job (no push receipt)
 #   tools/ci/run-local-ci.sh guardrails  # compatibility: common + backend + mobile static guards
 #   GOATOS_RUN_POSTGRES_TESTS=1 tools/ci/run-local-ci.sh  # explicit DB/Docker opt-in
 set -uo pipefail
@@ -96,9 +98,11 @@ run_backend() {
   step "scale-guard"              make scale-guard
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
+  step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
   step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard
+  step "stg-disposable-topology-guard" make stg-disposable-topology-guard
   step "secret-accessors-guard"   make secret-accessors-guard
   step "worker-stage-budgets-guard" make worker-stage-budgets-guard
   if postgres_tests_enabled; then
@@ -111,6 +115,7 @@ run_backend() {
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
   step "config-validate-guard"    make config-validate-guard
   step "seed-migration-guard"     make seed-migration-guard
+  step "vaccination-schedule-canonical-guard" make vaccination-schedule-canonical-guard
   step "india-date-guard"         make india-date-guard
   step "local-single-db-guard"    make local-single-db-guard
   if postgres_tests_enabled; then
@@ -123,12 +128,17 @@ run_backend() {
   fi
   if postgres_tests_enabled; then
     step "sqlc-check (explicit Postgres opt-in)" make sqlc-check
-    step "validate-sqlc-plans (explicit Postgres opt-in)" make validate-sqlc-plans
     step "validate-migrations (explicit Postgres opt-in)" make validate-migrations
   else
-    RESULTS+=("SKIP  Postgres sqlc/query-plan/migration integration gates (explicit opt-in required)")
-    echo "── ci-local: Postgres sqlc/query-plan/migration gates SKIPPED by default"
+	RESULTS+=("SKIP  Postgres sqlc/migration integration gates (explicit opt-in required)")
+	echo "── ci-local: Postgres sqlc/migration gates SKIPPED by default"
   fi
+}
+
+run_query_plans() {
+  # Required for every backend diff. This deliberately stays outside the broad Postgres/E2E opt-in:
+  # index regressions in production queries must fail ordinary PR, push, and local landing CI.
+  step "required PostgreSQL query plans" make validate-sqlc-plans
 }
 
 run_admin_web() {
@@ -140,6 +150,7 @@ run_admin_web() {
   step "admin-web unit tests"    npm --prefix apps/admin-web run test
   step "telemetry-guard"         make telemetry-guard
   step "admin-web request reads" make admin-web-request-reads-guard
+  step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
@@ -178,6 +189,7 @@ run_job() {
   case "$1" in
     common)    run_common ;;
     backend)   run_backend ;;
+    query-plans) run_query_plans ;;
     admin-web) run_admin_web ;;
     android)   run_android ;;
     *) echo "unknown selected CI job: $1"; exit 2 ;;
@@ -203,15 +215,16 @@ case "$only" in
     ;;
   common)      run_common ;;
   backend)     run_backend ;;
+  query-plans) run_query_plans ;;
   guardrails) run_guardrails ;;
   admin-web)  run_admin_web ;;
   android)    run_android ;;
   all)
-    run_common; run_backend; run_admin_web; run_android
+	run_common; run_backend; run_query_plans; run_admin_web; run_android
     receipt_mode="all"
-    receipt_jobs="common,backend,admin-web,android"
+	receipt_jobs="common,backend,query-plans,admin-web,android"
     ;;
-  *) echo "unknown job/mode: $only (auto|common|backend|guardrails|admin-web|android|all)"; exit 2 ;;
+	*) echo "unknown job/mode: $only (auto|common|backend|query-plans|guardrails|admin-web|android|all)"; exit 2 ;;
 esac
 
 echo ""

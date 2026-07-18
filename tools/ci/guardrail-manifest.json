@@ -22,7 +22,7 @@
       "script": "tools/ci/check-local-ci-evidence.mjs",
       "makeTarget": "local-ci-evidence-guard",
       "realCheck": "node tools/ci/check-local-ci-evidence.mjs --verify",
-      "selfTest": "node tools/ci/check-local-ci-evidence.mjs --self-test",
+      "selfTest": "node tools/ci/check-local-ci-evidence.mjs --self-test && bash tools/ci/land-main.test.sh",
       "owningDoc": "docs/runbooks/local-release-evidence.md",
       "requiredInCI": true,
       "ciStep": "local-ci-evidence-guard"
@@ -168,6 +168,16 @@
       "ciStep": "seed-migration-guard"
     },
     {
+      "id": "vaccination-schedule-canonical",
+      "script": "tools/agent-hooks/check-vaccination-schedule-canonical.mjs",
+      "makeTarget": "vaccination-schedule-canonical-guard",
+      "realCheck": "node tools/agent-hooks/check-vaccination-schedule-canonical.mjs",
+      "selfTest": "node tools/agent-hooks/check-vaccination-schedule-canonical.mjs --self-test",
+      "owningDoc": "docs/decisions/operational-kernel-5k-50k-scale-envelope.md",
+      "requiredInCI": true,
+      "ciStep": "vaccination-schedule-canonical-guard"
+    },
+    {
       "id": "india-business-date",
       "script": "tools/agent-hooks/check-india-business-date.mjs",
       "makeTarget": "india-date-guard",
@@ -198,6 +208,16 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-camera-only-proof-capture",
+      "script": "tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test",
+      "owningDoc": "docs/mobile/proof-video-verification-flow.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
       "id": "admin-web-request-reads",
       "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
       "makeTarget": "admin-web-request-reads-guard",
@@ -206,6 +226,16 @@
       "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
       "requiredInCI": true,
       "ciStep": "admin-web-request-reads-guard"
+    },
+    {
+      "id": "admin-web-prefetch",
+      "script": "tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "makeTarget": "admin-web-prefetch-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-prefetch-guard"
     },
     {
       "id": "android-bounded-memory",
@@ -269,7 +299,18 @@
       "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
       "requiredInCI": true,
       "ciStep": "kernel-worker-cutover-guard",
-      "notes": "KERN-01: asserts exactly one active owner per stage in every terraform phase — legacy jobs (gated present when retire_legacy_stage_jobs=false) and worker stages (GOATOS_WORKER_STAGES_ENABLED bound to the same flag) are mutually exclusive. Standing static check; runs on every guardrails pass."
+      "notes": "KERN-01: asserts exactly one active owner per stage while dev remains on the transitional flag. Staging's completed cutover is covered by stg-disposable-topology."
+    },
+    {
+      "id": "stg-disposable-topology",
+      "script": "tools/agent-hooks/check-stg-disposable-topology.mjs",
+      "makeTarget": "stg-disposable-topology-guard",
+      "realCheck": "node tools/agent-hooks/check-stg-disposable-topology.mjs",
+      "selfTest": "node tools/agent-hooks/check-stg-disposable-topology.mjs --self-test",
+      "owningDoc": "docs/decisions/operational-kernel-5k-50k-scale-envelope.md",
+      "requiredInCI": true,
+      "ciStep": "stg-disposable-topology-guard",
+      "notes": "Final staging topology: no Scheduler resources or transitional flag, one enabled kernel-worker service, analytics retained as a manual job, and Cloud Deploy updates/verifies the worker image."
     },
     {
       "id": "mock-clicks",

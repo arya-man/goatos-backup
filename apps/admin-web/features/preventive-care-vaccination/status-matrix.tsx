@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Syringe } from "lucide-react";
 import type { VaccinationOperationsResponse, VaccinationOperationsCell } from "@/lib/api/server";
 import type { Tone } from "@/features/process-integrity";
@@ -106,9 +106,6 @@ export function VaccinationStatusMatrix({
           </div>
           {ok ? (
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              <Link href={scopeHref("/config", scope, {}, { category: "vaccination" })} className="btn sm p">
-                {copy(pageContract, "action.open_protocol_rules")}
-              </Link>
               <Link href={scopeHref("/sops", scope)} className="btn sm">
                 {copy(pageContract, "action.open_sop_library")}
               </Link>

@@ -5,3 +5,4 @@
 // Tagging, identity repair, weights, and ADG are not sidebar leaves for this slice. If a required
 // vaccination-trigger path needs an identifier field/status, implement it inside /counts/herd.
 export { HerdRegisterPage } from "./herd-register";
+export { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";

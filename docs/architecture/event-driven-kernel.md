@@ -77,14 +77,14 @@ entirely.
 
 ### Procurement arrival / adult warm-up
 
-- **Class:** predefined (the D0 / D0+4w dates are fixed once farm-entry date is
+- **Class:** predefined (the D0 / D0+21d / D0+28d dates are fixed once farm-entry date is
   known), with a short dynamic-like gate (the warm-up hold) layered on top.
 - **Trigger:** goat row has `origin_type IN ('procured','imported')` and an
   entry/warm-up date; `schedulePathForGoat` routes it to `adult_procurement`,
   so only `post_arrival` rule rows fire.
-- **Chain reaction:** two `post_arrival` rows materialize — D0 (ET+TT + PPR)
-  and D0+4w (Goat Pox/Sheep Pox + ET+TT booster, the 4-week gap honoring the
-  live→live spacing rule). If a `procurement_policy.warmup_no_vaccination_days`
+- **Chain reaction:** `post_arrival` rows materialize — D0 (ET+TT + PPR),
+  D0+21d ET+TT dose 2, and D0+28d Goat Pox/Sheep Pox (the 4-week pox gap
+  honors the live→live spacing rule after PPR). If a `procurement_policy.warmup_no_vaccination_days`
   (7 days) is configured, the D0 row is generated but immediately **deferred**
   (`warmingDeferReason` → `"warming_hold"`) and reopens automatically once the
   7-day cool-off passes and a recovery-repair recheck runs
@@ -93,7 +93,7 @@ entirely.
   the anchor is `warmingEntryAt(g)` (farm-entry date), business-day-started.
 - **Scale @ 1M:** same chunked/cursor generation path as birth; procurement
   batches are typically small (one truckload), never full-herd.
-- Proven by story-h (`story_h_adult_schedule_test.go`, D0/D0+4w course) and
+- Proven by story-h (`story_h_adult_schedule_test.go`, D0/D0+21d/D0+28d course) and
   story-k (`story_k_procurement_warmup_test.go`, warm-up hold + release).
 
 ### Adult revaccination / booster cycle (SM-7)
@@ -115,10 +115,10 @@ entirely.
 
 ## DYNAMIC events
 
-### Sick / under-treatment (health_status)
+### Sick / under-treatment / recovering (health_status)
 
 - **Class:** dynamic.
-- **Trigger:** `goats.health_status IN ('sick','under_treatment')`.
+- **Trigger:** `goats.health_status IN ('sick','under_treatment','recovering')`.
 - **Chain reaction:** every rule whose version/rule `eligibility.defer_states`
   includes the goat's current state is deferred
   (`deferredReason` → status `deferred`, a durable `obligation_status_events`
@@ -291,9 +291,9 @@ entirely.
 | Event | Class | Trigger | Effect | Scale note |
 | --- | --- | --- | --- | --- |
 | Birth (kid) | predefined | goat created, DOB + kid schedule path | Full 5-row kid bundle materialized (28/49/84/112/140d); 24h tagging buffer structurally satisfied (not enforced — see Open Questions) | Per-goat or chunked cursor generation, no full-herd scan |
-| Procurement arrival | predefined (+ warm-up gate) | `origin_type` procured/imported + entry date | D0 + D0+4w rows; D0 deferred during 7-day warm-up, auto-releases | Chunked generation; small per-truckload batches |
+| Procurement arrival | predefined (+ warm-up gate) | `origin_type` procured/imported + entry date | D0 + D0+21d ET+TT dose 2 + D0+28d pox rows; D0 deferred during 7-day warm-up, auto-releases | Chunked generation; small per-truckload batches |
 | Adult revaccination cycle | predefined (runtime-anchored) | prior dose accepted | Next cycle row at completion + interval (6mo/9mo/1yr/3yr) | Event-driven per completion, not periodic full scan |
-| Sick / under-treatment | dynamic | `health_status` sick/under_treatment | Defer ALL open rows; reopen + realign on recovery | Bounded recovery-repair scan, indexed by status/health |
+| Sick / under-treatment / recovering | dynamic | `health_status` sick/under_treatment/recovering | Defer ALL open rows; reopen + realign when healthy | Bounded recovery-repair scan, indexed by status/health |
 | Quarantine | dynamic | `health_status` or shed `is_quarantine` | Defer ALL open rows; reopen + realign on recovery | Same as above |
 | ICU | dynamic | `health_status` or shed `is_icu` | Defer ALL open rows; reopen + realign on recovery | Same as above |
 | Pregnant | dynamic | `reproductive_status='pregnant'` + month 4–5 | Defer `late_pregnancy_hold`; resume after window/delivery | Per-goat recheck, no full-herd scan |

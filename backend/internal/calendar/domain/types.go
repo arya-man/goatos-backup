@@ -194,6 +194,9 @@ type CalendarDateMarker struct {
 	CompletedCount int    `json:"completed_count"`
 	OpenCount      int    `json:"open_count"`
 	DriveCount     int    `json:"drive_count"`
+	DueCount       int    `json:"due_count"`
+	OverdueCount   int    `json:"overdue_count"`
+	DeferredCount  int    `json:"deferred_count"`
 }
 
 type CalendarPresentation struct {
@@ -306,7 +309,12 @@ type CalendarDriveTarget struct {
 	DisplayID         string    `json:"display_id"`
 	AnimalIdentifier1 *string   `json:"animal_identifier_1"`
 	AnimalIdentifier2 *string   `json:"animal_identifier_2"`
+	ShedName          *string   `json:"shed_name,omitempty"`
 	Stage             *string   `json:"stage"`
+	LifecycleStatus   *string   `json:"lifecycle_status,omitempty"`
+	HealthStatus      *string   `json:"health_status,omitempty"`
+	ExitReason        *string   `json:"exit_reason,omitempty"`
+	DeferReason       *string   `json:"defer_reason,omitempty"`
 	Status            string    `json:"status"`
 	DueAt             time.Time `json:"due_at"`
 }
@@ -376,6 +384,7 @@ type Query struct {
 	Cursor             *CalendarCursor
 	Limit              int
 	IncludeDateMarkers bool
+	MarkersOnly        bool
 	// IncludeReminderRail requests the whole-week reminder/escalation rail summary. It is a
 	// SEPARATE trigger from IncludeDateMarkers: the week view needs the rail but not the month
 	// date-markers, so gating the rail on IncludeDateMarkers left it null on the week list.

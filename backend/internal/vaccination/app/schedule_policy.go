@@ -11,28 +11,48 @@ import (
 )
 
 const (
-	schedulePathKid              = "kid"
-	schedulePathAdultProcurement = "adult_procurement"
+	SchedulePathKid              = "kid"
+	SchedulePathAdultProcurement = "adult_procurement"
+
+	schedulePathKid              = SchedulePathKid
+	schedulePathAdultProcurement = SchedulePathAdultProcurement
 )
+
+// SchedulePathProcurementPolicy is the public, seed-safe subset of the vaccination
+// procurement policy needed to choose between kid and adult-procurement rule families.
+type SchedulePathProcurementPolicy struct {
+	KidsNormalScheduleUntilWeeks int32
+}
 
 type genCompatibilityPolicy struct {
 	LiveToKilledGapDays           int32 `json:"live_to_killed_gap_days"`
 	KilledToKilledGapDays         int32 `json:"killed_to_killed_gap_days"`
 	LiveToLiveGapDays             int32 `json:"live_to_live_gap_days"`
-	KidBoosterMinGapDays          int32 `json:"kid_booster_min_gap_days"`
+	CourseBoosterMinGapDays       int32 `json:"kid_booster_min_gap_days"`
 	BacterialViralSameDayAllowed  bool  `json:"bacterial_viral_same_day_allowed"`
 	LiveKilledViralSameDayAllowed bool  `json:"live_killed_viral_same_day_allowed"`
 	MaxVaccinesPerComboSession    int32 `json:"max_vaccines_per_combo_session"`
 }
 
 type genProcurementPolicy struct {
-	WarmupNoVaccinationDays       int32 `json:"warmup_no_vaccination_days"`
-	KidsNormalScheduleUntilWeeks  int32 `json:"kids_normal_schedule_until_weeks"`
-	AdultSourceVaccinationAllowed bool  `json:"adult_source_vaccination_allowed"`
+	WarmupNoVaccinationDays      int32 `json:"warmup_no_vaccination_days"`
+	KidsNormalScheduleUntilWeeks int32 `json:"kids_normal_schedule_until_weeks"`
+	// AdultPriorVaccinationAllowed is a pointer so an EXPLICIT false is distinguishable from an
+	// omitted field (R2-03). A plain bool made active() require a positive field, so publishing only
+	// {"adult_prior_vaccination_allowed": false} left the policy "inactive" and the false was ignored.
+	AdultPriorVaccinationAllowed *bool `json:"adult_prior_vaccination_allowed"`
 }
 
 func (p genProcurementPolicy) active() bool {
-	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultSourceVaccinationAllowed
+	// An explicitly-present adult-prior flag (true OR false) makes the procurement policy active,
+	// even when every numeric field is zero -- R2-03.
+	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultPriorVaccinationAllowed != nil
+}
+
+// adultPriorAllowed reports whether adult prior vaccination history may suppress/anchor adult work.
+// Default is true (backward compat) when the flag is omitted; an explicit false is honored (R2-03).
+func (p genProcurementPolicy) adultPriorAllowed() bool {
+	return p.AdultPriorVaccinationAllowed == nil || *p.AdultPriorVaccinationAllowed
 }
 
 type genPregnancyPolicy struct {
@@ -155,6 +175,15 @@ func businessDayStart(t time.Time) time.Time {
 // to the adult catch-up/primary path so a never-received vaccine is scheduled from
 // the adult two-visit course rather than a fabricated kid_12w/kid_16w obligation.
 func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time, vaccineHistory []domain.RecentVaccineAdministration) string {
+	return SchedulePathForGoat(g, SchedulePathProcurementPolicy{
+		KidsNormalScheduleUntilWeeks: proc.KidsNormalScheduleUntilWeeks,
+	}, asOf, vaccineHistory)
+}
+
+// SchedulePathForGoat decides whether birth_age (kid) or post_arrival (adult procurement)
+// rules apply to a goat. Runtime generation, seed import, and any replay/cutover code must
+// use this shared decision instead of carrying a local shortcut such as "origin=birth is kid".
+func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPolicy, asOf time.Time, vaccineHistory []domain.RecentVaccineAdministration) string {
 	kidWeeks := int32(16)
 	if proc.KidsNormalScheduleUntilWeeks > 0 {
 		kidWeeks = proc.KidsNormalScheduleUntilWeeks
@@ -197,17 +226,23 @@ func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf 
 // but its DOB proves it is past the 20-week kid-course finishing window. Per Operating Rules ("if a
 // tag and age disagree, review the animal") this is a REVIEW signal only — the goat is scheduled on
 // the adult path and NO kid vaccinations are generated.
-func staleKidStageAfterCutoff(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) bool {
-	if g.DOB == nil || !isKidManagementStage(g.Stage) {
-		return false
-	}
+// kidFinishWeeks is the stale-stage age cutoff (kids_normal_schedule_until_weeks, default 16, + the
+// 4-week grace) for a given effective procurement policy. This value is PERSISTED on a review item at
+// flag time so the 'corrected' re-check uses the exact cutoff that raised it, not a re-derived one.
+func kidFinishWeeks(proc genProcurementPolicy) int {
 	kidWeeks := int32(16)
 	if proc.KidsNormalScheduleUntilWeeks > 0 {
 		kidWeeks = proc.KidsNormalScheduleUntilWeeks
 	}
-	finishWeeks := kidWeeks + 4
+	return int(kidWeeks) + 4
+}
+
+func staleKidStageAfterCutoff(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) bool {
+	if g.DOB == nil || !isKidManagementStage(g.Stage) {
+		return false
+	}
 	ageWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
-	return ageWeeks > int(finishWeeks)
+	return ageWeeks > kidFinishWeeks(proc)
 }
 
 func isKidManagementStage(stage string) bool {

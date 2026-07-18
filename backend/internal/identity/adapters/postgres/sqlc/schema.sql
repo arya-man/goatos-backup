@@ -780,32 +780,6 @@ $$;
 
 
 --
--- Name: goatos_assert_partition_coverage(timestamp with time zone, integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.goatos_assert_partition_coverage(reference_at timestamp with time zone DEFAULT now(), months_ahead integer DEFAULT 12) RETURNS void
-    LANGUAGE plpgsql
-    AS $$
-DECLARE
-  bad record;
-BEGIN
-  SELECT *
-    INTO bad
-    FROM goatos_partition_coverage_report(reference_at, months_ahead)
-   WHERE array_length(missing_months, 1) IS NOT NULL
-   LIMIT 1;
-
-  IF FOUND THEN
-    RAISE EXCEPTION 'missing monthly partitions for % through %: %',
-      bad.parent_table,
-      bad.coverage_through,
-      bad.missing_months;
-  END IF;
-END;
-$$;
-
-
---
 -- Name: goatos_calendar_event_reference_valid(uuid, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -956,117 +930,6 @@ $_$;
 
 
 --
--- Name: goatos_ensure_monthly_partitions(regclass, text, timestamp with time zone, integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.goatos_ensure_monthly_partitions(parent_table regclass, partition_prefix text, reference_at timestamp with time zone, months_ahead integer) RETURNS integer
-    LANGUAGE plpgsql
-    AS $$
-DECLARE
-  schema_name text;
-  parent_name text;
-  cursor_month date;
-  target_exclusive date;
-  child_name text;
-  created_count integer := 0;
-BEGIN
-  IF months_ahead < 12 OR months_ahead > 60 THEN
-    RAISE EXCEPTION 'months_ahead must be between 12 and 60, got %', months_ahead;
-  END IF;
-
-  SELECT n.nspname, c.relname
-    INTO schema_name, parent_name
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE c.oid = parent_table;
-
-  IF schema_name IS NULL THEN
-    RAISE EXCEPTION 'partition parent % does not exist', parent_table;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid = parent_table) THEN
-    RAISE EXCEPTION 'partition parent % is not a partitioned table', parent_table;
-  END IF;
-
-  cursor_month := date_trunc('month', reference_at AT TIME ZONE 'UTC')::date;
-  target_exclusive := (cursor_month + ((months_ahead + 1)::text || ' months')::interval)::date;
-
-  WHILE cursor_month < target_exclusive LOOP
-    child_name := goatos_month_partition_name(partition_prefix, cursor_month);
-    IF to_regclass(format('%I.%I', schema_name, child_name)) IS NULL THEN
-      EXECUTE format(
-        'CREATE TABLE %I.%I PARTITION OF %I.%I FOR VALUES FROM (%L) TO (%L)',
-        schema_name,
-        child_name,
-        schema_name,
-        parent_name,
-        to_char(cursor_month, 'YYYY-MM-DD') || ' 00:00:00+00',
-        to_char((cursor_month + interval '1 month')::date, 'YYYY-MM-DD') || ' 00:00:00+00'
-      );
-      created_count := created_count + 1;
-    END IF;
-    cursor_month := (cursor_month + interval '1 month')::date;
-  END LOOP;
-
-  RETURN created_count;
-END;
-$$;
-
-
---
--- Name: goatos_ensure_partition_coverage(timestamp with time zone, integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.goatos_ensure_partition_coverage(reference_at timestamp with time zone DEFAULT now(), months_ahead integer DEFAULT 12) RETURNS TABLE(parent_table text, created_partitions integer, coverage_through date)
-    LANGUAGE plpgsql
-    AS $$
-DECLARE
-  spec record;
-  lock_acquired boolean;
-  created_count integer;
-  start_month date;
-  through_month date;
-BEGIN
-  lock_acquired := pg_try_advisory_lock(hashtext('goatos:partition-maintenance'));
-  IF NOT lock_acquired THEN
-    RAISE EXCEPTION 'partition maintenance is already running';
-  END IF;
-
-  start_month := date_trunc('month', reference_at AT TIME ZONE 'UTC')::date;
-  through_month := (start_month + (months_ahead::text || ' months')::interval)::date;
-
-  BEGIN
-    FOR spec IN SELECT s.parent_table, s.partition_prefix FROM goatos_partition_parent_specs() s LOOP
-      created_count := goatos_ensure_monthly_partitions(spec.parent_table, spec.partition_prefix, reference_at, months_ahead);
-      parent_table := spec.parent_table::text;
-      created_partitions := created_count;
-      coverage_through := through_month;
-      RETURN NEXT;
-    END LOOP;
-
-    PERFORM goatos_assert_partition_coverage(reference_at, months_ahead);
-  EXCEPTION WHEN OTHERS THEN
-    PERFORM pg_advisory_unlock(hashtext('goatos:partition-maintenance'));
-    RAISE;
-  END;
-
-  PERFORM pg_advisory_unlock(hashtext('goatos:partition-maintenance'));
-END;
-$$;
-
-
---
--- Name: goatos_month_partition_name(text, date); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.goatos_month_partition_name(partition_prefix text, month_start date) RETURNS text
-    LANGUAGE sql IMMUTABLE
-    AS $$
-  SELECT format('%s_%s', partition_prefix, to_char(month_start, 'YYYY_MM'))
-$$;
-
-
---
 -- Name: goatos_park_day_has_vaccination_work(uuid, uuid, uuid, date, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1120,73 +983,6 @@ CREATE FUNCTION public.goatos_park_day_has_vaccination_work(p_tenant_id uuid, p_
         OR (p_park_id IS NULL AND p_shed_id IS NULL AND shed_loc.parent_location_id IS NULL)
       )
   );
-$$;
-
-
---
--- Name: goatos_partition_coverage_report(timestamp with time zone, integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.goatos_partition_coverage_report(reference_at timestamp with time zone DEFAULT now(), months_ahead integer DEFAULT 12) RETURNS TABLE(parent_table text, coverage_start date, coverage_through date, expected_months integer, present_months integer, missing_months text[])
-    LANGUAGE plpgsql STABLE
-    AS $$
-DECLARE
-  spec record;
-  schema_name text;
-  start_month date;
-  through_month date;
-BEGIN
-  IF months_ahead < 12 OR months_ahead > 60 THEN
-    RAISE EXCEPTION 'months_ahead must be between 12 and 60, got %', months_ahead;
-  END IF;
-
-  start_month := date_trunc('month', reference_at AT TIME ZONE 'UTC')::date;
-  through_month := (start_month + (months_ahead::text || ' months')::interval)::date;
-
-  FOR spec IN SELECT s.parent_table, s.partition_prefix FROM goatos_partition_parent_specs() s LOOP
-    SELECT n.nspname
-      INTO schema_name
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE c.oid = spec.parent_table;
-
-    RETURN QUERY
-    WITH months AS (
-      SELECT generate_series(start_month, through_month, interval '1 month')::date AS month_start
-    ),
-    checked AS (
-      SELECT
-        month_start,
-        to_regclass(format('%I.%I', schema_name, goatos_month_partition_name(spec.partition_prefix, month_start))) IS NOT NULL AS present
-      FROM months
-    )
-    SELECT
-      spec.parent_table::text,
-      start_month,
-      through_month,
-      count(*)::integer,
-      count(*) FILTER (WHERE present)::integer,
-      COALESCE(
-        array_agg(to_char(month_start, 'YYYY-MM') ORDER BY month_start) FILTER (WHERE NOT present),
-        ARRAY[]::text[]
-      )
-    FROM checked;
-  END LOOP;
-END;
-$$;
-
-
---
--- Name: goatos_partition_parent_specs(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.goatos_partition_parent_specs() RETURNS TABLE(parent_table regclass, partition_prefix text)
-    LANGUAGE sql STABLE
-    AS $$
-  VALUES
-    ('goat_identity_events'::regclass, 'goat_identity_events'),
-    ('audit_log'::regclass, 'audit_log'),
-    ('obligation_status_events'::regclass, 'obligation_status_events')
 $$;
 
 
@@ -2123,7 +1919,7 @@ CREATE TABLE analytics.crash_daily (
     top_issues jsonb DEFAULT '[]'::jsonb NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT crash_daily_counts_check CHECK (((fatal_count >= 0) AND (nonfatal_count >= 0))),
-    CONSTRAINT crash_daily_pct_check CHECK ((((crash_free_users_pct >= (0)::numeric) AND (crash_free_users_pct <= (100)::numeric)) AND ((crash_free_sessions_pct >= (0)::numeric) AND (crash_free_sessions_pct <= (100)::numeric))))
+    CONSTRAINT crash_daily_pct_check CHECK (((crash_free_users_pct >= (0)::numeric) AND (crash_free_users_pct <= (100)::numeric) AND ((crash_free_sessions_pct >= (0)::numeric) AND (crash_free_sessions_pct <= (100)::numeric))))
 );
 
 
@@ -2362,127 +2158,6 @@ CREATE TABLE public.arrival_intake_reviews (
 --
 
 CREATE TABLE public.audit_log (
-    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid,
-    actor_id uuid,
-    actor_type text NOT NULL,
-    action text NOT NULL,
-    resource_type text NOT NULL,
-    resource_id uuid,
-    scope_type text,
-    scope_id uuid,
-    decision_id uuid,
-    before_state jsonb,
-    after_state jsonb,
-    metadata jsonb NOT NULL,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL
-)
-PARTITION BY RANGE (recorded_at);
-
-
---
--- Name: audit_log_2026_06; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_log_2026_06 (
-    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid,
-    actor_id uuid,
-    actor_type text NOT NULL,
-    action text NOT NULL,
-    resource_type text NOT NULL,
-    resource_id uuid,
-    scope_type text,
-    scope_id uuid,
-    decision_id uuid,
-    before_state jsonb,
-    after_state jsonb,
-    metadata jsonb NOT NULL,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: audit_log_2026_07; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_log_2026_07 (
-    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid,
-    actor_id uuid,
-    actor_type text NOT NULL,
-    action text NOT NULL,
-    resource_type text NOT NULL,
-    resource_id uuid,
-    scope_type text,
-    scope_id uuid,
-    decision_id uuid,
-    before_state jsonb,
-    after_state jsonb,
-    metadata jsonb NOT NULL,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: audit_log_2026_08; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_log_2026_08 (
-    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid,
-    actor_id uuid,
-    actor_type text NOT NULL,
-    action text NOT NULL,
-    resource_type text NOT NULL,
-    resource_id uuid,
-    scope_type text,
-    scope_id uuid,
-    decision_id uuid,
-    before_state jsonb,
-    after_state jsonb,
-    metadata jsonb NOT NULL,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: audit_log_2026_09; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_log_2026_09 (
-    audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid,
-    actor_id uuid,
-    actor_type text NOT NULL,
-    action text NOT NULL,
-    resource_type text NOT NULL,
-    resource_id uuid,
-    scope_type text,
-    scope_id uuid,
-    decision_id uuid,
-    before_state jsonb,
-    after_state jsonb,
-    metadata jsonb NOT NULL,
-    trace_id text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: audit_log_default; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.audit_log_default (
     audit_id uuid DEFAULT gen_random_uuid() NOT NULL,
     tenant_id uuid,
     actor_id uuid,
@@ -3157,117 +2832,6 @@ CREATE TABLE public.goat_identifiers (
 --
 
 CREATE TABLE public.goat_identity_events (
-    identity_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    event_type text NOT NULL,
-    event_version integer NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    source_system text,
-    source_record_id text,
-    payload jsonb NOT NULL,
-    decision_id uuid,
-    idempotency_key text NOT NULL,
-    CONSTRAINT goat_identity_events_version_check CHECK ((event_version > 0))
-)
-PARTITION BY RANGE (recorded_at);
-
-
---
--- Name: goat_identity_events_2026_06; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_events_2026_06 (
-    identity_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    event_type text NOT NULL,
-    event_version integer NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    source_system text,
-    source_record_id text,
-    payload jsonb NOT NULL,
-    decision_id uuid,
-    idempotency_key text NOT NULL,
-    CONSTRAINT goat_identity_events_version_check CHECK ((event_version > 0))
-);
-
-
---
--- Name: goat_identity_events_2026_07; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_events_2026_07 (
-    identity_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    event_type text NOT NULL,
-    event_version integer NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    source_system text,
-    source_record_id text,
-    payload jsonb NOT NULL,
-    decision_id uuid,
-    idempotency_key text NOT NULL,
-    CONSTRAINT goat_identity_events_version_check CHECK ((event_version > 0))
-);
-
-
---
--- Name: goat_identity_events_2026_08; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_events_2026_08 (
-    identity_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    event_type text NOT NULL,
-    event_version integer NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    source_system text,
-    source_record_id text,
-    payload jsonb NOT NULL,
-    decision_id uuid,
-    idempotency_key text NOT NULL,
-    CONSTRAINT goat_identity_events_version_check CHECK ((event_version > 0))
-);
-
-
---
--- Name: goat_identity_events_2026_09; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_events_2026_09 (
-    identity_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    event_type text NOT NULL,
-    event_version integer NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    source_system text,
-    source_record_id text,
-    payload jsonb NOT NULL,
-    decision_id uuid,
-    idempotency_key text NOT NULL,
-    CONSTRAINT goat_identity_events_version_check CHECK ((event_version > 0))
-);
-
-
---
--- Name: goat_identity_events_default; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_identity_events_default (
     identity_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
     tenant_id uuid NOT NULL,
     goat_id uuid NOT NULL,
@@ -4108,151 +3672,6 @@ CREATE TABLE public.obligation_status_events (
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
     CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-)
-PARTITION BY RANGE (recorded_at);
-
-
---
--- Name: obligation_status_events_2026_06; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_2026_06 (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: obligation_status_events_2026_07; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_2026_07 (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: obligation_status_events_2026_08; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_2026_08 (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: obligation_status_events_2026_09; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_2026_09 (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: obligation_status_events_2026_10; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_2026_10 (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: obligation_status_events_2026_11; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_2026_11 (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: obligation_status_events_2026_12; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_2026_12 (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
-);
-
-
---
--- Name: obligation_status_events_default; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.obligation_status_events_default (
-    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    obligation_id uuid NOT NULL,
-    event_type text NOT NULL,
-    occurred_at timestamp with time zone NOT NULL,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    actor_id uuid,
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -5008,6 +4427,61 @@ CREATE TABLE public.sop_task_review_fanouts (
 
 
 --
+-- Name: sop_task_scan_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_task_scan_attempts (
+    attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    field_key text NOT NULL,
+    tag text NOT NULL,
+    normalized_tag text NOT NULL,
+    goat_id uuid,
+    obligation_id uuid,
+    outcome text NOT NULL,
+    tag_role text DEFAULT 'unknown'::text NOT NULL,
+    reason text,
+    captured_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    captured_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_scan_attempts_field_key_check CHECK ((btrim(field_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_normalized_tag_check CHECK ((btrim(normalized_tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_outcome_check CHECK ((outcome = ANY (ARRAY['accepted'::text, 'duplicate'::text, 'not_due'::text, 'unknown'::text]))),
+    CONSTRAINT sop_task_scan_attempts_tag_check CHECK ((btrim(tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_tag_role_check CHECK ((tag_role = ANY (ARRAY['primary'::text, 'secondary'::text, 'unknown'::text])))
+);
+
+
+--
+-- Name: sop_task_scan_captures; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_task_scan_captures (
+    capture_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    field_key text NOT NULL,
+    tag text NOT NULL,
+    normalized_tag text NOT NULL,
+    goat_id uuid,
+    obligation_id uuid,
+    captured_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    captured_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_scan_captures_field_key_check CHECK ((btrim(field_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_normalized_tag_check CHECK ((btrim(normalized_tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_tag_check CHECK ((btrim(tag) <> ''::text))
+);
+
+
+--
 -- Name: sop_task_submission_fanouts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5425,6 +4899,9 @@ CREATE TABLE public.vaccination_stage_review_items (
     idempotency_key text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolution_mode text,
+    age_cutoff_weeks integer,
+    CONSTRAINT vaccination_stage_review_items_resolution_mode_check CHECK (((resolution_mode IS NULL) OR (resolution_mode = ANY (ARRAY['corrected'::text, 'exception'::text])))),
     CONSTRAINT vaccination_stage_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text])))
 );
 
@@ -5773,132 +5250,6 @@ CREATE TABLE public.workforce_roster_assignments (
 
 
 --
--- Name: audit_log_2026_06; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log ATTACH PARTITION public.audit_log_2026_06 FOR VALUES FROM ('2026-06-01 00:00:00+00') TO ('2026-07-01 00:00:00+00');
-
-
---
--- Name: audit_log_2026_07; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log ATTACH PARTITION public.audit_log_2026_07 FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00');
-
-
---
--- Name: audit_log_2026_08; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log ATTACH PARTITION public.audit_log_2026_08 FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01 00:00:00+00');
-
-
---
--- Name: audit_log_2026_09; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log ATTACH PARTITION public.audit_log_2026_09 FOR VALUES FROM ('2026-09-01 00:00:00+00') TO ('2026-10-01 00:00:00+00');
-
-
---
--- Name: audit_log_default; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log ATTACH PARTITION public.audit_log_default DEFAULT;
-
-
---
--- Name: goat_identity_events_2026_06; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events ATTACH PARTITION public.goat_identity_events_2026_06 FOR VALUES FROM ('2026-06-01 00:00:00+00') TO ('2026-07-01 00:00:00+00');
-
-
---
--- Name: goat_identity_events_2026_07; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events ATTACH PARTITION public.goat_identity_events_2026_07 FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00');
-
-
---
--- Name: goat_identity_events_2026_08; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events ATTACH PARTITION public.goat_identity_events_2026_08 FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01 00:00:00+00');
-
-
---
--- Name: goat_identity_events_2026_09; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events ATTACH PARTITION public.goat_identity_events_2026_09 FOR VALUES FROM ('2026-09-01 00:00:00+00') TO ('2026-10-01 00:00:00+00');
-
-
---
--- Name: goat_identity_events_default; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events ATTACH PARTITION public.goat_identity_events_default DEFAULT;
-
-
---
--- Name: obligation_status_events_2026_06; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_06 FOR VALUES FROM ('2026-06-01 00:00:00+00') TO ('2026-07-01 00:00:00+00');
-
-
---
--- Name: obligation_status_events_2026_07; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_07 FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00');
-
-
---
--- Name: obligation_status_events_2026_08; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_08 FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01 00:00:00+00');
-
-
---
--- Name: obligation_status_events_2026_09; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_09 FOR VALUES FROM ('2026-09-01 00:00:00+00') TO ('2026-10-01 00:00:00+00');
-
-
---
--- Name: obligation_status_events_2026_10; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_10 FOR VALUES FROM ('2026-10-01 00:00:00+00') TO ('2026-11-01 00:00:00+00');
-
-
---
--- Name: obligation_status_events_2026_11; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_11 FOR VALUES FROM ('2026-11-01 00:00:00+00') TO ('2026-12-01 00:00:00+00');
-
-
---
--- Name: obligation_status_events_2026_12; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_12 FOR VALUES FROM ('2026-12-01 00:00:00+00') TO ('2027-01-01 00:00:00+00');
-
-
---
--- Name: obligation_status_events_default; Type: TABLE ATTACH; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_default DEFAULT;
-
-
---
 -- Name: crash_daily crash_daily_pkey; Type: CONSTRAINT; Schema: analytics; Owner: -
 --
 
@@ -6032,46 +5383,6 @@ ALTER TABLE ONLY public.arrival_intake_reviews
 
 ALTER TABLE ONLY public.audit_log
     ADD CONSTRAINT audit_log_pkey PRIMARY KEY (audit_id, recorded_at);
-
-
---
--- Name: audit_log_2026_06 audit_log_2026_06_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log_2026_06
-    ADD CONSTRAINT audit_log_2026_06_pkey PRIMARY KEY (audit_id, recorded_at);
-
-
---
--- Name: audit_log_2026_07 audit_log_2026_07_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log_2026_07
-    ADD CONSTRAINT audit_log_2026_07_pkey PRIMARY KEY (audit_id, recorded_at);
-
-
---
--- Name: audit_log_2026_08 audit_log_2026_08_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log_2026_08
-    ADD CONSTRAINT audit_log_2026_08_pkey PRIMARY KEY (audit_id, recorded_at);
-
-
---
--- Name: audit_log_2026_09 audit_log_2026_09_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log_2026_09
-    ADD CONSTRAINT audit_log_2026_09_pkey PRIMARY KEY (audit_id, recorded_at);
-
-
---
--- Name: audit_log_default audit_log_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.audit_log_default
-    ADD CONSTRAINT audit_log_default_pkey PRIMARY KEY (audit_id, recorded_at);
 
 
 --
@@ -6339,91 +5650,11 @@ ALTER TABLE ONLY public.goat_identity_events
 
 
 --
--- Name: goat_identity_events_2026_06 goat_identity_events_2026_06_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_06
-    ADD CONSTRAINT goat_identity_events_2026_06_pkey PRIMARY KEY (identity_event_id, recorded_at);
-
-
---
 -- Name: goat_identity_events goat_identity_events_tenant_event_recorded_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.goat_identity_events
     ADD CONSTRAINT goat_identity_events_tenant_event_recorded_unique UNIQUE (tenant_id, identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_2026_06 goat_identity_events_2026_06_tenant_id_identity_event_id_re_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_06
-    ADD CONSTRAINT goat_identity_events_2026_06_tenant_id_identity_event_id_re_key UNIQUE (tenant_id, identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_2026_07 goat_identity_events_2026_07_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_07
-    ADD CONSTRAINT goat_identity_events_2026_07_pkey PRIMARY KEY (identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_2026_07 goat_identity_events_2026_07_tenant_id_identity_event_id_re_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_07
-    ADD CONSTRAINT goat_identity_events_2026_07_tenant_id_identity_event_id_re_key UNIQUE (tenant_id, identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_2026_08 goat_identity_events_2026_08_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_08
-    ADD CONSTRAINT goat_identity_events_2026_08_pkey PRIMARY KEY (identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_2026_08 goat_identity_events_2026_08_tenant_id_identity_event_id_re_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_08
-    ADD CONSTRAINT goat_identity_events_2026_08_tenant_id_identity_event_id_re_key UNIQUE (tenant_id, identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_2026_09 goat_identity_events_2026_09_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_09
-    ADD CONSTRAINT goat_identity_events_2026_09_pkey PRIMARY KEY (identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_2026_09 goat_identity_events_2026_09_tenant_id_identity_event_id_re_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_2026_09
-    ADD CONSTRAINT goat_identity_events_2026_09_tenant_id_identity_event_id_re_key UNIQUE (tenant_id, identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_default goat_identity_events_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_default
-    ADD CONSTRAINT goat_identity_events_default_pkey PRIMARY KEY (identity_event_id, recorded_at);
-
-
---
--- Name: goat_identity_events_default goat_identity_events_default_tenant_id_identity_event_id_re_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.goat_identity_events_default
-    ADD CONSTRAINT goat_identity_events_default_tenant_id_identity_event_id_re_key UNIQUE (tenant_id, identity_event_id, recorded_at);
 
 
 --
@@ -6875,70 +6106,6 @@ ALTER TABLE ONLY public.obligation_status_events
 
 
 --
--- Name: obligation_status_events_2026_06 obligation_status_events_2026_06_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_2026_06
-    ADD CONSTRAINT obligation_status_events_2026_06_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
--- Name: obligation_status_events_2026_07 obligation_status_events_2026_07_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_2026_07
-    ADD CONSTRAINT obligation_status_events_2026_07_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
--- Name: obligation_status_events_2026_08 obligation_status_events_2026_08_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_2026_08
-    ADD CONSTRAINT obligation_status_events_2026_08_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
--- Name: obligation_status_events_2026_09 obligation_status_events_2026_09_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_2026_09
-    ADD CONSTRAINT obligation_status_events_2026_09_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
--- Name: obligation_status_events_2026_10 obligation_status_events_2026_10_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_2026_10
-    ADD CONSTRAINT obligation_status_events_2026_10_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
--- Name: obligation_status_events_2026_11 obligation_status_events_2026_11_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_2026_11
-    ADD CONSTRAINT obligation_status_events_2026_11_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
--- Name: obligation_status_events_2026_12 obligation_status_events_2026_12_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_2026_12
-    ADD CONSTRAINT obligation_status_events_2026_12_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
--- Name: obligation_status_events_default obligation_status_events_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.obligation_status_events_default
-    ADD CONSTRAINT obligation_status_events_default_pkey PRIMARY KEY (obligation_event_id, recorded_at);
-
-
---
 -- Name: org_role_catalog org_role_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7371,6 +6538,22 @@ ALTER TABLE ONLY public.sop_task_review_fanouts
 
 
 --
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_pkey PRIMARY KEY (attempt_id);
+
+
+--
+-- Name: sop_task_scan_captures sop_task_scan_captures_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_pkey PRIMARY KEY (capture_id);
+
+
+--
 -- Name: sop_task_submission_fanouts sop_task_submission_fanouts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7748,504 +6931,84 @@ CREATE INDEX arrival_intake_reviews_load_idx ON public.arrival_intake_reviews US
 -- Name: audit_log_actor_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_actor_idx ON ONLY public.audit_log USING btree (actor_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_06_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_actor_id_created_at_idx ON public.audit_log_2026_06 USING btree (actor_id, created_at DESC);
+CREATE INDEX audit_log_actor_idx ON public.audit_log USING btree (actor_id, created_at DESC);
 
 
 --
 -- Name: audit_log_resource_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_resource_idx ON ONLY public.audit_log USING btree (resource_type, resource_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_06_resource_type_resource_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_resource_type_resource_id_created_at_idx ON public.audit_log_2026_06 USING btree (resource_type, resource_id, created_at DESC);
+CREATE INDEX audit_log_resource_idx ON public.audit_log USING btree (resource_type, resource_id, created_at DESC);
 
 
 --
 -- Name: audit_log_tenant_action_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_tenant_action_idx ON ONLY public.audit_log USING btree (tenant_id, action, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_06_tenant_id_action_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_tenant_id_action_recorded_at_idx ON public.audit_log_2026_06 USING btree (tenant_id, action, recorded_at DESC);
+CREATE INDEX audit_log_tenant_action_idx ON public.audit_log USING btree (tenant_id, action, recorded_at DESC);
 
 
 --
 -- Name: audit_log_tenant_actor_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_tenant_actor_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, actor_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_06_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_06 USING btree (tenant_id, actor_id, recorded_at DESC);
+CREATE INDEX audit_log_tenant_actor_recorded_idx ON public.audit_log USING btree (tenant_id, actor_id, recorded_at DESC);
 
 
 --
 -- Name: audit_log_tenant_actor_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_tenant_actor_type_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_06 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_tenant_domain_module_category_recorded_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_tenant_domain_module_category_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_tenant_status_recorded_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_tenant_status_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_tenant_result_recorded_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_tenant_result_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+CREATE INDEX audit_log_tenant_actor_type_recorded_idx ON public.audit_log USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
 
 
 --
 -- Name: audit_log_tenant_calendar_event_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_tenant_calendar_event_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
+CREATE INDEX audit_log_tenant_calendar_event_recorded_idx ON public.audit_log USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
 
 
 --
--- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
+-- Name: audit_log_tenant_domain_module_category_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
+CREATE INDEX audit_log_tenant_domain_module_category_recorded_idx ON public.audit_log USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
 
 
 --
 -- Name: audit_log_tenant_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_tenant_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_06_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_06_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_06 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
+CREATE INDEX audit_log_tenant_recorded_idx ON public.audit_log USING btree (tenant_id, recorded_at DESC, audit_id DESC);
 
 
 --
 -- Name: audit_log_tenant_resource_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_tenant_resource_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+CREATE INDEX audit_log_tenant_resource_recorded_idx ON public.audit_log USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
 
 
 --
--- Name: audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: audit_log_tenant_result_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_06 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+CREATE INDEX audit_log_tenant_result_recorded_idx ON public.audit_log USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
 
 
 --
 -- Name: audit_log_tenant_scope_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_tenant_scope_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
+CREATE INDEX audit_log_tenant_scope_recorded_idx ON public.audit_log USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
 
 
 --
--- Name: audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: audit_log_tenant_status_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_06 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_07_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_actor_id_created_at_idx ON public.audit_log_2026_07 USING btree (actor_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_07_resource_type_resource_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_resource_type_resource_id_created_at_idx ON public.audit_log_2026_07 USING btree (resource_type, resource_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_action_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_action_recorded_at_idx ON public.audit_log_2026_07 USING btree (tenant_id, action, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_07 USING btree (tenant_id, actor_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_07 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
-
-
---
--- Name: audit_log_2026_07_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_07 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_07 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_07 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_08_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_actor_id_created_at_idx ON public.audit_log_2026_08 USING btree (actor_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_08_resource_type_resource_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_resource_type_resource_id_created_at_idx ON public.audit_log_2026_08 USING btree (resource_type, resource_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_action_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_action_recorded_at_idx ON public.audit_log_2026_08 USING btree (tenant_id, action, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_08 USING btree (tenant_id, actor_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_08 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
-
-
---
--- Name: audit_log_2026_08_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_08 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_08 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_08 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_09_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_actor_id_created_at_idx ON public.audit_log_2026_09 USING btree (actor_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_09_resource_type_resource_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_resource_type_resource_id_created_at_idx ON public.audit_log_2026_09 USING btree (resource_type, resource_id, created_at DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_action_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_action_recorded_at_idx ON public.audit_log_2026_09 USING btree (tenant_id, action, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_09 USING btree (tenant_id, actor_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_09 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
-
-
---
--- Name: audit_log_2026_09_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_09 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_09 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
-
-
---
--- Name: audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_09 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
-
-
---
--- Name: audit_log_default_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_actor_id_created_at_idx ON public.audit_log_default USING btree (actor_id, created_at DESC);
-
-
---
--- Name: audit_log_default_resource_type_resource_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_resource_type_resource_id_created_at_idx ON public.audit_log_default USING btree (resource_type, resource_id, created_at DESC);
-
-
---
--- Name: audit_log_default_tenant_id_action_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_action_recorded_at_idx ON public.audit_log_default USING btree (tenant_id, action, recorded_at DESC);
-
-
---
--- Name: audit_log_default_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_actor_id_recorded_at_idx ON public.audit_log_default USING btree (tenant_id, actor_id, recorded_at DESC);
-
-
---
--- Name: audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_default USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
-
-
---
--- Name: audit_log_default_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_recorded_at_audit_id_idx ON public.audit_log_default USING btree (tenant_id, recorded_at DESC, audit_id DESC);
-
-
---
--- Name: audit_log_default_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_default USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
-
-
---
--- Name: audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_default USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
+CREATE INDEX audit_log_tenant_status_recorded_idx ON public.audit_log USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
 
 
 --
@@ -8644,245 +7407,42 @@ CREATE INDEX goat_identifiers_source_idx ON public.goat_identifiers USING btree 
 -- Name: goat_identity_events_goat_timeline_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goat_identity_events_goat_timeline_idx ON ONLY public.goat_identity_events USING btree (goat_id, occurred_at DESC);
-
-
---
--- Name: goat_identity_events_2026_06_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_06_goat_id_occurred_at_idx ON public.goat_identity_events_2026_06 USING btree (goat_id, occurred_at DESC);
-
-
---
--- Name: goat_identity_events_2026_06_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_06_goat_timeline_keyset_idx ON public.goat_identity_events_2026_06 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
+CREATE INDEX goat_identity_events_goat_timeline_idx ON public.goat_identity_events USING btree (goat_id, occurred_at DESC);
 
 
 --
 -- Name: goat_identity_events_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goat_identity_events_idempotency_idx ON ONLY public.goat_identity_events USING btree (idempotency_key);
+CREATE INDEX goat_identity_events_idempotency_idx ON public.goat_identity_events USING btree (idempotency_key);
 
 
 --
--- Name: goat_identity_events_2026_06_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: goat_identity_events_tenant_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goat_identity_events_2026_06_idempotency_key_idx ON public.goat_identity_events_2026_06 USING btree (idempotency_key);
-
-
---
--- Name: goat_identity_events_tenant_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_tenant_type_recorded_idx ON ONLY public.goat_identity_events USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_2026_06_tenant_id_event_type_recorded__idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_06_tenant_id_event_type_recorded__idx ON public.goat_identity_events_2026_06 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_tenant_recorded_event_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_tenant_recorded_event_idx ON ONLY public.goat_identity_events USING btree (tenant_id, recorded_at, identity_event_id);
-
-
---
--- Name: goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_06 USING btree (tenant_id, recorded_at, identity_event_id);
+CREATE INDEX goat_identity_events_tenant_goat_timeline_keyset_idx ON public.goat_identity_events USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
 
 
 --
 -- Name: goat_identity_events_tenant_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goat_identity_events_tenant_recorded_at_idx ON ONLY public.goat_identity_events USING btree (tenant_id, recorded_at DESC);
+CREATE INDEX goat_identity_events_tenant_recorded_at_idx ON public.goat_identity_events USING btree (tenant_id, recorded_at DESC);
 
 
 --
--- Name: goat_identity_events_2026_06_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: goat_identity_events_tenant_recorded_event_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goat_identity_events_2026_06_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_06 USING btree (tenant_id, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_2026_07_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_07_goat_id_occurred_at_idx ON public.goat_identity_events_2026_07 USING btree (goat_id, occurred_at DESC);
+CREATE INDEX goat_identity_events_tenant_recorded_event_idx ON public.goat_identity_events USING btree (tenant_id, recorded_at, identity_event_id);
 
 
 --
--- Name: goat_identity_events_2026_07_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: goat_identity_events_tenant_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX goat_identity_events_2026_07_goat_timeline_keyset_idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
-
-
---
--- Name: goat_identity_events_2026_07_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_07_idempotency_key_idx ON public.goat_identity_events_2026_07 USING btree (idempotency_key);
-
-
---
--- Name: goat_identity_events_2026_07_tenant_id_event_type_recorded__idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_07_tenant_id_event_type_recorded__idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, recorded_at, identity_event_id);
-
-
---
--- Name: goat_identity_events_2026_07_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_07_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_2026_08_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_08_goat_id_occurred_at_idx ON public.goat_identity_events_2026_08 USING btree (goat_id, occurred_at DESC);
-
-
---
--- Name: goat_identity_events_2026_08_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_08_goat_timeline_keyset_idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
-
-
---
--- Name: goat_identity_events_2026_08_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_08_idempotency_key_idx ON public.goat_identity_events_2026_08 USING btree (idempotency_key);
-
-
---
--- Name: goat_identity_events_2026_08_tenant_id_event_type_recorded__idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_08_tenant_id_event_type_recorded__idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, recorded_at, identity_event_id);
-
-
---
--- Name: goat_identity_events_2026_08_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_08_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_2026_09_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_09_goat_id_occurred_at_idx ON public.goat_identity_events_2026_09 USING btree (goat_id, occurred_at DESC);
-
-
---
--- Name: goat_identity_events_2026_09_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_09_goat_timeline_keyset_idx ON public.goat_identity_events_2026_09 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
-
-
---
--- Name: goat_identity_events_2026_09_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_09_idempotency_key_idx ON public.goat_identity_events_2026_09 USING btree (idempotency_key);
-
-
---
--- Name: goat_identity_events_2026_09_tenant_id_event_type_recorded__idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_09_tenant_id_event_type_recorded__idx ON public.goat_identity_events_2026_09 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_09 USING btree (tenant_id, recorded_at, identity_event_id);
-
-
---
--- Name: goat_identity_events_2026_09_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_2026_09_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_09 USING btree (tenant_id, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_default_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_default_goat_id_occurred_at_idx ON public.goat_identity_events_default USING btree (goat_id, occurred_at DESC);
-
-
---
--- Name: goat_identity_events_default_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_default_goat_timeline_keyset_idx ON public.goat_identity_events_default USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
-
-
---
--- Name: goat_identity_events_default_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_default_idempotency_key_idx ON public.goat_identity_events_default USING btree (idempotency_key);
-
-
---
--- Name: goat_identity_events_default_tenant_id_event_type_recorded__idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_default_tenant_id_event_type_recorded__idx ON public.goat_identity_events_default USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: goat_identity_events_default_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_default_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_default USING btree (tenant_id, recorded_at, identity_event_id);
-
-
---
--- Name: goat_identity_events_default_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX goat_identity_events_default_tenant_id_recorded_at_idx ON public.goat_identity_events_default USING btree (tenant_id, recorded_at DESC);
+CREATE INDEX goat_identity_events_tenant_type_recorded_idx ON public.goat_identity_events USING btree (tenant_id, event_type, recorded_at DESC);
 
 
 --
@@ -9439,6 +7999,13 @@ CREATE INDEX notification_requests_sending_lease_idx ON public.notification_requ
 
 
 --
+-- Name: obligation_batches_combo_align_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_batches_combo_align_keyset_idx ON public.obligation_batches USING btree (tenant_id, scope_type, scope_id, session, batch_id) WHERE ((status = 'planned'::text) AND (sop_task_id IS NULL) AND (session ~~ 'combo:%'::text));
+
+
+--
 -- Name: obligation_batches_scope_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9537,192 +8104,24 @@ CREATE INDEX obligation_instances_unbatched_due_version_idx ON public.obligation
 
 
 --
--- Name: obligation_status_events_obligation_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_obligation_idx ON ONLY public.obligation_status_events USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_2026_06_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_06_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_06 USING btree (obligation_id, occurred_at DESC);
-
-
---
 -- Name: obligation_status_events_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_status_events_idempotency_idx ON ONLY public.obligation_status_events USING btree (tenant_id, idempotency_key);
+CREATE INDEX obligation_status_events_idempotency_idx ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
 
 
 --
--- Name: obligation_status_events_2026_06_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: obligation_status_events_obligation_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_status_events_2026_06_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_06 USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: obligation_status_events_2026_07_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_07_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_07 USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_2026_07_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_07_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_07 USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: obligation_status_events_2026_08_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_08_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_08 USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_2026_08_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_08_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_08 USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: obligation_status_events_2026_09_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_09_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_09 USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_2026_09_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_09_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_09 USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: obligation_status_events_2026_10_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_10_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_10 USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_2026_10_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_10_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_10 USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: obligation_status_events_2026_11_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_11_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_11 USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_2026_11_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_11_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_11 USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: obligation_status_events_2026_12_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_12_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_12 USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_2026_12_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_12_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_12 USING btree (tenant_id, idempotency_key);
+CREATE INDEX obligation_status_events_obligation_idx ON public.obligation_status_events USING btree (obligation_id, occurred_at DESC);
 
 
 --
 -- Name: obligation_status_events_tenant_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_status_events_tenant_type_recorded_idx ON ONLY public.obligation_status_events USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx1; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx1 ON public.obligation_status_events_2026_07 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx2; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx2 ON public.obligation_status_events_2026_08 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx3; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx3 ON public.obligation_status_events_2026_09 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx4; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx4 ON public.obligation_status_events_2026_10 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx5; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx5 ON public.obligation_status_events_2026_11 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx6; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx6 ON public.obligation_status_events_2026_12 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorded_idx ON public.obligation_status_events_2026_06 USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_defa_tenant_id_event_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_defa_tenant_id_event_type_recorded_idx ON public.obligation_status_events_default USING btree (tenant_id, event_type, recorded_at DESC);
-
-
---
--- Name: obligation_status_events_default_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_default_obligation_id_occurred_at_idx ON public.obligation_status_events_default USING btree (obligation_id, occurred_at DESC);
-
-
---
--- Name: obligation_status_events_default_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX obligation_status_events_default_tenant_id_idempotency_key_idx ON public.obligation_status_events_default USING btree (tenant_id, idempotency_key);
+CREATE INDEX obligation_status_events_tenant_type_recorded_idx ON public.obligation_status_events USING btree (tenant_id, event_type, recorded_at DESC);
 
 
 --
@@ -10258,6 +8657,48 @@ CREATE INDEX sop_task_review_fanouts_retry_idx ON public.sop_task_review_fanouts
 
 
 --
+-- Name: sop_task_scan_attempts_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_task_scan_attempts_idempotency_unique_idx ON public.sop_task_scan_attempts USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: sop_task_scan_attempts_task_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_attempts_task_goat_idx ON public.sop_task_scan_attempts USING btree (tenant_id, task_id, goat_id, captured_at, attempt_id);
+
+
+--
+-- Name: sop_task_scan_attempts_task_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_attempts_task_idx ON public.sop_task_scan_attempts USING btree (tenant_id, task_id, captured_at, attempt_id);
+
+
+--
+-- Name: sop_task_scan_captures_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_task_scan_captures_idempotency_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: sop_task_scan_captures_task_field_tag_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_task_scan_captures_task_field_tag_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, field_key, normalized_tag);
+
+
+--
+-- Name: sop_task_scan_captures_task_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_captures_task_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, captured_at, capture_id);
+
+
+--
 -- Name: sop_task_submission_fanouts_retry_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10489,6 +8930,13 @@ CREATE INDEX vaccination_source_facts_tenant_disposition_idx ON public.vaccinati
 
 
 --
+-- Name: vaccination_stage_review_items_open_goat_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_stage_review_items_open_goat_unique ON public.vaccination_stage_review_items USING btree (tenant_id, goat_id) WHERE (status = 'open'::text);
+
+
+--
 -- Name: vaccination_stage_review_items_open_idem_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10703,930 +9151,6 @@ CREATE INDEX workforce_roster_assignments_member_date_idx ON public.workforce_ro
 --
 
 CREATE INDEX workforce_roster_assignments_scope_date_idx ON public.workforce_roster_assignments USING btree (tenant_id, shift_date, scope_type, scope_id, status);
-
-
---
--- Name: audit_log_2026_06_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_actor_idx ATTACH PARTITION public.audit_log_2026_06_actor_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_06_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_pkey ATTACH PARTITION public.audit_log_2026_06_pkey;
-
-
---
--- Name: audit_log_2026_06_resource_type_resource_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_resource_idx ATTACH PARTITION public.audit_log_2026_06_resource_type_resource_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_action_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_action_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_actor_id_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1;
-
-
---
--- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2;
-
-
---
--- Name: audit_log_2026_06_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx;
-
-
---
--- Name: audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_07_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_actor_idx ATTACH PARTITION public.audit_log_2026_07_actor_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_07_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_pkey ATTACH PARTITION public.audit_log_2026_07_pkey;
-
-
---
--- Name: audit_log_2026_07_resource_type_resource_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_resource_idx ATTACH PARTITION public.audit_log_2026_07_resource_type_resource_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_action_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_action_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_actor_id_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1;
-
-
---
--- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2;
-
-
---
--- Name: audit_log_2026_07_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx;
-
-
---
--- Name: audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_08_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_actor_idx ATTACH PARTITION public.audit_log_2026_08_actor_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_08_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_pkey ATTACH PARTITION public.audit_log_2026_08_pkey;
-
-
---
--- Name: audit_log_2026_08_resource_type_resource_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_resource_idx ATTACH PARTITION public.audit_log_2026_08_resource_type_resource_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_action_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_action_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_actor_id_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1;
-
-
---
--- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2;
-
-
---
--- Name: audit_log_2026_08_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx;
-
-
---
--- Name: audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_09_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_actor_idx ATTACH PARTITION public.audit_log_2026_09_actor_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_09_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_pkey ATTACH PARTITION public.audit_log_2026_09_pkey;
-
-
---
--- Name: audit_log_2026_09_resource_type_resource_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_resource_idx ATTACH PARTITION public.audit_log_2026_09_resource_type_resource_id_created_at_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_action_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_action_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_actor_id_recorded_at_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1;
-
-
---
--- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2;
-
-
---
--- Name: audit_log_2026_09_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx;
-
-
---
--- Name: audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx;
-
-
---
--- Name: audit_log_default_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_actor_idx ATTACH PARTITION public.audit_log_default_actor_id_created_at_idx;
-
-
---
--- Name: audit_log_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_pkey ATTACH PARTITION public.audit_log_default_pkey;
-
-
---
--- Name: audit_log_default_resource_type_resource_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_resource_idx ATTACH PARTITION public.audit_log_default_resource_type_resource_id_created_at_idx;
-
-
---
--- Name: audit_log_default_tenant_id_action_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log_default_tenant_id_action_recorded_at_idx;
-
-
---
--- Name: audit_log_default_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_actor_id_recorded_at_idx;
-
-
---
--- Name: audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
-
-
---
--- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1;
-
-
---
--- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2;
-
-
---
--- Name: audit_log_default_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_recorded_at_audit_id_idx;
-
-
---
--- Name: audit_log_default_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_resource_type_resource_id_recor_idx;
-
-
---
--- Name: audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx;
-
-
---
--- Name: goat_identity_events_2026_06_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_goat_timeline_idx ATTACH PARTITION public.goat_identity_events_2026_06_goat_id_occurred_at_idx;
-
-
---
--- Name: goat_identity_events_2026_06_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_idempotency_idx ATTACH PARTITION public.goat_identity_events_2026_06_idempotency_key_idx;
-
-
---
--- Name: goat_identity_events_2026_06_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_pkey ATTACH PARTITION public.goat_identity_events_2026_06_pkey;
-
-
---
--- Name: goat_identity_events_2026_06_tenant_id_event_type_recorded__idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITION public.goat_identity_events_2026_06_tenant_id_event_type_recorded__idx;
-
-
---
--- Name: goat_identity_events_2026_06_tenant_id_identity_event_id_re_key; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_2026_06_tenant_id_identity_event_id_re_key;
-
-
---
--- Name: goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx;
-
-
---
--- Name: goat_identity_events_2026_06_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_06_tenant_id_recorded_at_idx;
-
-
---
--- Name: goat_identity_events_2026_07_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_goat_timeline_idx ATTACH PARTITION public.goat_identity_events_2026_07_goat_id_occurred_at_idx;
-
-
---
--- Name: goat_identity_events_2026_07_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_idempotency_idx ATTACH PARTITION public.goat_identity_events_2026_07_idempotency_key_idx;
-
-
---
--- Name: goat_identity_events_2026_07_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_pkey ATTACH PARTITION public.goat_identity_events_2026_07_pkey;
-
-
---
--- Name: goat_identity_events_2026_07_tenant_id_event_type_recorded__idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_event_type_recorded__idx;
-
-
---
--- Name: goat_identity_events_2026_07_tenant_id_identity_event_id_re_key; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_identity_event_id_re_key;
-
-
---
--- Name: goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx;
-
-
---
--- Name: goat_identity_events_2026_07_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_recorded_at_idx;
-
-
---
--- Name: goat_identity_events_2026_08_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_goat_timeline_idx ATTACH PARTITION public.goat_identity_events_2026_08_goat_id_occurred_at_idx;
-
-
---
--- Name: goat_identity_events_2026_08_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_idempotency_idx ATTACH PARTITION public.goat_identity_events_2026_08_idempotency_key_idx;
-
-
---
--- Name: goat_identity_events_2026_08_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_pkey ATTACH PARTITION public.goat_identity_events_2026_08_pkey;
-
-
---
--- Name: goat_identity_events_2026_08_tenant_id_event_type_recorded__idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITION public.goat_identity_events_2026_08_tenant_id_event_type_recorded__idx;
-
-
---
--- Name: goat_identity_events_2026_08_tenant_id_identity_event_id_re_key; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_2026_08_tenant_id_identity_event_id_re_key;
-
-
---
--- Name: goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx;
-
-
---
--- Name: goat_identity_events_2026_08_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_08_tenant_id_recorded_at_idx;
-
-
---
--- Name: goat_identity_events_2026_09_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_goat_timeline_idx ATTACH PARTITION public.goat_identity_events_2026_09_goat_id_occurred_at_idx;
-
-
---
--- Name: goat_identity_events_2026_09_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_idempotency_idx ATTACH PARTITION public.goat_identity_events_2026_09_idempotency_key_idx;
-
-
---
--- Name: goat_identity_events_2026_09_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_pkey ATTACH PARTITION public.goat_identity_events_2026_09_pkey;
-
-
---
--- Name: goat_identity_events_2026_09_tenant_id_event_type_recorded__idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITION public.goat_identity_events_2026_09_tenant_id_event_type_recorded__idx;
-
-
---
--- Name: goat_identity_events_2026_09_tenant_id_identity_event_id_re_key; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_2026_09_tenant_id_identity_event_id_re_key;
-
-
---
--- Name: goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx;
-
-
---
--- Name: goat_identity_events_2026_09_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_09_tenant_id_recorded_at_idx;
-
-
---
--- Name: goat_identity_events_default_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_goat_timeline_idx ATTACH PARTITION public.goat_identity_events_default_goat_id_occurred_at_idx;
-
-
---
--- Name: goat_identity_events_default_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_idempotency_idx ATTACH PARTITION public.goat_identity_events_default_idempotency_key_idx;
-
-
---
--- Name: goat_identity_events_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_pkey ATTACH PARTITION public.goat_identity_events_default_pkey;
-
-
---
--- Name: goat_identity_events_default_tenant_id_event_type_recorded__idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITION public.goat_identity_events_default_tenant_id_event_type_recorded__idx;
-
-
---
--- Name: goat_identity_events_default_tenant_id_identity_event_id_re_key; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_default_tenant_id_identity_event_id_re_key;
-
-
---
--- Name: goat_identity_events_default_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_default_tenant_id_recorded_at_identity_idx;
-
-
---
--- Name: goat_identity_events_default_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_default_tenant_id_recorded_at_idx;
-
-
---
--- Name: obligation_status_events_2026_06_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_06_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_2026_06_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_06_pkey;
-
-
---
--- Name: obligation_status_events_2026_06_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_06_tenant_id_idempotency_key_idx;
-
-
---
--- Name: obligation_status_events_2026_07_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_07_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_2026_07_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_07_pkey;
-
-
---
--- Name: obligation_status_events_2026_07_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_07_tenant_id_idempotency_key_idx;
-
-
---
--- Name: obligation_status_events_2026_08_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_08_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_2026_08_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_08_pkey;
-
-
---
--- Name: obligation_status_events_2026_08_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_08_tenant_id_idempotency_key_idx;
-
-
---
--- Name: obligation_status_events_2026_09_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_09_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_2026_09_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_09_pkey;
-
-
---
--- Name: obligation_status_events_2026_09_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_09_tenant_id_idempotency_key_idx;
-
-
---
--- Name: obligation_status_events_2026_10_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_10_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_2026_10_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_10_pkey;
-
-
---
--- Name: obligation_status_events_2026_10_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_10_tenant_id_idempotency_key_idx;
-
-
---
--- Name: obligation_status_events_2026_11_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_11_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_2026_11_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_11_pkey;
-
-
---
--- Name: obligation_status_events_2026_11_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_11_tenant_id_idempotency_key_idx;
-
-
---
--- Name: obligation_status_events_2026_12_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_12_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_2026_12_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_12_pkey;
-
-
---
--- Name: obligation_status_events_2026_12_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_12_tenant_id_idempotency_key_idx;
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx1;
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx2;
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx3; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx3;
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx4; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx4;
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx5; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx5;
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx6; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx6;
-
-
---
--- Name: obligation_status_events_2026_tenant_id_event_type_recorded_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorded_idx;
-
-
---
--- Name: obligation_status_events_defa_tenant_id_event_type_recorded_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_defa_tenant_id_event_type_recorded_idx;
-
-
---
--- Name: obligation_status_events_default_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_default_obligation_id_occurred_at_idx;
-
-
---
--- Name: obligation_status_events_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_default_pkey;
-
-
---
--- Name: obligation_status_events_default_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
---
-
-ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_default_tenant_id_idempotency_key_idx;
 
 
 --
@@ -12101,7 +9625,7 @@ ALTER TABLE ONLY public.arrival_intake_reviews
 -- Name: audit_log audit_log_decision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.audit_log
+ALTER TABLE ONLY public.audit_log
     ADD CONSTRAINT audit_log_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES public.identity_decisions(decision_id);
 
 
@@ -12109,7 +9633,7 @@ ALTER TABLE public.audit_log
 -- Name: audit_log audit_log_decision_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.audit_log
+ALTER TABLE ONLY public.audit_log
     ADD CONSTRAINT audit_log_decision_tenant_fk FOREIGN KEY (tenant_id, decision_id) REFERENCES public.identity_decisions(tenant_id, decision_id);
 
 
@@ -12117,7 +9641,7 @@ ALTER TABLE public.audit_log
 -- Name: audit_log audit_log_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.audit_log
+ALTER TABLE ONLY public.audit_log
     ADD CONSTRAINT audit_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
@@ -12685,7 +10209,7 @@ ALTER TABLE ONLY public.goat_identifiers
 -- Name: goat_identity_events goat_identity_events_decision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.goat_identity_events
+ALTER TABLE ONLY public.goat_identity_events
     ADD CONSTRAINT goat_identity_events_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES public.identity_decisions(decision_id);
 
 
@@ -12693,7 +10217,7 @@ ALTER TABLE public.goat_identity_events
 -- Name: goat_identity_events goat_identity_events_decision_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.goat_identity_events
+ALTER TABLE ONLY public.goat_identity_events
     ADD CONSTRAINT goat_identity_events_decision_tenant_fk FOREIGN KEY (tenant_id, decision_id) REFERENCES public.identity_decisions(tenant_id, decision_id);
 
 
@@ -12701,7 +10225,7 @@ ALTER TABLE public.goat_identity_events
 -- Name: goat_identity_events goat_identity_events_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.goat_identity_events
+ALTER TABLE ONLY public.goat_identity_events
     ADD CONSTRAINT goat_identity_events_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
 
 
@@ -12709,7 +10233,7 @@ ALTER TABLE public.goat_identity_events
 -- Name: goat_identity_events goat_identity_events_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.goat_identity_events
+ALTER TABLE ONLY public.goat_identity_events
     ADD CONSTRAINT goat_identity_events_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
 
 
@@ -12717,7 +10241,7 @@ ALTER TABLE public.goat_identity_events
 -- Name: goat_identity_events goat_identity_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.goat_identity_events
+ALTER TABLE ONLY public.goat_identity_events
     ADD CONSTRAINT goat_identity_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
@@ -13733,7 +11257,7 @@ ALTER TABLE ONLY public.obligation_instances
 -- Name: obligation_status_events obligation_status_events_obligation_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.obligation_status_events
+ALTER TABLE ONLY public.obligation_status_events
     ADD CONSTRAINT obligation_status_events_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id) REFERENCES public.obligation_instances(tenant_id, obligation_id);
 
 
@@ -13741,7 +11265,7 @@ ALTER TABLE public.obligation_status_events
 -- Name: obligation_status_events obligation_status_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE public.obligation_status_events
+ALTER TABLE ONLY public.obligation_status_events
     ADD CONSTRAINT obligation_status_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
@@ -14335,6 +11859,54 @@ ALTER TABLE ONLY public.sop_task_review_fanouts
 
 ALTER TABLE ONLY public.sop_task_review_fanouts
     ADD CONSTRAINT sop_task_review_fanouts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_task_scan_captures sop_task_scan_captures_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: sop_task_scan_captures sop_task_scan_captures_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_task_scan_captures sop_task_scan_captures_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

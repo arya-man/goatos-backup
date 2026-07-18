@@ -69,30 +69,23 @@ Do not use this runbook to revive `rfid-import`, `rfid-apply`,
 `bq-reconcile`, Import Review, Data Quality, Legacy Sync, old generic Counts
 dashboards/reconciliation, mortality, or old dashboard parity workflows.
 
-## Stale API process vs. a migrated local DB
+## Stale local API/admin-web processes
 
-`tools/dev/run-local-stack.sh` (`make dev-local`) and
-`tools/dev/run-local-stack-supervised.sh` (`make dev-local-service-*`) both
-decide whether to reuse an already-running API on `:8080` by curling
-`/readyz`: if it is already healthy, they log "Using existing Goat OS API"
-and skip starting a new one. Before
-`docs/decisions/stale-binary-migration-drift-guard.md`, `/readyz` only
-checked that Postgres was reachable, so an `api` process left running from an
-older worktree/build would still report healthy even after a different
-session applied new migrations to the same local DB (e.g.
-`goatos-local-current` on `:5433`, see
-`docs/runbooks/google-cloud-environments.md`) — exactly the incident that
-guard exists to catch.
+Use `make dev-local-service-restart` as the recovery button whenever a local
+browser looks inconsistent with the current checkout. The restart path now:
 
-`/readyz` now also fails when the running binary's embedded migration
-ceiling and the DB's applied migration level disagree, so a stale reused
-process is correctly reported unhealthy instead of silently kept alive. If a
-launcher run reports the API as unhealthy/refusing to start and you have
-multiple worktrees pointed at the same local DB, check
-`curl -s http://127.0.0.1:8080/version` first (or the log line from a fresh
-`bootstrap.NewAPI` failure) before assuming a code regression — kill the
-stale process and let the launcher start a freshly built one instead of
-chasing a phantom bug. Neither launcher script was modified by that guard;
-this section is deliberately just a runbook note (a different session had
-uncommitted edits to `run-local-stack-supervised.sh` in a different worktree
-at the time).
+1. stops the launch agent,
+2. stops orphan `run-local-stack-supervised.sh` supervisors,
+3. frees `:8080` and `:3300`,
+4. starts API/admin-web from the current repo, and
+5. prints the repo path, commit, and port-owner cwd in
+   `make dev-local-service-status`.
+
+Do not diagnose vaccination/calendar/protocol UI behavior against an old
+manual `go run` or `next dev` process. If `status` says a listener is `not
+current repo`, run `make dev-local-service-restart` before testing.
+
+The supervised stack also refuses to silently reuse an already-healthy API or
+admin-web process. This is intentional: a healthy old process can serve stale
+code against a migrated/current local DB and create false UI bugs. The guard is
+enforced by `make local-stack-service-guard` and is included in `make check`.

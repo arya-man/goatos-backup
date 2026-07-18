@@ -5546,10 +5546,16 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": {
-                    note?: string;
+                    /**
+                     * @description Whether the stage/age conflict was actually corrected ('corrected') or is being left as an explicit reviewed exception ('exception'). Required so an active mismatch cannot be silently hidden.
+                     * @enum {string}
+                     */
+                    resolution: "corrected" | "exception";
+                    /** @description What was corrected, or why this is an accepted exception. */
+                    note: string;
                 };
             };
         };
@@ -5571,6 +5577,20 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description resolution was 'corrected' but the stage/age mismatch is still active (the goat's stage/DOB was not actually corrected). Correct the goat first or resolve as 'exception'. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example still_in_conflict */
+                        code?: string;
+                        message?: string;
+                        trace_id?: string;
+                    };
+                };
+            };
         };
     };
     previewBulkStatusUpdate: {

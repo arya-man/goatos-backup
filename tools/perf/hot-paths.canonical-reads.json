@@ -1,0 +1,125 @@
+{
+  "scope": {
+    "included": [
+      "control_tower",
+      "action_center",
+      "action_center_counts",
+      "protocol_adherence",
+      "calendar_vaccination",
+      "vaccination_schedule",
+      "vaccination_shed_summary",
+      "vaccination_execution",
+      "vaccination_operations"
+    ],
+    "evidence_boundaries": {
+      "canonical_5k_50k_serving_reads": [
+        "control_tower",
+        "action_center",
+        "action_center_counts",
+        "protocol_adherence",
+        "calendar_vaccination",
+        "vaccination_schedule",
+        "vaccination_shed_summary"
+      ],
+      "local_nonempty_latency_only": [
+        "vaccination_execution",
+        "vaccination_operations"
+      ]
+    },
+    "excluded": {
+      "async_architecture": "Pub/Sub delivery, DLQ recovery, idempotency concurrency, and consumer backpressure require separate architecture/load gates."
+    }
+  },
+  "endpoints": [
+    {
+      "name": "control_tower",
+      "method": "GET",
+      "path": "/control-tower/vaccination?category=vaccination",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "alerts", "min": 1 }
+    },
+    {
+      "name": "action_center",
+      "method": "GET",
+      "path": "/vaccination/action-center?category=vaccination&limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "action_center_counts",
+      "method": "GET",
+      "path": "/vaccination/action-center/counts?category=vaccination",
+      "p90_ms": 250,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 65536,
+      "assertion": { "type": "number_min", "path": "total_count", "min": 1 }
+    },
+    {
+      "name": "protocol_adherence",
+      "method": "GET",
+      "path": "/vaccination/adherence?category=vaccination&limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+    },
+    {
+      "name": "calendar_vaccination",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from={today}&date_to={today_plus_7}&limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "vaccination_schedule",
+      "method": "GET",
+      "path": "/vaccination/schedule?limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "cohorts", "min": 1 }
+    },
+    {
+      "name": "vaccination_shed_summary",
+      "method": "GET",
+      "path": "/vaccination/sheds?limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+    },
+    {
+      "name": "vaccination_execution",
+      "method": "GET",
+      "path": "/vaccination/execution?limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+    },
+    {
+      "name": "vaccination_operations",
+      "method": "GET",
+      "path": "/vaccination/operations?limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "cohorts", "min": 1 }
+    }
+  ]
+}

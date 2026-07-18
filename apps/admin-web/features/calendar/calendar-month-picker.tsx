@@ -6,11 +6,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 export function CalendarMonthPicker({
   label,
   open,
+  openHref,
   closeHref,
   children,
 }: {
   label: string;
   open: boolean;
+  openHref: string;
   closeHref: string;
   children: ReactNode;
 }) {
@@ -61,7 +63,7 @@ export function CalendarMonthPicker({
             }
             return;
           }
-          rootRef.current.open = true;
+          router.replace(openHref, { scroll: false });
         }}
       >
         {label}

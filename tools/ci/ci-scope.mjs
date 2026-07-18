@@ -33,10 +33,11 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
     return {
       common: true,
       ...allComponents(),
+      queryPlans: true,
       full: true,
       paths,
       reasons: ["no diff paths were available; conservative full suite"],
-      selectedJobs: ["common", "backend", "admin-web", "android"],
+      selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
     };
   }
 
@@ -70,10 +71,12 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
     && reasons.some((reason) => reason.includes("forces full suite"));
   const selectedJobs = ["common"];
   if (components.backend) selectedJobs.push("backend");
+  const queryPlans = components.backend;
+  if (queryPlans) selectedJobs.push("query-plans");
   if (components.adminWeb) selectedJobs.push("admin-web");
   if (components.android) selectedJobs.push("android");
 
-  return { common: true, ...components, full, paths, reasons, selectedJobs };
+  return { common: true, ...components, queryPlans, full, paths, reasons, selectedJobs };
 }
 
 function resolveCommit(ref) {
@@ -124,6 +127,7 @@ function printClassification(result, format) {
   if (format === "github") {
     console.log(`common=${result.common}`);
     console.log(`backend=${result.backend}`);
+    console.log(`query_plans=${result.queryPlans}`);
     console.log(`admin_web=${result.adminWeb}`);
     console.log(`android=${result.android}`);
     console.log(`full=${result.full}`);
@@ -142,8 +146,15 @@ function selfTest() {
   };
   assert.deepEqual(pick(["backend/internal/api.go"]), {
     common: true, backend: true, adminWeb: false, android: false, full: false,
-    selectedJobs: ["common", "backend"],
+    selectedJobs: ["common", "backend", "query-plans"],
   });
+  const obligationQueryChange = classifyPaths([
+    "backend/internal/obligation/adapters/postgres/repository.go",
+  ]);
+  assert.equal(obligationQueryChange.queryPlans, true,
+    "a production obligation-query change must schedule the PostgreSQL plan gate");
+  assert.equal(obligationQueryChange.selectedJobs.includes("query-plans"), true,
+    "normal PR/push CI must not leave the query-plan gate manual");
   assert.deepEqual(pick(["apps/admin-web/app/page.tsx"]), {
     common: true, backend: false, adminWeb: true, android: false, full: false,
     selectedJobs: ["common", "admin-web"],
@@ -154,7 +165,7 @@ function selfTest() {
   });
   assert.deepEqual(pick(["contracts/openapi/app-api.yaml"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,
-    selectedJobs: ["common", "backend", "admin-web", "android"],
+    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
   });
   assert.deepEqual(pick(["docs/runbooks/local-ci.md"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,

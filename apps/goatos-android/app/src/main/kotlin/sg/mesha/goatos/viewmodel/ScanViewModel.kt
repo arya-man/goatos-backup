@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -12,16 +14,27 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsFunnels
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
+import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
+import sg.mesha.goatos.core.data.capture.RfidScanTagRole
+import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
+import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanFeedEntry
+import sg.mesha.goatos.feature.scan.ScanFeedTone
+import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanStatus
+import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.rfid.RfidReaderStatus
 import javax.inject.Inject
 
 /**
@@ -43,16 +56,20 @@ import javax.inject.Inject
 class ScanViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val reader: RfidReaderPort,
+    private val scanCaptureRepository: ScanCaptureRepository,
+    private val scanAttemptRepository: ScanAttemptRepository,
+    private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
     private val taskId: String? = savedStateHandle.get<String>("taskId")
     private var nextCursor: String? = null
+    private var readerRefreshJob: Job? = null
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<ScanRosterResponseDto>> =
-        (if (shedId != null && taskId != null) {
+        (if (shedId != null) {
             repo.observeScanRoster(shedId, taskId, limit = SCAN_PAGE_SIZE)
         } else {
             flowOf(Resource(data = null))
@@ -76,6 +93,7 @@ class ScanViewModel @Inject constructor(
     // by a hardware tag read or manual ring tap, plus the live feed rows. These are overlaid onto
     // the observed roster in the combine so an in-progress scan is not lost when Room re-emits.
     private val _localDone = MutableStateFlow<Set<String>>(emptySet())
+    private val _manualDone = MutableStateFlow<Set<String>>(emptySet())
     private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
 
     // Combines observed resource with transient flags + draft overlay; lifecycle-aware.
@@ -91,6 +109,8 @@ class ScanViewModel @Inject constructor(
         _selectedVaccineGroupId,
         _localDone,
         _feed,
+        reader.status,
+        reader.readerName,
     ) { values: Array<Any?> ->
         val resource = values[0] as Resource<ScanRosterResponseDto>
         val isRefreshing = values[1] as Boolean
@@ -101,6 +121,8 @@ class ScanViewModel @Inject constructor(
         val selectedGroupId = values[6] as String?
         val localDone = values[7] as Set<String>
         val feed = values[8] as List<ScanFeedEntry>
+        val readerStatus = values[9] as RfidReaderStatus
+        val readerName = values[10] as String?
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
         val base = dto?.let { applyResource(it, localDone) } ?: emptyScanState()
@@ -115,6 +137,7 @@ class ScanViewModel @Inject constructor(
             vaccineGroups = base.vaccineGroups.map { group ->
                 group.copy(active = group.id == selectedGroupId)
             },
+            readerConnection = readerStatus.toScanReaderConnection(readerName),
         )
     }.stateIn(
         viewModelScope,
@@ -131,9 +154,25 @@ class ScanViewModel @Inject constructor(
     }
 
     /** Enable/disable keyboard-wedge capture with the Scan screen's composition lifecycle. */
-    fun setCaptureActive(active: Boolean) = reader.setCaptureEnabled(active)
+    fun setCaptureActive(active: Boolean) {
+        reader.setCaptureEnabled(active)
+        if (active) {
+            reader.refreshStatus()
+            if (readerRefreshJob?.isActive == true) return
+            readerRefreshJob = viewModelScope.launch {
+                while (true) {
+                    reader.refreshStatus()
+                    delay(READER_REFRESH_MS)
+                }
+            }
+        } else {
+            readerRefreshJob?.cancel()
+            readerRefreshJob = null
+        }
+    }
 
     override fun onCleared() {
+        readerRefreshJob?.cancel()
         reader.setCaptureEnabled(false)
     }
 
@@ -142,26 +181,25 @@ class ScanViewModel @Inject constructor(
      *  cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         val id = shedId ?: return@launch
-        val selectedTask = taskId ?: return@launch
         _isRefreshing.value = true
-        val result = repo.refreshScanRoster(id, selectedTask, limit = SCAN_PAGE_SIZE)
+        val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
     }
 
     fun loadMore() = viewModelScope.launch {
         val id = shedId ?: return@launch
-        val selectedTask = taskId ?: return@launch
         val cursor = nextCursor ?: return@launch
         if (_isLoadingMore.value) return@launch
         _isLoadingMore.value = true
-        val result = repo.appendScanRoster(id, selectedTask, cursor, limit = SCAN_PAGE_SIZE)
+        val result = repo.appendScanRoster(id, taskId, cursor, limit = SCAN_PAGE_SIZE)
         _isLoadingMore.value = false
         _isOffline.value = result.isFailure
     }
 
     private fun loadRosterAndRefresh() {
-        if (shedId.isNullOrBlank() || taskId.isNullOrBlank()) return
+        val id = shedId ?: return
+        AnalyticsFunnels.trackScanStarted(analytics, id)
         refresh()
     }
 
@@ -175,15 +213,32 @@ class ScanViewModel @Inject constructor(
                 _rosterExpanded.value = !_rosterExpanded.value
             ScanEvent.Tap -> onManualTap()
             ScanEvent.LoadMore -> loadMore()
-            ScanEvent.Submit, ScanEvent.Back -> Unit // navigation — handled by the host.
+            ScanEvent.Submit,
+            ScanEvent.Back,
+            ScanEvent.ReconnectReader -> Unit // navigation — handled by the host.
         }
     }
 
+    private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanReaderConnection =
+        ScanReaderConnection(
+            readerName = readerName ?: "RFID reader",
+            statusLabel = when (this) {
+                RfidReaderStatus.READY -> "Reader connected"
+                RfidReaderStatus.PAIRED_NOT_READY -> "Reader disconnected"
+                RfidReaderStatus.NOT_PAIRED -> "Reader not paired"
+                RfidReaderStatus.PERMISSION_NEEDED -> "Bluetooth permission needed"
+                RfidReaderStatus.BLUETOOTH_OFF -> "Bluetooth off"
+            },
+            connected = this == RfidReaderStatus.READY,
+            actionLabel = "Reconnect",
+        )
+
     /** Manual ring tap: advances the next REAL pending roster row (from the current computed
-     *  state) to DONE by recording its obligation in the draft overlay, and pushes a feed row. */
+     *  state) to DONE in the draft overlay only. It is not an RFID capture. */
     private fun onManualTap() {
         val row = state.value.roster.firstOrNull { it.status == ScanStatus.PENDING } ?: return
         markRowDone(row)
+        _manualDone.update { it + row.obligationId }
     }
 
     /** Hardware tag read (keyboard-wedge): match the tag against the current roster and fold it
@@ -192,21 +247,79 @@ class ScanViewModel @Inject constructor(
     private fun onTagRead(tag: String) {
         val target = normalize(tag)
         if (target.isEmpty()) return
-        val row = state.value.roster.firstOrNull {
-            normalize(it.primaryTag) == target || it.secondaryTag?.let { t -> normalize(t) == target } == true
-        }
+        val row = state.value.roster.firstOrNull { it.matchesTag(target) }
         if (row == null) {
+            recordScanAttempt(
+                tag = tag,
+                row = null,
+                outcome = RfidScanAttemptOutcome.UNKNOWN,
+                tagRole = RfidScanTagRole.UNKNOWN,
+                reason = "unknown_tag",
+            )
             _feed.update { prependFeed(ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED), it) }
             return
         }
+        val tagRole = row.tagRoleFor(target)
         when (row.status) {
-            ScanStatus.PENDING -> markRowDone(row)
-            ScanStatus.DONE -> Unit
-            ScanStatus.SKIPPED -> _feed.update {
-                prependFeed(
-                    ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
-                    it,
+            ScanStatus.PENDING -> {
+                markRowDone(row)
+                _manualDone.update { it - row.obligationId }
+                recordScanAttempt(
+                    tag = tag,
+                    row = row,
+                    outcome = RfidScanAttemptOutcome.ACCEPTED,
+                    tagRole = tagRole,
+                    reason = null,
                 )
+                recordRosterScan(row = row, tag = tag)
+            }
+            ScanStatus.DONE -> {
+                if (row.obligationId in _manualDone.value) {
+                    _manualDone.update { it - row.obligationId }
+                    recordScanAttempt(
+                        tag = tag,
+                        row = row,
+                        outcome = RfidScanAttemptOutcome.ACCEPTED,
+                        tagRole = tagRole,
+                        reason = "manual_done_replaced_by_reader_scan",
+                    )
+                    recordRosterScan(row = row, tag = tag)
+                } else {
+                    recordScanAttempt(
+                        tag = tag,
+                        row = row,
+                        outcome = RfidScanAttemptOutcome.DUPLICATE,
+                        tagRole = tagRole,
+                        reason = "goat_already_scanned",
+                    )
+                    _feed.update {
+                        prependFeed(
+                            ScanFeedEntry(
+                                row.primaryTag,
+                                row.secondaryTag,
+                                "already scanned · ${row.vaccineLabel}",
+                                ScanStatus.DONE,
+                                ScanFeedTone.DUPLICATE,
+                            ),
+                            it,
+                        )
+                    }
+                }
+            }
+            ScanStatus.SKIPPED -> {
+                recordScanAttempt(
+                    tag = tag,
+                    row = row,
+                    outcome = RfidScanAttemptOutcome.NOT_DUE,
+                    tagRole = tagRole,
+                    reason = "not_due",
+                )
+                _feed.update {
+                    prependFeed(
+                        ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
+                        it,
+                    )
+                }
             }
         }
     }
@@ -219,6 +332,45 @@ class ScanViewModel @Inject constructor(
         _localDone.update { it + row.obligationId }
         _feed.update {
             prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE), it)
+        }
+    }
+
+    private fun recordRosterScan(row: RosterRow, tag: String) {
+        val selectedTaskId = taskId ?: return
+        val capturedTag = tag.ifBlank { row.primaryTag }
+        if (normalize(capturedTag).isEmpty()) return
+        viewModelScope.launch {
+            scanCaptureRepository.recordScan(
+                taskId = selectedTaskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = capturedTag,
+                goatId = row.goatId,
+                obligationId = row.obligationId,
+            )
+        }
+    }
+
+    private fun recordScanAttempt(
+        tag: String,
+        row: RosterRow?,
+        outcome: RfidScanAttemptOutcome,
+        tagRole: RfidScanTagRole,
+        reason: String?,
+    ) {
+        val selectedTaskId = taskId ?: return
+        val capturedTag = tag.ifBlank { row?.primaryTag.orEmpty() }
+        if (normalize(capturedTag).isEmpty()) return
+        viewModelScope.launch {
+            scanAttemptRepository.recordAttempt(
+                taskId = selectedTaskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = capturedTag,
+                goatId = row?.goatId,
+                obligationId = row?.obligationId,
+                outcome = outcome,
+                tagRole = tagRole,
+                reason = reason,
+            )
         }
     }
 
@@ -247,8 +399,9 @@ class ScanViewModel @Inject constructor(
             doneCount = done,
             pendingCount = pending,
             skippedCount = skipped,
-            canSubmit = pending == 0 && nextCursor == null,
+            canSubmit = pending == 0 && dto.nextCursor == null,
             scanEnabled = true,
+            hasMore = dto.nextCursor != null,
         )
     }
 
@@ -261,7 +414,16 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
+private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
+
+private fun RosterRow.matchesTag(normalizedTag: String): Boolean =
+    normalize(primaryTag) == normalizedTag || secondaryTag?.let { normalize(it) == normalizedTag } == true
+
+private fun RosterRow.tagRoleFor(normalizedTag: String): RfidScanTagRole = when {
+    normalize(primaryTag) == normalizedTag -> RfidScanTagRole.PRIMARY
+    secondaryTag?.let { normalize(it) == normalizedTag } == true -> RfidScanTagRole.SECONDARY
+    else -> RfidScanTagRole.UNKNOWN
+}
 
     private fun prependFeed(entry: ScanFeedEntry, existing: List<ScanFeedEntry>): List<ScanFeedEntry> =
         (listOf(entry) + existing).take(MAX_SCAN_FEED_ENTRIES)
@@ -269,6 +431,7 @@ class ScanViewModel @Inject constructor(
 
 private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
+private const val READER_REFRESH_MS = 1_000L
 
 private fun emptyScanState(): ScanUiState = ScanUiState(
     shedLabel = "",
@@ -276,12 +439,12 @@ private fun emptyScanState(): ScanUiState = ScanUiState(
     ringDone = 0,
     ringTotal = 0,
     ringUnitLabel = "",
-    tapHint = "",
+    tapHint = "Hold the Bluetooth reader near the goat tag. A known tag is marked Done; an unknown tag is marked Skipped.",
     vaccineGroups = emptyList(),
     doneCount = 0,
     pendingCount = 0,
     skippedCount = 0,
-    tileLabels = sg.mesha.goatos.feature.scan.ScanTileLabels("", "", ""),
+    tileLabels = ScanTileLabels("Done", "Pending", "Skipped"),
     feed = emptyList(),
     roster = emptyList(),
     listTitle = "",
@@ -289,4 +452,10 @@ private fun emptyScanState(): ScanUiState = ScanUiState(
     canSubmit = false,
     scanEnabled = false,
     isRefreshing = true,
+    readerConnection = ScanReaderConnection(
+        readerName = "RFID reader",
+        statusLabel = "Checking reader connection",
+        connected = false,
+        actionLabel = "Reconnect",
+    ),
 )

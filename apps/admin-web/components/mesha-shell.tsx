@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -34,14 +34,6 @@ type NavItem = AdminWebBootstrapResponse["navigation"]["primary"][number];
 type RouteLabelRule = AdminWebBootstrapResponse["route_labels"][number];
 type NavCounts = { actionCenter: number | null; pc: number | null };
 type TrailItem = { label: string; href: string };
-
-// Top-bar data-freshness pill ("data <asOf> · fresh / Nd old") is HIDDEN for now.
-// Reason: the as-of/freshness value is not yet backed by a real point-in-time
-// data-freshness signal from the read models, so the chip would assert a
-// freshness guarantee the backend cannot yet honor. Re-enable by flipping this
-// to true once the freshness/as-of contract is implemented end-to-end.
-// See: apps/admin-web/AGENTS.md → "Scope Chrome Rule" (top bar owns as-of scope).
-const SHOW_DATA_FRESHNESS_PILL = false;
 
 const iconByToken: Record<string, ElementType> = {
   "bar-chart-3": BarChart3,
@@ -169,6 +161,11 @@ export function MeshaShell({
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
   const searchKey = searchParams?.toString() ?? "";
+  const isVaccinationFullSchedule = pathname === "/vaccination" && searchParams?.get("view") === "schedule";
+  const preserveVaccinationSchedule =
+    isVaccinationFullSchedule
+      ? { view: "schedule", schedule_year: searchParams.get("schedule_year") ?? undefined }
+      : {};
   const defaultPark = parks[0] ?? null;
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
@@ -193,6 +190,8 @@ export function MeshaShell({
   });
   const today = todayIso();
   const freshness = dateFreshnessLabel(scope.asOf, today, contract);
+  const scopedDate = scope.asOf ?? today;
+  const isHistoricalDate = Boolean(scope.asOf && scope.asOf !== today);
   const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
   const actionCenterBadge = visibleBadge(navCounts.actionCenter);
   const pcBadge = visibleBadge(navCounts.pc);
@@ -354,10 +353,19 @@ export function MeshaShell({
     setRail((o) => !o);
   }
   function navHref(leaf: NavItem): string {
-    return scopeHref(leaf.href, renderedScope, leaf.domain ? { domain: leaf.domain } : {}, leaf.extra ?? {});
+    // Calendar is a date-first command surface. Entering it from the global nav should open on today's
+    // operating date, not inherit a stale top-bar as_of left behind by another screen.
+    const dateScope = leaf.href === "/calendar" ? { asOf: null } : {};
+    return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
   function navActive(leaf: NavItem): boolean {
-    return active === leaf.href && !leaf.domain;
+    return active === leaf.href;
+  }
+  function currentScopeHref(
+    overrides: Parameters<typeof scopeHref>[2] = {},
+    extra: Record<string, string | undefined> = {},
+  ): string {
+    return scopeHref(pathname, scope, overrides, { ...preserveVaccinationSchedule, ...extra });
   }
 
   return (
@@ -385,27 +393,29 @@ export function MeshaShell({
             an app-wide scope. */}
         {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Park-wise does
             not force a park filter; users choose a concrete park separately from the park picker. */}
-        <div className="parkpick" style={{ marginRight: 6 }}>
-          <Link
-            href={scopeHref(pathname, scope, { park: null, mode: "company" })}
-            replace
-            scroll={false}
-            className={renderedScope.mode === "company" ? "on" : ""}
-            title={companyScopeOption?.title ?? ""}
-          >
-            {companyScopeOption?.label}
-          </Link>
-          <Link
-            href={defaultPark ? scopeHref(pathname, scope, { park: activeParkId ?? null, mode: "park" }) : scopeHref(pathname, scope)}
-            replace
-            scroll={false}
-            className={renderedScope.mode === "park" ? "on" : ""}
-            title={defaultPark ? (parkScopeOption?.title ?? "") : shellCopy(contract, "scope.no_parks_for_park_scope")}
-            aria-disabled={!defaultPark}
-          >
-            {parkScopeOption?.label}
-          </Link>
-        </div>
+        {isVaccinationFullSchedule ? null : (
+          <div className="parkpick" style={{ marginRight: 6 }}>
+            <Link
+              href={currentScopeHref({ park: null, mode: "company" })}
+              replace
+              scroll={false}
+              className={renderedScope.mode === "company" ? "on" : ""}
+              title={companyScopeOption?.title ?? ""}
+            >
+              {companyScopeOption?.label}
+            </Link>
+            <Link
+              href={defaultPark ? currentScopeHref({ park: activeParkId ?? null, mode: "park" }) : currentScopeHref()}
+              replace
+              scroll={false}
+              className={renderedScope.mode === "park" ? "on" : ""}
+              title={defaultPark ? (parkScopeOption?.title ?? "") : shellCopy(contract, "scope.no_parks_for_park_scope")}
+              aria-disabled={!defaultPark}
+            >
+              {parkScopeOption?.label}
+            </Link>
+          </div>
+        )}
         {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
             this slice, so the label reads "· all sheds" and the menu disables shed selection with a reason —
             never a faked shed filter. The UI shows the human label; links write the backend-safe ?park=uuid. */}
@@ -433,7 +443,7 @@ export function MeshaShell({
             <div className="pm-label">{contract.top_bar.park_selector.label}</div>
             <div className="pm-list">
               <Link
-                href={scopeHref(pathname, scope, { park: null, mode: renderedScope.mode })}
+                href={currentScopeHref({ park: null, mode: renderedScope.mode })}
                 replace
                 scroll={false}
                 onClick={closeMenus}
@@ -450,7 +460,7 @@ export function MeshaShell({
               {parks.map((p) => (
                 <Link
                   key={p.id}
-                  href={scopeHref(pathname, scope, { park: p.id, mode: "park" })}
+                  href={currentScopeHref({ park: p.id, mode: "park" })}
                   replace
                   scroll={false}
                   onClick={closeMenus}
@@ -466,24 +476,28 @@ export function MeshaShell({
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
         </div>
-        {/* Point-in-time freshness only. Range filtering is not implemented, so the top bar must not render
-            a clickable Date range / Last 30 days control.
-            HIDDEN via SHOW_DATA_FRESHNESS_PILL until the freshness/as-of signal is backed end-to-end. */}
-        {SHOW_DATA_FRESHNESS_PILL ? (
+        {/* Point-in-time date scope only. This is deliberately visible: process-integrity screens honor
+            `as_of`, so carrying a bookmarked historical date must never look like today's live queue. */}
+        {isVaccinationFullSchedule ? null : (
           <div
-            className="pscope"
+            className={`pscope date-scope ${isHistoricalDate ? "stale" : ""}`}
             style={{ marginRight: 4 }}
-            title={`${shellCopy(contract, "date.data_prefix")} ${scope.asOf ?? today} · ${freshness}`}
-            aria-label={`${shellCopy(contract, "date.data_prefix")} ${scope.asOf ?? today} · ${freshness}`}
+            title={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
+            aria-label={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
           >
             <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
             <span>{shellCopy(contract, "date.data_prefix")}</span>
-            <b>{scope.asOf ?? today}</b>
+            <b>{scopedDate}</b>
             <span className="muted small" style={{ marginLeft: 2 }}>
               · {freshness}
             </span>
+            {isHistoricalDate ? (
+              <Link href={currentScopeHref({ asOf: null })} replace scroll={false} className="scope-reset" title="Reset date scope to today">
+                Today
+              </Link>
+            ) : null}
           </div>
-        ) : null}
+        )}
         <button
           type="button"
           className="iconbtn"

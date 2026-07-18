@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse, X } from "lucide-react";
 import { getVaccinationExecution, type ApiResult } from "@/lib/api/server";
 import type {
@@ -8,7 +8,7 @@ import type {
   VaccinationExecutionWorkState,
 } from "@/lib/api/vaccination-execution";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { backendScope, parseScope, scopeHref } from "@/lib/scope";
+import { parseScope, scopeHref } from "@/lib/scope";
 import {
   SEVERITY_ORDER,
   SEVERITY_RANK,
@@ -35,6 +35,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { ShedEventActions } from "./shed-event-actions";
+import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
 const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "rejected"]);
@@ -207,17 +208,21 @@ export async function VaccinationExecutionBoard({
   const stateFilter = (WORK_STATE_ORDER.find((s) => s === one(sp, "state")) ?? "all") as VaccinationExecutionWorkState | "all";
   const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as VaccinationExecutionSeverity | "all";
   const scope = parseScope(sp);
-  const { parkId, asOf } = backendScope(scope);
+  const { parkId } = vaccinationCurrentViewScope(scope);
+  const pageSizeOptions = tablePageSizes(pageContract, "shed-events");
+  const requestedBackendLimit = pageSizeOptions.find((size) => String(size) === one(sp, "exec_limit")) ?? 10;
+  const executionCursor = one(sp, "exec_cursor");
 
   const result =
     executionResult ??
     (await getVaccinationExecution({
       parkId,
-      asOf,
       workState: stateFilter === "all" ? undefined : stateFilter,
-      limit: 500,
+      limit: requestedBackendLimit,
+      cursor: executionCursor,
     }));
   const allRows: VaccinationExecutionRow[] = result.ok ? result.data.rows : [];
+  const nextCursor = result.ok ? result.data.nextCursor ?? null : null;
 
   let rows = allRows;
   if (severityFilter !== "all") rows = rows.filter((r) => r.severity === severityFilter);
@@ -231,7 +236,6 @@ export async function VaccinationExecutionBoard({
   }
 
   const labels = tableLabels(pageContract, "shed-events");
-  const pageSizeOptions = tablePageSizes(pageContract, "shed-events");
   const paged = paginateRows(rows, sp, "exec", 10, pageSizeOptions);
   const parks = groupByPark(paged.items);
   const selectedEventId = one(sp, "shed_event");
@@ -240,7 +244,7 @@ export async function VaccinationExecutionBoard({
   // work_state is applied SERVER-SIDE and the result is capped (limit), so per-state counts are only
   // meaningful when no state filter is active. Park scope belongs to the shell top bar / Filters.
   const showStateCounts = stateFilter === "all";
-  const capped = result.ok && allRows.length >= 500;
+  const capped = nextCursor !== null;
   // True empty: the service answered with zero rows and no filter is narrowing them. The severity/state
   // chips would all read 0 (dead microcopy), so suppress the filter chrome and show a compact empty row.
   const noWork = result.ok && allRows.length === 0 && severityFilter === "all" && stateFilter === "all";
@@ -252,6 +256,7 @@ export async function VaccinationExecutionBoard({
       ...baseParams,
       severity: severityFilter,
       state: stateFilter,
+      exec_cursor: executionCursor,
       exec_page: String(paged.page),
       exec_limit: String(paged.pageSize),
       ...overrides,
@@ -263,8 +268,9 @@ export async function VaccinationExecutionBoard({
     return hrefWith({ exec_page: String(page) });
   }
   function pageSizeHref(pageSize: VaccinationPageSize): string {
-    return hrefWith({ exec_page: "1", exec_limit: String(pageSize) });
+    return hrefWith({ exec_cursor: undefined, exec_page: "1", exec_limit: String(pageSize) });
   }
+  const nextBackendHref = nextCursor ? hrefWith({ exec_cursor: nextCursor, exec_page: "1" }) : null;
 
   return (
     <>
@@ -293,13 +299,13 @@ export async function VaccinationExecutionBoard({
 
       {/* Severity filter */}
       <div className="chipset" style={{ marginBottom: 10 }}>
-        <Link href={hrefWith({ severity: "all", exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
+        <Link href={hrefWith({ severity: "all", exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
           {copy(pageContract, "label.all_severity")}
         </Link>
         {SEVERITY_ORDER.map((s) => {
           const count = sevCounts.get(s) ?? 0;
           return (
-            <Link key={s} href={hrefWith({ severity: s, exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
+            <Link key={s} href={hrefWith({ severity: s, exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
               {optionLabel(pageContract, "severity_chips", s)} <Tag tone={severityFilter === s ? (optionTone(pageContract, "severity_chips", s) as Tone) : "mut"}>{count}</Tag>
             </Link>
           );
@@ -309,11 +315,11 @@ export async function VaccinationExecutionBoard({
       {/* Work-state filter board (most-broken first). Server-side filter: always render every state as
           navigation (so selecting one never collapses the board), count only in the unfiltered view. */}
       <div className="chipset" style={{ marginBottom: 8 }}>
-        <Link href={hrefWith({ state: "all", exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === "all" ? " on" : ""}`}>
+        <Link href={hrefWith({ state: "all", exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === "all" ? " on" : ""}`}>
           {copy(pageContract, "label.all_states")} {showStateCounts ? <Tag tone={stateFilter === "all" ? "ok" : "mut"}>{allRows.length}</Tag> : null}
         </Link>
         {(showStateCounts ? WORK_STATE_ORDER.filter((s) => (stateCounts.get(s) ?? 0) > 0) : WORK_STATE_ORDER).map((s) => (
-          <Link key={s} href={hrefWith({ state: s, exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === s ? " on" : ""}`}>
+          <Link key={s} href={hrefWith({ state: s, exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === s ? " on" : ""}`}>
             {optionLabel(pageContract, "work_state_filter_chips", s)}
             {showStateCounts ? <> <Tag tone="mut">{stateCounts.get(s) ?? 0}</Tag></> : null}
           </Link>
@@ -419,6 +425,15 @@ export async function VaccinationExecutionBoard({
           hrefForPage={pagerHref}
           hrefForPageSize={pageSizeHref}
         />
+        {nextBackendHref ? (
+          <div className="pager2" style={{ marginTop: 8 }}>
+            <span className="muted small">{copy(pageContract, "pager.scale_note")}</span>
+            <span className="sp" style={{ flex: 1 }} />
+            <Link href={nextBackendHref} replace scroll={false} className="btn sm">
+              {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
+            </Link>
+          </div>
+        ) : null}
         </>
       )}
       {selectedEvent ? <ShedEventDrawer row={selectedEvent} scope={scope} closeHref={hrefWith({ shed_event: undefined })} pageContract={pageContract} /> : null}

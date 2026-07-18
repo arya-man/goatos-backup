@@ -397,9 +397,9 @@ export function RuleEditorModal({
         pathogenClass:
           seed?.vaccine?.pathogenClass ??
           firstKey(pathogenClassOptions, "vaccine_pathogen_classes"),
-        courseType:
-          seed?.vaccine?.courseType ??
-          firstKey(courseTypeOptions, "vaccine_course_types"),
+        // courseType is NOT defaulted — it must be an explicit author choice
+        // (draft-save validation ensures it is set before saving)
+        courseType: seed?.vaccine?.courseType ?? "",
         inventoryItemId: seed?.vaccine?.inventoryItemId ?? "",
         manufacturer: seed?.vaccine?.manufacturer ?? "",
         disease: seed?.vaccine?.disease ?? "",
@@ -978,12 +978,13 @@ export function RuleEditorModal({
       vaccine: {
         code: preset.code,
         name: preset.name,
-        type: optionKeyOrFallback(vaccineTypeOptions, preset.vaccineType),
-        pathogenClass: optionKeyOrFallback(
+        type: requireOptionKey(vaccineTypeOptions, preset.vaccineType, "vaccine_types"),
+        pathogenClass: requireOptionKey(
           pathogenClassOptions,
           preset.pathogenClass,
+          "vaccine_pathogen_classes",
         ),
-        courseType: optionKeyOrFallback(courseTypeOptions, preset.courseType),
+        courseType: requireOptionKey(courseTypeOptions, preset.courseType, "vaccine_course_types"),
         inventoryItemId: "",
         manufacturer: "tracked-matrix",
         disease: preset.disease,
@@ -1086,9 +1087,10 @@ export function RuleEditorModal({
     return {
       code: option.key,
       name: option.label,
-      vaccineType: meta.vaccine_type ?? "unknown_review_needed",
-      pathogenClass: meta.pathogen_class ?? "unknown_review_needed",
-      courseType: meta.course_type ?? "single",
+      vaccineType: meta.vaccine_type ?? "",
+      pathogenClass: meta.pathogen_class ?? "",
+      // courseType is NOT defaulted to "single" — it must be explicitly present in the preset metadata
+      courseType: meta.course_type ?? "",
       disease: meta.disease ?? option.label,
       compatibilityGroup: meta.compatibility_group ?? option.key,
       approvedKidWeeks: numberList(meta.weeks),
@@ -1117,13 +1119,24 @@ export function RuleEditorModal({
     const value = Number(raw ?? 0);
     return Number.isFinite(value) ? value : 0;
   }
-  function optionKeyOrFallback(
-    options: AdminUiOption[],
-    desired: string,
-  ): string {
-    return options.some((option) => option.key === desired)
-      ? desired
-      : firstKey(options, "source_option");
+  function requireOptionKey(options: AdminUiOption[], desired: string, groupId: string): string {
+    if (desired && options.some((option) => option.key === desired)) {
+      return desired;
+    }
+    throw new Error(
+      `Admin-web source vaccine preset has invalid ${groupId} option ${desired || "<empty>"}`,
+    );
+  }
+  function enabledOptionKeys(options: AdminUiOption[]): string[] {
+    return options
+      .filter((option) => option.enabled !== false)
+      .map((option) => option.key.toLowerCase());
+  }
+  function enabledOptionLabels(options: AdminUiOption[]): string {
+    return options
+      .filter((option) => option.enabled !== false)
+      .map((option) => option.label || option.key)
+      .join(", ");
   }
   function slugSource(value: string): string {
     return value
@@ -1426,6 +1439,43 @@ export function RuleEditorModal({
       });
       return;
     }
+
+    if (category === "vaccination") {
+      const vaccineTypeKeys = enabledOptionKeys(vaccineTypeOptions);
+      const pathogenClassKeys = enabledOptionKeys(pathogenClassOptions);
+      const courseTypeKeys = enabledOptionKeys(courseTypeOptions);
+      for (const row of activeScopedMatrixRows) {
+        const vaccine = row.vaccine;
+        const vaccineTypeLC = vaccine.type.toLowerCase();
+        const pathogenClassLC = vaccine.pathogenClass.toLowerCase();
+        const courseTypeLC = vaccine.courseType.toLowerCase();
+
+        if (!vaccine.type || !vaccineTypeKeys.includes(vaccineTypeLC)) {
+          setNotice({
+            ok: false,
+            message: `Vaccine type is required and must be one of: ${enabledOptionLabels(vaccineTypeOptions)}`,
+          });
+          return;
+        }
+
+        if (!vaccine.pathogenClass || !pathogenClassKeys.includes(pathogenClassLC)) {
+          setNotice({
+            ok: false,
+            message: `Pathogen class is required and must be one of: ${enabledOptionLabels(pathogenClassOptions)}`,
+          });
+          return;
+        }
+
+        if (!vaccine.courseType || !courseTypeKeys.includes(courseTypeLC)) {
+          setNotice({
+            ok: false,
+            message: `Course type is required and must be one of: ${enabledOptionLabels(courseTypeOptions)}`,
+          });
+          return;
+        }
+      }
+    }
+
     startTransition(async () => {
       const res = await saveDraftBatch(
         input,

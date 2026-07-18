@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"testing"
+
+	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 )
 
 // parsePresetMeta turns the pipe-delimited preset Title
@@ -65,6 +67,20 @@ func TestNoConfigPresetPathogenClassIsATypeValue(t *testing.T) {
 		pc := strings.ToLower(meta["pathogen_class"])
 		if _, bad := forbidden[pc]; bad {
 			t.Errorf("preset %s pathogen_class = %q is a vaccine-type value", name, meta["pathogen_class"])
+		}
+	}
+}
+
+func TestSourceVaccineMatrixPresetsCarryValidTaxonomy(t *testing.T) {
+	for name, meta := range sourceVaccineMatrixPresets(t) {
+		if !protocolapp.IsValidVaccineType(meta["vaccine_type"]) {
+			t.Errorf("preset %s vaccine_type = %q is missing or invalid", name, meta["vaccine_type"])
+		}
+		if !protocolapp.IsValidPathogenClass(meta["pathogen_class"]) {
+			t.Errorf("preset %s pathogen_class = %q is missing or invalid", name, meta["pathogen_class"])
+		}
+		if !protocolapp.IsValidCourseType(meta["course_type"]) {
+			t.Errorf("preset %s course_type = %q is missing or invalid", name, meta["course_type"])
 		}
 	}
 }

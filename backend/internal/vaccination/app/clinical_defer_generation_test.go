@@ -9,8 +9,8 @@ import (
 
 // C35-010 regression: a published rule that targets healthy animals with a
 // PARTIAL defer_states list (e.g. only ICU + quarantine) must still DEFER a
-// sick or under-treatment animal's open work, never cancel/exclude it. Per
-// docs/preventive-care-vaccination/vaccination-rules.md the four clinical
+// sick, under-treatment, or recovering animal's open work, never cancel/exclude it. Per
+// docs/preventive-care-vaccination/vaccination-rules.md the five clinical
 // states are mandatory safety blocks, so the generator unions them in
 // regardless of what the authored list contains.
 func TestDeferStateSetAlwaysCoversMandatoryClinicalStates(t *testing.T) {
@@ -18,10 +18,10 @@ func TestDeferStateSetAlwaysCoversMandatoryClinicalStates(t *testing.T) {
 		nil,
 		{"icu"},
 		{"icu", "quarantine"},
-		{"sick", "quarantine", "ICU"}, // missing under_treatment
+		{"sick", "quarantine", "ICU"}, // missing under_treatment and recovering
 	} {
 		set := deferStateSet(authored)
-		for _, mandatory := range []string{"sick", "under_treatment", "quarantine", "icu"} {
+		for _, mandatory := range []string{"sick", "under_treatment", "recovering", "quarantine", "icu"} {
 			if !set[mandatory] {
 				t.Fatalf("deferStateSet(%v) does not cover mandatory clinical state %q", authored, mandatory)
 			}
@@ -38,6 +38,11 @@ func TestDeferredReasonHoldsSickGoatUnderPartialAuthoring(t *testing.T) {
 	underTreatment := domain.EligibleGoat{GoatID: "goat-ut", HealthStatus: "under_treatment", LifecycleStatus: "alive"}
 	if reason := deferredReason(underTreatment, []string{"icu", "quarantine"}); reason != "under_treatment" {
 		t.Fatalf("under-treatment goat under partial defer_states got reason %q, want %q", reason, "under_treatment")
+	}
+
+	recovering := domain.EligibleGoat{GoatID: "goat-recovering", HealthStatus: "recovering", LifecycleStatus: "alive"}
+	if reason := deferredReason(recovering, []string{"icu", "quarantine"}); reason != "recovering" {
+		t.Fatalf("recovering goat under partial defer_states got reason %q, want %q", reason, "recovering")
 	}
 }
 
@@ -102,5 +107,14 @@ func TestGoatMatchesEligibilityDefersSickUnderHealthyOnlyRule(t *testing.T) {
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	if !goatMatchesEligibility(sick, elig, genPregnancyPolicy{}, asOf) {
 		t.Fatalf("sick goat under healthy-only rule with partial defer_states was excluded; it must be deferred, not cancelled")
+	}
+
+	recovering := domain.EligibleGoat{
+		GoatID:          "goat-recovering",
+		LifecycleStatus: "alive",
+		HealthStatus:    "recovering",
+	}
+	if !goatMatchesEligibility(recovering, elig, genPregnancyPolicy{}, asOf) {
+		t.Fatalf("recovering goat under healthy-only rule with partial defer_states was excluded; it must be deferred, not cancelled")
 	}
 }

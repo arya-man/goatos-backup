@@ -82,7 +82,12 @@ type Repository interface {
 	// Stage/age review items (VACC-REV-10): operator visibility + resolution for stale-K-stage conflicts.
 	// Supports cursor pagination (VACC-REV-10B) for >200 items without capping access to older work.
 	ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error)
-	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error)
+	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error)
+	// ResolveStageReviewItemCorrected atomically resolves an OPEN item as 'corrected' only if the goat
+	// still exists AND is no longer stale against the cutoff PERSISTED on the item (age_cutoff_weeks,
+	// the exact policy that raised it). resolved/wasOpen distinguish 200/409/404. Fails closed on a
+	// missing goat.
+	ResolveStageReviewItemCorrected(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (resolved bool, wasOpen bool, err error)
 
 	// GetGoatForGeneration loads one goat's generation fields (incl sex/breed/stage). found is
 	// false when the goat does not exist.

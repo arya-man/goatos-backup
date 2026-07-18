@@ -224,7 +224,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibra
             })}
             {list.length === 0 ? <div className="note">{copy(pageContract, "empty.no_match")}</div> : null}
           </div>
-          {list.length > 0 ? (
+          {list.length > 0 && totalPages > 1 ? (
             <div className="pager2" style={{ marginTop: 14, border: "1px solid var(--line2)", borderRadius: 10 }}>
               <span className="muted small">
                 {start}-{end} {copy(pageContract, "label.of")} {list.length} SOPs · {copy(pageContract, "label.page")} {page} {copy(pageContract, "label.of")} {totalPages}

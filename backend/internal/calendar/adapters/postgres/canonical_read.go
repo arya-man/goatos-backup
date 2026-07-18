@@ -407,11 +407,15 @@ batch_events AS (
     'india_only'::text AS timezone_source,
     grouped.park_id,
     grouped.park_code,
-    grouped.shed_id,
-    grouped.shed_name,
+    CASE WHEN grouped.shed_count = 1 THEN grouped.shed_id ELSE NULL::uuid END AS shed_id,
+    CASE WHEN grouped.shed_count = 1 THEN grouped.shed_name ELSE NULL::text END AS shed_name,
     NULL::uuid AS cohort_id,
     NULL::text AS cohort_name,
-    'shed'::text AS target_type,
+    CASE
+      WHEN grouped.park_id IS NULL THEN 'tenant'::text
+      WHEN grouped.batch_scope_type = 'park' OR grouped.shed_count <> 1 THEN 'park'::text
+      ELSE 'shed'::text
+    END AS target_type,
     grouped.target_count,
     grouped.protocol_id,
     grouped.protocol_version_id,
@@ -432,7 +436,7 @@ batch_events AS (
     false AS cross_cutting,
     jsonb_build_object(
       'vaccination', '/vaccination/operations',
-      'drive', CASE WHEN grouped.shed_id IS NOT NULL THEN '/vaccination/execution/sheds/' || grouped.shed_id::text ELSE NULL END
+      'drive', CASE WHEN grouped.shed_count = 1 AND grouped.shed_id IS NOT NULL THEN '/vaccination/execution/sheds/' || grouped.shed_id::text ELSE NULL END
     ) AS links,
     jsonb_build_object(
       'summary', jsonb_build_object(
@@ -440,8 +444,8 @@ batch_events AS (
         'target_count', grouped.target_count,
         'queue_count', grouped.queue_count,
         'queue_preview', queue_meta.queue_preview,
-        'shed_count', 1,
-        'shed_labels', jsonb_build_array(grouped.shed_name),
+        'shed_count', grouped.shed_count,
+        'shed_labels', to_jsonb(grouped.shed_labels),
         'vaccine_labels', to_jsonb(grouped.vaccine_labels)
       ),
       'source_and_rule', jsonb_build_object(
@@ -461,13 +465,60 @@ batch_events AS (
     SELECT
       ob.batch_id,
       ob.status AS batch_status,
-      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS due_at,
-      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS window_start,
-      COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours') AS window_end,
-      scope_parent.location_id AS park_id,
-      scope_parent.location_code AS park_code,
-      ob.scope_id AS shed_id,
-      scope_loc.name AS shed_name,
+      ob.scope_type AS batch_scope_type,
+      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end) AS due_at,
+      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end) AS window_start,
+      CASE
+        WHEN ob.planned_date IS NOT NULL THEN ob.planned_date::timestamptz + interval '8 hours'
+        ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
+      END AS window_end,
+      COALESCE(
+        NULLIF(min(goat_park.location_id::text), '')::uuid,
+        CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id END,
+        CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END
+      ) AS park_id,
+      COALESCE(
+        min(goat_park.location_code) FILTER (WHERE goat_park.location_code IS NOT NULL),
+        CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
+        CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END
+      ) AS park_code,
+      NULLIF(
+        min(COALESCE(
+          goat_shed.location_id::text,
+          CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.location_id::text END
+        )) FILTER (
+          WHERE COALESCE(
+            goat_shed.location_id::text,
+            CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.location_id::text END
+          ) IS NOT NULL
+        ),
+        ''
+      )::uuid AS shed_id,
+      min(COALESCE(
+        goat_shed.name,
+        CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+      )) FILTER (
+        WHERE COALESCE(
+          goat_shed.name,
+          CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+        ) IS NOT NULL
+      ) AS shed_name,
+      count(DISTINCT COALESCE(
+        goat_shed.location_id,
+        CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.location_id END
+      ))::int AS shed_count,
+      array_agg(DISTINCT COALESCE(
+        goat_shed.name,
+        CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+      ) ORDER BY COALESCE(
+        goat_shed.name,
+        CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+      )) FILTER (
+        WHERE COALESCE(
+          goat_shed.name,
+          CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+        ) IS NOT NULL
+      ) AS shed_labels,
       GREATEST(ob.estimated_targets, 1)::int AS target_count,
       pd.protocol_id,
       pv.protocol_version_id,
@@ -492,6 +543,19 @@ batch_events AS (
       ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
     JOIN protocol_rules pr
       ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+    LEFT JOIN goats g
+      ON g.tenant_id = oi.tenant_id
+     AND oi.target_type = 'goat'
+     AND g.goat_id = oi.target_id
+     AND g.merged_into_goat_id IS NULL
+    LEFT JOIN locations goat_shed
+      ON goat_shed.tenant_id = oi.tenant_id
+     AND goat_shed.location_id = g.shed_id
+     AND goat_shed.location_type = 'shed'
+    LEFT JOIN locations goat_park
+      ON goat_park.tenant_id = oi.tenant_id
+     AND goat_park.location_id = COALESCE(g.park_id, goat_shed.parent_location_id)
+     AND goat_park.location_type = 'park'
     LEFT JOIN protocol_rule_dimensions prd
       ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
     LEFT JOIN locations scope_loc
@@ -499,21 +563,35 @@ batch_events AS (
     LEFT JOIN locations scope_parent
       ON scope_parent.tenant_id = ob.tenant_id AND scope_parent.location_id = scope_loc.parent_location_id
     WHERE ob.tenant_id = $1::uuid
-      AND ob.scope_type = 'shed'
-      AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
-      AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
+      AND ob.scope_type IN ('shed', 'park')
+      AND (
+        (
+          ob.planned_date IS NOT NULL
+          AND ob.planned_date::timestamptz < $3::timestamptz
+          AND ob.planned_date::timestamptz + interval '1 day' > $2::timestamptz
+        )
+        OR (
+          ob.planned_date IS NULL
+          AND COALESCE(ob.window_start, ob.window_end) >= $2::timestamptz
+          AND COALESCE(ob.window_start, ob.window_end) < $3::timestamptz
+        )
+      )
       AND pd.category = 'vaccination'
       AND pv.status = 'published'
       AND ob.status NOT IN ('superseded', 'canceled')
     GROUP BY
       ob.batch_id,
       ob.status,
-      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end),
-      COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours'),
-      scope_parent.location_id,
-      scope_parent.location_code,
-      ob.scope_id,
-      scope_loc.name,
+      ob.scope_type,
+      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end),
+      CASE
+        WHEN ob.planned_date IS NOT NULL THEN ob.planned_date::timestamptz + interval '8 hours'
+        ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
+      END,
+      CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id END,
+      CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
+      CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END,
+      CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END,
       GREATEST(ob.estimated_targets, 1)::int,
       pd.protocol_id,
       pv.protocol_version_id,
@@ -605,8 +683,18 @@ obligation_drive_membership AS (
     WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
-      AND COALESCE(ob2.window_start, ob2.planned_date::timestamptz, ob2.window_end) >= $2::timestamptz
-      AND COALESCE(ob2.window_start, ob2.planned_date::timestamptz, ob2.window_end) < $3::timestamptz
+      AND (
+        (
+          ob2.planned_date IS NOT NULL
+          AND ob2.planned_date::timestamptz < $3::timestamptz
+          AND ob2.planned_date::timestamptz + interval '1 day' > $2::timestamptz
+        )
+        OR (
+          ob2.planned_date IS NULL
+          AND COALESCE(ob2.window_start, ob2.window_end) >= $2::timestamptz
+          AND COALESCE(ob2.window_start, ob2.window_end) < $3::timestamptz
+        )
+      )
   )
   SELECT
     oi.obligation_id,
@@ -627,6 +715,11 @@ obligation_drive_membership AS (
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
+  LEFT JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND oi.target_type = 'goat'
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
   CROSS JOIN LATERAL (
     SELECT
       CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
@@ -646,22 +739,39 @@ obligation_drive_membership AS (
   LEFT JOIN locations scope_grand
     ON scope_grand.tenant_id = oi.tenant_id
    AND scope_grand.location_id = scope_parent.parent_location_id
+  LEFT JOIN locations goat_shed
+    ON goat_shed.tenant_id = oi.tenant_id
+   AND goat_shed.location_id = g.shed_id
+   AND goat_shed.location_type = 'shed'
+  LEFT JOIN locations goat_park
+    ON goat_park.tenant_id = oi.tenant_id
+   AND goat_park.location_id = COALESCE(g.park_id, goat_shed.parent_location_id)
+   AND goat_park.location_type = 'park'
   LEFT JOIN LATERAL (
     SELECT
-      CASE
+      COALESCE(
+        goat_park.location_id,
+        CASE
         WHEN member.scope_type = 'park' THEN scope_loc.location_id
         WHEN member.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
         WHEN member.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
-      END AS park_id,
-      CASE
+        END
+      ) AS park_id,
+      COALESCE(
+        goat_park.location_code,
+        CASE
         WHEN member.scope_type = 'park' THEN scope_loc.location_code
         WHEN member.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
         WHEN member.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
-      END AS park_code,
-      CASE
+        END
+      ) AS park_code,
+      COALESCE(
+        goat_shed.location_id,
+        CASE
         WHEN member.scope_type = 'shed' THEN scope_loc.location_id
         WHEN member.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
-      END AS shed_id
+        END
+      ) AS shed_id
   ) loc ON true
   WHERE pd.category = 'vaccination'
     AND pv.status = 'published'
@@ -1299,7 +1409,7 @@ canonical_selected AS (
     )
     AND ($4::text = '' OR owner_key = $4::text)
     AND ($5::text = '' OR status = $5::text)
-    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled'))
+    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled', 'deferred'))
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
     AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))

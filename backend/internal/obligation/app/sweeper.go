@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -82,6 +84,15 @@ type plannedBatchStockStateWriter interface {
 	ClearBatchStockBlocks(ctx context.Context, tenantID string, batchIDs []string) error
 }
 
+// RuleVaccineIdentity holds per-rule vaccine identity: code, priority, compatibility group.
+// Used by the sweeper to thread vaccine identity through cap/tie detection and grouping.
+type RuleVaccineIdentity struct {
+	VaccineCode      string
+	VaccinePriority  int32
+	CompatibilityGrp string
+	VaccineItemID    string
+}
+
 // SweepConfig carries the per-version batch config resolved by the caller from the protocol version:
 // the SOP to instantiate, the vaccine item to reserve, and doses per goat.
 type SweepConfig struct {
@@ -92,6 +103,12 @@ type SweepConfig struct {
 	RuleConfigs       map[string]SweepRuleConfig
 	ParkConsolidation domain.ParkConsolidationSettings
 	DrivePlanner      domain.DrivePlannerSettings
+	// RuleVaccineIDs is the per-rule vaccine identity cache (BUG #1 / R2-05(a) fix). A builder MUST
+	// only store a COMPLETE identity here (non-empty VaccineCode) -- never an empty
+	// RuleVaccineIdentity{} for a rule whose matrix extraction failed or found no vaccine. An absent
+	// or cached-empty entry is treated identically by getRuleVaccineIdentity: both fall back to the
+	// version-level identity (VaccineCode/VaccinePriority above).
+	RuleVaccineIDs map[string]RuleVaccineIdentity
 }
 
 // SweepRuleConfig overrides version-level execution bindings for one protocol rule.
@@ -118,6 +135,178 @@ func NewSweeperService(repo ports.Repository, tasks TaskCreator, reserver StockR
 	return &SweeperService{repo: repo, tasks: tasks, reserver: reserver, page: 1000}
 }
 
+// SetPageSize overrides the sweeper's internal pagination page size (default 1000). It exists so
+// tests outside this package can exercise multi-page pagination boundaries (e.g. a combo-alignment
+// group that spans more than one page, R2-06) against a small fixture instead of seeding thousands
+// of rows to force the default page size to split. n<=0 is ignored; production callers should leave
+// the default.
+func (s *SweeperService) SetPageSize(n int32) {
+	if n > 0 {
+		s.page = n
+	}
+}
+
+// tenantSweepLocker is implemented by the production Postgres repo to serialize the whole sweep per
+// tenant (RV-03). Test fakes need not implement it -- single-process tests have no second writer.
+type tenantSweepLocker interface {
+	LockTenantSweep(ctx context.Context, tenantID string) (bool, func(context.Context) error, error)
+}
+
+// LockTenantSweep acquires the per-tenant whole-sweep advisory lock so the sweep is the single
+// priority-ordered writer for the tenant (RV-03). acquired=false means another sweeper already owns
+// the tenant and this run must skip. A repo that does not implement tenantSweepLocker (test fakes)
+// always "acquires" a noop lock, preserving single-process test behavior.
+func (s *SweeperService) LockTenantSweep(ctx context.Context, tenantID string) (bool, func(context.Context) error, error) {
+	if locker, ok := s.repo.(tenantSweepLocker); ok {
+		return locker.LockTenantSweep(ctx, tenantID)
+	}
+	return true, func(context.Context) error { return nil }, nil
+}
+
+// sweepHighWaterMarkCapturer is implemented by the production Postgres repo (RV-05): it returns the
+// database server's current time, the frozen boundary that PreflightVisitShotCapTies and the real
+// per-version sweep both bound their unbatched-due candidate reads by (created_at <=
+// createdAtHWM), so an obligation generated concurrently -- outside the tenant-sweep lock, e.g. by
+// vaccination/app's generation.go/booster.go InsertObligation callers -- cannot introduce a
+// same-priority tie mid-sweep after earlier plans already committed. A repo that does not implement
+// this (simple test fakes, single-process, no concurrent generator to race) is used unbounded.
+type sweepHighWaterMarkCapturer interface {
+	CaptureSweepHighWaterMark(ctx context.Context) (time.Time, error)
+}
+
+// CaptureSweepHighWaterMark returns the RV-05 high-water mark for one locked sweep cycle (zero
+// time.Time when the repo does not support it, meaning "unbounded" everywhere it is threaded).
+// Callers MUST capture this ONCE per cycle -- right after acquiring LockTenantSweep and before
+// calling PreflightVisitShotCapTiesWithSnapshot -- and pass the same value plus the returned
+// snapshot to every SweepVersionWithSessionNoFinalizeSnapshot call in that cycle.
+func (s *SweeperService) CaptureSweepHighWaterMark(ctx context.Context) (time.Time, error) {
+	if capturer, ok := s.repo.(sweepHighWaterMarkCapturer); ok {
+		return capturer.CaptureSweepHighWaterMark(ctx)
+	}
+	return time.Time{}, nil
+}
+
+// hwmUnbatchedDueLister is implemented by the production Postgres repo (RV-05): the real-sweep-path
+// sibling of unbatchedDueKeysetLister (preflight.go), bounding the unbatched-due read ALSO by
+// created_at <= createdAtHWM.
+type hwmUnbatchedDueLister interface {
+	ListUnbatchedDueForVersionHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error)
+}
+
+type snapshotUnbatchedDueLister interface {
+	ListUnbatchedDueForVersionSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time, candidateIDs []string) ([]domain.UnbatchedDue, error)
+}
+
+// listUnbatchedDueForVersionBounded reads the unbatched-due candidate page, bounded by createdAtHWM
+// when both createdAtHWM is set AND the repo supports hwmUnbatchedDueLister (RV-05); otherwise it
+// falls back to the plain, unbounded ListUnbatchedDueForVersion (test fakes; or createdAtHWM left
+// zero by a caller not participating in the HWM protocol -- e.g. the standalone
+// SweepVersion/SweepVersionWithSession/SweepVersionWithSessionNoFinalize entry points, which keep
+// their pre-RV-05 unbounded behavior so no existing caller's semantics change).
+func (s *SweeperService) listUnbatchedDueForVersionBounded(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time, candidateIDs []string) ([]domain.UnbatchedDue, error) {
+	if candidateIDs != nil {
+		if lister, ok := s.repo.(snapshotUnbatchedDueLister); ok {
+			return lister.ListUnbatchedDueForVersionSnapshot(ctx, tenantID, versionID, dueBefore, limit, createdAtHWM, candidateIDs)
+		}
+		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, limit)
+		return filterUnbatchedDueSnapshot(rows, candidateIDs), err
+	}
+	if !createdAtHWM.IsZero() {
+		if lister, ok := s.repo.(hwmUnbatchedDueLister); ok {
+			return lister.ListUnbatchedDueForVersionHWM(ctx, tenantID, versionID, dueBefore, limit, createdAtHWM)
+		}
+	}
+	return s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, limit)
+}
+
+// hwmParkConsolidationLister is the RV-05 sibling of hwmUnbatchedDueLister for the park-
+// consolidation candidate read (park_consolidation.go / preflight.go's park replay).
+type hwmParkConsolidationLister interface {
+	ListUnbatchedShedDueForParkConsolidationHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time) ([]domain.ParkConsolidationCandidate, error)
+}
+
+type snapshotParkConsolidationLister interface {
+	ListUnbatchedShedDueForParkConsolidationSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time, candidateIDs []string) ([]domain.ParkConsolidationCandidate, error)
+}
+
+// listUnbatchedShedDueForParkConsolidationBounded is listUnbatchedDueForVersionBounded's sibling for
+// the park-consolidation candidate read.
+func (s *SweeperService) listUnbatchedShedDueForParkConsolidationBounded(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time, candidateIDs []string) ([]domain.ParkConsolidationCandidate, error) {
+	if candidateIDs != nil {
+		if lister, ok := s.repo.(snapshotParkConsolidationLister); ok {
+			return lister.ListUnbatchedShedDueForParkConsolidationSnapshot(ctx, tenantID, versionID, dueBefore, limit, after, createdAtHWM, candidateIDs)
+		}
+		rows, err := s.repo.ListUnbatchedShedDueForParkConsolidation(ctx, tenantID, versionID, dueBefore, limit, after)
+		return filterParkConsolidationSnapshot(rows, candidateIDs), err
+	}
+	if !createdAtHWM.IsZero() {
+		if lister, ok := s.repo.(hwmParkConsolidationLister); ok {
+			return lister.ListUnbatchedShedDueForParkConsolidationHWM(ctx, tenantID, versionID, dueBefore, limit, after, createdAtHWM)
+		}
+	}
+	return s.repo.ListUnbatchedShedDueForParkConsolidation(ctx, tenantID, versionID, dueBefore, limit, after)
+}
+
+func snapshotIDSet(candidateIDs []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(candidateIDs))
+	for _, id := range candidateIDs {
+		allowed[id] = struct{}{}
+	}
+	return allowed
+}
+
+func filterUnbatchedDueSnapshot(rows []domain.UnbatchedDue, candidateIDs []string) []domain.UnbatchedDue {
+	allowed := snapshotIDSet(candidateIDs)
+	out := make([]domain.UnbatchedDue, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := allowed[row.ObligationID]; ok {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func filterParkConsolidationSnapshot(rows []domain.ParkConsolidationCandidate, candidateIDs []string) []domain.ParkConsolidationCandidate {
+	allowed := snapshotIDSet(candidateIDs)
+	out := make([]domain.ParkConsolidationCandidate, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := allowed[row.ObligationID]; ok {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func snapshotIDChunks(candidateIDs []string, size int32) [][]string {
+	if len(candidateIDs) == 0 {
+		return [][]string{{}}
+	}
+	if size <= 0 {
+		size = 1000
+	}
+	n := int(size)
+	chunks := make([][]string, 0, (len(candidateIDs)+n-1)/n)
+	for start := 0; start < len(candidateIDs); start += n {
+		end := start + n
+		if end > len(candidateIDs) {
+			end = len(candidateIDs)
+		}
+		chunks = append(chunks, candidateIDs[start:end])
+	}
+	return chunks
+}
+
+func appendSnapshotIDs(dst []string, seen map[string]struct{}, ids []string) []string {
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		dst = append(dst, id)
+	}
+	return dst
+}
+
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
 // It uses a private, single-call shot-cap session: MaxShotsPerAnimalPerDrive is enforced only
 // within this one version's own obligations. A caller sweeping multiple protocol
@@ -126,7 +315,14 @@ func NewSweeperService(repo ports.Repository, tasks TaskCreator, reserver StockR
 // per vaccine and can over-schedule an animal with more than MaxShotsPerAnimalPerDrive shots on
 // one visit.
 func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, NewSweepSession())
+	return s.SweepVersionAsOf(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore)
+}
+
+// SweepVersionAsOf batches all dueBefore-eligible obligations while using asOf as the operational
+// business day for hold/backdate/planned-date decisions. Backfills and wide-window proofs must pass
+// the real sweep day as asOf and the eligibility horizon as dueBefore.
+func (s *SweeperService) SweepVersionAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, NewSweepSession(), true, time.Time{}, nil)
 }
 
 // SweepVersionWithSession behaves like SweepVersion but claims MaxShotsPerAnimalPerDrive slots
@@ -136,117 +332,193 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 // vaccines claim an over-subscribed animal's slots first; an unresolved same-priority conflict
 // is reported as *ShotCapPriorityTieError rather than resolved by call/arrival order.
 func (s *SweeperService) SweepVersionWithSession(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session))
+	return s.SweepVersionWithSessionAsOf(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore, session)
 }
 
-func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
+// SweepVersionWithSessionAsOf is SweepVersionWithSession with split asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), true, time.Time{}, nil)
+}
+
+// SweepVersionWithSessionNoFinalize is like SweepVersionWithSession but defers BOTH stock
+// reservation AND SOP-task creation/linking for every planned batch of this version -- fresh ones
+// created by this call AND any pre-existing/retry batch left over from an interrupted prior run --
+// for use in the kernel stage where AlignComboDrives must run before a combo batch's stock/task are
+// finalized against its FINAL planned_date (BUG #6 / R2-04 fix). The caller MUST finalize every
+// swept plan exactly once via FinalizePlannedBatches AFTER AlignComboDrives has run for this pass;
+// until then, no batch produced or repaired by this call has its stock reserved or its SOP task
+// created.
+func (s *SweeperService) SweepVersionWithSessionNoFinalize(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
+	return s.SweepVersionWithSessionNoFinalizeAsOf(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore, session)
+}
+
+// SweepVersionWithSessionNoFinalizeAsOf is SweepVersionWithSessionNoFinalize with split
+// asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), false, time.Time{}, nil)
+}
+
+// SweepVersionWithSessionNoFinalizeHWM behaves exactly like SweepVersionWithSessionNoFinalize but
+// bounds every unbatched-due candidate read (main loop, park consolidation, shed fallback) to
+// createdAtHWM (RV-05, zero = unbounded, identical to SweepVersionWithSessionNoFinalize). Kept for
+// compatibility and focused HWM tests; production orchestration uses
+// SweepVersionWithSessionNoFinalizeSnapshot so pre-existing rows cannot enter after preflight.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeHWM(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time) (domain.SweepResult, error) {
+	return s.SweepVersionWithSessionNoFinalizeHWMAsOf(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore, session, createdAtHWM)
+}
+
+// SweepVersionWithSessionNoFinalizeHWMAsOf is SweepVersionWithSessionNoFinalizeHWM with split
+// asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeHWMAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), false, createdAtHWM, nil)
+}
+
+// SweepVersionWithSessionNoFinalizeSnapshot is the production RV-05 entry point. In addition to
+// the created-at HWM it constrains every candidate read to IDs observed by the successful
+// preflight, closing the deferred->scheduled/reschedule race for pre-existing rows.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeSnapshot(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time, snapshot *SweepCandidateSnapshot) (domain.SweepResult, error) {
+	return s.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore, session, createdAtHWM, snapshot)
+}
+
+// SweepVersionWithSessionNoFinalizeSnapshotAsOf is the production RV-05 entry point with split
+// asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time, snapshot *SweepCandidateSnapshot) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), false, createdAtHWM, snapshot.candidateIDs(versionID))
+}
+
+func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession, finalizeNow bool, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
 	var res domain.SweepResult
-	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
-		return res, err
+	// R2-04 fix: only finalize retry/pre-existing planned batches up front when this call owns its
+	// own finalization end to end (finalizeNow=true, i.e. no subsequent AlignComboDrives pass is
+	// coming for this run). When finalization is deferred (finalizeNow=false), finalizing a
+	// pre-existing combo-session batch HERE -- before this run's AlignComboDrives has had a chance to
+	// run across every swept plan -- would reserve its stock and/or create its SOP task against its
+	// STALE (pre-alignment) planned_date and permanently exclude it from
+	// ListPlannedComboBatchesKeyset's candidate set (sop_task_id IS NULL AND NOT context ?
+	// 'stock_reservation'), so it could never be aligned again. The caller finalizes every plan --
+	// fresh batches AND genuinely-stale retry batches alike -- in one pass, after alignment, via
+	// FinalizePlannedBatches.
+	if finalizeNow {
+		if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+			return res, err
+		}
 	}
 	if err := s.deferBlockedSweepCandidates(ctx, tenantID, versionID, dueBefore); err != nil {
 		return res, err
 	}
 	touchedScopes := make(map[string]bool)
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	for {
-		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
-		if err != nil {
-			return res, err
-		}
-		if len(rows) == 0 {
-			break
-		}
-
-		type group struct {
-			scopeType   string
-			scopeID     string
-			ruleID      string
-			windowStart *time.Time
-			windowEnd   *time.Time
-			rows        []domain.UnbatchedDue
-			ids         []string
-		}
-		order := make([]string, 0)
-		groups := make(map[string]*group)
-		for _, r := range rows {
-			k := sweepWindowGroupKey(r, planner.SpeciesGroupingPolicy)
-			g := groups[k]
-			if g == nil {
-				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
-				groups[k] = g
-				order = append(order, k)
-			}
-			g.rows = append(g.rows, r)
-			g.ids = append(g.ids, r.ObligationID)
-		}
-
-		var progressed int64
-		for _, k := range order {
-			g := groups[k]
-			if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
-				continue
-			}
-			plannedDate := batchPlannedDate(g.rows[0].DueAt)
-			if planner.Enabled {
-				if picked := pickBestDriveDateWithHold(dueBefore, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
-					plannedDate = picked
-				}
-			}
-			selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
-			if err != nil {
-				return res, err
-			}
-			if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
-				if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
-					plannedDate = overflowDate
-					selectedIDs, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
-					if err != nil {
-						return res, err
-					}
-				}
-			}
-			idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
-			for _, chunk := range idChunks {
-				if len(chunk) == 0 {
-					continue
-				}
-				_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
-					TenantID:          tenantID,
-					ProtocolVersionID: versionID,
-					ScopeType:         g.scopeType,
-					ScopeID:           g.scopeID,
-					Session:           batchSession(g.ruleID, cfg.VaccineCode),
-					PlannedDate:       plannedDate,
-					WindowStart:       g.windowStart,
-					WindowEnd:         g.windowEnd,
-					Status:            "planned",
-					EstimatedTargets:  int32(len(chunk)),
-					PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
-					QuantityUnit:      "dose",
-				}, chunk)
+	parkCandidateIDs := candidateIDs
+	if candidateIDs != nil {
+		for {
+			// Preserve the snapshot sentinel even when no shed group defers to park:
+			// nil means legacy/unbounded, while a non-nil empty slice means the
+			// preflight snapshot has no remaining park/fallback candidates.
+			parkCandidateIDs = []string{}
+			parkCandidateSeen := map[string]struct{}{}
+			var snapshotRows []domain.UnbatchedDue
+			for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+				rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, chunk)
 				if err != nil {
 					return res, err
 				}
-				if n == 0 {
+				snapshotRows = append(snapshotRows, rows...)
+			}
+			if len(snapshotRows) == 0 {
+				break
+			}
+
+			order, groups := groupUnbatchedDue(snapshotRows, planner.SpeciesGroupingPolicy)
+			order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+
+			var progressed int64
+			for _, k := range order {
+				g := groups[k]
+				if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
+					parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
+					continue
+				}
+				batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
+				if err != nil {
+					return res, err
+				}
+				if !batched {
+					parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
 					continue
 				}
 				if !touchedScopes[k] {
 					res.Batches++
 					touchedScopes[k] = true
 				}
-				if err := s.recordBatchingHoldIfNeeded(ctx, tenantID, chunk, selectedUnbatchedRows(g.rows, chunk), plannedDate, dueBefore); err != nil {
-					return res, err
-				}
 				res.Obligations += int(n)
 				progressed += n
 			}
+			parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
+			if err != nil {
+				return res, err
+			}
+			res.ParkBatches += parkRes.ParkBatches
+			res.ParkObligations += parkRes.ParkObligations
+			res.Batches += parkRes.ParkBatches
+			res.Obligations += parkRes.ParkObligations
+			progressed += int64(parkRes.ParkObligations)
+
+			fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
+			if err != nil {
+				return res, err
+			}
+			res.Batches += fallbackRes.Batches
+			res.Obligations += fallbackRes.Obligations
+			progressed += int64(fallbackRes.Obligations)
+
+			if progressed == 0 || progressed >= int64(len(snapshotRows)) {
+				break
+			}
 		}
-		if progressed == 0 || int32(len(rows)) < s.page {
-			break
+		if finalizeNow {
+			if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+				return res, err
+			}
+		}
+		return res, nil
+	} else {
+		for {
+			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, nil)
+			if err != nil {
+				return res, err
+			}
+			if len(rows) == 0 {
+				break
+			}
+
+			order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
+			order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+
+			var progressed int64
+			for _, k := range order {
+				g := groups[k]
+				if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
+					continue
+				}
+				batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
+				if err != nil {
+					return res, err
+				}
+				if batched {
+					if !touchedScopes[k] {
+						res.Batches++
+						touchedScopes[k] = true
+					}
+					res.Obligations += int(n)
+					progressed += n
+				}
+			}
+			if progressed == 0 || int32(len(rows)) < s.page {
+				break
+			}
 		}
 	}
-	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session)
+	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
 	if err != nil {
 		return res, err
 	}
@@ -255,17 +527,115 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += parkRes.ParkBatches
 	res.Obligations += parkRes.ParkObligations
 
-	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session)
+	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
 	if err != nil {
 		return res, err
 	}
 	res.Batches += fallbackRes.Batches
 	res.Obligations += fallbackRes.Obligations
 
-	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
-		return res, err
+	// BUG #6 / R2-04: when finalizeNow is false (kernel stage / one-shot composing this sweep with
+	// AlignComboDrives across multiple versions), do NOT finalize stock or SOP tasks here at all --
+	// every batch this call created stays planned-only until the caller runs AlignComboDrives and
+	// then calls FinalizePlannedBatches once per swept plan.
+	if finalizeNow {
+		if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+			return res, err
+		}
 	}
 	return res, nil
+}
+
+// batchDueGroup plans a drive date and shot-cap-selects one dueGroup's obligations, then creates
+// the resulting batch(es) (split by MaxGoatsPerDrive). It seeds session with the persisted,
+// cross-pass shot count for every target in the group before selecting (VAX-REV-01), and -- when
+// the repo supports it -- holds a per-visit advisory lock across the select+create sequence so a
+// concurrent sweeper worker cannot commit a conflicting claim for the same (target, date) visit in
+// between. If every row rejects on the first candidate date purely because it is already at cap
+// (not a priority tie), the group retries once against the next feasible overflow date, re-seeding
+// and re-locking for that new date.
+func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf, dueBefore time.Time, session *SweepSession, g *dueGroup) (batched bool, obligations int64, err error) {
+	operationalAsOf := dueGroupOperationalAsOf(asOf, dueBefore, g)
+	plannedDate := batchPlannedDate(g.rows[0].DueAt)
+	if planner.Enabled {
+		if picked := pickBestDriveDateWithHold(operationalAsOf, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
+			plannedDate = picked
+		} else {
+			return false, 0, nil
+		}
+	}
+	targetIDs := distinctUnbatchedTargetIDs(g.rows)
+	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+	if err != nil {
+		return false, 0, err
+	}
+	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
+	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
+	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+	if err != nil {
+		_ = release(ctx)
+		return false, 0, err
+	}
+	if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
+		if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
+			if err := release(ctx); err != nil {
+				return false, 0, err
+			}
+			plannedDate = overflowDate
+			release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+			if err != nil {
+				return false, 0, err
+			}
+			selectedIDs, shotClaims, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+			if err != nil {
+				_ = release(ctx)
+				return false, 0, err
+			}
+		}
+	}
+	defer func() {
+		if relErr := release(ctx); relErr != nil && err == nil {
+			err = relErr
+		}
+	}()
+
+	idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
+	claimChunks := splitShotCapReservations(shotClaims, selectedIDs, idChunks)
+	for _, chunk := range idChunks {
+		claimChunk := claimChunks[0]
+		claimChunks = claimChunks[1:]
+		if len(chunk) == 0 {
+			continue
+		}
+		_, n, createErr := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+			TenantID:          tenantID,
+			ProtocolVersionID: versionID,
+			ScopeType:         g.scopeType,
+			ScopeID:           g.scopeID,
+			Session:           batchSession(g.ruleID, ruleVaccineID.VaccineCode),
+			PlannedDate:       plannedDate,
+			WindowStart:       g.windowStart,
+			WindowEnd:         g.windowEnd,
+			Status:            "planned",
+			EstimatedTargets:  int32(len(chunk)),
+			PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
+			QuantityUnit:      "dose",
+		}, chunk)
+		if createErr != nil {
+			session.releaseClaims(claimChunk)
+			return batched, obligations, createErr
+		}
+		if n == 0 {
+			session.releaseClaims(claimChunk)
+			continue
+		}
+		batched = true
+		if holdErr := s.recordBatchingHoldIfNeeded(ctx, tenantID, chunk, selectedUnbatchedRows(g.rows, chunk), plannedDate, operationalAsOf); holdErr != nil {
+			return batched, obligations, holdErr
+		}
+		obligations += n
+	}
+	return batched, obligations, nil
 }
 
 func (s *SweeperService) deferBlockedSweepCandidates(ctx context.Context, tenantID, versionID string, dueBefore time.Time) error {
@@ -314,6 +684,23 @@ func selectedUnbatchedRows(rows []domain.UnbatchedDue, selected []string) []doma
 	return out
 }
 
+func splitShotCapReservations(claims []shotCapReservation, selectedIDs []string, chunks [][]string) [][]shotCapReservation {
+	out := make([][]shotCapReservation, len(chunks))
+	if len(claims) == 0 || len(selectedIDs) == 0 {
+		return out
+	}
+	claimsByID := make(map[string][]shotCapReservation, len(claims))
+	for _, claim := range claims {
+		claimsByID[claim.obligationID] = append(claimsByID[claim.obligationID], claim)
+	}
+	for chunkIndex, chunk := range chunks {
+		for _, id := range chunk {
+			out[chunkIndex] = append(out[chunkIndex], claimsByID[id]...)
+		}
+	}
+	return out
+}
+
 func normalizedDosesPerGoat(v int32) int32 {
 	if v <= 0 {
 		return 1
@@ -341,101 +728,64 @@ func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int
 // including missed singletons, so coverage is never left behind after the park merge pass.
 func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession())
+	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore, planner, NewSweepSession(), time.Time{}, nil)
 }
 
-func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.SweepResult, error) {
+func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	if !cfg.ParkConsolidation.Enabled {
 		return res, nil
 	}
 	touchedScopes := make(map[string]bool)
+	if candidateIDs != nil {
+		var snapshotRows []domain.UnbatchedDue
+		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, chunk)
+			if err != nil {
+				return res, err
+			}
+			snapshotRows = append(snapshotRows, rows...)
+		}
+		order, groups := groupUnbatchedDue(filterShedRows(snapshotRows), planner.SpeciesGroupingPolicy)
+		order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+		for _, k := range order {
+			g := groups[k]
+			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
+			if err != nil {
+				return res, err
+			}
+			if batched {
+				if !touchedScopes[k] {
+					res.Batches++
+					touchedScopes[k] = true
+				}
+				res.Obligations += int(n)
+			}
+		}
+		return res, nil
+	}
 	for {
-		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
+		rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, candidateIDs)
 		if err != nil {
 			return res, err
 		}
 		if len(rows) == 0 {
 			break
 		}
-		type group struct {
-			scopeType   string
-			scopeID     string
-			ruleID      string
-			windowStart *time.Time
-			windowEnd   *time.Time
-			rows        []domain.UnbatchedDue
-			ids         []string
-		}
-		order := make([]string, 0)
-		groups := make(map[string]*group)
-		for _, r := range rows {
-			if r.ScopeType != "shed" {
-				continue
-			}
-			k := sweepWindowGroupKey(r, planner.SpeciesGroupingPolicy)
-			g := groups[k]
-			if g == nil {
-				g = &group{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
-				groups[k] = g
-				order = append(order, k)
-			}
-			g.rows = append(g.rows, r)
-			g.ids = append(g.ids, r.ObligationID)
-		}
+		order, groups := groupUnbatchedDue(filterShedRows(rows), planner.SpeciesGroupingPolicy)
+		order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
-			plannedDate := batchPlannedDate(g.rows[0].DueAt)
-			if planner.Enabled {
-				if picked := pickBestDriveDateWithHold(dueBefore, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
-					plannedDate = picked
-				}
-			}
-			selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
 			if err != nil {
 				return res, err
 			}
-			if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
-				if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
-					plannedDate = overflowDate
-					selectedIDs, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
-					if err != nil {
-						return res, err
-					}
-				}
-			}
-			idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
-			for _, chunk := range idChunks {
-				if len(chunk) == 0 {
-					continue
-				}
-				_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
-					TenantID:          tenantID,
-					ProtocolVersionID: versionID,
-					ScopeType:         g.scopeType,
-					ScopeID:           g.scopeID,
-					Session:           batchSession(g.ruleID, cfg.VaccineCode),
-					PlannedDate:       plannedDate,
-					WindowStart:       g.windowStart,
-					WindowEnd:         g.windowEnd,
-					Status:            "planned",
-					EstimatedTargets:  int32(len(chunk)),
-					PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
-					QuantityUnit:      "dose",
-				}, chunk)
-				if err != nil {
-					return res, err
-				}
-				if n == 0 {
-					continue
-				}
+			if batched {
 				if !touchedScopes[k] {
 					res.Batches++
 					touchedScopes[k] = true
-				}
-				if err := s.recordBatchingHoldIfNeeded(ctx, tenantID, chunk, selectedUnbatchedRows(g.rows, chunk), plannedDate, dueBefore); err != nil {
-					return res, err
 				}
 				res.Obligations += int(n)
 				progressed += n
@@ -446,6 +796,17 @@ func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx contex
 		}
 	}
 	return res, nil
+}
+
+// filterShedRows returns only the shed-scoped rows of rows, preserving order.
+func filterShedRows(rows []domain.UnbatchedDue) []domain.UnbatchedDue {
+	out := make([]domain.UnbatchedDue, 0, len(rows))
+	for _, r := range rows {
+		if r.ScopeType == "shed" {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (cfg SweepConfig) forRule(ruleID string) SweepRuleConfig {
@@ -527,6 +888,18 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 	return fmt.Errorf("obligation: planned batch finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
 }
 
+// FinalizePlannedBatches finalizes BOTH SOP-task creation/linking AND stock reservation for every
+// planned batch of a version that still needs them -- fresh batches created by this run's sweep AND
+// any pre-existing/retry batch left over from an interrupted prior run alike. Callers that deferred
+// finalization via SweepVersionWithSessionNoFinalize (R2-04 fix) MUST call this once per swept plan
+// AFTER AlignComboDrives has run for the pass, so a combo batch's stock is reserved and its SOP task
+// is created against its FINAL (aligned) planned_date rather than the pre-alignment date its own
+// per-version sweep initially picked. Direct SweepVersion/SweepVersionWithSession callers do not
+// need to call this: they already finalize fully inline.
+func (s *SweeperService) FinalizePlannedBatches(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
+	return s.finalizePlannedBatches(ctx, tenantID, versionID, cfg)
+}
+
 func (s *SweeperService) finalizePlannedBatchTasks(ctx context.Context, tenantID string, batches []domain.PlannedBatchFinalization, cfg SweepConfig) error {
 	if s.tasks == nil {
 		return nil
@@ -595,7 +968,7 @@ func (s *SweeperService) finalizePlannedBatchStock(ctx context.Context, tenantID
 	}
 	stockBatches := make([]domain.PlannedBatchFinalization, 0, len(batches))
 	for _, b := range batches {
-		if !b.HasStockReservation {
+		if !b.HasStockReservation || b.StockBlocked {
 			stockBatches = append(stockBatches, b)
 		}
 	}
@@ -616,6 +989,9 @@ func (s *SweeperService) finalizePlannedBatchStock(ctx context.Context, tenantID
 		for _, rc := range ruleCounts {
 			batchCfg := cfg.forRule(rc.RuleID)
 			if batchCfg.VaccineItemID == "" || rc.Count <= 0 {
+				continue
+			}
+			if b.StockBlockItemID != "" && batchCfg.VaccineItemID != b.StockBlockItemID {
 				continue
 			}
 			dosesPer := batchCfg.DosesPerGoat
@@ -774,5 +1150,67 @@ func (s *SweeperService) MarkMissed(ctx context.Context, tenantID string, missed
 		if int32(n) < s.page {
 			return total, nil
 		}
+	}
+}
+
+// ExtractRuleVaccineIdentity extracts vaccine identity (code, priority, compatibility group, stock item)
+// from a rule's eligibility_json, which is populated during matrix publish from the matrix row.
+// BUG #1 fix: thread per-vaccine identity through sweeper instead of using version-level wrapper.
+func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
+	if len(eligibilityJSON) == 0 {
+		return RuleVaccineIdentity{}
+	}
+	var payload struct {
+		Vaccine json.RawMessage `json:"vaccine"`
+	}
+	if err := json.Unmarshal(eligibilityJSON, &payload); err != nil {
+		return RuleVaccineIdentity{}
+	}
+	if len(payload.Vaccine) == 0 {
+		return RuleVaccineIdentity{}
+	}
+	var vaccine struct {
+		Code             string `json:"code"`
+		CompatibilityGrp string `json:"compatibility_group"`
+		InventoryItemID  string `json:"inventory_item_id"`
+		Priority         int32  `json:"priority"`
+	}
+	if err := json.Unmarshal(payload.Vaccine, &vaccine); err != nil {
+		return RuleVaccineIdentity{}
+	}
+	vaccineCode := strings.TrimSpace(vaccine.Code)
+	priority := vaccine.Priority
+	if priority <= 0 {
+		priority = VaccineMatrixPriority(vaccineCode)
+	}
+	return RuleVaccineIdentity{
+		VaccineCode:      vaccineCode,
+		VaccinePriority:  priority,
+		CompatibilityGrp: strings.TrimSpace(vaccine.CompatibilityGrp),
+		VaccineItemID:    strings.TrimSpace(vaccine.InventoryItemID),
+	}
+}
+
+// getRuleVaccineIdentity returns the vaccine identity for a rule, either from the cache
+// (RuleVaccineIDs) or by falling back to the version-level identity. Handles non-matrix rules
+// gracefully.
+//
+// R2-05(a) fix: RuleVaccineIDs must only ever hold COMPLETE identities (see buildSweepConfig's
+// caching contract) -- a cached-but-EMPTY entry (VaccineCode == "", e.g. a rule whose
+// eligibility_json carried no vaccine, or a matrix extraction failure) is treated as a cache MISS
+// here too, so a legacy non-matrix rule always falls through to the version-level identity
+// instead of comparing/priority-ranking as a blank-code, zero-priority vaccine that silently
+// defeats cap/tie detection for every other vaccine it happens to compete with.
+func (cfg SweepConfig) getRuleVaccineIdentity(ruleID string) RuleVaccineIdentity {
+	if id, ok := cfg.RuleVaccineIDs[ruleID]; ok && id.VaccineCode != "" {
+		return id
+	}
+	// Fallback: return the version-level identity (for non-matrix rules, missing cache entries,
+	// or a cached-empty entry). In a properly initialized SweepConfig, RuleVaccineIDs holds a
+	// complete identity for every matrix rule, so this fallback is only for legacy non-matrix
+	// rules or initialization gaps.
+	return RuleVaccineIdentity{
+		VaccineCode:     cfg.VaccineCode,
+		VaccinePriority: normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode).VaccinePriority,
 	}
 }

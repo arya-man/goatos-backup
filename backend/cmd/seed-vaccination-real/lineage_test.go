@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 // mkFact builds a sourceFact for a cell with the given disposition, mirroring addFact's lineage key.
@@ -162,5 +164,69 @@ func TestSeedReconciliationStatusMatrixMismatchFails(t *testing.T) {
 	got.ActivePrimaryAfterHistory = 1
 	if err := validateSeedReconciliation(got, 10); err == nil {
 		t.Fatal("expected failure when a primary stays active after accepted history exists")
+	}
+}
+
+// missing-anchor dimension (VAX-REV-02 follow-up): the MissingAnchorNormalWork invariant must
+// DISTINGUISH a Contract §89 option-4 routed adult catch-up (a blank vaccine family with a NULL
+// DOB/entry anchor, legitimately scheduled at the next compatible drive) from a FABRICATED normal
+// missing-anchor due (§13 defect). Classification is by the obligation's durable idempotency key
+// against the generator's own AnchorMissingCatchUpKey derivation.
+func TestMissingAnchorReconciliationAllowsRoutedCatchUpRejectsFabricated(t *testing.T) {
+	const (
+		tenant  = "11111111-1111-4111-8111-111111111111"
+		version = "22222222-2222-4222-8222-222222222222"
+		rule    = "33333333-3333-4333-8333-333333333333"
+		goat    = "44444444-4444-4444-8444-444444444444"
+		seq     = int32(1)
+	)
+
+	// (a) A §89 option-4 routed catch-up: blank family, NULL DOB, non-deferred, carrying the exact
+	// key the generator stamps. It must NOT be counted as a defect.
+	routed := missingAnchorCandidate{
+		idempotencyKey:    vaccinationapp.AnchorMissingCatchUpKey(tenant, version, rule, goat, "birth_age", seq),
+		tenantID:          tenant,
+		protocolVersionID: version,
+		ruleID:            rule,
+		goatID:            goat,
+		sequence:          seq,
+		triggerType:       "birth_age",
+	}
+	if !routed.isRoutedCatchUp() {
+		t.Fatal("a genuine option-4 catch-up (matching AnchorMissingCatchUpKey) must classify as routed")
+	}
+	if n := countFabricatedMissingAnchorWork([]missingAnchorCandidate{routed}); n != 0 {
+		t.Fatalf("routed §89 option-4 catch-up counted as fabricated=%d, want 0", n)
+	}
+
+	// (b) A fabricated normal missing-anchor due: same NULL-anchor shape but its key was NOT produced
+	// by the option-4 routing. It must STILL be counted and STILL fail reconciliation.
+	fabricated := missingAnchorCandidate{
+		idempotencyKey:    "not-the-option-4-catchup-key",
+		tenantID:          tenant,
+		protocolVersionID: version,
+		ruleID:            rule,
+		goatID:            goat,
+		sequence:          seq,
+		triggerType:       "birth_age",
+	}
+	if fabricated.isRoutedCatchUp() {
+		t.Fatal("a fabricated normal missing-anchor due must NOT classify as a routed catch-up")
+	}
+	if n := countFabricatedMissingAnchorWork([]missingAnchorCandidate{fabricated}); n != 1 {
+		t.Fatalf("fabricated missing-anchor due counted=%d, want 1", n)
+	}
+
+	// End-to-end through the gate: a seed carrying only routed catch-ups passes; one fabricated due
+	// blocks the seed (the invariant is not weakened into ignoring all missing-anchor work).
+	clean := cleanReconciliation()
+	clean.MissingAnchorNormalWork = int64(countFabricatedMissingAnchorWork([]missingAnchorCandidate{routed}))
+	if err := validateSeedReconciliation(clean, 10); err != nil {
+		t.Fatalf("routed §89 option-4 catch-ups must pass reconciliation: %v", err)
+	}
+	defect := cleanReconciliation()
+	defect.MissingAnchorNormalWork = int64(countFabricatedMissingAnchorWork([]missingAnchorCandidate{routed, fabricated}))
+	if err := validateSeedReconciliation(defect, 10); err == nil {
+		t.Fatal("a fabricated normal missing-anchor due must fail reconciliation")
 	}
 }

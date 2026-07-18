@@ -20,6 +20,37 @@ these same targets. Do not maintain a second hand-copied list of commands in
 workflow YAML. A gate added to `tools/ci/run-local-ci.sh` therefore protects
 both local and hosted runs.
 
+## Landing on main
+
+Codex and Claude must use one command when the requested outcome includes a
+push to `main`:
+
+```bash
+make land-main
+```
+
+It requires a clean worktree and performs this sequence automatically:
+
+```text
+fetch origin/main
+-> rebase candidate onto that SHA
+-> install/refresh local push guards
+-> make ci-local on the rebased candidate
+-> fetch origin/main again
+-> if main moved, rebase and rerun CI
+-> git mesha-push HEAD:main
+-> fetch and verify origin/main contains the certified SHA
+```
+
+Direct agent-issued `git push` or `git mesha-push` commands targeting `main`
+are rejected by both Claude and Codex hooks. The Git pre-push hook is the second
+line of defense: it rejects stale-main candidates even when their receipt came
+from a full CI run. `make ci-local` remains non-mutating for development and
+hosted workflows; automatic rebase belongs only to `make land-main` because a
+session can start inside a dirty/shared worktree that must not be rewritten.
+
+Run the deterministic fixture test with `make land-main-self-test`.
+
 ## Billing/platform fallback
 
 When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
@@ -33,8 +64,8 @@ When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
    or any red selected sub-step is failure.
 4. Record the full SHA and the final `ci-local: GREEN @ <sha>` line in the proof
    packet.
-5. Push that exact SHA through the Mesha credential and re-run locally if a
-   rebase changes it.
+5. Run `make land-main`; it performs fresh-main rebase, exact-SHA CI, race
+   recheck, and the Mesha-credential push in the required order.
 
 The common job runs repository, agent, contract, large-file, and diff hygiene.
 Backend owns kernel/E2E/scale static guards and Go package/unit tests. Postgres
@@ -96,5 +127,6 @@ A green default `make ci-local` writes an exact-SHA receipt into the worktree gi
 directory (`goatos-ci-local-receipt.json`). A full-classified or `MODE=all` run
 records mode `all`. A narrower run records mode `scoped`, the exact remote-main
 base, component-rule hash, and selected jobs. The pre-push hook recomputes the
-diff and rejects stale/incomplete scoped receipts. Explicit `JOB=...` runs record
-nothing and never authorize a push.
+diff, verifies current remote main is an ancestor of the pushed candidate, and
+rejects stale/incomplete receipts. Explicit `JOB=...` runs record nothing and
+never authorize a push.

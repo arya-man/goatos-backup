@@ -385,22 +385,22 @@ type Readiness struct {
 	LatestProjectionRowCount int64
 }
 
-// HerdRegisterSummaryCounts is a single row from herd_register_summary_projection.
+// HerdRegisterSummaryCounts is the canonical scoped herd KPI row.
 type HerdRegisterSummaryCounts struct {
-	ParkID            *string
-	FarmID            *string
-	CurrentLocationID *string
-	Breed             *string
-	Sex               string
-	LifecycleStatus   string
-	ActiveCount       int64
-	AdultCount        int64
-	KidCount          int64
-	UntaggedKidCount  int64
-	ProjectedAt       time.Time
+	ParkID            *string   `json:"parkId"`
+	FarmID            *string   `json:"farmId"`
+	CurrentLocationID *string   `json:"currentLocationId"`
+	Breed             *string   `json:"breed"`
+	Sex               string    `json:"sex"`
+	LifecycleStatus   string    `json:"lifecycleStatus"`
+	ActiveCount       int64     `json:"activeCount"`
+	AdultCount        int64     `json:"adultCount"`
+	KidCount          int64     `json:"kidCount"`
+	UntaggedKidCount  int64     `json:"untaggedKidCount"`
+	ProjectedAt       time.Time `json:"projectedAt"`
 }
 
-// HerdRegisterSummary is the exact summary from herd_register_summary_projection.
+// HerdRegisterSummary is the exact scoped summary from canonical goats.
 type HerdRegisterSummary struct {
 	Items []HerdRegisterSummaryCounts
 }

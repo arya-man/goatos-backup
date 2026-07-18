@@ -83,8 +83,7 @@ var AllVerticals = []Vertical{
 // RoleKey composes the concrete grantable role string for a (tier, vertical)
 // pair -- e.g. RoleKey(TierManager, VerticalFeed) == "manager_feed". This is
 // the string stored in user_scope_grants.role / auth_pending_email_grants.role
-// and validated against the org_role_catalog table
-// (migrations/postgres/000178_org_role_catalog.sql).
+// and validated against the org_role_catalog table seeded by the clean-slate baseline.
 func RoleKey(tier Tier, vertical Vertical) string {
 	return string(tier) + "_" + string(vertical)
 }
@@ -205,8 +204,7 @@ func ScopeIDsForPermission(grants []ActiveGrant, permission, scopeType string) [
 // compatibility -- see org-role-model.md's "Current RBAC vs this model" gap
 // table for why the flat roles and this tier catalog differ on purpose.
 //
-// Kept in sync with the Postgres-side org_tiers seed in
-// migrations/postgres/000178_org_role_catalog.sql by
+// Kept in sync with the Postgres-side org_tiers seed in the clean-slate baseline by
 // TestOrgRoleCatalogHasEntryForEveryComposedRole /
 // TestTierPermissionsCoverOnlyKnownPermissions in
 // permissions_orgrole_test.go.
@@ -217,7 +215,7 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		GoatRead: {}, AppBootstrap: {},
 		TaskRead: {}, TaskExecute: {},
 		ObligationRead: {}, VaccinationRead: {},
-		CalendarRead: {},
+		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementWrite: {},
 	},
 	// Manager tier -- run the vertical's daily ops at a park, supervise AMs,

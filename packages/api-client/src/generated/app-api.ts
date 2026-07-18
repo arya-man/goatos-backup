@@ -595,6 +595,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Projection-backed vaccination Full Schedule for one materialized month. */
+        get: operations["getVaccinationSchedule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/execution": {
         parameters: {
             query?: never;
@@ -1125,7 +1142,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get exact summary counts from the herd register summary projection. */
+        /** Get exact scoped herd counts from canonical goats. */
         get: operations["getHerdRegisterSummary"];
         put?: never;
         post?: never;
@@ -2189,6 +2206,9 @@ export interface components {
             completed_count: number;
             open_count: number;
             drive_count: number;
+            due_count: number;
+            overdue_count: number;
+            deferred_count: number;
         };
         CalendarHistoryItem: {
             history_id: string;
@@ -2234,7 +2254,12 @@ export interface components {
             display_id: string;
             animal_identifier_1: string | null;
             animal_identifier_2: string | null;
+            shed_name?: string | null;
             stage?: string | null;
+            lifecycle_status?: string | null;
+            health_status?: string | null;
+            exit_reason?: string | null;
+            defer_reason?: string | null;
             status: string;
             /** Format: date-time */
             due_at: string;
@@ -2550,6 +2575,10 @@ export interface components {
             status: string;
             /** Format: int64 */
             lagSeconds: number;
+            servingState?: string;
+            stale?: boolean;
+            rebuildRequired?: boolean;
+            rowCount?: number;
         };
         VaccinationExecutionResponse: {
             /** @enum {string} */
@@ -2586,6 +2615,7 @@ export interface components {
             lastDose?: string;
             /** Format: date-time */
             nextDue?: string;
+            vaccineNames: string[];
             counts: components["schemas"]["VaccinationOperationsCounts"];
         };
         VaccinationOperationsCohort: {
@@ -3193,6 +3223,10 @@ export interface components {
             /** @enum {string} */
             sex: "female" | "male";
             age?: string | null;
+            lifecycleStatus: string;
+            healthStatus?: string | null;
+            lastDose?: string | null;
+            nextDue?: string | null;
             status: string;
         };
         VaccinationShedAnimalPage: {
@@ -3849,6 +3883,7 @@ export interface operations {
         parameters: {
             query: {
                 expires: string;
+                tenant_id: string;
                 sig: string;
             };
             header?: never;
@@ -4332,6 +4367,7 @@ export interface operations {
                 protocol_version_id?: string;
                 due_after?: string;
                 due_before?: string;
+                /** @description Opaque pagination cursor returned as next_cursor by the previous response. */
                 cursor?: string;
                 limit?: number;
             };
@@ -4565,6 +4601,8 @@ export interface operations {
                 /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — this read keeps only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 due_before?: string;
+                /** @description Opaque pagination cursor returned as next_cursor by the previous response. */
+                cursor?: string;
                 limit?: number;
             };
             header?: never;
@@ -4588,6 +4626,39 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    getVaccinationSchedule: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Calendar year in the business timezone. Defaults to the current year. */
+                year?: number;
+                /** @description Calendar month in the business timezone. Defaults to the current month. */
+                month?: number;
+                limit?: number;
+                /** @description Opaque pagination cursor returned as next_cursor by the previous schedule response. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination schedule matrix + per-cohort detail for the materialized month. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperationsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServerError"];
+        };
+    };
     listVaccinationExecution: {
         parameters: {
             query?: {
@@ -4596,6 +4667,8 @@ export interface operations {
                 as_of?: string;
                 work_state?: components["schemas"]["VaccinationExecutionWorkState"];
                 due_before?: string;
+                /** @description Opaque pagination cursor returned as nextCursor by the previous response. */
+                cursor?: string;
                 limit?: number;
             };
             header?: never;
@@ -4947,6 +5020,8 @@ export interface operations {
                 date_to?: string;
                 /** @description Include bounded per-day counts for complete month-grid rendering. */
                 include_date_markers?: boolean;
+                /** @description Return date_markers without running the paged event-list query. Intended for the month-picker marker request. */
+                markers_only?: boolean;
                 /** @description Include the whole-filtered-week reminder/escalation rail summary (week view). Separate from include_date_markers so the week list gets the rail without paying for month date-markers. */
                 include_reminder_rail?: boolean;
                 cursor?: string;
@@ -5005,6 +5080,8 @@ export interface operations {
             query?: {
                 cursor?: string;
                 limit?: number;
+                /** @description Search roster by display id, tag, shed, stage, lifecycle, health, reason, or status. */
+                q?: string;
             };
             header?: never;
             path: {
@@ -5558,7 +5635,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Exact summary counts from projection. */
+            /** @description Exact scoped counts from canonical goats. */
             200: {
                 headers: {
                     [name: string]: unknown;

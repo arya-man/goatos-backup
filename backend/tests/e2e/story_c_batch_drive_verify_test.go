@@ -122,8 +122,18 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 		if proofErr != nil {
 			continue
 		}
-		_, proofErr = proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-c-"+subject))
+		stored, proofErr := proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-c-"+subject))
+		story.Assert("proof binary stored for "+subject, proofErr == nil, "err=%v", proofErr)
+		if proofErr != nil {
+			continue
+		}
+		_, proofErr = proofService.CompleteUpload(fx.Ctx, proofdomain.CompleteUpload{
+			TenantID: fxTenant, ProofID: target.Proof.ProofID, ContentHash: stored.ContentHash, MimeType: stored.MimeType, SizeBytes: stored.SizeBytes,
+		})
 		story.Assert("proof binary completed for "+subject, proofErr == nil, "err=%v", proofErr)
+		if proofErr != nil {
+			continue
+		}
 		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
 		proofIDs[subject] = target.Proof.ProofID
 	}

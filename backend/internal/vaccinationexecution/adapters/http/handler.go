@@ -30,6 +30,7 @@ type Reader interface {
 	VaccinationExecutionPage(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ExecutionResponse, error)
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
 	VaccinationOperations(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.OperationsResponse, error)
+	VaccinationSchedule(ctx context.Context, q vaccexecd.ScheduleQuery) (vaccexecd.OperationsResponse, error)
 	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) (vaccexecd.ScanRosterResult, error)
 	TaskOptionValues(ctx context.Context, tenantID, taskID string) (vaccexecd.TaskOptionValuesResponse, error)
 	// VaccinationGaps backs the mobile data-gaps overlay (animals excluded from coverage + reason).
@@ -104,6 +105,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
+	mux.HandleFunc("GET /vaccination/schedule", h.VaccinationSchedule)
 	mux.HandleFunc("GET /vaccination/sheds", h.ListShedSummary)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
@@ -176,6 +178,71 @@ func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	resp, err := h.reader.VaccinationOperations(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// VaccinationSchedule serves the Full Schedule month/window directly from canonical vaccination
+// obligations and completions.
+func (h *Handler) VaccinationSchedule(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	now := h.now()
+	year := now.Year()
+	month := int(now.Month())
+	if raw := query.Get("year"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < now.Year()-1 || n > now.Year()+5 {
+			h.badRequest(w, r, "invalid_year", "year must be within the supported schedule window")
+			return
+		}
+		year = n
+	}
+	if raw := query.Get("month"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 12 {
+			h.badRequest(w, r, "invalid_month", "month must be 1-12")
+			return
+		}
+		month = n
+	}
+	q := vaccexecd.ScheduleQuery{
+		TenantID:   tenantID(r),
+		MonthStart: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, biztime.DefaultLocation()),
+		Limit:      defaultDrilldownLimit,
+	}
+	if parkID := query.Get("park_id"); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+			return
+		}
+		q.ParkID = &parkID
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxExecutionLimit {
+			n = maxExecutionLimit
+		}
+		q.Limit = n
+	}
+	if rawCursor := query.Get("cursor"); rawCursor != "" {
+		cursor, err := vaccexecd.DecodeOperationsCursor(rawCursor)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be a valid vaccination schedule cursor")
+			return
+		}
+		q.Cursor = &cursor
+	}
+	if !h.applyScheduleParkScope(w, r, &q) {
+		return
+	}
+	resp, err := h.reader.VaccinationSchedule(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
 		return
@@ -578,7 +645,7 @@ func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
 		q.ParkID = &parkID
 	}
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
-		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
+		parsed, err := parseScheduleDrilldownAsOfRFC3339(asOfRaw)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return
@@ -771,7 +838,7 @@ func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
 		Limit:     defaultDrilldownLimit,
 	}
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
-		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
+		parsed, err := parseScheduleDrilldownAsOfRFC3339(asOfRaw)
 		if err != nil {
 			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
 			return
@@ -807,7 +874,20 @@ func (h *Handler) GetShedAnimals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	q := vaccexecd.ShedAnimalQuery{TenantID: tenantID(r), ShedID: shedID, Limit: 100}
+	asOf := h.now()
+	q := vaccexecd.ShedAnimalQuery{TenantID: tenantID(r), ShedID: shedID, AsOf: asOf, Limit: 100}
+	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
+		parsed, err := parseScheduleDrilldownAsOfRFC3339(asOfRaw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
+			return
+		}
+		if h.rejectHistoricalAsOf(w, r, parsed, asOf) {
+			return
+		}
+		asOf = parsed
+		q.AsOf = parsed
+	}
 	if cursor := query.Get("cursor"); cursor != "" {
 		if !uuidutil.IsUUIDString(cursor) {
 			h.badRequest(w, r, "invalid_cursor", "cursor must be a goat UUID")
@@ -828,8 +908,8 @@ func (h *Handler) GetShedAnimals(w http.ResponseWriter, r *http.Request) {
 	}
 	detail, found, err := h.reader.ShedDetail(r.Context(), shedID, vaccexecd.OperationsQuery{
 		TenantID:  tenantID(r),
-		AsOf:      h.now(),
-		DueBefore: h.now().Add(defaultExecutionHorizonDays * 24 * time.Hour),
+		AsOf:      asOf,
+		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
 		Limit:     1,
 	})
 	if err != nil {
@@ -891,20 +971,25 @@ func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg s
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
 }
 
-// isHistoricalAsOf reports whether the requested as_of resolves to any instant before now. These
-// reads serve the CURRENT view only: the execution/shed projection keeps a single serving snapshot at
-// ~now, so any past as_of — a prior day OR an earlier time today — is an unsupported point-in-time
-// request that the live read model can only 503 on. Future values are already clamped to now upstream
-// (biztime.ParseLiveAsOfRFC3339 -> ClampFutureAsOf), so admin-web's inclusive IST end-of-day for
-// "today" resolves to exactly now and is accepted; only genuinely-past instants are rejected.
+func parseScheduleDrilldownAsOfRFC3339(raw string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.In(biztime.DefaultLocation()), nil
+}
+
+// isHistoricalAsOf reports whether the requested as_of resolves to any instant before now. Past
+// point-in-time reads are not supported because there is no immutable historical snapshot store. Future
+// schedule drilldowns are allowed so a schedule row can open its own planned date instead of today's
+// current view.
 func isHistoricalAsOf(parsed, now time.Time) bool {
 	return parsed.Before(now)
 }
 
 // rejectHistoricalAsOf writes a 400 and returns true when as_of is any past instant. Historical
 // point-in-time reads are not supported: there is no per-as_of snapshot store, so advertising them
-// only produced a misleading projection_unavailable 503 when no snapshot matched the requested
-// instant (the normal production case). Persisting immutable historical snapshots is the follow-up
+// only produced misleading current-view reads. Persisting immutable historical snapshots is the follow-up
 // that would re-enable this cleanly.
 func (h *Handler) rejectHistoricalAsOf(w http.ResponseWriter, r *http.Request, parsed, now time.Time) bool {
 	if isHistoricalAsOf(parsed, now) {
@@ -918,6 +1003,17 @@ func (h *Handler) rejectHistoricalAsOf(w http.ResponseWriter, r *http.Request, p
 // readShedError maps a shed-summary/shed-detail read-path error to HTTP.
 func (h *Handler) readShedError(w http.ResponseWriter, r *http.Request, err error) {
 	h.internal(w, r, err)
+}
+
+func (h *Handler) applyScheduleParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.ScheduleQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
 }
 
 func (h *Handler) applyOperationsParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.OperationsQuery) bool {

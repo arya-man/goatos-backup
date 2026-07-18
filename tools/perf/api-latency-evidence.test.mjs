@@ -14,17 +14,17 @@ function passingReport() {
     started_at: "2026-07-12T00:00:00Z",
     finished_at: "2026-07-12T00:01:00Z",
     dataset: {
-      label: "ci_scale_shaped_projection",
-      animal_equivalent_cardinality: 1_000_000,
-      projection_rows: 2_000_000,
-      certification_boundary: "scale_shaped_projection_smoke_not_full_chain_1m_certification",
+      label: "ci_canonical_5k_50k",
+      animal_equivalent_cardinality: 50_000,
+      canonical_rows: 50_000,
+      certification_boundary: "canonical_5k_50k_serving_read_evidence",
     },
     scope: {
       included: REQUIRED_HOT_PATHS,
       excluded: { bootstrap: "separate bootstrap gate" },
       evidence_boundaries: {
-        million_scale_projection_backed: REQUIRED_HOT_PATHS.slice(0, 6),
-        canonical_1300_nonempty_latency_only: REQUIRED_HOT_PATHS.slice(6),
+        canonical_5k_50k_serving_reads: REQUIRED_HOT_PATHS.slice(0, 7),
+        local_nonempty_latency_only: REQUIRED_HOT_PATHS.slice(7),
       },
     },
     passed: true,
@@ -65,12 +65,12 @@ test("rejects percentile breaches even when a forged passed flag says true", () 
   assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("p90_ms=301")));
 });
 
-test("rejects small fixtures and 1M certification overclaims", () => {
+test("rejects undersized fixtures and overclaimed certification", () => {
   const report = passingReport();
   report.dataset.animal_equivalent_cardinality = 1_300;
-  report.dataset.certification_boundary = "full_chain_1m_certified";
+  report.dataset.certification_boundary = "full_chain_50k_certified";
   const failures = validateApiLatencyEvidence(report, sha);
-  assert.ok(failures.some((failure) => failure.includes("1M animal-equivalent")));
+  assert.ok(failures.some((failure) => failure.includes("5k animal-equivalent")));
   assert.ok(failures.some((failure) => failure.includes("overclaims")));
 });
 

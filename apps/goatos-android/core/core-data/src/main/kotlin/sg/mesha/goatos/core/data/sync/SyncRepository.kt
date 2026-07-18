@@ -14,6 +14,8 @@ import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
@@ -69,6 +71,26 @@ interface SyncRepository {
         idempotencyKey: String,
         request: SubmitTaskRequestDto,
     ): AppResult<String>
+
+    /** Enqueues a draft RFID scan write (`POST /app/tasks/{task_id}/scan-captures`).
+     *  One stable idempotency key per task/field/tag makes repeat scans a no-op locally and
+     *  server-side. */
+    suspend fun enqueueScanCapture(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanCaptureRequestDto,
+    ): AppResult<String> = AppResult.Err("scan capture sync is not configured")
+
+    /** Enqueues an append-only RFID reader attempt audit event. This is separate from
+     *  [enqueueScanCapture]: attempts include duplicate alias, not-due, and unknown scans and
+     *  never drive Submit counters. */
+    suspend fun enqueueScanAttempt(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): AppResult<String> = AppResult.Err("scan attempt sync is not configured")
 
     /** Enqueues a reschedule write (`POST /app/vaccination/obligations/{id}/reschedule`). */
     suspend fun enqueueReschedule(
@@ -208,6 +230,30 @@ class DefaultSyncRepository(
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(ShedSubmitPayload(taskId = taskId, request = request)),
+    )
+
+    override suspend fun enqueueScanCapture(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanCaptureRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SCAN_CAPTURE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(ScanCapturePayload(taskId = taskId, request = request)),
+    )
+
+    override suspend fun enqueueScanAttempt(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SCAN_ATTEMPT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(ScanAttemptPayload(taskId = taskId, request = request)),
     )
 
     override suspend fun enqueueReschedule(

@@ -690,7 +690,7 @@ WHERE tenant_id = $1
 // PublishVersionWithDerivedRules replaces vaccination.matrix derived rules/dimensions and publishes
 // the version in one transaction. The matrix JSON is the authoring source of truth; protocol_rules
 // and protocol_rule_dimensions are regenerated execution indexes, never hand-authored authority.
-func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error {
+func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, seedOwnedGuardActor string, idempotencyKey ...string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -725,13 +725,13 @@ func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantI
 		return nil
 	}
 
-	var status, scopeType, scopeID string
+	var status, scopeType, scopeID, targetDraftedBy string
 	err = tx.QueryRow(ctx, `
-SELECT status, scope_type, COALESCE(scope_id::text, '')
+SELECT status, scope_type, COALESCE(scope_id::text, ''), COALESCE(drafted_by::text, '')
 FROM protocol_versions
 WHERE tenant_id = $1
   AND protocol_version_id = $2
-FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
+FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID, &targetDraftedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
 	}
@@ -753,6 +753,23 @@ FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
 	lockKey := strings.Join([]string{tenantID, "vaccination.matrix", scopeType, scopeID}, ":")
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
 		return fmt.Errorf("protocol: lock vaccination matrix scope: %w", err)
+	}
+	// VAX-SEED-01/03/R2 ownership safety: a seed-owned publish may (a) publish ONLY a target the seed
+	// itself drafted, and (b) retire ONLY seed-owned overlapping matrices. Both checks run INSIDE the
+	// publish transaction, after the vaccination-matrix advisory lock and BEFORE the overlap-retire, so
+	// they are atomic with the retire — a matrix published concurrently (or authored via Config under
+	// the SAME protocol) is seen here and blocks the retire (fail closed) instead of being silently
+	// retired. seedOwnedGuardActor is empty for ordinary/Config publishes, which keep the normal
+	// supersede-on-publish behavior.
+	if seedOwnedGuardActor != "" {
+		// R2: the caller supplied a seed actor, so the target being published must itself be seed-drafted;
+		// a seed publish must never launder a user-drafted (or unstamped) target into a seed operation.
+		if targetDraftedBy != seedOwnedGuardActor {
+			return fmt.Errorf("%w: target version %s is drafted_by %q, not the seed actor", ErrVaccinationMatrixOwnershipConflict, v.ProtocolVersionID, targetDraftedBy)
+		}
+		if err := assertOnlySeedOwnedMatrixOverlapsTx(ctx, tx, tenant, vid, seedOwnedGuardActor); err != nil {
+			return err
+		}
 	}
 	retiredRows, err := retirePublishedVaccinationMatrixOverlapsTx(ctx, tx, tenant, vid)
 	if err != nil {
@@ -961,6 +978,93 @@ func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
 		)
 	}
 	return protocolFingerprint(parts...)
+}
+
+// ErrVaccinationMatrixOwnershipConflict aliases the ports sentinel so existing callers/tests that
+// reference the postgres symbol keep working; the canonical definition lives in ports so the app layer
+// can also return it (e.g. the seed-owned publish target-ownership check before dispatch).
+var ErrVaccinationMatrixOwnershipConflict = ports.ErrVaccinationMatrixOwnershipConflict
+
+// VaccinationMatrixVersionDraftedBy returns the target version's drafted_by (empty string when NULL).
+// The app's seed-owned publish uses it to verify a seed publish only ever targets a seed-drafted
+// version, closing the already-published replay path where PublishPublishedMatrixReplay would otherwise
+// return success without an ownership check.
+func (r *Repository) VaccinationMatrixVersionDraftedBy(ctx context.Context, tenantID, versionID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	vid, err := pgconv.UUID(versionID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: version id: %w", err)
+	}
+	var draftedBy string
+	err = r.pool.QueryRow(ctx, `SELECT COALESCE(drafted_by::text, '') FROM protocol_versions WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid).Scan(&draftedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("protocol: read version drafted_by: %w", err)
+	}
+	return draftedBy, nil
+}
+
+// assertOnlySeedOwnedMatrixOverlapsTx enforces, inside the publish transaction and under the
+// vaccination-matrix advisory lock, that no published matrix version overlapping the one being
+// published is authored by anyone other than the seed. It uses the SAME overlap predicate as
+// retirePublishedVaccinationMatrixOverlapsTx, so it flags exactly the versions the retire would
+// clear. An overlap is seed-owned ONLY when drafted_by = seedGuardActor. Any overlap whose author is
+// different OR cannot be positively identified as the seed (drafted_by NULL — published versions are
+// immutable and cannot be back-stamped, and NULL is a schema-permitted value that is not provably the
+// seed) makes it fail closed with ErrVaccinationMatrixOwnershipConflict. Legacy seed DRAFTS are
+// back-stamped before publish (see reconcileSeedMatrixDraftVersion), so a legitimate reseed only ever
+// supersedes its own stamped versions.
+func assertOnlySeedOwnedMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID, seedGuardActor string) error {
+	actor, err := pgconv.UUID(seedGuardActor)
+	if err != nil {
+		return fmt.Errorf("protocol: seed guard actor id: %w", err)
+	}
+	rows, err := tx.Query(ctx, `
+SELECT other.protocol_version_id::text, other.protocol_id::text, COALESCE(other.version_label, '')
+FROM protocol_versions other
+JOIN protocol_versions target ON target.tenant_id = $1 AND target.protocol_version_id = $2
+JOIN protocol_definitions pd ON pd.tenant_id = other.tenant_id AND pd.protocol_id = other.protocol_id
+WHERE other.tenant_id = target.tenant_id
+  AND other.protocol_version_id <> target.protocol_version_id
+  AND other.status = 'published'
+  AND pd.category = 'vaccination'
+  AND other.scope_type = target.scope_type
+  AND other.scope_id IS NOT DISTINCT FROM target.scope_id
+  AND daterange(other.effective_from, other.effective_to, '[)') &&
+      daterange(target.effective_from, target.effective_to, '[)')
+  AND (
+    lower(COALESCE(other.rule_dsl->>'ruleset_family', '')) = 'vaccination.matrix'
+    OR lower(COALESCE(other.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
+    OR other.rule_dsl ? 'matrix_rows'
+  )
+  AND other.drafted_by IS DISTINCT FROM $3::uuid
+ORDER BY other.protocol_version_id`, tenant, versionID, actor)
+	if err != nil {
+		return fmt.Errorf("protocol: check seed-owned matrix overlaps: %w", err)
+	}
+	defer rows.Close()
+	var offenders []string
+	for rows.Next() {
+		var versionIDText, protocolIDText, label string
+		if err := rows.Scan(&versionIDText, &protocolIDText, &label); err != nil {
+			return fmt.Errorf("protocol: scan matrix overlap: %w", err)
+		}
+		offenders = append(offenders, fmt.Sprintf("version %s (protocol %s, label %q)", versionIDText, protocolIDText, label))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("protocol: matrix overlap rows: %w", err)
+	}
+	if len(offenders) > 0 {
+		return fmt.Errorf("%w: %v", ErrVaccinationMatrixOwnershipConflict, offenders)
+	}
+	return nil
 }
 
 func retirePublishedVaccinationMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID) ([]protocolRetiredRow, error) {

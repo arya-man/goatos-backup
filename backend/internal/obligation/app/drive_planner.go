@@ -52,7 +52,7 @@ func batchSession(ruleID, vaccineCode string) string {
 }
 
 func sweepWindowGroupKey(r domain.UnbatchedDue, speciesPolicy string) string {
-	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + speciesGroupingKey(r.TargetSpecies, r.TargetAnimalStage, speciesPolicy) + "|" + dueDateKey(r.DueAt) + "|" + timeKey(r.WindowStart) + "|" + timeKey(r.WindowEnd)
+	return r.ScopeType + "|" + r.ScopeID + "|" + r.RuleID + "|" + speciesGroupingKey(r.TargetSpecies, r.TargetAnimalStage, speciesPolicy)
 }
 
 func speciesGroupingKey(species, stage, policy string) string {
@@ -92,15 +92,28 @@ func dueDateKey(t time.Time) string {
 }
 
 func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *time.Time {
+	return pickBestDriveDateUntil(now, rows, priority, nil)
+}
+
+func pickBestDriveDateUntil(now time.Time, rows []driveCandidate, priority int32, latestAllowed *time.Time) *time.Time {
 	if len(rows) == 0 {
 		return nil
 	}
 	candidates := candidateDriveDates(now, rows)
 	nowDay := businessDate(now)
+	var latestDay *time.Time
+	if latestAllowed != nil && !latestAllowed.IsZero() {
+		day := businessDate(*latestAllowed)
+		latestDay = &day
+	}
+	bestCount := 0
 	bestScore := -1
 	var bestDate *time.Time
 	for _, candidate := range candidates {
 		if candidate.Before(nowDay) {
+			continue
+		}
+		if latestDay != nil && candidate.After(*latestDay) {
 			continue
 		}
 		ids := obligationsFeasibleOnDriveDate(candidate, rows)
@@ -108,42 +121,61 @@ func pickBestDriveDate(now time.Time, rows []driveCandidate, priority int32) *ti
 			continue
 		}
 		score := scoreDriveDate(candidate, rows, ids, now, priority)
-		if score > bestScore || (score == bestScore && bestDate != nil && candidate.Before(*bestDate)) {
+		if len(ids) > bestCount ||
+			(len(ids) == bestCount && (score > bestScore || (score == bestScore && bestDate != nil && candidate.Before(*bestDate)))) {
 			day := candidate
 			bestDate = &day
+			bestCount = len(ids)
 			bestScore = score
 		}
 	}
 	if bestDate != nil {
 		return bestDate
 	}
-	earliest := businessDate(rows[0].DueAt)
-	for _, row := range rows[1:] {
-		day := businessDate(row.DueAt)
-		if day.Before(earliest) {
-			earliest = day
+	if fallback := pickEarliestFeasibleDriveDateAtOrAfter(now, rows); fallback != nil {
+		return fallback
+	}
+	return nil
+}
+
+func pickEarliestFeasibleDriveDateAtOrAfter(now time.Time, rows []driveCandidate) *time.Time {
+	candidates := candidateDriveDates(now, rows)
+	nowDay := businessDate(now)
+	var bestDate *time.Time
+	for _, candidate := range candidates {
+		if candidate.Before(nowDay) {
+			continue
+		}
+		if len(obligationsFeasibleOnDriveDate(candidate, rows)) == 0 {
+			continue
+		}
+		if bestDate == nil || candidate.Before(*bestDate) {
+			day := candidate
+			bestDate = &day
 		}
 	}
-	return &earliest
+	return bestDate
 }
 
 func pickBestDriveDateWithHold(now time.Time, rows []driveCandidate, planner domain.DrivePlannerSettings) *time.Time {
-	picked := pickBestDriveDate(now, rows, planner.VaccinePriority)
-	if picked == nil || len(rows) == 0 {
-		return picked
-	}
-	if !driveDateUsesBatchingHold(*picked, rows) {
-		return picked
+	if len(rows) == 0 {
+		return nil
 	}
 	earliest := earliestDriveDueDate(rows)
 	if alreadyHeld(rows, planner.MaxBatchingHoldCount) {
+		if earliest.Before(businessDate(now)) {
+			return pickEarliestFeasibleDriveDateAtOrAfter(now, rows)
+		}
 		return &earliest
 	}
-	holdUntil := earliest.AddDate(0, 0, int(planner.MaxBatchingHoldDays))
-	if picked.After(holdUntil) {
-		return &holdUntil
+	if planner.MaxBatchingHoldDays <= 0 {
+		return pickBestDriveDate(now, rows, planner.VaccinePriority)
 	}
-	return picked
+	holdUntil := earliest.AddDate(0, 0, int(planner.MaxBatchingHoldDays))
+	if holdUntil.Before(businessDate(now)) {
+		return pickEarliestFeasibleDriveDateAtOrAfter(now, rows)
+	}
+	return pickBestDriveDateUntil(now, rows, planner.VaccinePriority, &holdUntil)
 }
 
 func driveDateUsesBatchingHold(planned time.Time, rows []driveCandidate) bool {
@@ -179,7 +211,7 @@ func earliestDriveDueDate(rows []driveCandidate) time.Time {
 	return earliest
 }
 
-func scoreDriveDate(day time.Time, rows []driveCandidate, feasibleIDs []string, now time.Time, vaccinePriority int32) int {
+func scoreDriveDate(_ time.Time, rows []driveCandidate, feasibleIDs []string, now time.Time, vaccinePriority int32) int {
 	feasible := make(map[string]struct{}, len(feasibleIDs))
 	for _, id := range feasibleIDs {
 		feasible[id] = struct{}{}
@@ -191,13 +223,6 @@ func scoreDriveDate(day time.Time, rows []driveCandidate, feasibleIDs []string, 
 	for _, row := range rows {
 		if _, ok := feasible[row.ObligationID]; !ok {
 			continue
-		}
-		latest := driveLatestDate(row)
-		daysLeft := int(businessDate(latest).Sub(day).Hours() / 24)
-		if daysLeft <= 3 {
-			score += 40
-		} else if daysLeft <= 7 {
-			score += 20
 		}
 		overdue := int(businessDate(now).Sub(businessDate(row.DueAt)).Hours() / 24)
 		if overdue > 0 {
@@ -249,14 +274,24 @@ func obligationsFeasibleOnDriveDate(day time.Time, rows []driveCandidate) []stri
 	day = businessDate(day)
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
-		earliest := driveEarliestDate(row)
-		latest := driveLatestDate(row)
-		if day.Before(earliest) || day.After(latest) {
+		if !driveCandidateFeasibleOnDate(day, row) {
 			continue
 		}
 		ids = append(ids, row.ObligationID)
 	}
 	return ids
+}
+
+func driveCandidateFeasibleOnDate(day time.Time, row driveCandidate) bool {
+	if row.DueAt.IsZero() &&
+		(row.WindowStart == nil || row.WindowStart.IsZero()) &&
+		(row.WindowEnd == nil || row.WindowEnd.IsZero()) {
+		return true
+	}
+	day = businessDate(day)
+	earliest := driveEarliestDate(row)
+	latest := driveLatestDate(row)
+	return !day.Before(earliest) && !day.After(latest)
 }
 
 func driveEarliestDate(row driveCandidate) time.Time {
@@ -270,7 +305,10 @@ func driveLatestDate(row driveCandidate) time.Time {
 	if row.WindowEnd != nil && !row.WindowEnd.IsZero() {
 		return businessDate(*row.WindowEnd)
 	}
-	return businessDate(row.DueAt)
+	if !row.DueAt.IsZero() {
+		return businessDate(row.DueAt)
+	}
+	return driveEarliestDate(row)
 }
 
 func splitObligationIDs(ids []string, max int32) [][]string {
@@ -289,15 +327,24 @@ func splitObligationIDs(ids []string, max int32) [][]string {
 }
 
 func selectIDsWithinVisitShotCap(rows []domain.UnbatchedDue, plannedDate *time.Time, maxShots int32, visitCounts map[string]int32) []string {
-	if maxShots <= 0 || plannedDate == nil {
-		ids := make([]string, 0, len(rows))
-		for _, row := range rows {
-			ids = append(ids, row.ObligationID)
-		}
-		return ids
-	}
 	selected := make([]string, 0, len(rows))
 	for _, row := range rows {
+		if plannedDate != nil && !driveCandidateFeasibleOnDate(*plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}) {
+			continue
+		}
+		if maxShots <= 0 || plannedDate == nil {
+			selected = append(selected, row.ObligationID)
+			continue
+		}
 		if strings.TrimSpace(row.TargetID) == "" {
 			selected = append(selected, row.ObligationID)
 			continue

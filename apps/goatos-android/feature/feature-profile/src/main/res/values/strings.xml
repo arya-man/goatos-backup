@@ -47,6 +47,8 @@
     <string name="rfid_detail_action_open_bluetooth">Open Bluetooth settings</string>
     <string name="rfid_detail_action_pair_reader">Pair reader</string>
     <string name="rfid_detail_test_label">Test read</string>
+    <string name="rfid_detail_hid_note">The reader acts as a Bluetooth keyboard. When a tag is scanned it types the ID into the active field and hits enter — the app captures the event, so operators never type a tag by hand.</string>
+    <string name="rfid_detail_action_rescan">Re-scan for readers</string>
 
     <!-- Alerts screen chrome -->
     <string name="alerts_screen_title">Alerts</string>

@@ -54,6 +54,42 @@ func TestVaccinationMatrixRowsUseSpeciesScopedEligibility(t *testing.T) {
 	}
 }
 
+func TestVaccinationMatrixRowsCarryDrivePriority(t *testing.T) {
+	dsl, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build vaccination matrix rule DSL: %v", err)
+	}
+
+	var payload struct {
+		MatrixRows []struct {
+			Vaccine struct {
+				Code     string `json:"code"`
+				Priority int    `json:"priority"`
+			} `json:"vaccine"`
+		} `json:"matrix_rows"`
+	}
+	if err := json.Unmarshal([]byte(dsl), &payload); err != nil {
+		t.Fatalf("unmarshal vaccination matrix DSL: %v", err)
+	}
+
+	priorityByCode := make(map[string]int, len(payload.MatrixRows))
+	for _, row := range payload.MatrixRows {
+		if row.Vaccine.Priority <= 0 {
+			t.Fatalf("%s priority = %d, want positive source-backed priority", row.Vaccine.Code, row.Vaccine.Priority)
+		}
+		priorityByCode[row.Vaccine.Code] = row.Vaccine.Priority
+	}
+	if got, want := priorityByCode["FMD"], 5; got != want {
+		t.Fatalf("FMD priority = %d, want %d", got, want)
+	}
+	if got, want := priorityByCode["HS"], 6; got != want {
+		t.Fatalf("HS priority = %d, want %d", got, want)
+	}
+	if priorityByCode["FMD"] == priorityByCode["HS"] {
+		t.Fatal("FMD and HS must not tie in seeded drive priority")
+	}
+}
+
 func TestHistoryIdempotencyIncludesAdministeredSourceDate(t *testing.T) {
 	cell := vaccCell{AnimalKey: "goat-1", Vaccine: "ET+TT", DoseCode: "first"}
 	def := vaccines["ET+TT"]
@@ -198,6 +234,33 @@ func TestSeedGenerationErrorAllowsPartialFailureWhenFlagged(t *testing.T) {
 	}
 }
 
+func TestValidateOwnerPrerequisitesRejectsOwnerlessSeed(t *testing.T) {
+	err := validateOwnerPrerequisites(ownerPrerequisiteCounts{})
+	if err == nil {
+		t.Fatal("ownerless vaccination seed must be rejected")
+	}
+	for _, want := range []string{
+		"active workforce_members",
+		"active assigned workforce_positions",
+		"seed-vaccination-source-full",
+		"Refusing to create owner-missing vaccination work",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestValidateOwnerPrerequisitesAcceptsSeededRoster(t *testing.T) {
+	err := validateOwnerPrerequisites(ownerPrerequisiteCounts{
+		ActiveMembers:           31,
+		ActiveAssignedPositions: 32,
+	})
+	if err != nil {
+		t.Fatalf("seeded roster prerequisites rejected: %v", err)
+	}
+}
+
 func TestSourceVaccinationDateIsHistoryUsesBusinessDateNotClockTime(t *testing.T) {
 	loc := mustKolkata(t)
 	sourceDate := time.Date(2026, time.July, 11, 0, 0, 0, 0, loc)
@@ -215,6 +278,136 @@ func TestSourceVaccinationDateIsHistoryRejectsFutureBusinessDate(t *testing.T) {
 
 	if sourceVaccinationDateOnOrBeforeBusinessDate(sourceDate, asOf, loc) {
 		t.Fatalf("future source business date must remain scheduled, source=%s as_of=%s", sourceDate, asOf)
+	}
+}
+
+func TestSeedSchedulePathUsesLiveCutoffForSourceHistory(t *testing.T) {
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	asOf := dob.AddDate(0, 0, 210) // 30 weeks: past the default 20w kid-course finish window.
+
+	path := seedSchedulePathForGoat("birth", &dob, "K1", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "adult" {
+		t.Fatalf("over-cutoff birth/K-stage source row path = %q, want adult", path)
+	}
+
+	doseCode, later := mapSheetDoseToRuleCode("PPR", "first", path, buildCanonicalVaccinationMatrix())
+	if later {
+		t.Fatal("PPR first adult source date must not be treated as a later same-rule merge")
+	}
+	if doseCode != "ppr_adult_w1" {
+		t.Fatalf("over-cutoff PPR source date mapped to %q, want ppr_adult_w1", doseCode)
+	}
+}
+
+func TestSeedImportedCompletionKeepsSourceDateWhileUsingAdultPath(t *testing.T) {
+	loc := mustKolkata(t)
+	asOf := time.Date(2026, time.July, 16, 12, 0, 0, 0, loc)
+	dob := asOf.AddDate(0, 0, -210)
+	cell := vaccCell{AnimalKey: "old-k-stage", Vaccine: "FMD", DoseCode: "booster", Sequence: 2, Value: "2026-06-21"}
+
+	path := seedSchedulePathForGoat("birth", &dob, "K1", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "adult" {
+		t.Fatalf("over-cutoff FMD source row path = %q, want adult", path)
+	}
+	doseCode, later := mapSheetDoseToRuleCode(cell.Vaccine, cell.DoseCode, path, buildCanonicalVaccinationMatrix())
+	if doseCode != "fmd_adult_w1" || !later {
+		t.Fatalf("FMD booster source date mapped to dose=%q later=%v, want fmd_adult_w1/true", doseCode, later)
+	}
+
+	sourceDate, err := time.ParseInLocation("2006-01-02", cell.Value, loc)
+	if err != nil {
+		t.Fatalf("parse source date: %v", err)
+	}
+	administeredAt := sourceVaccinationDateTime(sourceDate, loc)
+	if got := administeredAt.Format("2006-01-02 15:04 MST"); got != "2026-06-21 09:00 IST" {
+		t.Fatalf("administeredAt = %s, want 2026-06-21 09:00 IST", got)
+	}
+	if !sourceVaccinationDateOnOrBeforeBusinessDate(sourceDate, asOf, loc) {
+		t.Fatal("past source vaccination date must be imported as completed history")
+	}
+	if got, want := historyCompletionIdem(cell, vaccines["FMD"], "2026-06-21"), "vacc-real-cmp:old-k-stage:fmd:booster:2026-06-21"; got != want {
+		t.Fatalf("history completion idem = %q, want %q", got, want)
+	}
+}
+
+func TestSeedSchedulePathHonorsConfigurableCutoffAndHistorySignal(t *testing.T) {
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	asOf := dob.AddDate(0, 0, 154) // 22 weeks.
+
+	// With the default 16w cutoff, the 4w finish window ends at 20w; even a stale K-stage
+	// tag must not force a kid-course source mapping.
+	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 16, nil); got != "adult" {
+		t.Fatalf("22w with default cutoff = %q, want adult", got)
+	}
+
+	// If the active rule config moves the normal kid cutoff to 20w, the finish window ends
+	// at 24w and a fresh K-stage tag remains valid in-course evidence.
+	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 20, nil); got != "kid" {
+		t.Fatalf("22w with configured 20w cutoff and K-stage = %q, want kid", got)
+	}
+
+	kidHistory := []vaccinationdomain.RecentVaccineAdministration{{
+		AdministeredAt: dob.AddDate(0, 0, 84),
+		VaccineCode:    "FMD",
+		DoseCode:       "fmd_kid_12w",
+	}}
+	if got := seedSchedulePathForGoat("", nil, "", nil, asOf, 16, kidHistory); got != "kid" {
+		t.Fatalf("no DOB/stage with accepted kid-course history = %q, want kid", got)
+	}
+	if got := seedSchedulePathForGoat("", nil, "", nil, asOf, 16, nil); got != "adult" {
+		t.Fatalf("no DOB/stage/history = %q, want adult", got)
+	}
+}
+
+func TestSeedLoopDoesNotUseSourceCellAsKidCourseProof(t *testing.T) {
+	loc := mustKolkata(t)
+	asOf := time.Date(2026, time.July, 16, 9, 0, 0, 0, loc)
+	matrix := buildCanonicalVaccinationMatrix()
+	cells := []vaccCell{{
+		AnimalKey: "unknown-dob-non-k-stage",
+		Vaccine:   "FMD",
+		DoseType:  "First Dose",
+		DoseCode:  "first",
+		Sequence:  1,
+		Value:     "2026-06-01",
+	}}
+
+	path := seedSchedulePathForGoat("", nil, "adult", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "adult" {
+		t.Fatalf("unknown DOB/non-K stage with only raw source date path = %q, want adult", path)
+	}
+	doseCode, later := mapSheetDoseToRuleCode(cells[0].Vaccine, cells[0].DoseCode, path, matrix)
+	if doseCode != "fmd_adult_w1" || later {
+		t.Fatalf("seed loop mapped raw source date to dose=%q later=%v, want fmd_adult_w1/false", doseCode, later)
+	}
+}
+
+func TestSeedSchedulePathUsesIndependentKidEvidence(t *testing.T) {
+	loc := mustKolkata(t)
+	asOf := time.Date(2026, time.July, 16, 9, 0, 0, 0, loc)
+	matrix := buildCanonicalVaccinationMatrix()
+
+	path := seedSchedulePathForGoat("", nil, "K1", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "kid" {
+		t.Fatalf("unknown DOB with K-stage path = %q, want kid", path)
+	}
+	doseCode, later := mapSheetDoseToRuleCode("FMD", "first", path, matrix)
+	if doseCode != "fmd_kid_12w" || later {
+		t.Fatalf("independent K-stage maps to dose=%q later=%v, want fmd_kid_12w/false", doseCode, later)
+	}
+}
+
+func TestSeedSchedulePathIgnoresFutureSourceDateAsClassificationEvidence(t *testing.T) {
+	loc := mustKolkata(t)
+	asOf := time.Date(2026, time.July, 16, 9, 0, 0, 0, loc)
+	futureDate := time.Date(2026, time.July, 17, 0, 0, 0, 0, loc)
+
+	if sourceVaccinationDateOnOrBeforeBusinessDate(futureDate, asOf, loc) {
+		t.Fatal("future source date must not be accepted history")
+	}
+	path := seedSchedulePathForGoat("", nil, "", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "adult" {
+		t.Fatalf("unknown DOB/stage with only future source date path = %q, want adult", path)
 	}
 }
 
@@ -258,6 +451,66 @@ func TestVaccinationMatrixUsesNextCycleOnlyForRepeatRows(t *testing.T) {
 	if repeats != len(vaccineOrder) {
 		t.Fatalf("repeat rows=%d, want %d", repeats, len(vaccineOrder))
 	}
+}
+
+func TestVaccinationMatrixStoresETTTAdultBoosterAsTwentyOneDayCourseGap(t *testing.T) {
+	raw, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("vaccinationMatrixRuleDSL: %v", err)
+	}
+	var payload struct {
+		MatrixRows []struct {
+			Vaccine struct {
+				Code       string `json:"code"`
+				CourseType string `json:"course_type"`
+			} `json:"vaccine"`
+			Schedule []struct {
+				DoseCode    string `json:"dose_code"`
+				TriggerType string `json:"trigger_type"`
+				OffsetDays  int    `json:"offset_days"`
+				MinGapDays  int    `json:"min_gap_days"`
+			} `json:"schedule"`
+		} `json:"matrix_rows"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal matrix: %v", err)
+	}
+	for _, row := range payload.MatrixRows {
+		if row.Vaccine.Code != "ET_TT" {
+			continue
+		}
+		if row.Vaccine.CourseType != "booster" {
+			t.Fatalf("ET_TT course_type=%q, want booster", row.Vaccine.CourseType)
+		}
+		got := map[string]struct {
+			Trigger string
+			Offset  int
+			Gap     int
+		}{}
+		for _, sched := range row.Schedule {
+			got[sched.DoseCode] = struct {
+				Trigger string
+				Offset  int
+				Gap     int
+			}{Trigger: sched.TriggerType, Offset: sched.OffsetDays, Gap: sched.MinGapDays}
+		}
+		for dose, want := range map[string]struct {
+			Trigger string
+			Offset  int
+			Gap     int
+		}{
+			"et_tt_kid_7w":   {Trigger: "birth_age", Offset: 49, Gap: 21},
+			"et_tt_adult_w1": {Trigger: "post_arrival", Offset: 7, Gap: 0},
+			"et_tt_adult_w2": {Trigger: "post_arrival", Offset: 21, Gap: 21},
+			"et_tt_revac":    {Trigger: "after_previous_completion", Offset: 182, Gap: 182},
+		} {
+			if got[dose] != want {
+				t.Fatalf("%s = %#v, want %#v", dose, got[dose], want)
+			}
+		}
+		return
+	}
+	t.Fatal("ET_TT matrix row missing")
 }
 
 func TestValidateSeedReconciliation(t *testing.T) {
@@ -342,7 +595,7 @@ func TestVaccinationMatrixKeepsLegacyUnknownHealthSchedulableWithSafetyDeferrals
 	if got := eligibility["breed"]; !reflect.DeepEqual(got, []string{"all"}) {
 		t.Fatalf("breed eligibility = %#v, want [all]", got)
 	}
-	wantDeferrals := []string{"sick", "under_treatment", "icu", "quarantine"}
+	wantDeferrals := []string{"sick", "under_treatment", "recovering", "icu", "quarantine"}
 	if got := eligibility["defer_states"]; !reflect.DeepEqual(got, wantDeferrals) {
 		t.Fatalf("defer_states = %#v, want %#v", got, wantDeferrals)
 	}

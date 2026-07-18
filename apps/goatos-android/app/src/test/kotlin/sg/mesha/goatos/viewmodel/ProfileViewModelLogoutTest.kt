@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.network.DeviceResponseDto
 import sg.mesha.goatos.core.network.DeviceSummaryDto
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.rfid.RfidRead
+import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 
@@ -71,6 +72,8 @@ class ProfileViewModelLogoutTest {
 
     private class FakeRfidReaderPort : RfidReaderPort {
         override val status: StateFlow<RfidReaderStatus> = MutableStateFlow(RfidReaderStatus.NOT_PAIRED)
+        override val readerName: StateFlow<String?> = MutableStateFlow(null)
+        override val devices: StateFlow<List<RfidReaderDevice>> = MutableStateFlow(emptyList())
         override val reads: SharedFlow<RfidRead> = MutableSharedFlow()
         override fun refreshStatus() {}
         override fun openSystemPairing() {}

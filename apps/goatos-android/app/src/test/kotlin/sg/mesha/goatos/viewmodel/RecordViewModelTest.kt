@@ -204,14 +204,14 @@ private class FakeExecutionRepository : ExecutionRepository {
     override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
         error("unused")
 
-    override suspend fun scanRoster(shedId: String, taskId: String, cursor: String?, limit: Int?): ScanRosterResponseDto =
+    override suspend fun scanRoster(shedId: String, taskId: String?, cursor: String?, limit: Int?): ScanRosterResponseDto =
         error("unused")
 
-    override fun observeScanRoster(shedId: String, taskId: String, limit: Int?): Flow<Resource<ScanRosterResponseDto>> =
+    override fun observeScanRoster(shedId: String, taskId: String?, limit: Int?): Flow<Resource<ScanRosterResponseDto>> =
         error("unused")
 
-    override suspend fun refreshScanRoster(shedId: String, taskId: String, limit: Int?): Result<Unit> = error("unused")
+    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = error("unused")
 
-    override suspend fun appendScanRoster(shedId: String, taskId: String, cursor: String, limit: Int?): Result<Unit> =
+    override suspend fun appendScanRoster(shedId: String, taskId: String?, cursor: String, limit: Int?): Result<Unit> =
         error("unused")
 }

@@ -2,158 +2,270 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 )
 
-// seedMatrixProtocolID mirrors the deterministic id the seed resolves for its canonical protocol.
+const matrixOwnerTenant = defaultTenantID
+
 func seedMatrixProtocolID(tenantID string) string {
 	return detUUID("protocol", tenantID, "vaccination_matrix")
 }
 
-// TestSeedRefusesForeignPublishedVaccinationMatrix covers the ownership-safety guard (VACC-REV):
-// PublishVersion's overlap-retire clears every overlapping published vaccination matrix at a scope
-// regardless of which protocol authored it, so the seed must refuse when a FOREIGN (non-seed) matrix
-// is already published rather than silently retire user-authored configuration.
-func TestSeedRefusesForeignPublishedVaccinationMatrix(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	tenantID := defaultTenantID
-	if _, err := pool.Exec(ctx, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1,'seed-matrix-test','active') ON CONFLICT (tenant_id) DO NOTHING`, tenantID); err != nil {
-		t.Fatalf("ensure tenant: %v", err)
-	}
-	seedProtocolID := seedMatrixProtocolID(tenantID)
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
-		VALUES ($1,$2,$3,'Preventive Care Vaccination Matrix','vaccination','active')
-		ON CONFLICT (tenant_id, code) DO NOTHING`, seedProtocolID, tenantID, matrixProtocolCode); err != nil {
-		t.Fatalf("seed protocol def: %v", err)
-	}
-
-	// No foreign matrix yet: the guard must be clear.
-	if foreign, err := foreignPublishedVaccinationMatrices(ctx, pool, tenantID, seedProtocolID); err != nil {
-		t.Fatalf("guard (clean): %v", err)
-	} else if len(foreign) != 0 {
-		t.Fatalf("guard flagged %v with no foreign matrix present", foreign)
-	}
-
-	// The seed's OWN published matrix must NEVER be flagged (a normal reseed is unaffected).
-	seedOwnVersion := detUUID("protocol_version", tenantID, "vaccination_matrix", "guard_seed_own")
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-			version_label, status, effective_from, effective_to, rule_dsl, proof_policy)
-		VALUES ($1,$2,$3,'tenant',NULL,1,$4,'published',DATE '2026-01-01',NULL,
-			'{"ruleset_family":"vaccination.matrix","matrix_rows":[]}'::jsonb,'{}'::jsonb)`,
-		seedOwnVersion, tenantID, seedProtocolID, matrixVersionLabel); err != nil {
-		t.Fatalf("seed own published version: %v", err)
-	}
-	if foreign, err := foreignPublishedVaccinationMatrices(ctx, pool, tenantID, seedProtocolID); err != nil {
-		t.Fatalf("guard (own only): %v", err)
-	} else if len(foreign) != 0 {
-		t.Fatalf("guard flagged the seed's OWN matrix %v; a normal reseed must not be refused", foreign)
-	}
-
-	// A user-authored, DIFFERENT-protocol, tenant-scoped, matrix-shaped, published, overlapping
-	// matrix must be detected so the seed refuses instead of retiring it.
-	foreignProtocolID := detUUID("protocol", tenantID, "user_custom_vaccination_matrix")
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
-		VALUES ($1,$2,'custom.vaccination.matrix','User Custom Matrix','vaccination','active')`,
-		foreignProtocolID, tenantID); err != nil {
-		t.Fatalf("foreign protocol def: %v", err)
-	}
-	foreignVersion := detUUID("protocol_version", tenantID, "user_custom", "v1")
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-			version_label, status, effective_from, effective_to, rule_dsl, proof_policy)
-		VALUES ($1,$2,$3,'tenant',NULL,1,'User Matrix','published',DATE '2026-06-01',NULL,
-			'{"ruleset_family":"vaccination.matrix","matrix_rows":[]}'::jsonb,'{}'::jsonb)`,
-		foreignVersion, tenantID, foreignProtocolID); err != nil {
-		t.Fatalf("foreign published version: %v", err)
-	}
-	foreign, err := foreignPublishedVaccinationMatrices(ctx, pool, tenantID, seedProtocolID)
-	if err != nil {
-		t.Fatalf("guard (foreign present): %v", err)
-	}
-	if len(foreign) != 1 || foreign[0] != "custom.vaccination.matrix" {
-		t.Fatalf("guard = %v, want exactly [custom.vaccination.matrix]", foreign)
+func mustExec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, sql, args...); err != nil {
+		t.Fatalf("exec %q: %v", sql, err)
 	}
 }
 
-// TestSeedMatrixReconcilePublishReplayDoesNotChurn covers the persistence gap the string-only
-// TestSeedMatrixBuildIsDeterministic cannot: it starts from a faulty published seed matrix, runs the
-// seed's real reconcile+publish correction TWICE, and asserts no version churn, ownership preserved,
-// correct statuses, and exactly one retire event (no duplicate) across the replay.
-func TestSeedMatrixReconcilePublishReplayDoesNotChurn(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	tenantID := defaultTenantID
-	if _, err := pool.Exec(ctx, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1,'seed-matrix-test','active') ON CONFLICT (tenant_id) DO NOTHING`, tenantID); err != nil {
-		t.Fatalf("ensure tenant: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
+// setupSeedMatrixFixture seeds tenant + seed's canonical vaccination.matrix protocol + a published
+// vaccination.drive SOP (composite FK). Returns (seedProtocolID, seedActorID, sopVersionID). Robust to
+// whatever the migrated template already seeds for the default tenant.
+func setupSeedMatrixFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (string, string, string) {
+	t.Helper()
+	tenantID := matrixOwnerTenant
+	mustExec(t, ctx, pool, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1,'seed-matrix-test','active') ON CONFLICT (tenant_id) DO NOTHING`, tenantID)
+	mustExec(t, ctx, pool, `
 		INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
 		VALUES ($1,$2,$3,'Preventive Care Vaccination Matrix','vaccination','active')
-		ON CONFLICT (tenant_id, code) DO NOTHING`, seedMatrixProtocolID(tenantID), tenantID, matrixProtocolCode); err != nil {
-		t.Fatalf("seed protocol def: %v", err)
-	}
+		ON CONFLICT (tenant_id, code) DO NOTHING`, seedMatrixProtocolID(tenantID), tenantID, matrixProtocolCode)
 	var seedProtocolID string
 	if err := pool.QueryRow(ctx, `SELECT protocol_id::text FROM protocol_definitions WHERE tenant_id=$1 AND code=$2`, tenantID, matrixProtocolCode).Scan(&seedProtocolID); err != nil {
 		t.Fatalf("resolve seed protocol id: %v", err)
 	}
+	seedActorID := detUUID("seed-actor", tenantID)
 
-	// Published vaccination.drive SOP for the composite sop_version FK (resolve-or-create so the test
-	// is robust to whatever the migrated template already seeds for the default tenant).
 	var sopID string
 	if err := pool.QueryRow(ctx, `SELECT sop_id::text FROM sop_definitions WHERE tenant_id=$1 AND code='vaccination.drive'`, tenantID).Scan(&sopID); err != nil {
 		sopID = detUUID("sop", tenantID, "vaccination_drive")
-		if _, ierr := pool.Exec(ctx, `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1,$2,'vaccination.drive','Vaccination Drive','active')`, sopID, tenantID); ierr != nil {
-			t.Fatalf("sop def create: %v", ierr)
-		}
+		mustExec(t, ctx, pool, `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1,$2,'vaccination.drive','Vaccination Drive','active')`, sopID, tenantID)
 	}
 	var sopVersionID string
 	if err := pool.QueryRow(ctx, `SELECT sop_version_id::text FROM sop_versions WHERE tenant_id=$1 AND sop_id=$2 AND status='published' ORDER BY version DESC LIMIT 1`, tenantID, sopID).Scan(&sopVersionID); err != nil {
 		sopVersionID = detUUID("sop_version", tenantID, "vaccination_drive", "matrix_test_v1")
-		if _, ierr := pool.Exec(ctx, `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1,$2,$3,9990,'matrix-test-v1','published','{}'::jsonb,'{}'::jsonb)`, sopVersionID, tenantID, sopID); ierr != nil {
-			t.Fatalf("sop version create: %v", ierr)
+		mustExec(t, ctx, pool, `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1,$2,$3,9990,'matrix-test-v1','published','{}'::jsonb,'{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	}
+	return seedProtocolID, seedActorID, sopVersionID
+}
+
+// insertPublishedMatrix inserts a published, tenant-scoped, matrix-shaped vaccination version with an
+// explicit drafted_by (nil = legacy/unstamped) under protocolID.
+func insertPublishedMatrix(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, protocolID, versionID, label string, version int, draftedBy *string) {
+	t.Helper()
+	mustExec(t, ctx, pool, `
+		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+			version_label, status, effective_from, effective_to, rule_dsl, proof_policy, drafted_by)
+		VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'published',DATE '2026-01-01',NULL,
+			'{"ruleset_family":"vaccination.matrix","matrix_rows":[]}'::jsonb,'{}'::jsonb,$6)`,
+		versionID, tenantID, protocolID, version, label, draftedBy)
+}
+
+// TestForeignPublishedVaccinationMatricesDetectsNonSeedOwned proves the ownership pre-check keys on
+// explicit seed provenance (drafted_by = seed actor), NOT protocol_id: a user-authored version under
+// the SAME canonical protocol is flagged, while the seed's own and legacy-unstamped versions are not.
+func TestForeignPublishedVaccinationMatricesDetectsNonSeedOwned(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProtocolID, seedActorID, _ := setupSeedMatrixFixture(t, ctx, pool)
+	tenantID := matrixOwnerTenant
+
+	// The protocol_versions_published_no_overlap EXCLUDE constraint allows only ONE published matrix at
+	// a scope/window at a time, and published rows are immutable/undeletable, so each case inserts a
+	// fresh published matrix (unique id), asserts, then retires it (the one allowed transition) to clear
+	// the published slot for the next case.
+	caseNo := 0
+	check := func(msg string, draftedBy *string, protocolID string, wantFlagged bool) {
+		t.Helper()
+		caseNo++
+		pvID := detUUID("pv", tenantID, "probe", string(rune('a'+caseNo)))
+		insertPublishedMatrix(t, ctx, pool, tenantID, protocolID, pvID, "Probe Matrix", caseNo, draftedBy)
+		got, err := foreignPublishedVaccinationMatrices(ctx, pool, tenantID, seedActorID)
+		if err != nil {
+			t.Fatalf("%s: guard err: %v", msg, err)
 		}
+		flagged := len(got) > 0
+		if flagged != wantFlagged {
+			t.Fatalf("%s: guard = %v (flagged=%v), want flagged=%v", msg, got, flagged, wantFlagged)
+		}
+		mustExec(t, ctx, pool, `UPDATE protocol_versions SET status='retired', retired_at=now(), row_version=row_version+1 WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, pvID)
 	}
 
-	// Start from a FAULTY published seed matrix (a differing matrix-shaped rule_dsl under the seed's
-	// own protocol + label) so the reconcile sees "published but changed" and mints a correction.
-	faultyVersion := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-			version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id)
-		VALUES ($1,$2,$3,'tenant',NULL,1,$4,'published',DATE '2026-01-01',NULL,
-			'{"ruleset_family":"vaccination.matrix","matrix_rows":[],"_seed_variant":"faulty"}'::jsonb,'{}'::jsonb,$5)`,
-		faultyVersion, tenantID, seedProtocolID, matrixVersionLabel, sopVersionID); err != nil {
-		t.Fatalf("faulty published version: %v", err)
+	if got, err := foreignPublishedVaccinationMatrices(ctx, pool, tenantID, seedActorID); err != nil || len(got) != 0 {
+		t.Fatalf("clean: got %v err %v, want none", got, err)
 	}
+	seedActor := seedActorID
+	check("seed-owned (drafted_by=seed actor)", &seedActor, seedProtocolID, false)
+	// A PUBLISHED matrix with no provenance stamp cannot be positively identified as the seed's (it is
+	// immutable and NULL is schema-permitted), so it is flagged — the seed refuses rather than clobber
+	// it (VAX-SEED-R1). Legacy seed DRAFTS are back-stamped before publish and so never reach here.
+	check("unstamped published (drafted_by NULL) is NOT provably seed", nil, seedProtocolID, true)
+	userA := detUUID("user", tenantID, "alice")
+	check("user-authored under SAME seed protocol (VAX-SEED-01)", &userA, seedProtocolID, true)
+
+	foreignProtocol := detUUID("protocol", tenantID, "user_other")
+	mustExec(t, ctx, pool, `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1,$2,'custom.matrix.other','Other','vaccination','active') ON CONFLICT (tenant_id, code) DO NOTHING`, foreignProtocol, tenantID)
+	userB := detUUID("user", tenantID, "bob")
+	check("user-authored under a DIFFERENT protocol", &userB, foreignProtocol, true)
+}
+
+// TestSeedGuardedPublishRefusesUserMatrixUnderSameProtocol proves the ATOMIC ownership guard
+// (VAX-SEED-01 + VAX-SEED-03): publishing the seed matrix while a user-authored version exists under
+// the SAME protocol fails closed with ErrVaccinationMatrixOwnershipConflict, and the user's version is
+// left published (never retired). The check runs inside the publish txn under the matrix advisory
+// lock, so it holds even against a version that appears after any earlier pre-check.
+func TestSeedGuardedPublishRefusesUserMatrixUnderSameProtocol(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProtocolID, seedActorID, sopVersionID := setupSeedMatrixFixture(t, ctx, pool)
+	tenantID := matrixOwnerTenant
+
+	userA := detUUID("user", tenantID, "alice")
+	userVersion := detUUID("pv", tenantID, "user_same")
+	insertPublishedMatrix(t, ctx, pool, tenantID, seedProtocolID, userVersion, "Alice Custom Matrix", 7, &userA)
 
 	correctDSL, err := vaccinationMatrixRuleDSL()
 	if err != nil {
 		t.Fatalf("build matrix dsl: %v", err)
 	}
-	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, 10*time.Second))
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	versionID, rerr := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, seedProtocolID, correctDSL, sopVersionID, seedActorID)
+	if rerr != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reconcile: %v", rerr)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	svc := protocolapp.NewService(protocolpg.NewRepository(pool, 10*time.Second))
+	perr := svc.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, versionID, seedActorID, "seed-vaccination-real:"+versionID)
+	if perr == nil {
+		t.Fatalf("guarded publish succeeded, want ownership conflict")
+	}
+	if !errors.Is(perr, protocolpg.ErrVaccinationMatrixOwnershipConflict) {
+		t.Fatalf("publish err = %v, want ErrVaccinationMatrixOwnershipConflict", perr)
+	}
 
-	// One correction cycle: reconcile (own tx) -> publish (retires the faulty one).
+	var userStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, userVersion).Scan(&userStatus); err != nil {
+		t.Fatalf("read user version: %v", err)
+	}
+	if userStatus != "published" {
+		t.Fatalf("user version status = %s, want published (unchanged)", userStatus)
+	}
+}
+
+// TestSeedGuardedPublishRefusesUserDraftedTarget covers VAX-SEED-R2: a seed-guarded publish must
+// verify the TARGET version is seed-drafted. Pointing it at a user-drafted draft (as any internal
+// caller could) must fail closed and leave that draft untouched, never laundering it into a seed op.
+func TestSeedGuardedPublishRefusesUserDraftedTarget(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProtocolID, seedActorID, sopVersionID := setupSeedMatrixFixture(t, ctx, pool)
+	tenantID := matrixOwnerTenant
+
+	userA := detUUID("user", tenantID, "alice")
+	userDraft := detUUID("pv", tenantID, "user_draft")
+	correctDSL, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build matrix dsl: %v", err)
+	}
+	mustExec(t, ctx, pool, `
+		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+			version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, drafted_by)
+		VALUES ($1,$2,$3,'tenant',NULL,1,'Alice Draft','draft',DATE '2026-01-01',NULL,$4::jsonb,
+			'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$5,$6)`,
+		userDraft, tenantID, seedProtocolID, correctDSL, sopVersionID, userA)
+
+	svc := protocolapp.NewService(protocolpg.NewRepository(pool, 10*time.Second))
+	perr := svc.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, userDraft, seedActorID, "seed-vaccination-real:"+userDraft)
+	if perr == nil || !errors.Is(perr, protocolpg.ErrVaccinationMatrixOwnershipConflict) {
+		t.Fatalf("publish err = %v, want ErrVaccinationMatrixOwnershipConflict", perr)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, userDraft).Scan(&status); err != nil {
+		t.Fatalf("read user draft: %v", err)
+	}
+	if status != "draft" {
+		t.Fatalf("user draft status = %s, want draft (untouched)", status)
+	}
+}
+
+// TestSeedGuardedPublishRefusesUserPublishedTargetOnReplay covers the VAX-SEED-R2 already-published
+// replay path: pointing a seed-guarded publish at a user-authored PUBLISHED matrix must NOT be accepted
+// as a successful "seed replay". It fails closed and leaves the user's version published and unchanged.
+func TestSeedGuardedPublishRefusesUserPublishedTargetOnReplay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProtocolID, seedActorID, _ := setupSeedMatrixFixture(t, ctx, pool)
+	tenantID := matrixOwnerTenant
+
+	userA := detUUID("user", tenantID, "alice")
+	userPublished := detUUID("pv", tenantID, "user_published")
+	insertPublishedMatrix(t, ctx, pool, tenantID, seedProtocolID, userPublished, "Alice Published Matrix", 5, &userA)
+
+	svc := protocolapp.NewService(protocolpg.NewRepository(pool, 10*time.Second))
+	perr := svc.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, userPublished, seedActorID, "seed-vaccination-real:"+userPublished)
+	if perr == nil || !errors.Is(perr, protocolpg.ErrVaccinationMatrixOwnershipConflict) {
+		t.Fatalf("replay publish err = %v, want ErrVaccinationMatrixOwnershipConflict", perr)
+	}
+	var status, drafted string
+	if err := pool.QueryRow(ctx, `SELECT status, COALESCE(drafted_by::text,'') FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, userPublished).Scan(&status, &drafted); err != nil {
+		t.Fatalf("read user version: %v", err)
+	}
+	if status != "published" || drafted != userA {
+		t.Fatalf("user version status=%s drafted_by=%s, want published/%s (unchanged)", status, drafted, userA)
+	}
+}
+
+// TestSeedMatrixReconcilePublishReplayDoesNotChurn (VAX-SEED-02) starts from a faulty published SEED
+// matrix and runs the real reconcile+guarded-publish correction twice: no version churn, ownership
+// preserved, correct statuses, exactly one retire event. Also proves the guard lets the seed supersede
+// its OWN prior (here legacy-unstamped) version.
+func TestSeedMatrixReconcilePublishReplayDoesNotChurn(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProtocolID, seedActorID, sopVersionID := setupSeedMatrixFixture(t, ctx, pool)
+	tenantID := matrixOwnerTenant
+
+	faultyVersion := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
+	mustExec(t, ctx, pool, `
+		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+			version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, drafted_by)
+		VALUES ($1,$2,$3,'tenant',NULL,1,$4,'published',DATE '2026-01-01',NULL,
+			'{"ruleset_family":"vaccination.matrix","matrix_rows":[],"_seed_variant":"faulty"}'::jsonb,'{}'::jsonb,$5,$6)`,
+		faultyVersion, tenantID, seedProtocolID, matrixVersionLabel, sopVersionID, seedActorID)
+
+	correctDSL, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build matrix dsl: %v", err)
+	}
+	svc := protocolapp.NewService(protocolpg.NewRepository(pool, 10*time.Second))
 	correct := func(round int) string {
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			t.Fatalf("round %d begin: %v", round, err)
 		}
-		versionID, rerr := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, seedProtocolID, correctDSL, sopVersionID)
+		versionID, rerr := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, seedProtocolID, correctDSL, sopVersionID, seedActorID)
 		if rerr != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("round %d reconcile: %v", round, rerr)
@@ -161,20 +273,18 @@ func TestSeedMatrixReconcilePublishReplayDoesNotChurn(t *testing.T) {
 		if err := tx.Commit(ctx); err != nil {
 			t.Fatalf("round %d commit: %v", round, err)
 		}
-		if err := protocolService.PublishVersion(ctx, tenantID, versionID, nil, "seed-vaccination-real:"+versionID); err != nil {
+		if err := svc.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, versionID, seedActorID, "seed-vaccination-real:"+versionID); err != nil {
 			t.Fatalf("round %d publish: %v", round, err)
 		}
 		return versionID
 	}
 
 	v2 := correct(1)
-	v2Again := correct(2) // replay: same corrected DSL, must NOT churn
-
+	v2Again := correct(2)
 	if v2 != v2Again {
-		t.Fatalf("reconcile churned versions: round1=%s round2=%s (replay must reuse the same version)", v2, v2Again)
+		t.Fatalf("reconcile churned versions: round1=%s round2=%s", v2, v2Again)
 	}
 
-	// Exactly two versions for the seed protocol: the retired faulty one + the single corrected one.
 	var total, published, retired, drafts int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*),
@@ -187,39 +297,29 @@ func TestSeedMatrixReconcilePublishReplayDoesNotChurn(t *testing.T) {
 		t.Fatalf("count versions: %v", err)
 	}
 	if total != 2 || published != 1 || retired != 1 || drafts != 0 {
-		t.Fatalf("version counts total=%d published=%d retired=%d draft=%d, want 2/1/1/0 (no replay churn)", total, published, retired, drafts)
+		t.Fatalf("version counts total=%d published=%d retired=%d draft=%d, want 2/1/1/0", total, published, retired, drafts)
 	}
 
-	// Ownership preserved: the corrected version stays under the seed's own protocol and is published.
 	var ownerProtocol, v2Status string
-	if err := pool.QueryRow(ctx,
-		`SELECT protocol_id::text, status FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`,
-		tenantID, v2).Scan(&ownerProtocol, &v2Status); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT protocol_id::text, status FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, v2).Scan(&ownerProtocol, &v2Status); err != nil {
 		t.Fatalf("read corrected version: %v", err)
 	}
 	if ownerProtocol != seedProtocolID || v2Status != "published" {
 		t.Fatalf("corrected version owner=%s status=%s, want %s/published", ownerProtocol, v2Status, seedProtocolID)
 	}
 
-	// The faulty version is retired, and the retire fired exactly ONCE across both cycles (the replay
-	// publish of an already-published version must not emit a duplicate retire event).
 	var faultyStatus string
-	if err := pool.QueryRow(ctx,
-		`SELECT status FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`,
-		tenantID, faultyVersion).Scan(&faultyStatus); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT status FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, faultyVersion).Scan(&faultyStatus); err != nil {
 		t.Fatalf("read faulty version: %v", err)
 	}
 	if faultyStatus != "retired" {
-		t.Fatalf("faulty version status=%s, want retired", faultyStatus)
+		t.Fatalf("faulty version status = %s, want retired", faultyStatus)
 	}
 	var retiredOutbox int
-	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM outbox_messages
-		WHERE tenant_id=$1 AND event_type='protocol.version.retired' AND aggregate_id=$2::uuid`,
-		tenantID, faultyVersion).Scan(&retiredOutbox); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND event_type='protocol.version.retired' AND aggregate_id=$2::uuid`, tenantID, faultyVersion).Scan(&retiredOutbox); err != nil {
 		t.Fatalf("count retire outbox: %v", err)
 	}
 	if retiredOutbox != 1 {
-		t.Fatalf("retire outbox count=%d, want exactly 1 (replay must not duplicate the retire event)", retiredOutbox)
+		t.Fatalf("retire outbox count=%d, want exactly 1", retiredOutbox)
 	}
 }

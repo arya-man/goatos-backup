@@ -6,6 +6,7 @@ package proofmedia
 import (
 	"context"
 
+	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
@@ -13,6 +14,10 @@ import (
 // satisfies this signature (DownloadURL(ctx, tenantID, proofID) (string, error)).
 type Downloader interface {
 	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
+}
+
+type ArtifactDownloader interface {
+	DownloadArtifact(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error)
 }
 
 type Resolver struct {
@@ -33,6 +38,14 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 	out := make([]domain.MediaItem, 0, len(proofIDs))
 	for _, id := range proofIDs {
 		if id == "" {
+			continue
+		}
+		if rich, ok := r.proof.(ArtifactDownloader); ok {
+			proof, url, err := rich.DownloadArtifact(ctx, tenantID, id)
+			if err != nil {
+				continue
+			}
+			out = append(out, domain.MediaItem{ProofID: id, DownloadURL: url, MimeType: proof.MimeType, DurationMS: proof.DurationMS})
 			continue
 		}
 		url, err := r.proof.DownloadURL(ctx, tenantID, id)

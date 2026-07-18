@@ -117,6 +117,7 @@ const PROJECTION_RUNTIME_COMPANION_PATTERNS = [
 ];
 
 const MIGRATION_RE = /^backend\/migrations\/postgres\/\d+_[^/]+\.sql$/;
+const CLEAN_SLATE_BASELINE = "backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql";
 const PROJECTION_COMMAND_MAIN_RE = /^backend\/cmd\/[^/]*(?:projector|projection|recompute)[^/]*\/main\.go$/;
 const IGNORE_RE =
   /seed-migration-guard:ignore\s+owner=\S+\s+issue=\S+\s+reason=\S+.*\s+expiry=\d{4}-\d{2}-\d{2}/;
@@ -169,6 +170,21 @@ function changedFiles() {
     files.add(f)
   );
   splitLines(gitMaybe(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])).forEach((f) =>
+    files.add(f)
+  );
+  return [...files].sort();
+}
+
+function deletedFiles() {
+  const files = new Set();
+  const range = diffRange();
+  if (range) {
+    splitLines(gitMaybe(["diff", "--name-only", "--diff-filter=D", range])).forEach((f) =>
+      files.add(f)
+    );
+  }
+  splitLines(gitMaybe(["diff", "--name-only", "--diff-filter=D"])).forEach((f) => files.add(f));
+  splitLines(gitMaybe(["diff", "--cached", "--name-only", "--diff-filter=D"])).forEach((f) =>
     files.add(f)
   );
   return [...files].sort();
@@ -559,6 +575,15 @@ function couplingPasses(affected, files) {
   return projectionAffected.length === 0 || hasProjectionRuntimeCompanion(files).length > 0;
 }
 
+function isCleanSlateBaselineSquash(migrations) {
+  if (migrations.length !== 1 || migrations[0] !== CLEAN_SLATE_BASELINE) return false;
+  const deletedMigrations = deletedFiles().filter((rel) => MIGRATION_RE.test(rel));
+  if (deletedMigrations.length < 2) return false;
+  return readChangedFile(CLEAN_SLATE_BASELINE).includes(
+    "This disposable-project baseline replaces the historical incremental migration chain."
+  );
+}
+
 function runSelfTest() {
   const dryRunLine = (command, args) => `==> seed-closeout: ${command}\n    cd backend && go run ./cmd/${command} ${args}`;
   const cases = [
@@ -734,6 +759,12 @@ function runScan() {
   const migrations = files.filter((rel) => MIGRATION_RE.test(rel));
   if (migrations.length === 0) {
     console.log("seed-migration-coupling: ok (no migration SQL changed)");
+    return;
+  }
+  if (isCleanSlateBaselineSquash(migrations)) {
+    console.log(
+      `seed-migration-coupling: ok (one-time clean-slate baseline squash; ${deletedFiles().filter((rel) => MIGRATION_RE.test(rel)).length} historical migrations removed)`
+    );
     return;
   }
 

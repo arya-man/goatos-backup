@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,56 @@ import (
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
+type replayInsertBarrier struct {
+	mu                  sync.Mutex
+	pprArrivals         int
+	bothAtPPR           chan struct{}
+	goatPoxInserted     chan struct{}
+	goatPoxInsertedOnce sync.Once
+}
+
+type replayBarrierObligationWriter struct {
+	*oblpg.Repository
+	barrier *replayInsertBarrier
+}
+
+func (w replayBarrierObligationWriter) InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error) {
+	if in.RuleID == "" {
+		return w.Repository.InsertObligation(ctx, in)
+	}
+	if in.Sequence == 1 {
+		w.barrier.mu.Lock()
+		w.barrier.pprArrivals++
+		if w.barrier.pprArrivals == 2 {
+			close(w.barrier.bothAtPPR)
+		}
+		w.barrier.mu.Unlock()
+		select {
+		case <-w.barrier.bothAtPPR:
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		}
+	}
+	id, applied, err := w.Repository.InsertObligation(ctx, in)
+	if err != nil {
+		return id, applied, err
+	}
+	if in.Sequence == 1 && applied {
+		// Hold the PPR winner until the conflict loser has reconciled PPR and inserted Goat Pox.
+		// This deterministically exercises the window where a stale preflight snapshot used to miss
+		// the just-committed PPR row.
+		select {
+		case <-w.barrier.goatPoxInserted:
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		}
+	}
+	if in.Sequence == 2 {
+		w.barrier.goatPoxInsertedOnce.Do(func() { close(w.barrier.goatPoxInserted) })
+	}
+	return id, applied, nil
+}
+
 func seedGenGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle string) {
 	t.Helper()
 	seedGenGoatWithStage(t, ctx, pool, id, lifecycle, "K1")
@@ -31,6 +82,93 @@ func seedGenGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		id, impTenant, lifecycle, impParty, impCbe, stage)
 	if err != nil {
 		t.Fatalf("seed gen goat %s: %v", id, err)
+	}
+}
+
+// TestConcurrentGenerationReplayUsesCommittedObligationForSpacing is the R2-01 PostgreSQL race
+// guard. Both generators finish preflight before either inserts PPR. The PPR winner is then held
+// until the conflict loser has reconciled the committed row and inserted Goat Pox. Spacing must use
+// that authoritative PPR row, so the loser cannot materialize Goat Pox on the co-due date.
+func TestConcurrentGenerationReplayUsesCommittedObligationForSpacing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.replay.race", Name: "Replay race", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"eligibility":{"animal_stage":"K1"},"compatibility_policy":{"live_to_live_gap_days":28},"source":{"source_system":"pc","source_ref":"R2-01","review_status":"approved","approved_by":"Reviewer"}}`),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	for _, rule := range []protodomain.NewRule{
+		{TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "ppr_primary", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7, Repeat: "none", CatchUp: "pc_approval",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","name":"PPR","type":"live","pathogen_class":"viral","compatibility_group":"PPR","course_type":"single"}}`), ProofPolicy: []byte(`{}`)},
+		{TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "goatpox_primary", Sequence: 2,
+			TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7, Repeat: "none", CatchUp: "pc_approval",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","name":"Goat Pox","type":"live","pathogen_class":"viral","compatibility_group":"POX","course_type":"single"}}`), ProofPolicy: []byte(`{}`)},
+	} {
+		if _, err := proto.CreateRule(ctx, rule); err != nil {
+			t.Fatalf("rule %s: %v", rule.DoseCode, err)
+		}
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	const goatID = "30000000-0000-4000-8000-0000000000b7"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob=DATE '2026-07-01' WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID); err != nil {
+		t.Fatalf("set DOB: %v", err)
+	}
+
+	barrier := &replayInsertBarrier{bothAtPPR: make(chan struct{}), goatPoxInserted: make(chan struct{})}
+	writer := replayBarrierObligationWriter{Repository: obl, barrier: barrier}
+	gens := []*vaccapp.GenerationService{
+		vaccapp.NewGenerationService(proto, vacc, writer),
+		vaccapp.NewGenerationService(proto, vacc, writer),
+	}
+	errs := make(chan error, len(gens))
+	for _, gen := range gens {
+		go func(g *vaccapp.GenerationService) {
+			_, err := g.GenerateForGoat(ctx, impTenant, goatID, time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC))
+			errs <- err
+		}(gen)
+	}
+	for range gens {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent generation: %v", err)
+		}
+	}
+
+	var dueAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT due_at
+		FROM obligation_instances
+		WHERE tenant_id=$1 AND protocol_version_id=$2 AND target_id=$3 AND sequence=2`,
+		impTenant, versionID, goatID).Scan(&dueAt); err != nil {
+		t.Fatalf("load Goat Pox due date: %v", err)
+	}
+	india, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatalf("load India timezone: %v", err)
+	}
+	if got, want := dueAt.In(india).Format("2006-01-02"), "2026-08-28"; got != want {
+		t.Fatalf("Goat Pox due = %s, want %s (committed PPR due + 28 days)", got, want)
 	}
 }
 
@@ -1436,7 +1574,7 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 
 	// create + replay dedupe (open).
 	for i := 0; i < 2; i++ {
-		if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 26, key); err != nil {
+		if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 26, 20, key); err != nil {
 			t.Fatalf("record #%d: %v", i, err)
 		}
 	}
@@ -1453,7 +1591,7 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	}
 
 	// resolve, then list shows none open; re-resolve is an idempotent no-op.
-	resolved, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "tag corrected to adult", time.Now())
+	resolved, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "tag corrected to adult", "corrected", time.Now())
 	if err != nil || !resolved {
 		t.Fatalf("resolve: resolved=%v err=%v", resolved, err)
 	}
@@ -1461,12 +1599,12 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	if len(openAfterResolve.Items) != 0 {
 		t.Fatalf("open after resolve = %d, want 0", len(openAfterResolve.Items))
 	}
-	if again, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "", time.Now()); err != nil || again {
+	if again, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "", "corrected", time.Now()); err != nil || again {
 		t.Fatalf("re-resolve should be a no-op: again=%v err=%v", again, err)
 	}
 
 	// recurrence AFTER resolution opens a NEW actionable occurrence (not swallowed by the key).
-	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 40, key); err != nil {
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 40, 20, key); err != nil {
 		t.Fatalf("recurrence record: %v", err)
 	}
 	openAfterPage, err := repo.ListOpenStageReviewItems(ctx, impTenant, nil, 50)
@@ -1479,5 +1617,327 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	total := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID)
 	if total != 2 {
 		t.Fatalf("total rows = %d, want 2 (one resolved + one new open)", total)
+	}
+}
+
+// TestStageReviewItemOpenUniquePerGoat is the VACC-REV-10 defect + rollout-compat guard: the bridge
+// writer keeps exactly ONE open review item per goat, updated in place, REGARDLESS of the idempotency
+// key. It records the goat with two DIFFERENT keys (as a stage-suffixed old-binary writer would emit)
+// and asserts a single open row — proving the writer depends on the (tenant, goat) identity via its
+// advisory lock + update-else-insert, not on any ON CONFLICT target / unique index. That is what makes
+// it migrate-first-safe across releases that shipped different conflict targets.
+func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const goatID = "40000000-0000-4000-8000-0000000000d2"
+
+	// Two DIFFERENT keys, as a stage-suffixed old-binary writer emitted for K1 vs K2.
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 22, 20, "vacc-stage-review:"+impTenant+":"+goatID+":K1"); err != nil {
+		t.Fatalf("record K1: %v", err)
+	}
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 30, 20, "vacc-stage-review:"+impTenant+":"+goatID+":K2"); err != nil {
+		t.Fatalf("record K2: %v", err)
+	}
+
+	openPage, err := repo.ListOpenStageReviewItems(ctx, impTenant, nil, 50)
+	if err != nil {
+		t.Fatalf("list open: %v", err)
+	}
+	if len(openPage.Items) != 1 {
+		t.Fatalf("open items = %d, want 1 (one open item per goat regardless of stage)", len(openPage.Items))
+	}
+	it := openPage.Items[0]
+	if it.ObservedStage != "K2" || it.ObservedAgeWeeks != 30 {
+		t.Fatalf("open item stage=%q age=%d, want K2/30 (latest observed, updated in place)", it.ObservedStage, it.ObservedAgeWeeks)
+	}
+	total := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID)
+	if total != 1 {
+		t.Fatalf("total rows = %d, want 1 (single open item, no stage-keyed duplicate)", total)
+	}
+}
+
+// TestStageReviewOpenUniqueRejectsDuplicate is the VACC-REV-10 round-5 migrate-first + DB-level guard:
+// the baseline schema keeps the (tenant, idempotency_key) open index AND adds a (tenant, goat) open index,
+// so a still-live predecessor binary's `ON CONFLICT (tenant_id, idempotency_key)` writes keep working
+// for the FIRST row, while only an actual SECOND stage-keyed open row for the same goat fails closed.
+// Proven here: (1) predecessor FIRST insert (fresh goat, key K1) succeeds — the idem index is present;
+// (2) predecessor SAME-key replay succeeds (DO UPDATE, still one row); (3) predecessor DIFFERENT-stage
+// key for the same goat is rejected by the (tenant, goat) unique index (fail closed, no dup);
+// (4) exactly one open row survives and the bridge writer updates it in place.
+func TestStageReviewOpenUniqueRejectsDuplicate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const goatID = "40000000-0000-4000-8000-0000000000d3"
+
+	// Exact SQL the old stage-keyed predecessor shipped (ON CONFLICT on the idempotency-key index).
+	oldWriterSQL := `
+		INSERT INTO vaccination_stage_review_items
+			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
+		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'kid_stage_past_age_cutoff', $3, $4, $5)
+		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
+		SET observed_stage = EXCLUDED.observed_stage, observed_age_weeks = EXCLUDED.observed_age_weeks`
+
+	// (1) predecessor FIRST insert (fresh goat) SUCCEEDS — the idempotency-key index is retained.
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 22, "vacc-stage-review:"+impTenant+":"+goatID+":K1"); err != nil {
+		t.Fatalf("predecessor first insert should succeed (idem index kept): %v", err)
+	}
+	// (2) predecessor SAME-key replay SUCCEEDS (DO UPDATE, still one open row).
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 23, "vacc-stage-review:"+impTenant+":"+goatID+":K1"); err != nil {
+		t.Fatalf("predecessor same-key replay should succeed: %v", err)
+	}
+	if open := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2 AND status='open'`, impTenant, goatID); open != 1 {
+		t.Fatalf("open rows after predecessor first+replay = %d, want 1", open)
+	}
+
+	// (3) predecessor DIFFERENT-stage key for the SAME goat is rejected by the (tenant, goat) index.
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K2", 30, "vacc-stage-review:"+impTenant+":"+goatID+":K2"); err == nil {
+		t.Fatalf("predecessor different-stage-key duplicate should violate the (tenant, goat) open-unique index, got no error")
+	}
+
+	// (4) exactly one open row survives; the bridge writer updates it in place on its next pass.
+	if open := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2 AND status='open'`, impTenant, goatID); open != 1 {
+		t.Fatalf("open rows = %d, want 1 (duplicate failed closed)", open)
+	}
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 31, 20, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("bridge writer K2: %v", err)
+	}
+	it := func() (stage string, age int) {
+		row := pool.QueryRow(ctx, `SELECT observed_stage, observed_age_weeks FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, goatID)
+		if err := row.Scan(&stage, &age); err != nil {
+			t.Fatalf("load open row: %v", err)
+		}
+		return
+	}
+	if stage, age := it(); stage != "K2" || age != 31 {
+		t.Fatalf("open row stage=%q age=%d, want K2/31 (updated in place)", stage, age)
+	}
+	if total := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID); total != 1 {
+		t.Fatalf("total rows = %d, want 1 (no duplicate ever created)", total)
+	}
+}
+
+// TestStageReviewBaselineKeepsIdempotencyAndPerGoatIndexes proves the clean-slate baseline keeps
+// both writer contracts: idempotency-key replay remains supported and one open stage review per goat
+// is enforced.
+func TestStageReviewBaselineKeepsIdempotencyAndPerGoatIndexes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	var idemPresent, goatPresent bool
+	if err := pool.QueryRow(ctx, `
+		SELECT to_regclass('vaccination_stage_review_items_open_idem_unique') IS NOT NULL,
+		       to_regclass('vaccination_stage_review_items_open_goat_unique') IS NOT NULL`).Scan(&idemPresent, &goatPresent); err != nil {
+		t.Fatalf("check baseline indexes: %v", err)
+	}
+	if !idemPresent || !goatPresent {
+		t.Fatalf("baseline indexes: idem=%v goat=%v, want both true", idemPresent, goatPresent)
+	}
+
+	const goatID = "40000000-0000-4000-8000-0000000000d4"
+	oldWriterSQL := `
+		INSERT INTO vaccination_stage_review_items
+			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
+		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'kid_stage_past_age_cutoff', $3, $4, $5)
+		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
+		SET observed_stage = EXCLUDED.observed_stage, observed_age_weeks = EXCLUDED.observed_age_weeks`
+	keyK1 := "vacc-stage-review:" + impTenant + ":" + goatID + ":K1"
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 22, keyK1); err != nil {
+		t.Fatalf("idempotency first insert on baseline: %v", err)
+	}
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 23, keyK1); err != nil {
+		t.Fatalf("idempotency replay on baseline: %v", err)
+	}
+	keyK2 := "vacc-stage-review:" + impTenant + ":" + goatID + ":K2"
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K2", 30, keyK2); err == nil {
+		t.Fatal("predecessor different-stage duplicate should fail against per-goat index")
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2 AND status='open'`, impTenant, goatID); got != 1 {
+		t.Fatalf("open rows after repaired upgrade path = %d, want 1", got)
+	}
+}
+
+// TestResolveStageReviewItemCorrectedAtomicReverify is the VACC-REV-10 guard for the atomic, fail-closed
+// 'corrected' re-check: a still-stale goat is NOT resolved, a goat whose stage is advanced IS resolved,
+// and a review item whose goat no longer exists fails closed (not resolved). The re-check runs against
+// the goat's live state in one locked statement.
+func TestResolveStageReviewItemCorrectedAtomicReverify(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	vacc := NewRepository(pool, 5*time.Second)
+
+	const goatID = "30000000-0000-4000-8000-0000000000f8"
+	const actor = "40000000-0000-4000-8000-0000000000ff"
+	seedGenGoatWithStage(t, ctx, pool, goatID, "alive", "K1")
+	// The re-check uses now(); make the goat ~30 weeks old so it is genuinely past the 20-week cutoff.
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob = (now() AT TIME ZONE 'Asia/Kolkata')::date - 210 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID); err != nil {
+		t.Fatalf("age goat: %v", err)
+	}
+
+	// Persist cutoff 20 on the item (the policy that raised it); the re-check reads this, not a re-derived one.
+	if err := vacc.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 30, 20, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	var reviewID string
+	if err := pool.QueryRow(ctx, `SELECT review_item_id::text FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, goatID).Scan(&reviewID); err != nil {
+		t.Fatalf("load review id: %v", err)
+	}
+
+	// 1) still stale (K1 + past the item's stored cutoff) -> not resolved, but was open.
+	resolved, wasOpen, err := vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "claims fixed", time.Now())
+	if err != nil {
+		t.Fatalf("resolve #1: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("still-stale: resolved=%v wasOpen=%v, want false/true", resolved, wasOpen)
+	}
+
+	// 2) advance the stage off K, then corrected -> resolved.
+	if _, err := pool.Exec(ctx, `UPDATE goats SET management_stage='adult' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID); err != nil {
+		t.Fatalf("advance stage: %v", err)
+	}
+	resolved, wasOpen, err = vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "advanced to adult", time.Now())
+	if err != nil {
+		t.Fatalf("resolve #2: %v", err)
+	}
+	if !resolved {
+		t.Fatalf("after-fix: resolved=%v, want true", resolved)
+	}
+
+	// 3) fail closed when the goat is missing: an item for a non-existent goat is NOT resolved.
+	const ghost = "30000000-0000-4000-8000-0000000000f9"
+	if err := vacc.RecordStageReviewItem(ctx, impTenant, ghost, "kid_stage_past_age_cutoff", "K1", 30, 20, "vacc-stage-review:"+impTenant+":"+ghost); err != nil {
+		t.Fatalf("record ghost: %v", err)
+	}
+	var ghostID string
+	if err := pool.QueryRow(ctx, `SELECT review_item_id::text FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, ghost).Scan(&ghostID); err != nil {
+		t.Fatalf("load ghost review id: %v", err)
+	}
+	resolved, wasOpen, err = vacc.ResolveStageReviewItemCorrected(ctx, impTenant, ghostID, actor, "x", time.Now())
+	if err != nil {
+		t.Fatalf("resolve #3: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("missing-goat: resolved=%v wasOpen=%v, want false/true (fail closed)", resolved, wasOpen)
+	}
+}
+
+// TestResolveStageReviewItemCorrectedUsesStoredCutoff proves the 'corrected' re-check evaluates against
+// the cutoff PERSISTED on each item (age_cutoff_weeks), not a value re-derived across published versions
+// (the MIN-across-versions defect). Two goats identical in age and stage (both K1, ~22 weeks old) differ
+// ONLY in the cutoff stored on their review item: one at 30 weeks (age is under it -> no longer stale ->
+// resolves) and one at 20 weeks (age is over it -> still stale -> blocked). Opposite outcomes from the
+// same goat state = the stored cutoff is the deciding input.
+func TestResolveStageReviewItemCorrectedUsesStoredCutoff(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	vacc := NewRepository(pool, 5*time.Second)
+
+	const actor = "40000000-0000-4000-8000-0000000000ff"
+	// Both goats: alive, K1, ~22 weeks old (154 days) — past a 20w cutoff but under a 30w cutoff.
+	seed := func(goatID string, storedCutoff int) string {
+		seedGenGoatWithStage(t, ctx, pool, goatID, "alive", "K1")
+		if _, err := pool.Exec(ctx, `UPDATE goats SET dob = (now() AT TIME ZONE 'Asia/Kolkata')::date - 154 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID); err != nil {
+			t.Fatalf("age goat %s: %v", goatID, err)
+		}
+		if err := vacc.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 22, storedCutoff, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+			t.Fatalf("record %s: %v", goatID, err)
+		}
+		var id string
+		if err := pool.QueryRow(ctx, `SELECT review_item_id::text FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, goatID).Scan(&id); err != nil {
+			t.Fatalf("load review id %s: %v", goatID, err)
+		}
+		return id
+	}
+
+	// Higher stored cutoff (30w): the 22w goat is UNDER it -> no longer stale -> corrected resolves,
+	// with NO stage change. A MIN-derived 20w cutoff would (wrongly) block this.
+	highID := seed("30000000-0000-4000-8000-0000000000fa", 30)
+	resolved, wasOpen, err := vacc.ResolveStageReviewItemCorrected(ctx, impTenant, highID, actor, "under stored cutoff", time.Now())
+	if err != nil {
+		t.Fatalf("resolve high-cutoff: %v", err)
+	}
+	if !resolved || !wasOpen {
+		t.Fatalf("high-cutoff (30w vs 22w age): resolved=%v wasOpen=%v, want true/true (stored cutoff honored)", resolved, wasOpen)
+	}
+
+	// Lower stored cutoff (20w): identical goat state, but 22w is OVER it -> still stale -> blocked.
+	lowID := seed("30000000-0000-4000-8000-0000000000fb", 20)
+	resolved, wasOpen, err = vacc.ResolveStageReviewItemCorrected(ctx, impTenant, lowID, actor, "over stored cutoff", time.Now())
+	if err != nil {
+		t.Fatalf("resolve low-cutoff: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("low-cutoff (20w vs 22w age): resolved=%v wasOpen=%v, want false/true (still stale)", resolved, wasOpen)
+	}
+}
+
+// TestResolveStageReviewItemCorrectedNullCutoffFailsClosed proves a legacy / predecessor-written row
+// (age_cutoff_weeks IS NULL — no persisted policy provenance) can NOT be resolved as 'corrected' by
+// defaulting to an invented cutoff. A 15-week K1 goat raised under an unknown cutoff would (wrongly)
+// look non-stale against a fabricated 20-week fallback and close as corrected without any real fix.
+// With NULL treated as unknown/fail-closed, the item stays open (409) until generation re-records the
+// exact cutoff or an operator resolves it as an explicit exception.
+func TestResolveStageReviewItemCorrectedNullCutoffFailsClosed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	vacc := NewRepository(pool, 5*time.Second)
+
+	const goatID = "30000000-0000-4000-8000-0000000000fc"
+	const actor = "40000000-0000-4000-8000-0000000000ff"
+	seedGenGoatWithStage(t, ctx, pool, goatID, "alive", "K1")
+	// ~15 weeks old (105 days): past a short cutoff (e.g. 12w) but under the 20w fallback the buggy
+	// COALESCE would invent.
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob = (now() AT TIME ZONE 'Asia/Kolkata')::date - 105 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID); err != nil {
+		t.Fatalf("age goat: %v", err)
+	}
+	// Legacy/predecessor row: raw insert with age_cutoff_weeks left NULL.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO vaccination_stage_review_items
+			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
+		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'kid_stage_past_age_cutoff', 'K1', 15, $3)`,
+		impTenant, goatID, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("seed legacy null-cutoff row: %v", err)
+	}
+	var reviewID string
+	if err := pool.QueryRow(ctx, `SELECT review_item_id::text FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, goatID).Scan(&reviewID); err != nil {
+		t.Fatalf("load review id: %v", err)
+	}
+
+	// Unchanged goat data + NULL cutoff -> must NOT resolve as corrected; stays open (409).
+	resolved, wasOpen, err := vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "claims fixed", time.Now())
+	if err != nil {
+		t.Fatalf("resolve null-cutoff: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("null-cutoff: resolved=%v wasOpen=%v, want false/true (fail closed, no invented cutoff)", resolved, wasOpen)
+	}
+
+	// Once generation re-records the exact cutoff (12w here) via the bridge writer, the SAME 15w goat is
+	// genuinely past it, so it STILL does not resolve as corrected — now on real provenance, not a default.
+	if err := vacc.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 15, 12, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("re-record with real cutoff: %v", err)
+	}
+	resolved, wasOpen, err = vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "claims fixed", time.Now())
+	if err != nil {
+		t.Fatalf("resolve after re-record: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("after re-record (15w vs 12w cutoff): resolved=%v wasOpen=%v, want false/true (still stale on real cutoff)", resolved, wasOpen)
 	}
 }

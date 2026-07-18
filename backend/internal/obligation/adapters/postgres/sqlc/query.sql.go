@@ -367,10 +367,13 @@ SELECT oi.obligation_id::text AS obligation_id,
        END AS target_reproductive_status,
        oi.due_at,
        oi.window_start,
-       oi.window_end,
+       COALESCE(oi.window_end, oi.due_at + make_interval(days => GREATEST(COALESCE(pr.due_window_days, 0), 0))) AS window_end,
        COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
        oi.first_batching_hold_until
 FROM obligation_instances oi
+LEFT JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
 LEFT JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
@@ -395,7 +398,7 @@ WHERE oi.tenant_id = $1
     OR (
       g.goat_id IS NOT NULL
       AND g.lifecycle_status = 'alive'
-      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
       AND COALESCE(loa.usable_for_vaccination, true)
       AND NOT COALESCE(loa.is_quarantine, false)
       AND NOT COALESCE(loa.is_icu, false)

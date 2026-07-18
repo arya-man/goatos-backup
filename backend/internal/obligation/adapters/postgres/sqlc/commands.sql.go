@@ -17,6 +17,7 @@ SET batch_id = $1, updated_at = now()
 WHERE tenant_id = $2
   AND obligation_id = ANY($3::uuid[])
   AND batch_id IS NULL
+  AND status IN ('scheduled', 'due', 'in_progress', 'missed')
 `
 
 type AttachObligationsToBatchParams struct {
@@ -25,7 +26,8 @@ type AttachObligationsToBatchParams struct {
 	ObligationIds []pgtype.UUID
 }
 
-// Attach a set of still-unbatched obligations to a batch (idempotent: already-batched are skipped).
+// Attach a set of still-open, still-unbatched obligations to a batch (idempotent: already-batched
+// and newly blocked/closed obligations are skipped).
 func (q *Queries) AttachObligationsToBatch(ctx context.Context, arg AttachObligationsToBatchParams) (int64, error) {
 	result, err := q.db.Exec(ctx, attachObligationsToBatch, arg.BatchID, arg.TenantID, arg.ObligationIds)
 	if err != nil {
@@ -324,23 +326,32 @@ func (q *Queries) ReScopeOpenObligationsForGoat(ctx context.Context, arg ReScope
 }
 
 const reopenDeferredObligationForKey = `-- name: ReopenDeferredObligationForKey :one
-UPDATE obligation_instances oi
-SET status = 'scheduled', batch_id = NULL, row_version = row_version + 1, updated_at = now()
-WHERE oi.tenant_id = $1
-  AND oi.idempotency_key = $2
-  AND oi.status = 'deferred'
-  AND NOT EXISTS (
+WITH target AS MATERIALIZED (
+  SELECT oi.obligation_id, oi.status, oi.due_at, oi.row_version,
+         oi.target_type, oi.target_id, oi.protocol_version_id
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = $1
+    AND oi.idempotency_key = $2
+  FOR UPDATE
+), updated AS (
+  UPDATE obligation_instances oi
+  SET status = 'scheduled', batch_id = NULL, row_version = oi.row_version + 1, updated_at = now()
+  FROM target t
+  WHERE oi.tenant_id = $1
+    AND oi.obligation_id = t.obligation_id
+    AND t.status = 'deferred'
+    AND NOT EXISTS (
     SELECT 1
     FROM goats g
     JOIN protocol_versions pv
-      ON pv.tenant_id = oi.tenant_id
-     AND pv.protocol_version_id = oi.protocol_version_id
+      ON pv.tenant_id = $1
+     AND pv.protocol_version_id = t.protocol_version_id
     JOIN protocol_definitions pd
       ON pd.tenant_id = pv.tenant_id
      AND pd.protocol_id = pv.protocol_id
-    WHERE oi.target_type = 'goat'
-      AND g.tenant_id = oi.tenant_id
-      AND g.goat_id = oi.target_id
+    WHERE t.target_type = 'goat'
+      AND g.tenant_id = $1
+      AND g.goat_id = t.target_id
       AND pd.category = 'vaccination'
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
@@ -352,8 +363,15 @@ WHERE oi.tenant_id = $1
             AND ex.goat_id = g.goat_id
         )
       )
-  )
-RETURNING oi.obligation_id::text AS obligation_id
+    )
+  RETURNING oi.obligation_id::text AS obligation_id, oi.status, oi.due_at, oi.row_version
+)
+SELECT obligation_id, status, due_at, row_version, true AS changed FROM updated
+UNION ALL
+SELECT t.obligation_id::text, t.status, t.due_at, t.row_version, false AS changed
+FROM target t
+WHERE NOT EXISTS (SELECT 1 FROM updated)
+LIMIT 1
 `
 
 type ReopenDeferredObligationForKeyParams struct {
@@ -361,42 +379,65 @@ type ReopenDeferredObligationForKeyParams struct {
 	IdempotencyKey string
 }
 
+type ReopenDeferredObligationForKeyRow struct {
+	ObligationID string
+	Status       string
+	DueAt        pgtype.Timestamptz
+	RowVersion   int32
+	Changed      bool
+}
+
 // Recovery recheck: a previously-deferred (held) obligation becomes schedulable again once the goat
 // is no longer in a defer state (recovered from sick/ICU/quarantine). Clear batch_id defensively so
 // recovery always returns the obligation to the unbatched sweeper path, even if a future execution
 // path deferred a row after it had been attached to a non-planned batch. Idempotent: only rows still
 // 'deferred' match, so a replay after the goat is already schedulable is a no-op.
-func (q *Queries) ReopenDeferredObligationForKey(ctx context.Context, arg ReopenDeferredObligationForKeyParams) (string, error) {
+func (q *Queries) ReopenDeferredObligationForKey(ctx context.Context, arg ReopenDeferredObligationForKeyParams) (ReopenDeferredObligationForKeyRow, error) {
 	row := q.db.QueryRow(ctx, reopenDeferredObligationForKey, arg.TenantID, arg.IdempotencyKey)
-	var obligation_id string
-	err := row.Scan(&obligation_id)
-	return obligation_id, err
+	var i ReopenDeferredObligationForKeyRow
+	err := row.Scan(
+		&i.ObligationID,
+		&i.Status,
+		&i.DueAt,
+		&i.RowVersion,
+		&i.Changed,
+	)
+	return i, err
 }
 
 const reopenDeferredObligationForKeyWithDue = `-- name: ReopenDeferredObligationForKeyWithDue :one
-UPDATE obligation_instances oi
-SET status = 'scheduled',
-    batch_id = NULL,
-    due_at = $1,
-    window_start = $2,
-    window_end = $3,
-    row_version = row_version + 1,
-    updated_at = now()
-WHERE oi.tenant_id = $4
-  AND oi.idempotency_key = $5
-  AND oi.status = 'deferred'
-  AND NOT EXISTS (
+WITH target AS MATERIALIZED (
+  SELECT oi.obligation_id, oi.status, oi.due_at, oi.row_version,
+         oi.target_type, oi.target_id, oi.protocol_version_id
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = $1
+    AND oi.idempotency_key = $2
+  FOR UPDATE
+), updated AS (
+  UPDATE obligation_instances oi
+  SET status = 'scheduled',
+      batch_id = NULL,
+      due_at = $3,
+      window_start = $4,
+      window_end = $5,
+      row_version = oi.row_version + 1,
+      updated_at = now()
+  FROM target t
+  WHERE oi.tenant_id = $1
+    AND oi.obligation_id = t.obligation_id
+    AND t.status = 'deferred'
+    AND NOT EXISTS (
     SELECT 1
     FROM goats g
     JOIN protocol_versions pv
-      ON pv.tenant_id = oi.tenant_id
-     AND pv.protocol_version_id = oi.protocol_version_id
+      ON pv.tenant_id = $1
+     AND pv.protocol_version_id = t.protocol_version_id
     JOIN protocol_definitions pd
       ON pd.tenant_id = pv.tenant_id
      AND pd.protocol_id = pv.protocol_id
-    WHERE oi.target_type = 'goat'
-      AND g.tenant_id = oi.tenant_id
-      AND g.goat_id = oi.target_id
+    WHERE t.target_type = 'goat'
+      AND g.tenant_id = $1
+      AND g.goat_id = t.target_id
       AND pd.category = 'vaccination'
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
@@ -408,31 +449,52 @@ WHERE oi.tenant_id = $4
             AND ex.goat_id = g.goat_id
         )
       )
-  )
-RETURNING oi.obligation_id::text AS obligation_id
+    )
+  RETURNING oi.obligation_id::text AS obligation_id, oi.status, oi.due_at, oi.row_version
+)
+SELECT obligation_id, status, due_at, row_version, true AS changed FROM updated
+UNION ALL
+SELECT t.obligation_id::text, t.status, t.due_at, t.row_version, false AS changed
+FROM target t
+WHERE NOT EXISTS (SELECT 1 FROM updated)
+LIMIT 1
 `
 
 type ReopenDeferredObligationForKeyWithDueParams struct {
+	TenantID               pgtype.UUID
+	IdempotencyKey         string
 	RescheduledDueAt       pgtype.Timestamptz
 	RescheduledWindowStart pgtype.Timestamptz
 	RescheduledWindowEnd   pgtype.Timestamptz
-	TenantID               pgtype.UUID
-	IdempotencyKey         string
+}
+
+type ReopenDeferredObligationForKeyWithDueRow struct {
+	ObligationID string
+	Status       string
+	DueAt        pgtype.Timestamptz
+	RowVersion   int32
+	Changed      bool
 }
 
 // Health recovery replan: reopen a held obligation and slide due_at to a nearby planned drive date
 // or to recovery time for an immediate micro-drive. Clears batch_id so the sweeper re-attaches.
-func (q *Queries) ReopenDeferredObligationForKeyWithDue(ctx context.Context, arg ReopenDeferredObligationForKeyWithDueParams) (string, error) {
+func (q *Queries) ReopenDeferredObligationForKeyWithDue(ctx context.Context, arg ReopenDeferredObligationForKeyWithDueParams) (ReopenDeferredObligationForKeyWithDueRow, error) {
 	row := q.db.QueryRow(ctx, reopenDeferredObligationForKeyWithDue,
+		arg.TenantID,
+		arg.IdempotencyKey,
 		arg.RescheduledDueAt,
 		arg.RescheduledWindowStart,
 		arg.RescheduledWindowEnd,
-		arg.TenantID,
-		arg.IdempotencyKey,
 	)
-	var obligation_id string
-	err := row.Scan(&obligation_id)
-	return obligation_id, err
+	var i ReopenDeferredObligationForKeyWithDueRow
+	err := row.Scan(
+		&i.ObligationID,
+		&i.Status,
+		&i.DueAt,
+		&i.RowVersion,
+		&i.Changed,
+	)
+	return i, err
 }
 
 const rescheduleOpenObligationByID = `-- name: RescheduleOpenObligationByID :one

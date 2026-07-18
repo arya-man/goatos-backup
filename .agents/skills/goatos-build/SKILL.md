@@ -180,6 +180,14 @@ one product; this skill is the navigation layer.
   `stg-pr-gate`, and merge it in GitHub. Manual workflow dispatch is only a
   rerun of the exact current `stg` SHA already produced by such a merge. Never
   use `--no-verify` to bypass the installed pre-push guard.
+- **Land main through `make land-main` (Codex and Claude).** Do not issue a
+  direct `git push` / `git mesha-push` to `main`, and do not run CI before
+  refreshing main during a landing. The target requires a clean worktree,
+  fetches and rebases onto fresh `origin/main`, runs complete affected-component
+  `make ci-local`, refetches main, retries rebase + CI if main moved, then pushes
+  and verifies the exact green SHA. Use a clean isolated worktree when the
+  development checkout is dirty or shared; never auto-rebase unrelated local
+  changes merely because an agent session started.
 - For any consolidated-ledger fix, read
   `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` and obey
   `context/repo-audits/consolidated-ledger-defect-closure-program.md`. Work one
@@ -200,6 +208,12 @@ one product; this skill is the navigation layer.
   source. Reference pattern: `backend/cmd/seed-shed-positions` (`-generate-provisional`
   writes the artifact; `-mapping` applies it; `-strict` blocks gaps AND unreviewed
   provisional rows).
+- **Vaccination source seed is ownership-dependent.** For local/dev/staging
+  vaccination rehearsals, run `make seed-vaccination-source-full`; do not treat
+  `backend/cmd/seed-vaccination-real` as a standalone whole-setup command. The
+  vaccination seed must fail if HRMS roster/position prerequisites are missing,
+  because creating due work before owners/operators exist produces broken
+  Action Center owner/operator assignment states.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the
@@ -303,10 +317,31 @@ one product; this skill is the navigation layer.
   preset values, not runtime source/review UI fields. Vaccination config uses a
   scoped active ruleset model: one active company `vaccination.matrix` version,
   plus at most one active park override per park.
+- For vaccination seed/reseed work, source vaccination dates are trusted history
+  anchors, not open due work. Preserve past source dates as accepted history,
+  suppress seed-created open work on or before the backend business date, and
+  let the vaccination kernel schedule only future obligations from that base.
+  Do not copy or hand-roll kid/adult path logic in seeders; call the live
+  vaccination schedule-path helper/config. Checklist:
+  `docs/runbooks/vaccination-seed-source-date-contract.md`.
 - For Preventive Care (PC) vaccination, never ask about, model, seed, import,
   expose, or schedule from mother-not-vaccinated / unknown-mother status. The
   source/wiki branch is ignored in GoatOS; mothers are kept vaccinated
   operationally and every kid uses the approved standard schedule.
+- For Preventive Care (PC) vaccination drive planning, individual due dates are
+  per-animal obligation truth, NOT drive boundaries. The sweeper/drive planner
+  must maximize compatible animals per shed/park visit inside the authored
+  medical window and one-time batching hold (`max_batching_hold_days`,
+  default 7; `max_batching_hold_count`, default 1). Exact-due-date grouping that
+  creates 1-2 animal micro-drives while nearby compatible animals are still
+  inside buffer is a core algorithm bug. Micro-drives are valid only when no
+  compatible work can be safely clubbed before the earliest selected animal's
+  last safe date. Wide sweeps/backfills must pass separate `asOf` and
+  `dueBefore` values: `asOf` drives hold/backdating/planned-date math, while
+  `dueBefore` only selects eligible obligations. Batched execution/read-model
+  rows must display/sort/status by `obligation_batches.planned_date`, falling
+  back to animal `due_at` only for unbatched work. Guard:
+  `make vaccination-drive-clubbing-guard`.
 
 ## Must Not
 

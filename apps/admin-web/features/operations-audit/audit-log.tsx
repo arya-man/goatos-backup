@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import {
   AlertTriangle,
@@ -476,6 +476,8 @@ function Pager({
   pageContract: AdminUiPageContract;
   top?: boolean;
 }) {
+  if (!prevHref && !nextHref && page <= 1) return null;
+
   return (
     <div className="pager2" style={top ? { borderTop: 0, borderBottom: "1px solid var(--line2)" } : undefined}>
       <span className="muted small">

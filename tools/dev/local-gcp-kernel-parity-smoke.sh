@@ -86,12 +86,12 @@ obligation_count="$(psqlq "select count(*) from obligation_instances where targe
 obligation_id="$(psqlq "select obligation_id from obligation_instances where target_id='$goat_id' order by created_at limit 1")"
 wait_for "obligation sweeper batch effect" \
   "test \"\$(psqlq \"select count(*) from obligation_instances where target_id='$goat_id' and batch_id is not null\")\" -gt 0"
-wait_for "process-integrity projection effect" \
-  "test \"\$(psqlq \"select count(*) from process_integrity_projection_rows where tenant_id='$tenant_id' and goat_id='$goat_id'\")\" -gt 0"
-wait_for "vaccination shed projection effect" \
-  "test \"\$(psqlq \"select count(*) from vaccination_shed_projection_rows where tenant_id='$tenant_id' and shed_id='00000000-0000-4000-8000-000000003101' and due_animals > 0\")\" -gt 0"
+wait_for "process-integrity canonical effect" \
+  "test \"\$(psqlq \"select count(*) from obligation_instances where tenant_id='$tenant_id' and target_id='$goat_id' and batch_id is not null\")\" -gt 0"
+wait_for "vaccination shed canonical effect" \
+  "test \"\$(psqlq \"select count(*) from obligation_instances oi join goats g on g.tenant_id=oi.tenant_id and g.goat_id=oi.target_id where oi.tenant_id='$tenant_id' and g.shed_id='00000000-0000-4000-8000-000000003101' and oi.status in ('due','scheduled','in_progress')\")\" -gt 0"
 
-for worker in vaccination-generator obligation-sweeper process-integrity-projector notification-dispatcher; do
+for worker in vaccination-generator obligation-sweeper notification-dispatcher; do
   wait_for "$worker completed without exit" \
     "compose logs --no-color kernel-workers | grep -F 'local kernel worker complete: $worker'"
 done

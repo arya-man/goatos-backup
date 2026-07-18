@@ -120,7 +120,12 @@ func TestDueAfterPreviousCompletionRequiresPositiveGap(t *testing.T) {
 	}
 }
 
-func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
+// RV-03: continuation anchors on the vaccine's latest real-world administration
+// regardless of protocol/version. A cross-protocol dose of the SAME vaccine must
+// anchor the next due date (latest administration + current protocol interval), not
+// be ignored — otherwise a missing-anchor animal whose primary is suppressed by
+// cross-protocol history gets nothing scheduled at all.
+func TestDueAfterPreviousCompletionAnchorsCrossProtocol(t *testing.T) {
 	administered := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
 	rule := protodomain.Rule{
 		RuleID:            "rule-et-booster",
@@ -131,6 +136,8 @@ func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
 		TriggerType:       "after_previous_completion",
 		OffsetDays:        21,
 	}
+	wantDue := businessDayStart(administered).AddDate(0, 0, 21)
+
 	otherProtocol := []domain.RecentVaccineAdministration{{
 		AdministeredAt:    administered,
 		VaccineCode:       "ET_TT",
@@ -138,8 +145,9 @@ func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
 		ProtocolVersionID: "version-other",
 		ProtocolID:        "protocol-other",
 	}}
-	if due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, otherProtocol); ok {
-		t.Fatalf("due=%s, want unrelated protocol completion ignored", due)
+	due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, otherProtocol)
+	if !ok || !due.Equal(wantDue) {
+		t.Fatalf("due=%s ok=%v, want cross-protocol completion to anchor next due at %s", due, ok, wantDue)
 	}
 
 	sameProtocolPreviousVersion := []domain.RecentVaccineAdministration{{
@@ -149,9 +157,253 @@ func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
 		ProtocolVersionID: "version-v1",
 		ProtocolID:        "protocol-vaccination",
 	}}
-	due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, sameProtocolPreviousVersion)
-	if !ok || !due.Equal(businessDayStart(administered).AddDate(0, 0, 21)) {
+	due, ok = dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, sameProtocolPreviousVersion)
+	if !ok || !due.Equal(wantDue) {
 		t.Fatalf("due=%s ok=%v, want same protocol lineage accepted", due, ok)
+	}
+
+	// The LATEST administration wins regardless of which protocol it came from.
+	newerCrossProtocol := []domain.RecentVaccineAdministration{
+		{
+			AdministeredAt:    administered.AddDate(0, 0, -90),
+			VaccineCode:       "ET_TT",
+			Sequence:          1,
+			ProtocolVersionID: "version-v1",
+			ProtocolID:        "protocol-vaccination",
+		},
+		{
+			AdministeredAt:    administered,
+			VaccineCode:       "ET_TT",
+			Sequence:          1,
+			ProtocolVersionID: "version-other",
+			ProtocolID:        "protocol-other",
+		},
+	}
+	due, ok = dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, newerCrossProtocol)
+	if !ok || !due.Equal(wantDue) {
+		t.Fatalf("due=%s ok=%v, want latest (cross-protocol) administration to anchor next due at %s", due, ok, wantDue)
+	}
+}
+
+func TestPrimaryCourseContinuationFromHistorySchedulesAdultETTTDoseTwoAfterTwentyOneDays(t *testing.T) {
+	administered := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7},
+		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 21, MinGapDays: 21},
+		{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
+	}
+	history := []domain.RecentVaccineAdministration{{
+		AdministeredAt: administered,
+		VaccineCode:    "ET_TT",
+		DoseCode:       "et_tt_adult_w1",
+		Sequence:       1,
+	}}
+
+	due, found, err := primaryCourseContinuationDueFromHistory(rules[1], vaccineProfile{Code: "ET_TT"}, rules, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("course continuation: %v", err)
+	}
+	want := businessDayStart(administered).AddDate(0, 0, 21)
+	if !found || !due.Equal(want) {
+		t.Fatalf("adult ET+TT dose 2 due=%s found=%v, want %s", due, found, want)
+	}
+	wait, err := repeatMustWaitForPrimaryCourse(rules[2], vaccineProfile{Code: "ET_TT"}, rules, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("repeat wait: %v", err)
+	}
+	if !wait {
+		t.Fatal("ET+TT revac must wait until adult dose 2 has been administered")
+	}
+}
+
+func TestRepeatDoesNotWaitAfterPrimaryCourseComplete(t *testing.T) {
+	administeredW2 := time.Date(2026, time.July, 21, 8, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7},
+		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 21, MinGapDays: 21},
+		{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
+	}
+	history := []domain.RecentVaccineAdministration{{
+		AdministeredAt: administeredW2,
+		VaccineCode:    "ET_TT",
+		DoseCode:       "et_tt_adult_w2",
+		Sequence:       2,
+	}}
+
+	wait, err := repeatMustWaitForPrimaryCourse(rules[2], vaccineProfile{Code: "ET_TT"}, rules, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("repeat wait: %v", err)
+	}
+	if wait {
+		t.Fatal("ET+TT revac should not wait after adult dose 2 exists")
+	}
+	due, ok := dueAfterPreviousCompletion(rules[2], vaccineProfile{Code: "ET_TT"}, history)
+	want := businessDayStart(administeredW2).AddDate(0, 0, 182)
+	if !ok || !due.Equal(want) {
+		t.Fatalf("revac due=%s ok=%v, want dose 2 + 182d = %s", due, ok, want)
+	}
+}
+
+func TestApprovedVaccineRepeatIntervalsContinueAcrossFutureCycles(t *testing.T) {
+	start := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
+	assertDue := func(t *testing.T, rule protodomain.Rule, vaccineCode, doseCode string, sequence int32, administered, want time.Time) {
+		t.Helper()
+		due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: vaccineCode}, []domain.RecentVaccineAdministration{{
+			AdministeredAt: administered,
+			VaccineCode:    vaccineCode,
+			DoseCode:       doseCode,
+			Sequence:       sequence,
+		}})
+		if !ok || !due.Equal(want) {
+			t.Fatalf("%s due=%s ok=%v, want %s", rule.DoseCode, due, ok, want)
+		}
+	}
+
+	etRevac := protodomain.Rule{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"}
+	etDose2 := start.AddDate(0, 0, 21)
+	assertDue(t, etRevac, "ET_TT", "et_tt_adult_w2", 2, etDose2, businessDayStart(etDose2).AddDate(0, 0, 182))
+	firstETRevac := time.Date(2027, time.January, 19, 8, 0, 0, 0, time.UTC)
+	assertDue(t, etRevac, "ET_TT", "et_tt_revac", 3, firstETRevac, businessDayStart(firstETRevac).AddDate(0, 0, 182))
+
+	cases := []struct {
+		name         string
+		rule         protodomain.Rule
+		vaccineCode  string
+		doseCode     string
+		sequence     int32
+		administered time.Time
+		want         time.Time
+	}{
+		{
+			name:         "FMD repeats every 274 days",
+			rule:         protodomain.Rule{RuleID: "rule-fmd-revac", DoseCode: "fmd_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 274, MinGapDays: 274, Repeat: "every_n_days"},
+			vaccineCode:  "FMD",
+			doseCode:     "fmd_adult_w9",
+			sequence:     1,
+			administered: time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2026, time.December, 19, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "HS repeats yearly",
+			rule:         protodomain.Rule{RuleID: "rule-hs-revac", DoseCode: "hs_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "HS",
+			doseCode:     "hs_adult_w9",
+			sequence:     1,
+			administered: time.Date(2026, time.February, 21, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.February, 21, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "PPR repeats every 1095 days",
+			rule:         protodomain.Rule{RuleID: "rule-ppr-revac", DoseCode: "ppr_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 1095, MinGapDays: 1095, Repeat: "every_n_days"},
+			vaccineCode:  "PPR",
+			doseCode:     "ppr_adult_w1",
+			sequence:     1,
+			administered: time.Date(2025, time.December, 9, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2028, time.December, 8, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "Goat Pox repeats yearly",
+			rule:         protodomain.Rule{RuleID: "rule-goat-pox-revac", DoseCode: "goat_pox_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "GOAT_POX",
+			doseCode:     "goat_pox_adult_w5",
+			sequence:     1,
+			administered: time.Date(2026, time.March, 19, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.March, 19, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "Sheep Pox repeats yearly",
+			rule:         protodomain.Rule{RuleID: "rule-sheep-pox-revac", DoseCode: "sheep_pox_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "SHEEP_POX",
+			doseCode:     "sheep_pox_adult_w5",
+			sequence:     1,
+			administered: time.Date(2026, time.March, 19, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.March, 19, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "Blue Tongue repeats yearly after kid dose 2",
+			rule:         protodomain.Rule{RuleID: "rule-blue-tongue-revac", DoseCode: "blue_tongue_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "BLUE_TONGUE",
+			doseCode:     "blue_tongue_kid_20w",
+			sequence:     2,
+			administered: time.Date(2026, time.August, 1, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.August, 1, 8, 0, 0, 0, time.UTC)),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertDue(t, tc.rule, tc.vaccineCode, tc.doseCode, tc.sequence, tc.administered, tc.want)
+		})
+	}
+
+	nextET, ok := nextRepeatCycle(etRevac, time.Date(2027, time.January, 19, 0, 0, 0, 0, time.UTC), time.Date(2027, time.August, 1, 0, 0, 0, 0, time.UTC))
+	if !ok || !nextET.Equal(businessDayStart(time.Date(2028, time.January, 18, 8, 0, 0, 0, time.UTC))) {
+		t.Fatalf("ET+TT skipped-cycle next=%s ok=%v, want 2028-01-18", nextET, ok)
+	}
+	nextHS, ok := nextRepeatCycle(protodomain.Rule{Repeat: "yearly"}, time.Date(2027, time.February, 21, 0, 0, 0, 0, time.UTC), time.Date(2027, time.December, 1, 0, 0, 0, 0, time.UTC))
+	if !ok || !nextHS.Equal(businessDayStart(time.Date(2028, time.February, 21, 8, 0, 0, 0, time.UTC))) {
+		t.Fatalf("HS skipped-cycle next=%s ok=%v, want 2028-02-21", nextHS, ok)
+	}
+}
+
+func TestPrimaryCourseContinuationFromHistoryKeepsKidAndBlueTongueGaps(t *testing.T) {
+	kidETTT := []protodomain.Rule{
+		{RuleID: "rule-et-kid-4w", DoseCode: "et_tt_kid_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28},
+		{RuleID: "rule-et-kid-7w", DoseCode: "et_tt_kid_7w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 49, MinGapDays: 21},
+	}
+	kidETTTAt := time.Date(2026, time.July, 1, 8, 0, 0, 0, time.UTC)
+	due, found, err := primaryCourseContinuationDueFromHistory(kidETTT[1], vaccineProfile{Code: "ET_TT"}, kidETTT, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathKid, []domain.RecentVaccineAdministration{{
+		AdministeredAt: kidETTTAt,
+		VaccineCode:    "ET_TT",
+		DoseCode:       "et_tt_kid_4w",
+		Sequence:       1,
+	}})
+	if err != nil {
+		t.Fatalf("kid ET+TT continuation: %v", err)
+	}
+	want := businessDayStart(kidETTTAt).AddDate(0, 0, 21)
+	if !found || !due.Equal(want) {
+		t.Fatalf("kid ET+TT due=%s found=%v, want %s", due, found, want)
+	}
+
+	blueTongue := []protodomain.Rule{
+		{RuleID: "rule-bt-16w", DoseCode: "blue_tongue_kid_16w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112},
+		{RuleID: "rule-bt-20w", DoseCode: "blue_tongue_kid_20w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 140, MinGapDays: 28},
+	}
+	blueTongueAt := time.Date(2026, time.July, 3, 8, 0, 0, 0, time.UTC)
+	due, found, err = primaryCourseContinuationDueFromHistory(blueTongue[1], vaccineProfile{Code: "BLUE_TONGUE"}, blueTongue, genEligibility{}, vaccineProfile{Code: "BLUE_TONGUE"}, schedulePathKid, []domain.RecentVaccineAdministration{{
+		AdministeredAt: blueTongueAt,
+		VaccineCode:    "BLUE_TONGUE",
+		DoseCode:       "blue_tongue_kid_16w",
+		Sequence:       1,
+	}})
+	if err != nil {
+		t.Fatalf("blue tongue continuation: %v", err)
+	}
+	want = businessDayStart(blueTongueAt).AddDate(0, 0, 28)
+	if !found || !due.Equal(want) {
+		t.Fatalf("blue tongue due=%s found=%v, want %s", due, found, want)
+	}
+}
+
+func TestSingleDoseRepeatDoesNotWaitForMissingPrimaryCourseDose(t *testing.T) {
+	administered := time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 63},
+		{RuleID: "rule-fmd-revac", DoseCode: "fmd_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 274, MinGapDays: 274, Repeat: "every_n_days"},
+	}
+	history := []domain.RecentVaccineAdministration{{
+		AdministeredAt: administered,
+		VaccineCode:    "FMD",
+		DoseCode:       "fmd_adult_w1",
+		Sequence:       1,
+	}}
+
+	wait, err := repeatMustWaitForPrimaryCourse(rules[1], vaccineProfile{Code: "FMD"}, rules, genEligibility{}, vaccineProfile{Code: "FMD"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("repeat wait: %v", err)
+	}
+	if wait {
+		t.Fatal("single-dose FMD repeat must not wait for a nonexistent course booster")
 	}
 }
 
@@ -528,7 +780,7 @@ func TestGenerateForVersionHonorsVaccinationRulesClinicalAndPregnancyRules(t *te
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}}`),
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"]}}`),
 		rules: []protodomain.Rule{{
 			RuleID: "rule-1", DoseCode: "primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 30,
 		}},
@@ -567,7 +819,7 @@ func TestGenerateForVersionDefersClinicalHoldEvenWhenRuleTargetsHealthy(t *testi
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"healthy","reproductive":"any","defer_states":["sick","under_treatment","quarantine","icu"]}}`),
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"healthy","reproductive":"any","defer_states":["sick","under_treatment","recovering","quarantine","icu"]}}`),
 		rules: []protodomain.Rule{{
 			RuleID: "rule-1", DoseCode: "primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 7,
 		}},
@@ -597,7 +849,7 @@ func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
 	ctx := context.Background()
 	entryDate := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_source_vaccination_allowed":true}}`),
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"]},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true}}`),
 		rules: []protodomain.Rule{{
 			RuleID: "rule-et-ppr-wave", DoseCode: "source_warmup_wave_1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 2,
 		}},
@@ -623,7 +875,7 @@ func TestGenerateForVersionHonorsVaccinationRulesSourceScheduleWithTrustedHistor
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	et4w := dob.AddDate(0, 0, 28)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14}}`),
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"]},"compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14}}`),
 		rules: []protodomain.Rule{
 			{RuleID: "rule-et-4w", DoseCode: "et_tt_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "pc_approval"},
 			{RuleID: "rule-et-7w", DoseCode: "et_tt_7w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 49, DueWindowDays: 7, MinGapDays: 21, Repeat: "none", CatchUp: "pc_approval"},
@@ -1717,7 +1969,7 @@ func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
 			},
 			{
 				RuleID: "rule-et-7w", DoseCode: "ET_TT_7W", Sequence: 2,
-				TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 28, DueWindowDays: 7, CatchUp: "immediate",
+				TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 21, DueWindowDays: 7, CatchUp: "immediate",
 			},
 		},
 	}
@@ -1743,12 +1995,12 @@ func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate min-gap after-previous dose: %v", err)
 	}
-	wantDue := businessDayStart(firstAdmin).AddDate(0, 0, 28)
+	wantDue := businessDayStart(firstAdmin).AddDate(0, 0, 21)
 	if result.SuppressedByTrustedHistory != 1 || result.Generated != 1 || len(obl.inserted) != 1 {
 		t.Fatalf("result=%#v inserted=%#v, want first dose suppressed and booster generated", result, obl.inserted)
 	}
 	if got := obl.inserted[0]; got.RuleID != "rule-et-7w" || !got.DueAt.Equal(wantDue) {
-		t.Fatalf("inserted=%#v, want min-gap booster due %s", got, wantDue)
+		t.Fatalf("inserted=%#v, want ET+TT 21-day booster due %s", got, wantDue)
 	}
 }
 
@@ -2146,28 +2398,28 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 	return "obligation-1", true, nil
 }
 
-func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (string, bool, error) {
+func (o *generationObligationFake) DeferOpenObligationForGeneration(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (obldomain.ObligationRef, bool, error) {
 	idx, ok := o.keyIndex[idempotencyKey]
 	if !ok {
-		return "", false, errors.New("obligation not found")
+		return obldomain.ObligationRef{}, false, errors.New("obligation not found")
 	}
 	switch o.inserted[idx].Status {
 	case "deferred", "completed", "waived", "canceled", "superseded":
-		return "obligation-1", false, nil
+		return obldomain.ObligationRef{ObligationID: "obligation-1", Status: o.inserted[idx].Status, DueAt: o.inserted[idx].DueAt}, false, nil
 	}
 	o.inserted[idx].Status = "deferred"
 	o.deferredKeys = append(o.deferredKeys, idempotencyKey)
 	o.deferReasons = append(o.deferReasons, reason)
-	return "obligation-1", true, nil
+	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: "deferred", DueAt: o.inserted[idx].DueAt}, true, nil
 }
 
-func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ context.Context, _, idempotencyKey string, _ time.Time, reschedule *obldomain.RecoveryReschedule) (string, bool, error) {
+func (o *generationObligationFake) ReopenDeferredObligationForGeneration(_ context.Context, _, idempotencyKey string, _ time.Time, reschedule *obldomain.RecoveryReschedule) (obldomain.ObligationRef, bool, error) {
 	idx, ok := o.keyIndex[idempotencyKey]
 	if !ok {
-		return "", false, nil
+		return obldomain.ObligationRef{}, false, nil
 	}
 	if o.inserted[idx].Status != "deferred" {
-		return "", false, nil
+		return obldomain.ObligationRef{ObligationID: "obligation-1", Status: o.inserted[idx].Status, DueAt: o.inserted[idx].DueAt}, false, nil
 	}
 	o.inserted[idx].Status = "scheduled"
 	if reschedule != nil {
@@ -2176,7 +2428,7 @@ func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ co
 		o.inserted[idx].WindowEnd = reschedule.WindowEnd
 	}
 	o.reopenedKeys = append(o.reopenedKeys, idempotencyKey)
-	return "obligation-1", true, nil
+	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: "scheduled", DueAt: o.inserted[idx].DueAt}, true, nil
 }
 
 func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context, _, _, ruleID, vaccineCode, shedID, parkID string, _, _ time.Time) (*time.Time, error) {
@@ -2412,18 +2664,49 @@ func (f *fakeReviewRecorder) RecordStageReviewItem(ctx context.Context, tenantID
 	return nil
 }
 
-// gpoxProfile is the reviewed Goat Pox vaccine profile shared by the VAX-SEED-01 regressions.
+// AnchorMissingCatchUpKey must stay byte-identical to the key genOneGoat stamps on the §89 option-4
+// catch-up path (missingDueDateKey with anchorMissingReason). Seed reconciliation classifies
+// missing-anchor obligations against the exported helper, so any drift between the two would either
+// mis-count a legitimate routed catch-up as a defect (false seed failure) or hide a fabricated due.
+func TestAnchorMissingCatchUpKeyMatchesGeneratorKey(t *testing.T) {
+	tenantID := "11111111-1111-4111-8111-111111111111"
+	versionID := "22222222-2222-4222-8222-222222222222"
+	cases := []struct {
+		triggerType string
+		reason      string
+	}{
+		{"birth_age", "missing_dob"},
+		{"post_arrival", "missing_entry_date"},
+	}
+	for _, tc := range cases {
+		rule := protodomain.Rule{RuleID: "rule-abc", Sequence: 3, TriggerType: tc.triggerType}
+		goat := domain.EligibleGoat{GoatID: "goat-xyz"}
+		want := missingDueDateKey(tenantID, versionID, rule, goat, tc.reason)
+		got := AnchorMissingCatchUpKey(tenantID, versionID, rule.RuleID, goat.GoatID, tc.triggerType, rule.Sequence)
+		if got != want {
+			t.Fatalf("%s: AnchorMissingCatchUpKey=%s, want generator key %s", tc.triggerType, got, want)
+		}
+	}
+}
+
+// gpoxProfile is the reviewed Goat Pox vaccine profile shared by the VAX-REV-02 per-vaccine-anchor
+// regressions (formerly the VAX-SEED-01 goat-wide-checkpoint regressions the bug fix replaced).
 func gpoxProfile() vaccineProfile {
 	return vaccineProfile{Code: "Goat Pox", Type: "live", PathogenClass: "viral"}
 }
 
-// VAX-SEED-01: an imported source cohort is a goat-wide cutover checkpoint. Its dated facts become
-// accepted history and drive future recurrence; NO birth_age/post_arrival primary is reconstructed
-// from a DOB/entry anchor, even for a kid path that would otherwise still be inside its schedule.
-func TestSeedCutoverCohortSuppressesAnchorPrimaryKeepsRecurrence(t *testing.T) {
+// VAX-REV-02: Contract §89 anchors PER VACCINE FAMILY, never goat-wide, and there is no separate
+// "seed cutover" generation mode any more (GenerateSeedCutoverForAllGoats/seedCutoverCohort were
+// removed — the seed importer now calls the exact same GenerateEffectiveForAllGoats path as runtime).
+// A family WITH its own accepted history is course continuation: the already-administered dose
+// (gpox_kid_w4) must never be regenerated (hasSameDoseAdministration, option 1), but a STILL-REQUIRED
+// different dose of that same course (gpox_kid_w6, due now, no matching administration) is not a
+// "family blanket" suppression target and must still generate — alongside the family's own
+// after_previous_completion recurrence, anchored to its own latest administration.
+func TestSameFamilyDifferentDoseGeneratesAlongsideOwnRecurrence(t *testing.T) {
 	ctx := context.Background()
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	dob := asOf.AddDate(0, 0, -42) // ~6 weeks: kid path, birth_age would otherwise be due now
+	dob := asOf.AddDate(0, 0, -42) // ~6 weeks: birth_age (w6) is due now
 	gpoxAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
 	goat := domain.EligibleGoat{GoatID: "imported-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
@@ -2431,39 +2714,66 @@ func TestSeedCutoverCohortSuppressesAnchorPrimaryKeepsRecurrence(t *testing.T) {
 		{RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1, TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7},
 		{RuleID: "rule-gpox-revac", DoseCode: "gpox_revac", Sequence: 2, TriggerType: "after_previous_completion", Repeat: "every_n_days", MinGapDays: 270},
 	}
+	// Goat Pox history exists (gpox_kid_w4 given), but NOT for this specific dose (gpox_kid_w6).
 	history := []domain.RecentVaccineAdministration{{AdministeredAt: gpoxAt, VaccineCode: "Goat Pox", VaccineType: "live", PathogenClass: "viral", DoseCode: "gpox_kid_w4", Sequence: 0}}
 
-	cutover := &domain.GenerateResult{}
+	res := &domain.GenerateResult{}
 	obl := svc.obl.(*generationObligationFake)
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true, seedCutoverCohort: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), cutover); err != nil {
-		t.Fatalf("cutover generate: %v", err)
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
+		t.Fatalf("generate: %v", err)
 	}
-	if cutover.Generated != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("cutover result=%#v inserted=%#v, want only the Goat Pox recurrence generated (zero anchor primary)", cutover, obl.inserted)
+	if res.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want both the still-required gpox_kid_w6 dose and the recurrence generated", res, obl.inserted)
 	}
-	if got := obl.inserted[0]; got.RuleID != "rule-gpox-revac" || !got.DueAt.Equal(businessDayStart(gpoxAt).AddDate(0, 0, 270)) {
-		t.Fatalf("inserted=%#v, want recurrence anchored to the family's own latest administration", got)
+	var sawPrimary, sawRecurrence bool
+	for _, got := range obl.inserted {
+		switch got.RuleID {
+		case "rule-gpox-w6":
+			sawPrimary = true
+		case "rule-gpox-revac":
+			sawRecurrence = true
+			if !got.DueAt.Equal(businessDayStart(gpoxAt).AddDate(0, 0, 270)) {
+				t.Fatalf("inserted=%#v, want recurrence anchored to the family's own latest administration", got)
+			}
+		}
 	}
-	if cutover.SuppressedByTrustedHistory < 1 {
-		t.Fatalf("cutover result=%#v, want the birth_age primary suppressed by the checkpoint", cutover)
-	}
-
-	// Control: the SAME goat/rules under ordinary runtime generation still materializes the birth_age
-	// primary (a current, in-window dose is not a pre-checkpoint reconstruction), proving the
-	// suppression is specific to the seed cutover cohort and not a general regression.
-	runtimeSvc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
-	runtime := &domain.GenerateResult{}
-	if err := runtimeSvc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), runtime); err != nil {
-		t.Fatalf("runtime generate: %v", err)
-	}
-	if runtime.Generated != 2 {
-		t.Fatalf("runtime result=%#v, want both the birth_age primary and the recurrence generated", runtime)
+	if !sawPrimary || !sawRecurrence {
+		t.Fatalf("inserted=%#v, want both rule-gpox-w6 and rule-gpox-revac", obl.inserted)
 	}
 }
 
-// VAX-SEED-01 runtime rule: a zero-history goat still receives a safe historical catch-up (nothing
+// VAX-REV-02 guard: a family WITH its own accepted history of the EXACT SAME dose is still
+// suppressed (option 1, course continuation) — this must not regress when the goat-wide checkpoint
+// suppression is removed.
+func TestSameFamilySameDoseStillSuppressed(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	dob := asOf.AddDate(0, 0, -42)
+	gpoxAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
+	goat := domain.EligibleGoat{GoatID: "same-dose-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
+	rules := []protodomain.Rule{
+		{RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1, TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7},
+	}
+	// The SAME dose (gpox_kid_w6) has already been administered.
+	history := []domain.RecentVaccineAdministration{{AdministeredAt: gpoxAt, VaccineCode: "Goat Pox", VaccineType: "live", PathogenClass: "viral", DoseCode: "gpox_kid_w6", Sequence: 1}}
+
+	res := &domain.GenerateResult{}
+	obl := svc.obl.(*generationObligationFake)
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if res.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("result=%#v inserted=%#v, want the already-administered dose suppressed", res, obl.inserted)
+	}
+	if res.SuppressedByTrustedHistory < 1 {
+		t.Fatalf("result=%#v, want the suppression counted", res)
+	}
+}
+
+// VAX-REV-02 runtime rule: a zero-history goat still receives a safe historical catch-up (nothing
 // proves it was already enrolled).
 func TestRuntimeZeroHistoryGoatStillReceivesCatchUp(t *testing.T) {
 	ctx := context.Background()
@@ -2485,12 +2795,14 @@ func TestRuntimeZeroHistoryGoatStillReceivesCatchUp(t *testing.T) {
 	}
 }
 
-// VAX-SEED-01 runtime rule: an already-enrolled goat (>=1 accepted dose in ANY family) does NOT get a
-// historical catch-up reconstructed for a BLANK family — a blank cell is not proof of a missed dose.
-func TestRuntimeEnrolledGoatSkipsBlankFamilyHistoricalCatchUp(t *testing.T) {
+// VAX-REV-02 (was the VAX-SEED-01 bug): an already-enrolled goat (>=1 accepted dose in ANY OTHER
+// family) MUST still get a historical catch-up reconstructed for a BLANK family — a dose recorded in
+// an unrelated vaccine family (PPR here) is never proof that Goat Pox was administered. Per Contract
+// §89 this blank family falls through DOB → entry → adult catch-up exactly like a zero-history goat.
+func TestRuntimeEnrolledGoatStillGetsBlankFamilyCatchUp(t *testing.T) {
 	ctx := context.Background()
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	dob := asOf.AddDate(0, 0, -120) // kid dose window elapsed → would be a catch-up
+	dob := asOf.AddDate(0, 0, -120) // kid dose window elapsed → catch-up
 	pprAt := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
 	goat := domain.EligibleGoat{GoatID: "enrolled-kid", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
@@ -2505,10 +2817,589 @@ func TestRuntimeEnrolledGoatSkipsBlankFamilyHistoricalCatchUp(t *testing.T) {
 		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if res.Generated != 0 || len(obl.inserted) != 0 {
-		t.Fatalf("result=%#v inserted=%#v, want the blank-family historical catch-up suppressed for an enrolled goat", res, obl.inserted)
+	if res.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want the blank Goat Pox family to still receive catch-up for an enrolled goat", res, obl.inserted)
 	}
-	if res.SuppressedByTrustedHistory < 1 {
-		t.Fatalf("result=%#v, want the suppression counted", res)
+	if got := obl.inserted[0]; got.DueAt.Before(businessDayStart(asOf)) {
+		t.Fatalf("inserted=%#v, want the catch-up due date never before the business date", got)
+	}
+}
+
+// VAX-REV-02 guard (partial history, missing anchor): a goat with accepted PPR history but NO DOB, NO
+// entry date, and a blank FMD family must get FMD's adult catch-up routed to the next compatible
+// drive — never suppressed by the PPR history, and never a backdated/overdue card (it lands on or
+// after the business date, per Contract §89 option 4: "adult catch-up/primary at the next compatible
+// drive when neither DOB nor entry is available").
+func TestPartialHistoryGoatBlankFamilyGetsFutureAdultCatchUp(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	pprAt := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
+	// No DOB, no entry date, no kid-management stage: routes adult (schedulePathForGoat B3).
+	goat := domain.EligibleGoat{GoatID: "partial-history-goat", LifecycleStatus: "alive", Species: "goat"}
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult", DoseCode: "fmd_adult_primary", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 0, DueWindowDays: 7, CatchUp: "immediate"},
+	}
+	// PPR history exists (goat is not zero-history), but FMD is blank — a different family.
+	history := []domain.RecentVaccineAdministration{{AdministeredAt: pprAt, VaccineCode: "PPR", VaccineType: "live", PathogenClass: "viral", DoseCode: "ppr_adult", Sequence: 0}}
+	fmdProfile := vaccineProfile{Code: "FMD", Type: "killed", PathogenClass: "viral"}
+	res := &domain.GenerateResult{}
+	obl := svc.obl.(*generationObligationFake)
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, fmdProfile, history, newTrustedEvidenceLookup(), res); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if res.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want the blank FMD family to still receive an adult catch-up", res, obl.inserted)
+	}
+	if got := obl.inserted[0]; got.DueAt.Before(businessDayStart(asOf)) {
+		t.Fatalf("inserted=%#v, want the catch-up due date never before the business date (no backdated overdue card)", got)
+	}
+}
+
+// VAX-REV-03: GenerateSeedCutoverForAllGoats/seedCutoverCohort no longer exist — the seed importer and
+// runtime generation both call GenerateEffectiveForAllGoats over the SAME tenant-wide scope, so a
+// mixed cohort (a goat that would have been "freshly imported" alongside a pre-existing goat) is
+// generated by identical per-vaccine rules with no whole-tenant or partial-cohort cutover marking: a
+// blank-family goat with an elapsed catch-up window materializes it, while a goat whose exact dose is
+// already accepted history is suppressed — both in the SAME pass, over the SAME scope, via the SAME
+// function.
+func TestGenerateEffectiveForAllGoatsMixedCohortNoCutoverScope(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	catchUpDOB := asOf.AddDate(0, 0, -120)  // window elapsed → catch-up due
+	satisfiedDOB := asOf.AddDate(0, 0, -42) // in-window, but the exact dose is already given
+	gpoxAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"},"eligibility":{}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7, CatchUp: "immediate",
+		}},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "blank-family-goat", LifecycleStatus: "alive", DOB: &catchUpDOB, Stage: "K1", Species: "goat"},
+			{GoatID: "already-dosed-goat", LifecycleStatus: "alive", DOB: &satisfiedDOB, Stage: "K1", Species: "goat"},
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"already-dosed-goat": {{AdministeredAt: gpoxAt, VaccineCode: "Goat Pox", VaccineType: "live", PathogenClass: "viral", DoseCode: "gpox_kid_w6", Sequence: 1}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", asOf)
+	if err != nil {
+		t.Fatalf("mixed cohort generate: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want only the blank-family goat's catch-up generated", result, obl.inserted)
+	}
+	if obl.inserted[0].TargetID != "blank-family-goat" {
+		t.Fatalf("inserted=%#v, want the blank-family goat's obligation, not the already-dosed goat", obl.inserted)
+	}
+	if result.SuppressedByTrustedHistory < 1 {
+		t.Fatalf("result=%#v, want the already-dosed goat's exact dose suppressed by its own recorded history", result)
+	}
+}
+
+// BUG #2: test that two co-due pending vaccines (both becoming due on the same day in this pass)
+// are spaced against each other by the cross-vaccine compatibility policy, not left same-day.
+func TestGenerateForVersionSpacesCoDuePendingVaccines(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	kidDOB := asOf.AddDate(0, 0, -84) // 12 weeks old: eligible for both PPR and Goat Pox at 12w
+
+	proto := &generationProtoFake{
+		// Two DIFFERENT live-viral vaccines (PPR and Goat Pox), each with its OWN vaccine code set via
+		// per-rule metadata, both due at 12 weeks. live-viral→live-viral is not a same-day-allowed pair,
+		// so they must be spaced LiveToLiveGapDays (28 days) apart when generated in the same pass.
+		// Distinct per-rule codes matter: cross-vaccine spacing applies only between different products,
+		// never between two doses of one course (which would share a code). No prior history for either.
+		ruleDSL: []byte(`{
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28}
+		}`),
+		rules: []protodomain.Rule{
+			{
+				RuleID: "ppr-12w", DoseCode: "ppr_kid_12w", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+			},
+			{
+				RuleID: "gpox-12w", DoseCode: "gpox_kid_12w", Sequence: 2,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"}}`),
+			},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "kid-goat", LifecycleStatus: "alive", DOB: &kidDOB, Stage: "K1", Species: "goat"},
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"kid-goat": {}, // no prior history
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want both PPR and Goat Pox generated", result, obl.inserted)
+	}
+
+	// Both should be due on the same business day (12 weeks from DOB).
+	expectedDue := businessDayStart(kidDOB.AddDate(0, 0, 84))
+
+	// Find PPR and Goat Pox obligations.
+	var pprObl, gpoxObl *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].RuleID == "ppr-12w" {
+			pprObl = &obl.inserted[i]
+		}
+		if obl.inserted[i].RuleID == "gpox-12w" {
+			gpoxObl = &obl.inserted[i]
+		}
+	}
+
+	if pprObl == nil || gpoxObl == nil {
+		t.Fatalf("inserted=%#v, want both PPR and Goat Pox obligations", obl.inserted)
+	}
+
+	// Both base due is the same (12 weeks from DOB).
+	if !pprObl.DueAt.Equal(expectedDue) {
+		t.Errorf("PPR due=%s, want %s", pprObl.DueAt.Format(time.RFC3339), expectedDue.Format(time.RFC3339))
+	}
+
+	// Goat Pox should be floored out by LiveToLiveGapDays (28 days) after PPR.
+	// Since PPR has sequence 1 (processed first) and Goat Pox has sequence 2 (processed second),
+	// Goat Pox should be floored to PPR's due + 28 days.
+	expectedGpoxDue := businessDayStart(expectedDue).AddDate(0, 0, 28)
+	if !gpoxObl.DueAt.Equal(expectedGpoxDue) {
+		t.Errorf("Goat Pox due=%s, want %s (should be floored 28 days after PPR)",
+			gpoxObl.DueAt.Format(time.RFC3339), expectedGpoxDue.Format(time.RFC3339))
+	}
+}
+
+// R2-01: Verify that pending spacing is preserved on idempotent replay.
+// When generation inserts vaccine A successfully but then fails before inserting vaccine B,
+// the retry must still floor B against A's already-committed due date, not treat A as if
+// it never existed just because A returns applied=false on replay.
+func TestGenerateForVersionPendingSpacingPreservedOnIdempotentReplay(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	kidDOB := asOf.AddDate(0, 0, -84) // 12 weeks old: eligible for both PPR and Goat Pox at 12w
+
+	proto := &generationProtoFake{
+		// Two DIFFERENT live-viral vaccines (PPR and Goat Pox), each with its OWN vaccine code,
+		// both due at 12 weeks. live-viral→live-viral requires a 28-day gap.
+		// This test verifies that on idempotent replay, PPR's already-inserted obligation still
+		// floors Goat Pox even though PPR's second insert returns applied=false.
+		ruleDSL: []byte(`{
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28}
+		}`),
+		rules: []protodomain.Rule{
+			{
+				RuleID: "ppr-12w", DoseCode: "ppr_kid_12w", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+			},
+			{
+				RuleID: "gpox-12w", DoseCode: "gpox_kid_12w", Sequence: 2,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"}}`),
+			},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "kid-goat", LifecycleStatus: "alive", DOB: &kidDOB, Stage: "K1", Species: "goat"},
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"kid-goat": {}, // no prior history
+		},
+	}
+
+	// FIRST ATTEMPT: fail after the first obligation is inserted (simulating partial failure).
+	obl := &generationObligationFake{seen: map[string]bool{}, failOnceAfterInserted: 1}
+	gen := NewGenerationService(proto, goats, obl)
+
+	_, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err == nil {
+		t.Fatalf("first generate: expected error after partial insert, got nil")
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("first attempt inserted=%d, want 1 (PPR only before failure)", len(obl.inserted))
+	}
+
+	// SECOND ATTEMPT: retry generation without clearing the obligation cache.
+	// The fake will see PPR's idempotency key again and return applied=false.
+	// Goat Pox should STILL be floored 28 days after PPR's already-inserted due date,
+	// NOT treated as if PPR never existed.
+	obl.failOnceAfterInserted = 0 // don't fail again
+	obl.failed = false            // reset failure flag
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+
+	// Both insertions should succeed on the second attempt (one was already-seen/applied=false, one new).
+	if len(obl.inserted) != 2 {
+		t.Fatalf("second attempt inserted=%d, want 2 (PPR replay + Goat Pox new)", len(obl.inserted))
+	}
+
+	// result.Generated should count only the newly-inserted one (Goat Pox).
+	if result.Generated != 1 {
+		t.Fatalf("result.Generated=%d, want 1 (only Goat Pox is newly generated)", result.Generated)
+	}
+
+	// Both should be due on the same business day (12 weeks from DOB).
+	expectedDue := businessDayStart(kidDOB.AddDate(0, 0, 84))
+
+	// Find PPR and Goat Pox obligations from the final set.
+	var pprObl, gpoxObl *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].RuleID == "ppr-12w" {
+			pprObl = &obl.inserted[i]
+		}
+		if obl.inserted[i].RuleID == "gpox-12w" {
+			gpoxObl = &obl.inserted[i]
+		}
+	}
+
+	if pprObl == nil || gpoxObl == nil {
+		t.Fatalf("inserted=%#v, want both PPR and Goat Pox obligations", obl.inserted)
+	}
+
+	if !pprObl.DueAt.Equal(expectedDue) {
+		t.Errorf("PPR due=%s, want %s", pprObl.DueAt.Format(time.RFC3339), expectedDue.Format(time.RFC3339))
+	}
+
+	// Goat Pox should be floored 28 days after PPR, even though PPR was a replay (applied=false).
+	// This is the key bug fix: pending spacing must account for already-persisted obligations.
+	expectedGpoxDue := businessDayStart(expectedDue).AddDate(0, 0, 28)
+	if !gpoxObl.DueAt.Equal(expectedGpoxDue) {
+		t.Errorf("Goat Pox due=%s, want %s (should be floored 28 days after PPR on replay)",
+			gpoxObl.DueAt.Format(time.RFC3339), expectedGpoxDue.Format(time.RFC3339))
+	}
+}
+
+// R2-03: Verify that AdultPriorVaccinationAllowed flag controls whether adult prior vaccination
+// history is used for revac (after_previous_completion) scheduling.
+// When false: adult prior vaccination history must NOT be used to schedule revac doses
+// When true: adult prior vaccination history MAY be used for revac scheduling
+func TestGenerateForVersionAdultPriorVaccinationAllowedFlag(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC) // 30 days after entry
+	// Adult animal (no DOB), post_arrival trigger
+	adult := domain.EligibleGoat{
+		GoatID:          "adult-goat",
+		LifecycleStatus: "alive",
+		EntryDate:       &entryDate,
+		Species:         "goat",
+	}
+
+	// This adult already has a PPR vaccination history from before entry.
+	priorPPRAt := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	vaccineHistory := []domain.RecentVaccineAdministration{{
+		AdministeredAt: priorPPRAt,
+		VaccineCode:    "PPR",
+		VaccineType:    "live",
+		PathogenClass:  "viral",
+	}}
+
+	// Revac rule: after_previous_completion, 3-year gap (PPR revacs every 3 years)
+	// Set warmup_no_vaccination_days to make the procurement policy active so the flag takes effect.
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28},
+			"procurement_policy":{"warmup_no_vaccination_days":7,"adult_prior_vaccination_allowed":true}
+		}`),
+		rules: []protodomain.Rule{{
+			RuleID: "ppr-revac", DoseCode: "ppr_revac_yearly", Sequence: 1,
+			TriggerType: "after_previous_completion", Repeat: "yearly",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+		}},
+	}
+
+	// TEST 1: When AdultPriorVaccinationAllowed=true, revac is scheduled based on prior history.
+	{
+		goats := &generationGoatFake{
+			list: []domain.EligibleGoat{adult},
+			vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+				"adult-goat": vaccineHistory,
+			},
+		}
+		obl := &generationObligationFake{}
+		gen := NewGenerationService(proto, goats, obl)
+
+		result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate with flag=true: %v", err)
+		}
+		if result.Generated != 1 {
+			t.Errorf("with AdultPriorVaccinationAllowed=true: Generated=%d, want 1 (revac should be scheduled from history)",
+				result.Generated)
+		}
+		if len(obl.inserted) != 1 {
+			t.Errorf("with flag=true: inserted=%d obligations, want 1", len(obl.inserted))
+		}
+		// Revac should be due 1 year after prior PPR (using after_previous_completion)
+		expectedRevacDue := businessDayStart(priorPPRAt).AddDate(1, 0, 0) // 1 year later
+		if len(obl.inserted) > 0 && !obl.inserted[0].DueAt.Equal(expectedRevacDue) {
+			t.Errorf("revac due with flag=true: %s, want %s (1 year after prior PPR)",
+				obl.inserted[0].DueAt.Format(time.RFC3339), expectedRevacDue.Format(time.RFC3339))
+		}
+	}
+
+	// TEST 2: When AdultPriorVaccinationAllowed=false in an active procurement policy, revac is NOT scheduled.
+	// We need to set warmup_no_vaccination_days to make the policy active (it checks active() to gate the flag).
+	proto.ruleDSL = []byte(`{
+		"eligibility":{},
+		"compatibility_policy":{"live_to_live_gap_days":28},
+		"procurement_policy":{"warmup_no_vaccination_days":7,"adult_prior_vaccination_allowed":false}
+	}`)
+
+	{
+		goats := &generationGoatFake{
+			list: []domain.EligibleGoat{adult},
+			vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+				"adult-goat": vaccineHistory,
+			},
+		}
+		obl := &generationObligationFake{}
+		gen := NewGenerationService(proto, goats, obl)
+
+		result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate with flag=false: %v", err)
+		}
+		if result.Generated != 0 {
+			t.Errorf("with AdultPriorVaccinationAllowed=false: Generated=%d, want 0 (revac should NOT be scheduled when flag=false)",
+				result.Generated)
+		}
+		if len(obl.inserted) != 0 {
+			t.Errorf("with flag=false: inserted=%d obligations, want 0 (revac scheduling disabled by flag)", len(obl.inserted))
+		}
+	}
+}
+
+// TestGenerateForVersionAdultPriorFalseWithoutWarmup is the R2-03 guard: an EXPLICIT
+// adult_prior_vaccination_allowed:false must be honored even when it is the ONLY configured
+// procurement field (no warmup, no kid cutoff). The prior bug made active() require a positive field,
+// so a policy of just {"adult_prior_vaccination_allowed":false} read as inactive and the false was
+// silently ignored -- adult prior history then still scheduled the revac. This fixture removes the
+// unrelated warmup the sibling test used to mask the defect.
+func TestGenerateForVersionAdultPriorFalseWithoutWarmup(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	adult := domain.EligibleGoat{GoatID: "adult-goat", LifecycleStatus: "alive", EntryDate: &entryDate, Species: "goat"}
+	priorPPRAt := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	vaccineHistory := []domain.RecentVaccineAdministration{{
+		AdministeredAt: priorPPRAt, VaccineCode: "PPR", VaccineType: "live", PathogenClass: "viral",
+	}}
+	proto := &generationProtoFake{
+		// ONLY the adult-prior flag, explicitly false -- no warmup, no kid cutoff.
+		ruleDSL: []byte(`{
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28},
+			"procurement_policy":{"adult_prior_vaccination_allowed":false}
+		}`),
+		rules: []protodomain.Rule{{
+			RuleID: "ppr-revac", DoseCode: "ppr_revac_yearly", Sequence: 1,
+			TriggerType: "after_previous_completion", Repeat: "yearly",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+		}},
+	}
+	goats := &generationGoatFake{
+		list:           []domain.EligibleGoat{adult},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{"adult-goat": vaccineHistory},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("explicit adult_prior_vaccination_allowed:false (no warmup) must NOT schedule adult revac from prior history: Generated=%d inserted=%d, want 0/0", result.Generated, len(obl.inserted))
+	}
+}
+
+// TestGenerateReplayCoDueSpacingUsesPersistedRescheduledDate is the R2-01 guard: when vaccine A is
+// generated, later rescheduled, and generation reruns, a co-due incompatible vaccine B (generated
+// fresh in the same pass while A replays) must be spaced from A's PERSISTED (rescheduled) date, not
+// the freshly recalculated one. Insert A -> reschedule it -> add B and regenerate -> B's cross-vaccine
+// gap floor must anchor on A's persisted date.
+func TestGenerateReplayCoDueSpacingUsesPersistedRescheduledDate(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	ruleA := protodomain.Rule{
+		RuleID: "ppr", DoseCode: "ppr_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+	}
+	ruleB := protodomain.Rule{
+		RuleID: "goatpox", DoseCode: "goatpox_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"}}`),
+	}
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{},"compatibility_policy":{"live_to_live_gap_days":28}}`),
+		rules:   []protodomain.Rule{ruleA},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"}}}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	// Pass 1: only PPR exists -> A generated at DOB+30 = July 31.
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("pass 1: %v", err)
+	}
+	if len(obl.inserted) != 1 || obl.inserted[0].RuleID != "ppr" {
+		t.Fatalf("pass 1 inserted = %#v, want exactly PPR", obl.inserted)
+	}
+
+	// A is rescheduled to a LATER persisted date (e.g. an operator moved the drive).
+	rescheduled := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	obl.inserted[0].DueAt = rescheduled
+
+	// Pass 2: PPR now replays (applied=false) and Goat Pox is generated fresh, co-due + incompatible.
+	proto.rules = []protodomain.Rule{ruleA, ruleB}
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("pass 2: %v", err)
+	}
+
+	var goatPox *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].RuleID == "goatpox" {
+			goatPox = &obl.inserted[i]
+		}
+	}
+	if goatPox == nil {
+		t.Fatalf("Goat Pox obligation was not generated in pass 2: inserted=%#v", obl.inserted)
+	}
+	// B must be floored to A's PERSISTED date + the 28-day live-live gap, not the recalculated July 31.
+	wantFloor := businessDayStart(rescheduled).AddDate(0, 0, 28)
+	staleFloor := businessDayStart(businessDayStart(dob).AddDate(0, 0, 30)).AddDate(0, 0, 28)
+	if goatPox.DueAt.Equal(staleFloor) {
+		t.Fatalf("Goat Pox spaced from the OBSOLETE calculated date %s (R2-01 regression)", staleFloor.Format("2006-01-02"))
+	}
+	if !goatPox.DueAt.Equal(wantFloor) {
+		t.Fatalf("Goat Pox due = %s, want %s (A's persisted %s + 28d)", goatPox.DueAt.Format("2006-01-02"), wantFloor.Format("2006-01-02"), rescheduled.Format("2006-01-02"))
+	}
+}
+
+// TestGenerateReplayTerminalObligationDoesNotDelayCoDueVaccine is the R2-01 follow-up guard: a
+// TERMINAL persisted obligation (waived/completed/superseded — no remaining shot) must NOT space an
+// unrelated co-due vaccine on replay. Goat Pox must stay on its own recomputed date, not be pushed
+// out by a PPR obligation that is no longer planned.
+func TestGenerateReplayTerminalObligationDoesNotDelayCoDueVaccine(t *testing.T) {
+	for _, terminal := range []string{"waived", "completed", "superseded", "canceled"} {
+		t.Run(terminal, func(t *testing.T) {
+			ctx := context.Background()
+			dob := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+			asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+			ruleA := protodomain.Rule{
+				RuleID: "ppr", DoseCode: "ppr_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+			}
+			ruleB := protodomain.Rule{
+				RuleID: "goatpox", DoseCode: "goatpox_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"}}`),
+			}
+			proto := &generationProtoFake{
+				ruleDSL: []byte(`{"eligibility":{},"compatibility_policy":{"live_to_live_gap_days":28}}`),
+				rules:   []protodomain.Rule{ruleA},
+			}
+			goats := &generationGoatFake{list: []domain.EligibleGoat{{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"}}}
+			obl := &generationObligationFake{}
+			gen := NewGenerationService(proto, goats, obl)
+
+			if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+				t.Fatalf("pass 1: %v", err)
+			}
+			// PPR reaches a terminal state (given, waived, replaced, or canceled) -- no upcoming shot.
+			obl.inserted[0].Status = terminal
+
+			proto.rules = []protodomain.Rule{ruleA, ruleB}
+			if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+				t.Fatalf("pass 2: %v", err)
+			}
+			var goatPox *obldomain.NewObligation
+			for i := range obl.inserted {
+				if obl.inserted[i].RuleID == "goatpox" {
+					goatPox = &obl.inserted[i]
+				}
+			}
+			if goatPox == nil {
+				t.Fatalf("Goat Pox was not generated: inserted=%#v", obl.inserted)
+			}
+			ownDue := businessDayStart(businessDayStart(dob).AddDate(0, 0, 30))
+			if !goatPox.DueAt.Equal(ownDue) {
+				t.Fatalf("Goat Pox due = %s, want its own date %s (a %s PPR must not delay it)", goatPox.DueAt.Format("2006-01-02"), ownDue.Format("2006-01-02"), terminal)
+			}
+		})
+	}
+}
+
+// TestGenerateRecoveryReplayTerminalObligationDoesNotInventSpacingDate is the R2-01 concurrency/
+// recovery guard: recovery alignment is only a proposal. If the persisted obligation is already
+// terminal, reopening is a no-op and that proposal must not be treated as an upcoming vaccination.
+// Otherwise a waived PPR invents an August 1 anchor and delays co-due Goat Pox to August 29.
+func TestGenerateRecoveryReplayTerminalObligationDoesNotInventSpacingDate(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	ruleA := protodomain.Rule{
+		RuleID: "ppr", DoseCode: "ppr_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+	}
+	ruleB := protodomain.Rule{
+		RuleID: "goatpox", DoseCode: "goatpox_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"}}`),
+	}
+	goat := domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"}
+	obl := &generationObligationFake{}
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+	policies := genVersionPolicies{Compatibility: genCompatibilityPolicy{LiveToLiveGapDays: 28}}
+
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{ruleA}, nil, genEligibility{}, goat, asOf,
+		generationOptions{}, policies, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &domain.GenerateResult{}); err != nil {
+		t.Fatalf("initial PPR generation: %v", err)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("initial obligations = %#v, want one PPR", obl.inserted)
+	}
+	obl.inserted[0].Status = "waived"
+	nearby := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	obl.nearbyDrive = &nearby
+
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{ruleA, ruleB}, nil, genEligibility{}, goat, asOf,
+		generationOptions{healthRecoveryAlign: true}, policies, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &domain.GenerateResult{}); err != nil {
+		t.Fatalf("recovery replay: %v", err)
+	}
+	var goatPox *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].RuleID == "goatpox" {
+			goatPox = &obl.inserted[i]
+		}
+	}
+	if goatPox == nil {
+		t.Fatalf("Goat Pox was not generated: %#v", obl.inserted)
+	}
+	want := businessDayStart(dob).AddDate(0, 0, 30)
+	if !goatPox.DueAt.Equal(want) {
+		t.Fatalf("Goat Pox due = %s, want %s; terminal PPR recovery proposal must not create spacing", goatPox.DueAt.Format("2006-01-02"), want.Format("2006-01-02"))
 	}
 }

@@ -131,7 +131,9 @@ function selfTest() {
 function run() {
   const problems = [];
   const perEnv = [];
-  for (const env of ["dev", "stg"]) {
+  // Staging has completed this cutover and is protected by the final-topology
+  // guard. Keep this explicit retirement gate for dev until dev converges.
+  for (const env of ["dev"]) {
     const varsPath = resolve(repo, `infra/envs/${env}/variables.tf`);
     const jobsPath = resolve(repo, `infra/envs/${env}/cloud_run_jobs.tf`);
     if (!existsSync(varsPath)) { problems.push(`${env}: variables.tf not found (${varsPath})`); continue; }
@@ -151,7 +153,7 @@ function run() {
     for (const p of problems) console.error(`  - ${p}`);
     process.exit(1);
   }
-  console.log("kernel-worker-retirement-gate guard: all KERN-01 checks passed (dev, stg)");
+  console.log("kernel-worker-retirement-gate guard: transitional dev checks passed");
 }
 
 if (process.argv.includes("--self-test")) selfTest();

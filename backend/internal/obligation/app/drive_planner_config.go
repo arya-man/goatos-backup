@@ -17,8 +17,8 @@ var approvedDriveCombos = map[string][]string{
 
 // VaccineMatrixPriority returns disease priority from the source matrix (lower = schedule first).
 func VaccineMatrixPriority(vaccineCode string) int32 {
-	switch strings.ToLower(strings.TrimSpace(vaccineCode)) {
-	case "et+tt":
+	switch normalizedVaccineMatrixCode(vaccineCode) {
+	case "et+tt", "et tt":
 		return 1
 	case "ppr":
 		return 2
@@ -31,6 +31,12 @@ func VaccineMatrixPriority(vaccineCode string) int32 {
 	default:
 		return 0
 	}
+}
+
+func normalizedVaccineMatrixCode(vaccineCode string) string {
+	code := strings.ToLower(strings.TrimSpace(vaccineCode))
+	code = strings.NewReplacer("_", " ", "-", " ").Replace(code)
+	return strings.Join(strings.Fields(code), " ")
 }
 
 // DrivePlannerFromRuleDSL extracts sweep planner settings from a published vaccination rule_dsl.
@@ -115,4 +121,22 @@ func resolvedDrivePlannerSettings(cfg domain.DrivePlannerSettings, vaccineCode s
 		out.MaxShotsPerAnimalPerDrive = defaults.MaxShotsPerAnimalPerDrive
 	}
 	return out
+}
+
+// ComboAlignmentSettingsForPlans returns the strictest combo-drive alignment policy
+// across the protocol versions participating in one sweep pass.
+func ComboAlignmentSettingsForPlans(plans []SweepVersionPriority) (alignWindowDays int32, maxShotsPerAnimalPerDrive int32) {
+	defaults := domain.DefaultDrivePlannerSettings()
+	alignWindowDays = defaults.ComboAlignWindowDays
+	maxShotsPerAnimalPerDrive = defaults.MaxShotsPerAnimalPerDrive
+	for _, plan := range plans {
+		planner := resolvedDrivePlannerSettings(plan.Config.DrivePlanner, plan.Config.VaccineCode)
+		if planner.ComboAlignWindowDays > 0 && planner.ComboAlignWindowDays < alignWindowDays {
+			alignWindowDays = planner.ComboAlignWindowDays
+		}
+		if planner.MaxShotsPerAnimalPerDrive > 0 && planner.MaxShotsPerAnimalPerDrive < maxShotsPerAnimalPerDrive {
+			maxShotsPerAnimalPerDrive = planner.MaxShotsPerAnimalPerDrive
+		}
+	}
+	return alignWindowDays, maxShotsPerAnimalPerDrive
 }

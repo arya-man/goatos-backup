@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ArrowLeft, Ban, Syringe } from "lucide-react";
 import { getVaccinationWorkflowDrilldown } from "@/lib/api/server";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";

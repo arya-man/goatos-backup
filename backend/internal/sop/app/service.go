@@ -25,6 +25,7 @@ const (
 	defaultFailedSubmissionFanoutAgeMinutes = 15
 	maxFailedSubmissionFanoutAgeMinutes     = 7 * 24 * 60
 	maxFailedSubmissionFanoutLimit          = 100
+	rosterScanFieldKey                      = "__scan_roster__"
 )
 
 func NewService(repo ports.Repository) *Service {
@@ -433,6 +434,11 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
 		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
 	}
+	scanCaptures, err := s.repo.ListScanCaptures(ctx, cmd.TenantID, cmd.TaskID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	cmd.Body.Answers = mergeDraftScanAnswers(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
 		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, domain.ProofBinding{
 			TaskID:    task.TaskID,
@@ -456,7 +462,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		cmd.ItemState = "needs_review"
 		cmd.TaskState = "needs_review"
 	}
-	cmd.SubmissionItems = buildSubmissionItems(version.FormDSL, cmd.Body.Answers)
+	cmd.SubmissionItems = buildSubmissionItemsWithDraftScans(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	cmd.MovementPayload = buildMovementPayload(task, cmd.Body)
 	cmd.SubmissionFanoutRequired = s.submission != nil && submissionFanoutNeeded(task)
 	submission, updatedTask, replay, err := s.repo.SubmitTask(ctx, cmd)
@@ -469,6 +475,107 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		}
 	}
 	return &domain.SubmissionResponse{Submission: submission, Task: updatedTask, TraceID: traceID}, nil
+}
+
+func (s *Service) RecordScanCapture(ctx context.Context, cmd ports.RecordScanCaptureCommand, traceID string) (*domain.ScanCaptureResponse, error) {
+	if err := validateTenantActorID(cmd.TenantID, cmd.ActorID, cmd.TaskID, "task_id"); err != nil {
+		return nil, err
+	}
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	if cmd.IdempotencyKey == "" {
+		return nil, BadRequest("invalid_idempotency_key", "idempotency key is required")
+	}
+	cmd.Body.FieldKey = strings.TrimSpace(cmd.Body.FieldKey)
+	cmd.Body.Tag = strings.TrimSpace(cmd.Body.Tag)
+	cmd.Body.GoatID = strings.TrimSpace(cmd.Body.GoatID)
+	cmd.Body.ObligationID = strings.TrimSpace(cmd.Body.ObligationID)
+	if cmd.Body.FieldKey == "" {
+		return nil, BadRequest("invalid_field_key", "field_key is required")
+	}
+	if cmd.Body.Tag == "" {
+		return nil, BadRequest("invalid_tag", "tag is required")
+	}
+	if cmd.Body.GoatID != "" && !uuidutil.IsUUIDString(cmd.Body.GoatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a UUID")
+	}
+	if cmd.Body.ObligationID != "" && !uuidutil.IsUUIDString(cmd.Body.ObligationID) {
+		return nil, BadRequest("invalid_obligation_id", "obligation_id must be a UUID")
+	}
+	task, version, _, err := s.repo.GetTask(ctx, cmd.TenantID, cmd.TaskID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if version == nil {
+		return nil, Conflict("missing_sop_version", "task has no pinned SOP version")
+	}
+	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
+		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
+	}
+	if !scanFieldAllowed(version.FormDSL, cmd.Body.FieldKey) {
+		return nil, BadRequest("invalid_scan_field", "field_key is not a goat scan field for this task")
+	}
+	capture, err := s.repo.RecordScanCapture(ctx, cmd)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &domain.ScanCaptureResponse{Capture: capture, TraceID: traceID}, nil
+}
+
+func (s *Service) RecordScanAttempt(ctx context.Context, cmd ports.RecordScanAttemptCommand, traceID string) (*domain.ScanAttemptResponse, error) {
+	if err := validateTenantActorID(cmd.TenantID, cmd.ActorID, cmd.TaskID, "task_id"); err != nil {
+		return nil, err
+	}
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	if cmd.IdempotencyKey == "" {
+		return nil, BadRequest("invalid_idempotency_key", "idempotency key is required")
+	}
+	cmd.Body.FieldKey = strings.TrimSpace(cmd.Body.FieldKey)
+	cmd.Body.Tag = strings.TrimSpace(cmd.Body.Tag)
+	cmd.Body.NormalizedTag = normalizeScanTag(cmd.Body.NormalizedTag)
+	cmd.Body.GoatID = strings.TrimSpace(cmd.Body.GoatID)
+	cmd.Body.ObligationID = strings.TrimSpace(cmd.Body.ObligationID)
+	cmd.Body.Outcome = strings.TrimSpace(cmd.Body.Outcome)
+	cmd.Body.TagRole = strings.TrimSpace(cmd.Body.TagRole)
+	cmd.Body.Reason = strings.TrimSpace(cmd.Body.Reason)
+	if cmd.Body.FieldKey == "" {
+		return nil, BadRequest("invalid_field_key", "field_key is required")
+	}
+	if cmd.Body.Tag == "" {
+		return nil, BadRequest("invalid_tag", "tag is required")
+	}
+	if cmd.Body.GoatID != "" && !uuidutil.IsUUIDString(cmd.Body.GoatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a UUID")
+	}
+	if cmd.Body.ObligationID != "" && !uuidutil.IsUUIDString(cmd.Body.ObligationID) {
+		return nil, BadRequest("invalid_obligation_id", "obligation_id must be a UUID")
+	}
+	if !scanAttemptValueAllowed(cmd.Body.Outcome, "accepted", "duplicate", "not_due", "unknown") {
+		return nil, BadRequest("invalid_outcome", "outcome must be accepted, duplicate, not_due, or unknown")
+	}
+	if cmd.Body.TagRole == "" {
+		cmd.Body.TagRole = "unknown"
+	}
+	if !scanAttemptValueAllowed(cmd.Body.TagRole, "primary", "secondary", "unknown") {
+		return nil, BadRequest("invalid_tag_role", "tag_role must be primary, secondary, or unknown")
+	}
+	task, version, _, err := s.repo.GetTask(ctx, cmd.TenantID, cmd.TaskID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if version == nil {
+		return nil, Conflict("missing_sop_version", "task has no pinned SOP version")
+	}
+	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
+		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
+	}
+	if !scanFieldAllowed(version.FormDSL, cmd.Body.FieldKey) {
+		return nil, BadRequest("invalid_scan_field", "field_key is not a goat scan field for this task")
+	}
+	attempt, err := s.repo.RecordScanAttempt(ctx, cmd)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &domain.ScanAttemptResponse{Attempt: attempt, TraceID: traceID}, nil
 }
 
 func (s *Service) reviewTask(ctx context.Context, cmd ports.ReviewTaskCommand, traceID string) (*domain.TaskResponse, error) {
@@ -889,6 +996,151 @@ func buildSubmissionItems(formDSL map[string]any, answers map[string]any) []port
 		return []ports.SubmissionItemInput{{ItemKey: "batch"}}
 	}
 	return out
+}
+
+func buildSubmissionItemsWithDraftScans(formDSL map[string]any, answers map[string]any, captures []domain.ScanCaptureSummary) []ports.SubmissionItemInput {
+	sourceField := repeatSourceField(formDSL)
+	if sourceField == "" {
+		return buildSubmissionItems(formDSL, answers)
+	}
+	target := rosterScanTargetFieldKey(formDSL)
+	out := make([]ports.SubmissionItemInput, 0, len(captures))
+	seen := map[string]struct{}{}
+	for _, capture := range captures {
+		if !captureMatchesScanField(capture.FieldKey, sourceField, target) {
+			continue
+		}
+		itemKey := strings.TrimSpace(capture.GoatID)
+		if itemKey == "" {
+			itemKey = strings.TrimSpace(capture.Tag)
+		}
+		if itemKey == "" {
+			continue
+		}
+		if _, ok := seen[itemKey]; ok {
+			continue
+		}
+		seen[itemKey] = struct{}{}
+		goatID := strings.TrimSpace(capture.GoatID)
+		out = append(out, ports.SubmissionItemInput{GoatID: goatID, ItemKey: itemKey})
+		if len(out) >= 1000 {
+			break
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return buildSubmissionItems(formDSL, answers)
+}
+
+func mergeDraftScanAnswers(formDSL map[string]any, answers map[string]any, captures []domain.ScanCaptureSummary) map[string]any {
+	merged := nonNilMap(answers)
+	if len(captures) == 0 {
+		return merged
+	}
+	target := rosterScanTargetFieldKey(formDSL)
+	if target == "" {
+		return merged
+	}
+	existing := goatIDsFromAnswer(merged[target])
+	seen := map[string]struct{}{}
+	values := make([]any, 0, len(existing)+len(captures))
+	for _, tag := range existing {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		key := normalizeScanTag(tag)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		values = append(values, tag)
+	}
+	for _, capture := range captures {
+		if !captureMatchesScanField(capture.FieldKey, target, target) {
+			continue
+		}
+		tag := strings.TrimSpace(capture.Tag)
+		if tag == "" {
+			continue
+		}
+		key := normalizeScanTag(tag)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		values = append(values, tag)
+	}
+	if len(values) > 0 {
+		merged[target] = values
+	}
+	return merged
+}
+
+func scanFieldAllowed(formDSL map[string]any, fieldKey string) bool {
+	fieldKey = strings.TrimSpace(fieldKey)
+	if fieldKey == "" {
+		return false
+	}
+	target := rosterScanTargetFieldKey(formDSL)
+	if fieldKey == rosterScanFieldKey {
+		return target != ""
+	}
+	fields, _ := formDSL["fields"].([]any)
+	for _, raw := range fields {
+		field, ok := raw.(map[string]any)
+		if !ok || stringValue(field, "key") != fieldKey {
+			continue
+		}
+		fieldType, _ := normalizeFieldType(stringValue(field, "type"))
+		return fieldType == "goat_scan" || fieldType == "goat_lookup" || fieldType == "animal_id_scan"
+	}
+	return false
+}
+
+func scanAttemptValueAllowed(value string, allowed ...string) bool {
+	for _, item := range allowed {
+		if value == item {
+			return true
+		}
+	}
+	return false
+}
+
+func rosterScanTargetFieldKey(formDSL map[string]any) string {
+	fields, _ := formDSL["fields"].([]any)
+	keys := []string{}
+	for _, raw := range fields {
+		field, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		fieldType, _ := normalizeFieldType(stringValue(field, "type"))
+		if fieldType == "goat_scan" || fieldType == "animal_id_scan" {
+			keys = append(keys, stringValue(field, "key"))
+		}
+	}
+	if len(keys) == 1 {
+		return keys[0]
+	}
+	return ""
+}
+
+func captureMatchesScanField(captureField, targetField, rosterTarget string) bool {
+	captureField = strings.TrimSpace(captureField)
+	targetField = strings.TrimSpace(targetField)
+	return captureField == targetField || (captureField == rosterScanFieldKey && rosterTarget != "" && targetField == rosterTarget)
+}
+
+func normalizeScanTag(tag string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(tag) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func repeatSourceField(formDSL map[string]any) string {
@@ -1411,7 +1663,11 @@ func validateAnswerValue(errors *[]domain.ValidationIssue, field map[string]any,
 		if !dateTimeAnswer(value) {
 			addErrorToList(errors, key, "invalid_answer_type", "answer must be an RFC3339 timestamp")
 		}
-	case "goat_scan", "goat_lookup":
+	case "goat_scan":
+		if !stringListAnswer(value) {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must contain scanned RFID tags")
+		}
+	case "goat_lookup":
 		if !uuidListAnswer(value) {
 			addErrorToList(errors, key, "invalid_answer_type", "answer must contain goat UUIDs")
 		}

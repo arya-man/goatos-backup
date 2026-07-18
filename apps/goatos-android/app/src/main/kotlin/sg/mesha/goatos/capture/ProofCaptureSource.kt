@@ -36,13 +36,13 @@ interface ProofCaptureSource {
 }
 
 /**
- * Production adapter. `ACTION_VIDEO_CAPTURE` must be launched through an
- * `ActivityResultLauncher`, which only exists inside a live Composable/Activity — so this
- * class is a thin, swappable delegate: the hosting screen [bind]s a real launcher-backed
- * suspend function while it is composed, and [unbind]s on dispose (lifecycle-aware — no
- * leaked launcher reference once the capture surface leaves composition). Hilt provides ONE
- * app-scoped instance; [ScanCaptureViewModel]/`SubmitViewModel` depend only on the
- * [ProofCaptureSource] interface and never know a screen is (or isn't) currently bound.
+ * Production adapter. The live CameraX recorder must be bound from a Composable/Activity
+ * that owns lifecycle, preview, and permission state — so this class is a thin, swappable
+ * delegate: the hosting screen [bind]s a real CameraX-backed suspend function while it is
+ * composed, and [unbind]s on dispose (lifecycle-aware — no leaked camera reference once the
+ * capture surface leaves composition). Hilt provides ONE app-scoped instance; `SubmitViewModel`
+ * depends only on the [ProofCaptureSource] interface and never knows a screen is (or isn't)
+ * currently bound.
  */
 class DelegatingProofCaptureSource : ProofCaptureSource {
     @Volatile

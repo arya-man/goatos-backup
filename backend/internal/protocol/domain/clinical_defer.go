@@ -6,17 +6,18 @@ import "strings"
 // vaccination protocol can never opt out of.
 //
 // Per docs/preventive-care-vaccination/vaccination-rules.md, an animal that is
-// sick, under treatment, in quarantine, or in ICU is subject to "predefined
-// postponement rules ... safety blocks, not optional planner choices." Its open
-// vaccination work must be DEFERRED (held for recovery and reopened when the
-// animal recovers), never cancelled or silently excluded.
+// sick, under treatment, recovering, in quarantine, or in ICU is subject to
+// "predefined postponement rules ... safety blocks, not optional planner
+// choices." Its open vaccination work must be DEFERRED (held until the animal
+// is healthy and reopened when the animal recovers), never cancelled or silently
+// excluded.
 //
 // Authored rule_dsl.eligibility.defer_states may only ADD states to this set; it
 // may never remove one of these. Both the publish-time validator
 // (protocol/app) and the obligation generator (vaccination/app) resolve the
 // effective clinical-defer set through the helpers below so the two layers can
 // never diverge.
-var MandatoryClinicalDeferStates = []string{"sick", "under_treatment", "quarantine", "icu"}
+var MandatoryClinicalDeferStates = []string{"sick", "under_treatment", "recovering", "quarantine", "icu"}
 
 // ExitLifecycleStates are terminal lifecycle states. An animal in any of these
 // has permanently left the herd (or been merged) and is never eligible for, nor

@@ -6,8 +6,10 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 REGION="${REGION:-asia-south1}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
+KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
 ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
 MIGRATE_JOB="${MIGRATE_JOB:-goatos-stg-migrate}"
+VACCINATION_SCHEDULE_PROJECTOR_JOB="${VACCINATION_SCHEDULE_PROJECTOR_JOB:-goatos-stg-vaccination-schedule-projector}"
 STG_API_URL="${STG_API_URL:-https://goatos-api-stg-awtrpmn4za-el.a.run.app}"
 STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://stg.dashboard.mesha.sg}"
 
@@ -134,7 +136,7 @@ commit_sha=$COMMIT_SHA
 backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
-rollout_order=migrate,api,backend_jobs,admin_web,smoke_and_skew
+rollout_order=migrate,api,kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
 EOF
 
   local manifest_uri="$output_path/goatos-stg-release.txt"
@@ -152,6 +154,15 @@ deploy() {
   local backend_prefix="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/backend:"
   local updated_jobs=()
 
+  # Fail before touching the database when Terraform has not created every
+  # release target. In particular, never migrate and then discover that the
+  # consolidated worker service is absent.
+  gcloud run services describe "$API_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud run jobs describe "$VACCINATION_SCHEDULE_PROJECTOR_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+
   run gcloud run jobs update "$MIGRATE_JOB" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
@@ -165,7 +176,28 @@ deploy() {
     --wait \
     --quiet
 
+  run gcloud run jobs update "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+
+  run gcloud run jobs execute "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --wait \
+    --quiet
+  updated_jobs+=("$VACCINATION_SCHEDULE_PROJECTOR_JOB")
+
   run gcloud run services update "$API_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+
+  run gcloud run services update "$KERNEL_WORKER_SERVICE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
@@ -175,6 +207,7 @@ deploy() {
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
     [[ "$job" != "$MIGRATE_JOB" ]] || continue
+    [[ "$job" != "$VACCINATION_SCHEDULE_PROJECTOR_JOB" ]] || continue
 
     current_image="$(job_image "$job")"
     if [[ "$current_image" == "$backend_prefix"* ]]; then
@@ -198,8 +231,10 @@ deploy() {
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
+  [[ "$(service_image "$KERNEL_WORKER_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$KERNEL_WORKER_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$ADMIN_WEB_SERVICE")" == "$ADMIN_WEB_IMAGE" ]] || die "$ADMIN_WEB_SERVICE image did not settle on $ADMIN_WEB_IMAGE"
   [[ "$(job_image "$MIGRATE_JOB")" == "$MIGRATION_IMAGE" ]] || die "$MIGRATE_JOB image did not settle on $MIGRATION_IMAGE"
+  [[ "$(job_image "$VACCINATION_SCHEDULE_PROJECTOR_JOB")" == "$BACKEND_IMAGE" ]] || die "$VACCINATION_SCHEDULE_PROJECTOR_JOB image did not settle on $BACKEND_IMAGE"
 
   for job in "${updated_jobs[@]}"; do
     [[ "$(job_image "$job")" == "$BACKEND_IMAGE" ]] || die "$job image did not settle on $BACKEND_IMAGE"
@@ -209,8 +244,8 @@ deploy() {
   smoke_http "$STG_API_URL/readyz" "204"
   curl -fsSIL "$STG_DASHBOARD_URL/login" >/dev/null
 
-  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s admin=%s\n' \
-    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
+  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s worker=%s admin=%s\n' \
+    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
   write_results "SUCCEEDED"
 }
 

@@ -35,6 +35,19 @@ class UpdateGateViewModelTest {
     }
 
     @Test
+    fun `initial state is checking until the first gate decision resolves`() = runTest {
+        val gate = FakeUpdateGate(mutableListOf(UpdateDecision.Allowed))
+        val vm = UpdateGateViewModel(gate)
+
+        assertEquals(UpdateGateUiState.Checking, vm.state.value)
+        assertEquals(0, gate.checks)
+
+        advanceUntilIdle()
+        assertEquals(UpdateGateUiState.Allowed, vm.state.value)
+        assertEquals(1, gate.checks)
+    }
+
+    @Test
     fun `allowed gate leaves the app open`() = runTest {
         val vm = UpdateGateViewModel(FakeUpdateGate(mutableListOf(UpdateDecision.Allowed)))
         advanceUntilIdle()

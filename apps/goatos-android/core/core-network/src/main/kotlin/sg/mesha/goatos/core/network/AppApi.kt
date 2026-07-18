@@ -19,6 +19,10 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskResponseDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
@@ -232,6 +236,24 @@ interface AppApi {
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
 
+    /** POST /app/tasks/{task_id}/scan-captures — idempotent server-side draft RFID capture.
+     *  Each scan is still written to local Room first; this endpoint protects work before the
+     *  final Submit by syncing the draft capture through the durable outbox. */
+    suspend fun recordScanCapture(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanCaptureRequestDto,
+    ): ScanCaptureResponseDto
+
+    /** POST /app/tasks/{task_id}/scan-attempts — append-only RFID audit event.
+     *  This records every physical reader hit, including duplicate alias, not-due, and unknown
+     *  reads. It never drives Submit counters. */
+    suspend fun recordScanAttempt(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto
+
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
     suspend fun verifyAppTask(
@@ -251,7 +273,7 @@ interface AppApi {
     /** GET /app/vaccination/execution/sheds/{shed_id}/roster — per-animal scan roster with RFID tags. */
     suspend fun getScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String? = null,
         cursor: String? = null,
         limit: Int? = null,
     ): ScanRosterResponseDto
@@ -439,6 +461,18 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto = SubmissionResponseDto()
 
+    override suspend fun recordScanCapture(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanCaptureRequestDto,
+    ): ScanCaptureResponseDto = ScanCaptureResponseDto()
+
+    override suspend fun recordScanAttempt(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto = ScanAttemptResponseDto()
+
     override suspend fun verifyAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -453,7 +487,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String?,
         cursor: String?,
         limit: Int?,
     ): ScanRosterResponseDto = ScanRosterResponseDto(source = "fake", rows = emptyList())

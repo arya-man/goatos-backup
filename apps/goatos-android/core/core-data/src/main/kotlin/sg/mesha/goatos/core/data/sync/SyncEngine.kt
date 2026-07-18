@@ -203,6 +203,8 @@ class SyncEngine(
      *  without a second network call. */
     private suspend fun dispatch(item: OutboxEntity): String = when (OutboxOpType.valueOf(item.opType)) {
         OutboxOpType.SHED_SUBMIT -> dispatchShedSubmit(item)
+        OutboxOpType.SCAN_CAPTURE -> dispatchScanCapture(item)
+        OutboxOpType.SCAN_ATTEMPT -> dispatchScanAttempt(item)
         OutboxOpType.RESCHEDULE -> dispatchReschedule(item)
         OutboxOpType.PROOF_UPLOAD -> dispatchProofUpload(item)
         OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
@@ -222,23 +224,31 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
-    // Turns a backend validation failure into an honest operator-facing line, stored as
-    // OutboxEntity.lastError for the UI to render verbatim (see SubmitViewModel). When the
-    // ONLY errors are missing required answers/proof, the real blocker is that this build has
-    // no recording-form capture yet (form DSL runner + camera→proof upload land later) — say
-    // that plainly instead of leaking a raw field-error code. Any other rejection is shown
-    // verbatim. (Ported from the previous synchronous SubmitViewModel.rejectionReason, moved
-    // here because the full ValidationReportDto is only available at the point of failure.)
+    private suspend fun dispatchScanCapture(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
+        val response = api.recordScanCapture(payload.taskId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchScanAttempt(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ScanAttemptPayload>(item.payloadJson)
+        val response = api.recordScanAttempt(payload.taskId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    // Turns backend validation failures into operator-facing lines, stored as
+    // OutboxEntity.lastError for the UI to render verbatim (see SubmitViewModel). The backend
+    // owns field-level validation copy, so preserve its messages instead of replacing them with
+    // a generic client sentence.
     private fun rejectionReason(report: sg.mesha.goatos.core.network.dto.ValidationReportDto): String {
-        val codes = report.errors.map { it.code }
-        val onlyFormGaps = codes.isNotEmpty() && codes.all {
-            it == "required" || it == "proof_required" || it == "proof_subject_required"
-        }
-        return if (onlyFormGaps) {
-            "This drive needs the recording form before it can be submitted — form capture lands in a later build."
-        } else {
-            report.errors.firstOrNull()?.message ?: "Server rejected the submission."
-        }
+        return report.errors
+            .mapNotNull { issue ->
+                val message = issue.message.trim().ifBlank { issue.code.trim() }
+                if (message.isBlank()) null else message
+            }
+            .distinct()
+            .joinToString("\n")
+            .ifBlank { "Server rejected the submission." }
     }
 
     private suspend fun dispatchReschedule(item: OutboxEntity): String {

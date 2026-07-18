@@ -77,6 +77,14 @@ The private source/wiki may contain that branch, but GoatOS ignores it. Mothers
 are kept vaccinated operationally, and every kid uses the approved standard
 schedule in `docs/preventive-care-vaccination/vaccination-rules.md`.
 
+Confirmed Preventive Care (PC) ET+TT course rule: ET+TT is a two-dose course
+before the 182-day repeat. Dose 2 is due 21 days after dose 1 for both kid and
+adult courses. Imported/seeded ET+TT dose 1 must create the dose 2 obligation
+first; it must not jump straight to the 182-day repeat. The 182-day repeat
+starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
+2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
+spacing after PPR.
+
 ## Consolidated Defect-Ledger Closure (Mandatory)
 
 When asked to fix/continue/close the consolidated audit ledger or its bugs, read
@@ -340,6 +348,17 @@ Do:
   `vaccination.matrix` config, trusted vaccination history, generated future
   obligations, and deterministic read-model closeout. Missing HRMS/config is a
   failed seed, even when goat rows exist.
+- Vaccination source dates are base history anchors, not open due work. A seed
+  or reseed must preserve trusted past dates as accepted history, suppress any
+  seed-created open work on or before the backend business date, and let the
+  vaccination kernel generate only future obligations from that base. Seed code
+  must not hand-roll kid/adult path selection; it must use the live vaccination
+  schedule-path helper/config so stale source tags such as `origin=birth` or
+  `K1/K2` cannot force old kid-course work. Raw source vaccination cells also
+  must not be pre-mapped as kid-course history to prove their own schedule path:
+  classify first from independent evidence, then persist the source date as the
+  selected rule family's history anchor. The concrete checklist lives in
+  `docs/runbooks/vaccination-seed-source-date-contract.md`.
 - After any destructive seed, bulk import, fixture reset, or large canonical
   backfill, refresh Postgres planner statistics for the touched canonical
   tables before projector recompute or latency gates. The normal source seed
@@ -709,9 +728,20 @@ Do:
   unvalidated, or unwired). See `docs/runbooks/local-release-evidence.md` →
   "Exact-SHA Local-CI Push Gate (Main)" and `docs/runbooks/local-ci.md` →
   "Guardrail registration and exact-SHA push evidence" for the full flow. Do not
-  bypass the hook with `--no-verify`: if the receipt is stale or the build broke,
-  re-run `make ci-local` to generate a fresh receipt, then push normally. Install
-  the hook via `make ai-setup` or `make stg-promotion-guard-install`.
+  bypass the hook with `--no-verify`.
+- **Mandatory automatic main landing (Codex and Claude)**: When the requested
+  outcome includes pushing to `main`, run **`make land-main`** instead of composing
+  `git fetch` / `git rebase` / `make ci-local` / `git mesha-push` by hand. The
+  target refuses a dirty worktree, fetches fresh `origin/main`, rebases the
+  candidate before CI, runs the complete affected-component `make ci-local`,
+  fetches main again, and reruns rebase + CI if main moved before pushing the
+  exact certified SHA. Agent hooks block direct agent-issued pushes to `main`,
+  and the Git pre-push hook independently rejects a candidate that does not
+  contain the current remote-main SHA. Do not auto-rebase at session start:
+  sessions may open on dirty/shared worktrees with other agents' changes. Commit
+  only the scoped work and use a clean isolated worktree for landing. Standalone
+  `make ci-local` remains valid for development/hosted CI; `make land-main` is
+  the release path that mutates history and pushes.
 - Treat Goat OS time semantics as India-business-calendar semantics. Physical
   storage may use `timestamptz`/absolute instants, but every business meaning
   derived from those instants — scheduling, due/missed buckets, reminder keys,

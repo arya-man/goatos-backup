@@ -1,6 +1,8 @@
 # ADR: Operational kernel for the 5k-to-50k scale envelope
 
-Status: accepted product direction; documentation complete, implementation pending.
+Status: accepted; staging implementation completed in migration `000212` and
+the disposable staging Terraform topology. Development still retains the
+transitional retirement gate until it is converged separately.
 
 Date: 2026-07-14
 
@@ -153,6 +155,8 @@ state/version tables where present:
 - `vaccination_shed_projection_rows`;
 - `vaccination_execution_projection_rows`; and
 - `vaccination_operations_projection_rows`.
+- `vaccination_schedule_projection_state`, `vaccination_schedule_projection_rows`,
+  and `vaccination_schedule_projection_dirty_scopes`.
 
 Because the current rows are test data, there is no projection backfill or data
 migration. Any foreign keys from notification/snooze tables to
@@ -163,11 +167,11 @@ before the table is dropped.
 ### Partitioning removed in the clean restructure
 
 The current partition maintainer covers `goat_identity_events`, `audit_log`, and
-`obligation_status_events`. For the 5k-to-50k envelope these tables will be
-recreated as ordinary indexed tables with the same logical columns and
-constraints. Their current rows are test data and are not migrated. Monthly
-partitioning and its maintenance command remain recoverable from the baseline
-tag and may be reintroduced for the first measured history/event-table hotspot.
+`obligation_status_events`. Migration `000212` recreates these parents as
+ordinary indexed tables with the same logical columns and constraints and
+copies any rows present during the cutover. Monthly partitioning and its
+maintenance command remain recoverable from the baseline tag and may be
+reintroduced for the first measured history/event-table hotspot.
 
 ## Target topology for 5k-to-50k
 
@@ -507,7 +511,7 @@ real regression and its fix:
 
 ### Scale-guard reconciliation (required — this is a CI gate, not just a doc)
 
-Step 4 intentionally serves five screens from canonical tables per request. That
+Step 4 intentionally serves six screens from canonical tables per request. That
 read shape is the `compute-on-read` / god-CTE pattern that
 `docs/decisions/scale-anti-patterns.md` bans and that `make scale-guard`
 (the CI `guardrails` job) blocks mechanically. Narrowing the ADR text does NOT
@@ -515,8 +519,8 @@ disable the guard, so the implementation will hit red CI on the first canonical
 Calendar/process-integrity read unless the guard is reconciled in the same
 change:
 
-- The five named read paths (Calendar, process-integrity, shed, execution,
-  operations) are exempted under this envelope using the sanctioned
+- The six named read paths (Calendar, process-integrity, shed, execution,
+  operations, and Full Schedule) are exempted under this envelope using the sanctioned
   `// scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md`
   annotation on each read, with a matching entry in
   `tools/scale-guard/baseline.txt` if required. The guard is NOT globally

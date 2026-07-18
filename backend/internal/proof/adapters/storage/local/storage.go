@@ -6,8 +6,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +19,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
+
+var errInvalidObjectKey = errors.New("proof local storage: invalid object key")
 
 type Storage struct {
 	baseDir string
@@ -42,7 +46,7 @@ func (s *Storage) PrepareUpload(_ context.Context, proof domain.Artifact, expire
 	expiresAt := time.Now().UTC().Add(expires)
 	path := "/app/proofs/" + proof.ProofID + "/upload"
 	return domain.UploadTarget{
-		UploadURL: signedPath(path, "PUT", expiresAt, s.secret),
+		UploadURL: signedPath(path, "PUT", proof.TenantID, expiresAt, s.secret),
 		Method:    "PUT",
 		Headers:   map[string]string{"Content-Type": proof.MimeType},
 		ExpiresAt: expiresAt,
@@ -52,12 +56,15 @@ func (s *Storage) PrepareUpload(_ context.Context, proof domain.Artifact, expire
 
 func (s *Storage) PrepareDownload(_ context.Context, proof domain.Artifact, expires time.Duration) (string, error) {
 	expiresAt := time.Now().UTC().Add(expires)
-	path := "/app/proofs/" + proof.ProofID + "/download"
-	return signedPath(path, "GET", expiresAt, s.secret), nil
+	path := "/app/proofs/" + proof.ProofID + "/download/signed"
+	return signedPath(path, "GET", proof.TenantID, expiresAt, s.secret), nil
 }
 
 func (s *Storage) Store(_ context.Context, proof domain.Artifact, body io.Reader, mimeType string) (domain.StoredObject, error) {
-	path := s.localPath(proof.ObjectKey)
+	path, err := s.localPath(proof.ObjectKey)
+	if err != nil {
+		return domain.StoredObject{}, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return domain.StoredObject{}, err
 	}
@@ -92,7 +99,10 @@ func (s *Storage) Store(_ context.Context, proof domain.Artifact, body io.Reader
 }
 
 func (s *Storage) FinalizeUpload(_ context.Context, proof domain.Artifact, in domain.CompleteUpload) (domain.StoredObject, error) {
-	path := s.localPath(proof.ObjectKey)
+	path, err := s.localPath(proof.ObjectKey)
+	if err != nil {
+		return domain.StoredObject{}, err
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -129,33 +139,55 @@ func (s *Storage) FinalizeUpload(_ context.Context, proof domain.Artifact, in do
 }
 
 func (s *Storage) Open(_ context.Context, proof domain.Artifact) (ports.ReadSeekCloser, error) {
-	return os.Open(s.localPath(proof.ObjectKey))
+	path, err := s.localPath(proof.ObjectKey)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(path)
 }
 
-func (s *Storage) Verify(method, path, expires, signature string, now time.Time) bool {
+func (s *Storage) Verify(method, path, tenantID, expires, signature string, now time.Time) bool {
 	expUnix, err := strconv.ParseInt(expires, 10, 64)
-	if err != nil || expUnix <= now.Unix() {
+	if err != nil || expUnix <= now.Unix() || strings.TrimSpace(tenantID) == "" {
 		return false
 	}
-	expected := sign(method, path, expires, s.secret)
+	expected := sign(method, path, tenantID, expires, s.secret)
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
-func (s *Storage) localPath(objectKey string) string {
-	clean := filepath.Clean(strings.TrimPrefix(objectKey, "/"))
-	return filepath.Join(s.baseDir, clean)
+func (s *Storage) localPath(objectKey string) (string, error) {
+	clean := filepath.Clean(strings.TrimLeft(strings.TrimSpace(objectKey), "/"))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", errInvalidObjectKey
+	}
+	baseAbs, err := filepath.Abs(s.baseDir)
+	if err != nil {
+		return "", err
+	}
+	targetAbs := filepath.Join(baseAbs, clean)
+	rel, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", errInvalidObjectKey
+	}
+	return targetAbs, nil
 }
 
-func signedPath(path, method string, expiresAt time.Time, secret []byte) string {
+func signedPath(path, method, tenantID string, expiresAt time.Time, secret []byte) string {
 	expires := strconv.FormatInt(expiresAt.Unix(), 10)
-	return path + "?expires=" + expires + "&sig=" + sign(method, path, expires, secret)
+	q := url.Values{}
+	q.Set("tenant_id", tenantID)
+	q.Set("expires", expires)
+	q.Set("sig", sign(method, path, tenantID, expires, secret))
+	return path + "?" + q.Encode()
 }
 
-func sign(method, path, expires string, secret []byte) string {
+func sign(method, path, tenantID, expires string, secret []byte) string {
 	mac := hmac.New(sha256.New, secret)
 	_, _ = mac.Write([]byte(method))
 	_, _ = mac.Write([]byte("\n"))
 	_, _ = mac.Write([]byte(path))
+	_, _ = mac.Write([]byte("\n"))
+	_, _ = mac.Write([]byte(tenantID))
 	_, _ = mac.Write([]byte("\n"))
 	_, _ = mac.Write([]byte(expires))
 	return hex.EncodeToString(mac.Sum(nil))

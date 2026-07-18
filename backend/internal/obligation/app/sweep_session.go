@@ -22,6 +22,13 @@ import (
 type SweepSession struct {
 	visitShotCounts map[string]int32
 	visitClaims     map[string]shotCapClaim
+	// loaded marks every visitShotCountKey whose starting count has already been resolved once
+	// in this session -- either seeded from the persisted, cross-pass/cross-worker committed
+	// shot count (see seedResolved/SweeperService.seedAndLockVisitShots, VAX-REV-01) or, for a
+	// repo that doesn't support that seed (e.g. a pure in-memory test fake), explicitly marked
+	// resolved-at-zero so every group only pays the seed cost once per key per session, not once
+	// per group that happens to share a (date, target) visit.
+	loaded map[string]struct{}
 }
 
 // shotCapClaim records the vaccine/priority that most recently filled a visit's LAST cap slot,
@@ -32,11 +39,86 @@ type shotCapClaim struct {
 	priority    int32
 }
 
+type shotCapReservation struct {
+	obligationID string
+	key          string
+	vaccineCode  string
+	priority     int32
+}
+
 // NewSweepSession starts a fresh cross-version sweep session with empty shot-cap state.
 func NewSweepSession() *SweepSession {
 	return &SweepSession{
 		visitShotCounts: make(map[string]int32),
 		visitClaims:     make(map[string]shotCapClaim),
+		loaded:          make(map[string]struct{}),
+	}
+}
+
+// unresolvedTargets returns the distinct, non-blank target IDs in targetIDs whose (date, target)
+// visit-shot-count key has NOT already been resolved in this session (seeded from a persisted
+// count, or explicitly marked zero -- see seedResolved), preserving first-seen order. Callers use
+// this to seed only the keys that actually need a DB round trip, so a session shared across many
+// due-obligation groups on the same visit date pays the seed cost once per key, not once per
+// group.
+func (s *SweepSession) unresolvedTargets(date time.Time, targetIDs []string) []string {
+	out := make([]string, 0, len(targetIDs))
+	seen := make(map[string]struct{}, len(targetIDs))
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" {
+			continue
+		}
+		if _, dup := seen[targetID]; dup {
+			continue
+		}
+		seen[targetID] = struct{}{}
+		key := visitShotCountKey(date, targetID)
+		if _, ok := s.loaded[key]; ok {
+			continue
+		}
+		out = append(out, targetID)
+	}
+	return out
+}
+
+// seedResolved merges a persisted per-target shot count (already committed by a prior sweep pass
+// or a concurrent worker, read fresh from Postgres -- see SweeperService.seedAndLockVisitShots)
+// into this session's in-memory counts, for every target in targetIDs not already resolved. A
+// target with no entry in persisted is seeded at zero. Idempotent per (date, target) key: calling
+// this twice for the same key is a no-op the second time, so an already-claimed in-memory count
+// from earlier in this SAME pass is never clobbered.
+func (s *SweepSession) seedResolved(date time.Time, targetIDs []string, persisted map[string]int32) {
+	for _, targetID := range targetIDs {
+		key := visitShotCountKey(date, targetID)
+		if _, ok := s.loaded[key]; ok {
+			continue
+		}
+		s.loaded[key] = struct{}{}
+		s.visitShotCounts[key] += persisted[targetID]
+	}
+}
+
+// resetResolved SETS this session's in-memory shot count for every (date, target) key to the
+// fresh persisted count just read under the per-visit advisory lock (RV-02). Unlike seedResolved
+// (additive, once-per-key), this is the WRITE-path primitive called before EACH group's select:
+// by the time a group locks a shared visit, every earlier group in this same run has already
+// durably committed its claim for that visit, so the fresh persisted count is the AUTHORITATIVE
+// starting point -- overwriting (not adding to) the stale in-memory count carried over from the
+// earlier group, and simultaneously picking up any shot a concurrent worker committed for the
+// same visit in between. It (re)marks the keys loaded so the read-only additive seedResolved can
+// never later double-count them. visitClaims is intentionally left intact: it records which
+// vaccine last filled a slot so rejectOrTie can still tell a genuine same-priority tie from an
+// ordinary overflow after the count is refreshed.
+func (s *SweepSession) resetResolved(date time.Time, targetIDs []string, persisted map[string]int32) {
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" {
+			continue
+		}
+		key := visitShotCountKey(date, targetID)
+		s.loaded[key] = struct{}{}
+		s.visitShotCounts[key] = persisted[targetID]
 	}
 }
 
@@ -74,6 +156,24 @@ func (e *ShotCapPriorityTieError) Error() string {
 func (s *SweepSession) claim(key, vaccineCode string, priority int32) {
 	s.visitShotCounts[key]++
 	s.visitClaims[key] = shotCapClaim{vaccineCode: vaccineCode, priority: priority}
+}
+
+func (s *SweepSession) releaseClaims(claims []shotCapReservation) {
+	for i := len(claims) - 1; i >= 0; i-- {
+		claim := claims[i]
+		if s.visitShotCounts[claim.key] > 0 {
+			s.visitShotCounts[claim.key]--
+		}
+		if s.visitShotCounts[claim.key] == 0 {
+			delete(s.visitShotCounts, claim.key)
+			delete(s.visitClaims, claim.key)
+			continue
+		}
+		last, ok := s.visitClaims[claim.key]
+		if ok && strings.EqualFold(last.vaccineCode, claim.vaccineCode) && last.priority == claim.priority {
+			delete(s.visitClaims, claim.key)
+		}
+	}
 }
 
 // rejectOrTie returns the explicit blocker when a same-priority, different-vaccine obligation
@@ -118,16 +218,33 @@ func (s *SweepSession) claimComboBatchTargets(targetIDs []string, date time.Time
 // swept in this run) instead of a private per-call map, and it surfaces
 // ShotCapPriorityTieError when the cap would force a same-priority, different-vaccine drop
 // instead of silently picking an arrival-order winner.
-func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, error) {
-	if maxShots <= 0 || plannedDate == nil {
+func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
+	if plannedDate == nil {
 		ids := make([]string, 0, len(rows))
 		for _, row := range rows {
 			ids = append(ids, row.ObligationID)
 		}
-		return ids, nil
+		return ids, nil, nil
 	}
 	selected := make([]string, 0, len(rows))
+	claims := make([]shotCapReservation, 0, len(rows))
 	for _, row := range rows {
+		if !driveCandidateFeasibleOnDate(*plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}) {
+			continue
+		}
+		if maxShots <= 0 {
+			selected = append(selected, row.ObligationID)
+			continue
+		}
 		if strings.TrimSpace(row.TargetID) == "" {
 			selected = append(selected, row.ObligationID)
 			continue
@@ -135,46 +252,80 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 		key := visitShotCountKey(*plannedDate, row.TargetID)
 		if session.visitShotCounts[key] >= maxShots {
 			if err := session.rejectOrTie(key, vaccineCode, priority, row.TargetID, *plannedDate); err != nil {
-				return nil, err
+				session.releaseClaims(claims)
+				return nil, nil, err
 			}
 			continue
 		}
 		session.claim(key, vaccineCode, priority)
+		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: vaccineCode, priority: priority})
 		selected = append(selected, row.ObligationID)
 	}
-	return selected, nil
+	return selected, claims, nil
 }
 
+// ruleVaccineIdentityResolver resolves a park-consolidation candidate's OWN rule to its vaccine
+// identity. Park-merge groups are formed by (parkID, species/stage) ONLY -- never by rule -- so a
+// single merge candidate set routinely mixes obligations from several DIFFERENT matrix rules/
+// vaccines (see R2-05(b)). Passing cfg.getRuleVaccineIdentity as this resolver lets the cap/tie
+// selector below compare each row against its OWN real vaccine code/priority instead of one
+// version-level wrapper shared by every row.
+type ruleVaccineIdentityResolver = func(ruleID string) RuleVaccineIdentity
+
 // selectParkIDsWithinVisitShotCapForSession is the park-consolidation sibling of
-// selectIDsWithinVisitShotCapForSession (see its docs).
-func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, error) {
-	if maxShots <= 0 || plannedDate == nil || len(selected) == 0 {
-		return selected, nil
+// selectIDsWithinVisitShotCapForSession (see its docs). Unlike the shed-batching sibling -- where
+// every row in one dueGroup already shares the same rule -- a park-merge candidate set can span
+// several rules/vaccines at once, so the caller supplies identityFor to resolve each row's OWN
+// vaccine identity (R2-05(b) fix) instead of a single vaccineCode/priority pair applied to every
+// row.
+func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, []shotCapReservation, error) {
+	if plannedDate == nil || len(selected) == 0 {
+		return selected, nil, nil
 	}
 	selectedSet := make(map[string]struct{}, len(selected))
 	for _, id := range selected {
 		selectedSet[id] = struct{}{}
 	}
 	out := make([]string, 0, len(selected))
+	claims := make([]shotCapReservation, 0, len(selected))
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if !driveCandidateFeasibleOnDate(*plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}) {
+			continue
+		}
+		if maxShots <= 0 {
+			out = append(out, row.ObligationID)
 			continue
 		}
 		if strings.TrimSpace(row.TargetID) == "" {
 			out = append(out, row.ObligationID)
 			continue
 		}
+		identity := identityFor(row.RuleID)
 		key := visitShotCountKey(*plannedDate, row.TargetID)
 		if session.visitShotCounts[key] >= maxShots {
-			if err := session.rejectOrTie(key, vaccineCode, priority, row.TargetID, *plannedDate); err != nil {
-				return nil, err
+			if err := session.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, *plannedDate); err != nil {
+				session.releaseClaims(claims)
+				return nil, nil, err
 			}
 			continue
 		}
-		session.claim(key, vaccineCode, priority)
+		session.claim(key, identity.VaccineCode, identity.VaccinePriority)
+		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority})
 		out = append(out, row.ObligationID)
 	}
-	return out, nil
+	return out, claims, nil
 }
 
 // SweepVersionPriority pairs a protocol version with its resolved sweep config, letting a

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { Ban, GitBranch, Info, ShieldCheck, Syringe, Video, X } from "lucide-react";
 import { getVaccinationActionCenter, getVaccinationVerificationQueue } from "@/lib/api/server";

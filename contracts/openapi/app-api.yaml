@@ -305,6 +305,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
         - name: sig
           in: query
           required: true
@@ -909,6 +915,12 @@ paths:
             type: integer
             minimum: 1
             maximum: 500
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor returned as next_cursor by the previous response.
+          schema:
+            type: string
       responses:
         "200":
           description: Action Center rows.
@@ -1359,6 +1371,12 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor returned as next_cursor by the previous response.
+          schema:
+            type: string
         - name: limit
           in: query
           required: false
@@ -1380,6 +1398,63 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/schedule:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationSchedule
+      summary: Projection-backed vaccination Full Schedule for one materialized month.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: year
+          in: query
+          required: false
+          description: Calendar year in the business timezone. Defaults to the current year.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+        - name: month
+          in: query
+          required: false
+          description: Calendar month in the business timezone. Defaults to the current month.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor returned as next_cursor by the previous schedule response.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Vaccination schedule matrix + per-cohort detail for the materialized month.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperationsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
           $ref: "#/components/responses/ServerError"
   /vaccination/execution:
     get:
@@ -1415,6 +1490,12 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor returned as nextCursor by the previous response.
+          schema:
+            type: string
         - name: limit
           in: query
           required: false
@@ -1979,6 +2060,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: markers_only
+          in: query
+          required: false
+          description: Return date_markers without running the paged event-list query. Intended for the month-picker marker request.
+          schema:
+            type: boolean
+            default: false
         - name: include_reminder_rail
           in: query
           required: false
@@ -2063,6 +2151,13 @@ paths:
             minimum: 1
             maximum: 50
             default: 10
+        - name: q
+          in: query
+          required: false
+          description: Search roster by display id, tag, shed, stage, lifecycle, health, reason, or status.
+          schema:
+            type: string
+            maxLength: 128
       responses:
         "200":
           description: Paginated herd animals for the selected vaccination drive.
@@ -2684,7 +2779,7 @@ paths:
       tags:
         - Herd Register
       operationId: getHerdRegisterSummary
-      summary: Get exact summary counts from the herd register summary projection.
+      summary: Get exact scoped herd counts from canonical goats.
       parameters:
         - name: lifecycle_status
           in: query
@@ -2713,7 +2808,7 @@ paths:
             description: Filter by sex
       responses:
         "200":
-          description: Exact summary counts from projection.
+          description: Exact scoped counts from canonical goats.
           content:
             application/json:
               schema:
@@ -5994,6 +6089,9 @@ components:
         - completed_count
         - open_count
         - drive_count
+        - due_count
+        - overdue_count
+        - deferred_count
       properties:
         date:
           type: string
@@ -6008,6 +6106,15 @@ components:
           type: integer
           minimum: 0
         drive_count:
+          type: integer
+          minimum: 0
+        due_count:
+          type: integer
+          minimum: 0
+        overdue_count:
+          type: integer
+          minimum: 0
+        deferred_count:
           type: integer
           minimum: 0
     CalendarHistoryItem:
@@ -6153,7 +6260,27 @@ components:
           type:
             - string
             - "null"
+        shed_name:
+          type:
+            - string
+            - "null"
         stage:
+          type:
+            - string
+            - "null"
+        lifecycle_status:
+          type:
+            - string
+            - "null"
+        health_status:
+          type:
+            - string
+            - "null"
+        exit_reason:
+          type:
+            - string
+            - "null"
+        defer_reason:
           type:
             - string
             - "null"
@@ -7002,6 +7129,15 @@ components:
           type: integer
           format: int64
           minimum: 0
+        servingState:
+          type: string
+        stale:
+          type: boolean
+        rebuildRequired:
+          type: boolean
+        rowCount:
+          type: integer
+          minimum: 0
     VaccinationExecutionResponse:
       type: object
       additionalProperties: false
@@ -7083,6 +7219,7 @@ components:
       required:
         - protocolId
         - workState
+        - vaccineNames
         - counts
       properties:
         protocolId:
@@ -7096,6 +7233,10 @@ components:
         nextDue:
           type: string
           format: date-time
+        vaccineNames:
+          type: array
+          items:
+            type: string
         counts:
           $ref: "#/components/schemas/VaccinationOperationsCounts"
     VaccinationOperationsCohort:
@@ -8581,6 +8722,7 @@ components:
         - goatId
         - displayId
         - sex
+        - lifecycleStatus
         - status
       properties:
         goatId:
@@ -8605,6 +8747,20 @@ components:
             - female
             - male
         age:
+          type:
+            - string
+            - "null"
+        lifecycleStatus:
+          type: string
+        healthStatus:
+          type:
+            - string
+            - "null"
+        lastDose:
+          type:
+            - string
+            - "null"
+        nextDue:
           type:
             - string
             - "null"

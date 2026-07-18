@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -296,11 +298,22 @@ func (r *Repository) GetByIdempotencyKey(ctx context.Context, tenantID, idempote
 // canonical deferred state during goat rechecks. If the row was still in a planned batch, it is
 // detached so the held goat is not executed by an already-created drive.
 func (r *Repository) DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (string, bool, error) {
+	ref, changed, err := r.deferOpenObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, reason, occurredAt)
+	return ref.ObligationID, changed, err
+}
+
+// DeferOpenObligationForGeneration returns the persisted state from the same transaction that
+// reconciles a replay. Generation uses this state as the only cross-vaccine spacing authority.
+func (r *Repository) DeferOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (domain.ObligationRef, bool, error) {
+	return r.deferOpenObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, reason, occurredAt)
+}
+
+func (r *Repository) deferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (domain.ObligationRef, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
@@ -308,41 +321,38 @@ func (r *Repository) DeferOpenObligationByIdempotencyKey(ctx context.Context, te
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: begin defer tx: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin defer tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var obligationID, oldBatchID, oldBatchStatus string
+	var obligationID, obligationStatus, oldBatchID, oldBatchStatus string
+	var dueAt pgtype.Timestamptz
+	var rowVersion int32
 	err = tx.QueryRow(ctx, `
 SELECT oi.obligation_id::text,
+	   oi.status,
        COALESCE(oi.batch_id::text, '')::text AS batch_id,
-       COALESCE(ob.status, '')::text AS batch_status
+       COALESCE(ob.status, '')::text AS batch_status,
+       oi.due_at,
+       oi.row_version
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
  AND ob.batch_id = oi.batch_id
 WHERE oi.tenant_id = $1
   AND oi.idempotency_key = $2
-  AND oi.status IN ('scheduled', 'due')
-FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &oldBatchID, &oldBatchStatus)
+FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &obligationStatus, &oldBatchID, &oldBatchStatus, &dueAt, &rowVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
-		row, lookupErr := r.queries.WithTx(tx).GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
-			TenantID:       tenant,
-			IdempotencyKey: idempotencyKey,
-		})
-		if errors.Is(lookupErr, pgx.ErrNoRows) {
-			return "", false, ports.ErrNotFound
-		}
-		if lookupErr != nil {
-			return "", false, fmt.Errorf("obligation: lookup defer replay: %w", lookupErr)
-		}
-		if cerr := tx.Commit(ctx); cerr != nil {
-			return "", false, fmt.Errorf("obligation: commit defer replay: %w", cerr)
-		}
-		return row.ObligationID, false, nil
+		return domain.ObligationRef{}, false, ports.ErrNotFound
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: lock defer target: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: lock defer target: %w", err)
+	}
+	if obligationStatus != "scheduled" && obligationStatus != "due" {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit defer replay: %w", cerr)
+		}
+		return domain.ObligationRef{ObligationID: obligationID, Status: obligationStatus, DueAt: dueAt.Time, RowVersion: rowVersion}, false, nil
 	}
 
 	detachPlannedBatch := oldBatchID != "" && oldBatchStatus == "planned"
@@ -356,13 +366,13 @@ WHERE tenant_id = $1
   AND obligation_id = $2::uuid
   AND status IN ('scheduled', 'due')`, tenant, obligationID, detachPlannedBatch)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: defer open obligation: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: defer open obligation: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		if cerr := tx.Commit(ctx); cerr != nil {
-			return "", false, fmt.Errorf("obligation: commit defer raced noop: %w", cerr)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit defer raced noop: %w", cerr)
 		}
-		return obligationID, false, nil
+		return domain.ObligationRef{ObligationID: obligationID, Status: "scheduled", DueAt: dueAt.Time, RowVersion: rowVersion}, false, nil
 	}
 
 	if detachPlannedBatch {
@@ -420,7 +430,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - 1),
 FROM reserved, repair
 WHERE tenant_id = $1
   AND batch_id = $2::uuid`, tenant, oldBatchID, obligationID, reason); err != nil {
-			return "", false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
 		}
 	}
 
@@ -435,12 +445,12 @@ WHERE tenant_id = $1
 		RequestHash:    "defer:" + reason,
 	})
 	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
-		return "", false, fmt.Errorf("obligation: reserve deferred event key: %w", reserveErr)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: reserve deferred event key: %w", reserveErr)
 	}
 	if reserveErr == nil {
 		oblUUID, err := pgconv.UUID(obligationID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: deferred obligation id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: deferred obligation id: %w", err)
 		}
 		payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": reason})
 		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
@@ -452,25 +462,25 @@ WHERE tenant_id = $1
 			IdempotencyKey: eventKey,
 		})
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: insert deferred event: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: insert deferred event: %w", err)
 		}
 		eventUUID, err := pgconv.UUID(eventID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: deferred event id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: deferred event id: %w", err)
 		}
 		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
 			ResultType:     pgconv.Text("obligation_status_event"),
 			ResultID:       eventUUID,
 			IdempotencyKey: eventKey,
 		}); err != nil {
-			return "", false, fmt.Errorf("obligation: complete deferred event key: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: complete deferred event key: %w", err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", false, fmt.Errorf("obligation: commit defer: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit defer: %w", err)
 	}
-	return obligationID, true, nil
+	return domain.ObligationRef{ObligationID: obligationID, Status: "deferred", DueAt: dueAt.Time, RowVersion: rowVersion + 1}, true, nil
 }
 
 // ReopenDeferredObligationByIdempotencyKey flips a still-'deferred' obligation back to 'scheduled'
@@ -479,11 +489,26 @@ WHERE tenant_id = $1
 // planned drive or to recovery time for an immediate micro-drive. changed is false (a safe
 // recovery-recheck replay) when no deferred row matches the key.
 func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (string, bool, error) {
+	ref, changed, err := r.reopenDeferredObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, occurredAt, reschedule)
+	if !changed {
+		return "", false, err
+	}
+	return ref.ObligationID, true, err
+}
+
+// ReopenDeferredObligationForGeneration returns the row's final persisted status and due date from
+// the reconciliation transaction. A proposed recovery date is never authoritative when reopening
+// is a no-op (for example, because the obligation was already waived or completed).
+func (r *Repository) ReopenDeferredObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (domain.ObligationRef, bool, error) {
+	return r.reopenDeferredObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, occurredAt, reschedule)
+}
+
+func (r *Repository) reopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (domain.ObligationRef, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
@@ -491,35 +516,49 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: begin reopen tx: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin reopen tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 
-	var obligationID string
+	var finalRef domain.ObligationRef
+	var changed bool
 	if reschedule != nil {
-		obligationID, err = qtx.ReopenDeferredObligationForKeyWithDue(ctx, obligationdb.ReopenDeferredObligationForKeyWithDueParams{
+		row, queryErr := qtx.ReopenDeferredObligationForKeyWithDue(ctx, obligationdb.ReopenDeferredObligationForKeyWithDueParams{
 			TenantID:               tenant,
 			IdempotencyKey:         idempotencyKey,
 			RescheduledDueAt:       pgconv.Timestamptz(reschedule.DueAt),
 			RescheduledWindowStart: pgconv.Timestamptz(reschedule.WindowStart),
 			RescheduledWindowEnd:   pgconv.NullableTimestamptz(reschedule.WindowEnd),
 		})
+		err = queryErr
+		finalRef = domain.ObligationRef{ObligationID: row.ObligationID, Status: row.Status, DueAt: row.DueAt.Time, RowVersion: row.RowVersion}
+		changed = row.Changed
 	} else {
-		obligationID, err = qtx.ReopenDeferredObligationForKey(ctx, obligationdb.ReopenDeferredObligationForKeyParams{
+		row, queryErr := qtx.ReopenDeferredObligationForKey(ctx, obligationdb.ReopenDeferredObligationForKeyParams{
 			TenantID:       tenant,
 			IdempotencyKey: idempotencyKey,
 		})
+		err = queryErr
+		finalRef = domain.ObligationRef{ObligationID: row.ObligationID, Status: row.Status, DueAt: row.DueAt.Time, RowVersion: row.RowVersion}
+		changed = row.Changed
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		if cerr := tx.Commit(ctx); cerr != nil {
-			return "", false, fmt.Errorf("obligation: commit reopen noop: %w", cerr)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit reopen missing noop: %w", cerr)
 		}
-		return "", false, nil
+		return domain.ObligationRef{}, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: reopen deferred obligation: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: reopen deferred obligation: %w", err)
 	}
+	if !changed {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit reopen noop: %w", cerr)
+		}
+		return finalRef, false, nil
+	}
+	obligationID := finalRef.ObligationID
 
 	eventKey := obligationID + ":reopened:" + occurredAt.UTC().Format(time.RFC3339Nano)
 	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
@@ -529,12 +568,12 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 		RequestHash:    "reopen:recovered",
 	})
 	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
-		return "", false, fmt.Errorf("obligation: reserve reopen event key: %w", reserveErr)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: reserve reopen event key: %w", reserveErr)
 	}
 	if reserveErr == nil {
 		oblUUID, err := pgconv.UUID(obligationID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: reopened obligation id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: reopened obligation id: %w", err)
 		}
 		payloadFields := map[string]string{"reason": "recovered_from_defer_state"}
 		if reschedule != nil {
@@ -551,25 +590,25 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 			IdempotencyKey: eventKey,
 		})
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: insert reopen event: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: insert reopen event: %w", err)
 		}
 		eventUUID, err := pgconv.UUID(eventID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: reopen event id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: reopen event id: %w", err)
 		}
 		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
 			ResultType:     pgconv.Text("obligation_status_event"),
 			ResultID:       eventUUID,
 			IdempotencyKey: eventKey,
 		}); err != nil {
-			return "", false, fmt.Errorf("obligation: complete reopen event key: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: complete reopen event key: %w", err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", false, fmt.Errorf("obligation: commit reopen: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit reopen: %w", err)
 	}
-	return obligationID, true, nil
+	return finalRef, true, nil
 }
 
 // RescheduleObligationByID reschedules a still-open (scheduled/due) obligation to a new due date in
@@ -1516,9 +1555,120 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 	return out, nil
 }
 
-// ListUnbatchedShedDueForParkConsolidation lists shed-scoped unbatched obligations with their park
-// parent location for the second-pass park drive planner.
-func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor) ([]domain.ParkConsolidationCandidate, error) {
+// unbatchedDueKeysetSelect mirrors ListUnbatchedDueForVersion's projection + filters exactly, wrapped
+// in a CTE so the outer query can keyset-page on a stable ORDER BY tuple (RV-02).
+//
+// RV-06: the ORDER BY / keyset tuple is deliberately (scope_type, scope_id, rule_id, due_at,
+// obligation_id) -- raw obligation_instances columns backed in full by the existing partial index
+// obligation_instances_unbatched_due_version_idx (tenant_id, protocol_version_id, scope_type,
+// scope_id, rule_id, due_at, obligation_id) WHERE batch_id IS NULL AND status IN (...), see migration
+// 000140. It previously also sorted on target_species/target_animal_stage, computed CASE expressions
+// resolved via LEFT JOINs to goats/shed_profiles/animal_stage_lookup that no index can back -- so
+// Postgres had to materialize and re-sort the ENTIRE remaining candidate tail on every late page,
+// WHILE the caller (PreflightVisitShotCapTies, called under LockTenantSweep) held the per-tenant
+// advisory lock for the whole scan. Dropping them from the DB-level ORDER BY is safe: obligation_id
+// is a unique primary key, so the 5-column tuple is still a strict total order (no ties, no rows
+// skipped or repeated across pages), and groupUnbatchedDue (due_grouping.go) buckets rows into
+// dueGroups by a map key, not by assuming any physical input order -- grouping correctness does not
+// depend on species/stage sort position. species/stage are still SELECTed (still needed for the
+// group key itself), just no longer part of the index-order sort.
+//
+// RV-05: the CTE also accepts an optional created_at high-water mark ($4, NULL = unbounded). See
+// SweeperService.CaptureSweepHighWaterMark: PreflightVisitShotCapTies and the real per-version sweep
+// share ONE high-water mark captured at the start of a locked sweep run, so an obligation generated
+// concurrently (outside the tenant-sweep lock -- vaccination/app's InsertObligation callers do not
+// hold it) after that instant is invisible to BOTH the write-free preview and the real writes this
+// cycle, and is naturally picked up next cycle (which re-preflights against its own fresh HWM).
+const unbatchedDueKeysetSelect = `
+WITH candidates AS (
+  SELECT oi.obligation_id AS obligation_id_key,
+         oi.rule_id AS rule_id_key,
+         oi.scope_type AS scope_type,
+         oi.scope_id AS scope_id_key,
+         oi.target_id AS target_id_key,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text ELSE '' END AS target_reproductive_status,
+         oi.due_at AS due_at,
+         oi.window_start AS window_start,
+         COALESCE(oi.window_end, oi.due_at + make_interval(days => GREATEST(COALESCE(pr.due_window_days, 0), 0))) AS window_end,
+         COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
+         oi.first_batching_hold_until AS first_batching_hold_until
+  FROM obligation_instances oi
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
+  LEFT JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+  LEFT JOIN location_operational_attributes loa
+    ON loa.tenant_id = g.tenant_id AND loa.location_id = g.current_location_id
+  LEFT JOIN shed_profiles sp
+    ON sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+  LEFT JOIN animal_stage_lookup asl
+    ON asl.tenant_id = sp.tenant_id AND asl.animal_stage_id = sp.animal_stage_id AND asl.status = 'active'
+  WHERE oi.tenant_id = $1
+    AND oi.protocol_version_id = $2
+    AND oi.status IN ('scheduled', 'due', 'missed')
+    AND oi.batch_id IS NULL
+    AND oi.due_at <= $3
+    AND ($4::timestamptz IS NULL OR oi.created_at <= $4::timestamptz)
+    AND ($5::uuid[] IS NULL OR oi.obligation_id = ANY($5::uuid[]))
+    AND (
+      oi.target_type <> 'goat'
+      OR (
+        g.goat_id IS NOT NULL
+        AND g.lifecycle_status = 'alive'
+        AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
+        AND COALESCE(loa.usable_for_vaccination, true)
+        AND NOT COALESCE(loa.is_quarantine, false)
+        AND NOT COALESCE(loa.is_icu, false)
+      )
+    )
+)
+SELECT obligation_id_key::text AS obligation_id,
+       rule_id_key::text AS rule_id,
+       scope_type,
+       scope_id_key::text AS scope_id,
+       target_id_key::text AS target_id,
+       target_species, target_animal_stage,
+       target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
+FROM candidates
+`
+
+const unbatchedDueKeysetOrderLimit = `
+ORDER BY scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key
+LIMIT $6`
+
+// ListUnbatchedDueForVersionKeyset is the write-free preflight's full-scan sibling of
+// ListUnbatchedDueForVersion (RV-02), unbounded by any created_at high-water mark. after == nil
+// starts from the beginning. See ListUnbatchedDueForVersionKeysetHWM for the RV-05 bounded variant.
+func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32) ([]domain.UnbatchedDue, error) {
+	return r.ListUnbatchedDueForVersionKeysetHWM(ctx, tenantID, versionID, dueBefore, after, limit, time.Time{})
+}
+
+// ListUnbatchedDueForVersionKeysetHWM is ListUnbatchedDueForVersionKeyset bounded ALSO by
+// createdAtHWM (RV-05): a zero createdAtHWM means unbounded (identical to
+// ListUnbatchedDueForVersionKeyset). The real sweep advances its pages by BATCHING rows (they leave
+// the unbatched set); a dry-run preflight cannot, so it keyset-pages on the query's own stable
+// ORDER BY tuple and processes every page exactly like the real sweep processes each of its pages --
+// so a conflicting obligation beyond the first page is caught BEFORE any write, not committed-then-
+// aborted.
+func (r *Repository) ListUnbatchedDueForVersionKeysetHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error) {
+	return r.listUnbatchedDueForVersionKeysetSnapshot(ctx, tenantID, versionID, dueBefore, after, limit, createdAtHWM, nil)
+}
+
+// ListUnbatchedDueForVersionSnapshot constrains the real sweep to the exact candidate IDs observed
+// by its successful preflight. candidateIDs is deliberately non-optional at this seam: an empty
+// slice means the preflight observed no work, while the legacy HWM method above passes nil for an
+// unbounded read.
+func (r *Repository) ListUnbatchedDueForVersionSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time, candidateIDs []string) ([]domain.UnbatchedDue, error) {
+	if candidateIDs == nil {
+		candidateIDs = []string{}
+	}
+	return r.listUnbatchedDueForVersionKeysetSnapshot(ctx, tenantID, versionID, dueBefore, nil, limit, createdAtHWM, candidateIDs)
+}
+
+func (r *Repository) listUnbatchedDueForVersionKeysetSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32, createdAtHWM time.Time, candidateIDs []string) ([]domain.UnbatchedDue, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1531,6 +1681,145 @@ func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Contex
 	}
 	if limit <= 0 {
 		limit = 1000
+	}
+	var snapshotIDs []pgtype.UUID
+	if candidateIDs != nil {
+		snapshotIDs, err = obligationUUIDs(candidateIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args := []any{tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, limit}
+	sql := unbatchedDueKeysetSelect + unbatchedDueKeysetOrderLimit
+	if after != nil {
+		scopeID, err := pgconv.UUID(after.ScopeID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: keyset cursor scope id: %w", err)
+		}
+		ruleID, err := pgconv.UUID(after.RuleID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: keyset cursor rule id: %w", err)
+		}
+		obligationID, err := pgconv.UUID(after.ObligationID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: keyset cursor obligation id: %w", err)
+		}
+		sql = unbatchedDueKeysetSelect +
+			"WHERE (scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key) > ($7, $8, $9, $10, $11)" +
+			unbatchedDueKeysetOrderLimit
+		args = append(args, after.ScopeType, scopeID, ruleID, pgconv.Timestamptz(after.DueAt), obligationID)
+	}
+	// scale-guard:ignore: keyset pagination on the query's own indexed ORDER BY tuple, bounded to LIMIT per page; read-only preflight/HWM-bounded real-sweep read, no OFFSET.
+	rows, err := r.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list unbatched due keyset: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.UnbatchedDue, 0, limit)
+	for rows.Next() {
+		var u domain.UnbatchedDue
+		var windowStart, windowEnd, firstHold *time.Time
+		if err := rows.Scan(
+			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.TargetID,
+			&u.TargetSpecies, &u.TargetAnimalStage, &u.TargetReproductiveStatus,
+			&u.DueAt, &windowStart, &windowEnd, &u.BatchingHoldCount, &firstHold,
+		); err != nil {
+			return nil, fmt.Errorf("obligation: scan unbatched due keyset: %w", err)
+		}
+		u.WindowStart = windowStart
+		u.WindowEnd = windowEnd
+		u.FirstBatchingHoldUntil = firstHold
+		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: unbatched due keyset rows: %w", err)
+	}
+	return out, nil
+}
+
+// ListUnbatchedDueForVersionHWM is the RV-05 real-sweep-path sibling of ListUnbatchedDueForVersion:
+// identical unbounded semantics when createdAtHWM is zero, plus the same created_at <= createdAtHWM
+// bound ListUnbatchedDueForVersionKeysetHWM applies for the preflight path. Production additionally
+// uses ListUnbatchedDueForVersionSnapshot so pre-existing rows cannot enter after preflight. This is
+// the first-page equivalent of the keyset call (after == nil): the real sweep advances by batching
+// rows out of the unbatched set and re-reads from the beginning.
+func (r *Repository) ListUnbatchedDueForVersionHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error) {
+	return r.ListUnbatchedDueForVersionKeysetHWM(ctx, tenantID, versionID, dueBefore, nil, limit, createdAtHWM)
+}
+
+// CaptureSweepHighWaterMark returns the DATABASE SERVER's current time (RV-05), used as the frozen
+// created_at boundary shared by PreflightVisitShotCapTies and this run's real per-version sweep
+// (ListUnbatchedDueForVersionHWM / ListUnbatchedDueForVersionKeysetHWM / the park-consolidation HWM
+// read). Using the database's own clock (rather than the caller's local wall clock) keeps the
+// boundary consistent with obligation_instances.created_at, which is also assigned by the database
+// (DEFAULT now()). Callers should capture this ONCE per locked sweep cycle, immediately after
+// acquiring LockTenantSweep and before running PreflightVisitShotCapTies, and thread the SAME value
+// through every read in that cycle.
+func (r *Repository) CaptureSweepHighWaterMark(ctx context.Context) (time.Time, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var hwm time.Time
+	if err := r.pool.QueryRow(ctx, "SELECT now()").Scan(&hwm); err != nil {
+		return time.Time{}, fmt.Errorf("obligation: capture sweep high-water mark: %w", err)
+	}
+	return hwm, nil
+}
+
+// nullableTimestamptzOrNil renders a zero time.Time as a NULL timestamptz parameter (unbounded) and
+// a non-zero one as its normal valid value, matching the `$N::timestamptz IS NULL OR ...` bound
+// pattern used by the HWM-aware queries in this file.
+func nullableTimestamptzOrNil(t time.Time) pgtype.Timestamptz {
+	if t.IsZero() {
+		return pgtype.Timestamptz{}
+	}
+	return pgconv.Timestamptz(t)
+}
+
+// ListUnbatchedShedDueForParkConsolidation lists shed-scoped unbatched obligations with their park
+// parent location for the second-pass park drive planner, unbounded by any created_at high-water
+// mark. See ListUnbatchedShedDueForParkConsolidationHWM for the RV-05 bounded variant.
+func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor) ([]domain.ParkConsolidationCandidate, error) {
+	return r.ListUnbatchedShedDueForParkConsolidationHWM(ctx, tenantID, versionID, dueBefore, limit, after, time.Time{})
+}
+
+// ListUnbatchedShedDueForParkConsolidationHWM is ListUnbatchedShedDueForParkConsolidation bounded
+// ALSO by createdAtHWM (RV-05): a zero createdAtHWM means unbounded (identical to
+// ListUnbatchedShedDueForParkConsolidation). The production snapshot variant below adds the exact
+// preflight membership bound needed for pre-existing rows that become eligible after preflight.
+func (r *Repository) ListUnbatchedShedDueForParkConsolidationHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time) ([]domain.ParkConsolidationCandidate, error) {
+	return r.listUnbatchedShedDueForParkConsolidationSnapshot(ctx, tenantID, versionID, dueBefore, limit, after, createdAtHWM, nil)
+}
+
+// ListUnbatchedShedDueForParkConsolidationSnapshot is the park-pass sibling of
+// ListUnbatchedDueForVersionSnapshot: reopened/new rows outside the successful preflight snapshot
+// are deferred to the next sweep cycle instead of entering this cycle's write pass.
+func (r *Repository) ListUnbatchedShedDueForParkConsolidationSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time, candidateIDs []string) ([]domain.ParkConsolidationCandidate, error) {
+	if candidateIDs == nil {
+		candidateIDs = []string{}
+	}
+	return r.listUnbatchedShedDueForParkConsolidationSnapshot(ctx, tenantID, versionID, dueBefore, limit, after, createdAtHWM, candidateIDs)
+}
+
+func (r *Repository) listUnbatchedShedDueForParkConsolidationSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time, candidateIDs []string) ([]domain.ParkConsolidationCandidate, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(versionID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: version id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	var snapshotIDs []pgtype.UUID
+	if candidateIDs != nil {
+		snapshotIDs, err = obligationUUIDs(candidateIDs)
+		if err != nil {
+			return nil, err
+		}
 	}
 	cursorParkID := ""
 	cursorRuleID := ""
@@ -1602,12 +1891,14 @@ WHERE o.tenant_id = $1
   AND o.batch_id IS NULL
   AND o.scope_type = 'shed'
   AND o.due_at <= $3
+  AND ($4::timestamptz IS NULL OR o.created_at <= $4::timestamptz)
+  AND ($5::uuid[] IS NULL OR o.obligation_id = ANY($5::uuid[]))
   AND (
     o.target_type <> 'goat'
     OR (
       g.goat_id IS NOT NULL
       AND g.lifecycle_status = 'alive'
-      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
       AND COALESCE(loa.usable_for_vaccination, true)
       AND NOT COALESCE(loa.is_quarantine, false)
       AND NOT COALESCE(loa.is_icu, false)
@@ -1630,12 +1921,12 @@ SELECT
   first_batching_hold_until
 FROM candidates
 WHERE (
-    $4::text = ''
+    $6::text = ''
     OR (park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id)
-      > ($4::text, $5::text, $6::text, $7::text, $8::timestamptz, $9::text)
+      > ($6::text, $7::text, $8::text, $9::text, $10::timestamptz, $11::text)
   )
 ORDER BY park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id
-LIMIT $10`, tenant, version, pgconv.Timestamptz(dueBefore), cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
+LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
 	}
@@ -1737,7 +2028,7 @@ func (r *Repository) DeferBlockedVaccinationSweepCandidates(ctx context.Context,
 WITH candidates AS (
   SELECT oi.obligation_id,
          CASE
-           WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+           WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
              THEN COALESCE(g.health_status, '')
            WHEN COALESCE(loa.is_quarantine, false) THEN 'quarantine_location'
            WHEN COALESCE(loa.is_icu, false) THEN 'icu_location'
@@ -1759,7 +2050,7 @@ WITH candidates AS (
     AND oi.due_at <= $3
     AND g.lifecycle_status = 'alive'
     AND (
-      COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
       OR COALESCE(loa.is_quarantine, false)
       OR COALESCE(loa.is_icu, false)
       OR NOT COALESCE(loa.usable_for_vaccination, true)
@@ -1946,21 +2237,26 @@ func (r *Repository) ListPlannedComboBatches(ctx context.Context, tenantID strin
 	if limit <= 0 {
 		limit = 1000
 	}
-	dueDay := dueBefore.UTC()
+	dueDay := biztime.BusinessDayStart(dueBefore)
 	// TargetIDs is aggregated here (one set-based join, not a per-batch follow-up query) so
 	// AlignComboDrives can enforce MaxShotsPerAnimalPerDrive when co-locating combo batches
 	// onto a shared date without an N+1 fan-out over the (typically small) combo batch set.
 	rows, err := r.pool.Query(ctx, `
+-- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids and intersected safe window via the LATERAL aggregate; group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=single LIMIT page here, exhaustive keyset over (scope_type,scope_id,session,planned_date,batch_id) lives in ListPlannedComboBatchesKeyset so groups never split across pages; scope=batch scope_type/scope_id (park or shed)
 SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
        COALESCE(b.session, '')::text AS session,
        b.planned_date,
+       oi.safe_start,
+       oi.safe_end,
        COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
 FROM obligation_batches b
 LEFT JOIN LATERAL (
-    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids
+    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids,
+           max(COALESCE(o.window_start, o.due_at)::date) AS safe_start,
+           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end
     FROM obligation_instances o
     WHERE o.tenant_id = b.tenant_id
       AND o.batch_id = b.batch_id
@@ -1980,17 +2276,136 @@ LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
 	out := make([]domain.ComboDriveBatch, 0)
 	for rows.Next() {
 		var row domain.ComboDriveBatch
-		var planned pgtype.Date
-		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &row.TargetIDs); err != nil {
+		var planned, safeStart, safeEnd pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &safeStart, &safeEnd, &row.TargetIDs); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
 		}
 		if planned.Valid {
 			row.PlannedDate = pgconv.DateValue(planned)
 		}
+		if safeStart.Valid {
+			row.SafeStart = pgconv.DateValue(safeStart)
+		}
+		if safeEnd.Valid {
+			row.SafeEnd = pgconv.DateValue(safeEnd)
+		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: list planned combo batches: %w", err)
+	}
+	return out, nil
+}
+
+// ListPlannedComboBatchesKeyset pages through combo batches using keyset pagination.
+// Cursor is keyset-based using (scope_type, scope_id, session, batch_id) -- see R2-06 fix note on
+// domain.ComboBatchCursor for why planned_date was deliberately dropped from both the cursor and
+// the ORDER BY (AlignComboDrives mutates planned_date mid-pagination via UpdateBatchPlannedDate).
+// after == nil starts from the beginning.
+func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID string, dueBefore time.Time, after *domain.ComboBatchCursor, limit int32) ([]domain.ComboDriveBatch, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	dueDay := biztime.BusinessDayStart(dueBefore)
+
+	// Build keyset pagination WHERE clause. Cursor-based pagination: if after is provided,
+	// rows must be lexicographically AFTER the cursor in the ORDER BY direction.
+	whereClause := `WHERE b.tenant_id = $1
+  AND b.status = 'planned'
+  AND b.session LIKE 'combo:%'
+  AND b.sop_task_id IS NULL
+  AND NOT (b.context ? 'stock_reservation')
+  AND (b.planned_date IS NULL OR b.planned_date <= $2::date)`
+
+	args := []interface{}{tenant, pgconv.Date(&dueDay)}
+	argIdx := 3
+
+	if after != nil {
+		// Keyset cursor: continue after the last row from the previous page.
+		// For tuples (a, b, c, d) ordered ASC, we want:
+		// (scope_type, scope_id, session, batch_id) > (cursor.scope_type, cursor.scope_id, cursor.session, cursor.batch_id)
+		// This expands to: (a > a') OR (a = a' AND b > b') OR (a = a' AND b = b' AND c > c') OR ...
+		// batch_id (a UUID primary key) is the final, always-unique tiebreak, so the cursor needs no
+		// mutable column at all to guarantee a strictly-advancing, gap-free page boundary.
+		whereClause += `
+  AND (b.scope_type, b.scope_id, b.session, b.batch_id) >
+      ($` + strconv.Itoa(argIdx) + `, $` + strconv.Itoa(argIdx+1) + `, $` + strconv.Itoa(argIdx+2) + `, $` + strconv.Itoa(argIdx+3) + `)`
+
+		batchID, err := pgconv.UUID(after.BatchID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: cursor batch id: %w", err)
+		}
+		scopeID, err := pgconv.UUID(after.ScopeID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: cursor scope id: %w", err)
+		}
+		args = append(args,
+			pgconv.Text(after.ScopeType),
+			scopeID,
+			pgconv.Text(after.Session),
+			batchID,
+		)
+		argIdx += 4
+	}
+
+	query := `
+-- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids and intersected safe window via the LATERAL aggregate; group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=keyset over IMMUTABLE (scope_type,scope_id,session,batch_id) matching ORDER BY, cursor tuple > last row -- planned_date is deliberately excluded from both the cursor and ORDER BY because AlignComboDrives mutates it mid-pagination (R2-06); a (scope_type,scope_id,session) group is contiguous in this order but MAY span more than one page, so the caller must assemble the full group across page boundaries rather than assume one page always holds it whole; scope=batch scope_type/scope_id (park or shed)
+SELECT b.batch_id::text,
+       b.protocol_version_id::text,
+       b.scope_type,
+       COALESCE(b.scope_id::text, '')::text AS scope_id,
+       COALESCE(b.session, '')::text AS session,
+       b.planned_date,
+       oi.safe_start,
+       oi.safe_end,
+       COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
+FROM obligation_batches b
+LEFT JOIN LATERAL (
+    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids,
+           max(COALESCE(o.window_start, o.due_at)::date) AS safe_start,
+           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end
+    FROM obligation_instances o
+    WHERE o.tenant_id = b.tenant_id
+      AND o.batch_id = b.batch_id
+) oi ON true
+` + whereClause + `
+ORDER BY b.scope_type, b.scope_id, b.session, b.batch_id
+LIMIT $` + strconv.Itoa(argIdx)
+
+	args = append(args, limit)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list planned combo batches keyset: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]domain.ComboDriveBatch, 0)
+	for rows.Next() {
+		var row domain.ComboDriveBatch
+		var planned, safeStart, safeEnd pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &safeStart, &safeEnd, &row.TargetIDs); err != nil {
+			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
+		}
+		if planned.Valid {
+			row.PlannedDate = pgconv.DateValue(planned)
+		}
+		if safeStart.Valid {
+			row.SafeStart = pgconv.DateValue(safeStart)
+		}
+		if safeEnd.Valid {
+			row.SafeEnd = pgconv.DateValue(safeEnd)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: list planned combo batches keyset: %w", err)
 	}
 	return out, nil
 }
@@ -2013,13 +2428,107 @@ SET planned_date = $3::date,
     updated_at = now()
 WHERE tenant_id = $1
   AND batch_id = $2
-  AND status = 'planned'
-  AND sop_task_id IS NULL`, tenant, batch, pgconv.Date(&plannedDate))
+	AND status = 'planned'
+	AND sop_task_id IS NULL`, tenant, batch, pgconv.Date(&plannedDate))
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if mergeErr := r.mergeUnfinalizedBatchIntoPlannedDate(ctx, tenant, batch, plannedDate); mergeErr == nil {
+				return nil
+			}
+		}
 		return fmt.Errorf("obligation: update batch planned date: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repository) mergeUnfinalizedBatchIntoPlannedDate(ctx context.Context, tenant, sourceBatch pgtype.UUID, plannedDate time.Time) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("obligation: begin merge aligned batch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var moved int64
+	var retired bool
+	err = tx.QueryRow(ctx, `
+WITH source AS (
+    SELECT *
+    FROM obligation_batches
+    WHERE tenant_id = $1
+      AND batch_id = $2
+      AND status = 'planned'
+      AND sop_task_id IS NULL
+      AND NOT (context ? 'stock_reservation')
+    FOR UPDATE
+),
+target AS (
+    SELECT b.batch_id
+    FROM obligation_batches b
+    JOIN source s ON true
+    WHERE b.tenant_id = s.tenant_id
+      AND b.batch_id <> s.batch_id
+      AND b.protocol_version_id = s.protocol_version_id
+      AND b.scope_type = s.scope_type
+      AND b.scope_id = s.scope_id
+      AND COALESCE(b.session, '') = COALESCE(s.session, '')
+      AND b.planned_date IS NOT DISTINCT FROM $3::date
+      AND b.window_start IS NOT DISTINCT FROM s.window_start
+      AND b.window_end IS NOT DISTINCT FROM s.window_end
+      AND b.status = 'planned'
+      AND b.sop_task_id IS NULL
+      AND NOT (b.context ? 'stock_reservation')
+    ORDER BY b.batch_id
+    LIMIT 1
+    FOR UPDATE
+),
+moved AS (
+    UPDATE obligation_instances oi
+    SET batch_id = (SELECT batch_id FROM target),
+        updated_at = now()
+    WHERE oi.tenant_id = $1
+      AND oi.batch_id = $2
+      AND EXISTS (SELECT 1 FROM target)
+    RETURNING 1
+),
+target_update AS (
+    UPDATE obligation_batches b
+    SET estimated_targets = b.estimated_targets + source.estimated_targets,
+        planned_quantity = COALESCE(b.planned_quantity, 0) + COALESCE(source.planned_quantity, 0),
+        updated_at = now(),
+        row_version = b.row_version + 1
+    FROM source, target
+    WHERE b.tenant_id = source.tenant_id
+      AND b.batch_id = target.batch_id
+    RETURNING 1
+),
+retired AS (
+    UPDATE obligation_batches b
+    SET status = 'superseded',
+        updated_at = now(),
+        row_version = b.row_version + 1,
+        context = b.context || jsonb_build_object(
+            'merged_into_batch_id', (SELECT batch_id::text FROM target),
+            'merged_planned_date', $3::date::text
+        )
+    WHERE b.tenant_id = $1
+      AND b.batch_id = $2
+      AND EXISTS (SELECT 1 FROM target)
+    RETURNING 1
+)
+SELECT (SELECT count(*) FROM moved), EXISTS (SELECT 1 FROM retired)`,
+		tenant, sourceBatch, pgconv.Date(&plannedDate)).Scan(&moved, &retired)
+	if err != nil {
+		return fmt.Errorf("obligation: merge aligned batch: %w", err)
+	}
+	if !retired {
+		return ports.ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("obligation: commit merge aligned batch: %w", err)
 	}
 	return nil
 }
@@ -2133,7 +2642,11 @@ func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.N
 	}()
 	qtx := r.queries.WithTx(tx)
 
-	lockKey := fmt.Sprintf("%s:obligation-batch:%s:%s:%s", in.TenantID, in.ProtocolVersionID, in.ScopeType, in.ScopeID)
+	// RV-03: fold the CANONICAL (already-parsed, re-rendered lowercase) uuid form into the lock key,
+	// not the caller's raw uuid strings. hashtext() hashes raw text bytes, so an uppercase-hex and a
+	// lowercase-hex representation of the identical tenant/version/scope uuid would otherwise hash
+	// to two different advisory-lock ids and let two concurrent attaches for the same scope race.
+	lockKey := fmt.Sprintf("%s:obligation-batch:%s:%s:%s", pgconv.UUIDString(tenant), pgconv.UUIDString(version), in.ScopeType, pgconv.UUIDString(scope))
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
 		return "", 0, fmt.Errorf("obligation: batch scope lock: %w", err)
 	}
@@ -2457,6 +2970,7 @@ func (r *Repository) ListPlannedBatchesNeedingFinalization(ctx context.Context, 
 		}
 	}
 	rows, err := r.pool.Query(ctx, `
+-- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open (scheduled/due/in_progress) and still need SOP task or stock finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins 1:N but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state is checked with EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over (created_at,batch_id) with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type/scope_id (park/shed/cohort as stored on obligation_batches, no hierarchy COALESCE)
 SELECT ob.batch_id::text,
        COALESCE(MIN(oi.rule_id::text), '')::text AS rule_id,
        ob.scope_type,
@@ -2473,7 +2987,8 @@ SELECT ob.batch_id::text,
            AND ism.batch_id = ob.batch_id
            AND ism.movement_type = 'reserve'
        ) AS has_stock_reservation,
-       (ob.context ? 'stock_block') AS stock_blocked
+       (ob.context ? 'stock_block') AS stock_blocked,
+       COALESCE(ob.context #>> '{stock_block,item_id}', '') AS stock_block_item_id
 FROM obligation_batches ob
 JOIN obligation_instances oi
   ON oi.tenant_id = ob.tenant_id
@@ -2497,12 +3012,15 @@ GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date,
          NOT (ob.context ? 'stock_block')
          OR COALESCE(NULLIF(ob.context #>> '{stock_block,retry_after}', '')::timestamptz, '-infinity'::timestamptz) <= now()
        )
-       AND NOT EXISTS (
-         SELECT 1
-         FROM inventory_stock_movements ism
-         WHERE ism.tenant_id = ob.tenant_id
-           AND ism.batch_id = ob.batch_id
-           AND ism.movement_type = 'reserve'
+       AND (
+         ob.context ? 'stock_block'
+         OR NOT EXISTS (
+           SELECT 1
+           FROM inventory_stock_movements ism
+           WHERE ism.tenant_id = ob.tenant_id
+             AND ism.batch_id = ob.batch_id
+             AND ism.movement_type = 'reserve'
+         )
        )
      )
    )
@@ -2528,6 +3046,7 @@ LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID,
 			&b.HasSOPTask,
 			&b.HasStockReservation,
 			&b.StockBlocked,
+			&b.StockBlockItemID,
 		); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned batch finalization: %w", err)
 		}

@@ -14,13 +14,15 @@ SELECT json_build_object(
 )
 FROM pg_stat_user_tables
 WHERE relname IN (
+  'goats',
+  'obligation_instances',
+  'vaccination_completions',
+  'protocol_rules',
+  'locations',
   'process_integrity_projection_rows',
   'process_integrity_projection_summaries',
   'calendar_event_projections',
   'vaccination_shed_projection_rows',
   'vaccination_execution_projection_rows',
-  'vaccination_operations_projection_rows',
-  'goats',
-  'obligation_instances',
-  'vaccination_completions'
+  'vaccination_operations_projection_rows'
 );

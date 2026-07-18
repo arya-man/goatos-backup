@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -263,6 +264,12 @@ type completionRepoFake struct {
 	rollupAgg   domain.EligibilityRollupAggregate
 	dailyCap    int64
 	goatScanned bool // set true if any live goat-count method is ever called (impact must not scan goats)
+	// stage-review re-verify doubles (VACC-REV-10).
+	srGoat              domain.EligibleGoat
+	srGoatLoadFound     bool
+	srResolved          bool
+	srCorrectedResolved bool
+	srCorrectedWasOpen  bool
 }
 
 type completionRowFake struct {
@@ -409,7 +416,11 @@ func (r *completionRepoFake) ListEligibleGoatsForGeneration(context.Context, dom
 }
 
 func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, string) (domain.EligibleGoat, bool, error) {
-	return domain.EligibleGoat{}, false, nil
+	return r.srGoat, r.srGoatLoadFound, nil
+}
+
+func (r *completionRepoFake) ResolveStageReviewItemCorrected(context.Context, string, string, string, string, time.Time) (bool, bool, error) {
+	return r.srCorrectedResolved, r.srCorrectedWasOpen, nil
 }
 
 type obligationCompleterFake struct {
@@ -462,6 +473,38 @@ func (r *completionRepoFake) ListOpenStageReviewItems(context.Context, string, *
 	return domain.StageReviewItemPage{}, nil
 }
 
-func (r *completionRepoFake) ResolveStageReviewItem(context.Context, string, string, string, string, time.Time) (bool, error) {
-	return false, nil
+func (r *completionRepoFake) ResolveStageReviewItem(context.Context, string, string, string, string, string, time.Time) (bool, error) {
+	return r.srResolved, nil
+}
+
+// TestResolveStageReviewItemCorrectedReverify is the VACC-REV-10 service-branching guard: a 'corrected'
+// resolution maps the atomic repo outcome to 200 (resolved), 409 (open but re-check blocked — still
+// stale or goat missing), or 404 (not open); an 'exception' resolution skips the re-check entirely.
+// The actual stale re-check SQL is exercised by the Postgres integration test.
+func TestResolveStageReviewItemCorrectedReverify(t *testing.T) {
+	ctx := context.Background()
+
+	// corrected + repo says still-open-but-not-resolved (re-check blocked) -> 409.
+	svc := NewService(&completionRepoFake{srCorrectedResolved: false, srCorrectedWasOpen: true})
+	if _, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "claims fixed", "corrected", time.Now()); !errors.Is(err, ErrStageReviewStillActive) {
+		t.Fatalf("corrected-blocked err = %v, want ErrStageReviewStillActive", err)
+	}
+
+	// corrected + repo resolved -> ok.
+	svc = NewService(&completionRepoFake{srCorrectedResolved: true, srCorrectedWasOpen: true})
+	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "advanced to adult", "corrected", time.Now()); err != nil || !ok {
+		t.Fatalf("corrected-resolved ok=%v err=%v, want true/nil", ok, err)
+	}
+
+	// corrected + item not open -> 404 (false, nil), not an error.
+	svc = NewService(&completionRepoFake{srCorrectedResolved: false, srCorrectedWasOpen: false})
+	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "x", "corrected", time.Now()); err != nil || ok {
+		t.Fatalf("corrected-not-open ok=%v err=%v, want false/nil", ok, err)
+	}
+
+	// exception -> plain resolve, no re-check.
+	svc = NewService(&completionRepoFake{srResolved: true})
+	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "already vaccinated; tag fix scheduled", "exception", time.Now()); err != nil || !ok {
+		t.Fatalf("exception ok=%v err=%v, want true/nil", ok, err)
+	}
 }

@@ -41,7 +41,7 @@ type protocolRuleDimensionWriter interface {
 }
 
 type protocolMatrixPublisher interface {
-	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error
+	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, seedOwnedGuardActor string, idempotencyKey ...string) error
 }
 
 // capacityAtomicPublisher publishes a non-matrix vaccination version and upserts + parity-checks its
@@ -53,6 +53,13 @@ type capacityAtomicPublisher interface {
 
 type protocolPublishedMatrixReplayer interface {
 	PublishPublishedMatrixReplay(ctx context.Context, tenantID string, v domain.Version, publishedBy *string, idempotencyKey ...string) error
+}
+
+// matrixTargetOwnershipReader reads a version's drafted_by so a seed-owned publish can verify its
+// target is seed-drafted BEFORE dispatching — closing the already-published replay path where the
+// per-transaction retire guard never runs.
+type matrixTargetOwnershipReader interface {
+	VaccinationMatrixVersionDraftedBy(ctx context.Context, tenantID, versionID string) (string, error)
 }
 
 type ruleDSLEnvelope struct {
@@ -196,6 +203,7 @@ type vaccineMeta struct {
 	CompatibilityGroup string `json:"compatibility_group"`
 	PathogenClass      string `json:"pathogen_class"`
 	CourseType         string `json:"course_type"`
+	Priority           int32  `json:"priority"`
 }
 
 type scheduleRow struct {
@@ -283,6 +291,7 @@ var (
 		"compatibility_group": true,
 		"pathogen_class":      true,
 		"course_type":         true,
+		"priority":            true,
 	}
 	ruleDSLCompatibilityPolicyKeys = map[string]bool{
 		"live_to_killed_gap_days":            true,
@@ -611,6 +620,59 @@ var forbiddenPathogenClassValues = map[string]struct{}{
 	"combo":  {},
 }
 
+// validVaccineTypes are the only accepted immunological types. Per the V1 Implementation Contract
+// (docs/preventive-care-vaccination/vaccination-rules.md) and the Config UI's own vaccine_types
+// option group (adminui service.pageOptionGroups), the reviewed taxonomy is live/killed/toxoid PLUS
+// "combo" (a reviewed combination row) and "unknown_review_needed" (source explicitly lacks a type;
+// fail-closed downstream). R2-07b: these were previously rejected here even though the Config UI
+// offered them and the canonical rules require them, so a direct publish with a reviewed value was
+// blocked and the UI presented un-publishable options. classifyVaccine() already maps combo/unknown
+// to immunoUnknown, which crossVaccineGapDays fails closed on (strictest gap).
+// Note: "matrix" is valid only for the wrapper vaccine (vaccination.matrix), not for individual vaccines.
+var validVaccineTypes = map[string]struct{}{
+	"live":                  {},
+	"killed":                {},
+	"toxoid":                {},
+	"combo":                 {},
+	"unknown_review_needed": {},
+}
+
+// validPathogenClasses are the only accepted organism classes: bacterial/viral PLUS "mixed"
+// (combination vaccine or reviewed combo row) and "unknown_review_needed" (source lacks class; fail
+// closed for same-day planning) -- matching the Config UI vaccine_pathogen_classes option group and
+// the V1 contract (R2-07b). classifyVaccine treats mixed/unknown as a non-viral/non-bacterial base
+// class, which the compatibility engine handles conservatively.
+var validPathogenClasses = map[string]struct{}{
+	"viral":                 {},
+	"bacterial":             {},
+	"mixed":                 {},
+	"unknown_review_needed": {},
+}
+
+// validCourseTypes are the only accepted course types.
+var validCourseTypes = map[string]struct{}{
+	"single":  {},
+	"booster": {},
+}
+
+// IsValidVaccineType / IsValidPathogenClass / IsValidCourseType expose the reviewed taxonomy so the
+// adminui Config option groups (and their tests) validate against ONE backend source of truth
+// instead of a second hardcoded list that can silently drift out of sync (R2-07b).
+func IsValidVaccineType(v string) bool {
+	_, ok := validVaccineTypes[strings.ToLower(strings.TrimSpace(v))]
+	return ok
+}
+
+func IsValidPathogenClass(v string) bool {
+	_, ok := validPathogenClasses[strings.ToLower(strings.TrimSpace(v))]
+	return ok
+}
+
+func IsValidCourseType(v string) bool {
+	_, ok := validCourseTypes[strings.ToLower(strings.TrimSpace(v))]
+	return ok
+}
+
 func rejectVaccineTypeValueInPathogenClass(pathogenClass, label string) error {
 	v := strings.ToLower(strings.TrimSpace(pathogenClass))
 	if v == "" {
@@ -618,6 +680,46 @@ func rejectVaccineTypeValueInPathogenClass(pathogenClass, label string) error {
 	}
 	if _, bad := forbiddenPathogenClassValues[v]; bad {
 		return fmt.Errorf("%w: %s %q is a vaccine-type value; pathogen class must describe the organism (bacterial/viral), not the vaccine type", ErrNotPublishable, label, pathogenClass)
+	}
+	return nil
+}
+
+// validateVaccineType ensures vaccine type is valid (live, killed, toxoid, or matrix for wrapper).
+// allowMatrix should be true only for the top-level vaccine (wrapper), not for individual vaccines.
+func validateVaccineType(vaccineType, label string, allowMatrix bool) error {
+	v := strings.ToLower(strings.TrimSpace(vaccineType))
+	if v == "" {
+		return fmt.Errorf("%w: %s vaccine type required", ErrNotPublishable, label)
+	}
+	if v == "matrix" && allowMatrix {
+		return nil
+	}
+	if _, ok := validVaccineTypes[v]; !ok {
+		return fmt.Errorf("%w: %s vaccine type %q is invalid; must be live, killed, or toxoid", ErrNotPublishable, label, vaccineType)
+	}
+	return nil
+}
+
+// validatePathogenClass ensures pathogen class is valid (viral or bacterial).
+func validatePathogenClass(pathogenClass, label string) error {
+	v := strings.ToLower(strings.TrimSpace(pathogenClass))
+	if v == "" {
+		return fmt.Errorf("%w: %s pathogen class required", ErrNotPublishable, label)
+	}
+	if _, ok := validPathogenClasses[v]; !ok {
+		return fmt.Errorf("%w: %s pathogen class %q is invalid; must be viral or bacterial", ErrNotPublishable, label, pathogenClass)
+	}
+	return nil
+}
+
+// validateCourseType ensures course type is valid (single or booster).
+func validateCourseType(courseType, label string) error {
+	v := strings.ToLower(strings.TrimSpace(courseType))
+	if v == "" {
+		return fmt.Errorf("%w: %s course type required", ErrNotPublishable, label)
+	}
+	if _, ok := validCourseTypes[v]; !ok {
+		return fmt.Errorf("%w: %s course type %q is invalid; must be single or booster", ErrNotPublishable, label, courseType)
 	}
 	return nil
 }
@@ -632,8 +734,29 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	if strings.TrimSpace(env.Vaccine.Type) == "" {
 		return fmt.Errorf("%w: vaccine.type required for vaccination matrix", ErrNotPublishable)
 	}
+	// For the wrapper vaccine, "matrix" is allowed; for individual vaccines it is not.
+	// isVaccinationMatrixRuleset() will tell us later if this is the matrix wrapper.
+	// For now, validate that if it's not "matrix", it must be one of the valid immunological types.
+	if err := validateVaccineType(env.Vaccine.Type, "rule_dsl.vaccine", strings.ToLower(strings.TrimSpace(env.Vaccine.Type)) == "matrix" || env.Vaccine.Code == "vaccination.matrix"); err != nil {
+		return err
+	}
 	if err := rejectVaccineTypeValueInPathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine.pathogen_class"); err != nil {
 		return err
+	}
+	// The wrapper vaccine (type=matrix, code=vaccination.matrix) is exempt from pathogen_class and course_type.
+	// Individual vaccines in matrix_rows MUST carry these classifications (validated separately below).
+	// Validate pathogen_class only if present (wrapper may omit it)
+	if strings.TrimSpace(env.Vaccine.PathogenClass) != "" {
+		if err := validatePathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine"); err != nil {
+			return err
+		}
+	}
+	// Validate course_type only for non-wrapper vaccines. The matrix wrapper is not an individual
+	// dose-course vaccine; older UI-created drafts may still carry course_type="matrix".
+	if strings.TrimSpace(env.Vaccine.CourseType) != "" && !isVaccinationMatrixWrapper(env) {
+		if err := validateCourseType(env.Vaccine.CourseType, "rule_dsl.vaccine"); err != nil {
+			return err
+		}
 	}
 	if len(env.Schedule) == 0 {
 		return fmt.Errorf("%w: vaccination matrix requires at least one schedule row", ErrNotPublishable)
@@ -689,16 +812,37 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 		if err := rejectPartialClinicalDeferStates(rowEligibility, fmt.Sprintf("matrix_rows[%d].eligibility.defer_states", idx)); err != nil {
 			return err
 		}
-		if len(row.Vaccine) > 0 {
-			var rowVaccine struct {
-				PathogenClass string `json:"pathogen_class"`
-			}
-			if err := json.Unmarshal(row.Vaccine, &rowVaccine); err != nil {
-				return fmt.Errorf("%w: matrix_rows[%d].vaccine is not a valid object", ErrNotPublishable, idx)
-			}
-			if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
-				return err
-			}
+		// R2-07a: a matrix row's vaccine object is REQUIRED. The prior code validated the vaccine
+		// fields only inside `if len(row.Vaccine) > 0`, so removing the WHOLE vaccine object (not just
+		// its type) bypassed type/pathogen/course validation entirely and still published. Require a
+		// non-empty object before decoding so every matrix row must carry a fully-classified vaccine.
+		if len(row.Vaccine) == 0 {
+			return fmt.Errorf("%w: matrix_rows[%d].vaccine required", ErrNotPublishable, idx)
+		}
+		var rowVaccine struct {
+			Type          string `json:"type"`
+			PathogenClass string `json:"pathogen_class"`
+			CourseType    string `json:"course_type"`
+		}
+		if err := json.Unmarshal(row.Vaccine, &rowVaccine); err != nil {
+			return fmt.Errorf("%w: matrix_rows[%d].vaccine is not a valid object", ErrNotPublishable, idx)
+		}
+		if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
+			return err
+		}
+		// Validate vaccine type. REQUIRED for every matrix-row vaccine (R2-07a): validateVaccineType
+		// itself rejects an empty type. Must be live, killed, or toxoid; never "matrix" for an
+		// individual vaccine.
+		if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
+			return err
+		}
+		// Validate pathogen class (REQUIRED for individual vaccines)
+		if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+			return err
+		}
+		// Validate course type (REQUIRED for individual vaccines)
+		if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+			return err
 		}
 	}
 	for idx, row := range env.Schedule {
@@ -1069,12 +1213,47 @@ func arrayHasNonBlankString(v any) bool {
 // also enforces the published-window EXCLUDE non-overlap; category capability
 // (CEO/COO protocol.publish.*) is enforced at the API/RBAC boundary.
 func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
+	return s.publishVersion(ctx, tenantID, versionID, publishedBy, "", idempotencyKey...)
+}
+
+// PublishSeedOwnedVaccinationMatrixVersion publishes a vaccination matrix on behalf of the source
+// seed, guarded so its overlap-retire may clear ONLY seed-owned versions (drafted_by = seedGuardActor).
+// If an overlapping published matrix authored by anyone else exists (including one authored via Config
+// under the same canonical vaccination.matrix protocol, or one published concurrently), the publish
+// fails closed with ErrVaccinationMatrixOwnershipConflict instead of retiring user configuration.
+func (s *Service) PublishSeedOwnedVaccinationMatrixVersion(ctx context.Context, tenantID, versionID, seedGuardActor string, idempotencyKey ...string) error {
+	if strings.TrimSpace(seedGuardActor) == "" {
+		return fmt.Errorf("protocol: seed-owned matrix publish requires a seed guard actor id")
+	}
+	return s.publishVersion(ctx, tenantID, versionID, nil, seedGuardActor, idempotencyKey...)
+}
+
+func (s *Service) publishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, seedGuardActor string, idempotencyKey ...string) error {
 	v, err := s.repo.GetVersion(ctx, tenantID, versionID)
 	if err != nil {
 		return err
 	}
 	if v.Status != "draft" && v.Status != "published" {
 		return fmt.Errorf("%w: status=%q", ports.ErrVersionNotDraft, v.Status)
+	}
+	// VAX-SEED-R2: a seed-owned publish must only ever target a version the seed itself drafted. Verify
+	// this BEFORE any dispatch so the already-published replay path (which never reaches the
+	// per-transaction retire guard) cannot accept a user-drafted published target as a "successful seed
+	// replay". The target-ownership authority for the draft path stays the atomic under-lock check in
+	// PublishVersionWithDerivedRules; this early check additionally covers the published/replay path,
+	// where the target is immutable so a pre-dispatch read is sufficient.
+	if seedGuardActor != "" {
+		reader, ok := s.repo.(matrixTargetOwnershipReader)
+		if !ok {
+			return fmt.Errorf("protocol: repository cannot verify seed matrix target ownership")
+		}
+		draftedBy, err := reader.VaccinationMatrixVersionDraftedBy(ctx, tenantID, versionID)
+		if err != nil {
+			return err
+		}
+		if draftedBy != seedGuardActor {
+			return fmt.Errorf("%w: target version %s is drafted_by %q, not the seed actor", ports.ErrVaccinationMatrixOwnershipConflict, versionID, draftedBy)
+		}
 	}
 	if v.Status == "published" {
 		if publishedVersionLooksLikeVaccinationMatrix(v) {
@@ -1113,7 +1292,7 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		if err != nil {
 			return err
 		}
-		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, idempotencyKey...); err != nil {
+		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, seedGuardActor, idempotencyKey...); err != nil {
 			return mapCapacityParityErr(err)
 		}
 		return nil
@@ -1519,6 +1698,11 @@ func isVaccinationMatrixRuleset(env ruleDSLEnvelope) bool {
 		len(env.MatrixRows) > 0
 }
 
+func isVaccinationMatrixWrapper(env ruleDSLEnvelope) bool {
+	return strings.EqualFold(strings.TrimSpace(env.Vaccine.Code), "vaccination.matrix") ||
+		strings.EqualFold(strings.TrimSpace(env.Vaccine.Type), "matrix")
+}
+
 func publishedVersionLooksLikeVaccinationMatrix(v domain.Version) bool {
 	if !strings.EqualFold(strings.TrimSpace(v.Category), "vaccination") {
 		return false
@@ -1750,7 +1934,7 @@ func rawSelectorValues(raw json.RawMessage) ([]string, error) {
 // empty defer_states maps to the engine's safe full default and is allowed
 // (see domain.MandatoryClinicalDeferStates and vaccination.deferStateSet). A
 // present, non-empty, partial list is an unsafe authored payload — it would let
-// a sick/under-treatment animal's open work be cancelled instead of deferred —
+// a sick/under-treatment/recovering animal's open work be cancelled instead of deferred —
 // and must fail publish rather than be silently rewritten (C35-010).
 func rejectPartialClinicalDeferStates(obj map[string]json.RawMessage, field string) error {
 	raw, ok := obj["defer_states"]
@@ -1769,7 +1953,7 @@ func rejectPartialClinicalDeferStates(obj map[string]json.RawMessage, field stri
 		return nil
 	}
 	if missing := domain.MissingMandatoryClinicalDeferStates(values); len(missing) > 0 {
-		return fmt.Errorf("%w: %s omits mandatory clinical safety states %v; sick/under_treatment/quarantine/icu are safety blocks that must be deferred, not cancelled (leave defer_states empty to use the safe default)", ErrNotPublishable, field, missing)
+		return fmt.Errorf("%w: %s omits mandatory clinical safety states %v; sick/under_treatment/recovering/quarantine/icu are safety blocks that must be deferred, not cancelled (leave defer_states empty to use the safe default)", ErrNotPublishable, field, missing)
 	}
 	return nil
 }

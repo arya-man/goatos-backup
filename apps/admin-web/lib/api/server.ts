@@ -369,7 +369,7 @@ export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<G
 
 // Herd Register summary read model. The row list stays on bounded /goats/search
 // (searchGoats) because those render fields (tag1/tag2, weight, health, breeding)
-// are NOT in the projection; KPI totals come from the exact summary projection.
+// are separate from the KPI totals; totals come from canonical scoped goat counts.
 
 export type HerdRegisterSummaryCounts = {
   parkId: string | null;
@@ -396,7 +396,7 @@ export type HerdRegisterSummaryParams = {
   sex?: string;
 };
 
-/** Read exact summary counts from the herd_register_summary_projection. */
+/** Read exact summary counts from canonical goats. */
 export async function getHerdRegisterSummary(
   params: HerdRegisterSummaryParams,
 ): Promise<ApiResult<HerdRegisterSummaryResponse>> {
@@ -588,7 +588,7 @@ export async function getVaccinationVerificationQueue(
 }
 
 export async function getVaccinationExecution(
-  params: { parkId?: string; workState?: VaccinationExecutionWorkState; asOf?: string; limit?: number } = {},
+  params: { parkId?: string; workState?: VaccinationExecutionWorkState; asOf?: string; limit?: number; cursor?: string } = {},
 ): Promise<ApiResult<VaccinationExecutionResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -596,7 +596,7 @@ export async function getVaccinationExecution(
   return request(() =>
     client.request<VaccinationExecutionResponse>("/vaccination/execution", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit }),
+      query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit, cursor: params.cursor }),
     }),
   );
 }
@@ -604,16 +604,37 @@ export async function getVaccinationExecution(
 // Source-backed vaccination operations read model — cohort × protocol matrix + per-cohort detail with real
 // last_dose. Powers the /vaccination matrix + cohort-detail sections (NOT the Action Center pivot).
 export async function getVaccinationOperations(
-  params: { parkId?: string; asOf?: string; dueBefore?: string; limit?: number } = {},
+  params: { parkId?: string; asOf?: string; dueBefore?: string; limit?: number; cursor?: string } = {},
 ): Promise<ApiResult<VaccinationOperationsResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<VaccinationOperationsResponse>("/vaccination/operations", {
-      cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit }),
-    }),
+    withApiTimeout(6000, (signal) =>
+      client.request<VaccinationOperationsResponse>("/vaccination/operations", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ park_id: params.parkId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit, cursor: params.cursor }),
+      }),
+    ),
+  );
+}
+
+// Full Schedule reads a canonical server-side monthly window; there is no schedule projection warmup.
+export async function getVaccinationSchedule(
+  params: { parkId?: string; year: number; month: number; limit?: number; cursor?: string } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
+): Promise<ApiResult<VaccinationOperationsResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(2500, (signal) =>
+      client.request<VaccinationOperationsResponse>("/vaccination/schedule", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ park_id: params.parkId, year: params.year, month: params.month, limit: params.limit, cursor: params.cursor }),
+      }),
+    ),
   );
 }
 
@@ -688,7 +709,7 @@ export async function getVaccinationShedDetail(
 
 export async function getVaccinationShedAnimals(
   shedId: string,
-  params: { cursor?: string; limit?: number } = {},
+  params: { cursor?: string; limit?: number; asOf?: string } = {},
 ): Promise<ApiResult<VaccinationShedAnimalPage>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -697,7 +718,7 @@ export async function getVaccinationShedAnimals(
   return request(() =>
     client.request<VaccinationShedAnimalPage>(path, {
       cache: "no-store",
-      query: compactQuery({ cursor: params.cursor, limit: params.limit }),
+      query: compactQuery({ cursor: params.cursor, limit: params.limit, as_of: params.asOf }),
     }),
   );
 }
@@ -892,7 +913,7 @@ export async function listVerificationQueue(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
+  const result = await request(() =>
     client.request<VerificationQueueResponse>("/verification/queue", {
       cache: "no-store",
       query: compactQuery({
@@ -905,6 +926,29 @@ export async function listVerificationQueue(
       }),
     }),
   );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeVerificationMedia(result.data, config.data.baseUrl) };
+}
+
+function absolutizeVerificationMedia(queue: VerificationQueueResponse, baseUrl: string): VerificationQueueResponse {
+  return {
+    ...queue,
+    items: queue.items.map((item) => ({
+      ...item,
+      media: item.media.map((media) => ({
+        ...media,
+        download_url: absolutizeBackendURL(media.download_url, baseUrl),
+      })),
+    })),
+  };
+}
+
+function absolutizeBackendURL(value: string, baseUrl: string): string {
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return value;
+  }
 }
 
 // ---- Proof upload wrappers for vaccination drawer ----
@@ -1525,7 +1569,24 @@ export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   }
 }
 
+async function withApiTimeout<T>(ms: number, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function normalizeApiError(error: unknown): ApiUiError {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return {
+      kind: "backend_down",
+      message: "The backend took too long to return vaccination data. Try again after the local API finishes warming up.",
+      retryable: true,
+    };
+  }
   if (error instanceof GoatOSApiError) {
     const envelope = parseEnvelope(error.body);
     const code = envelope?.code;

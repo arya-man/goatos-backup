@@ -49,14 +49,18 @@ The rollout task must keep this order:
 3. Update goatos-stg-migrate to the migration image.
 4. Execute goatos-stg-migrate and wait for success.
 5. Update goatos-api-stg to the backend image.
-6. Update every existing goatos-stg Cloud Run Job whose current image is the backend image.
-7. Update goatos-admin-web-stg to the admin-web image.
-8. Verify API/admin/migration/worker image skew is zero.
-9. Smoke /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
+6. Update `goatos-kernel-worker-stg` to the backend image. It is one service
+   with two always-warm, advisory-lock-coordinated instances.
+7. Update every existing manual goatos-stg Cloud Run Job whose current image is
+   the backend image, including the analytics rollup.
+8. Update goatos-admin-web-stg to the admin-web image.
+9. Verify API/admin/migration/kernel-worker/manual-job image skew is zero.
+10. Smoke /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
 ```
 
-Do not move migration after service deploy. Do not hand-maintain a stale worker
-job list; the rollout discovers existing backend-image jobs and updates them.
+Do not move migration after service deploy. The rollout fails before migration
+if the kernel worker service is absent. Do not hand-maintain a stale manual-job
+list; the rollout discovers existing backend-image jobs and updates them.
 
 ## Create A Release Locally (Break Glass Only)
 

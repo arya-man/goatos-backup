@@ -13,12 +13,10 @@ api_base_url="${GOATOS_API_BASE_URL:-http://$host:$api_port}"
 log_dir="$repo_root/.codex-goatos-render/logs"
 api_log="$log_dir/local-api.log"
 web_log="$log_dir/local-admin-web.log"
-projection_log="$log_dir/local-projections.log"
 supervisor_log="$log_dir/local-stack-supervisor.log"
 
 api_pid=""
 web_pid=""
-projection_pid=""
 stop_requested="0"
 
 timestamp() {
@@ -85,6 +83,21 @@ port_busy() {
   nc -z "$target_host" "$target_port" >/dev/null 2>&1
 }
 
+port_listener_pids() {
+  local target_port="$1"
+  lsof -nP -tiTCP:"$target_port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+log_port_listener_context() {
+  local target_port="$1"
+  local pid
+  for pid in $(port_listener_pids "$target_port"); do
+    local cwd
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+    log "Port $target_port listener pid=$pid cwd=${cwd:-unknown}."
+  done
+}
+
 api_ready() {
   curl -fsS "$api_base_url/readyz" >/dev/null 2>&1
 }
@@ -111,10 +124,8 @@ kill_pid() {
 }
 
 cleanup() {
-  kill_pid "$projection_pid"
   kill_pid "$web_pid"
   kill_pid "$api_pid"
-  projection_pid=""
   web_pid=""
   api_pid=""
 }
@@ -193,8 +204,9 @@ seed_closeout_if_present() {
 
 start_api() {
   if api_ready; then
-    log "Using existing Goat OS API at $api_base_url."
-    return 0
+    log "Refusing to reuse an existing Goat OS API at $api_base_url; restart the local service so the current checkout owns the port."
+    log_port_listener_context "$api_port"
+    return 1
   fi
 
   if port_busy "$host" "$api_port"; then
@@ -214,8 +226,9 @@ start_api() {
 
 start_web() {
   if web_ready; then
-    log "Using existing Mesha admin-web at http://$host:$web_port."
-    return 0
+    log "Refusing to reuse an existing Mesha admin-web at http://$host:$web_port; restart the local service so the current checkout owns the port."
+    log_port_listener_context "$web_port"
+    return 1
   fi
 
   if port_busy "$host" "$web_port"; then
@@ -232,37 +245,6 @@ start_web() {
   wait_for_web
 }
 
-start_projection_refresher() {
-  if [ -n "$projection_pid" ] && kill -0 "$projection_pid" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  local interval="${GOATOS_LOCAL_PROJECTION_REFRESH_SECONDS:-120}"
-  log "Starting local read-model projection refresher every ${interval}s."
-  (
-    cd "$repo_root/backend"
-    run_projection_refresh() {
-      local label="$1"
-      shift
-      if ! "$@"; then
-        printf '%s projection refresh failed: %s\n' "$(timestamp)" "$label"
-      fi
-    }
-    # DRV-R3b — sleep FIRST so neither the initial start nor a monitor-triggered restart of this
-    # refresher fires an immediate projection recompute (a DB mutation). Prep already reprojected once
-    # (seed closeout) before the supervise loop; periodic refresh then runs only after each interval.
-    while true; do
-      sleep "$interval"
-      printf '%s refreshing local read-model projections\n' "$(timestamp)"
-      run_projection_refresh vaccination_shed go run ./cmd/vaccination-shed-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
-      run_projection_refresh vaccination_execution go run ./cmd/vaccination-execution-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
-      run_projection_refresh vaccination_operations go run ./cmd/vaccination-operations-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
-      run_projection_refresh process_integrity go run ./cmd/process-integrity-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
-    done
-  ) >>"$projection_log" 2>&1 &
-  projection_pid="$!"
-}
-
 monitor_stack() {
   local api_failures=0
   local web_failures=0
@@ -277,11 +259,6 @@ monitor_stack() {
       log "Mesha admin-web process exited; restarting stack."
       return 1
     fi
-    if [ -n "$projection_pid" ] && ! kill -0 "$projection_pid" >/dev/null 2>&1; then
-      log "Read-model projection refresher exited; restarting stack."
-      return 1
-    fi
-
     if api_ready; then
       api_failures=0
     else
@@ -308,7 +285,7 @@ monitor_stack() {
 
 restart_delay="${GOATOS_LOCAL_SERVICE_RESTART_DELAY_SECONDS:-5}"
 mkdir -p "$log_dir"
-touch "$api_log" "$web_log" "$projection_log" "$supervisor_log"
+touch "$api_log" "$web_log" "$supervisor_log"
 
 log "Starting durable Goat OS local stack supervisor."
 log "Database URL target: $DATABASE_URL"
@@ -323,7 +300,7 @@ fi
 
 while [ "$stop_requested" = "0" ]; do
   cleanup
-  if start_api && start_projection_refresher && start_web && monitor_stack; then
+  if start_api && start_web && monitor_stack; then
     break
   fi
   cleanup

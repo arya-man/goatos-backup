@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -91,6 +91,8 @@ export function VaccinationTablePager({
     total === 0
       ? `0 ${pluralNoun}`
       : `${start}-${end} ${copy(pageContract, "pager.of")} ${total} ${pluralNoun}`;
+
+  if (totalPages <= 1) return null;
 
   return (
     <div className="pager2">

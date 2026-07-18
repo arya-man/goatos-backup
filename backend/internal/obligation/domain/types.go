@@ -120,6 +120,19 @@ type ParkConsolidationCandidate struct {
 	FirstBatchingHoldUntil   *time.Time
 }
 
+// UnbatchedDueCursor is the keyset cursor for the write-free preflight scan of unbatched due
+// obligations (RV-02). Its fields MUST stay in the same order as the repository ORDER BY
+// (scope_type, scope_id, rule_id, due_at, obligation_id) so keyset paging returns every candidate
+// exactly once. UUID fields are stored as strings at the domain boundary but rebound as UUIDs by
+// the Postgres adapter; ordering text renderings in SQL would not match the UUID-backed index.
+type UnbatchedDueCursor struct {
+	ScopeType    string
+	ScopeID      string
+	RuleID       string
+	DueAt        time.Time
+	ObligationID string
+}
+
 // ParkConsolidationCursor is the keyset cursor for the park-consolidation candidate query. Its
 // fields must stay in the same order as the repository ORDER BY.
 type ParkConsolidationCursor struct {
@@ -134,7 +147,9 @@ type ParkConsolidationCursor struct {
 // ComboDriveBatch is a planned shed/park batch participating in combo-session alignment.
 // TargetIDs is the distinct set of animal target IDs already attached to this batch, used to
 // keep AlignComboDrives from pushing any one animal past MaxShotsPerAnimalPerDrive when it
-// co-locates approved combo batches (FMD+HS, etc.) onto one shared drive date.
+// co-locates approved combo batches (FMD+HS, etc.) onto one shared drive date. SafeStart/SafeEnd
+// are the intersection of the attached obligations' medical windows; alignment must not move the
+// whole batch outside that envelope.
 type ComboDriveBatch struct {
 	BatchID           string
 	ProtocolVersionID string
@@ -142,7 +157,25 @@ type ComboDriveBatch struct {
 	ScopeID           string
 	Session           string
 	PlannedDate       *time.Time
+	SafeStart         *time.Time
+	SafeEnd           *time.Time
 	TargetIDs         []string
+}
+
+// ComboBatchCursor is a keyset pagination cursor for ListPlannedComboBatchesKeyset.
+// Matches the query's ORDER BY clause: (scope_type, scope_id, session, batch_id).
+//
+// R2-06 fix: planned_date was REMOVED from both the cursor and the ORDER BY. AlignComboDrives
+// itself mutates planned_date (via UpdateBatchPlannedDate) mid-pagination, so keying the cursor on
+// a column the same loop writes let an aligned row's sort position shift between page reads,
+// letting a later page skip or re-read a row that crossed the cursor boundary. The cursor now keys
+// ONLY on columns AlignComboDrives never mutates, so a row's position in keyset order is stable for
+// the lifetime of the pagination loop.
+type ComboBatchCursor struct {
+	ScopeType string
+	ScopeID   string
+	Session   string
+	BatchID   string
 }
 
 // ParkConsolidationSettings controls the second-pass park drive planner (after shed batching).
@@ -229,6 +262,7 @@ type PlannedBatchFinalization struct {
 	HasSOPTask          bool
 	HasStockReservation bool
 	StockBlocked        bool
+	StockBlockItemID    string
 }
 
 // PlannedBatchFinalizationCursor advances through planned batches in repository

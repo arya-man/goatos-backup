@@ -2,12 +2,11 @@
 // (position_code='shed_manager', scope_type='shed', scope_id=<shed location id>)
 // so the shed-wise vaccination read model can attach a Manager to each shed.
 //
-// SOURCE OF TRUTH = an explicit shed->manager mapping CSV, applied via -mapping.
-// The seed's DB-writing path does ONE thing: apply that mapping. It contains NO
-// ownership-invention logic -- a shed absent from the mapping (or with an empty
-// manager) is reported as a GAP, never auto-filled. Feeding / Health / Backup
-// managers are real people, but none is automatically a shed's vaccination
-// manager; only the mapping decides.
+// SOURCE OF TRUTH = an explicit shed->manager mapping CSV plus the reviewed
+// park preventive_care_manager seat. The CSV wins when present; any active shed
+// absent from the CSV inherits its park's preventive_care_manager. The
+// vaccination UI must never show "Manager: unassigned" merely because a source
+// refresh added sheds faster than the shed-level mapping CSV was regenerated.
 //
 // There is no reviewed shed->manager source yet, so -generate-provisional writes
 // a PROVISIONAL mapping CSV for all active sheds by round-robin across each park's
@@ -21,9 +20,10 @@
 //
 // Flow: `-generate-provisional shed_manager_mapping.csv` (fill + review), then
 // `-mapping shed_manager_mapping.csv` (apply). -strict exits non-zero if any
-// active shed is still unassigned, provisionally assigned, or missing backup
-// coverage after apply -- use it as a production preflight gate so real data is
-// never accepted until every active shed has a reviewed manager and backup.
+// active shed is still unassigned after the park-manager fallback, provisionally
+// assigned, or missing backup coverage after apply -- use it as a production
+// preflight gate so real data is never accepted until every active shed has a
+// manager and backup.
 //
 // Idempotent (deterministic v5 position UUID per shed + ON CONFLICT DO UPDATE),
 // batched, tenant-scoped, gated to local/dev/test only (localtarget guard). It
@@ -79,16 +79,17 @@ type mappingEntry struct {
 }
 
 type stats struct {
-	ActiveSheds      int
-	ShedsWithPark    int
-	OrphanSheds      int
-	ProvisionalSeats int
-	ReviewedSeats    int
-	UnmappedGaps     int
-	BackupGaps       int
-	SeatsInserted    int
-	DistinctHolders  int
-	StrictBlocked    bool // strict preflight refused to write (manager gaps, backup gaps, or provisional present)
+	ActiveSheds       int
+	ShedsWithPark     int
+	OrphanSheds       int
+	ProvisionalSeats  int
+	ReviewedSeats     int
+	ParkFallbackSeats int
+	UnmappedGaps      int
+	BackupGaps        int
+	SeatsInserted     int
+	DistinctHolders   int
+	StrictBlocked     bool // strict preflight refused to write (manager gaps, backup gaps, or provisional present)
 }
 
 func main() {
@@ -105,9 +106,9 @@ func run(args []string) error {
 	genProvisional := fs.String("generate-provisional", "",
 		"write a PROVISIONAL shed->manager mapping CSV to this path (round-robin across each park's non-backup managers; every row tagged provisional_seed/needs_review). Writes NO database rows. Review it, then apply with -mapping.")
 	mappingPath := fs.String("mapping", "",
-		"CSV of shed->manager assignments to APPLY (header must include shed_code,manager_code; resolved via locations.location_code / workforce_members.display_code). The only source of ownership; unlisted/empty rows are gaps.")
+		"CSV of shed->manager assignments to APPLY (header must include shed_code,manager_code; resolved via locations.location_code / workforce_members.display_code). CSV rows override; unlisted sheds inherit the park preventive_care_manager.")
 	strict := fs.Bool("strict", false,
-		"exit non-zero if any active shed is left unassigned, assigned only provisionally, or missing backup coverage after applying -mapping. Use as a production preflight gate: production requires every active shed mapped to a REVIEWED manager and backup.")
+		"exit non-zero if any active shed is left unassigned after park preventive-care-manager fallback, assigned only provisionally, or missing backup coverage after applying -mapping. Use as a production preflight gate: production requires every active shed to resolve manager and backup.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -150,13 +151,13 @@ func run(args []string) error {
 
 	fmt.Printf("shed manager seats applied from %s:\n"+
 		"  active_sheds=%d sheds_with_park=%d orphan_sheds=%d\n"+
-		"  provisional_seats=%d reviewed_seats=%d unmapped_gaps=%d\n"+
+		"  provisional_seats=%d reviewed_seats=%d park_fallback_seats=%d unmapped_gaps=%d\n"+
 		"  backup_gaps=%d seats_inserted=%d distinct_holders=%d\n",
 		*mappingPath, st.ActiveSheds, st.ShedsWithPark, st.OrphanSheds,
-		st.ProvisionalSeats, st.ReviewedSeats, st.UnmappedGaps,
+		st.ProvisionalSeats, st.ReviewedSeats, st.ParkFallbackSeats, st.UnmappedGaps,
 		st.BackupGaps, st.SeatsInserted, st.DistinctHolders)
-	fmt.Printf("PREFLIGHT: %d/%d active sheds assigned via provisional seed; %d reviewed real mappings; %d manager gaps; %d backup gaps.\n",
-		st.ProvisionalSeats, st.ActiveSheds, st.ReviewedSeats, st.UnmappedGaps, st.BackupGaps)
+	fmt.Printf("PREFLIGHT: %d/%d active sheds assigned via provisional seed; %d reviewed shed mappings; %d park-manager fallback mappings; %d manager gaps; %d backup gaps.\n",
+		st.ProvisionalSeats, st.ActiveSheds, st.ReviewedSeats, st.ParkFallbackSeats, st.UnmappedGaps, st.BackupGaps)
 	if st.ProvisionalSeats > 0 {
 		fmt.Printf("WARNING: %d assignment(s) are PROVISIONAL (needs_review=true), NOT reviewed business truth. "+
 			"Replace with a reviewed shed->manager source and re-apply.\n", st.ProvisionalSeats)
@@ -168,7 +169,7 @@ func run(args []string) error {
 		fmt.Printf("GAP: %d active shed(s) still have NO shed or center Backup Manager coverage.\n", st.BackupGaps)
 	}
 	if st.StrictBlocked {
-		return fmt.Errorf("strict preflight FAILED (wrote 0 rows): %d unassigned + %d provisional (unreviewed) + %d missing-backup shed assignment(s) -- production requires every active shed mapped to a REVIEWED manager and resolvable Backup Manager coverage",
+		return fmt.Errorf("strict preflight FAILED (wrote 0 rows): %d unassigned + %d provisional (unreviewed) + %d missing-backup shed assignment(s) -- production requires every active shed to resolve a manager and Backup Manager coverage",
 			st.UnmappedGaps, st.ProvisionalSeats, st.BackupGaps)
 	}
 	return nil
@@ -306,16 +307,30 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 	if err != nil {
 		return st, err
 	}
+	fallbackByPark, err := loadVaccinationManagerPool(ctx, pool, tenantID)
+	if err != nil {
+		return st, err
+	}
 
 	type seat struct {
 		shedID, memberID string
 	}
 	var seats []seat
 	holders := map[string]struct{}{}
+	fallbackIdx := map[string]int{}
 	for _, s := range sheds {
 		entry, ok := mapping[s.shedID]
 		if !ok {
-			continue // gap
+			mgrs := fallbackByPark[s.parkID]
+			if len(mgrs) == 0 {
+				continue // real gap: no reviewed park manager to inherit.
+			}
+			mgr := mgrs[fallbackIdx[s.parkID]%len(mgrs)]
+			fallbackIdx[s.parkID]++
+			seats = append(seats, seat{s.shedID, mgr.memberID})
+			holders[mgr.memberID] = struct{}{}
+			st.ParkFallbackSeats++
+			continue
 		}
 		seats = append(seats, seat{s.shedID, entry.memberID})
 		holders[entry.memberID] = struct{}{}
@@ -469,6 +484,51 @@ func loadManagerPool(ctx context.Context, pool *pgxpool.Pool, tenantID string) (
 		var mr managerRow
 		if err := rows.Scan(&parkID, &mr.memberID, &mr.memberCode, &mr.memberName); err != nil {
 			return nil, fmt.Errorf("scan manager: %w", err)
+		}
+		if seen[parkID] == nil {
+			seen[parkID] = map[string]struct{}{}
+		}
+		if _, dup := seen[parkID][mr.memberID]; dup {
+			continue
+		}
+		seen[parkID][mr.memberID] = struct{}{}
+		poolByPark[parkID] = append(poolByPark[parkID], mr)
+	}
+	return poolByPark, rows.Err()
+}
+
+// loadVaccinationManagerPool returns the deterministic park manager fallback
+// used when the shed-level mapping CSV is partial. Only the explicit
+// preventive_care_manager seat may be inherited; other functional managers are
+// not vaccination owners.
+func loadVaccinationManagerPool(ctx context.Context, pool *pgxpool.Pool, tenantID string) (map[string][]managerRow, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT wp.scope_id::text, m.workforce_member_id::text, coalesce(m.display_code, ''), coalesce(m.display_name, '')
+		FROM workforce_positions wp
+		JOIN workforce_members m
+		  ON m.tenant_id = wp.tenant_id
+		 AND m.workforce_member_id = wp.workforce_member_id
+		WHERE wp.tenant_id = $1::uuid
+		  AND wp.scope_type = 'center'
+		  AND wp.status = 'active'
+		  AND wp.position_tier = 'manager'
+		  AND wp.position_code = 'preventive_care_manager'
+		  AND wp.is_backup_slot = false
+		  AND wp.valid_from <= now()
+		  AND (wp.valid_to IS NULL OR wp.valid_to > now())
+		ORDER BY wp.scope_id, m.workforce_member_id`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query vaccination manager pool: %w", err)
+	}
+	defer rows.Close()
+
+	poolByPark := map[string][]managerRow{}
+	seen := map[string]map[string]struct{}{}
+	for rows.Next() {
+		var parkID string
+		var mr managerRow
+		if err := rows.Scan(&parkID, &mr.memberID, &mr.memberCode, &mr.memberName); err != nil {
+			return nil, fmt.Errorf("scan vaccination manager: %w", err)
 		}
 		if seen[parkID] == nil {
 			seen[parkID] = map[string]struct{}{}

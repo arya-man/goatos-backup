@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ShieldCheck, X } from "lucide-react";
 import type { ReactNode } from "react";
 

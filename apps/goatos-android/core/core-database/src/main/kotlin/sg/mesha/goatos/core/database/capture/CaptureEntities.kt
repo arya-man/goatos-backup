@@ -39,8 +39,43 @@ data class ScannedGoatEntity(
      *  a task's form can in principle declare more than one scan field. */
     val fieldKey: String,
     val tag: String,
+    val goatId: String?,
+    val obligationId: String?,
     val capturedAtMs: Long,
     val syncStatus: String = CaptureSyncStatus.PENDING.name,
+)
+
+/**
+ * Append-only audit of every physical RFID reader hit on a scan task. Unlike
+ * [ScannedGoatEntity], this table is not a completion/counter source and is not deduped by tag:
+ * a duplicate primary-tag read, a secondary-tag alias read, an unknown tag, and a not-due tag
+ * are all operational evidence that the reader fired. Submit ignores this table; only accepted
+ * [ScannedGoatEntity] rows drive the final `GOAT_SCAN` answer.
+ */
+@Entity(
+    tableName = "rfid_scan_attempt",
+    indices = [
+        Index(value = ["idempotencyKey"], unique = true),
+        Index(value = ["taskId", "capturedAtMs"]),
+        Index(value = ["taskId", "goatId", "capturedAtMs"]),
+    ],
+)
+data class RfidScanAttemptEntity(
+    @PrimaryKey val id: String,
+    val taskId: String,
+    val fieldKey: String,
+    val tag: String,
+    val normalizedTag: String,
+    val goatId: String?,
+    val obligationId: String?,
+    /** accepted / duplicate / not_due / unknown */
+    val outcome: String,
+    /** primary / secondary / unknown */
+    val tagRole: String,
+    val reason: String?,
+    val capturedAtMs: Long,
+    val syncStatus: String = CaptureSyncStatus.PENDING.name,
+    val idempotencyKey: String,
 )
 
 @Dao
@@ -84,12 +119,36 @@ interface ScannedGoatDao {
     }
 }
 
+@Dao
+interface RfidScanAttemptDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(entity: RfidScanAttemptEntity): Long
+
+    @Query("SELECT * FROM rfid_scan_attempt WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    fun observeForTask(taskId: String, limit: Int = MAX_ATTEMPTS_PER_TASK): Flow<List<RfidScanAttemptEntity>>
+
+    @Query("SELECT * FROM rfid_scan_attempt WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    suspend fun listForTask(taskId: String, limit: Int = MAX_ATTEMPTS_PER_TASK): List<RfidScanAttemptEntity>
+
+    @Query("DELETE FROM rfid_scan_attempt WHERE taskId = :taskId")
+    suspend fun clearForTask(taskId: String)
+
+    @Query("DELETE FROM rfid_scan_attempt")
+    suspend fun clearAll()
+
+    companion object {
+        /** Audit trail cap for a single task readback. The table remains append-only; this only
+         *  prevents any one UI/test read from materializing an unbounded history. */
+        const val MAX_ATTEMPTS_PER_TASK = 5000
+    }
+}
+
 /**
  * One captured proof video for a task's `video_proof` recording-form field
  * (docs/mobile/proof-capture-sync-and-e2e.md §2/§3). Written to Room BEFORE any network call;
- * [syncStatus] tracks the real outbox `PROOF_UPLOAD` row this capture drives (metadata
- * registration — see `core-network`'s `ProofUploadRequestDto` kdoc for the signed-URL binary
- * PUT boundary this build does not perform).
+ * [syncStatus] tracks the real outbox `PROOF_UPLOAD` row this capture drives: register the
+ * server proof, stream bytes to the returned signed URL, complete the proof, then persist the
+ * returned server proof id.
  */
 @Entity(
     tableName = "proof_capture",
@@ -141,14 +200,20 @@ interface ProofCaptureDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(entity: ProofCaptureEntity)
 
-    @Query("SELECT * FROM proof_capture WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :taskId " +
+            "ORDER BY CASE WHEN syncStatus = 'FAILED' THEN 1 ELSE 0 END, capturedAtMs ASC LIMIT :limit",
+    )
     fun observeForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): Flow<List<ProofCaptureEntity>>
 
-    @Query("SELECT * FROM proof_capture WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :taskId " +
+            "ORDER BY CASE WHEN syncStatus = 'FAILED' THEN 1 ELSE 0 END, capturedAtMs ASC LIMIT :limit",
+    )
     suspend fun listForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): List<ProofCaptureEntity>
 
-    @Query("SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId")
-    suspend fun countForTask(taskId: String): Int
+    @Query("SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND syncStatus != 'FAILED'")
+    suspend fun activeCountForTask(taskId: String): Int
 
     @Query("SELECT * FROM proof_capture WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ProofCaptureEntity?

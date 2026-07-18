@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Layers, MapPin, Warehouse } from "lucide-react";
 import { getVaccinationShedSummary, type ApiResult, type VaccinationShedSummaryResponse } from "@/lib/api/server";
 import type {
@@ -15,11 +15,12 @@ import {
   tablePageSizes,
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
-import { backendScope, parseScope, scopeHref } from "@/lib/scope";
+import { parseScope, scopeHref } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { ShedFilterBar } from "./shed-filter-bar";
+import { vaccinationCurrentViewScope } from "./shed-scope";
 
 // Merged CEO status headline order (highest priority first) — matches the backend headline priority and
 // the shed_status_chips contract group. Used to validate the ?sheds_status filter and render chips.
@@ -38,10 +39,16 @@ function OwnerCell({ owner, missingLabel }: { owner: VaccinationShedSummaryRow["
   return <Tag tone="dng">{missingLabel}</Tag>;
 }
 
+function shedStatusLabel(pageContract: AdminUiPageContract, status: VaccinationShedStatus): string {
+  if (status === "scheduled") return copy(pageContract, "status.scheduled_drive");
+  if (status === "on_track") return copy(pageContract, "status.no_work_due");
+  return optionLabel(pageContract, "shed_status_chips", status);
+}
+
 export function getVaccinationShedSummaryParams(searchParams: RouteSearchParams | undefined, pageContract: AdminUiPageContract) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
-  const { parkId, asOf } = backendScope(scope);
+  const { parkId } = vaccinationCurrentViewScope(scope);
 
   const status = SHED_STATUS_ORDER.find((s) => s === one(sp, "sheds_status"));
   const capacity = CAPACITY_ORDER.find((c) => c === one(sp, "sheds_capacity"));
@@ -52,20 +59,73 @@ export function getVaccinationShedSummaryParams(searchParams: RouteSearchParams 
   const page = boundedInt(one(sp, "sheds_page"), 1, 1, 1_000_000);
   const offset = (page - 1) * limit;
 
-  return { sp, scope, parkId, asOf, status, capacity, search, limit, page, offset, pageSizeOptions };
+  return { sp, scope, parkId, status, capacity, search, limit, page, offset, pageSizeOptions };
 }
 
 export function loadVaccinationShedSummary(searchParams: RouteSearchParams | undefined, pageContract: AdminUiPageContract) {
   const params = getVaccinationShedSummaryParams(searchParams, pageContract);
   return getVaccinationShedSummary({
     parkId: params.parkId,
-    asOf: params.asOf,
     status: params.status,
     capacity: params.capacity,
     search: params.search,
     limit: params.limit,
     offset: params.offset,
   });
+}
+
+export function VaccinationShedBoardSkeleton({
+  pageContract,
+}: {
+  pageContract: AdminUiPageContract;
+}) {
+  const shedTable = table(pageContract, "shed-summary");
+  const cols = shedTable.columns.filter((column) => column.visible);
+  return (
+    <section id="sheds" className="card" style={{ scrollMarginTop: 80 }} aria-busy="true">
+      <div className="hd">
+        <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+        <h3>{copy(pageContract, "section.sheds.title")}</h3>
+        <div className="sp" style={{ flex: 1 }} />
+        <span className="muted small">{copy(pageContract, "section.sheds.note")}</span>
+      </div>
+      <div className="bd" style={{ padding: "14px 14px 0" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="skel" style={{ width: 280, maxWidth: "100%", height: 34 }} />
+          <div className="skel" style={{ width: 72, height: 34 }} />
+          <div className="sp" style={{ flex: 1 }} />
+          <div className="skel" style={{ width: 118, height: 18 }} />
+        </div>
+      </div>
+      <div className="chipset" style={{ padding: "12px 14px 8px" }}>
+        {[96, 86, 116, 72, 110, 132].map((w, i) => (
+          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
+        ))}
+      </div>
+      <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+        <table className="shed-summary-table">
+          <thead>
+            <tr>
+              {cols.map((col) => (
+                <th key={col.key}>{col.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 5 }, (_, row) => (
+              <tr key={row}>
+                {cols.map((col, index) => (
+                  <td key={col.key} className={index > 1 ? "muted" : undefined}>
+                    <span className="skel" style={{ width: index < 2 ? 118 : 64, height: 16 }} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 // Shed-wise vaccination board — the MAIN /vaccination table (one row per shed). Animal-level Due/Done,
@@ -83,7 +143,6 @@ export async function VaccinationShedBoard({
   summaryResult?: ApiResult<VaccinationShedSummaryResponse>;
 }) {
   const {
-    sp,
     scope,
     status: statusFilter,
     capacity: capacityFilter,
@@ -151,7 +210,7 @@ export async function VaccinationShedBoard({
         </Link>
         {SHED_STATUS_ORDER.map((s) => (
           <Link key={s} href={hrefWith({ sheds_status: s, sheds_page: "1" })} replace scroll={false} className={`chip${statusFilter === s ? " on" : ""}`}>
-            {optionLabel(pageContract, "shed_status_chips", s)}
+            {shedStatusLabel(pageContract, s)}
           </Link>
         ))}
       </div>
@@ -168,7 +227,17 @@ export async function VaccinationShedBoard({
         ))}
       </div>
 
-      {rows.length === 0 ? (
+      {!result.ok ? (
+        <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
+          <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--danger)", flexShrink: 0 }} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <b style={{ fontSize: 14 }}>{copy(pageContract, "section.sheds.unavailable_title")}</b>
+            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
+              {copy(pageContract, "section.sheds.unavailable_body")} {result.error.message}
+            </span>
+          </div>
+        </div>
+      ) : rows.length === 0 ? (
         <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
           <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -216,7 +285,7 @@ export async function VaccinationShedBoard({
                   const href = detailHref(row);
                   const cell = (content: React.ReactNode, extra?: string) => (
                     <td className={extra}>
-                      <Link href={href} className="celllink" scroll={false}>
+                      <Link href={href} className="celllink" scroll={false} prefetch={false}>
                         {content}
                       </Link>
                     </td>
@@ -239,7 +308,7 @@ export async function VaccinationShedBoard({
                       {cell(<OwnerCell owner={row.backup} missingLabel={copy(pageContract, "label.backup_unassigned")} />)}
                       {cell(
                         <Tag tone={optionTone(pageContract, "shed_status_chips", row.status) as Tone}>
-                          {optionLabel(pageContract, "shed_status_chips", row.status)}
+                          {shedStatusLabel(pageContract, row.status)}
                         </Tag>,
                       )}
                     </tr>

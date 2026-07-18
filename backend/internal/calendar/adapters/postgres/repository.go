@@ -77,10 +77,14 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	// Canonical is the only path now: no freshness gate, no read-through fallback branch.
-	items, err := r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
-		ownerKey, status, parkID, shedID, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
-	if err != nil {
-		return domain.CalendarEventListResponse{}, err
+	items := []domain.CalendarEvent{}
+	if !q.MarkersOnly {
+		var err error
+		items, err = r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
+			ownerKey, status, parkID, shedID, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
+		if err != nil {
+			return domain.CalendarEventListResponse{}, err
+		}
 	}
 	dateMarkers := []domain.CalendarDateMarker{}
 	if q.IncludeDateMarkers {
@@ -93,7 +97,16 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		defer markerRows.Close()
 		for markerRows.Next() {
 			var marker domain.CalendarDateMarker
-			if err := markerRows.Scan(&marker.Date, &marker.EventCount, &marker.CompletedCount, &marker.OpenCount, &marker.DriveCount); err != nil {
+			if err := markerRows.Scan(
+				&marker.Date,
+				&marker.EventCount,
+				&marker.CompletedCount,
+				&marker.OpenCount,
+				&marker.DriveCount,
+				&marker.DueCount,
+				&marker.OverdueCount,
+				&marker.DeferredCount,
+			); err != nil {
 				return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: scan date marker: %w", err)
 			}
 			dateMarkers = append(dateMarkers, marker)
@@ -116,7 +129,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		reminderRail = &rail
 	}
 	var next *string
-	if len(items) > limit {
+	if !q.MarkersOnly && len(items) > limit {
 		items = items[:limit]
 		last := items[len(items)-1]
 		cursor, err := domain.EncodeCalendarCursor(domain.CalendarCursor{DueAt: last.DueAt, EventID: last.EventID})
@@ -1807,9 +1820,14 @@ marker_rows AS (
     count(*)::bigint AS event_count,
     count(*) FILTER (WHERE status = 'completed')::bigint AS completed_count,
     count(*) FILTER (WHERE status NOT IN ('completed', 'canceled'))::bigint AS open_count,
-    count(*) FILTER (WHERE event_type = 'vaccination_drive')::bigint AS drive_count
+    count(*) FILTER (WHERE event_type = 'vaccination_drive')::bigint AS drive_count,
+    count(*) FILTER (WHERE status = 'due')::bigint AS due_count,
+    count(*) FILTER (WHERE status = 'overdue')::bigint AS overdue_count,
+    count(*) FILTER (WHERE status = 'deferred')::bigint AS deferred_count
   FROM source_events
   WHERE system = false
+    AND due_at >= $2::timestamptz
+    AND due_at < $3::timestamptz
     AND event_type <> 'vaccination_dose_due'
     AND event_type <> 'vaccination_history'
     AND ($4::text = '' OR owner_key = $4::text)
@@ -1831,7 +1849,10 @@ marker_rows AS (
     count(*)::bigint AS event_count,
     count(*)::bigint AS completed_count,
     0::bigint AS open_count,
-    0::bigint AS drive_count
+    0::bigint AS drive_count,
+    0::bigint AS due_count,
+    0::bigint AS overdue_count,
+    0::bigint AS deferred_count
   FROM vaccination_completions vc
   JOIN obligation_instances oi
     ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
@@ -1858,7 +1879,10 @@ SELECT marker_date,
        sum(event_count)::int,
        sum(completed_count)::int,
        sum(open_count)::int,
-       sum(drive_count)::int
+       sum(drive_count)::int,
+       sum(due_count)::int,
+       sum(overdue_count)::int,
+       sum(deferred_count)::int
 FROM marker_rows
 GROUP BY marker_date
 ORDER BY marker_date`

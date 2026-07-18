@@ -143,7 +143,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)
@@ -192,7 +192,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)
@@ -239,7 +239,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = @tenant_id
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)

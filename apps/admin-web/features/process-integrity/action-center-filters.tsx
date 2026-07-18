@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { useEffect, useRef, useState } from "react";
 import { Search, Users, X } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";

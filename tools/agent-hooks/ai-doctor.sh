@@ -49,6 +49,8 @@ EXEC_FILES=(
     tools/ci/check-stg-promotion.mjs
     tools/ci/check-guardrail-registration.mjs
     tools/ci/check-local-ci-evidence.mjs
+    tools/ci/land-main.sh
+    tools/ci/land-main.test.sh
     tools/ci/guardrail-manifest.json
     tools/agent-hooks/check-mock.sh
     tools/agent-hooks/check-mock-clicks.mjs

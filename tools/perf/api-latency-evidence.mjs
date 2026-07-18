@@ -11,6 +11,7 @@ export const REQUIRED_HOT_PATHS = Object.freeze([
   "calendar_vaccination",
   "calendar_vaccination_completed_history",
   "calendar_vaccination_date_markers",
+  "vaccination_schedule",
   "vaccination_execution",
   "vaccination_operations",
   "vaccination_shed_summary",
@@ -29,21 +30,21 @@ export function validateApiLatencyEvidence(report, expectedSha) {
   if (!report.scope || !Array.isArray(report.scope.included) || typeof report.scope.excluded !== "object") {
     failures.push("benchmark scope and explicit exclusions are missing");
   } else if (!report.scope.evidence_boundaries
-    || !Array.isArray(report.scope.evidence_boundaries.million_scale_projection_backed)
-    || !Array.isArray(report.scope.evidence_boundaries.canonical_1300_nonempty_latency_only)) {
-    failures.push("million-scale and local-nonempty evidence boundaries are missing");
+    || !Array.isArray(report.scope.evidence_boundaries.canonical_5k_50k_serving_reads)
+    || !Array.isArray(report.scope.evidence_boundaries.local_nonempty_latency_only)) {
+    failures.push("canonical 5k-50k and local-nonempty evidence boundaries are missing");
   }
   if (!report.dataset || typeof report.dataset !== "object") {
     failures.push("dataset evidence is missing");
   } else {
-    if (report.dataset.animal_equivalent_cardinality < 1_000_000) {
-      failures.push("dataset does not declare 1M animal-equivalent cardinality");
+    if (report.dataset.animal_equivalent_cardinality < 5_000) {
+      failures.push("dataset does not declare at least 5k animal-equivalent cardinality");
     }
-    if (report.dataset.projection_rows < 1_000_000) {
-      failures.push("dataset has fewer than 1M projection rows");
+    if (report.dataset.canonical_rows < 5_000) {
+      failures.push("dataset has fewer than 5k canonical rows");
     }
-    if (report.dataset.certification_boundary !== "scale_shaped_projection_smoke_not_full_chain_1m_certification") {
-      failures.push("dataset certification boundary is missing or overclaims full-chain 1M proof");
+    if (report.dataset.certification_boundary !== "canonical_5k_50k_serving_read_evidence") {
+      failures.push("dataset certification boundary is missing or overclaims the 5k-50k canonical proof");
     }
   }
 

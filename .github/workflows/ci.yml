@@ -18,6 +18,7 @@ jobs:
     outputs:
       common: ${{ steps.scope.outputs.common }}
       backend: ${{ steps.scope.outputs.backend }}
+      query_plans: ${{ steps.scope.outputs.query_plans }}
       admin_web: ${{ steps.scope.outputs.admin_web }}
       android: ${{ steps.scope.outputs.android }}
       full: ${{ steps.scope.outputs.full }}
@@ -81,6 +82,19 @@ jobs:
           "$(go env GOPATH)/bin/sqlc" version
       - name: Required backend gates — same runner used locally
         run: make ci-local JOB=backend
+
+  query-plans:
+    needs: changes
+    if: needs.changes.outputs.query_plans == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Required PostgreSQL query-plan gate — same runner used locally
+        run: make ci-local JOB=query-plans
 
   admin-web:
     needs: changes
@@ -154,10 +168,10 @@ jobs:
       GOATOS_PERF_EXPECTED_SHA: ${{ github.sha }}
       GOATOS_PERF_ITERATIONS: 20
       GOATOS_PERF_WARMUP: 3
-      GOATOS_PERF_DATASET_LABEL: ci_scale_shaped_projection
-      GOATOS_PERF_DATASET_ANIMALS: 1000000
-      GOATOS_PERF_DATASET_PROJECTION_ROWS: 2001000
-      GOATOS_PERF_CERTIFICATION_BOUNDARY: scale_shaped_projection_smoke_not_full_chain_1m_certification
+      GOATOS_PERF_DATASET_LABEL: ci_canonical_5k_50k
+      GOATOS_PERF_DATASET_ANIMALS: 50000
+      GOATOS_PERF_DATASET_CANONICAL_ROWS: 50000
+      GOATOS_PERF_CERTIFICATION_BOUNDARY: canonical_5k_50k_serving_read_evidence
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -167,51 +181,22 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Install Postgres client for scale-shaped fixture and plan evidence
+      - name: Install Postgres client for canonical fixture and request-path evidence
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Migrate and seed the live CI database
         run: |
           (cd backend && go run ./cmd/migrate)
           (cd backend && go run ./cmd/seed-dev-grant -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -role ceo_internal)
-      - name: Load 1M-cardinality projection fixtures and prove bounded indexed plans
+      - name: Load canonical 50k vaccination fixture
         env:
           PGOPTIONS: -c statement_timeout=900000
         run: |
           mkdir -p artifacts/api-latency
           psql "$DATABASE_URL" \
             -v tenant_id="$GOATOS_TENANT_ID" \
-            -v scale_rows=1000000 \
+            -v scale_rows=50000 \
             -v bulk_load=true \
             -f tools/perf/seed-scale-shaped-projections.sql
-          psql "$DATABASE_URL" -X -qAt \
-            -v tenant_id="$GOATOS_TENANT_ID" \
-            -f tools/perf/explain-process-integrity-scale.sql \
-            > artifacts/api-latency/process-integrity-plan.json
-          psql "$DATABASE_URL" -X -qAt \
-            -v tenant_id="$GOATOS_TENANT_ID" \
-            -f tools/perf/explain-process-integrity-summary-scale.sql \
-            > artifacts/api-latency/process-integrity-summary-plan.json
-          psql "$DATABASE_URL" -X -qAt \
-            -v tenant_id="$GOATOS_TENANT_ID" \
-            -f tools/perf/explain-calendar-scale.sql \
-            > artifacts/api-latency/calendar-plan.json
-          psql "$DATABASE_URL" -X -qAt \
-            -v tenant_id="$GOATOS_TENANT_ID" \
-            -f tools/perf/explain-vaccination-shed-scale.sql \
-            > artifacts/api-latency/vaccination-shed-plan.json
-          psql "$DATABASE_URL" -X -qAt \
-            -v tenant_id="$GOATOS_TENANT_ID" \
-            -f tools/perf/scale-cardinality.sql \
-            > artifacts/api-latency/scale-cardinality.json
-          node tools/perf/scale-plan-evidence.mjs \
-            --sha "$GITHUB_SHA" \
-            --output artifacts/api-latency/scale-plan-evidence.json \
-            --cardinality-file artifacts/api-latency/scale-cardinality.json \
-            --pi-source-file backend/internal/processintegrity/adapters/postgres/repository.go \
-            --plan process_integrity=artifacts/api-latency/process-integrity-plan.json \
-            --plan process_integrity_summary=artifacts/api-latency/process-integrity-summary-plan.json \
-            --plan calendar=artifacts/api-latency/calendar-plan.json \
-            --plan vaccination_shed=artifacts/api-latency/vaccination-shed-plan.json
       - name: Build and start the API from the checked-out SHA
         run: |
           (cd backend && go build -o "$RUNNER_TEMP/goatos-api" ./cmd/api)
@@ -225,14 +210,14 @@ jobs:
           done
           cat "$RUNNER_TEMP/goatos-api.log"
           exit 1
-      - name: Prove projection-backed HTTP reads avoid canonical source tables
+      - name: Prove HTTP reads avoid deleted projection tables
         run: |
           token="$(cd backend && go run ./cmd/mint-dev-token -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -ttl 2h 2>/dev/null)"
           psql "$DATABASE_URL" -X -qAt -f tools/perf/reset-request-path-stats.sql >/dev/null
           GOATOS_PERF_ITERATIONS=1 GOATOS_PERF_WARMUP=0 GOATOS_BEARER_TOKEN="$token" \
             node tools/perf/api-latency-gate.mjs \
-              --manifest tools/perf/hot-paths.projection-reads.json \
-              --output artifacts/api-latency/projection-request-probe.json
+              --manifest tools/perf/hot-paths.canonical-reads.json \
+              --output artifacts/api-latency/canonical-request-probe.json
           # Postgres backends flush their cumulative relation statistics when
           # the API pool closes. Terminating the probe process makes this
           # runtime read-path evidence deterministic instead of sleep-based.
@@ -286,14 +271,14 @@ jobs:
 
   ci-required:
     if: always()
-    needs: [changes, common, backend, admin-web, android, live-api-latency]
+    needs: [changes, common, backend, query-plans, admin-web, android, live-api-latency]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Verify every affected component passed and unrelated jobs skipped
         env:
           CI_EXPECTED_RESULTS: >-
-            {"common":"true","backend":"${{ needs.changes.outputs.backend }}","admin-web":"${{ needs.changes.outputs.admin_web }}","android":"${{ needs.changes.outputs.android }}","live-api-latency":"${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.postgres == 'true' }}"}
+            {"common":"true","backend":"${{ needs.changes.outputs.backend }}","query-plans":"${{ needs.changes.outputs.query_plans }}","admin-web":"${{ needs.changes.outputs.admin_web }}","android":"${{ needs.changes.outputs.android }}","live-api-latency":"${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.postgres == 'true' }}"}
           CI_JOB_RESULTS: >-
-            {"changes":"${{ needs.changes.result }}","common":"${{ needs.common.result }}","backend":"${{ needs.backend.result }}","admin-web":"${{ needs['admin-web'].result }}","android":"${{ needs.android.result }}","live-api-latency":"${{ needs['live-api-latency'].result }}"}
+            {"changes":"${{ needs.changes.result }}","common":"${{ needs.common.result }}","backend":"${{ needs.backend.result }}","query-plans":"${{ needs['query-plans'].result }}","admin-web":"${{ needs['admin-web'].result }}","android":"${{ needs.android.result }}","live-api-latency":"${{ needs['live-api-latency'].result }}"}
         run: node tools/ci/ci-scope.mjs --verify-results

@@ -66,9 +66,10 @@ export function rangeDays(range: RangeKey): number {
 //   - as_of: honored as a top-bar DATE scope, with two different semantics. The process-integrity reads
 //     (Control Tower, Action Center, Protocol Adherence, Workflows) reconstruct completion/dose state and
 //     the obligation bucket as-of that instant from versioned snapshots — historical is supported. The
-//     vaccination reads (GET /vaccination/operations, /vaccination/execution + shed summary/detail, and
-//     /app/vaccination/coverage) are CURRENT-VIEW-ONLY: they keep a single serving snapshot at ~now and
-//     reject a past as_of with 400 historical_as_of_unsupported (future clamps to now). The verification
+//     vaccination reads (GET /vaccination/operations, /vaccination/execution + shed summary/detail,
+//     /vaccination/schedule, and /app/vaccination/coverage) are CURRENT-VIEW-ONLY: operations/execution
+//     keep a single serving snapshot at ~now and reject a past as_of with 400 historical_as_of_unsupported
+//     (future clamps to now); schedule reads only pre-materialized month windows. The verification
 //     queue does NOT yet consume as_of.
 //   - range / date_from (lower bound): parsed + carried in the URL but NOT consumed by ANY query yet —
 //     "Last 7 vs Last 30" does not change results until the range backend pass lands. Do not pretend it
@@ -87,7 +88,7 @@ export function backendScope(scope: Scope): { parkId?: string; asOf?: string } {
 export function scopeHref(
   basePath: string,
   scope: Scope,
-  overrides: Partial<{ park: string | null; mode: ScopeMode; range: RangeKey; asOf: string; domain: string | null }> = {},
+  overrides: Partial<{ park: string | null; mode: ScopeMode; range: RangeKey; asOf: string | null; domain: string | null }> = {},
   // Page-specific filters (severity, state, bucket, …) layered ON TOP of the preserved top-bar scope. This
   // is how CT/AC/PA/WF/Execution build their filter links without dropping scope — never hand-roll
   // URLSearchParams for a scoped link.
@@ -97,7 +98,7 @@ export function scopeHref(
   const park = "park" in overrides ? overrides.park : scope.parkId ?? null;
   const mode = overrides.mode ?? (park ? "park" : scope.mode);
   const range = overrides.range ?? scope.range;
-  const asOf = overrides.asOf ?? scope.asOf;
+  const asOf = "asOf" in overrides ? overrides.asOf : scope.asOf;
   const domain = "domain" in overrides ? overrides.domain : scope.domain ?? null;
   if (mode === "park") {
     p.set("scope_mode", "park");

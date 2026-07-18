@@ -38,6 +38,12 @@ export interface DriveStatusChip {
   count: number;
 }
 
+export function driveStatusClass(key: DriveStatusChip["key"]): "completed" | "due" | "over" | "def" {
+  if (key === "overdue") return "over";
+  if (key === "deferred") return "def";
+  return key;
+}
+
 // Returns all nonzero status buckets in fixed order: completed, due, overdue, deferred.
 // Used to render the status chips row on the drive card.
 export function driveStatusChips(summary: {

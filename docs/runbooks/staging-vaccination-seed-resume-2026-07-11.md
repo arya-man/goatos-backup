@@ -112,8 +112,14 @@ Reviewed HRMS shed ownership seed:
   `backup_manager_name`.
 - For staging, every row must keep `assignment_source = reviewed`,
   `needs_review = false`, and a non-provisional `source_ref`.
-- If any shed code, manager code, or backup code does not resolve in staging,
-  stop. Do not fall back to provisional ownership.
+- The CSV is an override, not the only way a shed may get a vaccination owner.
+  When a refreshed goat source introduces extra active sheds before this CSV is
+  regenerated, `seed-shed-positions` must materialize those shed manager seats
+  from the reviewed park `preventive_care_manager` position (`Eshwar` for CBE,
+  `Darshan Talwar` for CPT) and the park Backup Manager. If a code present in
+  the CSV does not resolve, or if a park has no reviewed preventive-care manager
+  or backup-manager position, stop. Never accept `Manager: unassigned` as a
+  normal vaccination board state.
 
 ## Seed Command Status
 
@@ -152,19 +158,10 @@ Known seed commands and staging readiness:
 - `backend/cmd/vaccination-eligibility-rollup-recompute`
   - Must run after goat/vaccination seed.
   - Populates `vaccination_eligibility_rollups` for cheap config preview.
-- `backend/cmd/process-integrity-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates Action Center, Control Tower, Protocol Adherence, Workflow, and
-    grouped sidebar-count read models.
-- `backend/cmd/vaccination-shed-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates the shed-wise `/vaccination` read model.
-- `backend/cmd/vaccination-execution-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates `/vaccination/execution`.
-- `backend/cmd/vaccination-operations-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates `/vaccination/operations`.
+- Process Integrity, Calendar, `/vaccination`, `/vaccination/execution`,
+  `/vaccination/operations`, and `/vaccination/schedule` now serve from
+  canonical indexed tables. Do not run or recreate retired projection
+  recompute commands for those vaccination surfaces after seed/sweeper changes.
 
 ## Problem Statements Captured
 
@@ -270,14 +267,10 @@ Strict rule:
       explicit config/review gaps; none are silently dropped because a rule was
       missing at seed time.
     - `vaccination_eligibility_rollups` has rows.
-    - `vaccination_shed_projection_state`,
-      `vaccination_execution_projection_state`,
-      `vaccination_operations_projection_state`, and
-      `process_integrity_projection_state` have a serving version built after
-      the final seed write.
-    - `GET /vaccination/sheds`, `GET /vaccination/execution`, and
-      `GET /vaccination/operations` return `200`, not
-      `projection_unavailable`.
+    - `GET /vaccination/sheds`, `GET /vaccination/execution`,
+      `GET /vaccination/operations`, and `GET /vaccination/schedule` return
+      `200` directly from canonical indexed tables. A failure here is a
+      seed/query/API bug, not a projector-warmup step.
     - capacity config/rule uses buffer 7.
 15. Stop the Cloud SQL proxy when finished.
 

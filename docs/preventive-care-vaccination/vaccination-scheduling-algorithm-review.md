@@ -147,7 +147,9 @@ import, or match on mother vaccination status.
 4. Sheep Pox + Blue Tongue booster
 5. FMD + HS
 
-Algorithm: generate dose obligations in sequence; booster doses use `after_previous_completion` with `min_gap_days = 21` for ET+TT booster.
+Algorithm: generate dose obligations in sequence. ET+TT dose 2 uses a 21-day
+minimum gap after ET+TT dose 1 for both kid and adult courses; Blue Tongue kid
+dose 2 keeps a 28-day gap.
 
 ---
 
@@ -157,7 +159,10 @@ For newly procured goats/sheep (breeding, fattening, general adult):
 
 **Step 1 (day 0 / procurement):** ET+TT + PPR (same day OK — bacterial + live viral)
 
-**Step 2 (after 4 weeks):** Goat Pox (goats) or Sheep Pox (sheep) + ET+TT booster
+**Step 2A (after 3 weeks):** ET+TT booster / dose 2.
+
+**Step 2B (after 4 weeks):** Goat Pox (goats) or Sheep Pox (sheep), because pox
+is live and must wait 4 weeks after PPR.
 
 **Step 3 (later per revaccination calendar):** FMD + HS as annual/9-month cycles
 
@@ -166,15 +171,17 @@ For newly procured goats/sheep (breeding, fattening, general adult):
 **Goats — adults**
 
 1. ET+TT + PPR
-2. ET+TT booster + Goat Pox — **4 weeks** after step 1
-3. FMD + HS
+2. ET+TT booster — **3 weeks** after ET+TT dose 1
+3. Goat Pox — **4 weeks** after PPR/live dose
+4. FMD + HS
 
 **Sheep — adults**
 
 1. ET+TT + PPR
-2. ET+TT booster + Sheep Pox — **4 weeks**
-3. Blue Tongue + Blue Tongue booster
-4. FMD + HS
+2. ET+TT booster — **3 weeks** after ET+TT dose 1
+3. Sheep Pox — **4 weeks** after PPR/live dose
+4. Blue Tongue + Blue Tongue booster where due by sheep path
+5. FMD + HS
 
 **Important:** Adults do **not** replay the full kid age matrix. They enter via `post_arrival` triggers off `entry_date`. A prior dose can shift/suppress that work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
 
@@ -189,8 +196,8 @@ These apply **between any two administered vaccines**, not only within one serie
 | Live → Killed | **2 weeks** |
 | Killed → Killed | **2 weeks** |
 | Live → Live | **4 weeks** |
-| ET+TT primary → ET+TT booster (kids) | **3 weeks** |
-| Procurement ET+TT+PPR → Pox + ET booster (adults) | **4 weeks** |
+| ET+TT dose 1 → ET+TT dose 2 (kids and adults) | **3 weeks** |
+| PPR/live → Goat Pox or Sheep Pox | **4 weeks** |
 
 **Same-day allowed combinations:**
 
@@ -364,7 +371,7 @@ Algorithm: when primary series complete → spawn `calendar` or `every_n_days` r
 | Approved kid schedule | **Built** — standard path only; mother-not-vaccinated / unknown-mother branch ignored |
 | Warming 7-day hold | **Gap** — needs warming entry date + defer rule |
 | Pregnancy month 4–5 block + post-delivery catch-up | **Gap** — needs reproductive phase rules beyond generic defer |
-| Procurement intake path (ET+TT+PPR → 4wk → Pox) | **Gap** — needs adult `post_arrival` protocol version |
+| Procurement intake path (ET+TT+PPR → 3wk ET+TT dose 2; 4wk pox) | **Built** — adult `post_arrival` course rows are represented in the matrix; ET+TT repeat waits for dose 2/course completion |
 | V2 optimized drive planner | **Spec only** (TRD §6) — not production-complete |
 
 ---

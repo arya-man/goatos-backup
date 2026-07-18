@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 )
 
@@ -98,4 +103,80 @@ func TestTaskCreatorImplementsBatchTaskCreatorForBulkOperations(t *testing.T) {
 	var _ app.BatchTaskCreator = bridge
 
 	t.Logf("sopbridge.Bridge correctly implements both TaskCreator and BatchTaskCreator for bulk operations")
+}
+
+func TestBuildSweepConfigCachesRuleVaccineIdentity(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	protocolRepo := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := protocolRepo.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.oneshot.ruleidentity.cache", Name: "OneShotRuleIdentityCache",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := protocolRepo.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"vaccine":{"code":"PPR"},"drive_policy":{"priority":2}}`),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	legacyRuleID, err := protocolRepo.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", DueWindowDays: 7,
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("legacy rule: %v", err)
+	}
+	matrixRuleID, err := protocolRepo.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "booster", Sequence: 2,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"fmd","priority":5,"compatibility_group":"combo-a","inventory_item_id":"item-fmd"}}`),
+		ProofPolicy:     []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("matrix rule: %v", err)
+	}
+
+	cfg, err := buildSweepConfig(ctx, protocolRepo, config{TenantID: tenantID, DosesPerGoat: 1}, versionID)
+	if err != nil {
+		t.Fatalf("buildSweepConfig: %v", err)
+	}
+	if id, ok := cfg.RuleVaccineIDs[legacyRuleID]; ok {
+		t.Fatalf("legacy rule must not cache empty vaccine identity, got %#v", id)
+	}
+	id, ok := cfg.RuleVaccineIDs[matrixRuleID]
+	if !ok {
+		t.Fatal("matrix rule missing RuleVaccineIDs entry")
+	}
+	if id.VaccineCode != "fmd" {
+		t.Fatalf("matrix vaccine code = %q, want fmd", id.VaccineCode)
+	}
+	if id.VaccinePriority != 5 {
+		t.Fatalf("matrix vaccine priority = %d, want FMD priority 5", id.VaccinePriority)
+	}
+	if id.CompatibilityGrp != "combo-a" {
+		t.Fatalf("matrix compatibility group = %q, want combo-a", id.CompatibilityGrp)
+	}
+	if id.VaccineItemID != "item-fmd" {
+		t.Fatalf("matrix vaccine item id = %q, want item-fmd", id.VaccineItemID)
+	}
+	ruleCfg, ok := cfg.RuleConfigs[matrixRuleID]
+	if !ok {
+		t.Fatal("matrix rule with per-rule inventory item must populate RuleConfigs")
+	}
+	if ruleCfg.VaccineItemID != "item-fmd" {
+		t.Fatalf("matrix rule config vaccine item id = %q, want item-fmd", ruleCfg.VaccineItemID)
+	}
 }

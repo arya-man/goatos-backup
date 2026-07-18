@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
@@ -87,9 +87,8 @@ function weightLabel(weight: number | null | undefined): string {
   return typeof weight === "number" && Number.isFinite(weight) ? `${weight.toFixed(weight % 1 === 0 ? 0 : 1)}` : "—";
 }
 
-// KPIs come from the maintained herd-register summary projection (exact, bounded,
-// tenant+filter scoped) — never a full-herd scan. `summary === null` means the
-// projection read failed/was unavailable: show an honest dash, never a full-herd fallback.
+// KPIs come from canonical scoped goat counts. `summary === null` means the
+// API read failed: show an honest dash, never fabricate a fallback.
 function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegisterSummaryResponse | null) {
   const totals = summary
     ? summary.items.reduce(
@@ -167,7 +166,7 @@ export async function HerdRegisterPage({
     : [];
 
   const goats: GoatRow[] = result.ok ? result.data.items : [];
-  // Honest state: an unavailable projection read shows a dash, NOT a full-herd fallback.
+  // Honest state: an unavailable summary read shows a dash, not fabricated numbers.
   const summaryCards = buildHerdSummary(pageContract, summaryResult.ok ? summaryResult.data : null);
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
@@ -330,7 +329,7 @@ export async function HerdRegisterPage({
             </tbody>
           </table>
         </div>
-        {goats.length > 0 || page > 1 ? (
+        {prevHref || nextHref || page > 1 ? (
 	          <div className="pager2">
 	            <span className="muted small">
 	              {copy(pageContract, "pager.page")} {page} · {goats.length} {copy(pageContract, goats.length === 1 ? "label.row_singular" : "label.row_plural")}

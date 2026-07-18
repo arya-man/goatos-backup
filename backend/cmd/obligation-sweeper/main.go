@@ -52,6 +52,7 @@ func (a *sopServiceAdapter) CreateTasksForBatches(ctx context.Context, tenantID,
 type config struct {
 	TenantID      string
 	VersionID     string
+	AsOf          time.Time
 	DueBefore     time.Time
 	Timeout       time.Duration
 	SOPVersionID  string
@@ -102,10 +103,7 @@ func run(args []string) error {
 
 	protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
-	var reserver obligationapp.StockReserver
-	if cfg.VaccineItemID != "" {
-		reserver = inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
-	}
+	reserver := inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
 	var creator obligationapp.TaskCreator
 	if cfg.ActorID != "" {
 		sopService := sopapp.NewService(soppg.NewRepository(pool, pgCfg.QueryTimeout))
@@ -143,32 +141,72 @@ func run(args []string) error {
 		}
 		plans = obligationapp.SortSweepVersionsByPriority(plans)
 
-		session := obligationapp.NewSweepSession()
-		for _, plan := range plans {
-			sweepStart := time.Now()
-			result, err := sweeper.SweepVersionWithSession(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session)
-			// tasksCreated approximates 1 SOP batch task per obligation batch -
-			// obligationapp.SweepResult does not return a distinct
-			// tasks-created count, and batches are only task-bearing when a
-			// TaskCreator (creator, gated on --actor-id) is configured.
-			tasksCreated := 0
-			if creator != nil {
-				tasksCreated = result.Batches + result.ParkBatches
-			}
-			kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
-			if err != nil {
-				return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
-			}
-			fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
-				plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
-		}
-		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
-		aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, cfg.DueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session)
+		// RV-03: serialize the whole batch sweep per tenant so this run is the single priority-ordered
+		// writer. If another sweeper (the kernel obligation-sweeper stage, or a second replica) already
+		// owns the tenant, skip -- otherwise both could commit into an animal's last cap slot and let
+		// lock-acquisition order, not vaccine priority, decide the medical plan.
+		acquired, releaseSweep, err := sweeper.LockTenantSweep(ctx, cfg.TenantID)
 		if err != nil {
-			return fmt.Errorf("align combo drives: %w", err)
+			return fmt.Errorf("acquire tenant sweep lock: %w", err)
 		}
-		if aligned > 0 {
-			fmt.Printf("combo drive dates aligned=%d\n", aligned)
+		defer func() { _ = releaseSweep(context.Background()) }()
+		if !acquired {
+			fmt.Printf("obligation sweep skipped: tenant %s already locked by another sweeper\n", cfg.TenantID)
+		} else {
+			// RV-05: the HWM excludes later inserts and the preflight snapshot below excludes older rows
+			// that become eligible only after preflight. Candidate membership cannot grow mid-cycle.
+			createdAtHWM, err := sweeper.CaptureSweepHighWaterMark(ctx)
+			if err != nil {
+				return fmt.Errorf("capture sweep high-water mark: %w", err)
+			}
+
+			// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan
+			// for real. Without this, a later plan's tie aborted the loop below while earlier plans'
+			// batches/SOP tasks/stock reservations were already committed -- a silent, arbitrary
+			// partial commit. See obligationapp.PreflightVisitShotCapTies.
+			snapshot, err := sweeper.PreflightVisitShotCapTiesWithSnapshotAsOf(ctx, cfg.TenantID, plans, cfg.AsOf, cfg.DueBefore, createdAtHWM)
+			if err != nil {
+				return fmt.Errorf("preflight shot-cap ties: %w", err)
+			}
+
+			session := obligationapp.NewSweepSession()
+			// R2-04 fix: use the snapshot/no-finalize sweep so AlignComboDrives (below) runs
+			// BEFORE any stock is reserved or SOP task is created. Finalizing a combo batch on its
+			// pre-alignment planned_date would permanently exclude it from AlignComboDrives' candidate
+			// query (sop_task_id IS NULL AND NOT context ? 'stock_reservation'). The HWM variant (RV-05)
+			// bounds every real-sweep read to the successful preflight's exact candidate membership.
+			for _, plan := range plans {
+				sweepStart := time.Now()
+				result, err := sweeper.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.AsOf, cfg.DueBefore, session, createdAtHWM, snapshot)
+				// tasksCreated approximates 1 SOP batch task per obligation batch -
+				// obligationapp.SweepResult does not return a distinct tasks-created count, and batches
+				// are only task-bearing when a TaskCreator (creator, gated on --actor-id) is configured.
+				tasksCreated := 0
+				if creator != nil {
+					tasksCreated = result.Batches + result.ParkBatches
+				}
+				kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
+				if err != nil {
+					return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
+				}
+				fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
+					plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
+			}
+			alignWindowDays, maxShotsPerAnimalPerDrive := obligationapp.ComboAlignmentSettingsForPlans(plans)
+			aligned, err := sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, cfg.AsOf, cfg.DueBefore, maxShotsPerAnimalPerDrive, session)
+			if err != nil {
+				return fmt.Errorf("align combo drives: %w", err)
+			}
+			if aligned > 0 {
+				fmt.Printf("combo drive dates aligned=%d\n", aligned)
+			}
+			// R2-04: finalize stock reservation + SOP-task creation for every swept version now that
+			// alignment has settled each planned batch's final date.
+			for _, plan := range plans {
+				if err := sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+					return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+				}
+			}
 		}
 	}
 	if cfg.MarkMissed {
@@ -241,9 +279,16 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 	if err != nil {
 		return obligationapp.SweepConfig{}, err
 	}
+	out.RuleVaccineIDs = make(map[string]obligationapp.RuleVaccineIdentity, len(rules))
 	for _, rule := range rules {
+		ruleVaccineID := obligationapp.ExtractRuleVaccineIdentity(rule.EligibilityJSON)
+		if ruleVaccineID.VaccineCode != "" {
+			out.RuleVaccineIDs[rule.RuleID] = ruleVaccineID
+		}
+
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
-		if ruleSOP == "" || ruleSOP == versionSOP {
+		ruleVaccineItemID := strings.TrimSpace(ruleVaccineID.VaccineItemID)
+		if (ruleSOP == "" || ruleSOP == versionSOP) && ruleVaccineItemID == "" {
 			continue
 		}
 		if out.RuleConfigs == nil {
@@ -251,7 +296,7 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 		}
 		out.RuleConfigs[rule.RuleID] = obligationapp.SweepRuleConfig{
 			SOPVersionID:  ruleSOP,
-			VaccineItemID: out.VaccineItemID,
+			VaccineItemID: ruleVaccineItemID,
 			DosesPerGoat:  out.DosesPerGoat,
 		}
 	}
@@ -286,6 +331,7 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.VaccineItemID, "vaccine-item-id", getenv("GOATOS_SWEEPER_VACCINE_ITEM_ID"), "vaccine inventory item id used for FEFO reserve")
 	fs.StringVar(&cfg.ActorID, "actor-id", getenv("GOATOS_SWEEPER_ACTOR_ID"), "actor id for SOP task creation")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_SWEEPER_TIMEOUT", 60*time.Second), "sweeper timeout")
+	asOfRaw := fs.String("as-of", getenv("GOATOS_SWEEPER_AS_OF"), "RFC3339 operational sweep day; default now")
 	dueBeforeRaw := fs.String("due-before", getenv("GOATOS_SWEEPER_DUE_BEFORE"), "RFC3339 due-before cutoff; default now")
 	missedBeforeRaw := fs.String("missed-before", getenv("GOATOS_SWEEPER_MISSED_BEFORE"), "RFC3339 missed cutoff; default now minus missed-grace")
 	missedGrace := fs.Duration("missed-grace", durationEnv("GOATOS_SWEEPER_MISSED_GRACE", 24*time.Hour), "grace period before due/window-crossed obligations become missed")
@@ -306,6 +352,14 @@ func parseFlags(args []string) (config, error) {
 		return config{}, errors.New("tenant-id is required")
 	}
 	now := time.Now().In(biztime.DefaultLocation())
+	cfg.AsOf = now
+	if strings.TrimSpace(*asOfRaw) != "" {
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*asOfRaw))
+		if err != nil {
+			return config{}, errors.New("as-of must be RFC3339")
+		}
+		cfg.AsOf = parsed.In(biztime.DefaultLocation())
+	}
 	cfg.DueBefore = now
 	if strings.TrimSpace(*dueBeforeRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*dueBeforeRaw))

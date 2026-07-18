@@ -26,6 +26,9 @@ type fakeReader struct {
 	last          domain.ExecutionQuery
 	ops           domain.OperationsResponse
 	lastOps       domain.OperationsQuery
+	schedule      domain.OperationsResponse
+	lastSchedule  domain.ScheduleQuery
+	scheduleErr   error
 	roster        []domain.ScanRosterRow
 	lastRoster    domain.ScanRosterQuery
 	rosterNext    *domain.ScanRosterCursor
@@ -57,6 +60,14 @@ type fakeWriter struct {
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
 	f.lastOps = q
 	return f.ops, nil
+}
+
+func (f *fakeReader) VaccinationSchedule(_ context.Context, q domain.ScheduleQuery) (domain.OperationsResponse, error) {
+	f.lastSchedule = q
+	if f.scheduleErr != nil {
+		return domain.OperationsResponse{}, f.scheduleErr
+	}
+	return f.schedule, nil
 }
 
 func (f *fakeReader) VaccinationExecution(_ context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
@@ -212,6 +223,33 @@ func TestVaccinationExecutionDefaultsAndRejectsScopedPark(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "park_scope_forbidden") {
 		t.Fatalf("body=%s, want park_scope_forbidden", rec.Body.String())
+	}
+}
+
+func TestVaccinationScheduleParsesMonthWindow(t *testing.T) {
+	reader := &fakeReader{schedule: domain.OperationsResponse{Source: domain.SourceAPI}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/schedule?park_id=30000000-0000-4000-8000-000000000001&year=2026&month=8&limit=9000", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastSchedule.TenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("tenant = %q", reader.lastSchedule.TenantID)
+	}
+	if reader.lastSchedule.ParkID == nil || *reader.lastSchedule.ParkID != "30000000-0000-4000-8000-000000000001" {
+		t.Fatalf("park = %v", reader.lastSchedule.ParkID)
+	}
+	if reader.lastSchedule.MonthStart.Format("2006-01-02") != "2026-08-01" {
+		t.Fatalf("month start = %s", reader.lastSchedule.MonthStart)
+	}
+	if reader.lastSchedule.Limit != maxExecutionLimit {
+		t.Fatalf("limit = %d want %d", reader.lastSchedule.Limit, maxExecutionLimit)
 	}
 }
 
@@ -434,6 +472,7 @@ func TestGetShedDetailNotFound(t *testing.T) {
 }
 
 func TestGetShedAnimalsParsesCursor(t *testing.T) {
+	asOf := time.Date(2026, time.July, 21, 23, 59, 59, 0, biztime.DefaultLocation())
 	reader := &fakeReader{
 		shedFound:   true,
 		shedDetail:  domain.ShedDetailResponse{ParkID: "30000000-0000-4000-8000-000000000001"},
@@ -441,7 +480,7 @@ func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50", nil)
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50&as_of=2026-07-21T23:59:59%2B05:30", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -456,6 +495,12 @@ func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	}
 	if reader.lastShedAnim.Limit != 50 {
 		t.Errorf("limit = %d", reader.lastShedAnim.Limit)
+	}
+	if !reader.lastShedAnim.AsOf.Equal(asOf) {
+		t.Errorf("animal as_of = %s, want %s", reader.lastShedAnim.AsOf, asOf)
+	}
+	if !reader.lastOps.AsOf.Equal(asOf) {
+		t.Errorf("shed validation as_of = %s, want %s", reader.lastOps.AsOf, asOf)
 	}
 }
 
@@ -507,7 +552,7 @@ func TestExecutionParsesAsOf(t *testing.T) {
 	}
 
 	// A prior-day as_of is a historical point-in-time request: an honest 400, never a misleading
-	// projection_unavailable 503. 06:00Z on 2026-07-10 is 11:30 IST the prior business day.
+	// current-view response. 06:00Z on 2026-07-10 is 11:30 IST the prior business day.
 	assertHistoricalAsOfRejected(t, mux, "/vaccination/execution?as_of=2026-07-10T06:00:00Z")
 	// VE-001 guard: an EARLIER-SAME-DAY instant is also historical (06:00Z = 11:30 IST, before
 	// serverNow 18:15 IST) and must not slip through to return a misleading current snapshot.
@@ -522,8 +567,7 @@ func TestExecutionParsesAsOf(t *testing.T) {
 }
 
 // assertHistoricalAsOfRejected asserts a past as_of on a vaccination-execution read is a 400
-// historical_as_of_unsupported (current-view-only contract), not a 200 misleading current snapshot
-// and not a projection_unavailable 503.
+// historical_as_of_unsupported (current-view-only contract), not a 200 misleading current snapshot.
 func assertHistoricalAsOfRejected(t *testing.T, mux http.Handler, target string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, target, nil)
@@ -538,8 +582,9 @@ func assertHistoricalAsOfRejected(t *testing.T, mux http.Handler, target string)
 	}
 }
 
-func TestExecutionClampsFutureAsOfToServerNow(t *testing.T) {
+func TestExecutionClampsFutureAsOfButShedDrilldownAllowsScheduleDate(t *testing.T) {
 	serverNow := time.Date(2026, 7, 11, 18, 15, 0, 0, biztime.DefaultLocation())
+	scheduleAsOf := time.Date(2026, 9, 2, 5, 29, 59, 0, biztime.DefaultLocation())
 	reader := &fakeReader{
 		rows:        []domain.ExecutionRow{sampleRow()},
 		shedSummary: domain.ShedSummaryResponse{Source: domain.SourceAPI},
@@ -584,8 +629,8 @@ func TestExecutionClampsFutureAsOfToServerNow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("shed detail status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !reader.lastOps.AsOf.Equal(serverNow) {
-		t.Fatalf("shed detail as_of = %s, want clamped server now %s", reader.lastOps.AsOf, serverNow)
+	if !reader.lastOps.AsOf.Equal(scheduleAsOf) {
+		t.Fatalf("shed detail as_of = %s, want selected schedule date %s", reader.lastOps.AsOf, scheduleAsOf)
 	}
 }
 

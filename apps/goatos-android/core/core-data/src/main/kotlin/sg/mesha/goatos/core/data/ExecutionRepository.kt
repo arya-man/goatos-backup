@@ -99,7 +99,7 @@ interface ExecutionRepository {
     /** Per-animal scan roster (RFID tags + due vaccine) for a shed. */
     suspend fun scanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String? = null,
         cursor: String? = null,
         limit: Int? = null,
     ): ScanRosterResponseDto
@@ -107,21 +107,21 @@ interface ExecutionRepository {
     /** Cache-first stream for this shed's scan roster. */
     fun observeScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String? = null,
         limit: Int? = null,
     ): Flow<Resource<ScanRosterResponseDto>>
 
     /** Fetches and upserts Room on success; leaves the cache untouched on failure. */
     suspend fun refreshScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String? = null,
         limit: Int? = null,
     ): Result<Unit>
 
     /** Appends exactly the current server continuation page to the Room-backed scope. */
     suspend fun appendScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String? = null,
         cursor: String,
         limit: Int? = null,
     ): Result<Unit>
@@ -243,14 +243,14 @@ class DefaultExecutionRepository(
 
     override suspend fun scanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String?,
         cursor: String?,
         limit: Int?,
     ): ScanRosterResponseDto = api.getScanRoster(shedId, taskId, cursor, limit)
 
     override fun observeScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String?,
         limit: Int?,
     ): Flow<Resource<ScanRosterResponseDto>> {
         val key = scanRosterScopeKey(shedId, taskId, limit)
@@ -261,7 +261,7 @@ class DefaultExecutionRepository(
 
     override suspend fun refreshScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String?,
         limit: Int?,
     ): Result<Unit> = runCatching {
         val dto = scanRoster(shedId, taskId, cursor = null, limit = limit)
@@ -272,7 +272,7 @@ class DefaultExecutionRepository(
 
     override suspend fun appendScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String?,
         cursor: String,
         limit: Int?,
     ): Result<Unit> = runCatching {
@@ -288,7 +288,7 @@ class DefaultExecutionRepository(
                 quarantine = { scanRosterDao.delete(it) },
             ).data ?: throw ScanRosterCursorException("scan roster continuation has no cached first page")
             if (current.nextCursor != cursor) {
-                throw ScanRosterCursorException("scan roster cursor is stale or belongs to another task")
+                throw ScanRosterCursorException("scan roster cursor is stale or belongs to another task/shed-wide scope")
             }
             val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
             if (page.nextCursor == cursor) {
@@ -337,8 +337,8 @@ class DefaultExecutionRepository(
         return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
     }
 
-    private fun scanRosterScopeKey(shedId: String, taskId: String, limit: Int?): String =
-        cacheKey(shedId, taskId, limit?.toString())
+    private fun scanRosterScopeKey(shedId: String, taskId: String?, limit: Int?): String =
+        cacheKey(shedId, taskId ?: "shed-wide", limit?.toString())
 }
 
 class ScanRosterCursorException(message: String) : IllegalStateException(message)

@@ -205,7 +205,7 @@ func TestEvaluateRejectsInvalidVaccinationAnswerTypes(t *testing.T) {
 	answers := map[string]any{
 		"vaccine_lot_id":      "not-a-uuid",
 		"cold_chain_verified": "not-a-bool",
-		"goat_ids":            []any{"not-a-uuid"},
+		"goat_ids":            []any{false},
 		"dose_ml_given":       "not-a-number",
 		"administered_at":     "yesterday",
 	}
@@ -276,6 +276,141 @@ func TestSubmitRejectsWrongAssignee(t *testing.T) {
 	}
 }
 
+func TestSubmitMergesServerDraftScanCapturesOneToManyPageBoundaryStatusMatrix(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = vaccinationDSL()
+	repo.version.ProofPolicy = canonicalProofPolicy(false, "video")
+	repo.scanCaptures = []domain.ScanCaptureSummary{{
+		CaptureID:    "66000000-0000-4000-8000-000000000001",
+		TaskID:       testTaskID,
+		FieldKey:     rosterScanFieldKey,
+		Tag:          "901007000504392",
+		GoatID:       "66000000-0000-4000-8000-000000000001",
+		ObligationID: "68000000-0000-4000-8000-000000000001",
+		CapturedAt:   "2026-07-17T00:00:00Z",
+	}, {
+		CaptureID:    "66000000-0000-4000-8000-000000000002",
+		TaskID:       testTaskID,
+		FieldKey:     rosterScanFieldKey,
+		Tag:          "901007000504418",
+		GoatID:       "66000000-0000-4000-8000-000000000002",
+		ObligationID: "68000000-0000-4000-8000-000000000002",
+		CapturedAt:   "2026-07-17T00:00:01Z",
+	}}
+	service := NewService(repo)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-draft-scan",
+			Answers: map[string]any{
+				"vaccine_lot_id":      "69000000-0000-4000-8000-000000000001",
+				"cold_chain_verified": true,
+				"dose_ml_given":       float64(1),
+				"administered_at":     "2026-07-17T00:00:00Z",
+			},
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	got, ok := repo.lastSubmit.Body.Answers["goat_ids"].([]any)
+	if !ok || len(got) != 2 || got[0] != "901007000504392" || got[1] != "901007000504418" {
+		t.Fatalf("merged goat_ids = %#v", repo.lastSubmit.Body.Answers["goat_ids"])
+	}
+	if len(repo.lastSubmit.SubmissionItems) != 2 ||
+		repo.lastSubmit.SubmissionItems[0].GoatID != "66000000-0000-4000-8000-000000000001" ||
+		repo.lastSubmit.SubmissionItems[1].GoatID != "66000000-0000-4000-8000-000000000002" {
+		t.Fatalf("submission items = %#v", repo.lastSubmit.SubmissionItems)
+	}
+}
+
+func TestRecordScanCaptureValidatesAndPersistsDraft(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = vaccinationDSL()
+	service := NewService(repo)
+
+	result, err := service.RecordScanCapture(context.Background(), ports.RecordScanCaptureCommand{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		TaskID:         testTaskID,
+		IdempotencyKey: "scan:test",
+		Body: domain.ScanCaptureRequest{
+			FieldKey: rosterScanFieldKey,
+			Tag:      "901007000504392",
+			GoatID:   "66000000-0000-4000-8000-000000000001",
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("RecordScanCapture() error = %v", err)
+	}
+	if result.Capture.Tag != "901007000504392" || repo.lastScanCapture.Body.FieldKey != rosterScanFieldKey {
+		t.Fatalf("capture = %#v last = %#v", result.Capture, repo.lastScanCapture)
+	}
+}
+
+func TestRecordScanAttemptValidatesAndPersistsDuplicateAudit(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = vaccinationDSL()
+	service := NewService(repo)
+
+	result, err := service.RecordScanAttempt(context.Background(), ports.RecordScanAttemptCommand{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		TaskID:         testTaskID,
+		IdempotencyKey: "scan-attempt:test",
+		Body: domain.ScanAttemptRequest{
+			FieldKey:     rosterScanFieldKey,
+			Tag:          "901007000504419",
+			GoatID:       "66000000-0000-4000-8000-000000000001",
+			ObligationID: "67000000-0000-4000-8000-000000000001",
+			Outcome:      "duplicate",
+			TagRole:      "secondary",
+			Reason:       "goat_already_scanned",
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("RecordScanAttempt() error = %v", err)
+	}
+	if result.Attempt.Outcome != "duplicate" || result.Attempt.TagRole != "secondary" {
+		t.Fatalf("attempt = %#v", result.Attempt)
+	}
+	if repo.lastScanAttempt.Body.Reason != "goat_already_scanned" {
+		t.Fatalf("last attempt = %#v", repo.lastScanAttempt)
+	}
+}
+
+func TestRecordScanAttemptRejectsInvalidOutcome(t *testing.T) {
+	repo := newFakeRepo()
+	repo.version.FormDSL = vaccinationDSL()
+	service := NewService(repo)
+
+	_, err := service.RecordScanAttempt(context.Background(), ports.RecordScanAttemptCommand{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		TaskID:         testTaskID,
+		IdempotencyKey: "scan-attempt:test",
+		Body: domain.ScanAttemptRequest{
+			FieldKey: rosterScanFieldKey,
+			Tag:      "901007000504419",
+			Outcome:  "count_it_twice",
+		},
+	}, "trace")
+	if err == nil {
+		t.Fatal("RecordScanAttempt() accepted invalid outcome")
+	}
+}
+
 func TestSubmitAcceptedWritesMovementPayload(t *testing.T) {
 	repo := newFakeRepo()
 	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
@@ -299,6 +434,80 @@ func TestSubmitAcceptedWritesMovementPayload(t *testing.T) {
 	}
 	if repo.lastSubmit.MovementPayload["destination_location_id"] == nil {
 		t.Fatalf("movement payload missing destination: %#v", repo.lastSubmit.MovementPayload)
+	}
+}
+
+func TestSubmitRejectsForgedProofRefsBeforeRepoWrite(t *testing.T) {
+	repo := newFakeRepo()
+	proofs := &fakeProofValidator{err: errors.New("proof does not belong to task")}
+	service := NewService(repo).WithProofValidator(proofs)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-forged-proof",
+			Answers:        validAnswers(),
+			ProofRefs: []domain.ProofReference{{
+				ProofID:     "10000000-0000-4000-8000-000000000111",
+				ProofType:   "video",
+				SubjectType: "batch",
+				UploadState: "completed",
+			}},
+		},
+	}, "trace")
+	if err == nil {
+		t.Fatal("SubmitTask() error = nil, want invalid proof refs")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "invalid_proof_refs" {
+		t.Fatalf("err = %#v, want invalid_proof_refs", err)
+	}
+	if repo.lastSubmit.TaskID != "" {
+		t.Fatalf("repo write happened despite rejected proof refs: %#v", repo.lastSubmit)
+	}
+	if proofs.calls != 1 || proofs.binding.TaskID != testTaskID || proofs.binding.ScopeID != testScopeID {
+		t.Fatalf("proof validator calls=%d binding=%#v", proofs.calls, proofs.binding)
+	}
+}
+
+func TestSubmitNormalizesProofRefsThroughServerValidator(t *testing.T) {
+	repo := newFakeRepo()
+	normalized := []domain.ProofReference{{
+		ProofID:     "10000000-0000-4000-8000-000000000111",
+		ProofType:   "video",
+		SubjectType: "batch",
+		UploadState: "completed",
+		Metadata:    map[string]any{"storage_provider": "local"},
+	}}
+	proofs := &fakeProofValidator{resolved: normalized}
+	service := NewService(repo).WithProofValidator(proofs)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-server-proof",
+			Answers:        validAnswers(),
+			ProofRefs: []domain.ProofReference{{
+				ProofID:     "10000000-0000-4000-8000-000000000111",
+				ProofType:   "video",
+				SubjectType: "client-forged-subject",
+				UploadState: "completed",
+			}},
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	if proofs.calls != 1 {
+		t.Fatalf("proof validator calls = %d, want 1", proofs.calls)
+	}
+	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].SubjectType != "batch" || got[0].Metadata["storage_provider"] != "local" {
+		t.Fatalf("proof refs persisted without server normalization: %#v", got)
 	}
 }
 
@@ -855,6 +1064,10 @@ type fakeRepo struct {
 	recordedSubmissionFanouts   []ports.SubmissionFanoutStatusCommand
 	failedSubmissionFanouts     []domain.FailedSubmissionFanout
 	lastFailedSubmissionFanouts ports.ListAgedFailedSubmissionFanoutsParams
+	scanCaptures                []domain.ScanCaptureSummary
+	lastScanCapture             ports.RecordScanCaptureCommand
+	scanAttempts                []domain.ScanAttemptSummary
+	lastScanAttempt             ports.RecordScanAttemptCommand
 	submitReplay                bool
 	reviewCalls                 int
 	listSOPsResult              []domain.SOPDefinition
@@ -975,6 +1188,40 @@ func (f *fakeRepo) RecordSubmissionFanoutStatus(_ context.Context, cmd ports.Sub
 func (f *fakeRepo) ListAgedFailedSubmissionFanouts(_ context.Context, params ports.ListAgedFailedSubmissionFanoutsParams) ([]domain.FailedSubmissionFanout, error) {
 	f.lastFailedSubmissionFanouts = params
 	return f.failedSubmissionFanouts, nil
+}
+func (f *fakeRepo) RecordScanCapture(_ context.Context, cmd ports.RecordScanCaptureCommand) (domain.ScanCaptureSummary, error) {
+	f.lastScanCapture = cmd
+	capture := domain.ScanCaptureSummary{
+		CaptureID:    "66000000-0000-4000-8000-000000000001",
+		TaskID:       cmd.TaskID,
+		FieldKey:     cmd.Body.FieldKey,
+		Tag:          cmd.Body.Tag,
+		GoatID:       cmd.Body.GoatID,
+		ObligationID: cmd.Body.ObligationID,
+		CapturedAt:   "2026-07-17T00:00:00Z",
+	}
+	f.scanCaptures = append(f.scanCaptures, capture)
+	return capture, nil
+}
+func (f *fakeRepo) ListScanCaptures(context.Context, string, string) ([]domain.ScanCaptureSummary, error) {
+	return f.scanCaptures, nil
+}
+func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAttemptCommand) (domain.ScanAttemptSummary, error) {
+	f.lastScanAttempt = cmd
+	attempt := domain.ScanAttemptSummary{
+		AttemptID:    "68000000-0000-4000-8000-000000000001",
+		TaskID:       cmd.TaskID,
+		FieldKey:     cmd.Body.FieldKey,
+		Tag:          cmd.Body.Tag,
+		GoatID:       cmd.Body.GoatID,
+		ObligationID: cmd.Body.ObligationID,
+		Outcome:      cmd.Body.Outcome,
+		TagRole:      cmd.Body.TagRole,
+		Reason:       cmd.Body.Reason,
+		CapturedAt:   "2026-07-17T00:00:00Z",
+	}
+	f.scanAttempts = append(f.scanAttempts, attempt)
+	return attempt, nil
 }
 func (f *fakeRepo) SubmitTask(_ context.Context, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error) {
 	f.lastSubmit = cmd
@@ -1101,4 +1348,22 @@ type fakeSubmissionHook struct {
 func (f *fakeSubmissionHook) OnTaskSubmitted(context.Context, string, domain.TaskSummary, domain.SubmissionSummary) error {
 	f.submitted++
 	return f.err
+}
+
+type fakeProofValidator struct {
+	calls    int
+	binding  domain.ProofBinding
+	refs     []domain.ProofReference
+	resolved []domain.ProofReference
+	err      error
+}
+
+func (f *fakeProofValidator) ResolveProofRefs(_ context.Context, _ string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error) {
+	f.calls++
+	f.binding = binding
+	f.refs = refs
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.resolved, nil
 }

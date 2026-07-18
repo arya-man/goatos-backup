@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Search, X } from "lucide-react";
 import { parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";

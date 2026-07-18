@@ -11,14 +11,14 @@ func TestMissingMandatoryClinicalDeferStates(t *testing.T) {
 		present []string
 		want    []string
 	}{
-		{name: "full set has nothing missing", present: []string{"sick", "under_treatment", "quarantine", "icu"}, want: []string{}},
-		{name: "case-insensitive full set", present: []string{"Sick", "UNDER_TREATMENT", "Quarantine", "ICU"}, want: []string{}},
-		{name: "superset has nothing missing", present: []string{"sick", "under_treatment", "quarantine", "icu", "post_breeding_hold"}, want: []string{}},
-		{name: "icu+quarantine partial drops sick and under_treatment", present: []string{"icu", "quarantine"}, want: []string{"sick", "under_treatment"}},
-		{name: "drops only under_treatment", present: []string{"sick", "quarantine", "icu"}, want: []string{"under_treatment"}},
-		{name: "single state drops three", present: []string{"sick"}, want: []string{"under_treatment", "quarantine", "icu"}},
-		{name: "empty drops all four", present: nil, want: []string{"sick", "under_treatment", "quarantine", "icu"}},
-		{name: "blank tokens ignored", present: []string{" ", ""}, want: []string{"sick", "under_treatment", "quarantine", "icu"}},
+		{name: "full set has nothing missing", present: []string{"sick", "under_treatment", "recovering", "quarantine", "icu"}, want: []string{}},
+		{name: "case-insensitive full set", present: []string{"Sick", "UNDER_TREATMENT", "Recovering", "Quarantine", "ICU"}, want: []string{}},
+		{name: "superset has nothing missing", present: []string{"sick", "under_treatment", "recovering", "quarantine", "icu", "post_breeding_hold"}, want: []string{}},
+		{name: "icu+quarantine partial drops sick, under_treatment, and recovering", present: []string{"icu", "quarantine"}, want: []string{"sick", "under_treatment", "recovering"}},
+		{name: "drops only under_treatment", present: []string{"sick", "recovering", "quarantine", "icu"}, want: []string{"under_treatment"}},
+		{name: "single state drops four", present: []string{"sick"}, want: []string{"under_treatment", "recovering", "quarantine", "icu"}},
+		{name: "empty drops all five", present: nil, want: []string{"sick", "under_treatment", "recovering", "quarantine", "icu"}},
+		{name: "blank tokens ignored", present: []string{" ", ""}, want: []string{"sick", "under_treatment", "recovering", "quarantine", "icu"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestEffectiveClinicalDeferStatesAlwaysCoversMandatory(t *testing.T) {
 
 func TestEffectiveClinicalDeferStatesPreservesAuthoredExtras(t *testing.T) {
 	got := EffectiveClinicalDeferStates([]string{"icu", "post_breeding_hold", "ICU"})
-	want := []string{"sick", "under_treatment", "quarantine", "icu", "post_breeding_hold"}
+	want := []string{"sick", "under_treatment", "recovering", "quarantine", "icu", "post_breeding_hold"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("EffectiveClinicalDeferStates extras = %v, want %v", got, want)
 	}

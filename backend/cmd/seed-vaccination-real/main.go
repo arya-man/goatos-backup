@@ -49,6 +49,7 @@ import (
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
 const matrixProtocolCode = "vaccination.matrix"
 const matrixVersionLabel = "V1 Real Vaccination"
+const seedKidsNormalScheduleUntilWeeks int32 = 16
 
 // vaccineDef is one vaccine column from the source sheet, mapped to the approved
 // GoatOS schedule (docs/preventive-care-vaccination/vaccination-rules.md).
@@ -90,6 +91,20 @@ var vaccines = map[string]vaccineDef{
 
 // vaccineOrder gives a stable insert order for the 7 protocols.
 var vaccineOrder = []string{"ET+TT", "PPR", "Blue tongue", "FMD", "HS", "Goat Pox", "Sheep Pox"}
+
+// vaccineDrivePriority is the source-backed ordering written into the published
+// matrix rule metadata. The obligation planner still has a coarse fallback for
+// legacy rules, but the real seed must disambiguate FMD vs HS so shot-cap
+// arbitration can overflow deterministically instead of failing on equal priority.
+var vaccineDrivePriority = map[string]int{
+	"ET+TT":       1,
+	"PPR":         2,
+	"Goat Pox":    3,
+	"Sheep Pox":   3,
+	"Blue tongue": 4,
+	"FMD":         5,
+	"HS":          6,
+}
 
 type goatRecord struct {
 	RFID           string
@@ -183,6 +198,7 @@ func run(args []string) error {
 	sourcePath := fs.String("source", "/Users/ravi/mesha/source-material/vgoats-seed", "path to source data directory")
 	purgeFixtures := fs.Bool("purge-fixtures", true, "purge leftover synthetic dev fixtures (trigger-seed protocol family, synthetic G-0000NN goats, junk-named sheds, stale calendar projections) so every surface shows only real herd data")
 	allowPartialGeneration := fs.Bool("allow-partial-generation", false, "allow seed to exit successfully when kernel generation isolates per-goat failures")
+	allowOwnerlessSeed := fs.Bool("allow-ownerless-seed", false, "dangerous/dev-only: allow vaccination seed when HRMS roster/position prerequisites are absent")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -205,6 +221,13 @@ func run(args []string) error {
 	}
 	defer pool.Close()
 
+	if err := requireOwnerPrerequisites(ctx, pool, *tenantID, *allowOwnerlessSeed); err != nil {
+		return err
+	}
+	if err := seedAnimalStageLookup(ctx, pool, *tenantID); err != nil {
+		return err
+	}
+
 	goats, err := loadGoats(*sourcePath)
 	if err != nil {
 		return fmt.Errorf("load goats: %w", err)
@@ -226,6 +249,101 @@ func run(args []string) error {
 	// projection recompute. Surviving summaries (eligibility rollup, counts) are
 	// recomputed by seed-closeout.
 	return nil
+}
+
+type ownerPrerequisiteCounts struct {
+	ActiveMembers           int
+	ActiveAssignedPositions int
+}
+
+func requireOwnerPrerequisites(ctx context.Context, pool *pgxpool.Pool, tenantID string, allowOwnerlessSeed bool) error {
+	if allowOwnerlessSeed {
+		return nil
+	}
+
+	var counts ownerPrerequisiteCounts
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM workforce_members WHERE tenant_id=$1::uuid AND status='active') AS active_members,
+  (SELECT count(*) FROM workforce_positions WHERE tenant_id=$1::uuid AND status='active' AND workforce_member_id IS NOT NULL) AS active_assigned_positions`,
+		tenantID).Scan(&counts.ActiveMembers, &counts.ActiveAssignedPositions); err != nil {
+		return fmt.Errorf("load owner prerequisites: %w", err)
+	}
+	return validateOwnerPrerequisites(counts)
+}
+
+func validateOwnerPrerequisites(counts ownerPrerequisiteCounts) error {
+	missing := make([]string, 0, 2)
+	if counts.ActiveMembers == 0 {
+		missing = append(missing, "active workforce_members")
+	}
+	if counts.ActiveAssignedPositions == 0 {
+		missing = append(missing, "active assigned workforce_positions")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("owner preflight failed: missing %s; run `make seed-vaccination-source-full` or run `go run ./cmd/seed-roster-real` before seed-vaccination-real. Refusing to create owner-missing vaccination work", strings.Join(missing, " and "))
+}
+
+type seedAnimalStage struct {
+	Code      string
+	Name      string
+	MinAgeDay *int32
+	MaxAgeDay *int32
+	SortOrder int
+}
+
+func seedAnimalStageLookup(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
+	stages := []seedAnimalStage{
+		{Code: "K0", Name: "Newborn", MinAgeDay: int32Ptr(0), MaxAgeDay: int32Ptr(1), SortOrder: 0},
+		{Code: "K1", Name: "Milk training", MinAgeDay: int32Ptr(2), MaxAgeDay: int32Ptr(7), SortOrder: 10},
+		{Code: "K2", Name: "Milk drinking", MinAgeDay: int32Ptr(8), MaxAgeDay: int32Ptr(42), SortOrder: 20},
+		{Code: "K3", Name: "Weaned kids", MinAgeDay: int32Ptr(43), SortOrder: 30},
+		{Code: "F2", Name: "Fattening", SortOrder: 40},
+		{Code: "F2-Male", Name: "Fattening male", SortOrder: 41},
+		{Code: "F2-Female", Name: "Fattening female", SortOrder: 42},
+		{Code: "Buck", Name: "Buck", SortOrder: 50},
+		{Code: "Mother", Name: "Mother", SortOrder: 60},
+		{Code: "Milking", Name: "Milking", SortOrder: 70},
+		{Code: "M0", Name: "Mother newborn", SortOrder: 80},
+		{Code: "Warmup", Name: "Warmup", SortOrder: 90},
+		{Code: "Pregnant", Name: "Pregnant", SortOrder: 100},
+		{Code: "Non-Pregnant", Name: "Non-pregnant", SortOrder: 110},
+		{Code: "ICU", Name: "ICU", SortOrder: 120},
+		{Code: "Quarantine", Name: "Quarantine", SortOrder: 130},
+	}
+	for _, stage := range stages {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (
+  animal_stage_id, tenant_id, stage_code, name, min_age_days, max_age_days,
+  sort_order, status
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, $6, $7, 'active'
+)
+ON CONFLICT (tenant_id, stage_code) DO UPDATE
+SET name = EXCLUDED.name,
+    min_age_days = EXCLUDED.min_age_days,
+    max_age_days = EXCLUDED.max_age_days,
+    sort_order = EXCLUDED.sort_order,
+    status = 'active',
+    updated_at = now()`,
+			detUUID("animal_stage_lookup", tenantID, stage.Code),
+			tenantID,
+			stage.Code,
+			stage.Name,
+			stage.MinAgeDay,
+			stage.MaxAgeDay,
+			stage.SortOrder,
+		); err != nil {
+			return fmt.Errorf("seed animal stage %s: %w", stage.Code, err)
+		}
+	}
+	return nil
+}
+
+func int32Ptr(v int32) *int32 {
+	return &v
 }
 
 func analyzePostSeedTables(ctx context.Context, pool *pgxpool.Pool) error {
@@ -388,6 +506,30 @@ func headerIndex(hdr []interface{}) map[string]int {
 // on the pair.
 type shedKey struct{ farm, shed string }
 
+type seedGoatUpsertRow struct {
+	goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
+	entryDate                                                                                                                                     string
+	health                                                                                                                                        *string
+	reproductiveStatus                                                                                                                            *string
+}
+
+func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow, custodianPartyID string) error {
+	return batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
+		b.Queue(`
+				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
+					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,now())
+				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
+					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
+					origin_type=EXCLUDED.origin_type, dob=EXCLUDED.dob,
+					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
+					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date,
+					custodian_party_id=EXCLUDED.custodian_party_id, reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
+			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
+			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
+	})
+}
+
 func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool) (st stats, retErr error) {
 	now := time.Now().In(loc)
 
@@ -520,14 +662,21 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, fmt.Errorf("resolve vaccination matrix protocol id: %w", err)
 	}
 
-	// Ownership safety (VACC-REV): PublishVersion's overlap-retire clears every overlapping published
-	// vaccination matrix at this scope regardless of which protocol authored it. Refuse — fail closed —
-	// rather than silently retire a user-authored matrix under a different protocol. A normal reseed
-	// (only the seed's own protocol) is never flagged.
-	if foreign, ferr := foreignPublishedVaccinationMatrices(ctx, tx, tenantID, protocolID); ferr != nil {
-		return st, fmt.Errorf("check foreign published vaccination matrices: %w", ferr)
+	// seedActorID is the deterministic, server-only provenance stamp on seed-owned protocol versions
+	// (Config authoring stamps drafted_by with the real acting user, never this id). It is what makes
+	// a seed-owned matrix distinguishable from a user-authored one under the SAME canonical protocol.
+	seedActorID := detUUID("seed-actor", tenantID)
+
+	// Ownership safety (VAX-SEED-01): PublishVersion's overlap-retire clears every overlapping published
+	// vaccination matrix at this scope regardless of which protocol OR author created it — including a
+	// user-authored version under the same canonical vaccination.matrix protocol. Fail fast (before
+	// committing this config transaction) when a non-seed-owned overlapping matrix exists, rather than
+	// commit and then have the guarded publish refuse. The authoritative, TOCTOU-safe check is the
+	// atomic guard inside the publish transaction below; this is the friendly early exit.
+	if foreign, ferr := foreignPublishedVaccinationMatrices(ctx, tx, tenantID, seedActorID); ferr != nil {
+		return st, fmt.Errorf("check non-seed-owned vaccination matrices: %w", ferr)
 	} else if len(foreign) > 0 {
-		return st, fmt.Errorf("seed-vaccination-real: refusing to publish the seed vaccination matrix — %d foreign published vaccination matrix protocol(s) exist at tenant scope (%v); publishing would retire that user-authored configuration. Retire or remove them first, then reseed", len(foreign), foreign)
+		return st, fmt.Errorf("seed-vaccination-real: refusing to publish the seed vaccination matrix — %d non-seed-owned published vaccination matrix version(s) overlap at tenant scope (%v); publishing would retire that user-authored configuration. Retire or remove them first, then reseed", len(foreign), foreign)
 	}
 
 	ruleDSL, err := vaccinationMatrixRuleDSL()
@@ -538,7 +687,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if err != nil {
 		return st, err
 	}
-	versionID, err := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, protocolID, ruleDSL, sopVersionID)
+	versionID, err := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, protocolID, ruleDSL, sopVersionID, seedActorID)
 	if err != nil {
 		return st, err
 	}
@@ -549,7 +698,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	committed = true
 
 	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, pgCfg.QueryTimeout))
-	if err := protocolService.PublishVersion(ctx, tenantID, versionID, nil, "seed-vaccination-real:"+versionID); err != nil {
+	if err := protocolService.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, versionID, seedActorID, "seed-vaccination-real:"+versionID); err != nil {
 		return st, fmt.Errorf("publish vaccination matrix through protocol service: %w", err)
 	}
 
@@ -600,13 +749,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	goatStageByAnimalKey := map[string]string{}
 	goatShedByAnimalKey := map[string]string{}
 	goatParkByAnimalKey := map[string]string{}
-	type goatIns struct {
-		goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
-		entryDate                                                                                                                                     string
-		health                                                                                                                                        *string
-		reproductiveStatus                                                                                                                            *string
-	}
-	var goatRows []goatIns
+	var goatRows []seedGoatUpsertRow
 	for _, g := range goats {
 		shedID, ok := shedByKey[shedKey{g.Farm, g.Shed}]
 		if !ok {
@@ -646,7 +789,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 		species := deriveSeedSpecies(g.Species, g.Breed)
 		breed := normalizeBreed(g.Breed)
-		goatRows = append(goatRows, goatIns{
+		goatRows = append(goatRows, seedGoatUpsertRow{
 			goatID:            goatID,
 			animalKey:         animalKey,
 			animalIdentifier1: animalIdentifier1,
@@ -671,19 +814,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			entryDate:          entryDateValue,
 		})
 	}
-	if err := batch(ctx, tx, goatRows, 500, func(b *pgx.Batch, gi goatIns) {
-		b.Queue(`
-				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
-					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,now())
-				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
-					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
-					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
-					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date,
-					reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
-			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
-			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
-	}); err != nil {
+	if err := upsertSeedGoats(ctx, tx, tenantID, goatRows, custodianPartyID); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
 	}
 	st.Animals = len(goatRows)
@@ -801,12 +932,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		// SAME wave as a later recorded administration (Fix Plan A1) so the fact is
 		// retained and available to anchor recurrence, instead of being silently
 		// dropped as unmapped.
-		path := schedulePathForGoat(
+		path := seedSchedulePathForGoat(
 			goatOriginTypeByAnimalKey[c.AnimalKey],
 			goatDOBByAnimalKey[c.AnimalKey],
 			goatStageByAnimalKey[c.AnimalKey],
 			goatEntryDateByAnimalKey[c.AnimalKey],
 			now,
+			seedKidsNormalScheduleUntilWeeks,
+			nil,
 		)
 		doseCodeForPath, laterAdministration := mapSheetDoseToRuleCode(c.Vaccine, c.DoseCode, path, vaccMatrixDef)
 		if doseCodeForPath == "" {
@@ -987,7 +1120,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
-	genRes, err := gen.GenerateSeedCutoverForAllGoats(ctx, tenantID, now)
+	genRes, err := gen.GenerateEffectiveForAllGoats(ctx, tenantID, now)
 	st.KernelGenerated = genRes.Generated
 	st.KernelDeferred = genRes.Deferred
 	st.KernelSuppressed = genRes.SuppressedByTrustedHistory
@@ -1125,29 +1258,6 @@ SELECT
          AND gi.identifier_type = 'animal_identifier_1'
          AND gi.status = 'active'
          AND NULLIF(btrim(gi.identifier_value), '') IS NOT NULL
-     )),
-  (SELECT count(*)
-   FROM active oi
-   JOIN protocol_rules pr
-     ON pr.tenant_id = oi.tenant_id
-    AND pr.rule_id = oi.rule_id
-   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
-   WHERE oi.target_type = 'goat'
-     AND (
-       (pr.trigger_type = 'birth_age' AND g.dob IS NULL)
-       OR (pr.trigger_type = 'post_arrival' AND g.entry_date IS NULL)
-     )
-     AND oi.status <> 'deferred'
-     AND NOT EXISTS (
-       SELECT 1
-       FROM obligation_instances history_oi
-       JOIN vaccination_completions vc
-         ON vc.tenant_id = history_oi.tenant_id
-        AND vc.obligation_id = history_oi.obligation_id
-        AND vc.status = 'accepted'
-       WHERE history_oi.tenant_id = oi.tenant_id
-         AND history_oi.target_id = oi.target_id
-         AND history_oi.rule_id = oi.rule_id
      ))
 `, tenantID, asOf).Scan(
 		&got.SourceAcceptedHistory,
@@ -1159,16 +1269,224 @@ SELECT
 		&got.SchedulableOpenWorkNotFuture,
 		&got.MissingBreedForeignKeys,
 		&got.MissingPrimaryIdentifiers,
-		&got.MissingAnchorNormalWork,
 	)
 	if err != nil {
 		return fmt.Errorf("vaccination seed reconciliation query: %w", err)
 	}
+	// MissingAnchorNormalWork can no longer be a pure-SQL count. Contract §89 option 4 legitimately
+	// routes a blank vaccine family with an unavailable DOB/entry anchor to an adult catch-up at the
+	// next compatible drive ("missing identity dates alone are not a clinical defer reason"), so a
+	// non-deferred birth_age/post_arrival obligation on a NULL-anchor goat is NOT automatically a
+	// defect. §13 still forbids a FABRICATED normal missing-anchor due. The only durable provenance
+	// signal distinguishing the two is the obligation's idempotency key: the routed catch-up carries
+	// the deterministic AnchorMissingCatchUpKey the generator stamps, a fabricated normal due does
+	// not. The key is a sha256 hash (not SQL-LIKE-able), so we load the candidate rows and classify
+	// them in Go against the generator's own exported key derivation.
+	fabricatedMissingAnchor, err := countFabricatedMissingAnchorWorkPaged(ctx, pool, tenantID)
+	if err != nil {
+		return fmt.Errorf("vaccination seed reconciliation missing-anchor candidates: %w", err)
+	}
+	got.MissingAnchorNormalWork = int64(fabricatedMissingAnchor)
 	if err := validateSeedReconciliation(got, int64(st.CompletionsHistory)); err != nil {
 		return fmt.Errorf("vaccination seed reconciliation failed: %w", err)
 	}
 	fmt.Printf("seed_reconciliation accepted_history=%d status_mismatches=0 duplicate_active_rule_targets=0 active_primary_after_history=0 seeded_pending_placeholders=0 repeat_not_future=0 schedulable_not_future=0 missing_breed_fks=0 missing_primary_identifiers=0 missing_anchor_normal_work=0\n", got.SourceAcceptedHistory)
 	return nil
+}
+
+// missingAnchorCandidate is one active, non-deferred birth_age/post_arrival obligation on a goat
+// whose own trigger anchor (DOB for birth_age, herd-entry date for post_arrival) is NULL and which
+// has no accepted completion history for that rule. Post-VAX-REV-02 this class contains BOTH the
+// contract-legitimate Contract §89 option-4 catch-up (routed to the next compatible drive) AND — if a
+// regression ever fabricates one — a normal missing-anchor due that §13 forbids. The idempotency key
+// is the durable signal that separates them.
+type missingAnchorCandidate struct {
+	idempotencyKey    string
+	tenantID          string
+	protocolVersionID string
+	ruleID            string
+	goatID            string
+	sequence          int32
+	triggerType       string
+}
+
+// isRoutedCatchUp reports whether this candidate is the deliberate Contract §89 option-4 adult
+// catch-up: its persisted idempotency key equals the deterministic key the generator stamps on that
+// path (vaccinationapp.AnchorMissingCatchUpKey). Any other key on a NULL-anchor birth_age/post_arrival
+// obligation means the row was materialized WITHOUT going through the option-4 routing — a fabricated
+// normal missing-anchor due, which stays a reconciliation defect.
+func (c missingAnchorCandidate) isRoutedCatchUp() bool {
+	return c.idempotencyKey == vaccinationapp.AnchorMissingCatchUpKey(
+		c.tenantID, c.protocolVersionID, c.ruleID, c.goatID, c.triggerType, c.sequence)
+}
+
+// countFabricatedMissingAnchorWork returns how many missing-anchor candidates are NOT the routed
+// §89 option-4 catch-up — the genuine defect the MissingAnchorNormalWork invariant guards. Legitimate
+// routed catch-ups are excluded; everything else still fails reconciliation. This never blanket-
+// ignores missing-anchor work: a fabricated normal due (any non-catch-up key) is always counted.
+func countFabricatedMissingAnchorWork(candidates []missingAnchorCandidate) int {
+	n := 0
+	for _, c := range candidates {
+		if !c.isRoutedCatchUp() {
+			n++
+		}
+	}
+	return n
+}
+
+// missingAnchorReconcilePageSize bounds each keyset page of the missing-anchor reconciliation scan
+// so the postflight check never streams the whole cohort into the process at once (RV-04). At the
+// accepted 5k-50k operational envelope (real data ~2.5k animals), a 50k-obligation cohort is ten
+// bounded pages at this size. Paging here is defensive hygiene against an unbounded read, not an
+// OOM guard for a multi-million-row table that does not exist in this envelope.
+const missingAnchorReconcilePageSize = 5000
+
+// countFabricatedMissingAnchorWorkPaged returns how many active, non-deferred birth_age/post_arrival
+// obligations on a NULL-anchor goat with no accepted history for that rule are NOT the routed §89
+// option-4 catch-up (the genuine defect the MissingAnchorNormalWork invariant guards). The WHERE
+// clause mirrors the invariant's former pure-SQL sub-select exactly; classification (routed catch-up
+// vs fabricated due) happens in Go against the generator's own key derivation so the two can never
+// drift.
+//
+// RV-04: work is bounded by DATABASE examination, not by matches. Each page keyset-scans exactly
+// missingAnchorReconcilePageSize BASE obligation_ids off the obligation_instances primary key
+// (step 1), then joins/filters only that bounded id set (step 2) to classify fabricated vs routed
+// §89 catch-up in Go against the generator's own key derivation. The cursor advances by the last
+// EXAMINED base row, not the last matched candidate, and the loop ends when a base page returns
+// fewer than a full page. A sparse or zero-candidate tenant therefore examines at most one page of
+// PK-index entries per query instead of scanning every obligation to find a full page of matches --
+// the earlier "LIMIT after the selective join/NOT EXISTS" shape could examine the whole table for a
+// healthy tenant even at the 5k-50k operational envelope's upper bound. Memory stays O(page): only
+// ids and the running count are held, never the cohort.
+func countFabricatedMissingAnchorWorkPaged(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
+	return countFabricatedMissingAnchorWorkPagedWithPageSize(ctx, pool, tenantID, missingAnchorReconcilePageSize)
+}
+
+// countFabricatedMissingAnchorWorkPagedWithPageSize is countFabricatedMissingAnchorWorkPaged with
+// an overridable base-page size, so a test can force the pagination boundary to fall after just a
+// handful of seeded rows (a page size of 2-3) instead of needing to bulk-seed
+// missingAnchorReconcilePageSize (5000) real rows to exercise the SAME "first page empty, match on
+// a later page" code path (RV-04). Production always calls countFabricatedMissingAnchorWorkPaged,
+// which fixes pageSize at missingAnchorReconcilePageSize.
+func countFabricatedMissingAnchorWorkPagedWithPageSize(ctx context.Context, pool *pgxpool.Pool, tenantID string, pageSize int32) (int, error) {
+	fabricated := 0
+	afterID := "00000000-0000-0000-0000-000000000000"
+	for {
+		// Step 1: bounded keyset page of BASE obligation ids off the PK. Examines exactly one page of
+		// index entries regardless of how many (if any) turn out to be missing-anchor candidates.
+		baseRows, err := pool.Query(ctx, `
+SELECT obligation_id::text
+FROM obligation_instances
+WHERE tenant_id = $1::uuid
+  AND obligation_id > $2::uuid
+ORDER BY obligation_id
+LIMIT $3`, tenantID, afterID, pageSize)
+		if err != nil {
+			return 0, err
+		}
+		ids := make([]string, 0, pageSize)
+		for baseRows.Next() {
+			var id string
+			if err := baseRows.Scan(&id); err != nil {
+				baseRows.Close()
+				return 0, err
+			}
+			ids = append(ids, id)
+		}
+		if err := baseRows.Err(); err != nil {
+			baseRows.Close()
+			return 0, err
+		}
+		baseRows.Close()
+		if len(ids) == 0 {
+			return fabricated, nil
+		}
+
+		// Step 2: classify only this bounded id set. The join/filter/NOT-EXISTS runs against at most
+		// one page of ids resolved by PK, so it cannot fan out to a full-table scan.
+		rows, err := pool.Query(ctx, `
+SELECT oi.idempotency_key,
+       oi.tenant_id::text,
+       oi.protocol_version_id::text,
+       oi.rule_id::text,
+       oi.target_id::text,
+       oi.sequence,
+       pr.trigger_type
+FROM obligation_instances oi
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.obligation_id = ANY($2::uuid[])
+  AND oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
+  AND oi.status <> 'deferred'
+  AND oi.target_type = 'goat'
+  AND (
+    (pr.trigger_type = 'birth_age' AND g.dob IS NULL)
+    OR (pr.trigger_type = 'post_arrival' AND g.entry_date IS NULL)
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM obligation_instances history_oi
+    JOIN vaccination_completions vc
+      ON vc.tenant_id = history_oi.tenant_id
+     AND vc.obligation_id = history_oi.obligation_id
+     AND vc.status = 'accepted'
+    WHERE history_oi.tenant_id = oi.tenant_id
+      AND history_oi.target_id = oi.target_id
+      AND history_oi.rule_id = oi.rule_id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM protocol_rule_dimensions curr_dim
+    JOIN protocol_rule_dimensions prev_dim
+      ON prev_dim.tenant_id = curr_dim.tenant_id
+     AND prev_dim.protocol_version_id = curr_dim.protocol_version_id
+     AND prev_dim.category = curr_dim.category
+     AND prev_dim.vaccine_code = curr_dim.vaccine_code
+     AND prev_dim.trigger_type = curr_dim.trigger_type
+     AND prev_dim.sequence < curr_dim.sequence
+     AND prev_dim.repeat = 'none'
+    JOIN obligation_instances history_oi
+      ON history_oi.tenant_id = oi.tenant_id
+     AND history_oi.target_id = oi.target_id
+     AND history_oi.rule_id = prev_dim.rule_id
+    JOIN vaccination_completions vc
+      ON vc.tenant_id = history_oi.tenant_id
+     AND vc.obligation_id = history_oi.obligation_id
+     AND vc.status = 'accepted'
+    WHERE curr_dim.tenant_id = oi.tenant_id
+      AND curr_dim.protocol_version_id = oi.protocol_version_id
+      AND curr_dim.rule_id = oi.rule_id
+      AND curr_dim.category = 'vaccination'
+      AND curr_dim.vaccine_code <> ''
+      AND curr_dim.repeat = 'none'
+  )`, tenantID, ids)
+		if err != nil {
+			return 0, err
+		}
+		for rows.Next() {
+			var c missingAnchorCandidate
+			if err := rows.Scan(&c.idempotencyKey, &c.tenantID, &c.protocolVersionID, &c.ruleID, &c.goatID, &c.sequence, &c.triggerType); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			if !c.isRoutedCatchUp() {
+				fabricated++
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		rows.Close()
+
+		if int32(len(ids)) < pageSize {
+			return fabricated, nil
+		}
+		afterID = ids[len(ids)-1]
+	}
 }
 
 func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) error {
@@ -1537,42 +1855,22 @@ func parseSourceDate(raw string) *time.Time {
 	return nil
 }
 
-// schedulePathForGoat replicates the kernel's schedulePathForGoat logic
-func schedulePathForGoat(originType string, dob *time.Time, stage string, entryDate *time.Time, asOf time.Time) string {
-	origin := strings.ToLower(strings.TrimSpace(originType))
-	if origin == "birth" {
+// seedSchedulePathForGoat delegates kid/adult rule-family selection to the live vaccination
+// scheduler. Source dates are preserved as history after this decision; a raw sheet cell must
+// never be pre-mapped as kid-course history to prove its own rule family.
+func seedSchedulePathForGoat(originType string, dob *time.Time, stage string, entryDate *time.Time, asOf time.Time, kidCutoffWeeks int32, history []vaccinationdomain.RecentVaccineAdministration) string {
+	path := vaccinationapp.SchedulePathForGoat(vaccinationdomain.EligibleGoat{
+		OriginType: originType,
+		DOB:        dob,
+		Stage:      stage,
+		EntryDate:  entryDate,
+	}, vaccinationapp.SchedulePathProcurementPolicy{
+		KidsNormalScheduleUntilWeeks: kidCutoffWeeks,
+	}, asOf, history)
+	if path == vaccinationapp.SchedulePathKid {
 		return "kid"
 	}
-	kidWeeks := 16
-	// Check age: age <= 16w (112d) → kid
-	if dob != nil {
-		ageDays := int(asOf.Sub(*dob).Hours() / 24)
-		ageWeeks := ageDays / 7
-		if ageWeeks <= kidWeeks {
-			return "kid"
-		}
-	}
-	// Check management_stage starts "K" → kid
-	if isKidManagementStage(stage) {
-		return "kid"
-	}
-	// Check if has entry_date (procured/imported) → adult
-	if entryDate != nil {
-		return "adult"
-	}
-	// Check origin type
-	if origin == "procured" || origin == "imported" {
-		return "adult"
-	}
-	return "kid"
-}
-
-func isKidManagementStage(stage string) bool {
-	stage = strings.ToUpper(strings.TrimSpace(stage))
-	if len(stage) >= 1 && strings.HasPrefix(stage, "K") {
-		return true
-	}
-	return false
+	return "adult"
 }
 
 // mapSheetDoseToRuleCode maps a sheet dose code (First/Booster) to the actual rule dose_code
@@ -2281,10 +2579,29 @@ type seedQuerier interface {
 // NEW version when the published matrix genuinely changed (a real correction). It never retires or
 // creates versions itself — publishing (retire-overlap) is the caller's next step. Extracted from the
 // seed's config transaction so a Postgres regression can drive it twice and assert no version churn.
-func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID, ruleDSL, sopVersionID string) (string, error) {
+func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID, ruleDSL, sopVersionID, seedActorID string) (string, error) {
+	// Back-stamp any legacy seed DRAFT (seed label, no provenance yet) with the seed actor before we
+	// adopt it, so an adopted draft is never published without its provenance stamp (VAX-SEED-R1).
+	// Drafts are mutable; a NULL author under the seed label is only ever the seed's own pre-provenance
+	// draft (Config authoring always stamps drafted_by with the acting user). PUBLISHED versions are
+	// immutable and cannot be back-stamped — an overlapping published version whose author is not the
+	// seed actor (including a NULL author that cannot be positively identified) is treated as an
+	// ownership conflict by the publish guard rather than retired.
+	if _, err := tx.Exec(ctx, `
+		UPDATE protocol_versions SET drafted_by=$1::uuid, updated_at=now()
+		WHERE tenant_id=$2::uuid AND protocol_id=$3::uuid AND scope_type='tenant' AND scope_id IS NULL
+		  AND version_label=$4 AND status='draft' AND drafted_by IS NULL`,
+		seedActorID, tenantID, protocolID, matrixVersionLabel); err != nil {
+		return "", fmt.Errorf("stamp legacy seed matrix drafts: %w", err)
+	}
+
 	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
 	var status, existingRuleDSL, existingSOPVersionID string
 	var existingVersion int
+	// Only ever adopt/refresh versions positively identified as seed-owned (drafted_by = seed actor);
+	// after the draft back-stamp above this includes legacy seed drafts. A user-authored version that
+	// shares the seed label (drafted_by = a real user) and any unidentifiable NULL row are never
+	// adopted here; the publish guard refuses to retire them.
 	qerr := tx.QueryRow(ctx, `
 		SELECT protocol_version_id, status, version, rule_dsl::text, COALESCE(sop_version_id::text, '')
 		FROM protocol_versions
@@ -2294,9 +2611,10 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 		  AND scope_id IS NULL
 		  AND version_label=$3
 		  AND status <> 'retired'
+		  AND drafted_by=$4::uuid
 		ORDER BY version DESC
 		LIMIT 1`,
-		tenantID, protocolID, matrixVersionLabel).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
+		tenantID, protocolID, matrixVersionLabel, seedActorID).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
 	if qerr == nil && status == "published" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
 		qerr = pgx.ErrNoRows
 	}
@@ -2308,9 +2626,9 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 		versionID = detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real", fmt.Sprintf("%d", nextVersion))
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id)
-			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid)`,
-			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID); err != nil {
+				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, drafted_by)
+			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid,$8::uuid)`,
+			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID, seedActorID); err != nil {
 			return "", fmt.Errorf("protocol version vaccination matrix: %w", err)
 		}
 	} else if qerr != nil {
@@ -2321,12 +2639,13 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 			SET rule_dsl=$1::jsonb,
 			    proof_policy='{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,
 			    sop_version_id=$2::uuid,
+			    drafted_by=$5::uuid,
 			    updated_at=now(),
 			    row_version=row_version+1
 			WHERE tenant_id=$3::uuid
 			  AND protocol_version_id=$4::uuid
 			  AND status='draft'`,
-			ruleDSL, sopVersionID, tenantID, versionID); err != nil {
+			ruleDSL, sopVersionID, tenantID, versionID, seedActorID); err != nil {
 			return "", fmt.Errorf("refresh vaccination matrix draft: %w", err)
 		}
 	} else {
@@ -2335,21 +2654,24 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 	return versionID, nil
 }
 
-// foreignPublishedVaccinationMatrices returns the protocol codes of any PUBLISHED, tenant-scoped,
-// matrix-shaped vaccination protocol version owned by a protocol OTHER than the seed's own
-// (seedProtocolID) whose effective window overlaps the seed's ([2026-01-01, ∞)). Those are exactly
-// the versions that PublishVersion's overlap-retire (retirePublishedVaccinationMatrixOverlapsTx)
-// would silently retire when the seed publishes — it retires every overlapping matrix at the scope
-// regardless of provenance. The seed refuses rather than overwrite user-authored configuration
-// (VACC-REV ownership safety). It NEVER flags the seed's own protocol, so a normal reseed that only
-// supersedes its own prior versions is unaffected.
-func foreignPublishedVaccinationMatrices(ctx context.Context, q seedQuerier, tenantID, seedProtocolID string) ([]string, error) {
+// foreignPublishedVaccinationMatrices returns identifiers for any PUBLISHED, tenant-scoped,
+// matrix-shaped vaccination version — under ANY protocol, including the seed's own canonical
+// vaccination.matrix protocol — whose window overlaps the seed's ([2026-01-01, ∞)) and that is NOT
+// seed-owned. Ownership is decided by explicit provenance (drafted_by = seedActorID), NOT by
+// protocol_id: Config authoring publishes under the SAME canonical protocol, so a protocol_id check
+// misses user versions. Legacy seed rows (drafted_by IS NULL under the seed label) are tolerated here
+// because reconcileSeedMatrixDraftVersion claims them just before publish; a genuine other-author row
+// (drafted_by set to a non-seed actor) is flagged so the seed refuses rather than overwrite it — as is
+// any published overlap whose author cannot be positively identified as the seed (drafted_by NULL),
+// since published versions are immutable and cannot be back-stamped. This is the friendly early check;
+// the authoritative TOCTOU-safe enforcement is the atomic guard inside the publish transaction
+// (assertOnlySeedOwnedMatrixOverlapsTx).
+func foreignPublishedVaccinationMatrices(ctx context.Context, q seedQuerier, tenantID, seedActorID string) ([]string, error) {
 	rows, err := q.Query(ctx, `
-SELECT DISTINCT pd.code
+SELECT pv.protocol_version_id::text, pd.code, COALESCE(pv.version_label, '')
 FROM protocol_versions pv
 JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
 WHERE pv.tenant_id = $1::uuid
-  AND pv.protocol_id <> $2::uuid
   AND pv.status = 'published'
   AND pv.scope_type = 'tenant'
   AND pv.scope_id IS NULL
@@ -2360,20 +2682,21 @@ WHERE pv.tenant_id = $1::uuid
     OR lower(COALESCE(pv.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
     OR pv.rule_dsl ? 'matrix_rows'
   )
-ORDER BY pd.code`, tenantID, seedProtocolID)
+  AND pv.drafted_by IS DISTINCT FROM $2::uuid
+ORDER BY pd.code, pv.protocol_version_id`, tenantID, seedActorID)
 	if err != nil {
-		return nil, fmt.Errorf("query foreign published vaccination matrices: %w", err)
+		return nil, fmt.Errorf("query non-seed-owned vaccination matrices: %w", err)
 	}
 	defer rows.Close()
-	var codes []string
+	var out []string
 	for rows.Next() {
-		var code string
-		if err := rows.Scan(&code); err != nil {
-			return nil, fmt.Errorf("scan foreign vaccination matrix protocol code: %w", err)
+		var versionID, code, label string
+		if err := rows.Scan(&versionID, &code, &label); err != nil {
+			return nil, fmt.Errorf("scan non-seed-owned vaccination matrix: %w", err)
 		}
-		codes = append(codes, code)
+		out = append(out, fmt.Sprintf("%s (protocol %s, label %q)", versionID, code, label))
 	}
-	return codes, rows.Err()
+	return out, rows.Err()
 }
 
 func jsonSemanticallyEqual(a, b string) bool {
@@ -2427,6 +2750,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		CompatibilityGroup string `json:"compatibility_group"`
 		PathogenClass      string `json:"pathogen_class"`
 		CourseType         string `json:"course_type"`
+		Priority           int    `json:"priority"`
 	}
 
 	type matrixRow struct {
@@ -2486,7 +2810,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				SourceDoseCode:      dose,
 				Sequence:            sequenceCounter,
 				TriggerType:         "post_arrival",
-				OffsetDays:          wave,
+				OffsetDays:          wave.Days,
 				DueWindowDays:       7,
 				DoseAmount:          def.DoseML,
 				DoseUnit:            "ml",
@@ -2495,7 +2819,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				RouteSite:           "subcutaneous",
 				MaxDelayDays:        7,
 				CourseLapsePolicy:   "preventive_care_review",
-				MinGapDays:          0,
+				MinGapDays:          wave.MinGapDays,
 				Repeat:              "none",
 				RepeatUntilAfterAge: "-",
 				CatchUp:             "immediate",
@@ -2540,7 +2864,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		}
 
 		courseType := "single"
-		if len(spec.BirthAgeWaves) > 1 {
+		if len(spec.BirthAgeWaves) > 1 || len(spec.PostArrivalWaves) > 1 {
 			courseType = "booster"
 		}
 
@@ -2554,6 +2878,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				CompatibilityGroup: strings.ToUpper(def.Code),
 				PathogenClass:      def.Pathogen,
 				CourseType:         courseType,
+				Priority:           vaccineDrivePriority[vaccName],
 			},
 			Species:     spec.Species,
 			Eligibility: vaccinationSeedEligibilityForSpecies(spec.Species),
@@ -2585,12 +2910,12 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		},
 		"procurement_policy": map[string]any{
 			"warmup_no_vaccination_days":       7,
-			"kids_normal_schedule_until_weeks": 16,
+			"kids_normal_schedule_until_weeks": seedKidsNormalScheduleUntilWeeks,
 			"adult_prior_vaccination_allowed":  true,
 			"first_wave":                       []string{"ET+TT", "PPR"},
 			"second_wave_after_days":           28,
-			"goat_second_wave":                 []string{"Goat Pox", "ET+TT booster"},
-			"sheep_second_wave":                []string{"ET+TT booster", "Sheep Pox"},
+			"goat_second_wave":                 []string{"Goat Pox"},
+			"sheep_second_wave":                []string{"Sheep Pox"},
 		},
 		"capacity": map[string]any{
 			"max_per_day":     100,
@@ -2616,7 +2941,10 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 				{DoseCode: "et_tt_kid_4w", Days: 28, MinGapDays: 0},
 				{DoseCode: "et_tt_kid_7w", Days: 49, MinGapDays: 21},
 			},
-			PostArrivalWaves:  []int{7, 35},
+			PostArrivalWaves: []postArrivalWave{
+				{Days: 7, MinGapDays: 0},
+				{Days: 21, MinGapDays: 21},
+			},
 			RevaccinationDays: 182,
 		},
 		"PPR": {
@@ -2624,7 +2952,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "ppr_kid_16w", Days: 112, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{7},
+			PostArrivalWaves:  []postArrivalWave{{Days: 7}},
 			RevaccinationDays: 1095,
 		},
 		"Goat Pox": {
@@ -2632,7 +2960,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "goat_pox_kid_20w", Days: 140, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{35},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
 		},
 		"FMD": {
@@ -2640,7 +2968,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "fmd_kid_12w", Days: 84, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{63},
+			PostArrivalWaves:  []postArrivalWave{{Days: 63}},
 			RevaccinationDays: 274,
 		},
 		"HS": {
@@ -2648,7 +2976,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "hs_kid_12w", Days: 84, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{63},
+			PostArrivalWaves:  []postArrivalWave{{Days: 63}},
 			RevaccinationDays: 365,
 		},
 		"Blue tongue": {
@@ -2657,7 +2985,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 				{DoseCode: "blue_tongue_kid_16w", Days: 112, MinGapDays: 0},
 				{DoseCode: "blue_tongue_kid_20w", Days: 140, MinGapDays: 28},
 			},
-			PostArrivalWaves:  []int{35},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
 		},
 		"Sheep Pox": {
@@ -2665,7 +2993,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "sheep_pox_kid_12w", Days: 84, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{35},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
 		},
 	}
@@ -2674,12 +3002,17 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 type vaccMatrixSpec struct {
 	Species           []string
 	BirthAgeWaves     []birthAgeWave
-	PostArrivalWaves  []int
+	PostArrivalWaves  []postArrivalWave
 	RevaccinationDays int
 }
 
 type birthAgeWave struct {
 	DoseCode   string
+	Days       int
+	MinGapDays int
+}
+
+type postArrivalWave struct {
 	Days       int
 	MinGapDays int
 }
@@ -2697,7 +3030,7 @@ func vaccinationSeedEligibility() map[string]any {
 		"health":                      []string{"any"},
 		"reproductive":                []string{"any"},
 		"exclude_reproductive_states": []string{"pregnant_late"},
-		"defer_states":                []string{"sick", "under_treatment", "icu", "quarantine"},
+		"defer_states":                []string{"sick", "under_treatment", "recovering", "icu", "quarantine"},
 	}
 }
 
@@ -2707,15 +3040,17 @@ func vaccinationSeedEligibilityForSpecies(species []string) map[string]any {
 	return eligibility
 }
 
-// validVaccineTypes / validPathogenClasses are the only accepted values for the
-// two independent medical axes. Pathogen class is deliberately disjoint from
+// validVaccineTypes / validPathogenClasses / validCourseTypes are the only accepted values for the
+// three independent vaccine classification axes. Pathogen class is deliberately disjoint from
 // vaccine type: a "live"/"killed"/"toxoid"/"combo" value in pathogen_class is
 // malformed seed metadata (BUG1) that mis-selects same-day compatibility /
 // spacing rules. Toxoid stays a valid vaccine TYPE for any future reviewed
 // vaccine that needs it; it is simply never a pathogen class.
+// Course type (single/booster) is determined from the number of doses in the schedule.
 var (
 	validVaccineTypes     = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}}
 	validPathogenClasses  = map[string]struct{}{"bacterial": {}, "viral": {}}
+	validCourseTypes      = map[string]struct{}{"single": {}, "booster": {}}
 	forbiddenPathogenVals = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}, "combo": {}}
 )
 

@@ -6,15 +6,19 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -34,6 +38,9 @@ import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+
+// telemetry:exempt pure stateless renderer; AnalyticsPort/funnel wiring lives in ScanViewModel.
+
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +84,9 @@ import sg.mesha.goatos.core.ui.SyncStatusIndicator
  */
 enum class ScanStatus { DONE, PENDING, SKIPPED }
 
+/** Tone for the live scan feed. A duplicate can be a DONE row without being success-colored. */
+enum class ScanFeedTone { ACCEPTED, DUPLICATE, REJECTED }
+
 /** A backend-tagged vaccine group used as a filter chip on the roster. */
 data class VaccineGroup(
     val id: String,
@@ -103,6 +113,10 @@ data class ScanFeedEntry(
     val secondaryTag: String?,
     val vaccineLabel: String,      // "FMD · 1st" or "skip · <reason>"
     val status: ScanStatus,        // DONE or SKIPPED
+    val tone: ScanFeedTone = when (status) {
+        ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
+        else -> ScanFeedTone.ACCEPTED
+    },
 )
 
 /**
@@ -120,6 +134,14 @@ data class ScanTileLabels(
     val done: String,
     val pending: String,
     val skipped: String,
+)
+
+/** Optional live RFID reader state surfaced on the vaccination capture screen. */
+data class ScanReaderConnection(
+    val readerName: String,
+    val statusLabel: String,
+    val connected: Boolean,
+    val actionLabel: String,
 )
 
 /**
@@ -161,6 +183,7 @@ data class ScanUiState(
     val rosterExpanded: Boolean = false,
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false,
+    val readerConnection: ScanReaderConnection? = null,
 )
 
 /** User intents the screen emits; the app/viewmodel layer handles them. */
@@ -170,6 +193,7 @@ sealed interface ScanEvent {
     data object OpenList : ScanEvent                       // open the scan-list sheet
     data object Submit : ScanEvent                         // submit the shed record
     data object LoadMore : ScanEvent                       // fetch one bounded continuation page
+    data object ReconnectReader : ScanEvent                // quick path back to RFID reconnect
     data class SelectGroup(val groupId: String) : ScanEvent
     data class OpenTile(val status: ScanStatus) : ScanEvent
 }
@@ -179,6 +203,7 @@ private object ScanTokens {
     val brand = MeshaColors.Brand
     val brandD = MeshaColors.BrandD
     val danger = MeshaColors.Danger
+    val warning = Color(0xFFF2B84B)
     val muted = MeshaColors.Muted
     val faint = MeshaColors.Faint
     val ink = MeshaColors.Ink
@@ -187,6 +212,7 @@ private object ScanTokens {
     val surf3 = MeshaColors.Surf3
     val okX = MeshaColors.OkX        // ~.16 alpha brand
     val dangerX = MeshaColors.DangerX  // ~.15 alpha danger
+    val warningX = Color(0x24F2B84B)
     val brandSoft = MeshaColors.BrandTint
     val onPrimary = MeshaColors.OnBrand
 }
@@ -197,7 +223,12 @@ fun ScanScreen(
     onEvent: (ScanEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    Surface(color = MaterialTheme.colorScheme.background, modifier = modifier.fillMaxSize()) {
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
             ScanHeader(state.shedLabel, state.cohortLabel) { onEvent(ScanEvent.Back) }
 
@@ -208,6 +239,18 @@ fun ScanScreen(
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                item {
+                    ReaderConnectionBanner(
+                        reader = state.readerConnection ?: ScanReaderConnection(
+                            readerName = "RFID reader",
+                            statusLabel = "Checking reader connection",
+                            connected = false,
+                            actionLabel = "Reconnect",
+                        ),
+                        progressLabel = "${state.ringDone}/${state.ringTotal}",
+                        onReconnect = { onEvent(ScanEvent.ReconnectReader) },
+                    )
+                }
                 item {
                     ScanRing(
                         done = state.ringDone,
@@ -267,8 +310,13 @@ fun ScanScreen(
                 if (state.feed.isEmpty()) {
                     item { FeedEmpty() }
                 } else {
-                    // MOB-011: Use stable keys for dynamic feed items to avoid recomposition on insert
-                    items(state.feed, key = { entry -> "${entry.primaryTag}|${entry.vaccineLabel}|${entry.status}" }, contentType = { "feed_row" }) { entry -> FeedRow(entry) }
+                    // Feed events can repeat the same tag/label/status when an operator rescans.
+                    // Include the visible index so Compose keys stay unique for the rolling log.
+                    itemsIndexed(
+                        state.feed,
+                        key = { index, entry -> "${entry.primaryTag}|${entry.vaccineLabel}|${entry.status}|${entry.tone}|$index" },
+                        contentType = { _, _ -> "feed_row" },
+                    ) { _, entry -> FeedRow(entry) }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
             }
@@ -288,6 +336,48 @@ fun ScanScreen(
     // same event(s) to clear the state that opened it.
     if (state.selectedFilter != null || state.rosterExpanded) {
         RosterListOverlay(state = state, onEvent = onEvent)
+    }
+}
+
+@Composable
+private fun ReaderConnectionBanner(
+    reader: ScanReaderConnection,
+    progressLabel: String,
+    onReconnect: () -> Unit,
+) {
+    val bg = if (reader.connected) ScanTokens.okX else ScanTokens.dangerX
+    val fg = if (reader.connected) ScanTokens.brandD else ScanTokens.danger
+    val border = if (reader.connected) ScanTokens.brand else ScanTokens.danger
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(14.dp))
+            .clickable(enabled = !reader.connected) { onReconnect() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(bg),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(MeshaIcons.Bluetooth, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(reader.readerName, color = ScanTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(reader.statusLabel, color = fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text(progressLabel, color = ScanTokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+        if (!reader.connected) {
+            Spacer(Modifier.width(10.dp))
+            Text(reader.actionLabel, color = fg, fontSize = 12.sp, fontWeight = FontWeight.Black)
+        }
     }
 }
 
@@ -409,29 +499,48 @@ private fun ScanRing(
 private fun TapHint(text: String) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(ScanTokens.surf)
+            .border(1.dp, ScanTokens.hair, RoundedCornerShape(14.dp))
+            .padding(horizontal = 13.dp, vertical = 12.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(20.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .size(32.dp)
+                .clip(RoundedCornerShape(10.dp))
                 .background(ScanTokens.brandSoft),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(imageVector = MeshaIcons.Syringe, contentDescription = null, tint = ScanTokens.brand, modifier = Modifier.size(13.dp))
+            Text(
+                text = "RFID",
+                color = ScanTokens.brand,
+                fontSize = 9.sp,
+                lineHeight = 10.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+            )
         }
-        Spacer(Modifier.width(7.dp))
-        Text(
-            text,
-            color = ScanTokens.muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
+        Spacer(Modifier.width(11.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Scan RFID tag now",
+                color = ScanTokens.ink,
+                fontSize = 14.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text,
+                color = ScanTokens.muted,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
     }
 }
 
@@ -515,15 +624,24 @@ private fun CountTiles(
     selected: ScanStatus?,
     onTile: (ScanStatus) -> Unit,
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        CountTile(done, labels.done, ScanTokens.brandD, selected == ScanStatus.DONE, Modifier.weight(1f)) { onTile(ScanStatus.DONE) }
-        CountTile(pending, labels.pending, ScanTokens.ink, selected == ScanStatus.PENDING, Modifier.weight(1f)) { onTile(ScanStatus.PENDING) }
-        CountTile(skipped, labels.skipped, ScanTokens.danger, selected == ScanStatus.SKIPPED, Modifier.weight(1f)) { onTile(ScanStatus.SKIPPED) }
+        val gap = 8.dp
+        val tileWidth = (maxWidth - (gap * 2)) / 3
+        Row(horizontalArrangement = Arrangement.spacedBy(gap), modifier = Modifier.fillMaxWidth()) {
+            CountTile(done, labels.done, ScanTokens.brandD, selected == ScanStatus.DONE, Modifier.width(tileWidth)) {
+                onTile(ScanStatus.DONE)
+            }
+            CountTile(pending, labels.pending, ScanTokens.ink, selected == ScanStatus.PENDING, Modifier.width(tileWidth)) {
+                onTile(ScanStatus.PENDING)
+            }
+            CountTile(skipped, labels.skipped, ScanTokens.danger, selected == ScanStatus.SKIPPED, Modifier.width(tileWidth)) {
+                onTile(ScanStatus.SKIPPED)
+            }
+        }
     }
 }
 
@@ -540,20 +658,34 @@ private fun CountTile(
     val border = if (selected) ScanTokens.brand else ScanTokens.hair
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
         modifier = modifier
+            .height(64.dp)
             .clip(RoundedCornerShape(11.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(11.dp))
             .clickable { onClick() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(horizontal = 4.dp),
     ) {
-        Text("$count", color = numberColor, fontSize = 16.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = "$count",
+            color = numberColor,
+            fontSize = 17.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(7.dp))
         Text(
             label.uppercase(),
             color = ScanTokens.muted,
             fontSize = 9.sp,
+            lineHeight = 11.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 3.dp),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
@@ -561,22 +693,35 @@ private fun CountTile(
 // --------------------------------------------------------------------------- feed
 @Composable
 private fun FeedRow(entry: ScanFeedEntry) {
+    val toneColor = when (entry.tone) {
+        ScanFeedTone.ACCEPTED -> ScanTokens.brandD
+        ScanFeedTone.DUPLICATE -> ScanTokens.warning
+        ScanFeedTone.REJECTED -> ScanTokens.danger
+    }
+    val tagColor = if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.ink else toneColor
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        StatusGlyph(entry.status)
+        StatusGlyph(entry.status, tone = entry.tone)
         Spacer(Modifier.width(10.dp))
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(entry.primaryTag, color = ScanTokens.ink, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Text(
+                entry.primaryTag,
+                color = tagColor,
+                fontSize = 15.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+            )
             entry.secondaryTag?.let {
                 Spacer(Modifier.width(6.dp))
                 TwoTagsBadge()
             }
         }
-        Text(entry.vaccineLabel, color = ScanTokens.muted, fontSize = 11.sp)
+        Text(entry.vaccineLabel, color = toneColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -606,9 +751,10 @@ private fun TwoTagsBadge() {
 }
 
 @Composable
-private fun StatusGlyph(status: ScanStatus, notDue: Boolean = false) {
+private fun StatusGlyph(status: ScanStatus, notDue: Boolean = false, tone: ScanFeedTone? = null) {
     val (bg, fg, glyph) = when {
         notDue -> Triple(ScanTokens.dangerX, ScanTokens.danger, "✕")
+        tone == ScanFeedTone.DUPLICATE -> Triple(ScanTokens.warningX, ScanTokens.warning, "!")
         status == ScanStatus.DONE -> Triple(ScanTokens.okX, ScanTokens.brandD, "✓")
         status == ScanStatus.SKIPPED -> Triple(ScanTokens.dangerX, ScanTokens.danger, "✕")
         else -> Triple(ScanTokens.surf3, ScanTokens.muted, "·")
@@ -790,6 +936,7 @@ fun ScanListSheet(
 
 @Composable
 private fun ScanListRow(row: RosterRow) {
+    val tagColor = if (row.status == ScanStatus.SKIPPED) ScanTokens.danger else ScanTokens.ink
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -800,7 +947,14 @@ private fun ScanListRow(row: RosterRow) {
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(row.primaryTag, color = ScanTokens.ink, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                Text(
+                    row.primaryTag,
+                    color = tagColor,
+                    fontSize = 15.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                )
                 if (row.unsynced) {
                     Spacer(Modifier.width(6.dp))
                     Box(

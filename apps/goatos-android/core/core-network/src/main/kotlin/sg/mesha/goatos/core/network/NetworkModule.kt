@@ -32,6 +32,10 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskResponseDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 // Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
@@ -145,6 +149,20 @@ interface AppApiService {
         @Body request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
 
+    @POST("app/tasks/{task_id}/scan-captures")
+    suspend fun recordScanCapture(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ScanCaptureRequestDto,
+    ): ScanCaptureResponseDto
+
+    @POST("app/tasks/{task_id}/scan-attempts")
+    suspend fun recordScanAttempt(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto
+
     @POST("admin/tasks/{task_id}/verify")
     suspend fun verifyAppTask(
         @Path("task_id") taskId: String,
@@ -162,7 +180,7 @@ interface AppApiService {
     @GET("app/vaccination/execution/sheds/{shed_id}/roster")
     suspend fun getScanRoster(
         @Path("shed_id") shedId: String,
-        @Query("task_id") taskId: String,
+        @Query("task_id") taskId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): ScanRosterResponseDto
@@ -327,6 +345,18 @@ class RetrofitAppApi(
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto = service.submitAppTask(taskId, idempotencyKey, request)
 
+    override suspend fun recordScanCapture(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanCaptureRequestDto,
+    ): ScanCaptureResponseDto = service.recordScanCapture(taskId, idempotencyKey, request)
+
+    override suspend fun recordScanAttempt(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto = service.recordScanAttempt(taskId, idempotencyKey, request)
+
     override suspend fun verifyAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -341,7 +371,7 @@ class RetrofitAppApi(
 
     override suspend fun getScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String?,
         cursor: String?,
         limit: Int?,
     ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit)

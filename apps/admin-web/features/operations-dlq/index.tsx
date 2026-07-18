@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, CheckCircle2, DatabaseZap, Filter, RotateCcw, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";

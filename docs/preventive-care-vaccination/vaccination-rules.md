@@ -79,7 +79,7 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 | Live-to-live gap: 4 weeks? | Yes. | Live vaccine spacing is a hard 28-day floor. |
 | Vaccinated at source then warm-up: 7 days from warm-up entry or source dose? | Seven days from warm-up entry. | Warm-up hold anchors to farm-entry date. |
 | After delivery: all missed doses in 2 weeks or by priority? | By priority and whatever is due; ideally mothers are fully vaccinated before delivery. | Post-delivery catch-up uses vaccine priority and should be rare because breeding/pregnancy vaccination is planned earlier. |
-| Sheep adults: Blue Tongue booster timing vs pox step? | Any booster can be given after 3 weeks. | Booster rows keep a 21-day minimum gap. |
+| Sheep adults: Blue Tongue booster timing vs pox step? | ET+TT booster can be given after 3 weeks for both kid and adult courses. Blue Tongue kid booster remains 4 weeks. | ET+TT course rows keep a 21-day minimum gap; Blue Tongue kid course keeps 28 days. |
 | Untrusted procurement vaccine notes: full catch-up or trust with review? | Never trust vaccine outside our supervision; trust only our parks or procurement holding parks. | Procurement holding-park vaccination starts the GoatOS schedule there; third-party/vendor claims do not suppress scheduled work. |
 | Pregnancy month 1-5: what date starts the clock? | Rough known breeding date. | Pregnancy month calculation starts from breeding date when available. |
 | Mother vaccinated: how is it recorded? | Mother ID is known and mother vaccines are ensured before gestation month 4. | Dam link may be stored for lineage/audit, but kid scheduling must not branch on dam vaccination status. |
@@ -99,8 +99,8 @@ accepted completion for that dose:
   dose position. A completion for PPR under "PHC standard kid schedule" does not
   suppress an obligation for PPR under a different protocol rule (for example,
   "catch-up adult drive" or "procurement warm-up protocol"). A completion for
-  one dose position (first ET+TT booster at 4 weeks) does not suppress the next
-  position (second ET+TT booster at 7 weeks) even if they are the same vaccine.
+  one ET+TT course position (dose 1) does not suppress the next ET+TT course
+  position (dose 2) even if they are the same vaccine.
   The rule engine must match the protocol version, rule identity, or lineage key,
   not just the vaccine name. If a source-backed rule or admin-authored override
   generates an obligation and the animal already has an accepted completion for
@@ -176,7 +176,10 @@ must use India/local operational dates:
 - Live followed by killed needs a 2-week gap.
 - Killed followed by killed needs a 2-week gap.
 - Live followed by live needs a 4-week gap.
-- Any kid booster needs a 3-week gap.
+- ET+TT dose 2 needs a 3-week gap after ET+TT dose 1 for both kid and adult
+  courses. ET+TT repeat/revaccination starts only after dose 2/course
+  completion and repeats every 182 days.
+- Blue Tongue kid dose 2 keeps its 4-week gap after Blue Tongue dose 1.
 - Example: a live + killed pair can run on the same day when no other blocker
   exists. If the next due vaccine is also live, it must wait at least 4 weeks
   from the prior live dose even if the park is running another drive sooner.
@@ -189,6 +192,16 @@ must use India/local operational dates:
 - GoatOS may hold a due shed/tag group for up to **7 calendar days** to combine
   it with another compatible same-park drive group, but only if every animal
   remains inside its medical safe window.
+- The planner may maximize output only across animals that are individually
+  feasible on the picked drive date. A larger drive is invalid if even one
+  attached obligation's safe window has already ended before that planned date.
+- Combo-session alignment is subject to the same hard rule after batching:
+  moving a built batch to a shared combo date is valid only when that date is
+  inside every attached obligation's safe window.
+- Snapshot/backfill sweeps must drain the bounded candidate set across repeated
+  safe passes. A first pass that batches only part of a group because of shot
+  caps or safe-window filtering must retry the remaining candidates within their
+  own safe windows instead of leaving them as calendar micro-drives.
 - This batching hold is **one-time per obligation/dose cycle**. Once a due item
   has been held to overlap with a later compatible group, it cannot be held
   again to chase the next group. No rolling postponement.
@@ -234,9 +247,11 @@ must use India/local operational dates:
 
 ### New-animal procurement schedule
 
-- Newly procured animals receive ET+TT + PPR first.
-- After 4 weeks, give Goat Pox for goats or Sheep Pox for sheep plus ET+TT
-  booster (the 4-week wait honors the live→live spacing rule).
+- Newly procured animals receive ET+TT + PPR first after the warm-up hold.
+- ET+TT dose 2 is due 3 weeks after that ET+TT dose 1 for both goats and
+  sheep.
+- Goat Pox for goats or Sheep Pox for sheep remains due after 4 weeks because
+  the 4-week wait honors the PPR/live-to-pox live→live spacing rule.
 
 ### Warm-up entry
 
@@ -275,10 +290,12 @@ must use India/local operational dates:
 
 ### Adult drives and the production cycle
 
-- An adult goat needs three drives, completable within about 4 weeks:
+- An adult goat needs drive intents with ET+TT dose 2 at 3 weeks and pox/live
+  spacing at 4 weeks:
   1. ET+TT; PPR
-  2. Goat Pox
-  3. FMD + HS
+  2. ET+TT dose 2
+  3. Goat Pox
+  4. FMD + HS
 - Rough 8-month adult production cycle: gestation 5 months, milking 1 month,
   rest 0.5 month, prep-for-next-breeding 1.5 months. Use the rest and prep
   windows to run vaccination drives.
@@ -329,7 +346,7 @@ The Config modal must author these values per matrix row:
 
 The shared V1 policy must author:
 
-- clinical defer states: sick, under treatment, quarantine, ICU;
+- clinical defer states: sick, under treatment, recovering, quarantine, ICU;
 - reproductive exclusions, including pregnancy skip policy (months 4–5) and the
   post-breeding one-month vaccination hold;
 - breeding-ready prioritization (complete ~2 months before proposed breeding);
@@ -341,7 +358,8 @@ The shared V1 policy must author:
   third-party source claims are not trusted;
 - same-day compatibility allowed flags;
 - live/killed spacing days;
-- kid booster minimum gap of 21 days;
+- ET+TT course booster minimum gap of 21 days for both kid and adult courses;
+- Blue Tongue kid booster minimum gap of 28 days;
 - first and second procurement waves.
 
 The V1 kernel must enforce:
@@ -358,7 +376,7 @@ The V1 kernel must enforce:
 - cycle-relative missed-dose handling (immediate when the animal trails the next
   cycle or the next same-cycle drive is >2 weeks out; wait when it is ≤2 weeks);
 - one-week post-arrival warm-up offset from farm-entry date;
-- quarantine/ICU/sick/under-treatment visible defers;
+- quarantine/ICU/sick/under-treatment/recovering visible defers;
 - pregnancy exclusion where the animal state says pregnant/lactating; month-4
   and month-5 precision must use pregnancy month fields (clock from breeding
   date) when present in the animal data model;
@@ -382,14 +400,14 @@ These are the V1 authoring presets loaded by the Config modal's
 the medical timing is DOB/completion based; stage, sex, and breed can still be
 narrowed by an admin after loading when the source rule needs a specific combo.
 
-| Species/rules row | Vaccine | Type | Pathogen | Course | Rules table days from DOB | V1 effective days | Revaccination days | Dose | Vial | Priority |
-|---|---|---|---|---|---:|---:|---:|---:|---:|---:|
-| goat | ET+TT | killed | bacterial | booster | 28, 49 | 28, 49 | 182 | 2 ml | 100 | 1 |
+| Species/rules row | Vaccine | Type | Pathogen | Course | Kid timing | Adult timing | Revaccination days | Dose | Vial | Priority |
+|---|---|---|---|---|---|---|---:|---:|---:|---:|
+| goat | ET+TT | killed | bacterial | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
 | goat | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 | 2 |
 | goat | Goat Pox | live | viral | single | 112 | 140 | 365 | 1 ml | 25 | 3 |
 | goat | FMD | killed | viral | single | 84 | 84 | 274 | 1 ml | 30 | 5 |
 | goat | HS | killed | bacterial | single | 84 | 84 | 365 | 2 ml | 100 | 5 |
-| sheep source | ET+TT | killed | bacterial | booster | 28, 49 | 28, 49 | 182 | 2 ml | 100 | 1 |
+| sheep source | ET+TT | killed | bacterial | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
 | sheep source | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 | 2 |
 | sheep source | Blue Tongue | killed | viral | booster | 112, 140 | 112, 140 | 365 | 2 ml | 100 | 4 |
 | sheep source | Sheep Pox | live | viral | single | 84 | 84 | 365 | 1 ml | 100 | 3 |

@@ -128,6 +128,71 @@ data class SubmitTaskRequestDto(
     @SerialName("proof_refs") val proofRefs: List<ProofReferenceDto> = emptyList(),
 )
 
+/** Request body for POST /app/tasks/{task_id}/scan-captures.
+ *  A scan capture is a server-side draft, not a final vaccination completion. It protects
+ *  field work before Submit, and Submit later validates/finalizes the task. */
+@Serializable
+data class ScanCaptureRequestDto(
+    @SerialName("field_key") val fieldKey: String,
+    @SerialName("tag") val tag: String,
+    @SerialName("goat_id") val goatId: String? = null,
+    @SerialName("obligation_id") val obligationId: String? = null,
+    @SerialName("captured_at_ms") val capturedAtMs: Long? = null,
+)
+
+@Serializable
+data class ScanCaptureDto(
+    @SerialName("capture_id") val captureId: String = "",
+    @SerialName("task_id") val taskId: String = "",
+    @SerialName("field_key") val fieldKey: String = "",
+    @SerialName("tag") val tag: String = "",
+    @SerialName("goat_id") val goatId: String? = null,
+    @SerialName("obligation_id") val obligationId: String? = null,
+    @SerialName("captured_at") val capturedAt: String = "",
+)
+
+@Serializable
+data class ScanCaptureResponseDto(
+    @SerialName("capture") val capture: ScanCaptureDto = ScanCaptureDto(),
+    @SerialName("trace_id") val traceId: String = "",
+)
+
+/** Request body for POST /app/tasks/{task_id}/scan-attempts.
+ *  An attempt is append-only RFID audit evidence. It records accepted, duplicate, not-due,
+ *  and unknown physical reads without changing Submit counters. */
+@Serializable
+data class ScanAttemptRequestDto(
+    @SerialName("field_key") val fieldKey: String,
+    @SerialName("tag") val tag: String,
+    @SerialName("normalized_tag") val normalizedTag: String? = null,
+    @SerialName("goat_id") val goatId: String? = null,
+    @SerialName("obligation_id") val obligationId: String? = null,
+    @SerialName("outcome") val outcome: String,
+    @SerialName("tag_role") val tagRole: String = "unknown",
+    @SerialName("reason") val reason: String? = null,
+    @SerialName("captured_at_ms") val capturedAtMs: Long? = null,
+)
+
+@Serializable
+data class ScanAttemptDto(
+    @SerialName("attempt_id") val attemptId: String = "",
+    @SerialName("task_id") val taskId: String = "",
+    @SerialName("field_key") val fieldKey: String = "",
+    @SerialName("tag") val tag: String = "",
+    @SerialName("goat_id") val goatId: String? = null,
+    @SerialName("obligation_id") val obligationId: String? = null,
+    @SerialName("outcome") val outcome: String = "",
+    @SerialName("tag_role") val tagRole: String = "unknown",
+    @SerialName("reason") val reason: String? = null,
+    @SerialName("captured_at") val capturedAt: String = "",
+)
+
+@Serializable
+data class ScanAttemptResponseDto(
+    @SerialName("attempt") val attempt: ScanAttemptDto = ScanAttemptDto(),
+    @SerialName("trace_id") val traceId: String = "",
+)
+
 @Serializable
 data class SubmissionResponseDto(
     @SerialName("submission") val submission: SubmissionSummaryDto = SubmissionSummaryDto(),

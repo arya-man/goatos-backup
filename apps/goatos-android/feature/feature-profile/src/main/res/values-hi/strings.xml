@@ -40,6 +40,8 @@
     <string name="rfid_detail_action_open_bluetooth">Bluetooth सेटिंग्स खोलें</string>
     <string name="rfid_detail_action_pair_reader">Reader को जोड़ें</string>
     <string name="rfid_detail_test_label">टेस्ट स्कैन</string>
+    <string name="rfid_detail_hid_note">रीडर Bluetooth कीबोर्ड की तरह काम करता है। टैग स्कैन होने पर यह ID टाइप करके enter दबाता है — ऐप उस event को capture करता है, इसलिए operator कभी tag हाथ से type नहीं करता।</string>
+    <string name="rfid_detail_action_rescan">रीडर फिर से स्कैन करें</string>
 
     <!-- Alerts screen chrome -->
     <string name="alerts_screen_title">अलर्ट</string>

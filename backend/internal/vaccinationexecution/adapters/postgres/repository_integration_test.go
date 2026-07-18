@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -691,7 +693,7 @@ func insertProjectionObligation(t *testing.T, ctx context.Context, pool *pgxpool
 	execProjectionSQL(t, ctx, pool, "obligation "+obligationID,
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
 		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
-		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, $8::timestamptz, $9, $10, 1)`,
+		 VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, 'goat', $6, 'shed', $7, $8::timestamptz, $9, $10, 1)`,
 		obligationID, testTenant, testVersion, testRule, batchID, goatID, testShed, dueAt, status, key)
 }
 
@@ -701,6 +703,197 @@ func insertProjectionCompletion(t *testing.T, ctx context.Context, pool *pgxpool
 		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
 		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-20 09:00:00+00', 'accepted', $6, $7)`,
 		completionID, testTenant, obligationID, batchID, goatID, key, testOperator)
+}
+
+func TestVaccinationScheduleCanonicalOneToManyStatusBucketsServesColdMonth(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.VaccinationSchedule(ctx, domain.ScheduleQuery{
+		TenantID:   testTenant,
+		MonthStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	row := opsRowByStage(rows, "K1")
+	if row == nil {
+		t.Fatalf("canonical schedule: want K1 row, got %#v", rows)
+	}
+	if row.NextDue == nil || row.NextDue.Month() != time.June || row.NextDue.Year() != 2026 {
+		t.Fatalf("canonical schedule next_due = %v, want June 2026", row.NextDue)
+	}
+}
+
+func TestVaccinationScheduleCanonicalScheduledDateKeepsFutureMonthWhenEarlierDueExists(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "future obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ('70000000-0000-4000-8000-000000000090', $1, $2, $3, NULL,
+		   'goat', $4, 'shed', $5, TIMESTAMPTZ '2026-08-10 00:00:00+00', 'scheduled', 'vaccexec-future-month', 2)`,
+		testTenant, testVersion, testRule, testGoat, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.VaccinationSchedule(ctx, domain.ScheduleQuery{
+		TenantID:   testTenant,
+		MonthStart: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	row := opsRowByStage(rows, "K1")
+	if row == nil {
+		t.Fatalf("served future month: want K1 row, got %#v", rows)
+	}
+	if row.NextDue == nil || row.NextDue.Month() != time.August || row.NextDue.Year() != 2026 {
+		t.Fatalf("future month next_due = %v, want August 2026", row.NextDue)
+	}
+	if row.TotalCount == 0 {
+		t.Fatalf("future month total count = 0, row=%+v", *row)
+	}
+}
+
+func TestVaccinationScheduleCanonicalParkScopeFiltersRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	otherPark := "70000000-0000-4000-8000-000000000091"
+	otherShed := "70000000-0000-4000-8000-000000000092"
+	otherGoat := "70000000-0000-4000-8000-000000000093"
+	execProjectionSQL(t, ctx, pool, "other park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1, $2, 'park', 'PARK-SCHED-2', 'CPT Park', 'active')`,
+		otherPark, testTenant)
+	execProjectionSQL(t, ctx, pool, "other shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', 'SHED-SCHED-2', 'K1 Other Shed', $3, 'active')`,
+		otherShed, testTenant, otherPark)
+	insertProjectionGoat(t, ctx, pool, otherGoat, otherShed, otherPark)
+	insertProjectionObligation(t, ctx, pool, "70000000-0000-4000-8000-000000000094", "", otherGoat, "scheduled", "2026-06-26 00:00:00+00", "vaccexec-schedule-other-park")
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.VaccinationSchedule(ctx, domain.ScheduleQuery{
+		TenantID:   testTenant,
+		ParkID:     &otherPark,
+		MonthStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("other park schedule rows missing")
+	}
+	for _, row := range rows {
+		if row.ParkID != otherPark {
+			t.Fatalf("park-scoped schedule returned park %s, want only %s", row.ParkID, otherPark)
+		}
+	}
+}
+
+func TestVaccinationScheduleCanonicalAuthGrantFiltersDirectRepositoryCall(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	otherPark := "70000000-0000-4000-8000-000000000095"
+	otherShed := "70000000-0000-4000-8000-000000000096"
+	otherGoat := "70000000-0000-4000-8000-000000000097"
+	execProjectionSQL(t, ctx, pool, "other auth park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1, $2, 'park', 'PARK-SCHED-AUTH-2', 'CPT Auth Park', 'active')`,
+		otherPark, testTenant)
+	execProjectionSQL(t, ctx, pool, "other auth shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', 'SHED-SCHED-AUTH-2', 'K1 Auth Other Shed', $3, 'active')`,
+		otherShed, testTenant, otherPark)
+	insertProjectionGoat(t, ctx, pool, otherGoat, otherShed, otherPark)
+	insertProjectionObligation(t, ctx, pool, "70000000-0000-4000-8000-000000000098", "", otherGoat, "scheduled", "2026-06-26 00:00:00+00", "vaccexec-schedule-auth-other-park")
+
+	authCtx := httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+		Role:      permissions.RoleParkHead,
+		ScopeType: "park",
+		ScopeID:   testPark,
+	}})
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.VaccinationSchedule(authCtx, domain.ScheduleQuery{
+		TenantID:   testTenant,
+		MonthStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("authorized park schedule rows missing")
+	}
+	for _, row := range rows {
+		if row.ParkID != testPark {
+			t.Fatalf("direct repository call leaked park %s, want only authorized park %s", row.ParkID, testPark)
+		}
+	}
+}
+
+func TestVaccinationScheduleCanonicalPaginationWithoutTruncatingCursor(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	for i := 1; i <= 2; i++ {
+		shedID := "70000000-0000-4000-8000-00000000010" + string(rune('0'+i))
+		goatID := "70000000-0000-4000-8000-00000000011" + string(rune('0'+i))
+		obligationID := "70000000-0000-4000-8000-00000000012" + string(rune('0'+i))
+		execProjectionSQL(t, ctx, pool, "schedule page shed",
+			`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+			 VALUES ($1, $2, 'shed', $3, $4, $5, 'active')`,
+			shedID, testTenant, "SHED-SCHED-PAGE-"+string(rune('0'+i)), "K1 Page Shed "+string(rune('0'+i)), testPark)
+		insertProjectionGoat(t, ctx, pool, goatID, shedID, testPark)
+		insertProjectionObligation(t, ctx, pool, obligationID, "", goatID, "scheduled", "2026-06-25 00:00:00+00", "vaccexec-schedule-page-"+string(rune('0'+i)))
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	svc := vaccexecapp.NewService(repo)
+	resp, err := svc.VaccinationSchedule(ctx, domain.ScheduleQuery{
+		TenantID:   testTenant,
+		MonthStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	if len(resp.Cohorts) != 1 {
+		t.Fatalf("cohorts = %d want 1", len(resp.Cohorts))
+	}
+	if resp.NextCursor == nil {
+		t.Fatal("next cursor missing for canonical schedule cohorts")
+	}
+	cursor, err := domain.DecodeOperationsCursor(*resp.NextCursor)
+	if err != nil {
+		t.Fatalf("decode next cursor: %v", err)
+	}
+	if cursor.ShedID == "" || cursor.ShedName == "" {
+		t.Fatalf("cursor missing shed identity: %+v", cursor)
+	}
 }
 
 func rowByBatch(rows []domain.ExecutionProjection, batchID string) *domain.ExecutionProjection {

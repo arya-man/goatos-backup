@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 // Mock-styled cursor pager shared by the procurement row surfaces (Source Entry Board, Action Center,
@@ -17,6 +17,8 @@ export function ProcurementPager({
   count: number;
   noun: string;
 }) {
+  if (!prevHref && !nextHref && page <= 1) return null;
+
   return (
     <div className="pager2">
       <span className="muted small">

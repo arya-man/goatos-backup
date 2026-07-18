@@ -159,7 +159,13 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
             }
         }
 
-    override suspend fun recordScan(taskId: String, fieldKey: String, tag: String) = Unit
+    override suspend fun recordScan(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+    ) = Unit
 
     override suspend fun tagsForTask(taskId: String): List<String> = emptyList()
 
@@ -201,6 +207,8 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> = error("unused")
 
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = error("unused")
+
+    override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> = AppResult.Ok(Unit)
 
     override suspend fun clearForTask(taskId: String) = Unit
 }

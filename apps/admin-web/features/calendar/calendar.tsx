@@ -1,9 +1,9 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-react";
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
-import { fmtDate as fmtIstDate, todayIso } from "@/lib/format";
+import { todayIso } from "@/lib/format";
 import { Tag } from "@/components/ui-primitives";
 import {
   eventTypeMeta,
@@ -25,16 +25,21 @@ import {
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
-import { enumerateWeekDays, historyWindow, monthWindow, weekWindow } from "./calendar-window";
+import { markerTonesForDate } from "./calendar-marker-tones";
+import { calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedMonthStartKey, weekWindow } from "./calendar-window";
+import {
+  calendarEventDateKey,
+  calendarEventWeekday,
+  filterEventsForSelectedWeek,
+  normalizeCalendarDayFilter,
+} from "./calendar-window-events";
 import { DriveProgressCard } from "./calendar-drive-card";
 import { OwnerLegend, RhythmCard } from "./calendar-week-panels";
 
 const PATH = "/calendar";
 
 function weekdayOf(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short" }).format(d);
+  return calendarEventWeekday(iso);
 }
 
 function istToday(): string {
@@ -48,9 +53,7 @@ function timeOf(iso: string): string {
 }
 
 function dateKey(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-  return fmtIstDate(iso);
+  return calendarEventDateKey(iso);
 }
 
 function dateHeading(key: string, today: string, pageContract: AdminUiPageContract): string {
@@ -59,6 +62,19 @@ function dateHeading(key: string, today: string, pageContract: AdminUiPageContra
   const wd = optionLabel(pageContract, "calendar_weekdays", String(d.getDay())).toUpperCase();
   if (key === today) return `${wd} · ${copy(pageContract, "label.today")}`;
   return `${wd} · ${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3).toUpperCase()} ${d.getDate()}`;
+}
+
+function compactDateLabel(key: string, pageContract: AdminUiPageContract): string {
+  const d = new Date(`${key}T00:00:00+05:30`);
+  if (Number.isNaN(d.getTime())) return key;
+  return `${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3)} ${d.getDate()}`;
+}
+
+function addDaysKey(key: string, days: number): string {
+  const d = new Date(`${key}T00:00:00+05:30`);
+  if (Number.isNaN(d.getTime())) return key;
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function EventRow({
@@ -131,7 +147,7 @@ export async function VaccinationCalendarPage({
   const targetsCursor = one(sp, "targets_cursor");
   const targetsPage = boundedInt(one(sp, "targets_page"), 1, 1, 1000);
   const today = istToday();
-  const dayFilter = one(sp, "day") || undefined;
+  const dayFilter = normalizeCalendarDayFilter(one(sp, "day") || undefined);
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
 
@@ -162,6 +178,7 @@ export async function VaccinationCalendarPage({
         dateFrom: pickerWindow.dateFrom,
         dateTo: pickerWindow.dateTo,
         includeDateMarkers: true,
+        markersOnly: true,
         limit: 1,
       })
     : Promise.resolve(null);
@@ -180,7 +197,7 @@ export async function VaccinationCalendarPage({
   ]);
 
   const events = list.ok ? list.data.items : [];
-  const pickerEvents = markers?.ok ? markers.data.items : events;
+  const pickerEvents = datePickerOpen ? (markers?.ok ? markers.data.items : []) : events;
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
   }
@@ -230,6 +247,42 @@ export async function VaccinationCalendarPage({
   const driveHref = (id: string) => scopeHref(`/calendar/drive/${encodeURIComponent(id)}`, scope);
   const closeHref = hrefWith({ event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
   const weekHref = hrefWith({
+    status: undefined,
+    view: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const previousWeekHref = hrefWith({
+    as_of: addDaysKey(anchorKey, -7),
+    status: undefined,
+    view: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const currentWeekHref = hrefWith({
+    as_of: today,
+    status: undefined,
+    view: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const nextWeekHref = hrefWith({
+    as_of: addDaysKey(anchorKey, 7),
     status: undefined,
     view: undefined,
     event: undefined,
@@ -322,13 +375,12 @@ export async function VaccinationCalendarPage({
           <Link href={weekHref} replace scroll={false} className={currentViewKey === "week" ? "on" : ""}>
             {weekTabLabel}
           </Link>
-          <CalendarMonthPicker label={monthTabLabel} open={currentViewKey === "month"} closeHref={historyMode ? historyHref : weekHref}>
+          <CalendarMonthPicker label={monthTabLabel} open={currentViewKey === "month"} openHref={pickerMonthHref(anchorKey)} closeHref={historyMode ? historyHref : weekHref}>
             <CalendarDatePicker
               events={pickerEvents}
               dateMarkers={markers?.ok ? markers.data.date_markers : []}
               anchorKey={anchorKey}
               today={today}
-              ownerMeta={ownerMeta}
               presentation={presentation}
               pageContract={pageContract}
               monthHref={pickerMonthHref}
@@ -428,7 +480,9 @@ export async function VaccinationCalendarPage({
           clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           dayFilter={effectiveDayFilter}
           allWeekHref={hrefWith({ day: "week", event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
-          clearDayHref={hrefWith({ day: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
+          previousWeekHref={previousWeekHref}
+          currentWeekHref={currentWeekHref}
+          nextWeekHref={nextWeekHref}
           rhythmDayHref={(day) =>
             hrefWith({ ...presentationQueryToSearch(day.query), event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })
           }
@@ -436,7 +490,7 @@ export async function VaccinationCalendarPage({
         />
       )}
 
-      {events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode={historyMode ? "history" : "week"} pageContract={pageContract} /> : null}
+      {historyMode && events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode="history" pageContract={pageContract} /> : null}
       {list.ok ? <EventPager nextHref={listNextHref} prevHref={listPrevHref} page={listPage} rowsOnPage={listOnPage} pageContract={pageContract} /> : null}
 
       {sel ? (
@@ -473,7 +527,9 @@ function WeekView({
   clearOwnerHref,
   dayFilter,
   allWeekHref,
-  clearDayHref,
+  previousWeekHref,
+  currentWeekHref,
+  nextWeekHref,
   rhythmDayHref,
   pageContract,
 }: {
@@ -489,18 +545,23 @@ function WeekView({
   clearOwnerHref: string;
   dayFilter?: string;
   allWeekHref: string;
-  clearDayHref: string;
+  previousWeekHref: string;
+  currentWeekHref: string;
+  nextWeekHref: string;
   rhythmDayHref: (day: CalendarRhythmDay) => string;
   pageContract: AdminUiPageContract;
 }) {
   // Rhythm strip is the day selector. A specific weekday shows ONLY that day's drives, with NO
   // day heading in the body (the strip already names the day). "All week" (allWeek) opts into the
   // 7-day, day-separated vertical list with per-day headings.
-  const scoped = dayFilter ? events.filter((event) => weekdayOf(event.due_at) === dayFilter) : events;
+  const scoped = filterEventsForSelectedWeek(events, anchorDay, dayFilter);
   const sorted = [...scoped].sort((a, b) => a.due_at.localeCompare(b.due_at));
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
   const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
   const weekDays = enumerateWeekDays(weekWindow(anchorDay).dateFrom);
+  const dateLabelByDay = Object.fromEntries(
+    weekDays.map((dayDate) => [weekdayOf(`${dayDate}T00:00:00+05:30`), compactDateLabel(dayDate, pageContract)]),
+  );
   // Selected-day Sunday check drives the rest-day empty copy — derived from the actual date,
   // not a weekday string literal (which the admin-ui contract-literal guard forbids).
   const selectedDate = dayFilter ? weekDays.find((d) => weekdayOf(`${d}T00:00:00+05:30`) === dayFilter) : undefined;
@@ -523,6 +584,13 @@ function WeekView({
         dayFilter={dayFilter}
         allWeek={allWeek}
         allWeekHref={allWeekHref}
+        previousWeekHref={previousWeekHref}
+        currentWeekHref={currentWeekHref}
+        nextWeekHref={nextWeekHref}
+        previousWeekLabel={copy(pageContract, "action.previous")}
+        currentWeekLabel={presentation.week.title}
+        nextWeekLabel={copy(pageContract, "action.next")}
+        dateLabelByDay={dateLabelByDay}
         presentation={presentation}
       />
       <div className="card">
@@ -566,13 +634,19 @@ function WeekView({
                 );
               })
             ) : sorted.length === 0 ? (
-              <div className="cal-empty">
-                {copy(pageContract, selectedIsSunday ? "calendar.week.rest_day" : "calendar.week.day_empty")}
+              <div>
+                {selectedDate ? <div className={selectedDate === today ? "dh today" : "dh"}>{dateHeading(selectedDate, today, pageContract)}</div> : null}
+                <div className="cal-empty">
+                  {copy(pageContract, selectedIsSunday ? "calendar.week.rest_day" : "calendar.week.day_empty")}
+                </div>
               </div>
             ) : (
-              sorted.map((event) => (
-                <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} driveHref={driveHref} ownerMeta={ownerMeta} pageContract={pageContract} />
-              ))
+              <div>
+                {selectedDate ? <div className={selectedDate === today ? "dh today" : "dh"}>{dateHeading(selectedDate, today, pageContract)}</div> : null}
+                {sorted.map((event) => (
+                  <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} driveHref={driveHref} ownerMeta={ownerMeta} pageContract={pageContract} />
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -673,7 +747,6 @@ function CalendarDatePicker({
   dateMarkers,
   anchorKey,
   today,
-  ownerMeta,
   presentation,
   pageContract,
   monthHref,
@@ -683,15 +756,12 @@ function CalendarDatePicker({
   dateMarkers: CalendarDateMarker[];
   anchorKey: string;
   today: string;
-  ownerMeta: OwnerPresentationMap;
   presentation: CalendarPresentation;
   pageContract: AdminUiPageContract;
   monthHref: (date: string) => string;
   dateHref: (date: string, historyOnly?: boolean) => string;
 }) {
-  const anchor = new Date(`${anchorKey}T00:00:00+05:30`);
-  const year = Number.isNaN(anchor.getTime()) ? Number(today.slice(0, 4)) : anchor.getFullYear();
-  const month = Number.isNaN(anchor.getTime()) ? Number(today.slice(5, 7)) - 1 : anchor.getMonth();
+  const { year, month } = calendarMonthAnchor(anchorKey, today);
   const weekdays = optionGroup(pageContract, "calendar_weekdays");
 
   const byDate = new Map<string, CalendarEvent[]>();
@@ -712,42 +782,50 @@ function CalendarDatePicker({
   for (let d = 1; d <= daysInMonth; d++) {
     cells.push({ day: d, key: `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}` });
   }
-  const previous = new Date(year, month - 1, 1);
-  const next = new Date(year, month + 1, 1);
-  const todayAnchor = new Date(`${today}T00:00:00+05:30`);
-  const todayYear = Number.isNaN(todayAnchor.getTime()) ? year : todayAnchor.getFullYear();
-  const todayMonth = Number.isNaN(todayAnchor.getTime()) ? month : todayAnchor.getMonth();
-  const minMonth = new Date(todayYear, todayMonth - 1, 1);
-  const maxMonth = new Date(todayYear, todayMonth + 1, 1);
-  const previousAllowed = previous >= minMonth;
-  const nextAllowed = next <= maxMonth;
-  const previousMonth = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}-01`;
-  const nextMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+  const previousMonth = shiftedMonthStartKey(year, month, -1);
+  const nextMonth = shiftedMonthStartKey(year, month, 1);
+  const previousYearMonth = shiftedMonthStartKey(year, month, -12);
+  const nextYearMonth = shiftedMonthStartKey(year, month, 12);
   const previousLabel = copy(pageContract, "calendar.picker.previous_month");
   const nextLabel = copy(pageContract, "calendar.picker.next_month");
+  const previousYearLabel = copy(pageContract, "calendar.picker.previous_year");
+  const nextYearLabel = copy(pageContract, "calendar.picker.next_year");
+  const monthLinks = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}-01`);
 
   return (
     <div className="calpicker-popover">
       <div className="calpicker-head">
-        {previousAllowed ? (
-          <Link href={monthHref(previousMonth)} replace scroll={false} className="btn icon" aria-label={previousLabel}>
-            <ChevronLeft className="ic" aria-hidden="true" />
+        <Link href={monthHref(previousMonth)} replace scroll={false} className="calpicker-nav" aria-label={previousLabel}>
+          <ChevronLeft className="ic" aria-hidden="true" />
+        </Link>
+        <div className="calpicker-title">
+          <b>{optionLabel(pageContract, "calendar_months", String(month))}</b>
+          <span>{year}</span>
+        </div>
+        <Link href={monthHref(nextMonth)} replace scroll={false} className="calpicker-nav" aria-label={nextLabel}>
+          <ChevronRight className="ic" aria-hidden="true" />
+        </Link>
+      </div>
+      <div className="calpicker-yearnav">
+        <Link href={monthHref(previousYearMonth)} replace scroll={false} aria-label={previousYearLabel}>
+          ‹ {year - 1}
+        </Link>
+        <Link href={monthHref(nextYearMonth)} replace scroll={false} aria-label={nextYearLabel}>
+          {year + 1} ›
+        </Link>
+      </div>
+      <div className="calpicker-months">
+        {monthLinks.map((monthKey, index) => (
+          <Link
+            key={monthKey}
+            href={monthHref(monthKey)}
+            replace
+            scroll={false}
+            className={index === month ? "selected" : ""}
+          >
+            {optionLabel(pageContract, "calendar_months", String(index)).slice(0, 3)}
           </Link>
-        ) : (
-          <span className="btn icon disabled" aria-disabled="true" aria-label={previousLabel}>
-            <ChevronLeft className="ic" aria-hidden="true" />
-          </span>
-        )}
-        <b>{`${optionLabel(pageContract, "calendar_months", String(month))} ${year}`}</b>
-        {nextAllowed ? (
-          <Link href={monthHref(nextMonth)} replace scroll={false} className="btn icon" aria-label={nextLabel}>
-            <ChevronRight className="ic" aria-hidden="true" />
-          </Link>
-        ) : (
-          <span className="btn icon disabled" aria-disabled="true" aria-label={nextLabel}>
-            <ChevronRight className="ic" aria-hidden="true" />
-          </span>
-        )}
+        ))}
       </div>
       <div className="calpicker-grid">
         {weekdays.map((weekday) => (
@@ -759,10 +837,10 @@ function CalendarDatePicker({
           if (cell === null) return <span key={`out-${index}`} className="calpicker-day out" />;
           const dayEvents = byDate.get(cell.key) ?? [];
           const marker = markerByDate.get(cell.key);
-          const hasDrive = dayEvents.length > 0;
+          const hasDrive = (marker?.drive_count ?? 0) > 0 || dayEvents.some((event) => event.event_type === "vaccination_drive" || (event.drive_summary?.total_count ?? 0) > 0);
           const hasHistory = (marker?.completed_count ?? 0) > 0;
           const hasOpenWork = (marker?.open_count ?? 0) > 0;
-          const owners = Array.from(new Set(dayEvents.map((event) => event.owner_key))).slice(0, 3);
+          const tones = markerTonesForDate(marker, dayEvents).slice(0, 3);
           const eventCount = marker?.event_count ?? dayEvents.length;
           return (
             <Link
@@ -781,10 +859,10 @@ function CalendarDatePicker({
               }
             >
               <span>{cell.day}</span>
-              {owners.length ? (
-                <i>
-                  {owners.map((owner) => (
-                    <em key={owner} style={{ background: ownerColor(owner, ownerMeta) }} />
+              {tones.length ? (
+                <i className="calmarker-dots" aria-hidden="true">
+                  {tones.map((tone) => (
+                    <em key={tone} className={`tone-${tone}`} />
                   ))}
                 </i>
               ) : null}
@@ -794,6 +872,8 @@ function CalendarDatePicker({
       </div>
       <div className="calpicker-note">
         <span className="calpicker-dot drive" /> {copy(pageContract, "calendar.picker.drive_hint")}
+        <span className="calpicker-dot due" /> {copy(pageContract, "calendar.picker.due_hint")}
+        <span className="calpicker-dot deferred" /> {copy(pageContract, "calendar.picker.deferred_hint")}
         <span className="calpicker-dot other" /> {copy(pageContract, "calendar.picker.other_hint")}
         <span className="calpicker-dot history" /> {copy(pageContract, "calendar.picker.history_hint")}
         <span className="sp" />

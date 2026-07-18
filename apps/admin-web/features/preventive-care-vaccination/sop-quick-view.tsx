@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { AlertTriangle, BookOpen, Check, Clock, Video, X } from "lucide-react";
 import type { SopCardView } from "@/features/sops";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";

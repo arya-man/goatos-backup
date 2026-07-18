@@ -17,6 +17,7 @@ const (
 	maxListLimit        = 200
 	defaultHistoryLimit = 50
 	maxHistoryLimit     = 100
+	maxTargetSearch     = 128
 	maxDateRange        = 45 * 24 * time.Hour
 	defaultDateRange    = 30 * 24 * time.Hour
 	defaultSLA1After    = 0
@@ -122,6 +123,10 @@ func (s *Service) ListDriveTargets(ctx context.Context, q domain.DriveTargetQuer
 	}
 	if q.Limit > 50 {
 		q.Limit = 50
+	}
+	q.Search = strings.TrimSpace(q.Search)
+	if len(q.Search) > maxTargetSearch {
+		return domain.CalendarDriveTargetListResponse{}, BadRequest("invalid_search", "search must be 128 characters or fewer")
 	}
 	resp, err := s.repo.ListDriveTargets(ctx, q)
 	if err != nil {

@@ -135,6 +135,22 @@ type SubmitTaskCommand struct {
 	SubmissionFanoutRequired bool
 }
 
+type RecordScanCaptureCommand struct {
+	TenantID       string
+	ActorID        string
+	TaskID         string
+	IdempotencyKey string
+	Body           domain.ScanCaptureRequest
+}
+
+type RecordScanAttemptCommand struct {
+	TenantID       string
+	ActorID        string
+	TaskID         string
+	IdempotencyKey string
+	Body           domain.ScanAttemptRequest
+}
+
 type SubmissionItemInput struct {
 	GoatID  string
 	ItemKey string
@@ -165,5 +181,8 @@ type Repository interface {
 	ListPendingSubmissionFanouts(ctx context.Context, tenantID string, limit int) ([]SubmissionFanoutAttempt, error)
 	RecordSubmissionFanoutStatus(ctx context.Context, cmd SubmissionFanoutStatusCommand) error
 	ListAgedFailedSubmissionFanouts(ctx context.Context, params ListAgedFailedSubmissionFanoutsParams) ([]domain.FailedSubmissionFanout, error)
+	RecordScanCapture(ctx context.Context, cmd RecordScanCaptureCommand) (domain.ScanCaptureSummary, error)
+	ListScanCaptures(ctx context.Context, tenantID, taskID string) ([]domain.ScanCaptureSummary, error)
+	RecordScanAttempt(ctx context.Context, cmd RecordScanAttemptCommand) (domain.ScanAttemptSummary, error)
 	SubmitTask(ctx context.Context, cmd SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error)
 }

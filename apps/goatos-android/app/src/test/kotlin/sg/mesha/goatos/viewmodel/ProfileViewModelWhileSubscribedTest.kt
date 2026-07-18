@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.rfid.RfidRead
+import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 
@@ -136,6 +137,8 @@ class ProfileViewModelWhileSubscribedTest {
         }
 
         override val reads: SharedFlow<RfidRead> = MutableSharedFlow()
+        override val readerName: StateFlow<String?> = MutableStateFlow(null)
+        override val devices: StateFlow<List<RfidReaderDevice>> = MutableStateFlow(emptyList())
         override fun refreshStatus() {}
         override fun openSystemPairing() {}
         override fun setCaptureEnabled(enabled: Boolean) {}

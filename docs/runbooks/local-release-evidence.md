@@ -175,13 +175,18 @@ to `main`. A machine-local pre-push hook installed by `make ai-setup` (or
 ### Flow
 
 ```
-Developer/Codex/Claude commits on main branch
+Developer/Codex/Claude commits in a clean candidate worktree
     ↓
-    git push origin HEAD:main (or any update to refs/heads/main)
+    make land-main
+    ↓
+    fetch origin/main -> rebase -> make ci-local -> fetch origin/main again
+    ↓
+    git mesha-push HEAD:main (issued inside the landing script)
     ↓
     Pre-push hook runs check-local-ci-evidence.mjs --pre-push
     ↓
-    Hook checks: receipt.sha === commit SHA AND result === green AND
+    Hook checks: current remote-main SHA is an ancestor of candidate AND
+                 receipt.sha === commit SHA AND result === green AND
                  mode === all
                  OR
                  mode === scoped AND base === current remote-main SHA AND
@@ -191,6 +196,10 @@ Developer/Codex/Claude commits on main branch
     If YES: push is permitted
     If NO:  push is rejected (hook exits 1)
 ```
+
+Codex and Claude hook configs block direct agent-issued main pushes before Git
+is invoked. This forces agents through `make land-main`; the pre-push checks
+remain necessary for human terminals and defense in depth.
 
 ### Recording the Receipt
 
@@ -265,8 +274,8 @@ Do NOT bypass the hook with `git push --no-verify`. The hook is a governance lay
 - It enforces that every `main` push has passed the complete classifier-selected
   local-CI suite on the exact commit and remote-main base.
 - Skipping it with `--no-verify` is a circumvention, not a valid escape hatch.
-- If the receipt is stale or the build genuinely broke, re-run `make ci-local` to
-  produce a fresh receipt, then push normally.
+- If the receipt or main base is stale, run `make land-main`; it rebases and
+  reruns CI before retrying the guarded push.
 
 If you absolutely must override in an emergency (rare, maintainer-only):
 
@@ -285,5 +294,8 @@ If you absolutely must override in an emergency (rare, maintainer-only):
   new SHA to generate a fresh receipt before pushing
 - **Changed remote base**: A scoped receipt is rejected if `main` advanced after
   the run; fetch/rebase and re-run so the classifier covers the actual push diff
+- **Full receipts still require fresh main**: Even `MODE=all` evidence does not
+  authorize a non-rebased candidate; remote main must be an ancestor of the SHA
+  being pushed
 - **No global receipt store**: The receipt is ephemeral and machine-local; it does
   not sync between developers or persist after a clone/checkout

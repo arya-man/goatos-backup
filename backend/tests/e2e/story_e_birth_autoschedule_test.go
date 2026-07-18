@@ -9,7 +9,7 @@ import (
 
 // TestKernelStoryE_BirthAutoSchedule drives the birth-triggered obligation generation: when a new
 // kid is registered with a birth date, the vaccination schedule is auto-generated at appropriate
-// age milestones (4w, 7w, 12w, 16w, 20w for kids; D0+4w for adults).
+// age milestones (4w, 7w, 12w, 16w, 20w for kids; D0+21d ET+TT dose 2 and D0+28d pox for adults).
 func TestKernelStoryE_BirthAutoSchedule(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-e", "Birth-triggered auto-schedule generation",

@@ -32,8 +32,9 @@ sections below; this block makes them binding law, not commentary.
    it applies). K0 / K1 / early K2 have **no** approved-schedule vaccine before
    4w. After 20w the kid course is complete and the animal moves to steady-state
    repeat scheduling driven by accepted completion dates, not fixed week slots.
-   Adult procurement is a separate two-slot path (first eligible day after the
-   7-day warmup hold, then +4w). See "Kid Course Rendering Rule".
+   Adult procurement is a separate path: first eligible day after the 7-day
+   warmup hold, ET+TT dose 2 after 21 days, and pox after the 28-day
+   live-to-live spacing window. See "Kid Course Rendering Rule".
 
 2. **Goat Pox source-conflict rule (16w raw / 20w derived).** The Vaccination Rules
    document records both PPR and Goat Pox at 16w; both are live and the same document
@@ -138,8 +139,9 @@ approved goat/sheep kid path, the fixed due points are:
 K0, K1, and early K2 have no approved-schedule vaccine due before 4w. After
 20w, the fixed kid course is complete; steady-state adult/fattening vaccination
 uses repeat intervals from accepted completion dates, not fixed week-number
-slots. Adult procurement is a separate path with two procurement slots: first
-eligible day after the warmup hold, then 4w later.
+slots. Adult procurement is a separate path: first eligible day after the
+warmup hold, ET+TT dose 2 after 21 days, and pox after the 28-day live-to-live
+spacing window.
 
 ## Schedule By Tag And Age
 
@@ -154,7 +156,8 @@ eligible day after the warmup hold, then 4w later.
 | Fattening Male / Fattening Female | 120-240 days | Post-weaning kid. | goat + sheep when tag policy allows | 20w derived | Goat Pox if PPR was administered at 16w | Blue Tongue booster | Goat Pox: 1 ml / vial 25; Blue Tongue: 2 ml / vial 100 | Goat Pox is moved to 20w only to satisfy the mandatory 4-week live-live gap after PPR. Goat Pox repeats every 1 year. |
 | Fattening Male Warmup / Fattening Female Warmup | 120-240 days | Purchased kid on warmup diet before park diet. | goat + sheep when tag policy allows | age-based after 7-day hold | ET+TT 2 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25 when age-due | ET+TT 2 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; Sheep Pox 1 ml / vial 100; PPR 1 ml / vial 100; Blue Tongue 2 ml / vial 100 when age-due | ET+TT 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25; Sheep Pox 1 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; Blue Tongue 2 ml / vial 100 | Kids up to 16w follow the normal age schedule after the 7-day hold. If PPR was given at 16w, Goat Pox moves to 20w. |
 | Adult Warmup | 300+ days | Purchased adult on warmup diet, generally maximum 14 days. | species-specific adult tag policy | first eligible day after 7-day hold | ET+TT + PPR | ET+TT + PPR | ET+TT: 2 ml / vial 100; PPR: 1 ml / vial 100 | Pregnant month 4-5 skip overrides this procurement step. |
-| Adult procured step 2 | 300+ days | Adult procured animal after first eligible procurement step. | species-specific adult tag policy | 4w after first adult step | ET+TT booster + Goat Pox | ET+TT booster + Sheep Pox | ET+TT: 2 ml / vial 100; Goat Pox: 1 ml / vial 25; Sheep Pox: 1 ml / vial 100 | Exact adult procurement rule from the Vaccination Rules source finding. ET+TT repeats every 6 months after course; pox vaccines repeat every 1 year. |
+| Adult procured ET+TT dose 2 | 300+ days | Adult procured animal after first eligible procurement ET+TT dose. | species-specific adult tag policy | 21d after ET+TT dose 1 | ET+TT booster | ET+TT booster | ET+TT: 2 ml / vial 100 | ET+TT repeats every 6 months only after dose 2/course completion. |
+| Adult procured pox step | 300+ days | Adult procured animal after first eligible procurement PPR/live dose. | species-specific adult tag policy | 4w after PPR/live dose | Goat Pox | Sheep Pox | Goat Pox: 1 ml / vial 25; Sheep Pox: 1 ml / vial 100 | The 4-week wait is the live→live spacing rule after PPR. Pox vaccines repeat every 1 year. |
 | Non Pregnant / Flushing / Breeding / Buck | 300+ days | Adult steady-state tags; Buck is treated as the shared adult-male breeder tag for vaccination eligibility. | goat + sheep for these steady-state adult tags unless a future species-specific tag replaces them | repeat due | ET+TT 2 ml / vial 100 every 6 months; PPR 1 ml / vial 100 every 3 years; Goat Pox 1 ml / vial 25 every 1 year; FMD 1 ml / vial 30 every 9 months; HS 2 ml / vial 100 every 1 year | ET+TT 2 ml / vial 100 every 6 months; PPR 1 ml / vial 100 every 3 years; Blue Tongue 2 ml / vial 100 every 1 year; Sheep Pox 1 ml / vial 100 every 1 year; FMD 1 ml / vial 30 every 9 months; HS 2 ml / vial 100 every 1 year | ET+TT 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25; Sheep Pox 1 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; Blue Tongue 2 ml / vial 100 | Repeat from last accepted vaccination or accepted course completion. |
 | Mother / lactating adult | 300+ days | Biological mother/lactation state after birth; sheep may produce enough milk for the kid around K0, not a commercial milking workflow. | goat + sheep biological state | repeat due | Standard adult goat repeat schedule | Standard adult sheep repeat schedule | Species-specific adult vaccines | Do not split mother rows by vaccination status; missing/unknown/not-vaccinated mother evidence is ignored for scheduling. |
 | Mother Milking Waiting / Milking Warmup / Milking | 300+ days | Commercial goat-milk workflow tags. | goat/doe only unless future approved sheep dairy policy adds equivalents | repeat due | Standard adult goat repeat schedule | Not applicable | ET+TT 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25; FMD 1 ml / vial 30; HS 2 ml / vial 100 | These tags are not sheep mother tags. |
@@ -167,7 +170,7 @@ eligible day after the warmup hold, then 4w later.
 
 | Vaccine | Species | Class | Course type | Dose | Vial doses | Approved timing | Repeat | Priority |
 | --- | --- | --- | --- | ---: | ---: | --- | --- | ---: |
-| ET+TT | Goat + sheep | Bacteria killed | Booster | 2 ml | 100 | 4w, 7w | 6 months | 1 |
+| ET+TT | Goat + sheep | Bacteria killed | Booster | 2 ml | 100 | kid 4w then 7w; adult dose 1 then dose 2 after 21d | 6 months after dose 2/course completion | 1 |
 | PPR | Goat + sheep | Virus live | Single | 1 ml | 100 | 16w; adult procurement step 1 | 3 years | 2 |
 | Goat Pox | Goat | Virus live | Single | 1 ml | 25 | 16w raw source; 20w derived if PPR was administered at 16w; adult procurement step 2 | 1 year | - |
 | Sheep Pox | Sheep | Virus live | Single | 1 ml | 100 | 12w; adult procurement step 2 | 1 year | - |
@@ -180,8 +183,8 @@ eligible day after the warmup hold, then 4w later.
 | Pair / situation | Decision |
 | --- | --- |
 | ET+TT + PPR | Allowed; adult procurement first step. |
-| ET+TT booster + Goat Pox | Allowed; adult goat second step after 4w. |
-| ET+TT booster + Sheep Pox | Allowed; adult sheep second step after 4w. |
+| ET+TT booster + Goat Pox | Allowed only when both are due; ET+TT dose 2 is due after 21d, Goat Pox after the 28d live→live spacing window. |
+| ET+TT booster + Sheep Pox | Allowed only when both are due; ET+TT dose 2 is due after 21d, Sheep Pox after the 28d live→live spacing window. |
 | PPR + Blue Tongue | Allowed by live-viral + killed-viral same-day rule. |
 | FMD + HS | Allowed by bacterial + viral same-day rule. |
 | PPR + Goat Pox | Not same day; both are live, so a 4w gap is mandatory. |

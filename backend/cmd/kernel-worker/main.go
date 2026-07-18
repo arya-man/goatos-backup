@@ -96,8 +96,9 @@ func run(ctx context.Context, args []string) error {
 	// KERN-01 SAFETY: worker stages gate. Phase 1 (flag=false): worker deploys but
 	// stages are shadowed, running in health-only mode pending legacy job retirement.
 	// Phase 2 (flag=true): legacy jobs removed and worker stages enabled.
-	// Environment variable GOATOS_WORKER_STAGES_ENABLED is bound to
-	// var.retire_legacy_stage_jobs in terraform, so the two cannot both be active.
+	// Staging sets GOATOS_WORKER_STAGES_ENABLED=true unconditionally after the
+	// legacy scheduled-job fleet was retired. Development still uses its cutover
+	// gate until that environment converges separately.
 	stagesEnabled := stageShadowEnabled()
 	if !stagesEnabled {
 		logger.Info("kernel_worker_stages_shadowed", "reason", "legacy jobs still active; run health server only")

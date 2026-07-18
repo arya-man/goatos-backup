@@ -54,6 +54,19 @@ validate_goose_structure() {
   done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 }
 
+validate_clean_slate_baseline() {
+  local count
+  count="$(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+  if [[ "$count" != "1" ]]; then
+    echo "clean-slate baseline expects exactly one Postgres migration, found $count" >&2
+    exit 1
+  fi
+  if [[ ! -f "$repo_root/backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql" ]]; then
+    echo "missing clean-slate baseline migration 000001_goatos_clean_slate_baseline.sql" >&2
+    exit 1
+  fi
+}
+
 apply_goose_up() {
   local migration="$1"
   awk '
@@ -77,6 +90,7 @@ expect_failure() {
 }
 
 validate_goose_structure
+validate_clean_slate_baseline
 
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
@@ -108,8 +122,8 @@ DECLARE
   survivor uuid := '10000000-0000-4000-8000-000000000003';
   merged uuid := '10000000-0000-4000-8000-000000000004';
   decision uuid := '20000000-0000-4000-8000-000000000001';
-  event_partition text;
-  audit_partition text;
+  event_table text;
+  audit_table text;
 BEGIN
   INSERT INTO goats (
     goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
@@ -171,10 +185,10 @@ BEGIN
     '2026-06-15 08:00:01+00', '{"synthetic":true}'::jsonb,
     decision, 'validation-event-june'
   )
-  RETURNING tableoid::regclass::text INTO event_partition;
+  RETURNING tableoid::regclass::text INTO event_table;
 
-  IF event_partition <> 'goat_identity_events_2026_06' THEN
-    RAISE EXCEPTION 'expected June event partition, got %', event_partition;
+  IF event_table <> 'goat_identity_events' THEN
+    RAISE EXCEPTION 'expected ordinary goat_identity_events table, got %', event_table;
   END IF;
 
   INSERT INTO audit_log (
@@ -186,10 +200,39 @@ BEGIN
     'validation.audit', 'goat', goat_animal,
     '{"synthetic":true}'::jsonb, '2026-06-15 08:00:02+00'
   )
-  RETURNING tableoid::regclass::text INTO audit_partition;
+  RETURNING tableoid::regclass::text INTO audit_table;
 
-  IF audit_partition <> 'audit_log_2026_06' THEN
-    RAISE EXCEPTION 'expected June audit partition, got %', audit_partition;
+  IF audit_table <> 'audit_log' THEN
+    RAISE EXCEPTION 'expected ordinary audit_log table, got %', audit_table;
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  table_name text;
+  relation_kind "char";
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'goat_identity_events',
+    'audit_log',
+    'obligation_status_events'
+  ] LOOP
+    SELECT relkind INTO relation_kind FROM pg_class WHERE oid = table_name::regclass;
+    IF relation_kind <> 'r' THEN
+      RAISE EXCEPTION 'expected % to be an ordinary table, relkind=%', table_name, relation_kind;
+    END IF;
+  END LOOP;
+
+  IF EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid IN (
+    'goat_identity_events'::regclass,
+    'audit_log'::regclass,
+    'obligation_status_events'::regclass
+  )) THEN
+    RAISE EXCEPTION 'operational history partition parent remains in clean-slate baseline';
+  END IF;
+
+  IF to_regprocedure('goatos_ensure_partition_coverage(timestamptz,integer)') IS NOT NULL THEN
+    RAISE EXCEPTION 'partition maintenance functions remain in clean-slate baseline';
   END IF;
 END $$;
 SQL

@@ -148,7 +148,7 @@ generation:
 4. **Frontend RUM** — needs admin-web's Faro SDK wired and a real browser
    session hitting it; empty until that lane's rollout step runs.
 5. **Mobile** — needs the analytics rollup job to have run at least once
-   (`goatos-stg-analytics-rollup`, `03:15 IST` daily, or trigger manually —
+   (`goatos-stg-analytics-rollup`, triggered manually after reseed and before a demo —
    see §4) AND the `analytics.mobile_*_rollup` tables to exist (backend-owned
    migration, see `INFRA.md` §9).
 6. **SLO/burn** — populates automatically once dashboards 1-3 have data; burn

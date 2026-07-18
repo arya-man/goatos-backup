@@ -175,101 +175,6 @@ type AuditLog struct {
 	RecordedAt   pgtype.Timestamptz
 }
 
-type AuditLog202606 struct {
-	AuditID      pgtype.UUID
-	TenantID     pgtype.UUID
-	ActorID      pgtype.UUID
-	ActorType    string
-	Action       string
-	ResourceType string
-	ResourceID   pgtype.UUID
-	ScopeType    pgtype.Text
-	ScopeID      pgtype.UUID
-	DecisionID   pgtype.UUID
-	BeforeState  []byte
-	AfterState   []byte
-	Metadata     []byte
-	TraceID      pgtype.Text
-	CreatedAt    pgtype.Timestamptz
-	RecordedAt   pgtype.Timestamptz
-}
-
-type AuditLog202607 struct {
-	AuditID      pgtype.UUID
-	TenantID     pgtype.UUID
-	ActorID      pgtype.UUID
-	ActorType    string
-	Action       string
-	ResourceType string
-	ResourceID   pgtype.UUID
-	ScopeType    pgtype.Text
-	ScopeID      pgtype.UUID
-	DecisionID   pgtype.UUID
-	BeforeState  []byte
-	AfterState   []byte
-	Metadata     []byte
-	TraceID      pgtype.Text
-	CreatedAt    pgtype.Timestamptz
-	RecordedAt   pgtype.Timestamptz
-}
-
-type AuditLog202608 struct {
-	AuditID      pgtype.UUID
-	TenantID     pgtype.UUID
-	ActorID      pgtype.UUID
-	ActorType    string
-	Action       string
-	ResourceType string
-	ResourceID   pgtype.UUID
-	ScopeType    pgtype.Text
-	ScopeID      pgtype.UUID
-	DecisionID   pgtype.UUID
-	BeforeState  []byte
-	AfterState   []byte
-	Metadata     []byte
-	TraceID      pgtype.Text
-	CreatedAt    pgtype.Timestamptz
-	RecordedAt   pgtype.Timestamptz
-}
-
-type AuditLog202609 struct {
-	AuditID      pgtype.UUID
-	TenantID     pgtype.UUID
-	ActorID      pgtype.UUID
-	ActorType    string
-	Action       string
-	ResourceType string
-	ResourceID   pgtype.UUID
-	ScopeType    pgtype.Text
-	ScopeID      pgtype.UUID
-	DecisionID   pgtype.UUID
-	BeforeState  []byte
-	AfterState   []byte
-	Metadata     []byte
-	TraceID      pgtype.Text
-	CreatedAt    pgtype.Timestamptz
-	RecordedAt   pgtype.Timestamptz
-}
-
-type AuditLogDefault struct {
-	AuditID      pgtype.UUID
-	TenantID     pgtype.UUID
-	ActorID      pgtype.UUID
-	ActorType    string
-	Action       string
-	ResourceType string
-	ResourceID   pgtype.UUID
-	ScopeType    pgtype.Text
-	ScopeID      pgtype.UUID
-	DecisionID   pgtype.UUID
-	BeforeState  []byte
-	AfterState   []byte
-	Metadata     []byte
-	TraceID      pgtype.Text
-	CreatedAt    pgtype.Timestamptz
-	RecordedAt   pgtype.Timestamptz
-}
-
 type AuthPendingEmailGrant struct {
 	PendingGrantID             pgtype.UUID
 	TenantID                   pgtype.UUID
@@ -728,86 +633,6 @@ type GoatIdentifier struct {
 }
 
 type GoatIdentityEvent struct {
-	IdentityEventID pgtype.UUID
-	TenantID        pgtype.UUID
-	GoatID          pgtype.UUID
-	EventType       string
-	EventVersion    int32
-	OccurredAt      pgtype.Timestamptz
-	RecordedAt      pgtype.Timestamptz
-	ActorID         pgtype.UUID
-	SourceSystem    pgtype.Text
-	SourceRecordID  pgtype.Text
-	Payload         []byte
-	DecisionID      pgtype.UUID
-	IdempotencyKey  string
-}
-
-type GoatIdentityEvents202606 struct {
-	IdentityEventID pgtype.UUID
-	TenantID        pgtype.UUID
-	GoatID          pgtype.UUID
-	EventType       string
-	EventVersion    int32
-	OccurredAt      pgtype.Timestamptz
-	RecordedAt      pgtype.Timestamptz
-	ActorID         pgtype.UUID
-	SourceSystem    pgtype.Text
-	SourceRecordID  pgtype.Text
-	Payload         []byte
-	DecisionID      pgtype.UUID
-	IdempotencyKey  string
-}
-
-type GoatIdentityEvents202607 struct {
-	IdentityEventID pgtype.UUID
-	TenantID        pgtype.UUID
-	GoatID          pgtype.UUID
-	EventType       string
-	EventVersion    int32
-	OccurredAt      pgtype.Timestamptz
-	RecordedAt      pgtype.Timestamptz
-	ActorID         pgtype.UUID
-	SourceSystem    pgtype.Text
-	SourceRecordID  pgtype.Text
-	Payload         []byte
-	DecisionID      pgtype.UUID
-	IdempotencyKey  string
-}
-
-type GoatIdentityEvents202608 struct {
-	IdentityEventID pgtype.UUID
-	TenantID        pgtype.UUID
-	GoatID          pgtype.UUID
-	EventType       string
-	EventVersion    int32
-	OccurredAt      pgtype.Timestamptz
-	RecordedAt      pgtype.Timestamptz
-	ActorID         pgtype.UUID
-	SourceSystem    pgtype.Text
-	SourceRecordID  pgtype.Text
-	Payload         []byte
-	DecisionID      pgtype.UUID
-	IdempotencyKey  string
-}
-
-type GoatIdentityEvents202609 struct {
-	IdentityEventID pgtype.UUID
-	TenantID        pgtype.UUID
-	GoatID          pgtype.UUID
-	EventType       string
-	EventVersion    int32
-	OccurredAt      pgtype.Timestamptz
-	RecordedAt      pgtype.Timestamptz
-	ActorID         pgtype.UUID
-	SourceSystem    pgtype.Text
-	SourceRecordID  pgtype.Text
-	Payload         []byte
-	DecisionID      pgtype.UUID
-	IdempotencyKey  string
-}
-
-type GoatIdentityEventsDefault struct {
 	IdentityEventID pgtype.UUID
 	TenantID        pgtype.UUID
 	GoatID          pgtype.UUID
@@ -1341,102 +1166,6 @@ type ObligationStatusEvent struct {
 	IdempotencyKey    string
 }
 
-type ObligationStatusEvents202606 struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
-type ObligationStatusEvents202607 struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
-type ObligationStatusEvents202608 struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
-type ObligationStatusEvents202609 struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
-type ObligationStatusEvents202610 struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
-type ObligationStatusEvents202611 struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
-type ObligationStatusEvents202612 struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
-type ObligationStatusEventsDefault struct {
-	ObligationEventID pgtype.UUID
-	TenantID          pgtype.UUID
-	ObligationID      pgtype.UUID
-	EventType         string
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	Payload           []byte
-	IdempotencyKey    string
-}
-
 type Org struct {
 	PartyID   pgtype.UUID
 	OrgType   string
@@ -1953,6 +1682,41 @@ type SopTaskReviewFanout struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type SopTaskScanAttempt struct {
+	AttemptID      pgtype.UUID
+	TenantID       pgtype.UUID
+	TaskID         pgtype.UUID
+	FieldKey       string
+	Tag            string
+	NormalizedTag  string
+	GoatID         pgtype.UUID
+	ObligationID   pgtype.UUID
+	Outcome        string
+	TagRole        string
+	Reason         pgtype.Text
+	CapturedBy     pgtype.UUID
+	IdempotencyKey string
+	CapturedAt     pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type SopTaskScanCapture struct {
+	CaptureID      pgtype.UUID
+	TenantID       pgtype.UUID
+	TaskID         pgtype.UUID
+	FieldKey       string
+	Tag            string
+	NormalizedTag  string
+	GoatID         pgtype.UUID
+	ObligationID   pgtype.UUID
+	CapturedBy     pgtype.UUID
+	IdempotencyKey string
+	CapturedAt     pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type SopTaskSubmissionFanout struct {
 	SubmissionFanoutID pgtype.UUID
 	TenantID           pgtype.UUID
@@ -2203,6 +1967,8 @@ type VaccinationStageReviewItem struct {
 	IdempotencyKey   string
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+	ResolutionMode   pgtype.Text
+	AgeCutoffWeeks   pgtype.Int4
 }
 
 type Vaccine struct {

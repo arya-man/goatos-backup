@@ -98,9 +98,14 @@ docs/runbooks/staging-vaccination-clean-slate.md
   the shed-scoped Position holder. Backup is the center/park backup-manager slot
   unless a real shed-specific backup exists. `Manager: unassigned`,
   `owner missing`, or missing backup is a staging seed blocker, not a normal UI
-  business state. Use the reviewed shed ownership CSV above. If any shed code,
-  manager code, or backup code does not resolve in staging, stop instead of
-  inventing a fallback.
+  business state. Use the reviewed shed ownership CSV above as an override. If
+  a new source refresh adds sheds before the shed CSV is regenerated, the seed
+  must materialize those shed seats from the reviewed park
+  `preventive_care_manager` position (for example Darshan for CPT, Eshwar for
+  CBE). If a shed code or manager code present in the CSV does not resolve in
+  staging, stop; if a park has no preventive-care manager or backup-manager
+  position, stop. Never let the vaccination UI surface an unassigned manager as
+  normal business state.
 - HRMS/vaccination ownership source: the real roster seed must include the
   vaccination-relevant people from the roster discussion: Health Managers and
   Health AMs, with known examples such as Darshan for CPT and Eshwar for CBE
@@ -281,27 +286,16 @@ immediately after staging seed, verify the event/projection chain:
   ack messages.
 - Trigger or wait for the required staging jobs:
   - obligation sweeper
-  - calendar vaccination projector
   - counts projection recompute
   - vaccination eligibility rollup recompute
-  - process-integrity projection/update jobs
-  - vaccination shed projection recompute
-  - vaccination execution projection recompute
-  - vaccination operations projection recompute
   - outbox publisher if it is a separate service/job
-- A seed is incomplete if any live vaccination API returns
-  `projection_unavailable`. After the source seed, these endpoints must return
-  `200` from the target tenant without falling back to canonical table replay:
+- A seed is incomplete if any live vaccination API fails to return canonical
+  data. After the source seed, these endpoints must return `200` from the
+  target tenant without any projector warmup:
   - `GET /vaccination/sheds`
   - `GET /vaccination/execution`
   - `GET /vaccination/operations`
-- Projection state must be fresh and non-empty for the seeded tenant:
-  `vaccination_shed_projection_state`,
-  `vaccination_execution_projection_state`,
-  `vaccination_operations_projection_state`, and
-  `process_integrity_projection_state` must have a serving projection version,
-  `serving_state IN ('fresh','stale','rebuilding')`, no unexplained
-  `last_error`, and `projected_at/as_of` after the final source seed write.
+  - `GET /vaccination/schedule`
 - Verify DLQ/dead-letter counts are zero or explicitly explained.
 - Verify Action Center, Calendar, Protocol Adherence, Workflows, and the
   shed-wise vaccination page match the seeded DB counts.
@@ -386,18 +380,19 @@ To make the red items green:
 5. Drain or explain outbox rows. Before staging demo, failed rows must be zero
    and pending rows must either be zero or an intentional currently-running async
    queue with documented consumers.
-6. Recompute Calendar/Action Center/process-integrity and vaccination
-   shed/execution/operations projections from the seeded obligations. Verify
-   sidebar badges, `/vaccination`, `/vaccination/execution`, and
-   `/vaccination/operations` all return backend rows instead of
-   `projection_unavailable`.
+6. Run the obligation sweeper and verify Calendar, Action Center,
+   process-integrity, `/vaccination`, `/vaccination/execution`,
+   `/vaccination/operations`, and `/vaccination/schedule` all return canonical
+   backend rows. Do not wait for or recreate retired vaccination projections.
 7. Seed HRMS vaccination ownership before vaccination demo from the reviewed
    roster mapping, attendance/leave, and timetable source files; create/resolve
-   Health Manager and Health AM workforce members, then run
+   Preventive Care Manager and Backup Manager workforce members, then run
    `seed-shed-positions -mapping /Users/ravi/mesha/source-material/vgoats-seed/shed-manager-mapping.jul11-vaccination.csv -strict`
-   to create shed-scoped `workforce_positions` for every vaccination shed and
-   backup-manager coverage. Verify no vaccination shed renders
-   `Manager: unassigned`, `owner missing`, or blank backup.
+   to create shed-scoped `workforce_positions` for every vaccination shed. The
+   mapping file is an override; any active shed omitted by a refreshed source is
+   filled from that park's reviewed `preventive_care_manager`. Verify no
+   vaccination shed renders `Manager: unassigned`, `owner missing`, or blank
+   backup.
 8. Seed founder/builder access grants for `ravi@mesha.sg`,
    `manohark@mesha.sg`, `manju@mesha.sg`, `abhishek@mesha.sg`, and
    `aryaman@mesha.sg` as tenant-scoped `ceo_internal` users with every built

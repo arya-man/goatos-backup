@@ -34,6 +34,14 @@ data class RfidRead(
     val capturedAtDeviceMs: Long,
 )
 
+/** A reader-ish device Android currently exposes to the app. */
+data class RfidReaderDevice(
+    val id: String,
+    val name: String,
+    val detail: String,
+    val signalLabel: String,
+)
+
 /**
  * Port for the RFID reader. The V1 adapter is [KeyboardWedgeRfidReader]; a vendor
  * BLE/SDK adapter can implement the same port later without touching feature code.
@@ -42,6 +50,8 @@ data class RfidRead(
 interface RfidReaderPort {
     val status: StateFlow<RfidReaderStatus>
     val reads: SharedFlow<RfidRead>
+    val readerName: StateFlow<String?>
+    val devices: StateFlow<List<RfidReaderDevice>>
 
     /** Recompute readiness (call on resume / input-device or Bluetooth change). */
     fun refreshStatus()

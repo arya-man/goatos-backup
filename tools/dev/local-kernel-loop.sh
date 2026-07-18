@@ -29,7 +29,6 @@ case "$mode" in
     while true; do
       run_worker vaccination-generator /app/bin/generate-vaccination-obligations -timeout=45s
       run_worker obligation-sweeper /app/bin/obligation-sweeper -timeout=45s -project-calendar=false -project-vaccination-read-models=true
-      run_worker process-integrity-projector /app/bin/process-integrity-projection-recompute -timeout=45s
       run_worker vaccination-projection-worker /app/bin/vaccination-projection-worker -timeout=45s -limit=200 -enqueue-due-transitions=true -due-transitions-limit=200
       run_worker notification-dispatcher /app/bin/notification-dispatcher -timeout=30s -limit=100 -dry-run
       sleep "$interval"

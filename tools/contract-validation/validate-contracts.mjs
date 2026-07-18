@@ -147,6 +147,31 @@ async function validateOpenApiSpecs() {
   return specFiles.length;
 }
 
+async function validateVaccinationCursorContract() {
+  const spec = await readYaml("contracts/openapi/app-api.yaml");
+  for (const { path, schema, responseCursor } of [
+    { path: "/vaccination/execution", schema: "VaccinationExecutionResponse", responseCursor: "nextCursor" },
+    { path: "/vaccination/operations", schema: "VaccinationOperationsResponse", responseCursor: "next_cursor" },
+    { path: "/vaccination/schedule", schema: "VaccinationOperationsResponse", responseCursor: "next_cursor" },
+  ]) {
+    const endpoint = spec.paths?.[path]?.get;
+    if (!endpoint) {
+      throw new Error(`${path} GET must exist`);
+    }
+    const hasCursorParam = (endpoint.parameters ?? []).some((param) => param.name === "cursor" && param.in === "query");
+    if (!hasCursorParam) {
+      throw new Error(`${path} returns nextCursor and must accept cursor query param`);
+    }
+    const responseRef = endpoint.responses?.["200"]?.content?.["application/json"]?.schema?.$ref;
+    if (responseRef !== `#/components/schemas/${schema}`) {
+      throw new Error(`${path} 200 response must reference ${schema}`);
+    }
+    if (!spec.components?.schemas?.[schema]?.properties?.[responseCursor]) {
+      throw new Error(`${schema} must expose ${responseCursor} for pagination`);
+    }
+  }
+}
+
 async function dereferenceSpec(specFile, cache) {
   if (!cache.has(specFile)) {
     cache.set(specFile, await SwaggerParser.dereference(resolveRepo(specFile), { dereference: { circular: "ignore" } }));
@@ -196,6 +221,7 @@ async function main() {
   await validateRequiredFiles();
   const jsonSchemaCount = await validateJsonSchemas();
   const openApiCount = await validateOpenApiSpecs();
+  await validateVaccinationCursorContract();
   const exampleCount = await validateExamples();
 
   console.log(`Validated ${openApiCount} OpenAPI specs, ${jsonSchemaCount} JSON Schemas, and ${exampleCount} example payloads.`);

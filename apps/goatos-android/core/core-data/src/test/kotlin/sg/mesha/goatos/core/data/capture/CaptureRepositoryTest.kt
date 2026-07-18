@@ -4,9 +4,11 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
@@ -27,6 +29,8 @@ import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 
 /**
@@ -46,6 +50,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@OptIn(ExperimentalCoroutinesApi::class)
 class CaptureRepositoryTest {
 
     private val unconfinedDispatchers = object : DispatcherProvider {
@@ -65,15 +70,67 @@ class CaptureRepositoryTest {
     fun `repeat scan of the same tag is deduped at the DB layer`() = runTest {
         val db = newDb()
         try {
-            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), dispatchers = unconfinedDispatchers)
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
 
-            repo.recordScan("task-1", "goat_scan", "TAG-001")
+            repo.recordScan("task-1", "goat_scan", "TAG-001", goatId = "goat-1", obligationId = "obl-1")
             repo.recordScan("task-1", "goat_scan", "TAG-001") // repeat — must be a no-op
             repo.recordScan("task-1", "goat_scan", "TAG-002")
 
             val tags = repo.tagsForTask("task-1")
             assertEquals(listOf("TAG-001", "TAG-002"), tags)
             assertEquals(2, repo.observeScannedCount("task-1", "goat_scan").first())
+            assertEquals(2, sync.scanCalls.size)
+            assertEquals("scan:task-1:goat_scan:tag001", sync.scanCalls[0].idempotencyKey)
+            assertEquals("goat-1", sync.scanCalls[0].request.goatId)
+            assertEquals("obl-1", sync.scanCalls[0].request.obligationId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `scan attempts are append-only and each attempt is queued for backend audit`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanAttemptRepository(
+                db.rfidScanAttemptDao(),
+                syncRepository = sync,
+                dispatchers = unconfinedDispatchers,
+                clock = { 123L + sync.attemptCalls.size },
+                idGenerator = { "attempt-${sync.attemptCalls.size}" },
+            )
+
+            repo.recordAttempt(
+                taskId = "task-1",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "901007000504418",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                outcome = RfidScanAttemptOutcome.ACCEPTED,
+                tagRole = RfidScanTagRole.PRIMARY,
+                reason = null,
+            )
+            repo.recordAttempt(
+                taskId = "task-1",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "901007000504419",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                outcome = RfidScanAttemptOutcome.DUPLICATE,
+                tagRole = RfidScanTagRole.SECONDARY,
+                reason = "goat_already_scanned",
+            )
+
+            val attempts = repo.attemptsForTask("task-1")
+            assertEquals(listOf("901007000504418", "901007000504419"), attempts.map { it.tag })
+            assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), attempts.map { it.outcome })
+            assertEquals(2, sync.attemptCalls.size)
+            assertEquals("scan-attempt:task-1:attempt-0", sync.attemptCalls[0].idempotencyKey)
+            assertEquals("scan-attempt:task-1:attempt-1", sync.attemptCalls[1].idempotencyKey)
+            assertEquals("secondary", sync.attemptCalls[1].request.tagRole)
+            assertEquals("goat_already_scanned", sync.attemptCalls[1].request.reason)
         } finally {
             db.close()
         }
@@ -87,7 +144,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
             )
 
@@ -135,6 +192,100 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `terminally failed proof rows do not exhaust the active capture cap`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val capturedIds = (0 until 5).map { index ->
+                (
+                    repo.capture(
+                        taskId = "task-failed-cap",
+                        fieldKey = "extra_video_$index",
+                        subject = ProofSubject.EXTRA,
+                        localUri = "file://failed-$index.mp4",
+                        mimeType = "video/mp4",
+                        caption = null,
+                        scopeType = "task",
+                        scopeId = "task-failed-cap",
+                        capturedStartMs = 1_000L,
+                        capturedEndMs = 4_000L,
+                        capturedByPrincipalId = "operator-1",
+                    ) as AppResult.Ok
+                    ).value.id
+            }
+            capturedIds.forEach { id ->
+                db.proofCaptureDao().updateStatus(id, CaptureSyncStatus.FAILED.name, null, "network gave up")
+            }
+
+            val replacement = repo.capture(
+                taskId = "task-failed-cap",
+                fieldKey = "administration_video",
+                subject = ProofSubject.ADMINISTRATION,
+                localUri = "file://replacement.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "task",
+                scopeId = "task-failed-cap",
+                capturedStartMs = 5_000L,
+                capturedEndMs = 8_000L,
+                capturedByPrincipalId = "operator-1",
+            )
+
+            assertTrue("failed rows must not permanently burn the 5-video cap", replacement is AppResult.Ok)
+            assertEquals(CaptureSyncStatus.PENDING, repo.observeProofs("task-failed-cap").first().first().syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `retryUpload re-arms a failed proof outbox row`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+            )
+            val captured = (
+                repo.capture(
+                    taskId = "task-retry-proof",
+                    fieldKey = "administration_video",
+                    subject = ProofSubject.ADMINISTRATION,
+                    localUri = "file://admin.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-retry-proof",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+                ).value
+            advanceUntilIdle()
+            val itemId = sync.enqueueCalls.single().outboxItemId
+            db.proofCaptureDao().updateStatus(captured.id, CaptureSyncStatus.FAILED.name, null, "network gave up")
+
+            val retry = repo.retryUpload("task-retry-proof", captured.id)
+
+            assertTrue(retry is AppResult.Ok)
+            assertEquals(listOf(itemId), sync.retryCalls)
+            assertEquals(CaptureSyncStatus.PENDING, repo.observeProofs("task-retry-proof").first().single().syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `proof row status follows its outbox item PENDING to IN_FLIGHT to SYNCED with server proof id`() = runTest {
         val db = newDb()
         try {
@@ -176,6 +327,47 @@ class CaptureRepositoryTest {
             row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-123", row.serverProofId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `proof upload success without a server proof id is quarantined as failed`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-corrupt-proof-result",
+                    fieldKey = "administration_video",
+                    subject = ProofSubject.ADMINISTRATION,
+                    localUri = "file://admin.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-corrupt-proof-result",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+                ).value
+
+            val itemId = sync.enqueueCalls.single().outboxItemId
+            repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
+            sync.emit(itemId, SyncItemStatus.SUCCEEDED, resultJson = """{"proof":{}}""")
+
+            val row = repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
+            assertEquals(CaptureSyncStatus.FAILED, row.syncStatus)
+            assertEquals(null, row.serverProofId)
+            assertEquals("Proof upload finished without a server proof id. Record this video again.", row.lastError)
         } finally {
             db.close()
         }
@@ -234,8 +426,13 @@ class CaptureRepositoryTest {
  *  [emit], mirroring how [sg.mesha.goatos.core.data.sync.SyncEngine] would really transition it. */
 private class FakeSyncRepository : SyncRepository {
     data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
+    data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
+    data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
 
     val enqueueCalls = mutableListOf<EnqueueCall>()
+    val scanCalls = mutableListOf<ScanCall>()
+    val attemptCalls = mutableListOf<AttemptCall>()
+    val retryCalls = mutableListOf<String>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -254,6 +451,26 @@ private class FakeSyncRepository : SyncRepository {
     }
 
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
+
+    override suspend fun enqueueScanCapture(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanCaptureRequestDto,
+    ): AppResult<String> {
+        scanCalls += ScanCall(idempotencyKey, request)
+        return AppResult.Ok("scan-outbox-${scanCalls.size}")
+    }
+
+    override suspend fun enqueueScanAttempt(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): AppResult<String> {
+        attemptCalls += AttemptCall(idempotencyKey, request)
+        return AppResult.Ok("attempt-outbox-${attemptCalls.size}")
+    }
 
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
 
@@ -289,7 +506,10 @@ private class FakeSyncRepository : SyncRepository {
 
     override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
 
-    override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+    override suspend fun retry(itemId: String): AppResult<Unit> {
+        retryCalls += itemId
+        return AppResult.Ok(Unit)
+    }
 
     override suspend fun triggerDrain() = Unit
 }
