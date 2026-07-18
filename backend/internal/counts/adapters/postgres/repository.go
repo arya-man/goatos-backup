@@ -2553,3 +2553,327 @@ WHERE g.tenant_id = $1
 		Items: out,
 	}, nil
 }
+
+// countsBreakdownGroupedCTE is the ONE definition of the census grain, shared verbatim by the
+// page query and the chart query. Keep it a single const: if the two copies ever drift, the
+// footer total and the chart series silently disagree and nothing fails loudly.
+//
+// AS MATERIALIZED is load-bearing. PG12+ inlines a CTE referenced once, which would make the
+// four-branch UNION in the chart query re-scan goats four times. Materializing computes the
+// grain once and rolls it up four ways.
+//
+// Bind order is fixed for both consumers:
+//
+//	$1 tenant_id, $2 lifecycle_status, $3 park_id, $4 shed_id,
+//	$5 management_stage, $6 breed, $7 sex
+const countsBreakdownGroupedCTE = `
+WITH grouped AS MATERIALIZED (
+  SELECT
+    g.park_id,
+    g.shed_id,
+    COALESCE(g.management_stage, '') AS management_stage,
+    COALESCE(g.breed, '')            AS breed,
+    g.sex,
+    count(*) AS animal_count,
+    -- COALESCE is load-bearing: herd_register_is_kid returns NULL when age_band is NULL (NULL='kid'
+    -- propagates), and a bare NOT would then drop those animals from BOTH buckets, so kid+adult
+    -- would silently stop summing to the total. Defaulting an unknown age to not-a-kid keeps the
+    -- two buckets an exact partition of animal_count.
+    count(*) FILTER (WHERE COALESCE(herd_register_is_kid(g.age_band, g.management_stage), false)) AS kid_count,
+    count(*) FILTER (WHERE NOT COALESCE(herd_register_is_kid(g.age_band, g.management_stage), false)) AS adult_count
+  FROM goats g
+  WHERE g.tenant_id = $1::uuid
+    AND g.merged_into_goat_id IS NULL
+    AND ($2 = '' OR g.lifecycle_status = $2)
+    AND ($3 = '' OR g.park_id = NULLIF($3, '')::uuid)
+    AND ($4 = '' OR g.shed_id = NULLIF($4, '')::uuid)
+    AND ($5 = '' OR COALESCE(g.management_stage, '') = $5)
+    AND ($6 = '' OR COALESCE(g.breed, '') = $6)
+    AND ($7 = '' OR g.sex = $7)
+  GROUP BY g.park_id, g.shed_id, COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex
+)`
+
+// scale-guard:ignore: 5k-50k-envelope — canonical indexed read per
+// docs/decisions/operational-kernel-5k-50k-scale-envelope.md. This screen is served directly
+// from canonical SQL at the current release envelope; it earns its own projection only under
+// that ADR's scale-out ladder.
+//
+// projection-review: membership=canonical goats rows for tenant with merged_into_goat_id IS NULL, filtered before grouping; group_key=(park_id, shed_id, management_stage, breed, sex) read off denormalized goats columns with no COALESCE hierarchy walk; join_cardinality=locations joined twice (park, shed) on the (tenant_id, location_id) primary key, strict 1:{0,1} label lookups after aggregation so no fan-out; pagination=total_rows and total_count are COUNT/SUM window functions over the FULL grouped CTE, invariant to limit/offset; scope=tenant_id plus optional park/shed/stage/breed/sex equality predicates
+//
+// Expanded rationale:
+//
+//	membership   = canonical goats rows for the tenant with merged_into_goat_id IS NULL, so a
+//	               merged animal is never counted under both its old and new identity, narrowed
+//	               by the request predicates BEFORE grouping.
+//	group_key    = (park_id, shed_id, management_stage, breed, sex), read straight off the
+//	               denormalized columns on goats. No COALESCE hierarchy walk, so the scope matrix
+//	               stays flat: park and shed are independent nullable FKs and each NULL is its own
+//	               explicit bucket, never folded into a parent.
+//
+//	               PARK, NOT FARM. The UI labels this column "Farm" because that is the business
+//	               word and the name of the source sheet column — but the source sheet's farm
+//	               values (CBE/CPT) are loaded as locations of type 'park', so park_id is where
+//	               that data actually lives. goats.farm_id exists but is unpopulated in real
+//	               seeded data (0 of 321 live animals), so grouping on it would render a column
+//	               that is empty for every row. See seed-vaccination-real/main.go, which resolves
+//	               the sheet's farm column against location_type='park'.
+//	join_card    = locations is joined twice (park, shed) on (tenant_id, location_id), which is
+//	               that table's primary key, so each is a strict 1:{0,1} label lookup that cannot
+//	               fan out the COUNT. Both joins run AFTER aggregation, against one page of rows
+//	               rather than the whole herd. No other table is joined.
+//	pagination   = total_rows and total_count are COUNT/SUM window functions over the FULL
+//	               grouped CTE and are therefore invariant to limit/offset and to page size.
+//	               The chart series roll up the same CTE, never the returned page.
+//	scope        = tenant_id plus optional park/shed/stage/breed/sex equality predicates.
+const countsBreakdownPageSQL = countsBreakdownGroupedCTE + ` -- scale-guard:ignore: OFFSET walks the PRE-AGGREGATED grain set (distinct park/shed/stage/breed/sex combinations, tens to low thousands at this envelope), never canonical goats rows; handler rejects offset > 5000 outright.
+SELECT
+  gr.park_id::text,
+  COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
+  gr.shed_id::text,
+  COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
+  gr.management_stage,
+  gr.breed,
+  gr.sex,
+  gr.animal_count,
+  count(*)             OVER () AS total_rows,
+  sum(gr.animal_count) OVER () AS total_count,
+  sum(gr.kid_count)    OVER () AS total_kids,
+  sum(gr.adult_count)  OVER () AS total_adults
+FROM grouped gr
+LEFT JOIN locations park
+       ON park.tenant_id = $1::uuid AND park.location_id = gr.park_id
+LEFT JOIN locations shed
+       ON shed.tenant_id = $1::uuid AND shed.location_id = gr.shed_id
+ORDER BY
+  gr.animal_count DESC,
+  COALESCE(gr.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(gr.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  gr.management_stage,
+  gr.breed,
+  gr.sex
+LIMIT $8 OFFSET $9`
+
+// scale-guard:ignore: 5k-50k-envelope — same canonical read as countsBreakdownPageSQL.
+//
+// projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const), re-rolled into four one-dimensional series; group_key=one of breed | management_stage | sex | shed_id per UNION branch; join_cardinality=only the shed branch joins locations, on the (tenant_id, location_id) primary key, so 1:{0,1} with no fan-out, the other three branches join nothing; pagination=every series is a whole-result rollup of the full grouped set, independent of the detail table limit/offset; scope=same tenant plus farm/park/shed/stage/breed/sex predicates as the page query
+//
+// The shed branch is capped at the top 12 by count for chart legibility. That cap is a DISPLAY
+// bound on one chart only and is never the source of total_count, which comes from the page
+// query's window function over the full grouped set.
+const countsBreakdownChartsSQL = countsBreakdownGroupedCTE + `
+SELECT 'breed' AS dimension, gr.breed AS series_key, gr.breed AS series_label, sum(gr.animal_count) AS series_count
+FROM grouped gr GROUP BY gr.breed
+UNION ALL
+SELECT 'stage', gr.management_stage, gr.management_stage, sum(gr.animal_count)
+FROM grouped gr GROUP BY gr.management_stage
+UNION ALL
+SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count)
+FROM grouped gr GROUP BY gr.sex
+UNION ALL
+SELECT * FROM (
+  SELECT 'shed' AS dimension,
+         COALESCE(gr.shed_id::text, '') AS series_key,
+         COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS series_label,
+         sum(gr.animal_count) AS series_count
+  FROM grouped gr
+  LEFT JOIN locations shed
+         ON shed.tenant_id = $1::uuid AND shed.location_id = gr.shed_id
+  GROUP BY gr.shed_id, shed.name, shed.location_code
+  ORDER BY series_count DESC, series_key
+  LIMIT 12
+) top_sheds`
+
+// scale-guard:ignore: 5k-50k-envelope — index-only aggregate on goats_tenant_management_idx /
+// goats_breed_text_sex_idx, bounded by distinct vocabulary size, not by herd size.
+//
+// projection-review: membership=same tenant/merge/lifecycle scope as the grain queries but DELIBERATELY without the stage/breed/farm/shed/sex predicates; group_key=the single facet dimension per UNION branch (management_stage, then breed); join_cardinality=no joins at all, so fan-out is structurally impossible; pagination=whole-result rollup, never paged; scope=tenant_id plus lifecycle_status only
+//
+// Facets must describe the whole selectable vocabulary, not the current selection — filtering
+// them by the active filter would collapse each dropdown to the one value already chosen.
+const countsBreakdownFacetsSQL = `
+SELECT 'stage' AS dimension, COALESCE(g.management_stage, '') AS series_key, count(*) AS series_count
+FROM goats g
+WHERE g.tenant_id = $1::uuid
+  AND g.merged_into_goat_id IS NULL
+  AND ($2 = '' OR g.lifecycle_status = $2)
+GROUP BY COALESCE(g.management_stage, '')
+UNION ALL
+SELECT 'breed', COALESCE(g.breed, ''), count(*)
+FROM goats g
+WHERE g.tenant_id = $1::uuid
+  AND g.merged_into_goat_id IS NULL
+  AND ($2 = '' OR g.lifecycle_status = $2)
+GROUP BY COALESCE(g.breed, '')
+ORDER BY 1, 2`
+
+const (
+	countsBreakdownDefaultLimit = 10
+	countsBreakdownMaxLimit     = 100
+	countsBreakdownMaxOffset    = 5000
+)
+
+// GetCountsBreakdown serves the Counts Breakdown census: one page of farm x stage x breed x sex x
+// shed grain rows, plus totals, chart series, and filter facets that are all whole-result rollups.
+//
+// All three statements go out in one SendBatch round trip. None of them sits inside a loop, so
+// this is not an N+1 fan-out — draining already-queued batch results is the sanctioned pattern.
+func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = countsBreakdownDefaultLimit
+	}
+	if limit > countsBreakdownMaxLimit {
+		limit = countsBreakdownMaxLimit
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > countsBreakdownMaxOffset {
+		offset = countsBreakdownMaxOffset
+	}
+
+	// Default to the live herd so this screen's population matches Counts -> Herd Register,
+	// which pins status=alive. A caller may override explicitly.
+	lifecycle := ptrValue(req.LifecycleStatus)
+	if lifecycle == "" {
+		lifecycle = "alive"
+	}
+
+	grainArgs := []any{
+		req.TenantID,
+		lifecycle,
+		ptrValue(req.ParkID),
+		ptrValue(req.ShedID),
+		ptrValue(req.ManagementStage),
+		ptrValue(req.Breed),
+		ptrValue(req.Sex),
+	}
+
+	batch := &pgx.Batch{}
+	batch.Queue(countsBreakdownPageSQL, append(append([]any{}, grainArgs...), limit, offset)...)
+	batch.Queue(countsBreakdownChartsSQL, grainArgs...)
+	batch.Queue(countsBreakdownFacetsSQL, req.TenantID, lifecycle)
+
+	results := r.pool.SendBatch(ctx, batch)
+	defer func() { _ = results.Close() }()
+
+	out := domain.CountsBreakdown{
+		Items:  []domain.CountsBreakdownRow{},
+		Charts: domain.CountsBreakdownCharts{},
+		Facets: domain.CountsBreakdownFacets{},
+	}
+
+	pageRows, err := results.Query()
+	if err != nil {
+		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: page query: %w", err)
+	}
+	for pageRows.Next() {
+		var row domain.CountsBreakdownRow
+		var totalRows, totalCount, totalKids, totalAdults int64
+		if err := pageRows.Scan(
+			&row.ParkID,
+			&row.ParkLabel,
+			&row.ShedID,
+			&row.ShedLabel,
+			&row.ManagementStage,
+			&row.Breed,
+			&row.Sex,
+			&row.Count,
+			&totalRows,
+			&totalCount,
+			&totalKids,
+			&totalAdults,
+		); err != nil {
+			pageRows.Close()
+			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: page scan: %w", err)
+		}
+		// Every row carries the same window totals; the last write wins and they agree.
+		out.TotalRows = totalRows
+		out.TotalCount = totalCount
+		out.TotalKids = totalKids
+		out.TotalAdults = totalAdults
+		out.Items = append(out.Items, row)
+	}
+	pageRows.Close()
+	if err := pageRows.Err(); err != nil {
+		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: page iterate: %w", err)
+	}
+
+	chartRows, err := results.Query()
+	if err != nil {
+		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts query: %w", err)
+	}
+	for chartRows.Next() {
+		var dimension, key, label string
+		var count int64
+		if err := chartRows.Scan(&dimension, &key, &label, &count); err != nil {
+			chartRows.Close()
+			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts scan: %w", err)
+		}
+		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
+		switch dimension {
+		case "breed":
+			out.Charts.Breed = append(out.Charts.Breed, point)
+		case "stage":
+			out.Charts.Stage = append(out.Charts.Stage, point)
+		case "sex":
+			out.Charts.Sex = append(out.Charts.Sex, point)
+		case "shed":
+			out.Charts.Shed = append(out.Charts.Shed, point)
+		}
+	}
+	chartRows.Close()
+	if err := chartRows.Err(); err != nil {
+		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts iterate: %w", err)
+	}
+
+	facetRows, err := results.Query()
+	if err != nil {
+		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets query: %w", err)
+	}
+	for facetRows.Next() {
+		var dimension, key string
+		var count int64
+		if err := facetRows.Scan(&dimension, &key, &count); err != nil {
+			facetRows.Close()
+			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets scan: %w", err)
+		}
+		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: key, Count: count}
+		switch dimension {
+		case "stage":
+			out.Facets.Stages = append(out.Facets.Stages, point)
+		case "breed":
+			out.Facets.Breeds = append(out.Facets.Breeds, point)
+		}
+	}
+	facetRows.Close()
+	if err := facetRows.Err(); err != nil {
+		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets iterate: %w", err)
+	}
+
+	if out.Charts.Breed == nil {
+		out.Charts.Breed = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Charts.Stage == nil {
+		out.Charts.Stage = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Charts.Sex == nil {
+		out.Charts.Sex = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Charts.Shed == nil {
+		out.Charts.Shed = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Facets.Stages == nil {
+		out.Facets.Stages = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Facets.Breeds == nil {
+		out.Facets.Breeds = []domain.CountsBreakdownSeriesPoint{}
+	}
+
+	out.ProjectedAt = time.Now().UTC()
+	return out, nil
+}

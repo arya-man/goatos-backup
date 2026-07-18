@@ -1152,6 +1152,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/counts/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Census head counts grouped by farm, stage, breed, gender and shed.
+         * @description Pre-aggregated animal counts over canonical live goats, grouped by farm x management_stage x breed x sex x shed. `total_count` and every `charts` series are rolled up over the FULL filtered result set and are therefore independent of `limit`/`offset` — only `items` is a page. `management_stage` is raw source text with no controlled vocabulary, so near-duplicate labels can appear as distinct rows; `facets.stages` reports the values actually present so a filter can never offer an option that matches nothing.
+         */
+        get: operations["getCountsBreakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/verification/queue": {
         parameters: {
             query?: never;
@@ -3426,6 +3446,53 @@ export interface components {
         HerdRegisterSummaryResponse: {
             items: components["schemas"]["HerdRegisterSummaryCounts"][];
         };
+        CountsBreakdownRow: {
+            /** Format: uuid */
+            park_id?: string | null;
+            /** @description Park code or name. The UI labels this column "Farm" because that is the business word and the source sheet's column name — the sheet's farm values (CBE/CPT) are loaded as locations of type 'park', so this is where that data lives. goats.farm_id exists but is unpopulated in real seeded data. */
+            park_label?: string;
+            /** Format: uuid */
+            shed_id?: string | null;
+            /** @description Shed name or code; empty when the goat has no shed assigned. */
+            shed_label?: string;
+            /** @description Raw goats.management_stage. Free text with no CHECK constraint — near-duplicate source labels are reported verbatim, not normalized. */
+            management_stage: string;
+            breed: string;
+            sex: string;
+            count: number;
+        };
+        CountsBreakdownSeriesPoint: {
+            key: string;
+            label: string;
+            count: number;
+        };
+        CountsBreakdownCharts: {
+            breed: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            stage: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            sex: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description Top sheds by head count; display-capped, never the source of totals. */
+            shed: components["schemas"]["CountsBreakdownSeriesPoint"][];
+        };
+        CountsBreakdownFacets: {
+            /** @description Distinct management_stage values actually present, so a filter cannot offer a dead option. */
+            stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
+        };
+        CountsBreakdownResponse: {
+            items: components["schemas"]["CountsBreakdownRow"][];
+            /** @description Distinct grain combinations across the FULL filtered set, independent of limit/offset. */
+            total_rows: number;
+            /** @description Sum of head counts across the FULL filtered set, independent of limit/offset. */
+            total_count: number;
+            /** @description Kid head count across the FULL filtered set. total_kids + total_adults always equals total_count exactly; an animal with an unknown age band counts as an adult rather than falling out of both buckets. */
+            total_kids: number;
+            /** @description Adult head count across the FULL filtered set. */
+            total_adults: number;
+            charts: components["schemas"]["CountsBreakdownCharts"];
+            facets: components["schemas"]["CountsBreakdownFacets"];
+            /** Format: date-time */
+            projected_at: string;
+        };
         /** @enum {string} */
         VerificationItemStatus: "pending" | "approved" | "rejected";
         VerificationSourceRef: {
@@ -5644,6 +5711,39 @@ export interface operations {
                     "application/json": components["schemas"]["HerdRegisterSummaryResponse"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCountsBreakdown: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                management_stage?: string;
+                breed?: string;
+                sex?: string;
+                lifecycle_status?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregated census breakdown with whole-result totals and chart series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsBreakdownResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

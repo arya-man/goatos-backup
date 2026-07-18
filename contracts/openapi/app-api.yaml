@@ -2819,6 +2819,94 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /counts/breakdown:
+    get:
+      tags:
+        - Counts
+      operationId: getCountsBreakdown
+      summary: Census head counts grouped by farm, stage, breed, gender and shed.
+      description: >-
+        Pre-aggregated animal counts over canonical live goats, grouped by
+        farm x management_stage x breed x sex x shed. `total_count` and every
+        `charts` series are rolled up over the FULL filtered result set and are
+        therefore independent of `limit`/`offset` — only `items` is a page.
+        `management_stage` is raw source text with no controlled vocabulary, so
+        near-duplicate labels can appear as distinct rows; `facets.stages`
+        reports the values actually present so a filter can never offer an
+        option that matches nothing.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            description: Filter by park location ID (top-bar scope)
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            description: Filter by shed location ID
+        - name: management_stage
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Filter by raw management stage
+        - name: breed
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Filter by breed
+        - name: sex
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Filter by sex
+        - name: lifecycle_status
+          in: query
+          required: false
+          schema:
+            type: string
+            default: alive
+            description: Filter by lifecycle status; defaults to alive
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+            description: Page size for items
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 5000
+            default: 0
+            description: Page offset over the aggregated grain set
+      responses:
+        "200":
+          description: Aggregated census breakdown with whole-result totals and chart series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountsBreakdownResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /verification/queue:
     get:
       tags:
@@ -9287,6 +9375,145 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/HerdRegisterSummaryCounts"
+    CountsBreakdownRow:
+      type: object
+      additionalProperties: false
+      required:
+        - management_stage
+        - breed
+        - sex
+        - count
+      properties:
+        park_id:
+          type: string
+          format: uuid
+          nullable: true
+        park_label:
+          type: string
+          description: >-
+            Park code or name. The UI labels this column "Farm" because that is the
+            business word and the source sheet's column name — the sheet's farm values
+            (CBE/CPT) are loaded as locations of type 'park', so this is where that data
+            lives. goats.farm_id exists but is unpopulated in real seeded data.
+        shed_id:
+          type: string
+          format: uuid
+          nullable: true
+        shed_label:
+          type: string
+          description: Shed name or code; empty when the goat has no shed assigned.
+        management_stage:
+          type: string
+          description: >-
+            Raw goats.management_stage. Free text with no CHECK constraint —
+            near-duplicate source labels are reported verbatim, not normalized.
+        breed:
+          type: string
+        sex:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+    CountsBreakdownSeriesPoint:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - count
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+    CountsBreakdownCharts:
+      type: object
+      additionalProperties: false
+      required:
+        - breed
+        - stage
+        - sex
+        - shed
+      properties:
+        breed:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        stage:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        sex:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        shed:
+          type: array
+          description: Top sheds by head count; display-capped, never the source of totals.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+    CountsBreakdownFacets:
+      type: object
+      additionalProperties: false
+      required:
+        - stages
+        - breeds
+      properties:
+        stages:
+          type: array
+          description: Distinct management_stage values actually present, so a filter cannot offer a dead option.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        breeds:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+    CountsBreakdownResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - total_rows
+        - total_count
+        - total_kids
+        - total_adults
+        - charts
+        - facets
+        - projected_at
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsBreakdownRow"
+        total_rows:
+          type: integer
+          minimum: 0
+          description: Distinct grain combinations across the FULL filtered set, independent of limit/offset.
+        total_count:
+          type: integer
+          minimum: 0
+          description: Sum of head counts across the FULL filtered set, independent of limit/offset.
+        total_kids:
+          type: integer
+          minimum: 0
+          description: >-
+            Kid head count across the FULL filtered set. total_kids + total_adults always equals
+            total_count exactly; an animal with an unknown age band counts as an adult rather
+            than falling out of both buckets.
+        total_adults:
+          type: integer
+          minimum: 0
+          description: Adult head count across the FULL filtered set.
+        charts:
+          $ref: "#/components/schemas/CountsBreakdownCharts"
+        facets:
+          $ref: "#/components/schemas/CountsBreakdownFacets"
+        projected_at:
+          type: string
+          format: date-time
     VerificationItemStatus:
       type: string
       enum:

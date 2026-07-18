@@ -31,6 +31,29 @@ function shedUsable(l: LocationSummary): boolean {
   return l.operational.usable_for_vaccination && !l.operational.is_holding;
 }
 
+/**
+ * Census location options — every ACTIVE farm and shed, with no vaccination-usability filter.
+ *
+ * This deliberately does NOT reuse getHerdRegisterLocations(): that helper drops sheds where
+ * `!usable_for_vaccination || is_holding`, which is right for the Register-animal drawer (you
+ * cannot anchor a vaccination trigger in a holding shed) and wrong for a census, where a
+ * holding shed still physically contains animals. Filtering here would silently undercount.
+ */
+export async function getCensusLocations(): Promise<HerdRegisterLocations> {
+  const [parks, sheds, farms] = await Promise.all([
+    listLocations({ type: "park", status: "active" }),
+    listLocations({ type: "shed", status: "active" }),
+    listLocations({ type: "farm", status: "active" }),
+  ]);
+
+  return {
+    parks: parks.ok ? parks.data.items.map(toOption) : [],
+    sheds: sheds.ok ? sheds.data.items.map(toOption) : [],
+    farms: farms.ok ? farms.data.items.map(toOption) : [],
+    available: parks.ok && sheds.ok && farms.ok,
+  };
+}
+
 export async function getHerdRegisterLocations(): Promise<HerdRegisterLocations> {
   const [parks, sheds, farms] = await Promise.all([
     listLocations({ type: "park", status: "active" }),

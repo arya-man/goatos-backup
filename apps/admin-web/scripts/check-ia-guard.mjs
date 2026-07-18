@@ -118,8 +118,14 @@ walk(APP_ROOT, pageFiles, (file) => file.endsWith("page.tsx"));
 const findings = [];
 
 // Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
-// create new unsupported route trees. Herd Register is the only real Counts page in this slice; broad labels
-// must route into Herd Register or top-level command lenses.
+// create new unsupported route trees. Counts has two real pages in this slice — Herd Register (the per-goat
+// register) and Counts Breakdown (the farm x stage x breed x gender x shed census). Every other broad Counts
+// label from the mock must still route into one of those or a top-level command lens.
+//
+// SUPPORTED_COUNTS_HREFS is an allowlist on purpose: widening it is a deliberate scope decision recorded in
+// context/frontend/current-admin-web-scope.md, not a routine edit. Tagging & identity, Weights & ADG, and
+// Count reconciliation remain out of scope and must not be added here without that doc changing too.
+const SUPPORTED_COUNTS_HREFS = new Set(["/counts/herd", "/counts/breakdown", "/action-center"]);
 const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
 const legacyShellFile = "components/mesha-shell.tsx";
 const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;
@@ -134,7 +140,7 @@ if (existsSync(visibleIaFile)) {
   } else {
     const labels = countsLeaves.map((leaf) => leaf.label);
     const hrefs = countsLeaves.map((leaf) => leaf.href);
-    const unsupportedCountsHrefs = hrefs.filter((href) => href !== "/counts/herd" && href !== "/action-center");
+    const unsupportedCountsHrefs = hrefs.filter((href) => !SUPPORTED_COUNTS_HREFS.has(href));
     if (!labels.includes("Herd register") && !labels.includes("Herd Register")) {
       findings.push(
         `${visibleIaFile} must include the real Counts -> Herd Register leaf. ` +
@@ -144,7 +150,7 @@ if (existsSync(visibleIaFile)) {
     if (unsupportedCountsHrefs.length > 0) {
       findings.push(
         `${visibleIaFile} routes Counts mock labels to unsupported paths [${unsupportedCountsHrefs.join(", ")}]. ` +
-          "Counts mock labels may appear, but this slice may only route them to /counts/herd or top-level Action Center.",
+          `Counts mock labels may appear, but this slice may only route them to [${[...SUPPORTED_COUNTS_HREFS].join(", ")}].`,
       );
     }
 

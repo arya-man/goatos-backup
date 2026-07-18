@@ -500,6 +500,40 @@
   .main table.herd-register-table th:nth-child(4),.main table.herd-register-table td:nth-child(4),.main table.herd-register-table th:nth-child(5),.main table.herd-register-table td:nth-child(5),.main table.herd-register-table th:nth-child(6),.main table.herd-register-table td:nth-child(6){min-width:88px}
   .main table.herd-register-table th:nth-child(7),.main table.herd-register-table td:nth-child(7),.main table.herd-register-table th:nth-child(8),.main table.herd-register-table td:nth-child(8){min-width:84px}
   .main table.herd-register-table th:nth-child(9),.main table.herd-register-table td:nth-child(9),.main table.herd-register-table th:nth-child(10),.main table.herd-register-table td:nth-child(10),.main table.herd-register-table th:nth-child(11),.main table.herd-register-table td:nth-child(11){min-width:116px}
+  /* Counts Breakdown census table (6 cols: Farm · Stage · Breed · Gender · Shed · Count).
+     Keep every cell single-line: shed names ("Godel 1 - Part 3") and raw source stage labels
+     ("ICU-Kid", "Kid Stage 2") otherwise wrap mid-value once a column narrows. The table owns
+     horizontal scrolling, so nowrap never clips content. */
+  .main table.counts-breakdown-table{min-width:820px}
+  .main table.counts-breakdown-table th,.main table.counts-breakdown-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.counts-breakdown-table th:nth-child(1),.main table.counts-breakdown-table td:nth-child(1),.main table.counts-breakdown-table th:nth-child(5),.main table.counts-breakdown-table td:nth-child(5){min-width:150px}
+  .main table.counts-breakdown-table th:nth-child(2),.main table.counts-breakdown-table td:nth-child(2),.main table.counts-breakdown-table th:nth-child(3),.main table.counts-breakdown-table td:nth-child(3){min-width:130px}
+  .main table.counts-breakdown-table th:nth-child(4),.main table.counts-breakdown-table td:nth-child(4){min-width:90px}
+  .main table.counts-breakdown-table th:nth-child(6),.main table.counts-breakdown-table td:nth-child(6){min-width:80px}
+  /* Total row reads as a summary band, not another data row. */
+  .main table.counts-breakdown-table tfoot th{border-top:1px solid var(--line);background:var(--panel-2);font-weight:700}
+  /* Headline KPIs sit inside the table card, between the filter bar and the header row, so they
+     read as totals FOR the current filter rather than as a separate page-level summary. */
+  .main .counts-breakdown-kpis{padding:0 14px 14px;gap:14px}
+  .main .counts-breakdown-kpis .kpi .lab{color:var(--brand-d);text-transform:uppercase;letter-spacing:.4px;font-size:11px;font-weight:800}
+  .main .counts-breakdown-kpis .kpi .val{font-size:30px}
+  .main .counts-breakdown-kpis .kpi .kpiic{position:absolute;top:14px;right:14px;width:34px;height:34px;padding:8px;border-radius:9px;background:var(--panel-2);color:var(--brand);box-sizing:content-box}
+  /* Full-width distribution charts, one per row — not the mock's 340px masonry columns. */
+  .main .counts-breakdown-charts{display:flex;flex-direction:column;gap:14px}
+  .main .counts-breakdown-charts .chartcard{width:100%}
+  /* SvgBars ships the same chart at two viewBox scales because an SVG scales its viewBox
+     uniformly: one fixed box cannot stay readable at both widths (a 1100-wide box in a 330px
+     card renders 20px rows at ~6px). Show whichever scale matches the container. */
+  .main .svgbars-wide{display:block}
+  .main .svgbars-narrow{display:none}
+  @media(max-width:1080px){
+    .main .svgbars-wide{display:none}
+    .main .svgbars-narrow{display:block}
+  }
+  @media(max-width:600px){
+    .main .counts-breakdown-kpis .kpi .kpiic{display:none}
+    .main .counts-breakdown-kpis .kpi .val{font-size:24px}
+  }
   /* Shed-wise vaccination table (10 cols): widen Manager/Backup (cols 8,9) for names; scrolls on narrow. */
   .main table.shed-summary-table{min-width:1080px}
   .main table.shed-summary-table th:nth-child(1),.main table.shed-summary-table td:nth-child(1){min-width:132px}

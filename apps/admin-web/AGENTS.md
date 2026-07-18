@@ -188,9 +188,24 @@ Admin-web is built around the vaccination process-integrity slice:
   states, bulk preview row errors, limited backend-backed count cards,
   entity-history links, audit filters, and generated-client plumbing. It does
   not authorize unrelated Counts modules, old Operations, old `/herd`, or old
-  import/review surfaces. The Counts sidebar shows only `Herd Register` in this
-  slice; do not show disabled `Tagging & identity`, `Weights & ADG`, `Counts
-  overall`, or `Count reconciliation` leaves for mock fidelity.
+  import/review surfaces. The Counts sidebar shows exactly two leaves in this
+  slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
+  (`/counts/breakdown`); do not show disabled `Tagging & identity`, `Weights &
+  ADG`, or `Count reconciliation` leaves for mock fidelity.
+- **Counts Breakdown** (`/counts/breakdown`) is the census surface, reopened by
+  explicit maintainer decision (2026-07-18). Live head counts grouped by
+  farm x stage x breed x gender x shed, plus the mock's `.charts` /
+  `.chartcard` distribution row. Three rules that are easy to break:
+  (a) charts are the mock's inline-SVG `svgHBars` anatomy ported to
+  `components/svg-bars.tsx` — a SERVER component with `var(--*)` series colours.
+  recharts is in `package.json` with zero importers; do not make this its first
+  use. (b) The table shows a real total and numbered pages. That is NOT a
+  violation of failure mode 6c's cursor rule — 6c bans `COUNT(*)` over PER-GOAT
+  rows; these are pre-aggregated grain combinations and the totals are SQL
+  window functions over the full grouped set. (c) Stage is raw
+  `goats.management_stage`. Near-duplicate source labels (`ICU-Kid` vs
+  `ICU-Kids`) render as separate rows on purpose — do not "fix" this in the UI;
+  `count_dimension_aliases` is the source-side remedy.
 - **Audit meaning split**: backend/platform `audit_log` is internal debug,
   replay, idempotency, proof, and investigation infrastructure. It can carry raw
   action names, UUIDs, metadata, trace IDs, and domain/module/category fields and
@@ -515,6 +530,7 @@ Only these routes are current implemented product routes:
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd                 Herd Register for vaccination trigger closure
+/counts/breakdown            Counts Breakdown census (farm x stage x breed x gender x shed)
 /operations/audit            Admin / Data Ops Audit Log (business surface)
 /config
 /sops

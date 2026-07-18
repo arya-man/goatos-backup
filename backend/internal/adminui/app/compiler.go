@@ -1071,7 +1071,7 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CalendarRead, permissions.VaccinationRead, permissions.ObligationRead}
 	case "procurement-source-entry":
 		return []string{permissions.ProcurementRead}
-	case "counts-herd":
+	case "counts-herd", "counts-breakdown":
 		return []string{permissions.GoatRead}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}

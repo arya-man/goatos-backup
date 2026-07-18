@@ -413,3 +413,73 @@ type HerdRegisterSummaryQuery struct {
 	Breed           *string
 	Sex             *string
 }
+
+// CountsBreakdownRow is one census grain: farm x stage x breed x sex x shed.
+//
+// ManagementStage is raw goats.management_stage. That column has no CHECK constraint and is
+// written verbatim from the source sheet, so near-duplicate labels ("ICU-Kid" vs "ICU-Kids")
+// are reported as distinct rows on purpose — collapsing them here would hide a real data
+// quality problem that count_dimension_aliases exists to fix at the source.
+type CountsBreakdownRow struct {
+	ParkID          *string `json:"park_id"`
+	ParkLabel       string  `json:"park_label"`
+	ShedID          *string `json:"shed_id"`
+	ShedLabel       string  `json:"shed_label"`
+	ManagementStage string  `json:"management_stage"`
+	Breed           string  `json:"breed"`
+	Sex             string  `json:"sex"`
+	Count           int64   `json:"count"`
+}
+
+// CountsBreakdownSeriesPoint is one chart bar or one filter facet value.
+type CountsBreakdownSeriesPoint struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
+// CountsBreakdownCharts holds the four distribution series. Each is rolled up over the FULL
+// filtered grain set, never over the returned page.
+type CountsBreakdownCharts struct {
+	Breed []CountsBreakdownSeriesPoint `json:"breed"`
+	Stage []CountsBreakdownSeriesPoint `json:"stage"`
+	Sex   []CountsBreakdownSeriesPoint `json:"sex"`
+	Shed  []CountsBreakdownSeriesPoint `json:"shed"`
+}
+
+// CountsBreakdownFacets reports the values actually present in the unfiltered tenant herd so a
+// filter dropdown can never offer an option that matches zero rows. This matters for stage:
+// animal_stage_lookup is joined to goats through shed_profiles, NOT through
+// goats.management_stage, so the stage lookup and the stage column can legitimately disagree.
+type CountsBreakdownFacets struct {
+	Stages []CountsBreakdownSeriesPoint `json:"stages"`
+	Breeds []CountsBreakdownSeriesPoint `json:"breeds"`
+}
+
+// CountsBreakdown is the whole census breakdown payload: one page of grain rows plus
+// page-independent totals, chart series, and filter facets.
+type CountsBreakdown struct {
+	Items      []CountsBreakdownRow `json:"items"`
+	TotalRows  int64                `json:"total_rows"`
+	TotalCount int64                `json:"total_count"`
+	// TotalKids and TotalAdults always partition TotalCount exactly — an animal with an unknown
+	// age band counts as an adult rather than falling out of both buckets.
+	TotalKids   int64                 `json:"total_kids"`
+	TotalAdults int64                 `json:"total_adults"`
+	Charts      CountsBreakdownCharts `json:"charts"`
+	Facets      CountsBreakdownFacets `json:"facets"`
+	ProjectedAt time.Time             `json:"projected_at"`
+}
+
+// CountsBreakdownQuery filters and pages the census breakdown.
+type CountsBreakdownQuery struct {
+	TenantID        string
+	LifecycleStatus *string
+	ParkID          *string
+	ShedID          *string
+	ManagementStage *string
+	Breed           *string
+	Sex             *string
+	Limit           int32
+	Offset          int32
+}

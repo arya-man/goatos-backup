@@ -24,6 +24,10 @@ type fakeRepo struct {
 	scanReq    domain.CountMismatchScanRequest
 	query      domain.ProjectionExceptionQuery
 	resolution domain.ProjectionExceptionResolutionRequest
+
+	breakdown      domain.CountsBreakdown
+	breakdownQuery domain.CountsBreakdownQuery
+	breakdownErr   error
 }
 
 func (f *fakeRepo) RecordBaseCountAnchor(_ context.Context, in domain.BaseCountAnchor) (string, bool, error) {
@@ -99,6 +103,11 @@ func (f *fakeRepo) Readiness(context.Context, string) (domain.Readiness, error) 
 
 func (f *fakeRepo) GetHerdRegisterSummary(context.Context, domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error) {
 	return domain.HerdRegisterSummary{}, nil
+}
+
+func (f *fakeRepo) GetCountsBreakdown(_ context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
+	f.breakdownQuery = req
+	return f.breakdown, f.breakdownErr
 }
 
 func TestRecordBaseCountAnchorDefaultsPhysicalSource(t *testing.T) {

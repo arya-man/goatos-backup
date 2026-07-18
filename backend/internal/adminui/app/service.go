@@ -98,7 +98,10 @@ func navigation() domain.NavigationContract {
 			},
 			{
 				ID: "counts", Label: "Counts", Icon: "bar-chart-3", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{navLeaf("counts-herd", "Herd Register", "/counts/herd", nil)},
+				Leaves: []domain.NavigationItem{
+					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
+					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
+				},
 			},
 			{
 				ID: "admin-data", Label: "Admin / Data Ops", Icon: "edit-3", DefaultOpen: true,
@@ -128,6 +131,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
+		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
 		{Pattern: "/operations/audit", Label: "Audit Log", Match: "exact"},
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
 		{Pattern: "/config", Label: "Config — Protocol Rules", Match: "exact"},
@@ -245,6 +249,8 @@ func pages() []domain.PageContract {
 			}),
 		page("herd-register", "/counts/herd", "/counts/herd", "Herd Register", "Counts entry point for goat registration/import and vaccination trigger proof.", "module-surface",
 			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"display_id", "tag_1", "tag_2", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
+		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and shed, with distribution charts.", "module-surface",
+			[]domain.TableContract{tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50})}),
 		page("audit-log", "/operations/audit", "/operations/audit", "Audit Log", "Business audit trail for built admin/operator/system actions.", "authority-screen",
 			[]domain.TableContract{table("activity-trail", "Activity trail", "/operations/audit", []string{"when", "operation", "operator", "action", "target", "result", "proof"}, "audit_row")}),
 		page("dlq-center", "/operations/dlq", "/operations/dlq", "DLQ Center", "System repair queue for backend events that failed after retries. Empty is healthy; this is not a vaccination worklist.", "authority-screen",
@@ -1476,6 +1482,55 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.hf_evidence.evidence":        "Evidence",
 			"table.hf_evidence.review":          "Review",
 		}
+	case "counts-breakdown":
+		return map[string]string{
+			"crumb":                       "Counts",
+			"section.breakdown.title":     "Detail Breakdown",
+			"section.breakdown.aria":      "Counts breakdown",
+			"section.breakdown.caption":   "Farm × stage × breed × gender × shed for every matching combination",
+			"section.breakdown.note":      "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
+			"section.charts.title":        "Distribution",
+			"section.charts.aria":         "Count distribution charts",
+			"kpi.matching.label":          "Matching count",
+			"kpi.matching.sub":            "Live animals matching the current filters",
+			"kpi.matching.unavailable":    "Count unavailable",
+			"kpi.age.label":               "Kids · Adults",
+			"kpi.age.aria":                "Kid and adult split",
+			"label.kids":                  "kids",
+			"label.adults":                "adults",
+			"table.breakdown.aria":        "Detail breakdown rows",
+			"table.breakdown.total_row":   "Total (rows)",
+			"table.breakdown.noun":        "row",
+			"filter.bar_aria":             "Filter breakdown rows",
+			"filter.farm_label":           "Farm",
+			"filter.stage_label":          "Stage",
+			"filter.breed_label":          "Breed",
+			"filter.shed_label":           "Shed",
+			"filter.gender_label":         "Gender",
+			"filter.all_option":           "All",
+			"filter.clear_all":            "Clear all",
+			"filter.scope_readonly":       "Park scope is set in the top bar.",
+			"chart.breed.title":           "Count by breed",
+			"chart.breed.caption":         "animals by breed",
+			"chart.stage.title":           "Count by stage",
+			"chart.stage.caption":         "where they are",
+			"chart.gender.title":          "Gender split",
+			"chart.gender.caption":        "animals by sex",
+			"chart.shed.title":            "Shed occupancy",
+			"chart.shed.caption":          "top sheds by head count",
+			"chart.legend_aria":           "Chart series legend",
+			"chart.empty":                 "No animals match these filters.",
+			"chart.value_aria":            "animals",
+			"label.animals_noun":          "animals",
+			"label.unassigned_farm":       "No farm",
+			"label.unassigned_shed":       "No shed",
+			"label.unassigned_stage":      "No stage",
+			"label.unassigned_breed":      "No breed",
+			"empty.breakdown":             "No animals registered in this scope yet.",
+			"empty.breakdown_filtered":    "No animals match these filters.",
+			"state.breakdown_unavailable": "Breakdown unavailable",
+			"state.stage_unrecorded":      "No stage is recorded against any animal in this scope, so every row groups under a single blank stage. This is a source-data gap, not a display error — stage is imported from the source sheet and has not been populated for this herd.",
+		}
 	case "herd-register":
 		return map[string]string{
 			"crumb":                                    "Counts",
@@ -2563,6 +2618,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(procurementOptionGroups())
 	case "herd-register":
 		return withGenericOptionGroups(herdRegisterOptionGroups())
+	case "counts-breakdown":
+		return withGenericOptionGroups(countsBreakdownOptionGroups())
 	case "calendar":
 		return withGenericOptionGroups(calendarOptionGroups())
 	case "audit-log":
@@ -3199,6 +3256,28 @@ func genericOptionGroups() []domain.OptionGroup {
 
 func withGenericOptionGroups(groups []domain.OptionGroup) []domain.OptionGroup {
 	return append(genericOptionGroups(), groups...)
+}
+
+// countsBreakdownOptionGroups holds only the option group whose vocabulary is a fixed schema
+// constraint: sex is CHECK (female|male) on goats, so it can be declared here.
+//
+// Farm, shed, breed and stage are deliberately NOT declared here. Their values are live tenant
+// data, so hardcoding them would be exactly the "CBE/CPT-style constants in backend contract
+// code" the frontend rule bans. Farm and shed come from /locations; breed and stage come from
+// the breakdown response's own `facets`, which reports the values actually present — so a
+// dropdown can never offer an option that matches zero rows. That matters most for stage:
+// animal_stage_lookup is joined to goats through shed_profiles, not through
+// goats.management_stage, so the lookup and the column can legitimately disagree.
+func countsBreakdownOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "counts_gender",
+			Options: []domain.Option{
+				option("female", "Female", "", ""),
+				option("male", "Male", "", ""),
+			},
+		},
+	}
 }
 
 func herdRegisterOptionGroups() []domain.OptionGroup {

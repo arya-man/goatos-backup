@@ -15,6 +15,9 @@ export type AdminWebBootstrapResponse = AppApiComponents["schemas"]["AdminWebBoo
 export type AdminWebPageContract = AppApiComponents["schemas"]["AdminWebPageContract"];
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
+export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
+export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
+export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
 export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"];
@@ -405,6 +408,38 @@ export async function getHerdRegisterSummary(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<HerdRegisterSummaryResponse>("/herd-register/summary", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export type CountsBreakdownParams = {
+  farm_id?: string;
+  park_id?: string;
+  shed_id?: string;
+  management_stage?: string;
+  breed?: string;
+  sex?: string;
+  lifecycle_status?: string;
+  limit?: number;
+  offset?: number;
+};
+
+/**
+ * Counts Breakdown census. One call returns the page of grain rows, the whole-result totals,
+ * the four chart series, and the filter facets — so the page never fans out one fetch per
+ * chart. `total_count` and every chart series are rolled up server-side over the FULL filtered
+ * set, so they must be read from the response, never recomputed from the returned page.
+ */
+export async function getCountsBreakdown(
+  params: CountsBreakdownParams,
+): Promise<ApiResult<CountsBreakdownResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CountsBreakdownResponse>("/counts/breakdown", {
       cache: "no-store",
       query: compactQuery(params),
     }),

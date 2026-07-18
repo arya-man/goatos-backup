@@ -363,9 +363,22 @@ UX. Exact backend filters may live in URL params and active chips for entity
 history links. These dependencies must use current GoatOS contracts, canonical
 Postgres truth, generated clients, and the mock. They must not revive old
 dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
-import-review, or old Operations. The Counts sidebar shows only `Herd Register`
-in this slice; do not show disabled `Tagging & identity`, `Weights & ADG`,
-`Counts overall`, or `Count reconciliation` leaves for mock fidelity.
+import-review, or old Operations. The Counts sidebar shows exactly two leaves in
+this slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
+(`/counts/breakdown`). Do not show disabled `Tagging & identity`, `Weights &
+ADG`, or `Count reconciliation` leaves for mock fidelity.
+
+`Counts Breakdown` was reopened by explicit maintainer decision (2026-07-18),
+superseding the earlier rule that Herd Register was the only Counts page. It is
+the census surface: live head counts grouped by farm x stage x breed x gender x
+shed, with the mock's `.charts` / `.chartcard` distribution row underneath
+(mock `data-screen="counts"`, `data-sub="overall"`). It reads
+`GET /counts/breakdown`, a canonical indexed SQL aggregate over `goats` under
+the 5k-50k envelope — not a projection table. Its stage dimension is raw
+`goats.management_stage`, shown verbatim rather than normalized, so source data
+quality stays visible. The allowlist that enforces this lives in
+`apps/admin-web/scripts/check-ia-guard.mjs` (`SUPPORTED_COUNTS_HREFS`); widening
+it again is a scope decision that must be recorded here first.
 
 It does not approve unrelated Counts modules, old Operations, global Goat
 Passport search, all-domain Calendar, Insights, HR, generic Parks, generic

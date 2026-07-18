@@ -43,8 +43,8 @@ let baselineUpdated = 0;
 const KNOWN_ROUTE_NAMES = [
   "login", "control-tower", "action-center", "calendar", "protocol-adherence", "workflows",
   "vaccination", "vaccination-execution", "procurement-source-entry", "config", "sops",
-  "sops-builder", "counts-herd", "operations-audit", "operations-dlq", "goat-passport",
-  "procurement-load-detail",
+  "sops-builder", "counts-herd", "counts-breakdown", "operations-audit", "operations-dlq",
+  "goat-passport", "procurement-load-detail",
 ];
 const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
 const onlyRoutes = (onlyRoutesRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -87,6 +87,7 @@ const routes = [
   { name: "sops", path: "/sops?scope_mode=company" },
   { name: "sops-builder", path: "/sops?compose=1&scope_mode=company" },
   { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
+  { name: "counts-breakdown", path: "/counts/breakdown?scope_mode=company" },
   { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
   { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
