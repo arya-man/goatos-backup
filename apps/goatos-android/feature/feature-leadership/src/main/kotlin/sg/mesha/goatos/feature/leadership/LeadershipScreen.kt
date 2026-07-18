@@ -1,5 +1,8 @@
 package sg.mesha.goatos.feature.leadership
 
+// telemetry:exempt pure stateless renderer; LeadershipViewModel owns refresh/closure side effects
+// and AppNavHost owns navigation intents.
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
