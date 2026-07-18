@@ -771,16 +771,6 @@ func (s *GenerationService) GenerateForVersionWithRun(ctx context.Context, tenan
 	return s.generateForVersionWithRun(ctx, tenantID, versionID, asOf, triggerType, triggerRef, generationOptions{})
 }
 
-// GenerateManualCampaignForVersionWithRun wraps manual campaign generation in a durable run row.
-func (s *GenerationService) GenerateManualCampaignForVersionWithRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerationRun, domain.GenerateResult, error) {
-	if manualCampaignAsOfInFuture(asOf) {
-		return domain.GenerationRun{}, domain.GenerateResult{}, domain.ErrFutureManualCampaign
-	}
-	return s.generateForVersionWithRun(ctx, tenantID, versionID, asOf, "manual_campaign", manualCampaignTriggerRef(campaignID, asOf), generationOptions{
-		ManualCampaignID: campaignID,
-	})
-}
-
 // GenerateManualCampaignForVersionWithHTTPRun wraps manual campaign generation using the caller's
 // HTTP Idempotency-Key as the durable command key. Exact retries return the same run/result without
 // deriving a fresh as_of timestamp or materializing duplicate manual obligations.
