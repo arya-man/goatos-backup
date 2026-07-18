@@ -16,7 +16,7 @@
     <string name="submit_sync_conflict">ಸರ್ವರ್ ಸಲ್ಲಿಕೆಯನ್ನು ನಿರಾಕರಿಸಿದೆ।</string>
     <string name="submit_sync_dead_letter">%1$d ಪ್ರಯತ್ನಗಳ ನಂತರ ಸಿಂಕ್ ವಿಫಲ ಆಯಿತು — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
     <string name="submit_sync_no_task">ನಿಮಗೆ ಸಲ್ಲಿಸಲು ಯಾವುದೇ ಕಾರ್ಯ ನಿಯೋಜಿತವಾಗಿಲ್ಲ।</string>
-    <string name="submit_sync_role_blocked">ಸೆರೆಹಿಡಿಯುವಿಕೆ ಮತ್ತು ಸಲ್ಲಿಕೆ ಕ್ಷೇತ್ರ ಆಪರೇಟರ್ ಮತ್ತು ಪಾರ್ಕ್ ಮ್ಯಾನೇಜರ್‌ಗಳಿಗೆ ಮಾತ್ರ ಸೀಮಿತ.</string>
+    <string name="submit_sync_role_blocked">ಸೆರೆಹಿಡಿಯುವಿಕೆ ಮತ್ತು ಸಲ್ಲಿಕೆ ನೆಲಮಟ್ಟದ ಆಪರೇಟರ್‌ಗಳಿಗೆ ಮಾತ್ರ ಸೀಮಿತವಾಗಿದೆ.</string>
     <string name="submit_sync_load_failed">ನಿಮ್ಮ ಕಾರ್ಯವನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ। ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
     <string name="submit_sync_queue_failed">ಸಲ್ಲಿಕೆಯನ್ನು ಸಾಲಿನಲ್ಲಿ ಸಾಧ್ಯವಿಲ್ಲ — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>
     <string name="submit_sync_retry_failed">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ — ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ।</string>

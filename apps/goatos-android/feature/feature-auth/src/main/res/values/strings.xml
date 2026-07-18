@@ -33,15 +33,13 @@
     <string name="login_error_no_dev_backend">This build has no backend session configured. Install a dev build with goatosDevBearerToken set, or a Firebase-verified build, to sign in.</string>
     <string name="login_error_generic">Sign-in failed. Try again.</string>
 
-    <!-- Login-time device-permission gate (docs/mobile/rfid-keyboard-reader.md +
-         trd-operator-mobile.md §7). Every permission here is optional: denying one
-         degrades a capability, it never blocks sign-in. -->
+    <!-- Optional device-readiness copy retained for operator onboarding surfaces. -->
     <string name="perm_gate_title">Device permissions</string>
-    <string name="perm_gate_subtitle">Grant these once so scanning, alerts, and proof photos work in the field.</string>
-    <string name="perm_gate_footer">You can still sign in without these — the app will tell you what\'s off until they\'re granted.</string>
+    <string name="perm_gate_subtitle">Grant these once so scanning, alerts, and camera proof work in the field.</string>
+    <string name="perm_gate_footer">You can still sign in without these. Operator capture will ask when access is needed.</string>
     <string name="perm_gate_grant_access">Grant access</string>
     <string name="perm_label_camera">Camera</string>
-    <string name="perm_rationale_camera">Captures shed record proof photos and video.</string>
+    <string name="perm_rationale_camera">Records camera-only proof clips for each scanned goat.</string>
     <string name="perm_label_bluetooth">Nearby devices</string>
     <string name="perm_rationale_bluetooth">Reads the paired RFID reader\'s connection status.</string>
     <string name="perm_label_notifications">Notifications</string>

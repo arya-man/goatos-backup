@@ -54,6 +54,7 @@ const (
 	// Verifier role and, per the org-role-model truth table, as a CEO/CxO override — never to
 	// Operator/Manager (capture) or Head/Director (act). Separation of duty: capturer != verifier.
 	VerificationReview = "verification.review"
+	VerificationAct    = "verification.act"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -63,12 +64,13 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
-		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		VerificationReview: {},
+		VerificationAct:    {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
@@ -88,21 +90,23 @@ var rolePermissions = map[string]map[string]struct{}{
 		GoatRead:      {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
-		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
+		VerificationAct: {},
 	},
 	RolePCDirector: {
 		GoatRead: {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
-		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
+		VerificationAct: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -113,12 +117,13 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
-		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		VerificationReview: {},
+		VerificationAct:    {},
 	},
 }
 

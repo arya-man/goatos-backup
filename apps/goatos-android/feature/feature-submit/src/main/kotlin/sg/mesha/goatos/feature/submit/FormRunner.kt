@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /** Render kind for one SOP form field (maps from core-data `FormFieldType` in the :app layer). */
 enum class FieldKindUi { BOOLEAN, NUMBER, TEXT, GOAT_SCAN, PICKER, VIDEO_PROOF, UNKNOWN }
@@ -409,7 +410,7 @@ private fun ProofItemRow(
                     onValueChange = { onCaption(fieldKey, item.id, it) },
                     singleLine = true,
                     placeholder = { Text("Describe this video", fontSize = 12.sp) },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.5.sp),
+                    textStyle = MeshaType.cardSubtitle.copy(fontSize = 12.5.sp),
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MeshaColors.Ink,

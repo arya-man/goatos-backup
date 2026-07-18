@@ -4,8 +4,8 @@
 # This script cd's to the repo root itself, so it can be invoked from anywhere:
 #   backend/tests/e2e/run.sh
 #
-# Equivalent manual command (run from the repo root):
-#   go test ./backend/tests/e2e/... -run TestKernelStor -v
+# Equivalent manual command (run from the backend Go module):
+#   go test ./tests/e2e/... -run TestKernelStor -v
 #
 # Requires Docker: each story boots its own throwaway Postgres container via
 # backend/internal/platform/pgtest.StartPostgres (all committed goose migrations applied). If
@@ -17,9 +17,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT/backend"
 
-go test ./backend/tests/e2e/... -run TestKernelStor -v
+go test ./tests/e2e/... -run TestKernelStor -v
 
 REPORT="$REPO_ROOT/backend/tests/e2e/report/index.html"
 if [ -f "$REPORT" ]; then

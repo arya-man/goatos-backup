@@ -124,6 +124,63 @@ func TestEvaluateRequiresExpectedProofSubjects(t *testing.T) {
 	}
 }
 
+func TestEvaluateRequiresCompletedCameraProofForEveryScannedGoat(t *testing.T) {
+	goatA := "66000000-0000-4000-8000-000000000001"
+	goatB := "66000000-0000-4000-8000-000000000002"
+	dsl := vaccinationDSL()
+	dsl["fields"] = dsl["fields"].([]any)[:5]
+	dsl["goat_row_proof"] = map[string]any{
+		"subject_scope": "goat", "capture_source": "in_app_camera",
+		"minimum_clips": float64(1), "maximum_clips": float64(5),
+	}
+	policy := map[string]any{
+		"required": true, "subject_scope": "goat", "types": []any{"video"},
+		"minimum_count": float64(1), "minimum_count_per_subject": float64(1),
+		"maximum_count_per_subject": float64(5), "expected_subjects": []any{"goat"},
+		"verify_before_apply": true,
+	}
+	answers := map[string]any{
+		"vaccine_lot_id": "67000000-0000-4000-8000-000000000001", "cold_chain_verified": true,
+		"goat_ids": []any{goatA, goatB}, "dose_ml_given": float64(1),
+		"administered_at": "2026-07-19T08:00:00Z",
+	}
+	refs := []domain.ProofReference{{
+		ProofID: "proof-a", ProofType: "video", SubjectType: "goat", SubjectID: &goatA, UploadState: "completed",
+	}}
+	if result := Evaluate(dsl, policy, answers, refs); result.Valid {
+		t.Fatalf("one goat proof satisfied a two-goat submission: %#v", result)
+	}
+	refs = append(refs, domain.ProofReference{
+		ProofID: "proof-b", ProofType: "video", SubjectType: "goat", SubjectID: &goatB, UploadState: "completed",
+	})
+	result := Evaluate(dsl, policy, answers, refs)
+	if !result.Valid || result.FinalState != "needs_review" {
+		t.Fatalf("per-goat proof should reach review: %#v", result)
+	}
+
+	unrelated := "66000000-0000-4000-8000-000000000099"
+	refs[1].SubjectID = &unrelated
+	if result := Evaluate(dsl, policy, answers, refs); result.Valid {
+		t.Fatalf("unrelated goat proof satisfied selected goat: %#v", result)
+	}
+}
+
+func TestValidateGoatRowProofPolicyWithoutStandaloneProofField(t *testing.T) {
+	dsl := vaccinationDSL()
+	dsl["fields"] = dsl["fields"].([]any)[:5]
+	dsl["goat_row_proof"] = map[string]any{
+		"subject_scope": "goat", "capture_source": "in_app_camera",
+	}
+	policy := map[string]any{
+		"required": true, "subject_scope": "goat", "types": []any{"video"},
+		"minimum_count": float64(1), "minimum_count_per_subject": float64(1),
+		"maximum_count_per_subject": float64(5),
+	}
+	if report := ValidateFormDSL(dsl, policy); !report.Valid {
+		t.Fatalf("goat-row camera proof contract should validate: %#v", report.Errors)
+	}
+}
+
 func TestValidateProofPolicyRetentionPolicy(t *testing.T) {
 	dsl := vaccinationDSL()
 	validPolicy := canonicalProofPolicy(true, "video")

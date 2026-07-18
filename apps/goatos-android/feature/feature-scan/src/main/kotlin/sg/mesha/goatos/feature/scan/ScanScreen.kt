@@ -35,9 +35,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.LoadingSkeletonList
 
 // telemetry:exempt pure stateless renderer; AnalyticsPort/funnel wiring lives in ScanViewModel.
 
@@ -84,6 +86,9 @@ import sg.mesha.goatos.core.ui.SyncStatusIndicator
  */
 enum class ScanStatus { DONE, PENDING, SKIPPED }
 
+/** Per-animal Room/outbox state for camera evidence. */
+enum class ProofUploadStatus { MISSING, UPLOADING, SYNCED, FAILED }
+
 /** Tone for the live scan feed. A duplicate can be a DONE row without being success-colored. */
 enum class ScanFeedTone { ACCEPTED, DUPLICATE, REJECTED }
 
@@ -105,6 +110,8 @@ data class RosterRow(
     val unsynced: Boolean = false, // local, not-yet-synced draft scan overlay
     val goatId: String = "",
     val obligationId: String = "",
+    val proofClipCount: Int = 0,
+    val proofUploadStatus: ProofUploadStatus = ProofUploadStatus.MISSING,
 )
 
 /** One entry in the live "last taps" feed (given or skipped only). */
@@ -196,6 +203,8 @@ sealed interface ScanEvent {
     data object ReconnectReader : ScanEvent                // quick path back to RFID reconnect
     data class SelectGroup(val groupId: String) : ScanEvent
     data class OpenTile(val status: ScanStatus) : ScanEvent
+    data class CaptureProof(val goatId: String) : ScanEvent
+    data class RetryProof(val goatId: String) : ScanEvent
 }
 
 // --- mock-ported tokens (dark = default field theme; values from design-system.md) --
@@ -203,7 +212,7 @@ private object ScanTokens {
     val brand = MeshaColors.Brand
     val brandD = MeshaColors.BrandD
     val danger = MeshaColors.Danger
-    val warning = Color(0xFFF2B84B)
+    val warning = MeshaColors.Warn
     val muted = MeshaColors.Muted
     val faint = MeshaColors.Faint
     val ink = MeshaColors.Ink
@@ -212,7 +221,7 @@ private object ScanTokens {
     val surf3 = MeshaColors.Surf3
     val okX = MeshaColors.OkX        // ~.16 alpha brand
     val dangerX = MeshaColors.DangerX  // ~.15 alpha danger
-    val warningX = Color(0x24F2B84B)
+    val warningX = MeshaColors.WarnX
     val brandSoft = MeshaColors.BrandTint
     val onPrimary = MeshaColors.OnBrand
 }
@@ -307,7 +316,9 @@ fun ScanScreen(
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                if (state.feed.isEmpty()) {
+                if (state.feed.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
+                    item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth(), rows = 2) }
+                } else if (state.feed.isEmpty()) {
                     item { FeedEmpty() }
                 } else {
                     // Feed events can repeat the same tag/label/status when an operator rescans.
@@ -831,6 +842,7 @@ private fun RosterListOverlay(state: ScanUiState, onEvent: (ScanEvent) -> Unit) 
         ScanListSheet(
             title = title,
             rows = rows,
+            captureEnabled = state.scanEnabled,
             hasMore = state.hasMore,
             isLoadingMore = state.isLoadingMore,
             onEvent = onEvent,
@@ -847,6 +859,7 @@ private fun RosterListOverlay(state: ScanUiState, onEvent: (ScanEvent) -> Unit) 
 fun ScanListSheet(
     title: String,
     rows: List<RosterRow>,
+    captureEnabled: Boolean = true,
     hasMore: Boolean = false,
     isLoadingMore: Boolean = false,
     onEvent: (ScanEvent) -> Unit = {},
@@ -910,7 +923,9 @@ fun ScanListSheet(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder
-                    items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag }, contentType = { "scan_row" }) { row -> ScanListRow(row) }
+                    items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag }, contentType = { "scan_row" }) { row ->
+                        ScanListRow(row, captureEnabled, onEvent)
+                    }
                     if (hasMore && query.isBlank()) {
                         item {
                             Button(
@@ -935,7 +950,11 @@ fun ScanListSheet(
 }
 
 @Composable
-private fun ScanListRow(row: RosterRow) {
+private fun ScanListRow(
+    row: RosterRow,
+    captureEnabled: Boolean,
+    onEvent: (ScanEvent) -> Unit,
+) {
     val tagColor = if (row.status == ScanStatus.SKIPPED) ScanTokens.danger else ScanTokens.ink
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -969,7 +988,47 @@ private fun ScanListRow(row: RosterRow) {
                 Text("tag 2 · $it", color = ScanTokens.faint, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
             }
         }
-        Text(row.vaccineLabel, color = ScanTokens.muted, fontSize = 11.sp)
+        Column(horizontalAlignment = Alignment.End) {
+            Text(row.vaccineLabel, color = ScanTokens.muted, fontSize = 11.sp)
+            if (row.status == ScanStatus.DONE) {
+                Spacer(Modifier.height(5.dp))
+                val (proofLabel, proofColor) = when (row.proofUploadStatus) {
+                    ProofUploadStatus.MISSING -> stringResource(R.string.scan_proof_needed) to ScanTokens.danger
+                    ProofUploadStatus.UPLOADING -> stringResource(R.string.scan_proof_uploading) to ScanTokens.warning
+                    ProofUploadStatus.SYNCED -> pluralStringResource(
+                        R.plurals.scan_proof_synced,
+                        row.proofClipCount,
+                        row.proofClipCount,
+                    ) to ScanTokens.brandD
+                    ProofUploadStatus.FAILED -> stringResource(R.string.scan_proof_retry) to ScanTokens.danger
+                }
+                Text(
+                    proofLabel,
+                    color = proofColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable(
+                        enabled = captureEnabled && row.proofUploadStatus == ProofUploadStatus.FAILED,
+                    ) {
+                        onEvent(ScanEvent.RetryProof(row.goatId))
+                    },
+                )
+                Button(
+                    onClick = { onEvent(ScanEvent.CaptureProof(row.goatId)) },
+                    enabled = captureEnabled && row.goatId.isNotBlank(),
+                    contentPadding = ButtonDefaults.ContentPadding,
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Icon(
+                        MeshaIcons.Video,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(stringResource(R.string.scan_add_clip), fontSize = 11.sp)
+                }
+            }
+        }
     }
 }
 
@@ -996,7 +1055,16 @@ private fun previewState() = ScanUiState(
         ScanFeedEntry("982 000 4512 7654", null, "skip · lactating, defer", ScanStatus.SKIPPED),
     ),
     roster = listOf(
-        RosterRow("982 000 4512 8830", "900 118 0002 7741", "FMD · 1st", ScanStatus.DONE, unsynced = true),
+        RosterRow(
+            "982 000 4512 8830",
+            "900 118 0002 7741",
+            "FMD · 1st",
+            ScanStatus.DONE,
+            unsynced = true,
+            goatId = "goat-1",
+            proofClipCount = 2,
+            proofUploadStatus = ProofUploadStatus.SYNCED,
+        ),
         RosterRow("982 000 4512 8107", null, "due · FMD", ScanStatus.PENDING),
         RosterRow("982 000 4512 7654", null, "lactating, defer", ScanStatus.SKIPPED),
     ),

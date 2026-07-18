@@ -62,6 +62,14 @@ func (g *Gateway) Name() string {
 }
 
 func (g *Gateway) Send(ctx context.Context, request domain.Request) error {
+	_, err := g.SendWithResult(ctx, request)
+	return err
+}
+
+// SendWithResult preserves the generic channel gateway while surfacing acknowledgements from
+// providers that return stable message ids. Today FCM supplies one; local/webhook channels return
+// an empty successful result.
+func (g *Gateway) SendWithResult(ctx context.Context, request domain.Request) (ports.DeliveryResult, error) {
 	channel := strings.TrimSpace(request.Channel)
 	if channel == "" {
 		channel = "local-stub"
@@ -73,7 +81,7 @@ func (g *Gateway) Send(ctx context.Context, request domain.Request) error {
 			slog.String("channel", channel),
 			slog.String("type", request.NotificationType),
 		)
-		return nil
+		return ports.DeliveryResult{}, nil
 	}
 	switch channel {
 	case "local-stub":
@@ -82,22 +90,22 @@ func (g *Gateway) Send(ctx context.Context, request domain.Request) error {
 			slog.String("calendar_event_id", request.CalendarEventID),
 			slog.String("type", request.NotificationType),
 		)
-		return nil
+		return ports.DeliveryResult{}, nil
 	case "slack":
-		return g.sendSlack(ctx, request)
+		return ports.DeliveryResult{}, g.sendSlack(ctx, request)
 	case "webhook":
 		if strings.TrimSpace(g.config.WebhookURL) == "" {
-			return fmt.Errorf("%w: webhook", ports.ErrChannelNotConfigured)
+			return ports.DeliveryResult{}, fmt.Errorf("%w: webhook", ports.ErrChannelNotConfigured)
 		}
-		return g.postJSON(ctx, g.config.WebhookURL, requestPayload(request))
+		return ports.DeliveryResult{}, g.postJSON(ctx, g.config.WebhookURL, requestPayload(request))
 	case "incident", "opsgenie", "pagerduty":
-		return g.sendIncident(ctx, channel, request)
+		return ports.DeliveryResult{}, g.sendIncident(ctx, channel, request)
 	case "email":
-		return g.sendEmail(ctx, request)
+		return ports.DeliveryResult{}, g.sendEmail(ctx, request)
 	case "push_fcm":
-		return g.sendFCM(ctx, request)
+		return g.sendFCMWithResult(ctx, request)
 	default:
-		return fmt.Errorf("unsupported notification channel: %s", channel)
+		return ports.DeliveryResult{}, fmt.Errorf("unsupported notification channel: %s", channel)
 	}
 }
 
@@ -162,13 +170,18 @@ func (g *Gateway) postJSON(ctx context.Context, url string, payload any) error {
 }
 
 func (g *Gateway) postJSONWithHeaders(ctx context.Context, url string, payload any, headers map[string]string) error {
+	_, err := g.postJSONWithHeadersResponse(ctx, url, payload, headers)
+	return err
+}
+
+func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, payload any, headers map[string]string) ([]byte, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal notification payload: %w", err)
+		return nil, fmt.Errorf("marshal notification payload: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("build notification webhook request: %w", err)
+		return nil, fmt.Errorf("build notification webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "goatos-notification-dispatcher/1.0")
@@ -179,14 +192,21 @@ func (g *Gateway) postJSONWithHeaders(ctx context.Context, url string, payload a
 	}
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("post notification webhook: %w", err)
+		return nil, fmt.Errorf("post notification webhook: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("notification webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if readErr != nil {
+		return nil, fmt.Errorf("read notification webhook response: %w", readErr)
 	}
-	return nil
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		snippet := responseBody
+		if len(snippet) > 256 {
+			snippet = snippet[:256]
+		}
+		return nil, fmt.Errorf("notification webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	return responseBody, nil
 }
 
 func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
@@ -212,12 +232,12 @@ func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
 	}, headers)
 }
 
-func (g *Gateway) sendFCM(ctx context.Context, request domain.Request) error {
+func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request) (ports.DeliveryResult, error) {
 	projectID := strings.TrimSpace(g.config.FCMProjectID)
 	endpoint := strings.TrimSpace(g.config.FCMEndpoint)
 	if endpoint == "" {
 		if projectID == "" {
-			return fmt.Errorf("%w: push_fcm project", ports.ErrChannelNotConfigured)
+			return ports.DeliveryResult{}, fmt.Errorf("%w: push_fcm project", ports.ErrChannelNotConfigured)
 		}
 		endpoint = fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", projectID)
 	}
@@ -236,25 +256,57 @@ func (g *Gateway) sendFCM(ctx context.Context, request domain.Request) error {
 			for key, value := range contextMap {
 				data[key] = value
 			}
-			// Set android priority from context if "priority" is present.
+			// FCM collapse/category controls come from the central notification request context.
+			// Repeated per-goat events for the same park/category replace one tray slot instead of
+			// bombarding the device, while the durable request/delivery ledger still records each.
+			androidConfig := map[string]any{}
 			if priority, ok := contextMap["priority"]; ok && priority == "high" {
-				androidConfig := map[string]any{
-					"priority": "high",
-				}
+				androidConfig["priority"] = "high"
+			}
+			if collapseKey := strings.TrimSpace(contextMap["collapse_key"]); collapseKey != "" {
+				androidConfig["collapse_key"] = collapseKey
+			}
+			channelID := strings.TrimSpace(contextMap["android_channel_id"])
+			if channelID == "" && strings.Contains(strings.ToLower(contextMap["category"]), "vaccination") {
+				channelID = "goatos-push-vaccination"
+			}
+			notificationConfig := map[string]any{}
+			if channelID != "" {
+				notificationConfig["channel_id"] = channelID
+			}
+			if tag := strings.TrimSpace(contextMap["group_key"]); tag != "" {
+				notificationConfig["tag"] = tag
+			}
+			if len(notificationConfig) > 0 {
+				androidConfig["notification"] = notificationConfig
+			}
+			if len(androidConfig) > 0 {
 				message["android"] = androidConfig
 			}
 		}
 	}
 	if err := setFCMTarget(message, request.RecipientRef, g.config.FCMDefaultTopic); err != nil {
-		return err
+		return ports.DeliveryResult{}, err
 	}
 	token, err := g.fcmBearer(ctx)
 	if err != nil {
-		return err
+		return ports.DeliveryResult{}, err
 	}
-	return g.postJSONWithHeaders(ctx, endpoint, map[string]any{"message": message}, map[string]string{
+	responseBody, err := g.postJSONWithHeadersResponse(ctx, endpoint, map[string]any{"message": message}, map[string]string{
 		"Authorization": "Bearer " + token,
 	})
+	if err != nil {
+		return ports.DeliveryResult{}, err
+	}
+	var acknowledgement struct {
+		Name string `json:"name"`
+	}
+	if len(responseBody) > 0 {
+		if err := json.Unmarshal(responseBody, &acknowledgement); err != nil {
+			return ports.DeliveryResult{}, fmt.Errorf("decode FCM acknowledgement: %w", err)
+		}
+	}
+	return ports.DeliveryResult{ProviderMessageID: strings.TrimSpace(acknowledgement.Name)}, nil
 }
 
 func setFCMTarget(message map[string]any, recipientRef, defaultTopic string) error {

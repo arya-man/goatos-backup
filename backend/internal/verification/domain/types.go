@@ -60,6 +60,7 @@ type Item struct {
 	Vertical      string
 	Module        string
 	Category      string
+	SubjectLabel  *string
 	Source        SourceRef
 	MediaRefs     []string // proof_artifact IDs; signed URLs resolved at read time.
 	Status        string
@@ -73,6 +74,8 @@ type Item struct {
 	CapturedAt    time.Time
 	VerifiedBy    *string
 	VerifiedAt    *time.Time
+	ClosedBy      *string
+	ClosedAt      *time.Time
 	RowVersion    int
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -84,6 +87,7 @@ type CreateItem struct {
 	Vertical       string
 	Module         string
 	Category       string
+	SubjectLabel   *string
 	Source         SourceRef
 	MediaRefs      []string
 	OperatorID     *string
@@ -108,6 +112,22 @@ type Verdict struct {
 	Reason     string
 	VerifierID string
 	RowVersion int
+}
+
+// CloseAction is the leadership authority transition applied only after verifier approval.
+type CloseAction struct {
+	TenantID   string
+	ItemID     string
+	ActorID    string
+	RowVersion int
+}
+
+// CloseSubmissionAction closes one operator submission (the vaccination drive execution unit) only
+// after every goat verification item in it has independent verifier approval.
+type CloseSubmissionAction struct {
+	TenantID     string
+	SubmissionID string
+	ActorID      string
 }
 
 // MediaItem is one resolved, streamable media reference for display.

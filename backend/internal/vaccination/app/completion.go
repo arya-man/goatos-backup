@@ -260,6 +260,41 @@ func (s *CompletionService) RejectExisting(ctx context.Context, tenantID, comple
 	return RejectResult{CompletionID: completionID, Applied: applied}, nil
 }
 
+// ApplyGoatVerification applies one generic verification outcome to every vaccine completion for
+// the goat in the same submission. This is what lets one clear handling clip cover all vaccines
+// administered to that goat without creating per-vaccine video work. Operations are idempotent;
+// if a later completion transiently fails, event redelivery safely resumes the remaining rows.
+func (s *CompletionService) ApplyGoatVerification(
+	ctx context.Context,
+	tenantID, submissionID, goatID, outcome, reason string,
+	actorID *string,
+) error {
+	completions, err := s.vacc.SubmissionCompletions(ctx, tenantID, submissionID)
+	if err != nil {
+		return err
+	}
+	for _, completion := range completions {
+		if completion.GoatID != goatID {
+			continue
+		}
+		switch outcome {
+		case "closed":
+			if _, err := s.AcceptExisting(ctx, AcceptExistingInput{
+				TenantID:     tenantID,
+				CompletionID: completion.CompletionID,
+				VerifiedBy:   actorID,
+			}); err != nil {
+				return err
+			}
+		case "rejected":
+			if _, err := s.RejectExisting(ctx, tenantID, completion.CompletionID, reason, actorID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // consume consumes the goat's reserved dose for a drive batch. No-op when stock is not wired, the
 // completion was not part of a drive (no batch/lot), or doses is zero.
 func (s *CompletionService) consume(ctx context.Context, tenantID, batchID, lotID, obligationID, goatID string, doses *int32) error {

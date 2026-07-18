@@ -3545,7 +3545,7 @@ CREATE TABLE public.notification_requests (
     CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
     CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
     CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
-    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
+    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'verification_approved'::text, 'verification_closed'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
 );
 
 
@@ -4955,12 +4955,18 @@ CREATE TABLE public.verification_items (
     captured_at timestamp with time zone NOT NULL,
     verified_by uuid,
     verified_at timestamp with time zone,
+    subject_label text,
+    closed_by uuid,
+    closed_at timestamp with time zone,
     idempotency_key text NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT verification_items_idempotency_key_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT verification_items_media_refs_array_check CHECK ((jsonb_typeof(media_refs) = 'array'::text)),
+    CONSTRAINT verification_items_subject_label_check CHECK (((subject_label IS NULL) OR (btrim(subject_label) <> ''::text))),
+    CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
+    CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
     CONSTRAINT verification_items_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((verdict_reason IS NOT NULL) AND (btrim(verdict_reason) <> ''::text)))),
     CONSTRAINT verification_items_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
@@ -9635,7 +9641,7 @@ CREATE UNIQUE INDEX outbox_messages_vaccination_completed_idempotency_idx ON pub
 -- Name: outbox_messages_verification_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text]));
+CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text, 'verification.item.closed'::text]));
 
 
 --
@@ -10329,6 +10335,13 @@ CREATE INDEX verification_items_source_idx ON public.verification_items USING bt
 --
 
 CREATE INDEX verification_items_source_submission_idx ON public.verification_items USING btree (tenant_id, source_submission_id) WHERE (source_submission_id IS NOT NULL);
+
+
+--
+-- Name: verification_items_leadership_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_leadership_queue_idx ON public.verification_items USING btree (tenant_id, park_id, source_submission_id, captured_at, item_id) WHERE ((status = 'approved'::text) AND (closed_at IS NULL));
 
 
 --
@@ -13768,6 +13781,93 @@ ALTER TABLE ONLY public.workforce_roster_assignments
 --
 -- PostgreSQL database dump complete
 --
+
+SELECT pg_catalog.set_config('search_path', 'public', false);
+
+-- Vaccination execution proof is captured from each scanned goat row. One to five camera clips
+-- may cover every vaccine administered to that goat in the same handling; finalization only
+-- validates the already-synced goat proof refs.
+WITH vaccination_sops AS (
+  SELECT sv.sop_version_id
+  FROM public.sop_versions sv
+  JOIN public.sop_definitions sd
+    ON sd.tenant_id = sv.tenant_id
+   AND sd.sop_id = sv.sop_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
+),
+rewritten AS (
+  SELECT
+    sv.sop_version_id,
+    jsonb_set(
+      jsonb_set(
+        sv.form_dsl,
+        '{fields}',
+        COALESCE((
+          SELECT jsonb_agg(
+            CASE
+              WHEN field ->> 'key' = 'goat_ids' THEN
+                jsonb_set(
+                  field,
+                  '{description}',
+                  to_jsonb('Scan each goat as it is vaccinated, then attach live camera proof from that goat row.'::text),
+                  true
+                )
+              ELSE field
+            END
+            ORDER BY ordinal
+          )
+          FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'fields', '[]'::jsonb))
+            WITH ORDINALITY AS entries(field, ordinal)
+          WHERE field ->> 'key' NOT IN (
+            'shed_video', 'vial_lot_video', 'administration_video',
+            'extra_video_1', 'extra_video_1_caption', 'extra_video_2', 'extra_video_2_caption'
+          )
+        ), '[]'::jsonb),
+        true
+      ),
+      '{rules}',
+      COALESCE((
+        SELECT jsonb_agg(rule ORDER BY ordinal)
+        FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'rules', '[]'::jsonb))
+          WITH ORDINALITY AS entries(rule, ordinal)
+        WHERE COALESCE(rule ->> 'field', '') NOT IN (
+          'shed_video', 'vial_lot_video', 'administration_video',
+          'extra_video_1_caption', 'extra_video_2_caption'
+        )
+      ), '[]'::jsonb),
+      true
+    ) || jsonb_build_object(
+      'goat_row_proof',
+      jsonb_build_object(
+        'subject_scope', 'goat',
+        'capture_source', 'in_app_camera',
+        'minimum_clips', 1,
+        'maximum_clips', 5,
+        'one_clip_covers_same_handling_vaccines', true
+      )
+    ) AS form_dsl
+  FROM public.sop_versions sv
+  JOIN vaccination_sops ids ON ids.sop_version_id = sv.sop_version_id
+)
+UPDATE public.sop_versions sv
+SET form_dsl = rewritten.form_dsl,
+    proof_policy = jsonb_build_object(
+      'types', jsonb_build_array('video'),
+      'required', true,
+      'subject_scope', 'goat',
+      'expected_subjects', jsonb_build_array('goat'),
+	  'minimum_count', 1,
+      'minimum_count_per_subject', 1,
+      'maximum_count_per_subject', 5,
+      'capture_source', 'in_app_camera',
+      'one_clip_covers_same_handling_vaccines', true,
+      'verify_capability', 'proof.verify',
+      'verify_before_apply', true,
+      'retention_policy', 'operational_90d'
+    ),
+    updated_at = now()
+FROM rewritten
+WHERE sv.sop_version_id = rewritten.sop_version_id;
 
 SELECT pg_catalog.set_config('search_path', 'public', false);
 

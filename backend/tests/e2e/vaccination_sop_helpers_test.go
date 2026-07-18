@@ -42,7 +42,7 @@ func completeVaccinationObligationThroughSOP(t *testing.T, fx *Fixture, versionI
 		 VALUES ($1, $2, $3, 'E2E SOP helper vaccine', 'vaccine', 'dose')`, itemID, fxTenant, "E2E-"+itemID[:8])
 	fx.exec("SOP helper vaccine stock",
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-		 VALUES ($1, $2, $3, $4, $5, 0, 'dose', CURRENT_DATE + INTERVAL '10 years')`, lotID, fxTenant, itemID, shedID, len(goatIDs)+10)
+		 VALUES ($1, $2, $3, $4, $5, 0, 'dose', CURRENT_DATE + INTERVAL '10 years')`, lotID, fxTenant, itemID, fxPark, len(goatIDs)+10)
 	h := newVaccinationSOPHarness(t, fx)
 	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: h.Service, actorID: operatorID}, fx.Inv)
 	if _, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{
@@ -51,12 +51,16 @@ func completeVaccinationObligationThroughSOP(t *testing.T, fx *Fixture, versionI
 		t.Fatalf("%s sweep generated vaccination work: %v", key, err)
 	}
 	taskID := ""
+	batchID := ""
 	if obligationID != "" {
 		taskID = fx.scanText(`SELECT ob.sop_task_id::text FROM obligation_instances oi JOIN obligation_batches ob ON ob.tenant_id=oi.tenant_id AND ob.batch_id=oi.batch_id WHERE oi.tenant_id=$1 AND oi.obligation_id=$2::uuid`, fxTenant, obligationID)
+		batchID = fx.scanText(`SELECT batch_id::text FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, obligationID)
 	} else {
 		taskID = fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2::uuid ORDER BY created_at DESC LIMIT 1`, fxTenant, versionID)
+		batchID = fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2::uuid ORDER BY created_at DESC LIMIT 1`, fxTenant, versionID)
 	}
-	submitted, err := h.submit(taskID, shedID, operatorID, lotID, goatIDs, administeredAt, key+":submit", "subcutaneous")
+	reservedLotID := reservedLotForBatch(t, fx, batchID)
+	submitted, err := h.submit(taskID, shedID, operatorID, reservedLotID, goatIDs, administeredAt, key+":submit", "subcutaneous")
 	if err != nil {
 		t.Fatalf("%s submit generated vaccination work: %v", key, err)
 	}
@@ -68,6 +72,18 @@ func completeVaccinationObligationThroughSOP(t *testing.T, fx *Fixture, versionI
 		t.Fatalf("%s review generated vaccination work: response=%+v err=%v", key, accepted, err)
 	}
 	return taskID
+}
+
+func reservedLotForBatch(t *testing.T, fx *Fixture, batchID string) string {
+	t.Helper()
+	return fx.scanText(`
+SELECT lot_id::text
+FROM inventory_stock_movements
+WHERE tenant_id=$1
+  AND batch_id=$2::uuid
+  AND movement_type='reserve'
+ORDER BY occurred_at, movement_id
+LIMIT 1`, fxTenant, batchID)
 }
 
 func newVaccinationSOPHarness(t *testing.T, fx *Fixture) *vaccinationSOPHarness {
@@ -94,28 +110,36 @@ func (h *vaccinationSOPHarness) submit(taskID, shedID, actorID, lotID string, go
 	}, "e2e-submit-"+idempotencyKey)
 }
 
-func (h *vaccinationSOPHarness) submissionRequest(taskID, shedID, actorID, lotID string, goatIDs []string, administeredAt time.Time, idempotencyKey, routeSite string) (sopdomain.SubmitTaskRequest, error) {
+func (h *vaccinationSOPHarness) submissionRequest(taskID, _ string, actorID, lotID string, goatIDs []string, administeredAt time.Time, idempotencyKey, routeSite string) (sopdomain.SubmitTaskRequest, error) {
 	h.t.Helper()
-	proofRefs := make([]sopdomain.ProofReference, 0, 3)
-	proofIDs := make(map[string]string, 3)
-	for _, subject := range []string{"shed", "vial_lot", "administration"} {
-		var subjectID *string
-		if subject == "shed" {
-			subjectID = storyAAPtrString(shedID)
-		}
+	proofRefs := make([]sopdomain.ProofReference, 0, len(goatIDs))
+	for _, goatID := range goatIDs {
+		goatID := goatID
 		target, err := h.proofs.CreateUpload(h.fx.Ctx, proofdomain.CreateUpload{
 			TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4", ScopeType: "task", ScopeID: taskID,
-			SubjectType: subject, SubjectID: subjectID, UploadedBy: storyAAPtrString(actorID),
-			Metadata: map[string]any{"e2e_idempotency_key": idempotencyKey},
+			SubjectType: "goat", SubjectID: &goatID, UploadedBy: storyAAPtrString(actorID),
+			Metadata: map[string]any{
+				"capture_source":      "in_app_camera",
+				"captured_start_ms":   int64(1000),
+				"captured_end_ms":     int64(5200),
+				"e2e_idempotency_key": idempotencyKey,
+			},
 		})
 		if err != nil {
 			return sopdomain.SubmitTaskRequest{}, err
 		}
-		if _, err := h.proofs.StoreUpload(h.fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString(idempotencyKey+":"+subject)); err != nil {
+		stored, err := h.proofs.StoreUpload(h.fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString(idempotencyKey+":goat:"+goatID))
+		if err != nil {
+			return sopdomain.SubmitTaskRequest{}, err
+		}
+		duration := int64(4200)
+		if _, err := h.proofs.CompleteUpload(h.fx.Ctx, proofdomain.CompleteUpload{
+			TenantID: fxTenant, ProofID: target.Proof.ProofID, ContentHash: stored.ContentHash,
+			MimeType: stored.MimeType, SizeBytes: stored.SizeBytes, DurationMS: &duration,
+		}); err != nil {
 			return sopdomain.SubmitTaskRequest{}, err
 		}
 		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
-		proofIDs[subject] = target.Proof.ProofID
 	}
 	goats := make([]any, len(goatIDs))
 	for i := range goatIDs {
@@ -126,8 +150,7 @@ func (h *vaccinationSOPHarness) submissionRequest(taskID, shedID, actorID, lotID
 		Answers: map[string]any{
 			"vaccine_lot_id": lotID, "cold_chain_verified": true, "goat_ids": goats,
 			"dose_ml_given": 1.0, "doses": 1, "route_site": routeSite, "administered_at": administeredAt.Format(time.RFC3339),
-			"adverse_reaction": false, "shed_video": proofIDs["shed"], "vial_lot_video": proofIDs["vial_lot"],
-			"administration_video": proofIDs["administration"],
+			"adverse_reaction": false,
 		},
 	}, nil
 }

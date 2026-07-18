@@ -54,10 +54,13 @@ Backend pieces already available:
   required headers;
 - proof completion: `POST /app/proofs/{proof_id}/complete`;
 - task submission: `POST /app/tasks/{task_id}/submissions`;
-- reviewer closeout: `POST /admin/tasks/{task_id}/verify` and
-  `POST /admin/tasks/{task_id}/rework`;
-- RBAC gate map: `TaskExecute` for operator proof/upload/submission and
-  `TaskVerify` for reviewer approve/rework.
+- verifier queue/verdict: `GET /verification/queue` and
+  `POST /verification/items/{item_id}/verdict`;
+- scoped leadership closeout: `GET /verification/action-queue` and
+  `POST /verification/submissions/{submission_id}/close`;
+- RBAC gate map: `TaskExecute` only for ground-operator scan/proof/finalize,
+  `VerificationReview` for the verifier, and `VerificationAct` for scoped
+  Park Head/Director/CEO/CxO closure.
 
 Android integration completed in this branch:
 
@@ -87,7 +90,7 @@ The target operator flow is:
    version, `form_dsl`, `proof_policy`, and prior submissions.
 5. Operator fills the backend-declared form fields only. Android must not invent
    fields, labels, proof subjects, options, or required logic.
-6. For each `video_proof` / required proof subject:
+6. For each scanned goat, capture one or more clips from that goat row:
    - launch CameraX video capture;
    - store the captured file locally while offline if needed;
    - call `POST /app/proofs/uploads` with proof type, MIME type, scope, subject,
@@ -97,12 +100,14 @@ The target operator flow is:
    - call `POST /app/proofs/{proof_id}/complete` with size, duration, MIME type,
      hash/storage metadata;
    - keep the returned `ProofReference` in the submission state.
-7. Operator submits `POST /app/tasks/{task_id}/submissions` with real `answers`
-   and completed `proof_refs`.
+7. Every scan and clip is already draft-synced. Operator finalizes with
+   `POST /app/tasks/{task_id}/submissions` containing real answers and
+   completed goat-subject proof refs; finalization is not a bulk upload.
 8. Backend revalidates form version, required answers, proof policy,
    permissions, task state, row version, idempotency, and workflow gates.
-9. Accepted submission moves the task to the review path. It is not final
-   process acceptance until an authorized reviewer accepts it.
+9. Finalized submission creates one verifier item per goat. Rejection opens
+   goat rework; after every goat is approved, scoped leadership closes the
+   drive atomically.
 
 Video bytes must not proxy through the Goat OS API. The API creates and
 completes proof records; storage receives the raw media bytes directly.
@@ -111,14 +116,15 @@ completes proof records; storage receives the raw media bytes directly.
 
 Product language:
 
-- **Approve** means the reviewer accepts the submitted proof/task.
-- **Reject** means the reviewer requests rework from the operator.
+- **Approve** means the verifier accepts one goat's submitted proof.
+- **Reject** means the verifier requests rework from the operator for that goat.
 
 Current API language:
 
-- `POST /admin/tasks/{task_id}/verify` = approve / accept.
-- `POST /admin/tasks/{task_id}/rework` = reject / request operator rework.
-- The request body is `ReviewTaskRequest`: `reason` plus `row_version`.
+- `POST /verification/items/{item_id}/verdict` = verifier approve or reject.
+- Reject requires a reason and keeps that goat vaccination open for rework.
+- `POST /verification/submissions/{submission_id}/close` = leadership closes
+  the drive atomically after every goat proof is approved.
 
 Backend review preconditions:
 
@@ -132,10 +138,11 @@ Backend review preconditions:
 
 State outcomes:
 
-- Approve sets task state to `accepted`, records `verified_by`, and fans out
-  accepted completion state where configured.
-- Reject sets task state to `rework_requested`, records `verified_by`, and fans
-  out rejected/rework completion state where configured.
+- Approve records independent proof acceptance but does not yet accept the
+  medical completion.
+- Reject records rework and reopens that goat completion.
+- Leadership drive closure fans out accepted completion state and retains the
+  operator's original `administered_at` as the vaccination date.
 - Rework must notify or surface the operator/park owner so the field work can be
   redone with corrected proof.
 

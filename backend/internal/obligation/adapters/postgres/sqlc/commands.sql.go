@@ -167,7 +167,7 @@ WHERE NOT EXISTS (
     AND existing.due_at = $9
     AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
 )
-ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+ON CONFLICT DO NOTHING
 RETURNING obligation_id::text AS obligation_id
 `
 

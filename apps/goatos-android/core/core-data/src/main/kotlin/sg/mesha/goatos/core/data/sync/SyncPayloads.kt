@@ -10,6 +10,7 @@ import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 
 /** Shared JSON codec for outbox payload/result blobs — lenient so a field added later never
  *  breaks decode of an already-queued row (mirrors [sg.mesha.goatos.core.data.BootstrapCache]). */
@@ -83,4 +84,15 @@ data class ReworkTaskPayload(
 data class VerificationVerdictPayload(
     @SerialName("item_id") val itemId: String,
     @SerialName("request") val request: VerificationVerdictRequestDto,
+)
+
+@Serializable
+data class VerificationClosePayload(
+    @SerialName("item_id") val itemId: String,
+    @SerialName("request") val request: VerificationCloseRequestDto,
+)
+
+@Serializable
+data class VerificationCloseSubmissionPayload(
+    @SerialName("submission_id") val submissionId: String,
 )

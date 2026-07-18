@@ -73,9 +73,9 @@ fun InAppVideoRecorderOverlay(onResult: (CapturedVideo?) -> Unit) {
         startedAtMs = System.currentTimeMillis()
         activeRecording = capture.output
             .prepareRecording(context, output)
-            // No audio: RECORD_AUDIO is not part of the mandatory capture-permission set
-            // (docs/mobile/proof-capture-sync-and-e2e.md §4 — camera/Bluetooth/location/
-            // notifications/storage only). Silent proof video is sufficient for this pass.
+            // No audio: RECORD_AUDIO is not part of the mandatory capture-permission set.
+            // The camera writes directly to app-private storage, so no storage permission
+            // or gallery/file-picker surface is needed.
             .start(ContextCompat.getMainExecutor(context)) { event ->
                 if (event is VideoRecordEvent.Finalize) {
                     isRecording = false

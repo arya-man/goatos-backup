@@ -1,10 +1,10 @@
 # Verifier app + video-verification flow (from the wiki handbooks)
 
-Status: reference/future scope for the **Verifier** role's app + flow. Sourced from
+Status: implemented contract for the **Verifier** role's app + flow. Sourced from
 the Mesha wiki handbooks (PHC-Director + Health-Director + Slack modules). Companion
 to [`verification-module-design.md`](./verification-module-design.md) (the generic
-backend) and [`org-role-model.md`](./org-role-model.md) (the truth table). Not built
-yet. Names omitted per repo policy.
+backend) and [`org-role-model.md`](./org-role-model.md) (the truth table). Names
+omitted per repo policy.
 
 ## The verifier role (wiki-sourced)
 The **Video Verification Team** is a standing, daily, independent second check on
@@ -43,7 +43,8 @@ A verifier who opens the app sees **only** video verification — nothing else:
 - Per item: **play the video(s)** (+ its context: shed/park/operator/timestamp from
   the capture metadata) → **Approve** or **Reject + mandatory reason**.
 - **No capture, no ops, no roster, no config** — the standalone Verifier section
-  only. (Capture is the operator app; act/penalise is admin-web authority.)
+  only. Vaccination is active; Counts and Feed Direction are visible as under
+  construction.
 - Bounded/paginated queue (~20), media via streamed signed URLs (scale rules apply).
 
 ## Backend (generic — see verification-module-design.md)
@@ -52,12 +53,15 @@ A verifier who opens the app sees **only** video verification — nothing else:
 - Verifier action: `POST /verification/items/{id}/verdict {approved|rejected, reason}`
   gated by the new **`verification.review`** permission (the Verifier role). Reject
   requires a reason.
-- After verdict, the authority (Head/Director/CEO) acts; the verdict + reason feed
+- After every goat verdict in a drive is approved, the authority
+  (Park Head/Director/CEO/CxO) atomically closes the submission through
+  `POST /verification/submissions/{submission_id}/close`; the verdict + reason feed
   the daily "SOP Video Double Verification" metrics (violations flagged, penalties).
 - Plug-and-play: a new vertical/module registers its category in the verification
   type registry → its videos appear in the verifier queue automatically.
 
 ## Roles (truth table alignment)
-- **Capture** = operator/manager (mobile capture app). **Verify** = Verifier
-  (`verification.review`, this app). **Act** = Head/Director/CEO (admin-web).
+- **Capture** = ground operator only (mobile capture app). **Verify** = Verifier
+  (`verification.review`, this app). **Act** = scoped Park Head/Director or
+  CEO/CxO (`verification.act`, leadership app).
   Separation of duty — nobody captures and verifies the same work.

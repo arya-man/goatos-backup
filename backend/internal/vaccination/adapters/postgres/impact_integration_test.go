@@ -17,6 +17,7 @@ const (
 	impTenant         = "00000000-0000-4000-8000-000000000001"
 	impParty          = "00000000-0000-4000-8000-000000001001"
 	impCbe            = "00000000-0000-4000-8000-000000003001" // park/location
+	impShed           = "32000000-0000-4000-8000-000000000001"
 	impItem           = "c0000000-0000-4000-8000-000000000001"
 	impLot            = "c0000000-0000-4000-8000-000000000002"
 	impQuarantineShed = "31000000-0000-4000-8000-000000000201"
@@ -30,15 +31,23 @@ func seedGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecyc
 
 func seedAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, species, lifecycle, stage string, shed bool) {
 	t.Helper()
-	shedExpr := "NULL"
-	args := []any{id, impTenant, lifecycle, species, impParty, impCbe, stage}
 	if shed {
-		shedExpr = "$6"
+		seedShedOperational(t, ctx, pool, impShed, "VACC-TEST", true, false, false)
+		_, err := pool.Exec(ctx,
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+				   current_location_id, park_id, shed_id, management_stage)
+			 VALUES ($1, $2, $3, $4, $5, 'female', $6, $7, $6, $8)`,
+			id, impTenant, lifecycle, species, impParty, impShed, impCbe, stage)
+		if err != nil {
+			t.Fatalf("seed %s %s: %v", species, id, err)
+		}
+		return
 	}
 	_, err := pool.Exec(ctx,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
 			   current_location_id, park_id, shed_id, management_stage)
-			 VALUES ($1, $2, $3, $4, $5, 'female', $6, $6, `+shedExpr+`, $7)`, args...)
+			 VALUES ($1, $2, $3, $4, $5, 'female', $6, $6, NULL, $7)`,
+		id, impTenant, lifecycle, species, impParty, impCbe, stage)
 	if err != nil {
 		t.Fatalf("seed %s %s: %v", species, id, err)
 	}
@@ -104,7 +113,7 @@ func TestImpactPreviewReadsRollupNotLiveGoats(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-		 VALUES ($1, $2, $3, $4, 2, 0, 'dose', DATE '2026-07-15')`, impLot, impTenant, impItem, impCbe); err != nil {
+		 VALUES ($1, $2, $3, $4, 2, 0, 'dose', CURRENT_DATE + 30)`, impLot, impTenant, impItem, impCbe); err != nil {
 		t.Fatalf("seed stock: %v", err)
 	}
 

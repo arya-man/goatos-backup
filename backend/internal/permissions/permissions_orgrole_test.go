@@ -80,14 +80,14 @@ func TestRoleAuthorizedForVertical(t *testing.T) {
 	}
 }
 
-// TestManagerAndAssistantManagerTiersCanCapture proves ground tiers (Manager
-// + Assistant Manager) keep the capture affordance across every vertical.
-func TestManagerAndAssistantManagerTiersCanCapture(t *testing.T) {
+// TestOrganizationTiersCannotCapture proves that named leadership/supervisory
+// tiers cannot scan or attach camera evidence; only RoleOperator can.
+func TestOrganizationTiersCannotCapture(t *testing.T) {
 	for _, tier := range []Tier{TierManager, TierAssistantManager} {
 		for _, vertical := range AllVerticals {
 			role := RoleKey(tier, vertical)
-			if !RoleHasPermission(role, TaskExecute) {
-				t.Fatalf("%q should have TaskExecute (ground tiers capture)", role)
+			if RoleHasPermission(role, TaskExecute) {
+				t.Fatalf("%q must not have TaskExecute (capture is operator-only)", role)
 			}
 		}
 	}
@@ -101,7 +101,7 @@ func TestHeadAndDirectorTiersCannotCapture(t *testing.T) {
 		for _, vertical := range AllVerticals {
 			role := RoleKey(tier, vertical)
 			if RoleHasPermission(role, TaskExecute) {
-				t.Fatalf("%q must NOT have TaskExecute (capture is ground-only: Manager + Assistant Manager)", role)
+				t.Fatalf("%q must NOT have TaskExecute (capture is operator-only)", role)
 			}
 		}
 	}
@@ -153,9 +153,9 @@ func TestScopeIDsForPermissionIsParkScoped(t *testing.T) {
 	const cbeParkID = "11111111-0000-4000-8000-000000000001"
 	const cptParkID = "22222222-0000-4000-8000-000000000002"
 
-	feedManager := RoleKey(TierManager, VerticalFeed)
+	operator := RoleOperator
 	grants := []ActiveGrant{
-		{Role: feedManager, ScopeType: "park", ScopeID: cbeParkID},
+		{Role: operator, ScopeType: "park", ScopeID: cbeParkID},
 	}
 
 	ids := ScopeIDsForPermission(grants, TaskExecute, "park")
@@ -176,9 +176,9 @@ func TestScopeIDsForPermissionIsParkScoped(t *testing.T) {
 
 	// Multi-park grants union correctly and stay deduplicated.
 	multiPark := []ActiveGrant{
-		{Role: feedManager, ScopeType: "park", ScopeID: cbeParkID},
-		{Role: feedManager, ScopeType: "park", ScopeID: cptParkID},
-		{Role: feedManager, ScopeType: "park", ScopeID: cbeParkID},
+		{Role: operator, ScopeType: "park", ScopeID: cbeParkID},
+		{Role: operator, ScopeType: "park", ScopeID: cptParkID},
+		{Role: operator, ScopeType: "park", ScopeID: cbeParkID},
 	}
 	got := ScopeIDsForPermission(multiPark, TaskExecute, "park")
 	if len(got) != 2 {
@@ -201,6 +201,7 @@ func TestOrgTierPermissionsDoNotLeakBeyondKnownPermissions(t *testing.T) {
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
+		VerificationReview: {}, VerificationAct: {},
 	}
 	for tier, perms := range tierPermissions {
 		for permission := range perms {

@@ -75,13 +75,27 @@ func seedGenGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, life
 
 func seedGenGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle, stage string) {
 	t.Helper()
+	seedShedOperational(t, ctx, pool, impShed, "VACC-TEST", true, false, false)
 	_, err := pool.Exec(ctx,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
-			   current_location_id, park_id, management_stage, dob)
-			 VALUES ($1, $2, $3, 'goat', $4, 'female', $5, $5, $6, DATE '2026-05-01')`,
-		id, impTenant, lifecycle, impParty, impCbe, stage)
+			   current_location_id, park_id, shed_id, management_stage, dob)
+			 VALUES ($1, $2, $3, 'goat', $4, 'female', $5, $6, $5, $7, DATE '2026-05-01')`,
+		id, impTenant, lifecycle, impParty, impShed, impCbe, stage)
 	if err != nil {
 		t.Fatalf("seed gen goat %s: %v", id, err)
+	}
+	var storedShed, storedPark, shedType, parkType string
+	if err := pool.QueryRow(ctx, `
+		SELECT g.shed_id::text, g.park_id::text, shed.location_type, park.location_type
+		FROM goats g
+		JOIN locations shed ON shed.tenant_id=g.tenant_id AND shed.location_id=g.shed_id
+		JOIN locations park ON park.tenant_id=g.tenant_id AND park.location_id=g.park_id
+		WHERE g.tenant_id=$1 AND g.goat_id=$2`, impTenant, id).
+		Scan(&storedShed, &storedPark, &shedType, &parkType); err != nil {
+		t.Fatalf("verify gen goat placement %s: %v", id, err)
+	}
+	if storedShed != impShed || storedPark != impCbe || shedType != "shed" || parkType != "park" {
+		t.Fatalf("verify gen goat placement %s: shed=%s (%s) park=%s (%s)", id, storedShed, shedType, storedPark, parkType)
 	}
 }
 
@@ -182,7 +196,7 @@ SET entry_date = $3::date,
     origin_type = 'procured',
     shed_id = $4::uuid,
     current_location_id = $4::uuid
-WHERE tenant_id = $1 AND goat_id = $2`, impTenant, id, entryDate, impCbe); err != nil {
+WHERE tenant_id = $1 AND goat_id = $2`, impTenant, id, entryDate, impShed); err != nil {
 		t.Fatalf("set adult procured goat %s: %v", id, err)
 	}
 }

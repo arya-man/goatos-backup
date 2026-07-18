@@ -42,6 +42,7 @@ func TestLocalUploadCompletePreservesDurationForVerificationMedia(t *testing.T) 
 	repo := newMemoryProofRepo()
 	service := proofapp.NewService(repo, localstorage.New(t.TempDir(), "local-proof-secret"))
 	subjectID := "30000000-0000-4000-8000-000000000001"
+	uploadedBy := "40000000-0000-4000-8000-000000000001"
 
 	target, err := service.CreateUpload(ctx, proofdomain.CreateUpload{
 		TenantID:    "00000000-0000-4000-8000-000000000001",
@@ -51,6 +52,12 @@ func TestLocalUploadCompletePreservesDurationForVerificationMedia(t *testing.T) 
 		ScopeID:     "20000000-0000-4000-8000-000000000001",
 		SubjectType: "shed",
 		SubjectID:   &subjectID,
+		UploadedBy:  &uploadedBy,
+		Metadata: map[string]any{
+			"capture_source":    "in_app_camera",
+			"captured_start_ms": int64(1000),
+			"captured_end_ms":   int64(5200),
+		},
 	})
 	if err != nil {
 		t.Fatalf("CreateUpload() error = %v", err)

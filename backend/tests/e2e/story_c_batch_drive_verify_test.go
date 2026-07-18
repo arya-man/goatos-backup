@@ -78,12 +78,12 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 		 VALUES ($1, $2, 'VAC-E2E-C', 'E2E Story C vaccine', 'vaccine', 'dose')`, itemID, fxTenant)
 	fx.exec("vaccine stock",
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, shedID)
+		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, fxPark)
 
-	story.Step("Generate + batch: the sweeper combines both goats into one shed drive",
+	story.Step("Generate + batch: the sweeper combines both goats into one park drive",
 		"Run the real generation service for the whole protocol version (both goats are eligible), then "+
 			"run the real obligation sweeper (SM-4) with stock reservation wired -- it must combine both "+
-			"goats' obligations into exactly ONE batch scoped to their shared shed.")
+			"goats' shed-scoped obligations into exactly ONE park-scoped drive.")
 
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 	genRes, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, now)
@@ -97,45 +97,49 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	dueBefore := now.AddDate(0, 0, 1)
 	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, sweepCfg, dueBefore)
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
-	story.Assert("one shed = one drive: both obligations combined into a single batch", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
+	story.Assert("both obligations combined into a single park drive", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
 	story.Assert("both obligations were attached to that drive", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
 
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
 	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
 	story.Assert("sweeper created the executable SOP task", taskID != "", "task_id=%q", taskID)
+	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	story.Step("Capture canonical proof and submit both administrations",
-		"The operator completes all three task-bound videos and the canonical SOP form. Submission fanout, not test code, records one completion per goat.")
+		"The operator captures one task-bound camera clip from each scanned goat row. Submission fanout, not test code, records one completion per goat.")
 	proofService := proofapp.NewService(fx.Proof, prooflocal.New(t.TempDir(), "story-c-proof-secret"))
-	proofRefs := make([]sopdomain.ProofReference, 0, 3)
-	proofIDs := make(map[string]string, 3)
-	for _, subject := range []string{"shed", "vial_lot", "administration"} {
-		var subjectID *string
-		if subject == "shed" {
-			subjectID = storyAAPtrString(shedID)
-		}
+	proofRefs := make([]sopdomain.ProofReference, 0, 2)
+	for _, goatID := range []string{goat1, goat2} {
+		goatID := goatID
 		target, proofErr := proofService.CreateUpload(fx.Ctx, proofdomain.CreateUpload{
 			TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4", ScopeType: "task", ScopeID: taskID,
-			SubjectType: subject, SubjectID: subjectID, UploadedBy: storyAAPtrString(operatorID), Metadata: map[string]any{"story": "C"},
+			SubjectType: "goat", SubjectID: &goatID, UploadedBy: storyAAPtrString(operatorID),
+			Metadata: map[string]any{
+				"capture_source":    "in_app_camera",
+				"captured_start_ms": int64(1000),
+				"captured_end_ms":   int64(5200),
+				"story":             "C",
+			},
 		})
-		story.Assert("proof registered for "+subject, proofErr == nil, "err=%v", proofErr)
+		story.Assert("proof registered for goat "+goatID, proofErr == nil, "err=%v", proofErr)
 		if proofErr != nil {
 			continue
 		}
-		stored, proofErr := proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-c-"+subject))
-		story.Assert("proof binary stored for "+subject, proofErr == nil, "err=%v", proofErr)
+		stored, proofErr := proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-c-goat-"+goatID))
+		story.Assert("proof binary stored for goat "+goatID, proofErr == nil, "err=%v", proofErr)
 		if proofErr != nil {
 			continue
 		}
+		duration := int64(4200)
 		_, proofErr = proofService.CompleteUpload(fx.Ctx, proofdomain.CompleteUpload{
-			TenantID: fxTenant, ProofID: target.Proof.ProofID, ContentHash: stored.ContentHash, MimeType: stored.MimeType, SizeBytes: stored.SizeBytes,
+			TenantID: fxTenant, ProofID: target.Proof.ProofID, ContentHash: stored.ContentHash,
+			MimeType: stored.MimeType, SizeBytes: stored.SizeBytes, DurationMS: &duration,
 		})
-		story.Assert("proof binary completed for "+subject, proofErr == nil, "err=%v", proofErr)
+		story.Assert("proof binary completed for goat "+goatID, proofErr == nil, "err=%v", proofErr)
 		if proofErr != nil {
 			continue
 		}
 		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
-		proofIDs[subject] = target.Proof.ProofID
 	}
 	vaccinationService := vaccapp.NewService(fx.Vacc)
 	verifyBus := eventbus.NewInProcessBus()
@@ -147,10 +151,9 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
 		Body: sopdomain.SubmitTaskRequest{SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: "story-c-submit", ProofRefs: proofRefs,
 			Answers: map[string]any{
-				"vaccine_lot_id": lotID, "cold_chain_verified": true, "goat_ids": []any{goat1, goat2},
+				"vaccine_lot_id": reservedLot, "cold_chain_verified": true, "goat_ids": []any{goat1, goat2},
 				"dose_ml_given": 1.0, "doses": 1, "route_site": "subcutaneous", "administered_at": now.Format(time.RFC3339),
-				"adverse_reaction": false, "shed_video": proofIDs["shed"], "vial_lot_video": proofIDs["vial_lot"],
-				"administration_video": proofIDs["administration"],
+				"adverse_reaction": false,
 			}},
 	}, "story-c-submit")
 	story.Assert("canonical two-goat submission succeeded", err == nil, "err=%v", err)

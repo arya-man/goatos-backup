@@ -15,6 +15,10 @@
     "goat.identity.changed",
     "goat.exited",
     "vaccination.completed",
+    "verification.item.pending",
+    "verification.verdict.approved",
+    "verification.verdict.rework",
+    "verification.item.closed",
     "obligation.missed",
     "goat.obligations_canceled",
     "obligation.rescoped",
@@ -91,6 +95,42 @@
       "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/completed_handler.go"}],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": ["backend/internal/vaccination/adapters/postgres/booster_integration_test.go", "backend/tests/e2e/story_ag_recurring_calendar_lifecycle_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "verification.item.pending",
+      "producer": "generic verification item enqueue",
+      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
+      "consumers": [{"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "owningDoc": "context/architecture/verifier-app-and-flow.md",
+      "e2eProof": ["backend/internal/verification/adapters/postgres/repository_integration_test.go", "backend/internal/notificationbridge/verification_notify_consumer_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "verification.verdict.approved",
+      "producer": "verifier approve verdict",
+      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
+      "consumers": [{"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "owningDoc": "context/architecture/verifier-app-and-flow.md",
+      "e2eProof": ["backend/internal/verification/app/service_test.go", "backend/internal/notificationbridge/verification_notify_consumer_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "verification.verdict.rework",
+      "producer": "verifier reject verdict",
+      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
+      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/verification_handler.go"}, {"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "owningDoc": "context/architecture/verifier-app-and-flow.md",
+      "e2eProof": ["backend/internal/vaccination/app/completion_test.go", "backend/internal/notificationbridge/verification_notify_consumer_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "verification.item.closed",
+      "producer": "scoped leadership drive closure",
+      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
+      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/verification_handler.go"}, {"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "owningDoc": "context/architecture/verifier-app-and-flow.md",
+      "e2eProof": ["backend/internal/verification/app/service_test.go", "backend/internal/vaccination/app/completion_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
     },
     {

@@ -44,6 +44,10 @@ type Repository interface {
 	// RecordCompletionsFromSubmission materializes vaccination_completions from a vaccination SOP
 	// submission's per-goat items. Idempotent on the submission-item idempotency key.
 	RecordCompletionsFromSubmission(ctx context.Context, tenantID, taskID, submissionID, recordedBy string) (int, error)
+	// ListSubmissionCompletions returns every completion materialized for one submission. The
+	// bounded result is capped by the submission fan-out limit (1,000 goats) and is used by the
+	// composition bridge to create one verification item per goat, not one per vaccine.
+	ListSubmissionCompletions(ctx context.Context, tenantID, submissionID string) ([]domain.SubmissionCompletion, error)
 
 	// ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest
 	// administered first (the Verification queue). parkID is an optional park scope (empty = all parks).

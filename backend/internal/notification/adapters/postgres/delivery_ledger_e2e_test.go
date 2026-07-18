@@ -11,6 +11,7 @@ import (
 
 	notificationapp "github.com/vgoats/goatos/backend/internal/notification/app"
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
+	"github.com/vgoats/goatos/backend/internal/notification/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -87,6 +88,46 @@ SELECT count(*)
 FROM outbox_messages
 WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'notification.sent'`,
 		1, testTenantID, requestID)
+}
+
+func TestNotificationDeliveryLedgerPersistsProviderMessageID(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	eventID := "calendar:87000000-0000-4000-8000-000000020011"
+	seedCalendarEvent(t, ctx, pool, eventID)
+	requestID := seedNotification(t, ctx, pool, eventID, "notification-ledger-provider-id", "queued", 0, nil)
+
+	now := time.Date(2026, 7, 1, 8, 30, 0, 0, time.UTC)
+	gateway := &providerResultLedgerGateway{providerMessageID: "projects/goatos-dev/messages/provider-123"}
+	service := notificationapp.NewService(repo, gateway, notificationapp.Config{
+		Limit: 10,
+		Now:   func() time.Time { return now },
+	}, nil)
+
+	result, err := service.RunOnce(ctx, testTenantID)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if result.SentCount != 1 {
+		t.Fatalf("result=%#v want one sent request", result)
+	}
+
+	var got string
+	if err := pool.QueryRow(ctx, `
+SELECT provider_message_id
+FROM notification_delivery_attempts
+WHERE tenant_id = $1::uuid
+  AND notification_request_id = $2::uuid
+  AND result = 'sent'`, testTenantID, requestID).Scan(&got); err != nil {
+		t.Fatalf("query provider acknowledgement: %v", err)
+	}
+	if got != gateway.providerMessageID {
+		t.Fatalf("provider_message_id=%q want %q", got, gateway.providerMessageID)
+	}
 }
 
 // TestNotificationDeliveryLedgerRetryThenSuccess fails once (transient) then succeeds, driven by
@@ -357,6 +398,18 @@ type ledgerTestGateway struct {
 	calls       int
 	failCount   int
 	failMessage string
+}
+
+type providerResultLedgerGateway struct {
+	providerMessageID string
+}
+
+func (g *providerResultLedgerGateway) Name() string { return "provider-result-ledger-gateway" }
+
+func (g *providerResultLedgerGateway) Send(context.Context, domain.Request) error { return nil }
+
+func (g *providerResultLedgerGateway) SendWithResult(context.Context, domain.Request) (ports.DeliveryResult, error) {
+	return ports.DeliveryResult{ProviderMessageID: g.providerMessageID}, nil
 }
 
 func (g *ledgerTestGateway) Name() string { return "ledger-test-gateway" }

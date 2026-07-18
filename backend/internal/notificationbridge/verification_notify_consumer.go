@@ -29,6 +29,7 @@ const (
 	EventVerificationItemPending     = "verification.item.pending"
 	EventVerificationVerdictRework   = "verification.verdict.rework"
 	EventVerificationVerdictApproved = "verification.verdict.approved"
+	EventVerificationItemClosed      = "verification.item.closed"
 )
 
 // notification_type values this consumer writes. Both are in the migration 000179
@@ -76,6 +77,7 @@ type VerificationEventPayload struct {
 	Status     string             `json:"status"`   // status alias kept alongside decision
 	Reason     string             `json:"reason"`   // optional rework reason
 	VerifiedBy string             `json:"verified_by"`
+	ClosedBy   string             `json:"closed_by"`
 	CapturedAt string             `json:"captured_at"`
 	Source     verificationSource `json:"source"`
 }
@@ -128,6 +130,7 @@ func (c *VerificationEventConsumer) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventVerificationItemPending, c)
 	bus.Subscribe(EventVerificationVerdictRework, c)
 	bus.Subscribe(EventVerificationVerdictApproved, c)
+	bus.Subscribe(EventVerificationItemClosed, c)
 }
 
 // HandleEvent routes by event type. A corrupt payload → PermanentError (DLQ); a well-formed but
@@ -139,7 +142,8 @@ func (c *VerificationEventConsumer) HandleEvent(ctx context.Context, e eventbus.
 	}
 
 	switch e.Type {
-	case EventVerificationItemPending, EventVerificationVerdictRework:
+	case EventVerificationItemPending, EventVerificationVerdictRework,
+		EventVerificationVerdictApproved, EventVerificationItemClosed:
 		p, err := decodePayload(e.Payload)
 		if err != nil {
 			// Poison message: unparseable JSON can never succeed on retry → DLQ.
@@ -148,15 +152,101 @@ func (c *VerificationEventConsumer) HandleEvent(ctx context.Context, e eventbus.
 		if e.Type == EventVerificationItemPending {
 			return c.handleItemPending(ctx, p)
 		}
-		return c.handleVerdictRework(ctx, p)
-	case EventVerificationVerdictApproved:
-		// Approved verdicts are digest/metrics only — no push notification_request is created.
-		// (No metric surface exists for the daily double-verify rollup yet; when it does, record
-		// here. Until then this is an intentional no-op, NOT a dropped event.)
-		return nil
+		if e.Type == EventVerificationVerdictRework {
+			return c.handleVerdictRework(ctx, p)
+		}
+		if e.Type == EventVerificationVerdictApproved {
+			return c.handleVerdictApproved(ctx, p)
+		}
+		return c.handleItemClosed(ctx, p)
 	default:
 		return nil
 	}
+}
+
+func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p VerificationEventPayload) error {
+	tenantID := strings.TrimSpace(p.TenantID)
+	itemID := strings.TrimSpace(p.ItemID)
+	parkID := strings.TrimSpace(p.ParkID)
+	if tenantID == "" || itemID == "" || parkID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+	if err != nil {
+		return err
+	}
+	eventKey := EventVerificationVerdictApproved + ":" + itemID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  verificationCalendarEventID(itemID),
+		TargetType:       "verification_item",
+		TargetID:         itemID,
+		NotificationType: "verification_approved",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            "Vaccination proof verified",
+		Body:             "The proof is ready for operational closure.",
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":         "verification_approved",
+			"screen":       "leadership_close",
+			"item_id":      itemID,
+			"park_id":      parkID,
+			"shed_id":      p.ShedID,
+			"category":     p.Category,
+			"group_key":    "verification:" + parkID + ":" + p.Category,
+			"collapse_key": "verification:" + parkID + ":" + p.Category,
+			"priority":     priorityNormal,
+		},
+		Recipients: toQueueRecipients(parkHeadDevices, "park_head"),
+	})
+	return err
+}
+
+func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p VerificationEventPayload) error {
+	tenantID := strings.TrimSpace(p.TenantID)
+	itemID := strings.TrimSpace(p.ItemID)
+	operatorID := strings.TrimSpace(p.OperatorID)
+	parkID := strings.TrimSpace(p.ParkID)
+	if tenantID == "" || itemID == "" || operatorID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	operatorDevices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+	if err != nil {
+		return err
+	}
+	eventKey := EventVerificationItemClosed + ":" + itemID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  verificationCalendarEventID(itemID),
+		TargetType:       "verification_item",
+		TargetID:         itemID,
+		NotificationType: "verification_closed",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            "Vaccination record closed",
+		Body:             "The verified vaccination record is now complete.",
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":         "verification_closed",
+			"screen":       "record",
+			"item_id":      itemID,
+			"park_id":      parkID,
+			"shed_id":      p.ShedID,
+			"category":     p.Category,
+			"group_key":    "verification:" + parkID + ":" + p.Category,
+			"collapse_key": "verification:" + parkID + ":" + p.Category,
+			"priority":     priorityNormal,
+		},
+		Recipients: toQueueRecipients(operatorDevices, "operator"),
+	})
+	return err
 }
 
 // decodePayload parses the outbox payload. Returns an error only for genuinely corrupt JSON (the
@@ -215,11 +305,15 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":     NotificationTypeVerificationPending,
-			"item_id":  itemID,
-			"park_id":  parkID,
-			"category": p.Category,
-			"priority": priorityNormal,
+			"type":         NotificationTypeVerificationPending,
+			"screen":       "verification",
+			"item_id":      itemID,
+			"park_id":      parkID,
+			"shed_id":      p.ShedID,
+			"category":     p.Category,
+			"group_key":    "verification:" + parkID + ":" + p.Category,
+			"collapse_key": "verification:" + parkID + ":" + p.Category,
+			"priority":     priorityNormal,
 		},
 		Recipients: toQueueRecipients(verifierDevices, "verifier"),
 	})
@@ -293,11 +387,15 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":     NotificationTypeRework,
-			"item_id":  itemID,
-			"park_id":  parkID,
-			"category": p.Category,
-			"priority": priorityHigh,
+			"type":         NotificationTypeRework,
+			"screen":       "record",
+			"item_id":      itemID,
+			"park_id":      parkID,
+			"shed_id":      p.ShedID,
+			"category":     p.Category,
+			"group_key":    "verification:" + parkID + ":" + p.Category,
+			"collapse_key": "verification:" + parkID + ":" + p.Category,
+			"priority":     priorityHigh,
 		},
 		Recipients: recipients,
 	})

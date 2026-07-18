@@ -124,6 +124,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     data class CaptureCall(
         val fieldKey: String,
         val subject: ProofSubject,
+        val subjectId: String?,
         val localUri: String,
         val capturedStartMs: Long,
         val capturedEndMs: Long,
@@ -141,6 +142,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         taskId: String,
         fieldKey: String,
         subject: ProofSubject,
+        subjectId: String?,
         localUri: String,
         mimeType: String,
         caption: String?,
@@ -150,13 +152,14 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
     ): AppResult<ProofCaptureRow> {
-        captureCalls += CaptureCall(fieldKey, subject, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
-        val activeRows = rows.count { it.syncStatus != CaptureSyncStatus.FAILED }
-        if (activeRows >= maxProofs) return AppResult.Err("Maximum $maxProofs proof videos reached for this drive.")
+        captureCalls += CaptureCall(fieldKey, subject, subjectId, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
+        val activeRows = rows.count { it.subjectId == subjectId && it.syncStatus != CaptureSyncStatus.FAILED }
+        if (activeRows >= maxProofs) return AppResult.Err("Maximum $maxProofs proof videos reached for this goat.")
         val row = ProofCaptureRow(
             id = "proof-${nextId++}",
             fieldKey = fieldKey,
             proofSubject = subject,
+            subjectId = subjectId,
             localUri = localUri,
             mimeType = mimeType,
             caption = caption,

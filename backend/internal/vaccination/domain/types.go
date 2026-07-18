@@ -95,6 +95,20 @@ type RecordedCompletion struct {
 	RouteSite      string
 }
 
+// SubmissionCompletion is the durable per-goat completion context materialized from one
+// vaccination SOP submission. A submission may contain more than one vaccine obligation for the
+// same goat; verification groups these rows by GoatID so one handling clip can cover every vaccine
+// administered to that goat in that handling.
+type SubmissionCompletion struct {
+	CompletionID   string
+	SubmissionID   string
+	GoatID         string
+	GoatLabel      string
+	ShedID         string
+	ParkID         string
+	AdministeredAt time.Time
+}
+
 type RecordedCompletionCursor struct {
 	AdministeredAt time.Time
 	CompletionID   string

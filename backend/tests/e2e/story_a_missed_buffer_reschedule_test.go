@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
@@ -27,10 +27,13 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 
 	const goatMissed = "e1000000-0000-4000-8000-0000000000a1"
 	const goatBuffer = "e1000000-0000-4000-8000-0000000000a2"
+	const shedID = "e1000000-0000-4000-8000-0000000000a3"
+	const stageID = "e1000000-0000-4000-8000-0000000000a4"
 	missedDOB := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	bufferDOB := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
-	fx.SeedGoat(GoatSpec{GoatID: goatMissed, DOB: &missedDOB})
-	fx.SeedGoat(GoatSpec{GoatID: goatBuffer, DOB: &bufferDOB})
+	fx.SeedShed(shedID, "E2E-A", stageID)
+	fx.SeedGoat(GoatSpec{GoatID: goatMissed, ShedID: shedID, DOB: &missedDOB})
+	fx.SeedGoat(GoatSpec{GoatID: goatBuffer, ShedID: shedID, DOB: &bufferDOB})
 
 	story.Step("Generate one stale dose and one in-buffer dose",
 		"G-Missed's dose was due 2026-05-22 with its 14-day window closing 2026-06-05 (long since crossed). "+

@@ -406,8 +406,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
-			WithVerificationProducer(verificationService).
-			WithLogger(log)).
+			WithVerificationProducer(verificationService)).
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
 	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).

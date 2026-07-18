@@ -54,6 +54,16 @@ interface VerificationRepository {
         category: String? = null,
         limit: Int? = null,
     ): Result<Unit>
+
+    fun observeActionQueue(
+        category: String? = null,
+        limit: Int? = null,
+    ): Flow<Resource<VerificationQueueResponseDto>>
+
+    suspend fun refreshActionQueue(
+        category: String? = null,
+        limit: Int? = null,
+    ): Result<Unit>
 }
 
 class DefaultVerificationRepository(
@@ -117,6 +127,23 @@ class DefaultVerificationRepository(
         }
     }
 
+    override fun observeActionQueue(
+        category: String?,
+        limit: Int?,
+    ): Flow<Resource<VerificationQueueResponseDto>> {
+        val key = actionScopeKey(category, limit)
+        return queueDao.observe(key)
+            .map { entity -> entity.toResource(key) }
+            .flowOn(Dispatchers.Default)
+    }
+
+    override suspend fun refreshActionQueue(category: String?, limit: Int?): Result<Unit> = runCatching {
+        val dto = api.listVerificationActionQueue(category = category, cursor = null, limit = limit)
+        val key = actionScopeKey(category, limit)
+        queueDao.upsert(VerificationQueueCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+        queueDao.enforceCacheBounds()
+    }
+
     private suspend fun VerificationQueueCacheEntity?.toResource(key: String): Resource<VerificationQueueResponseDto> {
         val cached = readCachedJson<VerificationQueueResponseDto>(
             json = json,
@@ -130,13 +157,24 @@ class DefaultVerificationRepository(
     }
 
     private fun scopeKey(category: String?, limit: Int?): String = cacheKey("verify-queue", category, limit?.toString())
+
+    private fun actionScopeKey(category: String?, limit: Int?): String =
+        cacheKey("verification-action-queue", category, limit?.toString())
 }
 
 class VerificationQueueCursorException(message: String) : IllegalStateException(message)
 
+/** Retain at most three 20-row pages so manual infinite scroll remains useful without allowing
+ * the JSON cache row to grow for the lifetime of the verifier session. Older rows are evicted as
+ * the keyset window advances; a refresh restores the first page. */
+private const val MAX_CACHED_VERIFICATION_QUEUE_ITEMS = 60
+
 internal fun mergeVerificationQueuePage(
     current: VerificationQueueResponseDto,
     page: VerificationQueueResponseDto,
-): VerificationQueueResponseDto = page.copy(
-    items = (current.items + page.items).distinctBy { it.itemId },
-)
+): VerificationQueueResponseDto {
+    val boundedItems = (current.items + page.items)
+        .distinctBy { it.itemId }
+        .takeLast(MAX_CACHED_VERIFICATION_QUEUE_ITEMS)
+    return page.copy(items = boundedItems)
+}

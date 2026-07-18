@@ -105,7 +105,7 @@ class PushNotifications @Inject constructor(
      *  fixed notification ids). Prefers `obligation_id`/`shed_id` hashCode so repeat pushes
      *  about the SAME obligation/shed update the same slot instead of stacking duplicates. */
     private fun notificationId(payload: Map<String, String>): Int {
-        val stableKey = payload[PushExtras.OBLIGATION_ID] ?: payload[PushExtras.SHED_ID]
+        val stableKey = payload[PushExtras.ITEM_ID] ?: payload[PushExtras.OBLIGATION_ID] ?: payload[PushExtras.SHED_ID]
         return stableKey?.hashCode() ?: (BASE_NOTIFICATION_ID + Random.nextInt(1000))
     }
 
@@ -114,6 +114,9 @@ class PushNotifications @Inject constructor(
 
     private companion object {
         const val BASE_NOTIFICATION_ID = 5000
-        val VACCINATION_TYPES = setOf("reminder", "reschedule", "record", "verification", "verify", "rework")
+        val VACCINATION_TYPES = setOf(
+            "reminder", "reschedule", "record", "verification", "verification_pending",
+            "verification_approved", "verification_closed", "verify", "rework",
+        )
     }
 }

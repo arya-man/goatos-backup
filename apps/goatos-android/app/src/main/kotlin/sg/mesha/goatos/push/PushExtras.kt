@@ -19,6 +19,8 @@ object PushExtras {
     const val OBLIGATION_ID = "obligation_id"
     const val PARK_ID = "park_id"
     const val SHED_ID = "shed_id"
+    const val ITEM_ID = "item_id"
+    const val CATEGORY = "category"
     const val TARGET = "target"
     const val HREF = "href"
     const val SCREEN = "screen"
@@ -27,5 +29,5 @@ object PushExtras {
 
     /** The subset carried through to the tap intent / route resolver — [TITLE]/[BODY] are
      *  display-only and never affect routing. */
-    val ROUTE_KEYS = listOf(TYPE, OBLIGATION_ID, PARK_ID, SHED_ID, TARGET, HREF, SCREEN)
+    val ROUTE_KEYS = listOf(TYPE, OBLIGATION_ID, PARK_ID, SHED_ID, ITEM_ID, CATEGORY, TARGET, HREF, SCREEN)
 }

@@ -238,6 +238,17 @@ func (r *Repository) ClaimDue(ctx context.Context, params ports.ClaimParams) ([]
 // 'sending'), so a replay of an already-sent request affects zero rows, returns
 // an error, and never re-inserts an attempt row or a second event.
 func (r *Repository) MarkSent(ctx context.Context, tenantID, notificationRequestID, leaseToken, deliveredBy string, now time.Time) error {
+	return r.MarkSentWithResult(ctx, tenantID, notificationRequestID, leaseToken, deliveredBy, "", now)
+}
+
+// MarkSentWithResult is MarkSent plus the optional provider acknowledgement returned by adapters
+// such as FCM. The provider id is written in the same transaction as the sent state, immutable
+// attempt row, and notification.sent outbox evidence.
+func (r *Repository) MarkSentWithResult(
+	ctx context.Context,
+	tenantID, notificationRequestID, leaseToken, deliveredBy, providerMessageID string,
+	now time.Time,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -277,14 +288,11 @@ RETURNING
 		return fmt.Errorf("notification: mark sent: %w", err)
 	}
 
-	// provider_message_id is left NULL: ports.Gateway.Send returns only an error today, so no
-	// channel adapter (webhook/slack/email/incident/push_fcm) surfaces a provider-assigned
-	// message id back to the dispatcher. Threading it through would require widening the
-	// Gateway interface (Send returning (providerMessageID string, err error)) and updating
-	// every adapter implementation and both fakes in service_test.go / gateway_test.go -- out of
-	// scope for the audit-ledger change. Documented here per the ledger design; the column is
-	// nullable specifically to allow this.
-	if err := insertDeliveryAttempt(ctx, tx, tenantID, notificationRequestID, row.DeliveryAttempts, row.Channel, deliveryAttemptResultSent, now, nil, nil); err != nil {
+	var providerID *string
+	if trimmed := strings.TrimSpace(providerMessageID); trimmed != "" {
+		providerID = &trimmed
+	}
+	if err := insertDeliveryAttempt(ctx, tx, tenantID, notificationRequestID, row.DeliveryAttempts, row.Channel, deliveryAttemptResultSent, now, nil, providerID); err != nil {
 		return err
 	}
 	if err := insertNotificationSentEvidence(ctx, tx, tenantID, notificationRequestID, now, row); err != nil {

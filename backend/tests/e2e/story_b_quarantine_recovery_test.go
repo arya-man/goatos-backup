@@ -21,11 +21,14 @@ func TestKernelStoryB_ClinicalHoldRecovery(t *testing.T) {
 	defer story.Finish()
 	story.Certify("backend kernel")
 
-	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_b", 21, 0, []string{"sick", "quarantine", "icu"})
+	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_b", 21, 0, []string{"sick", "under_treatment", "recovering", "quarantine", "icu"})
 
 	const goatID = "e2000000-0000-4000-8000-0000000000b1"
+	const shedID = "e2000000-0000-4000-8000-0000000000b2"
+	const stageID = "e2000000-0000-4000-8000-0000000000b3"
 	dob := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	fx.SeedGoat(GoatSpec{GoatID: goatID, DOB: &dob})
+	fx.SeedShed(shedID, "E2E-B", stageID)
+	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
 
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 

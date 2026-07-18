@@ -14,7 +14,7 @@ import (
 // service, SM-4 sweeper, and process-integrity read model, and asserts the platform's scale
 // contract (per docs/decisions/operational-kernel-5k-50k-scale-envelope.md the current release
 // envelope is 5,000-50,000 animals with query-plan proof at the ~500k obligation-row upper bound,
-// and 1-5M-animal deployment is the future certification bar): per-shed drive grouping is exact, and the
+// and 1-5M-animal deployment is the future certification bar): park-drive grouping retains exact shed detail, and the
 // control-tower read path is keyset-paginated/bounded -- a page returns at most Limit rows with a
 // cursor to the next page, never a full-herd dump. Bounded/indexed reads are required at the current
 // envelope and remain the property the future 1-5M certification gate verifies.
@@ -29,7 +29,7 @@ func TestKernelStoryN_Scale(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-n", "Scale: multi-shed drive, bounded/indexed read path",
 		"A vaccination drive spans several sheds with dozens of goats. The generation engine and SM-4 "+
-			"sweeper must produce exactly one drive per shed with every goat in that shed attached, and the "+
+			"sweeper must produce one park drive with every shed-scoped goat attached, and the "+
 			"control-tower read path must be keyset-paginated -- each page returns at most its page size with "+
 			"a cursor to the next, so a director's dashboard never scans the whole herd to render one screen.")
 	defer story.Finish()
@@ -59,11 +59,12 @@ func TestKernelStoryN_Scale(t *testing.T) {
 		// stage_code unique constraint). The goats are kids by DOB (<16 weeks), so generation still
 		// uses the kid schedule path regardless of the shed's stage code.
 		fx.SeedAdultShed(shedID, fmt.Sprintf("E2E-N-%d", s), stageID, fmt.Sprintf("K1-N%d", s))
-		// Stock at each shed so the sweeper can reserve one dose per goat for that shed's drive.
+		// Park-held FEFO lots back the park-scoped vaccination drive. Multiple lots also prove the
+		// reservation path remains bounded and deterministic under a realistic inventory pool.
 		lotID := fmt.Sprintf("ee000000-0000-4000-8000-0000000003%02d", s)
 		fx.exec("vaccine stock",
 			`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-			 VALUES ($1, $2, $3, $4, 100, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, shedID)
+			 VALUES ($1, $2, $3, $4, 100, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, fxPark)
 		for g := 0; g < goatsPerShed; g++ {
 			goatID := fmt.Sprintf("ee000000-0000-4000-8000-00000004%02d%02d", s, g)
 			fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
@@ -73,27 +74,29 @@ func TestKernelStoryN_Scale(t *testing.T) {
 
 	story.Step(fmt.Sprintf("Seed %d goats across %d sheds", totalGoats, shedCount),
 		fmt.Sprintf("%d sheds, %d goats each (%d total), all past due for the same PC vaccination rule, each "+
-			"shed stocked with vaccine.", shedCount, goatsPerShed, totalGoats))
+			"served by park-held vaccine stock.", shedCount, goatsPerShed, totalGoats))
 
-	story.Step("Generate the whole cohort, then sweep into per-shed drives",
+	story.Step("Generate the whole cohort, then sweep into one park drive",
 		"Run the real GenerationService.GenerateForVersion over the whole version (chunked internally), "+
-			"then the real SM-4 sweeper. The sweeper must form exactly one drive per shed.")
+			"then the real SM-4 sweeper. The sweeper must club compatible animals into one park drive while retaining shed detail.")
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 	genRes, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, now)
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
 	story.Assert(fmt.Sprintf("all %d doses were generated", totalGoats), genRes.Generated == totalGoats, "generated=%d", genRes.Generated)
 
 	sweeper := oblapp.NewSweeperService(fx.Obl, nil, fx.Inv)
-	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{VaccineItemID: itemID, DosesPerGoat: 1}, now.AddDate(0, 0, 1))
+	sweepCfg := defaultParkSweepConfig()
+	sweepCfg.VaccineItemID = itemID
+	sweepCfg.DosesPerGoat = 1
+	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, sweepCfg, now.AddDate(0, 0, 1))
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
-	story.Assert(fmt.Sprintf("exactly %d drives formed (one per shed)", shedCount), sweepRes.Batches == shedCount, "batches=%d", sweepRes.Batches)
+	story.Assert("exactly one park drive formed", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
 	story.Assert(fmt.Sprintf("all %d obligations attached to drives", totalGoats), sweepRes.Obligations == totalGoats, "obligations=%d", sweepRes.Obligations)
 
-	story.Step("Per-shed grouping is exact",
-		"Every shed's drive holds exactly its own goats -- no cross-shed leakage. Each of the "+
-			"per-shed obligation scopes counts exactly its cohort.")
+	story.Step("Park drive retains exact per-shed detail",
+		"The park drive clubs compatible animals across sheds, while each shed-scoped obligation count remains exact for execution and proof.")
 	batchCount := fx.countRows(`SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
-	story.Assert(fmt.Sprintf("exactly %d drive batches persisted", shedCount), batchCount == shedCount, "batches=%d", batchCount)
+	story.Assert("exactly one park drive batch persisted", batchCount == 1, "batches=%d", batchCount)
 	groupingOK := true
 	for _, shedID := range shedIDs {
 		n := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='scheduled'`, fxTenant, shedID)

@@ -10,6 +10,11 @@
     <string name="submit_summary_cohort">Cohort</string>
     <string name="submit_summary_date">Date</string>
     <string name="submit_dose_label">Dose</string>
+    <string name="submit_goat_proof_title">Goat camera proof</string>
+    <string name="submit_goat_proof_synced">%1$d of %2$d goats synced</string>
+    <string name="submit_goat_proof_uploading">%1$d uploading</string>
+    <string name="submit_goat_proof_failed">%1$d need retry</string>
+    <string name="submit_goat_proof_finalize_hint">Finalize checks the synced records. It does not upload files.</string>
 
     <!-- Button labels -->
     <string name="submit_retry_label">Retry</string>
@@ -24,7 +29,7 @@
     <string name="submit_sync_conflict">Server rejected the submission.</string>
     <string name="submit_sync_dead_letter">Sync failed after %1$d attempts — tap retry.</string>
     <string name="submit_sync_no_task">No task assigned to you to submit.</string>
-    <string name="submit_sync_role_blocked">Capture and submit are limited to field operators and park managers.</string>
+    <string name="submit_sync_role_blocked">Capture and submit are limited to ground operators.</string>
     <string name="submit_sync_load_failed">Couldn\'t load your task. Tap retry.</string>
     <string name="submit_sync_queue_failed">Couldn\'t queue the submission — tap retry.</string>
     <string name="submit_sync_retry_failed">Couldn\'t retry — tap retry again.</string>

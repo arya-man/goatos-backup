@@ -386,13 +386,13 @@ fun AppNavHost(
         ) { entry ->
             val vm: ScanViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(vm, state.scanEnabled) {
+                vm.setCaptureActive(state.scanEnabled)
+            }
             DisposableEffect(vm) {
-                vm.setCaptureActive(true)
                 onDispose { vm.setCaptureActive(false) }
             }
-            ScanScreen(
-                state = state,
-                onEvent = { event ->
+            val onScanEvent: (ScanEvent) -> Unit = { event ->
                     when (event) {
                         ScanEvent.Submit -> navController.navigate(
                             Routes.submitRoute(
@@ -408,8 +408,17 @@ fun AppNavHost(
                         ScanEvent.ReconnectReader -> navController.navigate(Routes.RFID) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
-                },
-            )
+                }
+            if (state.scanEnabled) {
+                CaptureAccessGate {
+                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                    ScanScreen(state = state, onEvent = onScanEvent)
+                }
+            } else {
+                // Verifier/leadership may inspect a shed, but only operators ever receive
+                // scanner/camera controls or permission prompts.
+                ScanScreen(state = state, onEvent = onScanEvent)
+            }
         }
 
         // Submit — stays put; the VM advances the sync lifecycle (draft → syncing → acked).
@@ -419,13 +428,15 @@ fun AppNavHost(
         ) {
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            // Mandatory permission gate (§4): camera/Bluetooth/location/notifications/storage
-            // ALL granted before the capture surface renders at all — no degraded path.
-            CaptureAccessGate {
-                // MOB-002 camera-only capture: binds the LIVE in-app recorder to this screen's
-                // composition lifecycle only — released the moment Submit leaves composition.
-                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+            if (state.isCaptureRoleBlocked) {
                 SubmitScreen(state = state, onEvent = vm::onEvent)
+            } else {
+                // Capture permissions are operator-only. Verifier/leadership viewers never see
+                // camera/Bluetooth prompts merely for opening a read-only child surface.
+                CaptureAccessGate {
+                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                    SubmitScreen(state = state, onEvent = vm::onEvent)
+                }
             }
         }
 

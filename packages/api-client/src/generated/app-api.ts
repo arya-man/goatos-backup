@@ -1203,9 +1203,63 @@ export interface paths {
         put?: never;
         /**
          * Record the Verifier's approve/reject decision on one verification item.
-         * @description Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is advisory input; the authority (Head/Director/CEO) acts separately via the existing /admin/tasks/{task_id}/verify|rework surface.
+         * @description Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is advisory input; an authorized Park Head/Director/CEO/CxO closes the complete drive submission only after every goat proof in it has been approved.
          */
         post: operations["recordVerificationVerdict"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/action-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List verifier-approved items awaiting scoped leadership closure. */
+        get: operations["listVerificationActionQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/items/{item_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Operationally close an independently approved item. */
+        post: operations["closeVerificationItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/submissions/{submission_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Operationally close one fully verifier-approved drive submission.
+         * @description Atomically closes every goat proof item in the operator submission. The request fails closed unless every item has an approved verifier verdict. Replays after a successful close return the already-closed item set.
+         */
+        post: operations["closeVerificationSubmission"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3533,6 +3587,8 @@ export interface components {
             vertical: string;
             module: string;
             category: string;
+            /** @description Backend-owned goat/subject display label; never a raw UUID fallback. */
+            subject_label?: string;
             status: components["schemas"]["VerificationItemStatus"];
             verdict_reason?: string;
             /** Format: uuid */
@@ -3553,6 +3609,10 @@ export interface components {
             verified_by?: string;
             /** Format: date-time */
             verified_at?: string;
+            /** Format: uuid */
+            closed_by?: string;
+            /** Format: date-time */
+            closed_at?: string;
             row_version: number;
             media: components["schemas"]["VerificationMediaItem"][];
             source: components["schemas"]["VerificationSourceRef"];
@@ -3572,6 +3632,13 @@ export interface components {
         };
         VerificationVerdictResponse: {
             item: components["schemas"]["VerificationQueueItem"];
+            trace_id: string;
+        };
+        VerificationCloseRequest: {
+            row_version: number;
+        };
+        VerificationCloseSubmissionResponse: {
+            items: components["schemas"]["VerificationQueueItem"][];
             trace_id: string;
         };
     };
@@ -5833,6 +5900,95 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listVerificationActionQueue: {
+        parameters: {
+            query?: {
+                category?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped leadership action queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationQueueResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    closeVerificationItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerificationCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description Item closed; the producer applies its business transition asynchronously. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationVerdictResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    closeVerificationSubmission: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Drive submission closed; producer transitions are emitted per goat. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationCloseSubmissionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

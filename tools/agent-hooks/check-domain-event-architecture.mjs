@@ -102,9 +102,6 @@ const PREEXISTING_UNREGISTERED_SUBSCRIPTIONS = new Set([
   "counts.shifting_event.recorded",
   "vaccination.verify.rejected",
   "vaccination.verify.accepted",
-  "verification.item.pending",
-  "verification.verdict.rework",
-  "verification.verdict.approved",
   "goat.shifted",
 ]);
 

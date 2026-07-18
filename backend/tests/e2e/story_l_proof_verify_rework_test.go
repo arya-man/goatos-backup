@@ -65,11 +65,11 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 		 VALUES ($1, $2, 'VAC-E2E-L', 'E2E Story L vaccine', 'vaccine', 'dose')`, itemID, fxTenant)
 	fx.exec("vaccine stock",
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, shedID)
+		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, fxPark)
 
-	story.Step("Generate + sweep the goat into a one-shed drive",
+	story.Step("Generate + sweep the goat into a park drive with shed detail",
 		"Run the real generation service and the real SM-4 sweeper (with stock reservation) so the goat's "+
-			"dose becomes a real drive batch scoped to its shed.")
+			"shed-scoped dose becomes a real park drive batch while retaining its shed detail.")
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 	genRes, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, now)
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
@@ -80,35 +80,49 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: sopService, actorID: operatorID}, fx.Inv)
 	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{SOPVersionID: canonicalVaccinationSOPVersion, VaccineItemID: itemID, DosesPerGoat: 1}, now.AddDate(0, 0, 1))
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
-	story.Assert("one shed drive was formed", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
+	story.Assert("one park drive was formed", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
 
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
 	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
 	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
 	story.Assert("sweeper created executable SOP task", taskID != "", "task_id=%q", taskID)
+	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	story.Step("Operator uploads canonical proof and submits the first administration",
-		"All three task-bound proof videos and the exact goat/form payload pass through the SOP submission bridge, which records the completion.")
+		"A task-bound camera clip from the scanned goat row and the exact goat/form payload pass through the SOP submission bridge, which records the completion.")
 	proofService := proofapp.NewService(fx.Proof, prooflocal.New(t.TempDir(), "story-l-proof-secret"))
-	proofRefs := make([]sopdomain.ProofReference, 0, 3)
-	proofIDs := make(map[string]string, 3)
-	for _, subject := range []string{"shed", "vial_lot", "administration"} {
-		var subjectID *string
-		if subject == "shed" {
-			subjectID = storyAAPtrString(shedID)
-		}
+	captureGoatProof := func(key string) ([]sopdomain.ProofReference, error) {
 		target, proofErr := proofService.CreateUpload(fx.Ctx, proofdomain.CreateUpload{
 			TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4", ScopeType: "task", ScopeID: taskID,
-			SubjectType: subject, SubjectID: subjectID, UploadedBy: storyAAPtrString(operatorID), Metadata: map[string]any{"story": "L"},
+			SubjectType: "goat", SubjectID: storyAAPtrString(goatID), UploadedBy: storyAAPtrString(operatorID),
+			Metadata: map[string]any{
+				"capture_source":    "in_app_camera",
+				"captured_start_ms": int64(1000),
+				"captured_end_ms":   int64(5200),
+				"story":             "L:" + key,
+			},
 		})
-		story.Assert("proof registered for "+subject, proofErr == nil, "err=%v", proofErr)
 		if proofErr != nil {
-			continue
+			return nil, proofErr
 		}
-		_, proofErr = proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-l-"+subject))
-		story.Assert("proof binary completed for "+subject, proofErr == nil, "err=%v", proofErr)
-		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
-		proofIDs[subject] = target.Proof.ProofID
+		stored, proofErr := proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-l-goat-"+key))
+		if proofErr != nil {
+			return nil, proofErr
+		}
+		duration := int64(4200)
+		_, proofErr = proofService.CompleteUpload(fx.Ctx, proofdomain.CompleteUpload{
+			TenantID: fxTenant, ProofID: target.Proof.ProofID, ContentHash: stored.ContentHash,
+			MimeType: stored.MimeType, SizeBytes: stored.SizeBytes, DurationMS: &duration,
+		})
+		if proofErr != nil {
+			return nil, proofErr
+		}
+		return []sopdomain.ProofReference{{ProofID: target.Proof.ProofID}}, nil
+	}
+	proofRefs, proofErr := captureGoatProof("attempt-1")
+	story.Assert("first goat-row camera proof completed", proofErr == nil, "err=%v", proofErr)
+	if proofErr != nil {
+		return
 	}
 	vaccinationService := vaccapp.NewService(fx.Vacc)
 	verifyBus := eventbus.NewInProcessBus()
@@ -117,10 +131,9 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, verifyBus))
 	answers := map[string]any{
-		"vaccine_lot_id": lotID, "cold_chain_verified": true, "goat_ids": []any{goatID},
+		"vaccine_lot_id": reservedLot, "cold_chain_verified": true, "goat_ids": []any{goatID},
 		"dose_ml_given": 1.0, "doses": 1, "route_site": "subcutaneous", "administered_at": now.Format(time.RFC3339),
-		"adverse_reaction": false, "shed_video": proofIDs["shed"], "vial_lot_video": proofIDs["vial_lot"],
-		"administration_video": proofIDs["administration"],
+		"adverse_reaction": false,
 	}
 	first, err := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
 		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
@@ -160,10 +173,15 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 
 	story.Step("Operator reworks through the same SOP task with a fresh idempotency key",
 		"After rework the operator records the dose again under a new idempotency key -- a distinct "+
-			"administration attempt, not a replay of the rejected one.")
+			"administration attempt with fresh camera proof, not a replay of the rejected one.")
+	secondProofRefs, proofErr := captureGoatProof("attempt-2")
+	story.Assert("rework goat-row camera proof completed", proofErr == nil, "err=%v", proofErr)
+	if proofErr != nil {
+		return
+	}
 	second, err := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
 		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
-		Body: sopdomain.SubmitTaskRequest{SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: "story-l-attempt-2", Answers: answers, ProofRefs: proofRefs},
+		Body: sopdomain.SubmitTaskRequest{SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: "story-l-attempt-2", Answers: answers, ProofRefs: secondProofRefs},
 	}, "story-l-submit-2")
 	story.Assert("rework administration recorded under a new key", err == nil, "err=%v", err)
 	if err != nil {

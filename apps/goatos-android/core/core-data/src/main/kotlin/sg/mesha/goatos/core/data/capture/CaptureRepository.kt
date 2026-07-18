@@ -1,12 +1,14 @@
 package sg.mesha.goatos.core.data.capture
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonPrimitive
@@ -269,6 +271,7 @@ interface ProofCaptureRepository {
         taskId: String,
         fieldKey: String,
         subject: ProofSubject,
+        subjectId: String? = null,
         localUri: String,
         mimeType: String,
         caption: String?,
@@ -301,6 +304,16 @@ class DefaultProofCaptureRepository(
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : ProofCaptureRepository {
 
+    // Startup recovery is intentionally not bounded by the current device clock. Robolectric and
+    // real devices can both present non-monotonic wall-clock values across process death/reboot;
+    // every unsynced proof row is safe to revisit because enqueueRegistration uses the row's stable
+    // idempotency key.
+    private val startupRecoveryCutoffMs = Long.MAX_VALUE
+
+    init {
+        reconcileRecoverableUploads()
+    }
+
     override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> =
         dao.observeForTask(taskId).map { rows -> rows.map { it.toRow() } }.flowOn(dispatchers.default)
 
@@ -308,6 +321,7 @@ class DefaultProofCaptureRepository(
         taskId: String,
         fieldKey: String,
         subject: ProofSubject,
+        subjectId: String?,
         localUri: String,
         mimeType: String,
         caption: String?,
@@ -317,10 +331,14 @@ class DefaultProofCaptureRepository(
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
-        val existing = dao.activeCountForTask(taskId)
-        if (existing >= ProofCaptureDao.MAX_PROOFS_PER_TASK) {
+        val goatId = subjectId?.takeIf { it.isNotBlank() }
+        if (subject == ProofSubject.GOAT && goatId == null) {
+            return@withContext AppResult.Err("Select a scanned goat before recording proof.")
+        }
+        val existing = goatId?.let { dao.activeCountForSubject(taskId, it) } ?: 0
+        if (existing >= ProofCaptureDao.MAX_PROOFS_PER_GOAT) {
             return@withContext AppResult.Err(
-                "Maximum ${ProofCaptureDao.MAX_PROOFS_PER_TASK} proof videos reached for this drive.",
+                "Maximum ${ProofCaptureDao.MAX_PROOFS_PER_GOAT} proof videos reached for this goat.",
             )
         }
         val id = idGenerator()
@@ -330,6 +348,7 @@ class DefaultProofCaptureRepository(
             taskId = taskId,
             fieldKey = fieldKey,
             proofSubject = subject.wireValue,
+            subjectId = goatId,
             localUri = localUri,
             mimeType = mimeType,
             caption = caption,
@@ -381,51 +400,84 @@ class DefaultProofCaptureRepository(
         dao.clearForTask(taskId)
     }
 
-    /** Queues the metadata-registration write on the app-lifetime scope (never blocks the
-     *  caller's [capture] — the Room write above already made the capture durable) and follows
-     *  its outbox item to reflect PENDING -> IN_FLIGHT -> SYNCED/FAILED back onto the row. */
-    private fun enqueueRegistration(entity: ProofCaptureEntity, scopeType: String, scopeId: String) {
-        appScope.launch(dispatchers.io) {
-            val request = ProofUploadRequestDto(
-                proofType = "video",
-                mimeType = entity.mimeType,
-                scopeType = scopeType,
-                scopeId = scopeId,
-                subjectType = entity.proofSubject,
-                subjectId = null,
-                metadata = buildMap {
-                    put("field_key", JsonPrimitive(entity.fieldKey))
-                    entity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
-                    // Camera-only capture freshness proof (docs/mobile/proof-capture-sync-and-e2e.md
-                    // "Camera-only capture"): the verifier can see this was a live, timed,
-                    // attributable in-app recording, not an imported file.
-                    put("captured_start_ms", JsonPrimitive(entity.capturedStartMs))
-                    put("captured_end_ms", JsonPrimitive(entity.capturedEndMs))
-                    put("duration_ms", JsonPrimitive((entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0)))
-                    entity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
-                        ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
-                },
-            )
-            when (
-                val result = syncRepository.enqueueProofUpload(
-                    groupKey = scopeId.ifBlank { entity.taskId },
-                    idempotencyKey = entity.idempotencyKey,
-                    request = request,
-                    localFilePath = entity.localUri,
-                    durationMs = (entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0),
-                )
-            ) {
-                is AppResult.Ok -> {
-                    dao.setOutboxItemId(entity.id, result.value)
-                    followOutboxItem(entity.id, result.value)
-                }
-                is AppResult.Err -> dao.updateStatus(entity.id, EntitySyncStatus.FAILED.name, null, result.message)
+    /** Startup/process-recreation recovery for the two proof/outbox crash gaps:
+     *  1. proof row exists but process died before [enqueueRegistration] wrote [ProofCaptureEntity.outboxItemId];
+     *  2. proof row already has an outbox id but the old in-memory status collector died.
+     *
+     * Re-enqueue uses the row's stable [ProofCaptureEntity.idempotencyKey], so if the old process
+     * did create the outbox row but died before recording its id, [SyncRepository.enqueueProofUpload]
+     * returns that existing row instead of inserting a duplicate. */
+    private fun reconcileRecoverableUploads() {
+        // This is bounded by ProofCaptureDao.MAX_PROOFS_PER_TASK and only runs once per repository
+        // construction. It must complete before the new graph proceeds so a relaunched app does not
+        // leave already-captured camera proof rows without a durable outbox item.
+        runBlocking(dispatchers.io) {
+            reconcileRecoverableUploadsNow()
+        }
+    }
+
+    internal suspend fun reconcileRecoverableUploadsNow() {
+        dao.listRecoverableUploads(capturedBeforeMs = startupRecoveryCutoffMs).forEach { entity ->
+            val outboxItemId = entity.outboxItemId
+            if (outboxItemId.isNullOrBlank()) {
+                enqueueRegistrationNow(entity, scopeType = "task", scopeId = entity.taskId)
+            } else {
+                followOutboxItem(entity.id, outboxItemId)
+                syncRepository.triggerDrain()
             }
         }
     }
 
+    /** Queues the metadata-registration write on the app-lifetime scope (never blocks the
+     *  caller's [capture] — the Room write above already made the capture durable) and follows
+     *  its outbox item to reflect PENDING -> IN_FLIGHT -> SYNCED/FAILED back onto the row. */
+    private fun enqueueRegistration(entity: ProofCaptureEntity, scopeType: String, scopeId: String) {
+        appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
+            enqueueRegistrationNow(entity, scopeType, scopeId)
+        }
+    }
+
+    private suspend fun enqueueRegistrationNow(entity: ProofCaptureEntity, scopeType: String, scopeId: String) {
+        val request = ProofUploadRequestDto(
+            proofType = "video",
+            mimeType = entity.mimeType,
+            scopeType = scopeType,
+            scopeId = scopeId,
+            subjectType = entity.proofSubject,
+            subjectId = entity.subjectId,
+            metadata = buildMap {
+                put("field_key", JsonPrimitive(entity.fieldKey))
+                put("capture_source", JsonPrimitive("in_app_camera"))
+                entity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
+                // Camera-only capture freshness proof (docs/mobile/proof-capture-sync-and-e2e.md
+                // "Camera-only capture"): the verifier can see this was a live, timed,
+                // attributable in-app recording, not an imported file.
+                put("captured_start_ms", JsonPrimitive(entity.capturedStartMs))
+                put("captured_end_ms", JsonPrimitive(entity.capturedEndMs))
+                put("duration_ms", JsonPrimitive((entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0)))
+                entity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
+                    ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
+            },
+        )
+        when (
+            val result = syncRepository.enqueueProofUpload(
+                groupKey = scopeId.ifBlank { entity.taskId },
+                idempotencyKey = entity.idempotencyKey,
+                request = request,
+                localFilePath = entity.localUri,
+                durationMs = (entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0),
+            )
+        ) {
+            is AppResult.Ok -> {
+                dao.setOutboxItemId(entity.id, result.value)
+                followOutboxItem(entity.id, result.value)
+            }
+            is AppResult.Err -> dao.updateStatus(entity.id, EntitySyncStatus.FAILED.name, null, result.message)
+        }
+    }
+
     private fun followOutboxItem(rowId: String, outboxItemId: String) {
-        appScope.launch(dispatchers.io) {
+        appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
             syncRepository.observeStatus()
                 .map { status -> status.items.firstOrNull { it.id == outboxItemId } }
                 .filterNotNull()
@@ -464,6 +516,7 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     id = id,
     fieldKey = fieldKey,
     proofSubject = ProofSubject.from(proofSubject),
+    subjectId = subjectId,
     localUri = localUri,
     mimeType = mimeType,
     caption = caption,

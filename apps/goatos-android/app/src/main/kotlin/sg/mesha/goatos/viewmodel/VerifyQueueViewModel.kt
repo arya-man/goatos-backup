@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
@@ -23,6 +24,7 @@ import sg.mesha.goatos.feature.verify.VerifyCategoryOption
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
+import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import javax.inject.Inject
 
 private const val VERIFY_QUEUE_PAGE_SIZE = 20
@@ -45,7 +47,7 @@ class VerifyQueueViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
 ) : ViewModel() {
 
-    private val _selectedCategory = MutableStateFlow<String?>(null)
+    private val _selectedModule = MutableStateFlow(VerifyModuleTab.VACCINATION)
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
@@ -54,22 +56,25 @@ class VerifyQueueViewModel @Inject constructor(
     // moment _selectedCategory changes (same pattern as CalendarViewModel's _selectedDay).
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedResource: StateFlow<Resource<VerificationQueueResponseDto>> =
-        _selectedCategory.flatMapLatest { category ->
-            repo.observeQueue(category = category, limit = VERIFY_QUEUE_PAGE_SIZE)
+        _selectedModule.flatMapLatest { module ->
+            if (module == VerifyModuleTab.VACCINATION) {
+                repo.observeQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+            } else {
+                flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     val state: StateFlow<VerifyQueueUiState> = combine(
         observedResource,
-        _selectedCategory,
+        _selectedModule,
         _isRefreshing,
         _isOffline,
         _isLoadingMore,
-    ) { resource, category, isRefreshing, isOffline, isLoadingMore ->
+    ) { resource, module, isRefreshing, isOffline, isLoadingMore ->
         val items = resource.data?.items.orEmpty()
         VerifyQueueUiState(
             rows = items.map { it.toRow() },
-            categoryOptions = categoryOptions(items, category),
-            selectedCategory = category,
+            selectedModule = module,
             isRefreshing = isRefreshing,
             lastSyncedAt = resource.lastSyncedAt,
             isOffline = isOffline,
@@ -85,8 +90,11 @@ class VerifyQueueViewModel @Inject constructor(
     fun onEvent(event: VerifyQueueEvent) {
         when (event) {
             is VerifyQueueEvent.SelectCategory -> {
-                _selectedCategory.value = event.category
-                refresh()
+                Unit
+            }
+            is VerifyQueueEvent.SelectModule -> {
+                _selectedModule.value = event.module
+                if (event.module == VerifyModuleTab.VACCINATION) refresh()
             }
             is VerifyQueueEvent.OpenItem -> Unit // navigation — handled by the nav host.
             VerifyQueueEvent.Refresh -> refresh()
@@ -97,9 +105,9 @@ class VerifyQueueViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         _isLoadingMore.value = false
         _isRefreshing.value = true
-        val category = _selectedCategory.value
-        AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
-        val result = repo.refreshQueue(category = category, limit = VERIFY_QUEUE_PAGE_SIZE)
+        if (_selectedModule.value != VerifyModuleTab.VACCINATION) return@launch
+        AnalyticsFunnels.trackVerifyQueueOpened(analytics, VACCINATION_CATEGORY)
+        val result = repo.refreshQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
         _isOffline.value = result.isFailure
         _isRefreshing.value = false
     }
@@ -107,7 +115,7 @@ class VerifyQueueViewModel @Inject constructor(
     private fun loadMore() = viewModelScope.launch {
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
-        val result = repo.appendQueue(cursor = cursor, category = _selectedCategory.value, limit = VERIFY_QUEUE_PAGE_SIZE)
+        val result = repo.appendQueue(cursor = cursor, category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
         _isOffline.value = result.isFailure
         _isLoadingMore.value = false
     }
@@ -130,8 +138,8 @@ class VerifyQueueViewModel @Inject constructor(
 
     private fun VerificationQueueItem.toRow(): VerificationQueueRow {
         // Backend-owned display labels: never render raw UUIDs. Use labels when available.
-        val title = shedLabel ?: shedId ?: source.module.ifBlank { category }
-        val subtitle = listOfNotNull(parkLabel ?: parkId, operatorName ?: operatorId, capturedAt)
+        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { "Vaccination proof" }
+        val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt)
             .joinToString(" · ")
         return VerificationQueueRow(
             id = itemId,
@@ -143,6 +151,8 @@ class VerifyQueueViewModel @Inject constructor(
         )
     }
 }
+
+private const val VACCINATION_CATEGORY = "vaccination_proof"
 
 internal fun humanizeCategory(category: String): String =
     category.replace('_', ' ').replaceFirstChar { it.uppercase() }

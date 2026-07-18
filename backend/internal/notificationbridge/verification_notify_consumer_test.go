@@ -13,7 +13,7 @@ package notificationbridge_test
 //   - TestVerificationEventConsumer_ReplayAndDLQ    : retried transient failure -> no duplicate;
 //                                                     poison payload -> eventbus.PermanentError (DLQ).
 //   - TestVerificationEventConsumer_RecipientResolution : pending->verifier only; rework->operator
-//                                                     + park head; approved->ZERO rows.
+//                                                     + park head; approved->park head; closed->operator.
 //   - TestVerificationEventConsumer_LegacyDedup     : legacy vaccination SOP item rework -> NO row.
 
 import (
@@ -44,6 +44,7 @@ const (
 	vecItemLegacy   = "fa000000-0000-4000-8000-0000000000a4"
 	vecItemIdem     = "fa000000-0000-4000-8000-0000000000a5"
 	vecItemReplay   = "fa000000-0000-4000-8000-0000000000a6"
+	vecItemClosed   = "fa000000-0000-4000-8000-0000000000a7"
 )
 
 // vecSetup stands up a fresh Postgres, the roster + calendar services, the consumer, and seeds the
@@ -216,7 +217,8 @@ func TestVerificationEventConsumer_ReplayAndDLQ(t *testing.T) {
 }
 
 // TestVerificationEventConsumer_RecipientResolution proves per-event routing:
-// pending -> verifier device only; rework -> operator + park head; approved -> zero rows.
+// pending -> verifier device only; rework -> operator + park head; approved -> park head;
+// leadership closure -> operator.
 func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	ctx := context.Background()
 	pool, consumer := vecSetup(t)
@@ -247,16 +249,30 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 		t.Fatalf("rework must NOT notify the verifier: %v", reworkRefs)
 	}
 
-	// approved -> ZERO notification rows (digest/metrics only).
+	// approved -> park head only, so the independently verified item reaches operational closure.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictApproved,
 		vecItemApproved, vecPayload(vecItemApproved, vnOperatorMember, "approved", "", false))); err != nil {
 		t.Fatalf("approved handle: %v", err)
 	}
-	approvedRows := countRows(t, ctx, pool,
-		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
-		vnTenant, vecItemApproved)
-	if approvedRows != 0 {
-		t.Fatalf("approved verdict produced %d notification rows, want 0 (no push on approval)", approvedRows)
+	approvedRefs := vecRecipientRefs(t, ctx, pool, vecItemApproved)
+	if len(approvedRefs) != 1 || !approvedRefs[vnParkHeadToken] {
+		t.Fatalf("approved recipients = %v, want exactly {park head %q}", approvedRefs, vnParkHeadToken)
+	}
+	if approvedRefs[vnOperatorToken] || approvedRefs[vnVerifierToken] {
+		t.Fatalf("approved must NOT notify operator/verifier: %v", approvedRefs)
+	}
+
+	// closed -> the originating operator only; park head/verifier already completed their actions.
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationItemClosed,
+		vecItemClosed, vecPayload(vecItemClosed, vnOperatorMember, "approved", "", false))); err != nil {
+		t.Fatalf("closed handle: %v", err)
+	}
+	closedRefs := vecRecipientRefs(t, ctx, pool, vecItemClosed)
+	if len(closedRefs) != 1 || !closedRefs[vnOperatorToken] {
+		t.Fatalf("closed recipients = %v, want exactly {operator %q}", closedRefs, vnOperatorToken)
+	}
+	if closedRefs[vnParkHeadToken] || closedRefs[vnVerifierToken] {
+		t.Fatalf("closed must NOT notify park head/verifier: %v", closedRefs)
 	}
 }
 

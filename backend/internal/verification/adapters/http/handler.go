@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/verification/app"
@@ -32,7 +33,10 @@ func NewHandler(service *app.Service, log ...*slog.Logger) *Handler {
 
 func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /verification/queue", h.ListQueue)
+	mux.HandleFunc("GET /verification/action-queue", h.ListActionQueue)
 	mux.HandleFunc("POST /verification/items/{item_id}/verdict", h.RecordVerdict)
+	mux.HandleFunc("POST /verification/items/{item_id}/close", h.CloseItem)
+	mux.HandleFunc("POST /verification/submissions/{submission_id}/close", h.CloseSubmission)
 }
 
 type queueItemResponse struct {
@@ -40,6 +44,7 @@ type queueItemResponse struct {
 	Vertical      string             `json:"vertical"`
 	Module        string             `json:"module"`
 	Category      string             `json:"category"`
+	SubjectLabel  *string            `json:"subject_label,omitempty"`
 	Status        string             `json:"status"`
 	VerdictReason *string            `json:"verdict_reason,omitempty"`
 	OperatorID    *string            `json:"operator_id,omitempty"`
@@ -51,6 +56,8 @@ type queueItemResponse struct {
 	CapturedAt    string             `json:"captured_at"`
 	VerifiedBy    *string            `json:"verified_by,omitempty"`
 	VerifiedAt    *string            `json:"verified_at,omitempty"`
+	ClosedBy      *string            `json:"closed_by,omitempty"`
+	ClosedAt      *string            `json:"closed_at,omitempty"`
 	RowVersion    int                `json:"row_version"`
 	Media         []domain.MediaItem `json:"media"`
 	Source        sourceResponse     `json:"source"`
@@ -76,6 +83,11 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		s := row.Item.VerifiedAt.Format(rfc3339Nano)
 		verifiedAt = &s
 	}
+	var closedAt *string
+	if row.Item.ClosedAt != nil {
+		s := row.Item.ClosedAt.Format(rfc3339Nano)
+		closedAt = &s
+	}
 	media := row.Media
 	if media == nil {
 		media = []domain.MediaItem{}
@@ -85,6 +97,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		Vertical:      row.Item.Vertical,
 		Module:        row.Item.Module,
 		Category:      row.Item.Category,
+		SubjectLabel:  row.Item.SubjectLabel,
 		Status:        row.Item.Status,
 		VerdictReason: row.Item.VerdictReason,
 		OperatorID:    row.Item.OperatorID,
@@ -96,6 +109,8 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		CapturedAt:    row.Item.CapturedAt.Format(rfc3339Nano),
 		VerifiedBy:    row.Item.VerifiedBy,
 		VerifiedAt:    verifiedAt,
+		ClosedBy:      row.Item.ClosedBy,
+		ClosedAt:      closedAt,
 		RowVersion:    row.Item.RowVersion,
 		Media:         media,
 		Source: sourceResponse{
@@ -111,6 +126,19 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 const rfc3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
 
 func (h *Handler) ListQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
+	h.listQueue(w, r, permissions.VerificationReview, "")
+}
+
+func (h *Handler) ListActionQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
+	h.listQueue(w, r, permissions.VerificationAct, domain.StatusApproved)
+}
+
+func (h *Handler) listQueue(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	permission string,
+	forcedStatus string,
+) {
 	q := r.URL.Query()
 	limit, ok := parsePositiveLimit(q.Get("limit"))
 	if !ok {
@@ -126,14 +154,22 @@ func (h *Handler) ListQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
 		}
 		cursor = &decoded
 	}
+	restricted, parkIDs := verificationParkScope(r, permission)
+	status := forcedStatus
+	if status == "" {
+		status = q.Get("status")
+	}
 	result, err := h.service.ListQueue(r.Context(), ports.ListQueueParams{
-		TenantID: tenantID(r),
-		Category: q.Get("category"),
-		Vertical: q.Get("vertical"),
-		Module:   q.Get("module"),
-		Status:   q.Get("status"),
-		Cursor:   cursor,
-		Limit:    limit,
+		TenantID:        tenantID(r),
+		Category:        q.Get("category"),
+		Vertical:        q.Get("vertical"),
+		Module:          q.Get("module"),
+		Status:          status,
+		Cursor:          cursor,
+		Limit:           limit,
+		ParkIDs:         parkIDs,
+		ScopeRestricted: restricted,
+		ReadyForClosure: forcedStatus == domain.StatusApproved,
 	})
 	if err != nil {
 		h.respondError(w, r, err)
@@ -162,7 +198,16 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	item, err := h.service.RecordVerdict(r.Context(), domain.Verdict{
+	item, err := h.service.GetItem(r.Context(), tenantID(r), r.PathValue("item_id"))
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	if !verificationItemInScope(r, item, permissions.VerificationReview) {
+		h.respondError(w, r, app.NotFound("item_not_found", "verification item not found"))
+		return
+	}
+	item, err = h.service.RecordVerdict(r.Context(), domain.Verdict{
 		TenantID:   tenantID(r),
 		ItemID:     r.PathValue("item_id"),
 		Decision:   body.Decision,
@@ -178,6 +223,101 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		Item:    toQueueItemResponse(domain.QueueRow{Item: item}),
 		TraceID: traceID(r),
 	})
+}
+
+type closeItemRequest struct {
+	RowVersion int `json:"row_version"`
+}
+
+func (h *Handler) CloseItem(w nethttp.ResponseWriter, r *nethttp.Request) {
+	var body closeItemRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := h.service.GetItem(r.Context(), tenantID(r), r.PathValue("item_id"))
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	if !verificationItemInScope(r, item, permissions.VerificationAct) {
+		h.respondError(w, r, app.NotFound("item_not_found", "verification item not found"))
+		return
+	}
+	item, err = h.service.CloseItem(r.Context(), domain.CloseAction{
+		TenantID:   tenantID(r),
+		ItemID:     r.PathValue("item_id"),
+		ActorID:    actorID(r),
+		RowVersion: body.RowVersion,
+	})
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, nethttp.StatusOK, verdictResponse{
+		Item:    toQueueItemResponse(domain.QueueRow{Item: item}),
+		TraceID: traceID(r),
+	})
+}
+
+type closeSubmissionResponse struct {
+	Items   []queueItemResponse `json:"items"`
+	TraceID string              `json:"trace_id"`
+}
+
+func (h *Handler) CloseSubmission(w nethttp.ResponseWriter, r *nethttp.Request) {
+	submissionID := r.PathValue("submission_id")
+	items, err := h.service.GetSubmissionItems(r.Context(), tenantID(r), submissionID)
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	for _, item := range items {
+		if !verificationItemInScope(r, item, permissions.VerificationAct) {
+			h.respondError(w, r, app.NotFound("submission_not_found", "verification submission not found"))
+			return
+		}
+	}
+	items, err = h.service.CloseSubmission(r.Context(), domain.CloseSubmissionAction{
+		TenantID:     tenantID(r),
+		SubmissionID: submissionID,
+		ActorID:      actorID(r),
+	})
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	responseItems := make([]queueItemResponse, len(items))
+	for i, item := range items {
+		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item})
+	}
+	httpresponse.WriteJSON(w, nethttp.StatusOK, closeSubmissionResponse{
+		Items:   responseItems,
+		TraceID: traceID(r),
+	})
+}
+
+func verificationParkScope(r *nethttp.Request, permission string) (bool, []string) {
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) == 0 || httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
+		return false, nil
+	}
+	return true, permissions.ScopeIDsForPermission(grants, permission, "park")
+}
+
+func verificationItemInScope(r *nethttp.Request, item domain.Item, permission string) bool {
+	restricted, parkIDs := verificationParkScope(r, permission)
+	if !restricted {
+		return true
+	}
+	if item.ParkID == nil {
+		return false
+	}
+	for _, parkID := range parkIDs {
+		if parkID == *item.ParkID {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) respondError(w nethttp.ResponseWriter, r *nethttp.Request, err error) {

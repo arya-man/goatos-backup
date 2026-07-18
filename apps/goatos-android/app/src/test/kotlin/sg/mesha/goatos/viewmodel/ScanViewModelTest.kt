@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
 import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.forms.FormField
@@ -81,6 +82,9 @@ class ScanViewModelTest {
             reader = reader,
             scanCaptureRepository = scanCaptures,
             scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -95,6 +99,22 @@ class ScanViewModelTest {
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
 
         val submitSync = CapturingSubmitSyncRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val capturedProof = proofRepo.capture(
+            taskId = "task-1",
+            fieldKey = "vaccination_goat_proof",
+            subject = ProofSubject.GOAT,
+            subjectId = "goat-1",
+            localUri = "file://goat-1.mp4",
+            mimeType = "video/mp4",
+            caption = null,
+            scopeType = "task",
+            scopeId = "task-1",
+            capturedStartMs = 1_000,
+            capturedEndMs = 2_000,
+            capturedByPrincipalId = "operator-1",
+        ) as AppResult.Ok
+        proofRepo.markSynced(capturedProof.value.id, "proof-1")
         val submitVm = SubmitViewModel(
             repo = FakeTaskRepository(
                 task = TaskSummaryDto(taskId = "task-1", sopVersionId = "sop-1", scopeId = "shed-1", title = "Shed 1"),
@@ -106,7 +126,7 @@ class ScanViewModelTest {
             ),
             syncRepository = submitSync,
             scanCaptureRepository = scanCaptures,
-            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureRepository = proofRepo,
             scanSource = FakeScanSource(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
@@ -135,6 +155,9 @@ class ScanViewModelTest {
             reader = reader,
             scanCaptureRepository = scanCaptures,
             scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -166,6 +189,9 @@ class ScanViewModelTest {
             reader = reader,
             scanCaptureRepository = scanCaptures,
             scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -191,7 +217,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `manual ring tap does not persist a scan capture but later reader tag does`() = runTest(dispatcher) {
+    fun `manual goat tap persists the same Room-first draft as an RFID hit`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
@@ -202,6 +228,9 @@ class ScanViewModelTest {
             reader = reader,
             scanCaptureRepository = scanCaptures,
             scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -212,13 +241,16 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
-        assertEquals(emptyList<String>(), scanCaptures.tagsForTask("task-1"))
+        assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
 
         reader.emit("TAG-100")
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
-        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
+        assertEquals(
+            listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.ACCEPTED),
+            scanAttempts.calls.map { it.outcome },
+        )
     }
 
     @Test
@@ -259,7 +291,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `paginated scan roster exposes load more and scans a loaded page two tag`() = runTest(dispatcher) {
+    fun `scan screen warms the full shed roster before accepting page two tag reads`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
@@ -280,20 +312,18 @@ class ScanViewModelTest {
             reader = reader,
             scanCaptureRepository = scanCaptures,
             scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        assertTrue("page-one roster must expose the continuation affordance", vm.state.value.hasMore)
-        assertFalse("cannot submit while the server says another roster page exists", vm.state.value.canSubmit)
-
-        vm.onEvent(ScanEvent.LoadMore)
-        advanceUntilIdle()
-
         assertEquals(listOf("TAG-001", "TAG-200"), vm.state.value.roster.map { it.primaryTag })
-        assertFalse(vm.state.value.hasMore)
+        assertFalse("scan screen must not accept RFID until the complete shed roster is cached", vm.state.value.hasMore)
+        assertTrue("operator can scan once the complete roster is cached locally", vm.state.value.scanEnabled)
 
         reader.emit("TAG-200")
         advanceUntilIdle()
@@ -393,6 +423,18 @@ private class FakeScanExecutionRepository(
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
         scanRoster.value = Resource(data = firstPage, lastSyncedAt = 1L)
+    }
+
+    override suspend fun refreshCompleteScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
+        var merged = firstPage
+        scanRoster.value = Resource(data = merged, lastSyncedAt = 1L)
+        var cursor = merged.nextCursor
+        while (cursor != null) {
+            val page = continuationPages[cursor] ?: error("missing page")
+            merged = page.copy(rows = merged.rows + page.rows)
+            scanRoster.value = Resource(data = merged, lastSyncedAt = 2L)
+            cursor = merged.nextCursor
+        }
     }
 
     override suspend fun appendScanRoster(shedId: String, taskId: String?, cursor: String, limit: Int?): Result<Unit> = runCatching {

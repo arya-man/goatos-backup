@@ -70,12 +70,12 @@ func (c storyAATaskCreator) CreateTaskForBatch(ctx context.Context, tenantID, ba
 }
 
 // TestKernelStoryAA_OrphanSingletonShedDrive drives Batch story B layer 3: when only one goat is
-// due in a shed and no park merge partner exists, SM-4's shed fallback still creates a micro-drive.
+// due in a shed and no park merge partner exists, SM-4 still creates a park drive with shed detail.
 func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	fx := NewFixture(t)
-	story := NewStory(t, "story-aa", "Orphan singleton: shed micro-drive fallback",
+	story := NewStory(t, "story-aa", "Orphan singleton: park micro-drive fallback",
 		"Only one goat is due in its shed — below the minimum for a normal shed drive and with no "+
-			"park partner to merge. SM-4 layer 3 must still batch it via the orphan singleton shed fallback.")
+			"park partner to merge. SM-4 layer 3 must still batch it into a park drive retaining shed detail.")
 	story.Certify("authenticated admin-web HTTP + backend kernel + durable outbox envelope + domain consumer")
 	defer story.Finish()
 
@@ -105,13 +105,13 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	fx.exec("vaccine stock",
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
 		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`,
-		stockID, fxTenant, itemID, shedID)
+		stockID, fxTenant, itemID, fxPark)
 
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, due)
 
 	story.Step("Sweep with park consolidation enabled but no merge partner",
-		"Layer 1 skips the singleton; layer 2 finds no park merge; layer 3 creates a shed micro-drive.")
+		"Layer 1 skips the singleton; layer 2 finds no merge partner; layer 3 creates a park micro-drive retaining the goat's shed detail.")
 	sopRepo := soppg.NewRepository(fx.Pool, 5*time.Second)
 	sopService := sopapp.NewService(sopRepo)
 	sweepCfg := defaultParkSweepConfig()
@@ -127,36 +127,42 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	story.Assert("orphan goat is on a batch", batchID != "", "batch_id=%q", batchID)
 
 	scopeType := fx.scanText(`SELECT scope_type FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
-	story.Assert("fallback drive is shed-scoped", scopeType == "shed", "scope_type=%q", scopeType)
+	story.Assert("fallback drive is park-scoped", scopeType == "park", "scope_type=%q", scopeType)
 
 	taskID := fx.scanText(`SELECT COALESCE(sop_task_id::text, '') FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
 	story.Assert("production sweeper created executable SOP task", taskID != "", "task_id=%q", taskID)
+	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	story.Step("Operator uploads proof and submits the exact micro-drive task",
-		"The canonical SOP validates three completed task-bound proof artifacts and materializes the recorded dose from the per-goat submission item.")
+		"The canonical SOP validates the completed camera clip bound to the scanned goat and materializes the recorded dose from the per-goat submission item.")
 	proofService := proofapp.NewService(fx.Proof, prooflocal.New(t.TempDir(), "story-aa-proof-secret"))
-	proofRefs := make([]sopdomain.ProofReference, 0, 3)
-	proofIDs := make(map[string]string, 3)
-	for _, subject := range []string{"shed", "vial_lot", "administration"} {
-		var subjectID *string
-		if subject == "shed" {
-			value := shedID
-			subjectID = &value
-		}
-		target, uploadErr := proofService.CreateUpload(fx.Ctx, proofdomain.CreateUpload{
-			TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4",
-			ScopeType: "task", ScopeID: taskID, SubjectType: subject, SubjectID: subjectID,
-			UploadedBy: storyAAPtrString(operatorID), Metadata: map[string]any{"story": "AA"},
-		})
-		story.Assert("proof upload registered for "+subject, uploadErr == nil, "err=%v", uploadErr)
-		if uploadErr != nil {
-			continue
-		}
-		_, uploadErr = proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-aa-"+subject))
-		story.Assert("proof binary completed for "+subject, uploadErr == nil, "err=%v", uploadErr)
-		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
-		proofIDs[subject] = target.Proof.ProofID
+	target, uploadErr := proofService.CreateUpload(fx.Ctx, proofdomain.CreateUpload{
+		TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4",
+		ScopeType: "task", ScopeID: taskID, SubjectType: "goat", SubjectID: storyAAPtrString(goatID),
+		UploadedBy: storyAAPtrString(operatorID), Metadata: map[string]any{
+			"capture_source": "in_app_camera", "captured_start_ms": int64(1000),
+			"captured_end_ms": int64(5200), "story": "AA",
+		},
+	})
+	story.Assert("goat proof upload registered", uploadErr == nil, "err=%v", uploadErr)
+	if uploadErr != nil {
+		return
 	}
+	stored, uploadErr := proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-aa-goat"))
+	story.Assert("goat proof binary stored", uploadErr == nil, "err=%v", uploadErr)
+	if uploadErr != nil {
+		return
+	}
+	duration := int64(4200)
+	_, uploadErr = proofService.CompleteUpload(fx.Ctx, proofdomain.CompleteUpload{
+		TenantID: fxTenant, ProofID: target.Proof.ProofID, ContentHash: stored.ContentHash,
+		MimeType: stored.MimeType, SizeBytes: stored.SizeBytes, DurationMS: &duration,
+	})
+	story.Assert("goat proof binary completed", uploadErr == nil, "err=%v", uploadErr)
+	if uploadErr != nil {
+		return
+	}
+	proofRefs := []sopdomain.ProofReference{{ProofID: target.Proof.ProofID}}
 
 	vaccinationService := vaccapp.NewService(fx.Vacc)
 	verificationBus := eventbus.NewInProcessBus()
@@ -171,10 +177,8 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 			SOPVersionID:   canonicalVaccinationSOPVersion,
 			IdempotencyKey: "story-aa-submit",
 			Answers: map[string]any{
-				"vaccine_lot_id": stockID, "cold_chain_verified": true,
-				"shed_video": proofIDs["shed"], "vial_lot_video": proofIDs["vial_lot"],
-				"administration_video": proofIDs["administration"],
-				"goat_ids":             []any{goatID}, "dose_ml_given": 1.0, "doses": 1,
+				"vaccine_lot_id": reservedLot, "cold_chain_verified": true,
+				"goat_ids": []any{goatID}, "dose_ml_given": 1.0, "doses": 1,
 				"route_site": "subcutaneous", "administered_at": administeredAt.Format(time.RFC3339),
 				"adverse_reaction": false,
 			},

@@ -79,7 +79,9 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"name":"projects/goatos-dev/messages/provider-123"}`))
 	}))
 	defer server.Close()
 
@@ -87,9 +89,12 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 		FCMEndpoint:    server.URL + "/v1/projects/goatos-dev/messages:send",
 		FCMBearerToken: "fcm-token",
 	}, nil)
-	err := gateway.Send(context.Background(), request("push_fcm", "device-token-1"))
+	result, err := gateway.SendWithResult(context.Background(), request("push_fcm", "device-token-1"))
 	if err != nil {
 		t.Fatalf("Send FCM: %v", err)
+	}
+	if result.ProviderMessageID != "projects/goatos-dev/messages/provider-123" {
+		t.Fatalf("ProviderMessageID = %q", result.ProviderMessageID)
 	}
 	if gotAuth != "Bearer fcm-token" {
 		t.Fatalf("Authorization = %q", gotAuth)

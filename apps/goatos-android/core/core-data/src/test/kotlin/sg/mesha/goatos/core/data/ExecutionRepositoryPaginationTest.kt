@@ -73,6 +73,20 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
+    fun `complete scan roster warms every page into Room before BLE capture`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = ::numberedPage
+
+            repository.refreshCompleteScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val cached = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
+            assertEquals(TOTAL_ROWS, cached.rows.size)
+            assertNull(cached.nextCursor)
+            assertEquals(listOf(null, "cursor-1", "cursor-2"), requests.map { it.cursor })
+        }
+    }
+
+    @Test
     fun `stale cursor is rejected before network and cache stays intact`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = ::numberedPage

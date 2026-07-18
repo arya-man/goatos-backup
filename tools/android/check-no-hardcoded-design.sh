@@ -11,7 +11,7 @@ set -euo pipefail
 
 ROOT="apps/goatos-android"
 # Only production UI sources; core-designsystem (token definitions) + tests excluded.
-SCAN=("$ROOT/app/src/main" "$ROOT/feature")
+SCAN=("$ROOT/app/src/main" "$ROOT/feature" "$ROOT/core/core-ui/src/main")
 
 scan() {
   local pattern="$1"

@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
@@ -69,9 +70,12 @@ data class VerificationQueueRow(
  *  verification-module-design.md §2.3). */
 data class VerifyCategoryOption(val value: String?, val label: String?)
 
+enum class VerifyModuleTab { VACCINATION, COUNTS, FEED_DIRECTION }
+
 @Immutable
 data class VerifyQueueUiState(
     val rows: List<VerificationQueueRow> = emptyList(),
+    val selectedModule: VerifyModuleTab = VerifyModuleTab.VACCINATION,
     val categoryOptions: List<VerifyCategoryOption> = emptyList(),
     val selectedCategory: String? = null,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
@@ -91,6 +95,7 @@ sealed interface VerifyQueueEvent {
     data class OpenItem(val itemId: String, val category: String) : VerifyQueueEvent
     data object Refresh : VerifyQueueEvent
     data object LoadMore : VerifyQueueEvent
+    data class SelectModule(val module: VerifyModuleTab) : VerifyQueueEvent
 }
 
 @Composable
@@ -105,6 +110,10 @@ fun VerifyQueueScreen(
             .background(MeshaColors.PageBg),
     ) {
         QueueHeader(state = state, onRefresh = { onEvent(VerifyQueueEvent.Refresh) })
+        ModuleTabs(
+            selected = state.selectedModule,
+            onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
+        )
         if (state.categoryOptions.size > 1) {
             CategoryFilterRow(
                 options = state.categoryOptions,
@@ -116,7 +125,18 @@ fun VerifyQueueScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            if (state.rows.isEmpty()) {
+            if (state.selectedModule != VerifyModuleTab.VACCINATION) {
+                item {
+                    EmptyState(
+                        title = stringResource(R.string.verify_module_under_construction),
+                        subtitle = stringResource(R.string.verify_module_under_construction_subtitle),
+                        icon = MeshaIcons.Video,
+                        tone = EmptyTone.Neutral,
+                    )
+                }
+            } else if (state.rows.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
+                item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth()) }
+            } else if (state.rows.isEmpty()) {
                 item {
                     EmptyState(
                         title = stringResource(R.string.verify_queue_empty),
@@ -140,6 +160,27 @@ fun VerifyQueueScreen(
                 }
             }
             item { Spacer(Modifier.size(24.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun ModuleTabs(
+    selected: VerifyModuleTab,
+    onSelect: (VerifyModuleTab) -> Unit,
+) {
+    val tabs = listOf(
+        VerifyModuleTab.VACCINATION to stringResource(R.string.verify_module_vaccination),
+        VerifyModuleTab.COUNTS to stringResource(R.string.verify_module_counts),
+        VerifyModuleTab.FEED_DIRECTION to stringResource(R.string.verify_module_feed_direction),
+    )
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 10.dp),
+    ) {
+        items(tabs, key = { it.first.name }) { (tab, label) ->
+            CategoryChip(label = label, selected = tab == selected, onClick = { onSelect(tab) })
         }
     }
 }

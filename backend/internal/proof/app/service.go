@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -294,6 +295,22 @@ func validateCreate(in domain.CreateUpload) error {
 	if !oneOf(in.SubjectType, "batch", "goat", "shed", "task", "vial_lot", "administration", "other") {
 		return ErrInvalid
 	}
+	if in.ProofType == "video" {
+		if in.UploadedBy == nil || *in.UploadedBy == "" {
+			return ErrInvalid
+		}
+		if in.Metadata["capture_source"] != "in_app_camera" {
+			return ErrInvalid
+		}
+		start, startOK := metadataNumber(in.Metadata["captured_start_ms"])
+		end, endOK := metadataNumber(in.Metadata["captured_end_ms"])
+		if !startOK || !endOK || start <= 0 || end < start {
+			return ErrInvalid
+		}
+	}
+	if in.SubjectType == "goat" && (in.SubjectID == nil || *in.SubjectID == "") {
+		return ErrInvalid
+	}
 	return nil
 }
 
@@ -317,4 +334,22 @@ func oneOf(value string, allowed ...string) bool {
 		}
 	}
 	return false
+}
+
+func metadataNumber(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		number, err := typed.Float64()
+		return number, err == nil
+	default:
+		return 0, false
+	}
 }

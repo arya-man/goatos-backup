@@ -69,6 +69,31 @@ func TestServiceDoesNotRetryPermanentChannelMisconfiguration(t *testing.T) {
 	}
 }
 
+func TestServicePersistsProviderAcknowledgementWhenGatewayAndRepositorySupportIt(t *testing.T) {
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	baseRepo := &fakeRepo{requests: []domain.Request{{
+		TenantID:              testTenant,
+		NotificationRequestID: "86000000-0000-4000-8000-000000000005",
+		LeaseToken:            "86000000-0000-4000-8000-000000000105",
+		Channel:               "push_fcm",
+		DeliveryAttempts:      1,
+	}}}
+	repo := &providerResultRepo{fakeRepo: baseRepo}
+	gateway := &providerResultGateway{providerMessageID: "projects/goatos-dev/messages/provider-123"}
+	service := NewService(repo, gateway, Config{Now: func() time.Time { return now }}, nil)
+
+	result, err := service.RunOnce(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if result.SentCount != 1 {
+		t.Fatalf("result=%#v", result)
+	}
+	if repo.providerMessageID != gateway.providerMessageID {
+		t.Fatalf("providerMessageID=%q want %q", repo.providerMessageID, gateway.providerMessageID)
+	}
+}
+
 // TestServiceRunOnceExportsGlobalBacklogAge proves the KERN-REV-06A fix: the
 // backlog age comes from the repository's GLOBAL oldest-due query (not the
 // claimed batch), so a saturated batch of newer requests cannot hide it, and a
@@ -139,6 +164,33 @@ func (f *fakeRepo) MarkFailed(_ context.Context, _, notificationRequestID, _, _,
 type fakeGateway struct {
 	failChannel string
 	err         error
+}
+
+type providerResultRepo struct {
+	*fakeRepo
+	providerMessageID string
+}
+
+func (r *providerResultRepo) MarkSentWithResult(
+	_ context.Context,
+	_, notificationRequestID, _, _, providerMessageID string,
+	_ time.Time,
+) error {
+	r.sent = append(r.sent, notificationRequestID)
+	r.providerMessageID = providerMessageID
+	return nil
+}
+
+type providerResultGateway struct {
+	providerMessageID string
+}
+
+func (g *providerResultGateway) Name() string { return "provider-result" }
+
+func (g *providerResultGateway) Send(context.Context, domain.Request) error { return nil }
+
+func (g *providerResultGateway) SendWithResult(context.Context, domain.Request) (ports.DeliveryResult, error) {
+	return ports.DeliveryResult{ProviderMessageID: g.providerMessageID}, nil
 }
 
 func (f *fakeGateway) Name() string { return "fake" }

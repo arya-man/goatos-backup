@@ -206,3 +206,15 @@ val MIGRATION_8_9: Migration = object : Migration(8, 9) {
         )
     }
 }
+
+/** v9 -> v10: row-level vaccination proof. Existing captures stay readable as unbound legacy
+ * clips; all new vaccination captures persist a goat subject before their outbox write. */
+val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `subjectId` TEXT")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_taskId_subjectId_capturedAtMs` " +
+                "ON `proof_capture` (`taskId`, `subjectId`, `capturedAtMs`)",
+        )
+    }
+}

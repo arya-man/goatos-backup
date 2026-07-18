@@ -46,6 +46,25 @@ class VerificationRepositoryPaginationTest {
     }
 
     @Test
+    fun `queue merge evicts the oldest rows after three pages`() {
+        val merged = (1..5).fold(VerificationQueueResponseDto(items = emptyList())) { current, pageNumber ->
+            mergeVerificationQueuePage(
+                current,
+                VerificationQueueResponseDto(
+                    items = ((pageNumber - 1) * PAGE_SIZE + 1..pageNumber * PAGE_SIZE)
+                        .map { item("item-$it") },
+                    nextCursor = "cursor-$pageNumber",
+                ),
+            )
+        }
+
+        assertEquals(60, merged.items.size)
+        assertEquals("item-41", merged.items.first().itemId)
+        assertEquals("item-100", merged.items.last().itemId)
+        assertEquals("cursor-5", merged.nextCursor)
+    }
+
+    @Test
     fun `refresh then append persists a bounded keyset window through Room`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = ::numberedPage

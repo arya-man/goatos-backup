@@ -54,17 +54,23 @@ validate_goose_structure() {
   done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 }
 
-validate_clean_slate_baseline() {
-  local count
-  count="$(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
-  if [[ "$count" != "1" ]]; then
-    echo "clean-slate baseline expects exactly one Postgres migration, found $count" >&2
-    exit 1
-  fi
+validate_baseline_and_forward_chain() {
   if [[ ! -f "$repo_root/backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql" ]]; then
     echo "missing clean-slate baseline migration 000001_goatos_clean_slate_baseline.sql" >&2
     exit 1
   fi
+
+  local expected=1 migration version
+  while IFS= read -r migration; do
+    version="$(basename "$migration" | sed -E 's/^([0-9]+)_.*/\1/' | sed -E 's/^0+//')"
+    version="${version:-0}"
+    if (( version != expected )); then
+      printf 'Postgres migration chain is not gap-free: expected version %06d, found %s\n' \
+        "$expected" "$(basename "$migration")" >&2
+      exit 1
+    fi
+    expected=$((expected + 1))
+  done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 }
 
 apply_goose_up() {
@@ -90,7 +96,7 @@ expect_failure() {
 }
 
 validate_goose_structure
-validate_clean_slate_baseline
+validate_baseline_and_forward_chain
 
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
