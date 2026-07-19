@@ -5,12 +5,22 @@ on:
     paths:
       - "apps/goatos-android/**"
       - "tools/android/**"
+      - "tools/agent-hooks/check-android-*.mjs"
+      - "tools/ci/**"
+      - ".agents/skills/mobile-anti-patterns/**"
+      - "docs/mobile/**"
+      - "Makefile"
       - ".github/workflows/android-quality.yml"
   push:
     branches: [main]
     paths:
       - "apps/goatos-android/**"
       - "tools/android/**"
+      - "tools/agent-hooks/check-android-*.mjs"
+      - "tools/ci/**"
+      - ".agents/skills/mobile-anti-patterns/**"
+      - "docs/mobile/**"
+      - "Makefile"
       - ".github/workflows/android-quality.yml"
   workflow_dispatch:
     inputs:
@@ -46,9 +56,7 @@ jobs:
           java-version: "21"
       - uses: android-actions/setup-android@v3
       - name: Compile + unit test (:app stg release)
-        run: |
-          make ci-local JOB=android
-          (cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain)
+        run: make ci-local JOB=android
 
   baseline-profile-and-macrobenchmark:
     if: github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true

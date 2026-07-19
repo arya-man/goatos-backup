@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="scan_back_cd">ಹಿಂದಕ್ಕೆ</string>
+    <string name="scan_header_eyebrow">ಲಸಿಕೆ</string>
+    <string name="scan_header_title">ಶೆಡ್ ಸ್ಕ್ಯಾನ್</string>
+    <string name="scan_switch_shed">ಶೆಡ್ ಬದಲಿಸಿ</string>
+    <string name="scan_list_title_default">ಸ್ಕ್ಯಾನ್ ಮಾಡಿದ ಮೇಕೆಗಳು</string>
     <string name="scan_feed_empty">ಇನ್ನೂ ಯಾವುದೇ ಟ್ಯಾಪ್ ಇಲ್ಲ</string>
     <string name="scan_badge_two_tags">2 ಟ್ಯಾಗ್‌ಗಳು</string>
     <string name="scan_search_placeholder">ಯಾವುದೇ RFID ಟ್ಯಾಗ್ ಹುಡುಕಿ…</string>
     <string name="scan_search_empty">ಹೊಂದಿಕೆಯಾಗುವ ಪಶುವೆ ಇಲ್ಲ</string>
     <string name="scan_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="scan_loading_more">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="scan_submit_default">ಶೆಡ್ ಪೂರ್ಣಗೊಳಿಸಿ</string>
 </resources>

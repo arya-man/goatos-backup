@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -343,7 +344,9 @@ private fun ForgotPasswordLink(enabled: Boolean, onClick: () -> Unit) {
         text = stringResource(R.string.login_forgot_password),
         color = if (enabled) MeshaColors.Brand else MeshaColors.Faint,
         style = MeshaType.cardSubtitle.copy(fontWeight = FontWeight.W700),
-        modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .clickable(enabled = enabled, onClick = onClick),
     )
 }
 

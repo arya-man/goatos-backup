@@ -116,6 +116,19 @@ class ScanViewModel @Inject constructor(
         } ?: flowOf(ProofPolicy.Default))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProofPolicy.Default)
 
+    /**
+     * Durable RFID evidence already written to Room for this task. This is the process-recreation
+     * source of truth: a killed/restarted app must render scanned goats as done instead of resetting
+     * the operator to 0/N while the outbox and backend still contain those captures.
+     */
+    private val persistedScanDone: StateFlow<Set<String>> =
+        (taskId?.let { id ->
+            scanCaptureRepository.observeScannedTags(id, ROSTER_SCAN_FIELD_KEY).map { rows ->
+                rows.mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }.toSet()
+            }
+        } ?: flowOf(emptySet()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     private val _operatorAllowed = MutableStateFlow<Boolean?>(null)
     private var currentPrincipalId: String? = null
     private var proofCaptureInFlight = false
@@ -131,9 +144,9 @@ class ScanViewModel @Inject constructor(
     private val _rosterExpanded = MutableStateFlow(false)
     private val _selectedVaccineGroupId = MutableStateFlow<String?>(null)
 
-    // Draft scan overlay (survives Room re-emission): obligationIds locally marked DONE (unsynced)
-    // by a hardware tag read or manual ring tap, plus the live feed rows. These are overlaid onto
-    // the observed roster in the combine so an in-progress scan is not lost when Room re-emits.
+    // Transient draft overlay: obligationIds marked DONE during this ViewModel session by a
+    // hardware tag read or manual ring tap. Real hardware reads are also written to Room and
+    // re-enter through [persistedScanDone]; manual taps intentionally disappear after recreation.
     private val _localDone = MutableStateFlow<Set<String>>(emptySet())
     private val _manualDone = MutableStateFlow<Set<String>>(emptySet())
     private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
@@ -149,6 +162,7 @@ class ScanViewModel @Inject constructor(
         _selectedFilter,
         _rosterExpanded,
         _selectedVaccineGroupId,
+        persistedScanDone,
         _localDone,
         _feed,
         reader.status,
@@ -165,14 +179,15 @@ class ScanViewModel @Inject constructor(
         val selectedFilter = values[4] as ScanStatus?
         val rosterExpanded = values[5] as Boolean
         val selectedGroupId = values[6] as String?
-        val localDone = values[7] as Set<String>
-        val feed = values[8] as List<ScanFeedEntry>
-        val readerStatus = values[9] as RfidReaderStatus
-        val readerName = values[10] as String?
-        val counts = values[11] as List<StatusCount>
-        val proofs = values[12] as List<ProofCaptureRow>
-        val operatorAllowed = values[13] as Boolean?
-        val refreshError = values[14] as String?
+        val persistedDone = values[7] as Set<String>
+        val localDone = persistedDone + (values[8] as Set<String>)
+        val feed = values[9] as List<ScanFeedEntry>
+        val readerStatus = values[10] as RfidReaderStatus
+        val readerName = values[11] as String?
+        val counts = values[12] as List<StatusCount>
+        val proofs = values[13] as List<ProofCaptureRow>
+        val operatorAllowed = values[14] as Boolean?
+        val refreshError = values[15] as String?
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
         // R50-009: Cold cache + failed refresh → error/retry state (data null + error present)
@@ -334,7 +349,7 @@ class ScanViewModel @Inject constructor(
             // Map DB row to UI row for status and tag-role matching, overlaying the session's
             // local unsynced DONE edits (same overlay as applyResource) so a re-scan of an
             // already-locally-done goat takes the DUPLICATE path, not a second capture.
-            val locallyDone = dbRow.obligationId.isNotBlank() && dbRow.obligationId in _localDone.value
+            val locallyDone = dbRow.obligationId.isNotBlank() && dbRow.obligationId in draftDoneIds()
             val row = RosterRow(
                 primaryTag = dbRow.primaryTag,
                 secondaryTag = dbRow.secondaryTag,
@@ -374,6 +389,8 @@ class ScanViewModel @Inject constructor(
         val current = state.value
         return _operatorAllowed.value == true && current.roster.isNotEmpty() && !current.hasMore
     }
+
+    private fun draftDoneIds(): Set<String> = persistedScanDone.value + _localDone.value
 
     /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): records
      * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.

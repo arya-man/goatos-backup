@@ -4,6 +4,11 @@ Operators run cheap Android phones (target 2–3 GB RAM, weak GPU, old SoC, spot
 network). Performance and memory are **product requirements**, not polish. This
 doc sets budgets and the rules/gates that hold them.
 
+The rules below are grounded in the official Android Compose performance, stability,
+Macrobenchmark and Baseline Profile guidance, Kotlin's structured-concurrency documentation,
+and LeakCanary's lifecycle/leak-detection guidance. Context7 is used only to retrieve and match
+version-specific reference snippets; the linked primary sources remain authoritative.
+
 ## 1. Budgets (measured on a target low-end device / emulator profile)
 
 ```text

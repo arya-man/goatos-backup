@@ -3,6 +3,7 @@ package sg.mesha.goatos
 // telemetry:exempt debug-only hardware harness; product telemetry is wired in the real ViewModels.
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
@@ -80,6 +81,9 @@ class BleRfidScanner(context: Context) {
         }
     }
 
+    // Each suppressed method has an explicit runtime permission gate. Android lint cannot infer
+    // these custom predicates across function boundaries, so suppress only the guarded wrappers.
+    @SuppressLint("MissingPermission")
     fun restartScan() {
         stopScan()
         seen.clear()
@@ -114,6 +118,7 @@ class BleRfidScanner(context: Context) {
         runCatching { scanner.startScan(scanCallback) }
     }
 
+    @SuppressLint("MissingPermission")
     fun stopScan() {
         val scanCallback = callback
         callback = null
@@ -125,12 +130,14 @@ class BleRfidScanner(context: Context) {
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun pair(address: String) {
         if (!hasConnectPermission()) return
         val device = runCatching { adapter?.getRemoteDevice(address) }.getOrNull() ?: return
         runCatching { device.createBond() }
     }
 
+    @SuppressLint("MissingPermission")
     private fun add(result: ScanResult) {
         if (!hasConnectPermission()) return
         val device = result.device ?: return
@@ -147,6 +154,7 @@ class BleRfidScanner(context: Context) {
         _devices.value = seen.values.sortedByDescending { it.rssi }
     }
 
+    @SuppressLint("MissingPermission")
     private fun addClassic(device: BluetoothDevice) {
         if (!hasConnectPermission()) return
         val address = runCatching { device.address }.getOrNull() ?: return
@@ -171,8 +179,11 @@ class BleRfidScanner(context: Context) {
         }
 
     private fun hasScanPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        }
 
     private fun hasConnectPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||

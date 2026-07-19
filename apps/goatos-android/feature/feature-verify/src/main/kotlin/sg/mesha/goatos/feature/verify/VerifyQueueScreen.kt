@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -210,7 +211,7 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
         }
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(48.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(MeshaColors.Surf2)
                 .clickable(onClick = onRefresh),
@@ -258,6 +259,7 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
         fontSize = 12.5.sp,
         fontWeight = FontWeight.W700,
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(999.dp))

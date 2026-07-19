@@ -131,7 +131,10 @@ fun GoatOsShell(navState: NavState) {
     ) {
         // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
         OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
-        AppNavHost(navController = navController)
+        AppNavHost(
+            navController = navController,
+            startDestination = startDestinationFor(navState),
+        )
     }
 
     if (showSyncSheet) {

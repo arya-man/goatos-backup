@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="scan_back_cd">వెనుక</string>
+    <string name="scan_header_eyebrow">వ్యాక్సినేషన్</string>
+    <string name="scan_header_title">షెడ్ స్కాన్</string>
+    <string name="scan_switch_shed">షెడ్ మార్చండి</string>
+    <string name="scan_list_title_default">స్కాన్ చేసిన మేకలు</string>
     <string name="scan_feed_empty">ఇంకా ట్యాప్ లేదు</string>
     <string name="scan_badge_two_tags">2 ట్యాగ్‌లు</string>
     <string name="scan_search_placeholder">RFID ట్యాగ్ కోసం వెతకండి…</string>
     <string name="scan_search_empty">సరిపోయే జంతువులు లేవు</string>
     <string name="scan_load_more">మరిన్ని లోడ్ చేయండి</string>
     <string name="scan_loading_more">లోడ్ అవుతోంది…</string>
+    <string name="scan_submit_default">షెడ్ పూర్తి చేయండి</string>
 </resources>

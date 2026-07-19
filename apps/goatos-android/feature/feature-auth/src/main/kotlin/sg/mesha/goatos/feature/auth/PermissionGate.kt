@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -170,7 +171,9 @@ private fun PermissionRow(
                     text = stringResource(R.string.perm_status_open_settings),
                     color = MeshaColors.Danger,
                     style = MeshaType.caption.copy(fontWeight = FontWeight.W700),
-                    modifier = Modifier.clickable(onClick = onOpenSettings),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable(onClick = onOpenSettings),
                 )
         }
     }

@@ -11,7 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -197,15 +196,16 @@ object AppModule {
         NetworkFactory.appApi(
             baseUrl = BuildConfig.API_BASE_URL,
             tokenProvider = {
-                // Interceptor runs off the main thread; a blocking token read is safe here.
+                // OkHttp interceptors are synchronous: read the session-warmed snapshot rather
+                // than blocking an interceptor thread on DataStore for every request.
                 if (BuildConfig.FLAVOR == "dev") {
-                    runBlocking { sessionStore.currentToken() }
+                    sessionStore.cachedToken()
                 } else {
                     currentFirebaseIdTokenBlocking()
                 }
             },
             tenantIdProvider = { BuildConfig.TENANT_ID },
-            localeProvider = { runBlocking { sessionStore.currentLanguage() } },
+            localeProvider = { sessionStore.cachedLanguage() },
             // traceparent stamping + method/route/status/duration reporting (docs/TELEMETRY.md).
             // `enabled` mirrors TELEMETRY_ENABLED so a flavor without a confirmed Firebase
             // project still gets traceparent propagation for backend correlation — only the

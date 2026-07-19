@@ -4,8 +4,10 @@ Frontend lives in `apps/admin-web/` — SSR-first Next.js (App Router) with shar
 `packages/`. Architecture: `context/frontend/final-frontend-mobile-backend-architecture.md`.
 Scope lock: `context/frontend/current-admin-web-scope.md`. Contract law:
 `context/frontend/admin-web-backend-ui-contract.md`. Repo rules:
-`apps/admin-web/AGENTS.md`. (Do not hardcode framework versions when reviewing —
-read the architecture doc; versions drift.)
+`apps/admin-web/AGENTS.md`. Framework/runtime/testing baseline:
+`docs/frontend/admin-web-engineering-quality.md`. (Do not hardcode framework
+versions when reviewing — read `package.json`, the lockfile, and CI; versions
+drift.)
 
 > **Verify-against-source, not memory.** The concrete script names, contract
 > field names, route names, and taxonomy below are anchors that may drift.
@@ -210,6 +212,15 @@ Review checkpoints:
 
 - [ ] TanStack Query for server state; React local state for UI-only (open drawer, selected row)
 - [ ] No cross-feature deep imports (`features/x/...` imported inside `features/y/`) — share via `components/`, `lib/`, `packages/`
+- [ ] Server Components remain the default; `'use client'` appears only at the
+      smallest interactive boundary and does not pull privileged adapters,
+      secrets, or unnecessary feature trees into the browser bundle
+- [ ] Components/render helpers are pure; derived display state is calculated
+      during render, while Effects are reserved for external synchronization
+      with cleanup and Strict Mode-safe behavior
+- [ ] Every result-changing tenant/role/park/window/filter/cursor value used by a
+      TanStack `queryFn` is present in its query key; successful mutations await
+      invalidation of all affected keys
 
 ### Write-path / server-action idempotency (frontend surface)
 
@@ -226,6 +237,9 @@ submit — is a write path and inherits the repo idempotency contract. Check:
 - [ ] The client does not treat itself as the source of truth for the outcome —
       it re-reads backend state rather than optimistically inventing a terminal
       status the backend never confirmed
+- [ ] Every Server Action and Route Handler is reviewed as a directly callable
+      request surface: validate untrusted input and independently re-check auth
+      and authorization; page-level auth and hidden/disabled UI do not carry over
 
 ## Error, Loading, and Accessibility
 
@@ -249,3 +263,11 @@ style nit — it lies to an operator about herd state. Require explicit states.
       viewport layout when UI changed. Because `check:mock-fidelity` does not
       assert a11y, a UI change that altered contrast/target size must have run the
       live smoke a11y assertion — a green fidelity/build alone does not prove it
+- [ ] Playwright interactions prefer role/label locators and web-first
+      assertions. CSS selectors are reserved for visual anatomy assertions;
+      XPath, fixed sleeps for app state, and manual non-retrying visibility
+      checks are findings
+- [ ] Rendered proof includes desktop and narrow screenshots plus open
+      modal/drawer states. Axe output is reviewed, and keyboard/focus behavior is
+      checked manually because automated accessibility covers only part of the
+      surface

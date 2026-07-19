@@ -288,7 +288,7 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Surf2)
                 .border(1.dp, Hair, RoundedCornerShape(12.dp))
@@ -338,7 +338,7 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
         }
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Surf2)
                 .border(1.dp, Hair, RoundedCornerShape(12.dp))
@@ -466,11 +466,13 @@ private fun SectionCaption(text: String) {
 @Composable
 private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
     val tone = toneFor(row.status)
+    val actionLabel = row.actionLabel
+        ?: row.taskId?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.sheds_open_shed) }
     Card(
-        onClick = onOpen,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp)
+            .clickable(onClick = onOpen),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Surf),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -484,9 +486,9 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
             NumsRow(row)
             Spacer(Modifier.height(12.dp))
             ProgressBar(row.progressFraction)
-            row.actionLabel?.let { label ->
+            actionLabel?.let { label ->
                 Spacer(Modifier.height(12.dp))
-                ActionFooter(label = label, status = row.status, onClick = onOpen)
+                ActionFooter(label = label, status = row.status)
             }
         }
     }
@@ -639,7 +641,7 @@ private fun NumDivider() {
 }
 
 @Composable
-private fun ActionFooter(label: String, status: ShedStatus, onClick: () -> Unit) {
+private fun ActionFooter(label: String, status: ShedStatus) {
     // Colour follows the backend-provided status (delayed = red); the label itself
     // is whatever action the backend returned — the screen does not compose it.
     val color = if (status == ShedStatus.DELAYED) Danger else BrandD
@@ -650,8 +652,6 @@ private fun ActionFooter(label: String, status: ShedStatus, onClick: () -> Unit)
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
             .padding(vertical = 4.dp),
     )
 }

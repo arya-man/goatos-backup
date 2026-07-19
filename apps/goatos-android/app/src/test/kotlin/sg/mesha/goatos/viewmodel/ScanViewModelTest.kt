@@ -145,6 +145,48 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `persisted RFID capture restores done state after process recreation`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        scanCaptures.recordScan(
+            taskId = "task-1",
+            fieldKey = ROSTER_SCAN_FIELD_KEY,
+            tag = "TAG-100",
+            goatId = "goat-1",
+            obligationId = "obl-1",
+        )
+        val scanAttempts = FakeScanAttemptRepository()
+        val reader = FakeRfidReaderPort()
+
+        // A new ViewModel represents a recreated process. No transient _localDone state exists.
+        val recreated = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { recreated.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(ScanStatus.DONE, recreated.state.value.roster.single().status)
+        assertEquals(1, recreated.state.value.doneCount)
+        assertEquals(0, recreated.state.value.pendingCount)
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals("restored evidence must follow the duplicate path", 1, scanCaptures.recordScanCalls)
+        assertEquals(listOf(RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
+    }
+
+    @Test
     fun `repeated RFID scan is not recorded as another capture`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()

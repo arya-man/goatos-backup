@@ -1,4 +1,4 @@
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 
 WORKDIR /repo
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -28,7 +28,7 @@ RUN rm -rf node_modules/@goatos/api-client && \
     cp -R ../../packages/api-client node_modules/@goatos/api-client
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

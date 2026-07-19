@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -428,26 +429,30 @@ private fun ProofItemRow(
             Text(syncStatusLabel(item.syncStatus), color = syncStatusColor(item.syncStatus), fontSize = 10.5.sp)
         }
         if (item.editableCaption) {
-            Icon(
-                MeshaIcons.Close,
-                contentDescription = "Remove",
-                tint = MeshaColors.Faint,
-                modifier = Modifier
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = { onRemoveProof(fieldKey, item.id) }),
-            )
+            IconButton(
+                onClick = { onRemoveProof(fieldKey, item.id) },
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    MeshaIcons.Close,
+                    contentDescription = "Remove",
+                    tint = MeshaColors.Faint,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
         if (item.retryable) {
-            Icon(
-                MeshaIcons.Refresh,
-                contentDescription = "Retry proof upload",
-                tint = MeshaColors.Brand,
-                modifier = Modifier
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = { onRetryProof(fieldKey, item.id) }),
-            )
+            IconButton(
+                onClick = { onRetryProof(fieldKey, item.id) },
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    MeshaIcons.Refresh,
+                    contentDescription = "Retry proof upload",
+                    tint = MeshaColors.Brand,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }

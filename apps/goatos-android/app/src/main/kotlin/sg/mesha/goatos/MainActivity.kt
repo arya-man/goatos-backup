@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -204,8 +205,11 @@ class MainActivity : ComponentActivity() {
      * reader types the tag as key events + Enter; the capture consumes them only while an
      * RFID-accepting screen enabled capture, so normal typing/navigation is unaffected.
      */
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
-        rfidReader.onKeyEvent(event) || super.dispatchKeyEvent(event)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
+        rfidReader.onKeyEvent(event) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        rfidReader.onKeyEvent(event) || super.onKeyUp(keyCode, event)
 }
 
 @Composable
@@ -245,6 +249,7 @@ private fun BootstrapError(message: String, onRetry: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .padding(top = 20.dp)
+                .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(10.dp))
                 .clickable(onClick = onRetry)
                 .padding(horizontal = 24.dp, vertical = 10.dp),

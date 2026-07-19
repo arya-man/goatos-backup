@@ -76,6 +76,16 @@ run_e2e_docker_chain() {
     && make e2e-business-chain
 }
 
+run_sqlc_static_checks() {
+  local version bin
+  version="$(cat tools/sqlc/sqlc.version)"
+  bin="$(go env GOPATH)/bin/sqlc"
+  if [ ! -x "$bin" ] || ! "$bin" version 2>/dev/null | grep -Fq "$version"; then
+    go install "github.com/sqlc-dev/sqlc/cmd/sqlc@${version}" || return 1
+  fi
+  (cd backend && "$bin" vet -f sqlc.yaml && "$bin" diff -f sqlc.yaml)
+}
+
 run_common() {
   step "guardrail-registration-guard" make guardrail-registration-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
@@ -91,6 +101,12 @@ run_common() {
 }
 
 run_backend() {
+  step "backend-foundations-guard" make backend-foundations-guard
+  step "backend go mod verify" bash -c 'cd backend && go mod verify'
+  step "backend go vet" bash -c 'cd backend && go vet ./...'
+  step "backend govulncheck" bash -c 'cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...'
+  step "backend sqlc vet + diff" run_sqlc_static_checks
+  step "backend targeted race" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=0 go test -race ./internal/platform/worker ./internal/platform/postgres ./internal/kernelstages ./internal/domainconsumer/app ./internal/outbox/adapters/postgres'
   step "agent: aggregate-projection" make aggregate-projection-guard
   step "agent: scale-certification-docs" make scale-certification-docs-guard
   step "agent: e2e-kernel-integrity" bash tools/agent-hooks/check-e2e-kernel-integrity.sh
@@ -148,6 +164,7 @@ run_admin_web() {
   if [ ! -d apps/admin-web/node_modules ]; then
     step "admin-web deps" npm --prefix apps/admin-web ci
   fi
+  step "frontend-foundations-guard" make frontend-foundations-guard
   step "admin-web lint"          npm --prefix apps/admin-web run lint
   step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
   step "admin-web unit tests"    npm --prefix apps/admin-web run test
@@ -181,6 +198,9 @@ run_android() {
   [ -f apps/goatos-android/local.properties ] || echo "sdk.dir=$sdk" > apps/goatos-android/local.properties
   step "android :app compile" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin --no-daemon --console=plain'
   step "android :app unit"    bash -c 'cd apps/goatos-android && ./gradlew :app:testStgReleaseUnitTest --no-daemon --console=plain'
+  step "android :app lint"    bash -c 'cd apps/goatos-android && ./gradlew :app:lintStgRelease --no-daemon --console=plain'
+  step "android screenshots"  bash -c 'cd apps/goatos-android && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain'
+  step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
 }
 
 run_guardrails() {

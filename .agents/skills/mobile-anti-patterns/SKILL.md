@@ -1,7 +1,7 @@
 ---
 name: mobile-anti-patterns
 description: >-
-  Use when writing OR reviewing Android/mobile code under apps/goatos-android/**
+  Use when building, debugging, diagnosing, or reviewing Android/mobile code under apps/goatos-android/**
   (screens, ViewModels, repositories, Room DAOs, Flows). Enforces Room-SSOT
   offline-first, ~20-row keyset pagination, bounded memory, off-main decode,
   lifecycle-aware collection, stable list keys, and a correct hosted navigation
@@ -14,7 +14,18 @@ description: >-
 # Mobile anti-patterns (phone-scale + offline-first)
 
 Canonical rulebooks: `docs/decisions/mobile-data-fetch-anti-patterns.md` +
-`docs/decisions/android-offline-first.md`.
+`docs/decisions/android-offline-first.md`. For any screen, navigation, camera, layout,
+accessibility, or screenshot change, also read `docs/mobile/android-ui-quality.md` and run
+`node tools/agent-hooks/check-android-ui-foundations.mjs`.
+
+## UI foundation (machine: `check-android-ui-foundations.mjs`)
+- Derive the cold-start root from backend-visible navigation and test process recreation.
+- Treat camera/reader/observer ownership as lifecycle resources: pair every bind/start with
+  release/stop on route disposal and backgrounding. Camera proof is an exclusive full-screen UI.
+- Prefer Material controls. Custom controls require a 48x48dp target, meaningful semantics, and
+  non-color state cues. Never use a tiny clickable `Text` or icon.
+- Keep peer geometry stable and use design-system color/type/shape/spacing tokens. Verify compact
+  and expanded widths with Paparazzi, then exercise system navigation and capture on a device.
 
 ## Fetch / pagination (machine: `make mobile-guard`)
 A phone viewport holds ~7–10 items; pulling 50/200/1000 is the mobile twin of
@@ -49,8 +60,12 @@ eviction, or a DAO reading a whole table into memory, OOMs low-end phones.
 ## Off-main + lifecycle (memory/jank)
 - Decode/parse off the Main thread: `flowOn(Dispatchers.Default)` in the repo; parse
   each field ONCE (never re-parse inside `.find`/`.filter` → O(n²)).
+- Keep structured concurrency: no `GlobalScope` and no production `runBlocking`; every job has
+  an explicit lifecycle owner and cancellation path.
 - Screen VMs expose state via `stateIn(viewModelScope, WhileSubscribed(5_000), initial)`
   — not a forever `collectLatest` (leaks a Room collector when backgrounded).
+- Compose collects `Flow` with `collectAsStateWithLifecycle`, defers fast-changing reads to the
+  smallest composable, and uses `remember`/`derivedStateOf` only for measured recomposition work.
 - Dynamic `LazyColumn` items need a **stable unique key** (not index) + `contentType`.
 - Release camera/recorder/BT capture + observers on lifecycle stop.
 

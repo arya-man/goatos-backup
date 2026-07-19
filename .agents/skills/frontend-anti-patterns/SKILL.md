@@ -3,11 +3,12 @@ name: frontend-anti-patterns
 description: >-
   Use when writing OR reviewing admin-web (apps/admin-web/**) — pages, SSR data
   reads, nav, labels, dashboards. Covers the backend-owns-the-contract golden
-  rule, no SSR full-table request reads, selected-window fetch=render, mock
-  fidelity, and projection-backed dashboards. Thin entrypoint: detailed rules live
-  in the canonical chapters linked below. Invoke before touching an admin-web
-  page/route/data-read and before pushing. Machine gates: npm run check:mock-fidelity
-  + make admin-web-request-reads-guard.
+  rule, Next.js/React/TypeScript engineering quality, no SSR full-table request
+  reads, selected-window fetch=render, mock fidelity, and projection-backed
+  dashboards. Thin entrypoint: detailed rules live in the canonical chapters
+  linked below. Invoke before touching an admin-web page/route/data-read and
+  before pushing. Machine gates: npm run check:mock-fidelity + make
+  admin-web-request-reads-guard.
 ---
 
 # Frontend (admin-web) anti-patterns — lens entrypoint
@@ -31,6 +32,7 @@ chapters below; do not review from the summary.
 - **Over-fetch anti-patterns (twin):** [`docs/decisions/mobile-data-fetch-anti-patterns.md`](../../../docs/decisions/mobile-data-fetch-anti-patterns.md).
 - **Nav composition:** [`docs/decisions/role-module-nav-composition.md`](../../../docs/decisions/role-module-nav-composition.md) + the `nav-composition` skill.
 - **Contract authority:** AGENTS.md golden frontend rule · [`context/frontend/current-admin-web-scope.md`](../../../context/frontend/current-admin-web-scope.md) · the mock `mock/goatos-dashboard-mock.html`.
+- **Framework/runtime/testing quality:** [`docs/frontend/admin-web-engineering-quality.md`](../../../docs/frontend/admin-web-engineering-quality.md) — Next.js server/client boundaries, React purity/effects, TypeScript/Node, query keys, error states, semantic UI, Playwright/axe/visual proof, and CI recurrence checks.
 
 ## Machine gates
 - `npm --prefix apps/admin-web run check:mock-fidelity` — mandatory before any
@@ -38,6 +40,9 @@ chapters below; do not review from the summary.
 - `make admin-web-request-reads-guard` — no SSR full-table request read.
 - `node tools/agent-hooks/check-refresh-binding.mjs` — selected-window binding.
   All registered in `tools/ci/guardrail-manifest.json`.
+- `npm --prefix apps/admin-web run lint && npm --prefix apps/admin-web run typecheck && npm --prefix apps/admin-web run test` — framework and unit baseline.
+- `GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build` — production build with the token-leak check actually exercised.
+- `npm --prefix apps/admin-web run smoke:visual:live` — required for changed UI/navigation/error/loading behavior; inspect screenshots and a11y output.
 
 ## At a glance (detail in the links above)
 - **Backend owns the contract:** nav, titles, labels, filter/sort/page-size,
@@ -53,3 +58,19 @@ chapters below; do not review from the summary.
   compute-on-read.
 - **Command-lens authority:** Control Tower / Action Center / Calendar / Protocol
   Adherence / Workflows are top-level only; feed via `?domain=`/`?category=`.
+- **Server-first App Router:** pages/layouts stay Server Components; place
+  `'use client'` on the smallest interactive leaf and keep tokens/adapters in
+  `server-only` modules.
+- **Public write surfaces:** re-authenticate, authorize, validate, and preserve a
+  stable idempotency key inside every Server Action/Route Handler; page auth and
+  a disabled button are not security boundaries.
+- **React state:** derive render data directly; Effects synchronize external
+  systems and clean up. Do not mirror server/query data into local state.
+- **Query correctness:** every result-changing scope/window/filter/cursor belongs
+  in the TanStack query key; await invalidation after successful mutations.
+- **Visible failure:** data routes need distinct loading, empty-success,
+  permission, contract-unavailable, and unexpected-error UI plus an App Router
+  error boundary.
+- **Browser proof:** prefer role/label locators and web-first assertions; no new
+  fixed sleeps. Axe plus pixel screenshots do not replace keyboard and visual
+  review.

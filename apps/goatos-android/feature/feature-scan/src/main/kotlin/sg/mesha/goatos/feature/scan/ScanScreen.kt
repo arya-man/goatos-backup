@@ -33,6 +33,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
@@ -239,7 +240,12 @@ fun ScanScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            ScanHeader(state.shedLabel, state.cohortLabel) { onEvent(ScanEvent.Back) }
+            ScanHeader(
+                eyebrow = state.shedLabel,
+                title = state.cohortLabel,
+                onBack = { onEvent(ScanEvent.Back) },
+                onSwitchShed = { onEvent(ScanEvent.Back) },
+            )
 
             // Body scrolls; the submit footer is pinned.
             LazyColumn(
@@ -306,7 +312,7 @@ fun ScanScreen(
                 }
                 item {
                     Text(
-                        text = state.listTitle,
+                        text = state.listTitle.ifBlank { stringResource(R.string.scan_list_title_default) },
                         color = ScanTokens.faint,
                         fontSize = 10.sp,
                         textAlign = TextAlign.Center,
@@ -333,7 +339,7 @@ fun ScanScreen(
             }
 
             ScanFooter(
-                label = state.submitLabel,
+                label = state.submitLabel.ifBlank { stringResource(R.string.scan_submit_default) },
                 enabled = state.scanEnabled && state.canSubmit,
                 note = state.footNote,
                 onSubmit = { onEvent(ScanEvent.Submit) },
@@ -394,7 +400,9 @@ private fun ReaderConnectionBanner(
 
 // --------------------------------------------------------------------------- header
 @Composable
-private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit) {
+private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit, onSwitchShed: () -> Unit) {
+    val eyebrowText = eyebrow.ifBlank { stringResource(R.string.scan_header_eyebrow) }
+    val titleText = title.ifBlank { stringResource(R.string.scan_header_title) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -403,7 +411,7 @@ private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(48.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .clickable { onBack() },
             contentAlignment = Alignment.Center,
@@ -416,9 +424,9 @@ private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit) {
             )
         }
         Spacer(Modifier.width(4.dp))
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                eyebrow,
+                eyebrowText,
                 color = ScanTokens.brandD,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -426,7 +434,7 @@ private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                title,
+                titleText,
                 color = ScanTokens.ink,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
@@ -434,6 +442,18 @@ private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.scan_switch_shed),
+            color = ScanTokens.brandD,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(ScanTokens.brandSoft)
+                .clickable { onSwitchShed() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        )
     }
 }
 
@@ -827,7 +847,7 @@ private fun RosterListOverlay(state: ScanUiState, onEvent: (ScanEvent) -> Unit) 
         ScanStatus.DONE -> state.tileLabels.done
         ScanStatus.PENDING -> state.tileLabels.pending
         ScanStatus.SKIPPED -> state.tileLabels.skipped
-        null -> state.listTitle
+        null -> state.listTitle.ifBlank { stringResource(R.string.scan_list_title_default) }
     }
     val dismiss: () -> Unit = {
         if (state.rosterExpanded) onEvent(ScanEvent.OpenList)
@@ -1007,11 +1027,13 @@ private fun ScanListRow(
                     color = proofColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable(
-                        enabled = captureEnabled && row.proofUploadStatus == ProofUploadStatus.FAILED,
-                    ) {
-                        onEvent(ScanEvent.RetryProof(row.goatId))
-                    },
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable(
+                            enabled = captureEnabled && row.proofUploadStatus == ProofUploadStatus.FAILED,
+                        ) {
+                            onEvent(ScanEvent.RetryProof(row.goatId))
+                        },
                 )
                 Button(
                     onClick = { onEvent(ScanEvent.CaptureProof(row.goatId)) },

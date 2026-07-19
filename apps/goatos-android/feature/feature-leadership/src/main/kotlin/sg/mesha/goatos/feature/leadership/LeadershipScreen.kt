@@ -711,7 +711,7 @@ internal fun LeadTopBar(
 internal fun IconButton(icon: ImageVector, contentDescription: String? = null, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(40.dp)
+            .size(48.dp)
             .clip(RoundedCornerShape(11.dp))
             .background(LeadTokens.surf)
             .border(1.dp, LeadTokens.hair, RoundedCornerShape(11.dp))

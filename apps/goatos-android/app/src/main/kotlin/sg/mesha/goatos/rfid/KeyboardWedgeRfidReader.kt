@@ -1,6 +1,7 @@
 package sg.mesha.goatos.rfid
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
@@ -52,7 +53,14 @@ class KeyboardWedgeRfidReader(
         }
     }
     private val bluetoothReceiver = object : BroadcastReceiver() {
+        // Lint cannot infer [needsBluetoothConnectPermission]; the explicit runtime gate makes
+        // every protected BluetoothDevice access below unreachable without BLUETOOTH_CONNECT.
+        @SuppressLint("MissingPermission")
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (needsBluetoothConnectPermission()) {
+                refreshStatus()
+                return
+            }
             val action = intent?.action ?: return
             val device = intent.bluetoothDeviceExtra() ?: return
             val name = runCatching { device.name }.getOrNull()
@@ -144,6 +152,9 @@ class KeyboardWedgeRfidReader(
         }.toList()
     }
 
+    // Lint cannot infer the custom permission predicate; keep the suppression scoped to this
+    // function and immediately return before touching any protected adapter/device property.
+    @SuppressLint("MissingPermission")
     private fun findBondedBluetoothDevices(): List<RfidReaderDevice> {
         val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
             ?: return emptyList()

@@ -154,7 +154,7 @@ private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(RecordTokens.Surf2)
                 .border(1.dp, RecordTokens.Hair, RoundedCornerShape(12.dp))

@@ -112,9 +112,14 @@ class GalleryActivity : ComponentActivity() {
         }
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (::rfidReader.isInitialized && rfidReader.onKeyEvent(event)) return true
-        return super.dispatchKeyEvent(event)
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (::rfidReader.isInitialized && rfidReader.onKeyEvent(event)) return true
+        return super.onKeyUp(keyCode, event)
     }
 
     private fun requestBlePermissionsIfNeeded() {

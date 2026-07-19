@@ -10,6 +10,7 @@ Canonical docs:
 - `context/execution/vaccination-process-integrity-backend-handoff.md`
 - `context/execution/calendar-vaccination-slice-parallel-handoff.md`
 - `docs/decisions/calendar-ownership.md`
+- `docs/frontend/admin-web-engineering-quality.md`
 - `context/architecture/operational-kernel.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
@@ -142,6 +143,16 @@ Calendar or dashboard label.
   handoff.
 - Run lint/typecheck/build, and run `smoke:visual:live` when local backend and
   admin-web can be started.
+
+For Next.js, React, TypeScript, Node, TanStack Query, Playwright, accessibility,
+visual review, and CI practice, follow
+`docs/frontend/admin-web-engineering-quality.md`. In particular: keep App Router
+pages server-first with narrow client boundaries; keep privileged adapters and
+tokens `server-only`; treat Server Actions/Route Handlers as public request
+surfaces that re-check auth, validate input, and preserve stable idempotency;
+derive React display state without Effects; include every result-changing
+scope/window/filter in query keys; and prove UI changes with semantic browser
+tests, axe, desktop/narrow screenshots, and human diff review.
 
 ## Data Access Rules
 

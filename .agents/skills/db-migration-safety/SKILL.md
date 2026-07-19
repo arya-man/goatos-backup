@@ -27,6 +27,7 @@ chapters below for the live detail; do not review from the summary.
 
 ## Canonical detail (read these — do NOT duplicate here)
 - **Review chapters:** [`.agents/skills/goatos-code-review/references/backend.md`](../goatos-code-review/references/backend.md) (migrations, pgx/sqlc, idempotency) · [`.agents/skills/goatos-code-review/references/aggregates-and-projections.md`](../goatos-code-review/references/aggregates-and-projections.md) (atomic transition + owned read-model).
+- **Go/pgx/PostgreSQL quality baseline:** [`docs/engineering/backend-go-postgres-quality.md`](../../../docs/engineering/backend-go-postgres-quality.md) — context/transaction/row ownership, pool lifecycle, concurrency, sqlc drift, security, and primary official sources.
 - **Migration lock-safety + scale shape:** [`docs/decisions/scale-anti-patterns.md`](../../../docs/decisions/scale-anti-patterns.md).
 - **Restructure/drop migrations under the envelope:** [`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
 - **Android Room upgrade contract (sibling):** [`docs/decisions/room-migration-safety.md`](../../../docs/decisions/room-migration-safety.md).
@@ -37,6 +38,8 @@ chapters below for the live detail; do not review from the summary.
 - `make validate-hot-index-migrations` — hot-table lock-safety (concurrent index,
   NOT VALID + concurrent VALIDATE, NO TRANSACTION, catalog-only DROP).
 - `make validate-sqlc-plans` — no Seq Scan on hot tables.
+- `cd backend && sqlc vet -f sqlc.yaml && sqlc diff -f sqlc.yaml` — ordinary
+  static SQL/query and generated-code drift checks without a live database.
 - `make idempotency-writes-guard` · `make atomic-readmodel-sync-guard` ·
   `make india-date-guard`. All registered in `tools/ci/guardrail-manifest.json`.
 

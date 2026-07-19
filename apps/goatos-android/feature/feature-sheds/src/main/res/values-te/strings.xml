@@ -12,8 +12,8 @@
     <string name="sheds_day_progress">రోజు పురోగతి</string>
 
     <!-- Table column labels in NumsRow -->
-    <string name="sheds_num_cell_in_shed">షెడ్‌లో</string>
-    <string name="sheds_num_cell_due">బకాయి</string>
+    <string name="sheds_num_cell_in_shed">లక్ష్యం</string>
+    <string name="sheds_num_cell_due">మిగిలినవి</string>
     <string name="sheds_num_cell_done">పూర్తయింది</string>
 
     <!-- Roster changes section -->
@@ -25,4 +25,5 @@
     <string name="sheds_error_message">ఈ రోజు షెడ్‌లను లోడ్ చేయలేకపోయాము. మళ్లీ ప్రయత్నించడానికి రిఫ్రెష్ నొక్కండి.</string>
     <string name="sheds_load_more">మరిన్ని షెడ్‌లను లోడ్ చేయండి</string>
     <string name="sheds_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
+    <string name="sheds_open_shed">షెడ్ తెరవండి ›</string>
 </resources>

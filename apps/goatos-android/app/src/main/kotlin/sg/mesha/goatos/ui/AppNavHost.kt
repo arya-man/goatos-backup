@@ -50,6 +50,7 @@ import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
+import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
@@ -109,8 +110,6 @@ object Routes {
         )
         return "$VERIFY_DETAIL?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
     }
-
-    const val START = CALENDAR
 
     /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
     const val RECORD_SHED_ARG = "shedId"
@@ -237,7 +236,7 @@ private fun shedIdFromTarget(target: String): String? {
 /**
  * Static navigation graph of every known screen. The graph is fixed; the backend
  * nav (bottom bar + chrome) decides which destinations are *reachable/visible* —
- * the app doesn't invent routes. Calendar is the universal landing (screens.md).
+ * the app doesn't invent routes. The first backend-visible root is the landing destination.
  *
  * Each destination binds a `@HiltViewModel` via [hiltViewModel]; the screen renders
  * the VM's reactive [state] and its `onEvent` splits into two: LOCAL events go to the
@@ -248,6 +247,7 @@ private fun shedIdFromTarget(target: String): String? {
 fun AppNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier,
+    startDestination: String = Routes.CALENDAR,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -255,7 +255,7 @@ fun AppNavHost(
     val motion = tween<Float>(280)
     NavHost(
         navController = navController,
-        startDestination = Routes.START,
+        startDestination = startDestination,
         modifier = modifier,
         enterTransition = { slideIntoContainer(SlideDirection.Start, tween(280)) + fadeIn(motion) },
         exitTransition = { slideOutOfContainer(SlideDirection.Start, tween(280)) + fadeOut(motion) },
@@ -678,6 +678,26 @@ fun AppNavHost(
         }
     }
 }
+
+/**
+ * Cold start must never land on a route the backend did not expose to this principal. The
+ * bootstrap already orders the visible roots by job/module priority, so Android renders that
+ * contract instead of hardcoding Calendar (which broke operator and verifier startup with a 403).
+ * Unknown future roots fail safely to Calendar until the app graph learns the new destination.
+ */
+internal fun startDestinationFor(navState: NavState): String =
+    navState.items.firstOrNull()?.href
+        ?.takeIf { it in supportedRootDestinations }
+        ?: Routes.CALENDAR
+
+private val supportedRootDestinations = setOf(
+    Routes.CALENDAR,
+    Routes.VACCINATION,
+    Routes.LEADERSHIP,
+    Routes.VERIFY,
+    Routes.ALERTS,
+    Routes.TIMETABLE,
+)
 
 private fun executionRoutePattern(base: String): String =
     "$base?${Routes.SCAN_SHED_ARG}={${Routes.SCAN_SHED_ARG}}" +

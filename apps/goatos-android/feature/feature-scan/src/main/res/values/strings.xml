@@ -2,6 +2,10 @@
 <resources>
     <!-- Scan (v-scan) chrome strings -->
     <string name="scan_back_cd">Back</string>
+    <string name="scan_header_eyebrow">Vaccination</string>
+    <string name="scan_header_title">Shed scan</string>
+    <string name="scan_switch_shed">Switch shed</string>
+    <string name="scan_list_title_default">Scanned goats</string>
     <string name="scan_feed_empty">No taps yet</string>
     <string name="scan_badge_two_tags">2 tags</string>
     <string name="scan_search_placeholder">Search either RFID tag…</string>
@@ -16,4 +20,5 @@
         <item quantity="other">%1$d clips synced</item>
     </plurals>
     <string name="scan_proof_retry">Upload failed · tap to retry</string>
+    <string name="scan_submit_default">Finalize shed</string>
 </resources>

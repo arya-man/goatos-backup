@@ -5,6 +5,7 @@ Load this when extending or reviewing the Go backend.
 Canonical docs:
 
 - `docs/decisions/go-backend-stack.md`
+- `docs/engineering/backend-go-postgres-quality.md`
 - `backend/AGENTS.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/protocol-engine/obligation-engine.md`
@@ -164,6 +165,11 @@ reopened.
 
 ## Rules
 
+- Load `docs/engineering/backend-go-postgres-quality.md` for every Go,
+  pgx/sqlc, Postgres query, migration, worker-concurrency, or backend dependency
+  change. Its security baseline is fail-closed: a reachable `govulncheck`
+  finding is release-blocking until upgraded or covered by an owned, expiring
+  exception.
 - Handlers stay thin: parse request, call app service, write contract-shaped
   response/error envelope.
 - App services own behavior, state transitions, idempotency, and error mapping.
@@ -249,8 +255,17 @@ the full backend suite when feasible:
 ```bash
 cd /path/to/goatos/backend
 go test ./internal/identity/...
+go mod verify
+go vet ./...
 go test ./...
+govulncheck ./...
+sqlc vet -f sqlc.yaml
+sqlc diff -f sqlc.yaml
 ```
+
+For worker/concurrency changes, also run the targeted race suite in
+`docs/engineering/backend-go-postgres-quality.md`. For pgx/sqlc queries or
+migrations, load `db-migration-safety` and run its Postgres-backed gates.
 
 For OpenAPI changes:
 

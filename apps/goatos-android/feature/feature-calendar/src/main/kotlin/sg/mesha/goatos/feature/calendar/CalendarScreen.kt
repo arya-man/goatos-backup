@@ -219,10 +219,14 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
 }
 
 @Composable
-private fun HeaderIconButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector = MeshaIcons.Refresh, contentDescription: String = "Button") {
+private fun HeaderIconButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector = MeshaIcons.Refresh,
+    contentDescription: String,
+) {
     Box(
         Modifier
-            .size(38.dp)
+            .size(48.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MeshaColors.Surf2)
             .clickable(onClick = onClick),

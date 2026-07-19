@@ -28,6 +28,26 @@
       "ciStep": "local-ci-evidence-guard"
     },
     {
+      "id": "backend-foundations",
+      "script": "tools/agent-hooks/check-backend-foundations.mjs",
+      "makeTarget": "backend-foundations-guard",
+      "realCheck": "node tools/agent-hooks/check-backend-foundations.mjs",
+      "selfTest": "node tools/agent-hooks/check-backend-foundations.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "backend-foundations-guard"
+    },
+    {
+      "id": "frontend-foundations",
+      "script": "tools/agent-hooks/check-frontend-foundations.mjs",
+      "makeTarget": "frontend-foundations-guard",
+      "realCheck": "node tools/agent-hooks/check-frontend-foundations.mjs",
+      "selfTest": "node tools/agent-hooks/check-frontend-foundations.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "frontend-foundations-guard"
+    },
+    {
       "id": "domain-event-architecture",
       "script": "tools/agent-hooks/check-domain-event-architecture.mjs",
       "makeTarget": "domain-event-architecture-guard",
@@ -266,6 +286,16 @@
       "realCheck": "node tools/agent-hooks/check-android-ui-copy-layout.mjs",
       "selfTest": "node tools/agent-hooks/check-android-ui-copy-layout.mjs --self-test",
       "owningDoc": "context/frontend/final-frontend-mobile-backend-architecture.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-ui-foundations",
+      "script": "tools/agent-hooks/check-android-ui-foundations.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-ui-foundations.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-ui-foundations.mjs --self-test",
+      "owningDoc": "docs/mobile/android-ui-quality.md",
       "requiredInCI": true,
       "ciStep": "mobile-guard"
     },

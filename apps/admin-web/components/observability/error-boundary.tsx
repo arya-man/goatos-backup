@@ -7,8 +7,9 @@
 // A plain class component is used (not @grafana/faro-react's FaroErrorBoundary) so this stays
 // within the two approved Faro packages (@grafana/faro-web-sdk, @grafana/faro-web-tracing) and
 // has no dependency on the React Router-oriented @grafana/faro-react package.
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
 import { faro } from "@grafana/faro-web-sdk";
+import { adminRouteErrorReference, type NextRouteError } from "@/lib/admin-route-error";
 
 type ObservabilityErrorBoundaryProps = {
   children: ReactNode;
@@ -18,6 +19,44 @@ type ObservabilityErrorBoundaryProps = {
 type ObservabilityErrorBoundaryState = {
   error: Error | null;
 };
+
+function EmergencyErrorContent({
+  onRetry,
+  reference,
+}: {
+  onRetry?: () => void;
+  reference?: string | null;
+}) {
+  return (
+    <main className="wrap" style={{ padding: 24 }}>
+      <section className="card">
+        <h1>Something went wrong</h1>
+        <p className="muted">
+          This screen failed to render. The error has been reported. Try again or reload the page.
+        </p>
+        {reference ? <p className="muted">Error reference: {reference}</p> : null}
+        {onRetry ? (
+          <button type="button" className="btn primary" onClick={onRetry}>
+            Try again
+          </button>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
+export function AdminRouteError({ error, reset }: { error: NextRouteError; reset: () => void }) {
+  useEffect(() => {
+    faro.api?.pushError(error, {
+      context: {
+        message: "Next.js admin route error boundary",
+        digest: error.digest ?? "",
+      },
+    });
+  }, [error]);
+
+  return <EmergencyErrorContent onRetry={reset} reference={adminRouteErrorReference(error)} />;
+}
 
 export class ObservabilityErrorBoundary extends Component<
   ObservabilityErrorBoundaryProps,
@@ -46,16 +85,7 @@ export class ObservabilityErrorBoundary extends Component<
       if (this.props.fallback) {
         return this.props.fallback(error);
       }
-      return (
-        <main className="wrap" style={{ padding: 24 }}>
-          <section className="card">
-            <h1>Something went wrong</h1>
-            <p className="muted">
-              This screen failed to render. The error has been reported. Reload the page to try again.
-            </p>
-          </section>
-        </main>
-      );
+      return <EmergencyErrorContent />;
     }
     return this.props.children;
   }

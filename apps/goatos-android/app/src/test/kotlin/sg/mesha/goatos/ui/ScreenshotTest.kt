@@ -79,6 +79,24 @@ class ScreenshotTest {
     fun scan() = shot("scan") { ScanScreen(state = sampleScanState()) }
 
     @Test
+    fun vaccination_scan_loading_state() = shot("vaccination_scan_loading_state") {
+        ScanScreen(
+            state = sampleScanState().copy(
+                shedLabel = "",
+                cohortLabel = "",
+                listTitle = "",
+                submitLabel = "",
+                feed = emptyList(),
+                roster = emptyList(),
+                lastSyncedAt = null,
+                isRefreshing = true,
+                scanEnabled = false,
+                canSubmit = false,
+            ),
+        )
+    }
+
+    @Test
     fun submit() = shot("submit") { SubmitScreen(state = sampleSubmitState()) }
 
     @Test

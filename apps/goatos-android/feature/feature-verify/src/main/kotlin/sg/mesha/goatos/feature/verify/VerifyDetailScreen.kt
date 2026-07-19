@@ -205,7 +205,7 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
         }
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(48.dp)
                 .background(MeshaColors.Surf2, shape = RoundedCornerShape(12.dp))
                 .clickable { onClose() },
             contentAlignment = Alignment.Center,

@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.channels.Channel
 
 /**
@@ -35,11 +37,28 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
     }
 
     if (recorderRequested) {
-        InAppVideoRecorderOverlay(
-            onResult = { result ->
-                recorderRequested = false
-                resultChannel.trySend(result)
-            },
-        )
+        // This must be a real modal window. Rendering the recorder as a sibling before the
+        // Scan/Submit screen puts the live preview *behind* that screen in Compose draw order:
+        // the camera runs, but the operator still sees (and can touch) the RFID UI. A full-screen
+        // Dialog gives capture exclusive visibility/input and guarantees the preview + controls
+        // sit above the originating surface.
+        Dialog(
+            onDismissRequest = {}, // Back is handled inside the recorder as an explicit cancel.
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            InAppVideoRecorderOverlay(
+                onResult = { result ->
+                    if (recorderRequested) {
+                        recorderRequested = false
+                        resultChannel.trySend(result)
+                    }
+                },
+            )
+        }
     }
 }

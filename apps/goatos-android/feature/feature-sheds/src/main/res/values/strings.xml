@@ -24,8 +24,8 @@
     <string name="sheds_day_progress">Day progress</string>
 
     <!-- Table column labels in NumsRow -->
-    <string name="sheds_num_cell_in_shed">IN SHED</string>
-    <string name="sheds_num_cell_due">DUE</string>
+    <string name="sheds_num_cell_in_shed">TARGETED</string>
+    <string name="sheds_num_cell_due">OPEN</string>
     <string name="sheds_num_cell_done">DONE</string>
 
     <!-- Roster changes section -->
@@ -37,4 +37,5 @@
     <string name="sheds_error_message">Couldn\'t load today\'s sheds. Tap refresh to retry.</string>
     <string name="sheds_load_more">Load more sheds</string>
     <string name="sheds_loading_more">Loading more…</string>
+    <string name="sheds_open_shed">Open shed ›</string>
 </resources>

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:local": "node scripts/run-local-next.mjs dev",
@@ -19,7 +22,7 @@
     "smoke:visual:update-baseline": "node scripts/smoke-visual-live.mjs --baseline-dir .codex-goatos-render/admin-web-baselines --update-baseline",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types \"features/**/*.test.mjs\"",
+    "test": "node --test --experimental-strip-types \"features/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"scripts/**/*.test.mjs\"",
     "check:ia-guard": "node scripts/check-ia-guard.mjs",
     "check:serial-await": "node scripts/check-serial-await.mjs",
     "check:action-center-request-plan": "node --experimental-strip-types scripts/check-action-center-request-plan.mjs",
