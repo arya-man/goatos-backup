@@ -80,6 +80,7 @@ regardless of which layer changed.
 | `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` **+ every consumer lens the contract reaches** (see consumer auto-pull below) |
 | `docs/**`, `rule_dsl` / protocol config, vaccination/feed rules | `references/business-rules.md` |
 | Any change (toolchain / tool-driving) | `references/toolchain.md` (always) |
+| **Every review, before flagging anything** | `references/review-lens-ledger.md` (always) — closed decisions + banned patterns; do NOT re-flag a CLOSED/LOCKED item or propose a BANNED one |
 
 Multi-layer rule: if a change touches kernel + backend + frontend together (e.g.
 a new obligation type wired from migration → engine → contract → admin-web page),

@@ -403,6 +403,16 @@
       "owningDoc": "docs/decisions/ingestion-validation-not-runtime-review.md",
       "requiredInCI": true,
       "ciStep": "no-mismatch-review-queue-guard"
+    },
+    {
+      "id": "review-lens-ledger",
+      "script": "tools/ci/check-review-lens-ledger.mjs",
+      "makeTarget": "review-lens-ledger-guard",
+      "realCheck": "node tools/ci/check-review-lens-ledger.mjs",
+      "selfTest": "node tools/ci/check-review-lens-ledger.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/review-lens-ledger.md",
+      "requiredInCI": true,
+      "ciStep": "guardrails"
     }
   ]
 }

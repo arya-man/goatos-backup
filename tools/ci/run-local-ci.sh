@@ -116,6 +116,7 @@ run_backend() {
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
   step "config-validate-guard"    make config-validate-guard
   step "no-mismatch-review-queue-guard" make no-mismatch-review-queue-guard
+  step "review-lens-ledger-guard" make review-lens-ledger-guard
   step "seed-migration-guard"     make seed-migration-guard
   step "vaccination-schedule-canonical-guard" make vaccination-schedule-canonical-guard
   step "india-date-guard"         make india-date-guard
