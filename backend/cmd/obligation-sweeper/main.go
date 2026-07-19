@@ -81,7 +81,7 @@ func main() {
 }
 
 func run(args []string) error {
-	cfg, err := parseFlags(args)
+	cfg, err := parseFlagsAt(args, time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		return err
 	}
@@ -323,6 +323,14 @@ func stockItemIDFromRuleDSL(raw []byte) string {
 }
 
 func parseFlags(args []string) (config, error) {
+	return parseFlagsAt(args, time.Now().In(biztime.DefaultLocation()))
+}
+
+// parseFlagsAt parses CLI flags/env against an explicit clock instant so the
+// default -due-before boundary is deterministic and testable (PEND-6): two
+// calls made at different instants within the same IST business day must
+// resolve to the identical default DueBefore.
+func parseFlagsAt(args []string, now time.Time) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("obligation-sweeper", flag.ContinueOnError)
 	fs.StringVar(&cfg.TenantID, "tenant-id", getenv("GOATOS_TENANT_ID"), "tenant id")
@@ -351,7 +359,7 @@ func parseFlags(args []string) (config, error) {
 	if strings.TrimSpace(cfg.TenantID) == "" {
 		return config{}, errors.New("tenant-id is required")
 	}
-	now := time.Now().In(biztime.DefaultLocation())
+	now = now.In(biztime.DefaultLocation())
 	cfg.AsOf = now
 	if strings.TrimSpace(*asOfRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*asOfRaw))
@@ -360,7 +368,13 @@ func parseFlags(args []string) (config, error) {
 		}
 		cfg.AsOf = parsed.In(biztime.DefaultLocation())
 	}
-	cfg.DueBefore = now
+	// PEND-6: default DueBefore is the END of the current IST business day, not the
+	// instant `now`. Sweeping with due-before=now only picks up obligations due at or
+	// before this exact second, so a run late in the business day silently skips
+	// same-day work still due later that day. cfg.AsOf stays the real instant `now`
+	// (correct for hold/backdate decisions); only the default due-before cutoff widens
+	// to the full business day.
+	cfg.DueBefore = biztime.BusinessDayStart(now).Add(24 * time.Hour)
 	if strings.TrimSpace(*dueBeforeRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*dueBeforeRaw))
 		if err != nil {

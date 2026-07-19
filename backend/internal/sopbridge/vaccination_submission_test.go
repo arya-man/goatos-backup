@@ -175,3 +175,9 @@ func TestVaccinationSubmissionBridgeFailsClosedOnVerificationError(t *testing.T)
 		t.Fatalf("verification producer calls = %d, want 1", producer.calls)
 	}
 }
+
+// Submit-time obligation in_progress marking (a since-removed ObligationInProgressMarker /
+// WithObligationInProgressMarker wiring) was removed as part of the PEND-1 redesign: it was
+// unreachable in the intended shape for this offline-first submit flow. The reachable in_progress
+// trigger now lives entirely in obligation.Repository.MarkCompleted's sibling-transition logic; see
+// backend/internal/obligation/adapters/postgres/inprogress_integration_test.go for its proof.

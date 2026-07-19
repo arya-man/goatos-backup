@@ -47,6 +47,22 @@ func TestClampFutureAsOfKeepsHistoricalButCapsFuture(t *testing.T) {
 	}
 }
 
+func TestClampFutureAsOfTreatsZeroAsNow(t *testing.T) {
+	now := time.Date(2026, 7, 11, 18, 15, 0, 0, DefaultLocation())
+	past := time.Date(2026, 7, 10, 9, 0, 0, 0, time.UTC)
+	future := time.Date(2026, 9, 1, 23, 59, 59, 0, time.UTC)
+
+	if got := ClampFutureAsOf(time.Time{}, now); !got.Equal(now) {
+		t.Fatalf("zero as_of = %s, want now %s", got, now)
+	}
+	if got := ClampFutureAsOf(past, now); !got.Equal(past) {
+		t.Fatalf("past as_of = %s, want unchanged %s", got, past)
+	}
+	if got := ClampFutureAsOf(future, now); !got.Equal(now) {
+		t.Fatalf("future as_of = %s, want clamped now %s", got, now)
+	}
+}
+
 func TestParseLiveAsOfRFC3339ClampsFutureAndRejectsMalformed(t *testing.T) {
 	now := time.Date(2026, 7, 11, 18, 15, 0, 0, DefaultLocation())
 

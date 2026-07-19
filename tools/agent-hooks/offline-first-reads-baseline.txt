@@ -10,5 +10,11 @@
 # Room-backed: RosterRepository.observeCoverage / refreshTimetable / refreshCoverage (field names
 # `timetableDao`/`coverageDao`, not `dao`) and TasksRepository.taskDetail (has a Room-backed
 # `observeTaskDetail` counterpart). Only the genuine one-shot below remains.
+#
+# 2026-07-19 (R50-027): line number bumped 66 -> 71. TasksRepository.tasks() itself is unchanged;
+# the proofPolicy addition to TaskDetail (doc comment + two imports + one data-class field) shifted
+# every line below it in the file. `tasks()` still has zero production callers (only
+# `error("unused")` test fakes) — it predates the current task-detail-only screen and is not wired
+# to any list screen, so it stays tracked debt here rather than an inline ignore or a new Room cache.
 
-apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/TasksRepository.kt:66: tasks: screen-facing method 'tasks' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart
+apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/TasksRepository.kt:71: tasks: screen-facing method 'tasks' returns api.xxx() directly; needs a Room-backed observe() Flow counterpart

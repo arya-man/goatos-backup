@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -229,8 +232,24 @@ class LeadershipViewModel @Inject constructor(
     private fun closeVerificationDrive(submissionId: String) = viewModelScope.launch {
         if (submissionId.isBlank() || submissionId in _closingSubmissions.value) return@launch
         _closingSubmissions.update { it + submissionId }
-        when (syncRepository.enqueueVerificationSubmissionClose(submissionId)) {
-            is AppResult.Ok -> syncRepository.triggerDrain()
+        when (val enqueue = syncRepository.enqueueVerificationSubmissionClose(submissionId)) {
+            is AppResult.Ok -> {
+                syncRepository.triggerDrain()
+                val terminal = syncRepository.observeStatus()
+                    .map { status -> status.items.firstOrNull { it.id == enqueue.value } }
+                    .filterNotNull()
+                    .first { item ->
+                        item.status == sg.mesha.goatos.core.data.sync.SyncItemStatus.SUCCEEDED ||
+                            item.conflict || item.isDeadLetter
+                    }
+                _closingSubmissions.update { it - submissionId }
+                if (terminal.status == sg.mesha.goatos.core.data.sync.SyncItemStatus.SUCCEEDED) {
+                    verification.refreshActionQueue(
+                        category = VACCINATION_CATEGORY,
+                        limit = CLOSURE_LIMIT,
+                    )
+                }
+            }
             is AppResult.Err -> _closingSubmissions.update { it - submissionId }
         }
     }

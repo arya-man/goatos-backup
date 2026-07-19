@@ -105,6 +105,13 @@ memory — the allowed set changes by migration (states get added over time).
 - [ ] Read-time-derived states (e.g. an "overdue" bucket computed from due-window)
       are not conflated with persisted states, and `as_of` reconstructions bucket
       off completion/status-event history, not just the current row status
+- [ ] **Reachable-lifecycle writer:** A state-transition writer (e.g. marking an
+      obligation `in_progress`) MUST be invoked at a lifecycle point that is
+      actually reached BEFORE the terminal transition. A writer placed after a
+      record enters a terminal state (e.g. marking `in_progress` after `completed`)
+      is dead-on-arrival. Proof: for any new status a feature introduces, verify
+      in an integration test that the state is actually SET on a real (non-mocked)
+      production path before the record becomes terminal.
 
 ## Database, pgx & sqlc
 
@@ -126,12 +133,36 @@ memory — the allowed set changes by migration (states get added over time).
       `(tenant_id, idempotency_key)` unique constraint plus an explicit reserve.
       Confirm the unique constraint/reserve exists on the touched table rather
       than assuming a column name.
+- [ ] **Idempotency needs a matching UNIQUE index:** An `INSERT ... ON CONFLICT
+      (cols) DO NOTHING/UPDATE` statement at runtime REQUIRES a UNIQUE constraint
+      or index on exactly those columns. A missing constraint causes a runtime
+      SQLSTATE 42P10 error on every call — this shipped broken. The index must be
+      created by migration (concurrently for hot tables) *before* the code using
+      `ON CONFLICT` is deployed. Use `make idempotency-writes-guard` to catch new
+      write paths with `ON CONFLICT` but no matching constraint in the committed
+      migrations.
 - [ ] Concurrent writes lock rows (`SELECT … FOR UPDATE`) rather than racing;
       multi-worker claim queries use `SKIP LOCKED`, leases, or another
       double-claim-safe pattern
 - [ ] Keyset pagination + explicit `LIMIT` on list queries; no unbounded scans
 - [ ] Hot-path queries have an indexed access path; `make validate-sqlc-plans`
       updated when the query touches import/animal/event/counter rows at scale
+
+### Config validation — expose or enforce, never ignore
+
+Configuration authored in the admin UI or seed must be validated on commit:
+
+- [ ] **Exposed config must be enforced or rejected:** Any config field exposed in
+      the admin UI/API/schema (e.g. capacity `scope` center/shed, deferral state
+      list) that the engine silently ignores violates the validate-or-reject rule.
+      Once authored, a field must either be (1) enforced by the business logic, or
+      (2) rejected at publish/save if out of range. Do NOT accept invalid values at
+      the API level and silently fall back to a default behavior. Proof: add an
+      integration test that verifies out-of-range config values are rejected at
+      publish (not silently accepted and ignored), or that in-range values are
+      actually enforced in a production-path operation (not just stored).
+- [ ] Config mutation routes are registered in `backend/internal/permissions/routes.go`
+      with the appropriate permission (mutation routes must be explicit, not assumed)
 - [ ] Indexed UUID/text columns remain bare in predicates. A shape such as
       `id::text = ANY($1::text[])` can disable the ordinary index; use a typed
       bind array (`id = ANY($1::uuid[])`) and require a natural planner proof on
@@ -155,6 +186,16 @@ events, obligations, outbox, counters):
 - [ ] Migration lock-safety and structure are checked with
       `make validate-hot-index-migrations` and `make validate-migrations`; sqlc
       access plans with `make validate-sqlc-plans`
+- [ ] **Forward migration on a hot table must be lock-safe:** The approved patterns
+      are `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` (even in
+      a transactional migration — the locks are sequential and safe), and
+      `DROP INDEX CONCURRENTLY` / `CREATE [UNIQUE] INDEX CONCURRENTLY` inside a
+      `-- +goose NO TRANSACTION` migration. When a migration is squashed or
+      renumbered, the enforcement floor in `validate-hot-index-migrations.sh` must
+      be recalibrated so it doesn't silence-exempt genuinely lock-safe migrations
+      from the baseline (a numeric floor of 141 exempts migrations 1–140 as "legacy
+      pre-floor", which false-greens). After squash, reset the floor to 2 (baseline
+      is 000001, enforcement begins at 000002+).
 - [ ] `-- +goose Up`/`Down` are both present and reversible where feasible; a
       down that drops data is called out explicitly
 

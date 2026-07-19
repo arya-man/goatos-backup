@@ -528,7 +528,11 @@ class CalendarEventsCursorException(message: String) : IllegalStateException(mes
 internal fun mergeCalendarEventsPage(
     current: CalendarEventListResponseDto,
     page: CalendarEventListResponseDto,
-): CalendarEventListResponseDto = current.copy(
-    items = (current.items + page.items).distinctBy { it.eventId },
-    nextCursor = page.nextCursor,
-)
+): CalendarEventListResponseDto {
+    val merged = (current.items + page.items).distinctBy { it.eventId }
+    val capped = merged.take(CacheGovernance.DEFAULT_MAX_ROWS) // mobile-guard:ignore: explicit 200-row cache-governance ceiling across user-requested pages
+    return current.copy(
+        items = capped,
+        nextCursor = page.nextCursor?.takeIf { merged.size <= CacheGovernance.DEFAULT_MAX_ROWS },
+    )
+}

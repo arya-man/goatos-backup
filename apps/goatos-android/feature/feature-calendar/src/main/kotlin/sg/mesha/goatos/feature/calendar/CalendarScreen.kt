@@ -92,6 +92,19 @@ fun CalendarScreen(
             .padding(horizontal = Gutter),
     ) {
         item { CalendarHeader(state, onEvent) }
+        state.errorMessage?.let { message ->
+            item {
+                Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+                    Text(text = message, color = MeshaColors.Danger, fontWeight = FontWeight.W600)
+                    Text(
+                        text = "Retry",
+                        color = MeshaColors.Brand,
+                        fontWeight = FontWeight.W700,
+                        modifier = Modifier.padding(top = 8.dp).clickable { onEvent(CalendarEvent.Refresh) },
+                    )
+                }
+            }
+        }
         if (state.coverageBanner != null) {
             item {
                 CoverageBanner(state = state.coverageBanner, modifier = Modifier.fillMaxWidth())

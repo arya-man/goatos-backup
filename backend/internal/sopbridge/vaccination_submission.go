@@ -47,6 +47,14 @@ func (b *VaccinationSubmissionBridge) WithVerificationProducer(p VerificationPro
 	return b
 }
 
+// OnTaskSubmitted no longer marks any obligation in_progress at submit time (PEND-1 REDESIGN): an
+// earlier submit-time obligation.MarkInProgress writer was the wrong shape for this offline-first
+// submit flow (no separate server-side "start" event exists here -- RecordCompletionsFromSubmission
+// only ever materializes a 'recorded' vaccination_completions row; the obligation itself completes
+// later via the separate verify/accept step). The reachable in_progress trigger now lives entirely
+// in obligation.Repository.MarkCompleted (see that function's doc comment): the first real
+// completion in a multi-obligation drive flips its still-open siblings to in_progress in the same
+// transaction. sopbridge's only remaining job here is the verification-item fan-out.
 func (b *VaccinationSubmissionBridge) OnTaskSubmitted(ctx context.Context, tenantID string, task sopdomain.TaskSummary, submission sopdomain.SubmissionSummary) error {
 	if b == nil || b.recorder == nil || !isVaccinationTask(task) {
 		return nil

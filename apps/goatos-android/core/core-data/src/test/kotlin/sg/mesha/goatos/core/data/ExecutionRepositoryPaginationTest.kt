@@ -66,9 +66,9 @@ class ExecutionRepositoryPaginationTest {
 
             // R50-008: the per-row SSOT holds EVERY roster row after a plain refresh, so status
             // aggregates are independent of the loaded page size.
-            assertEquals(TOTAL_ROWS, repository.getScanRosterStatusCounts(SHED_ID).sumOf { it.count })
+            assertEquals(TOTAL_ROWS, repository.getScanRosterStatusCounts(SHED_ID, TASK_ID).sumOf { it.count })
             // R50-007: a page-3 tag resolves from Room even though the UI blob paged.
-            assertEquals("obligation-45", repository.findScanRosterByTag(SHED_ID, "tag45")?.obligationId)
+            assertEquals("obligation-45", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag45")?.obligationId)
         }
     }
 
@@ -182,6 +182,7 @@ class ExecutionRepositoryPaginationTest {
                     database.executionShedCacheDao(),
                     database.scanRosterCacheDao(),
                     database.scanRosterRowDao(),
+                    database,
                     clock = { 42L },
                 ),
                 backend,

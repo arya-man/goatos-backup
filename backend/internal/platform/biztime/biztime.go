@@ -58,6 +58,9 @@ func BusinessDateIn(t time.Time, timezone string) string {
 // reads may reconstruct historical state, but a stale or hand-edited future
 // as_of must not make not-yet-due work look overdue.
 func ClampFutureAsOf(asOf, now time.Time) time.Time {
+	if asOf.IsZero() {
+		return now
+	}
 	loc := DefaultLocation()
 	asOf = asOf.In(loc)
 	now = now.In(loc)

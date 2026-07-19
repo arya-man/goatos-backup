@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -233,10 +234,6 @@ func run(args []string) error {
 	if err := requireOwnerPrerequisites(ctx, pool, *tenantID, *allowOwnerlessSeed); err != nil {
 		return err
 	}
-	if err := seedAnimalStageLookup(ctx, pool, *tenantID); err != nil {
-		return err
-	}
-
 	goats, err := loadGoats(*sourcePath)
 	if err != nil {
 		return fmt.Errorf("load goats: %w", err)
@@ -312,7 +309,7 @@ type seedAnimalStage struct {
 	SortOrder int
 }
 
-func seedAnimalStageLookup(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
+func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	stages := []seedAnimalStage{
 		{Code: "K0", Name: "Newborn", MinAgeDay: int32Ptr(0), MaxAgeDay: int32Ptr(1), SortOrder: 0},
 		{Code: "K1", Name: "Milk training", MinAgeDay: int32Ptr(2), MaxAgeDay: int32Ptr(7), SortOrder: 10},
@@ -332,7 +329,7 @@ func seedAnimalStageLookup(ctx context.Context, pool *pgxpool.Pool, tenantID str
 		{Code: "Quarantine", Name: "Quarantine", SortOrder: 130},
 	}
 	for _, stage := range stages {
-		if _, err := pool.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 INSERT INTO animal_stage_lookup (
   animal_stage_id, tenant_id, stage_code, name, min_age_days, max_age_days,
   sort_order, status
@@ -617,7 +614,60 @@ type seedGoatUpsertRow struct {
 	reproductiveStatus                                                                                                                            *string
 }
 
+// checkNoCrossParkMoves enforces the goats-never-change-park invariant (maintainer
+// decision 2026-07-19; runtime equivalent: identity/ports.ErrCrossParkMove) for a
+// whole seed/reseed batch with ONE set-based query -- never a per-goat lookup, so
+// this scales the same way the DOB-null count gate does. A goat with an existing
+// non-null park_id whose incoming row targets a different park is collected as an
+// offender; if any are found, the whole seed transaction is rejected before the
+// upsert batch runs (fail before the batch runs, same discipline as the
+// -expect-null-false-dob count gate). Exempt: the goat has no existing row (new
+// placement) or its existing park_id IS NULL (terminal exit / not yet placed) --
+// either case is an initial placement, not a move.
+func checkNoCrossParkMoves(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	incomingParkByGoatID := make(map[string]string, len(rows))
+	goatIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		incomingParkByGoatID[r.goatID] = r.parkID
+		goatIDs = append(goatIDs, r.goatID)
+	}
+	rs, err := tx.Query(ctx, `
+SELECT goat_id::text, park_id::text
+FROM goats
+WHERE tenant_id = $1 AND goat_id = ANY($2::uuid[]) AND park_id IS NOT NULL`, tenantID, goatIDs)
+	if err != nil {
+		return fmt.Errorf("cross-park move pre-check: %w", err)
+	}
+	defer rs.Close()
+
+	var offending []string
+	for rs.Next() {
+		var goatID, existingParkID string
+		if err := rs.Scan(&goatID, &existingParkID); err != nil {
+			return fmt.Errorf("cross-park move pre-check scan: %w", err)
+		}
+		if incomingParkID, ok := incomingParkByGoatID[goatID]; ok && incomingParkID != existingParkID {
+			offending = append(offending, fmt.Sprintf("%s(%s->%s)", goatID, existingParkID, incomingParkID))
+		}
+	}
+	if err := rs.Err(); err != nil {
+		return fmt.Errorf("cross-park move pre-check rows: %w", err)
+	}
+	if len(offending) > 0 {
+		sort.Strings(offending)
+		return fmt.Errorf("seed rejected: %d goat(s) would cross-park move (goats never change park, see identity/ports.ErrCrossParkMove): %s",
+			len(offending), strings.Join(offending, ", "))
+	}
+	return nil
+}
+
 func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow, custodianPartyID string) error {
+	if err := checkNoCrossParkMoves(ctx, tx, tenantID, rows); err != nil {
+		return err
+	}
 	return batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
 		b.Queue(`
 				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
@@ -668,7 +718,6 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			_ = tx.Rollback(ctx)
 		}
 	}()
-
 	// 0. Purge ALL leftover synthetic dev fixtures (data cleanup, not schema/rule change) so every
 	//    surface (/calendar, /counts/herd, /vaccination) renders only real herd data. Targets the
 	//    trigger-seed protocol family, synthetic G-0000NN goats, junk-named sheds, and stale
@@ -823,6 +872,16 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, fmt.Errorf("begin animal seed tx: %w", err)
 	}
 	committed = false
+
+	// R50-003: lookup writes must be part of the SAME transaction as the imported herd and its
+	// count gates below (the DOB-null -expect-null-false-dob gate, ~line 1350). This tx is the
+	// one that actually holds the herd/obligation/audit writes and the gate check, so
+	// seedAnimalStageLookup runs here -- not in the earlier protocol-draft tx above, which
+	// commits independently and would let a later gate failure leave stale lookup rows durably
+	// committed while the herd it was meant to travel with rolled back.
+	if err := seedAnimalStageLookup(ctx, tx, tenantID); err != nil {
+		return st, err
+	}
 
 	// Load all protocol rules (birth_age, post_arrival, revacc for all vaccines)
 	// ruleByDoseCode: vaccine_code "_" dose_code → rule_id
@@ -1022,7 +1081,21 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 	vaccMatrixDef := buildCanonicalVaccinationMatrix()
 
-	for _, c := range cells {
+	orderedCells := append([]vaccCell(nil), cells...)
+	sort.SliceStable(orderedCells, func(i, j int) bool {
+		left, leftErr := time.ParseInLocation("2006-01-02", strings.TrimSpace(orderedCells[i].Value), loc)
+		right, rightErr := time.ParseInLocation("2006-01-02", strings.TrimSpace(orderedCells[j].Value), loc)
+		if leftErr != nil {
+			return false
+		}
+		if rightErr != nil {
+			return true
+		}
+		return left.Before(right)
+	})
+	acceptedHistoryByAnimalKey := map[string][]vaccinationdomain.RecentVaccineAdministration{}
+
+	for _, c := range orderedCells {
 		// A dated fact is any cell that is neither blank/NA (nothing recorded) nor
 		// "Pending" (explicit non-administration evidence owned by the kernel). Fix
 		// Plan A1 requires every one of these 3,836 cells to be reconciled — imported
@@ -1089,7 +1162,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			goatEntryDateByAnimalKey[c.AnimalKey],
 			d,
 			seedKidsNormalScheduleUntilWeeks,
-			nil,
+			acceptedHistoryByAnimalKey[c.AnimalKey],
 		)
 		doseCodeForPath, laterAdministration := mapSheetDoseToRuleCode(c.Vaccine, c.DoseCode, path, vaccMatrixDef)
 		if doseCodeForPath == "" {
@@ -1170,6 +1243,18 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				idem:           historyCmpIdem,
 			})
 			addFact(c, val, dispositionImportedCompletion, historyOblIdem, historyCmpIdem)
+			acceptedHistoryByAnimalKey[c.AnimalKey] = append(
+				acceptedHistoryByAnimalKey[c.AnimalKey],
+				vaccinationdomain.RecentVaccineAdministration{
+					AdministeredAt:    administeredAt,
+					VaccineCode:       def.Code,
+					VaccineType:       def.Type,
+					PathogenClass:     def.Pathogen,
+					DoseCode:          doseCodeForPath,
+					Sequence:          int32(c.Sequence),
+					ProtocolVersionID: versionID,
+				},
+			)
 			st.Completed++
 			st.CompletionsHistory++
 			if laterAdministration {
@@ -1270,20 +1355,19 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if expectNullFalseDob >= 0 && st.DobNulled != expectNullFalseDob {
 		return st, fmt.Errorf("dob_nulled count gate failed: expected %d, got %d", expectNullFalseDob, st.DobNulled)
 	}
+	if err := persistDobDispositionProofInTx(ctx, tx, seedRunID, dobDispositions); err != nil {
+		return st, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return st, fmt.Errorf("commit: %w", err)
 	}
 	committed = true
-	// R50-005: the sidecar write happens AFTER commit (the audit record documents
-	// what was durably persisted) but its error is surfaced and returned BEFORE
-	// the run is ever marked verified below — a failed sidecar write still fails
-	// the seed run (failSeedRun via the deferred retErr handler) even though the
-	// source data itself is already committed. A full write-before-commit
-	// refactor is not done here: the disposition audit is a side-channel record
-	// of committed facts, not a gating input to the transaction itself.
+	// The database detail written above is canonical and atomic with the imported
+	// herd. The sidecar is only a convenience export; an unwritable source folder
+	// cannot invalidate or orphan the committed audit proof.
 	if err := writeDobDispositionAudit(sourcePath, now, seedRunID, dobDispositions); err != nil {
-		return st, err
+		fmt.Printf("WARN: %v\n", err)
 	}
 	// Source committed; move the run into the generating state (kernel derivation runs next).
 	if err := markSeedRunState(ctx, pool, seedRunID, seedRunStateGenerating, false); err != nil {
@@ -2228,6 +2312,36 @@ func markSeedRunState(ctx context.Context, pool *pgxpool.Pool, runID, state stri
 		runID, state, terminal)
 	if err != nil {
 		return fmt.Errorf("mark seed run %s: %w", state, err)
+	}
+	return nil
+}
+
+func persistDobDispositionProofInTx(ctx context.Context, tx pgx.Tx, runID string, entries []dobDisposition) error {
+	// R50-005: encoding/json marshals a nil slice as the JSON literal `null`, not `[]`.
+	// dobDispositions in seed() is declared `var dobDispositions []dobDisposition` and stays nil
+	// when nothing was nulled, so without this normalization a clean run's audit proof would read
+	// `"dob_dispositions": null` instead of an honest empty array -- indistinguishable from "this
+	// run never recorded a disposition list at all" to a reader of seed_runs.detail.
+	if entries == nil {
+		entries = []dobDisposition{}
+	}
+	proof, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("marshal canonical DOB disposition proof: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+UPDATE seed_runs
+SET detail = jsonb_set(
+      jsonb_set(COALESCE(detail, '{}'::jsonb), '{dob_nulled_count}', to_jsonb($2::int), true),
+      '{dob_dispositions}', $3::jsonb, true
+    ),
+    updated_at = now()
+WHERE seed_run_id = $1::uuid`, runID, len(entries), proof)
+	if err != nil {
+		return fmt.Errorf("persist canonical DOB disposition proof: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("persist canonical DOB disposition proof: seed run %s not found", runID)
 	}
 	return nil
 }

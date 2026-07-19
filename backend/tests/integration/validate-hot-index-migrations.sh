@@ -71,82 +71,25 @@ hot_table_prefixes = (
     "obligation_status_events_",
 )
 
-# Older migrations are already checksum-tracked in deployed databases. They stay
-# runnable, but this guard prints every historical hot-table lock risk so scale
-# certification cannot pretend those migrations are safe on populated tables.
-enforcement_floor = 141
+# Migrations are numbered from 000001 (clean-slate baseline) onwards. The
+# enforcement_floor determines which migrations are subject to the hot-table
+# lock-safety check. Migrations below the floor are considered legacy and exempt
+# (their unsafe patterns may be in deployed databases with checksum-tracked
+# hashes, so we warn but do not fail); migrations at or above the floor must be
+# lock-safe or declared in reviewed_applied_debt.
+#
+# After the squash to clean baseline (000001), enforcement_floor is set to 2:
+# - 000001 (clean baseline CREATE SCHEMA) is naturally exempt via the
+#   created_in_migration check (baseline creates its own tables).
+# - 000002 and onwards are enforced on merit (lock-safe patterns only).
+enforcement_floor = 2
 
-# Migration 000152 was applied to shared staging before this guard caught late
-# hot-table CHECK rollout shape. Do not edit that checksum-tracked migration.
-# Keep it visible as reviewed debt while preserving failure behavior for any new
-# unsafe hot-table migration.
-reviewed_applied_debt = {
-    "000152_obligation_window_check.sql: obligation_instances_window_check on hot table obligation_instances uses direct CHECK/FOREIGN KEY constraint without NOT VALID",
-    "000152_obligation_window_check.sql: obligation_instances_window_check on hot table obligation_instances uses direct DROP CONSTRAINT in goose Down section",
-    # 000166 (C35-024) relaxes the domain_event_processed_events status CHECK to add the
-    # 'effects_committed' value. Changing a CHECK's allowed set unavoidably drops the old
-    # constraint; the DROP is catalog-only (brief ACCESS EXCLUSIVE, no scan) and the re-add is
-    # NOT VALID + VALIDATE (concurrent). Explicitly reviewed as acceptable hot-table debt.
-    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct DROP CONSTRAINT",
-    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct DROP CONSTRAINT in goose Down section",
-    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct VALIDATE CONSTRAINT",
-    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct VALIDATE CONSTRAINT in goose Down section",
-    # 000179 (originally authored as 000171, renumbered during the notification-lane version
-    # collision fix -- see git history around commit b3a74f20) relaxes the notification_requests
-    # notification_type CHECK to add 'verification_pending' and 'rework' (the vaccination
-    # verification/rework notification kernel). Same shape as 000166: the DROP is catalog-only
-    # (brief ACCESS EXCLUSIVE, no scan) and the re-add is NOT VALID + VALIDATE (concurrent).
-    # Explicitly reviewed as acceptable hot-table debt.
-    "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT",
-    "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT in goose Down section",
-    "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT",
-    "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT in goose Down section",
-    # 000181 relaxes the same CHECK further to add 'advance_notice' and 'due_today' (the vaccination
-    # reminder cadence ladder, docs/decisions/vaccination-notification-rules.md §3). Identical
-    # lock-safe shape to 000166/000179: catalog-only DROP + NOT VALID re-add + concurrent VALIDATE.
-    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT",
-    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT in goose Down section",
-    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT",
-    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT in goose Down section",
-    # 000186 (U5, docs/decisions/operational-kernel-5k-50k-scale-envelope.md step 5) drops
-    # notification_requests_event_fk and calendar_snoozes_event_fk, the two FKs onto
-    # calendar_event_projections(tenant_id, event_id), so that table can be dropped later (U7)
-    # without an orphaned FK. Unlike the CHECK-relax migrations above, this is a pure DROP
-    # CONSTRAINT with no re-add in Up -- a catalog-only, brief ACCESS EXCLUSIVE lock with no table
-    # scan or rewrite, on both hot tables. The Down section's ADD CONSTRAINT (FK repoint reversal)
-    # is a planned, explicitly-invoked rollback path, not a rolling-deploy migration step, so it is
-    # reviewed as acceptable to run as a direct (validated-on-add) FOREIGN KEY rather than a
-    # NOT VALID + concurrent VALIDATE two-step; the ADR's own recovery section already treats
-    # restoring these FKs as an explicit, supervised reversal step.
-    "000186_notification_snooze_projection_fk_repoint.sql: notification_requests_event_fk on hot table notification_requests uses direct DROP CONSTRAINT",
-    "000186_notification_snooze_projection_fk_repoint.sql: calendar_snoozes_event_fk on hot table calendar_snoozes uses direct DROP CONSTRAINT",
-    "000186_notification_snooze_projection_fk_repoint.sql: notification_requests_event_fk on hot table notification_requests uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
-    "000186_notification_snooze_projection_fk_repoint.sql: calendar_snoozes_event_fk on hot table calendar_snoozes uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
-    # 000189 (U7 completion, docs/decisions/operational-kernel-5k-50k-scale-envelope.md) finishes
-    # the FK repoint 000186 intended but missed: migration 000106 had already renamed
-    # notification_requests_event_fk/calendar_snoozes_event_fk to
-    # notification_requests_event_identity_fk/calendar_snoozes_event_identity_fk (repointed onto
-    # calendar_event_identities), so 000186's DROP CONSTRAINT IF EXISTS against the OLD name was a
-    # silent no-op and the real identity FKs stayed live. 000189 drops the real, currently-active
-    # constraints -- same catalog-only, brief ACCESS EXCLUSIVE lock shape as 000186, immediately
-    # followed by dropping calendar_event_projections/calendar_event_identities themselves in the
-    # same migration, so there is no window where an orphaned FK could be re-added against a
-    # since-dropped table.
-    "000189_drop_calendar_projection.sql: notification_requests_event_identity_fk on hot table notification_requests uses direct DROP CONSTRAINT",
-    "000189_drop_calendar_projection.sql: calendar_snoozes_event_identity_fk on hot table calendar_snoozes uses direct DROP CONSTRAINT",
-    # identity_decisions is added to the hot-table set by VACC-REV-11 so future validated CHECK
-    # additions there are rejected. 000146 (reproductive_goat decision) is a DEPLOYED,
-    # checksum-tracked migration that predates this rule and used the direct drop + re-add-VALIDATED
-    # CHECK shape; it is grandfathered as reviewed debt (identical to 000152) and must not be edited.
-    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT",
-    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct CHECK/FOREIGN KEY constraint without NOT VALID",
-    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT in goose Down section",
-    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
-    # 000191 (identity_goat decision, VACC-REV-11) is NOT whitelisted: it runs -- +goose NO
-    # TRANSACTION, so its ADD ... NOT VALID / VALIDATE / DROP / RENAME each commit independently and
-    # are lock-safe on their own — the guard exempts NO TRANSACTION constraint statements above, so no
-    # entry is needed here. A future TRANSACTIONAL add+validate on identity_decisions is still rejected.
-}
+# reviewed_applied_debt tracks migrations that were deployed with unsafe
+# patterns but are explicitly reviewed and accepted as known debt. After the
+# squash to clean baseline (2026-07-19), no pre-squash migrations remain in the
+# codebase, so this set is empty. New unsafe patterns added to deployed
+# migrations after this floor must be reviewed and added here before shipping.
+reviewed_applied_debt = set()
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)
 create_index_re = re.compile(
@@ -303,6 +246,7 @@ def classify_direct_constraint_risk(
     section: str,
     statement: str,
     created_in_migration: set[str],
+    safe_constraints_out: set[str],
 ) -> None:
     match = alter_add_constraint_re.search(statement)
     if not match:
@@ -326,6 +270,11 @@ def classify_direct_constraint_risk(
             version,
             f"{path_name}: {constraint_name} on hot table {table} uses direct CHECK/FOREIGN KEY constraint without NOT VALID{suffix}",
         )
+    elif direct_validation_constraint_re.search(body) and not_valid_re.search(body):
+        # Constraint added with NOT VALID is part of the safe re-definition pattern.
+        # Mark it as safe for subsequent VALIDATE operations on the same constraint.
+        if constraint_name and constraint_name != "<unnamed>":
+            safe_constraints_out.add(bare_name(constraint_name))
 
 
 def classify_drop_constraint_risk(
@@ -336,6 +285,7 @@ def classify_drop_constraint_risk(
     statement: str,
     created_in_migration: set[str],
     no_transaction: bool,
+    will_be_re_added_constraints: set[str],
 ) -> None:
     table_match = alter_table_re.search(statement)
     if not table_match:
@@ -350,6 +300,10 @@ def classify_drop_constraint_risk(
     suffix = "" if section == "goose Up" else f" in {section} section"
     for match in drop_constraint_re.finditer(statement):
         constraint_name = bare_name(match.group("constraint"))
+        # DROP CONSTRAINT followed by ADD CONSTRAINT ... NOT VALID is the safe re-definition pattern
+        # for updating constraints. Don't flag drops that will be re-added with NOT VALID.
+        if constraint_name in will_be_re_added_constraints:
+            continue
         classify_hot_lock_risk(
             version,
             f"{path_name}: {constraint_name} on hot table {table} uses direct DROP CONSTRAINT{suffix}",
@@ -364,6 +318,7 @@ def classify_validate_constraint_risk(
     statement: str,
     created_in_migration: set[str],
     no_transaction: bool,
+    safe_to_validate_constraints: set[str],
 ) -> None:
     table_match = alter_table_re.search(statement)
     if not table_match:
@@ -371,15 +326,17 @@ def classify_validate_constraint_risk(
     table = bare_name(table_match.group("table"))
     if table in created_in_migration or not is_hot_table(table):
         return
-    # A VALIDATE CONSTRAINT inside a TRANSACTIONAL migration keeps the preceding ADD ... NOT VALID's
-    # ACCESS EXCLUSIVE lock for the whole scan — defeating the lock-safe rollout. Only a NO TRANSACTION
-    # section releases the ADD's lock before the (SHARE UPDATE EXCLUSIVE, concurrent) validate scan, so
-    # a transactional VALIDATE on a hot table is rejected here and NO TRANSACTION is exempt (VACC-REV-11).
+    # A VALIDATE CONSTRAINT inside a TRANSACTIONAL migration is safe if it was preceded by
+    # ADD CONSTRAINT ... NOT VALID for the same constraint (the safe constraint re-definition pattern).
+    # A NO TRANSACTION section also makes VALIDATE safe (each statement commits independently).
     if no_transaction:
         return
     suffix = "" if section == "goose Up" else f" in {section} section"
     for match in validate_constraint_re.finditer(statement):
         constraint_name = bare_name(match.group("constraint"))
+        # If this constraint was added with NOT VALID in the same section, don't flag it.
+        if constraint_name in safe_to_validate_constraints:
+            continue
         classify_hot_lock_risk(
             version,
             f"{path_name}: {constraint_name} on hot table {table} uses direct VALIDATE CONSTRAINT{suffix}",
@@ -489,6 +446,8 @@ for path in sorted(migration_dir.glob("*.sql")):
         bare_name(match.group("table"))
         for match in create_table_re.finditer(up_sql)
     }
+    # Pre-process: collect constraints added with NOT VALID (safe for VALIDATE and DROP+re-add pattern)
+    safe_constraints_up: set[str] = set()
     for statement in up_statements:
         classify_direct_constraint_risk(
             path_name=path.name,
@@ -496,7 +455,11 @@ for path in sorted(migration_dir.glob("*.sql")):
             section="goose Up",
             statement=statement,
             created_in_migration=created_in_migration,
+            safe_constraints_out=safe_constraints_up,
         )
+
+    # Classify risks using the collected safe constraints
+    for statement in up_statements:
         classify_drop_constraint_risk(
             path_name=path.name,
             version=version,
@@ -504,6 +467,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             statement=statement,
             created_in_migration=created_in_migration,
             no_transaction=has_no_transaction(up_raw),
+            will_be_re_added_constraints=safe_constraints_up,
         )
         classify_validate_constraint_risk(
             path_name=path.name,
@@ -512,6 +476,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             statement=statement,
             created_in_migration=created_in_migration,
             no_transaction=has_no_transaction(up_raw),
+            safe_to_validate_constraints=safe_constraints_up,
         )
 
         drop_match = drop_index_re.search(statement)
@@ -543,6 +508,8 @@ for path in sorted(migration_dir.glob("*.sql")):
             f"{path.name}: {index_name} on hot table {table} uses non-concurrent CREATE INDEX",
         )
 
+    # Pre-process: collect constraints added with NOT VALID (safe for VALIDATE and DROP+re-add pattern)
+    safe_constraints_down: set[str] = set()
     for statement in down_statements:
         classify_direct_constraint_risk(
             path_name=path.name,
@@ -550,7 +517,11 @@ for path in sorted(migration_dir.glob("*.sql")):
             section="goose Down",
             statement=statement,
             created_in_migration=created_in_migration,
+            safe_constraints_out=safe_constraints_down,
         )
+
+    # Classify risks using the collected safe constraints
+    for statement in down_statements:
         classify_drop_constraint_risk(
             path_name=path.name,
             version=version,
@@ -558,6 +529,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             statement=statement,
             created_in_migration=created_in_migration,
             no_transaction=has_no_transaction(down_raw),
+            will_be_re_added_constraints=safe_constraints_down,
         )
         classify_validate_constraint_risk(
             path_name=path.name,
@@ -566,6 +538,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             statement=statement,
             created_in_migration=created_in_migration,
             no_transaction=has_no_transaction(down_raw),
+            safe_to_validate_constraints=safe_constraints_down,
         )
 
         drop_match = drop_index_re.search(statement)

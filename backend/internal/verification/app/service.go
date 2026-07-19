@@ -140,12 +140,15 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 		}
 	}
 	mediaByID := map[string]domain.MediaItem{}
-	if len(allProofIDs) > 0 && s.media != nil {
+	resolutionOK := len(allProofIDs) > 0 && s.media != nil
+	if resolutionOK {
 		resolved, err := s.media.ResolveMedia(ctx, tenantID, allProofIDs)
-		if err == nil {
+		if err == nil && len(resolved) == len(allProofIDs) {
 			for _, m := range resolved {
 				mediaByID[m.ProofID] = m
 			}
+		} else {
+			resolutionOK = false
 		}
 	}
 	for i, it := range items {
@@ -155,7 +158,7 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 				media = append(media, m)
 			}
 		}
-		rows[i] = domain.QueueRow{Item: it, Media: media}
+		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceAvailable: resolutionOK && len(media) == len(it.MediaRefs)}
 	}
 	return rows
 }
@@ -169,6 +172,7 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	in.Decision = strings.TrimSpace(in.Decision)
 	in.Reason = strings.TrimSpace(in.Reason)
 	in.VerifierID = strings.TrimSpace(in.VerifierID)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
 	if !uuidutil.IsUUIDString(in.TenantID) || !uuidutil.IsUUIDString(in.ItemID) {
 		return domain.Item{}, BadRequest("invalid_item", "tenant_id and item_id must be UUIDs")
 	}
@@ -184,6 +188,20 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	if in.RowVersion < 1 {
 		return domain.Item{}, BadRequest("invalid_row_version", "row_version is required")
 	}
+	if in.IdempotencyKey != "" && (len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 200) {
+		return domain.Item{}, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
+	}
+	itemForEvidence, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
+	if err != nil {
+		return domain.Item{}, mapRepoErr(err)
+	}
+	if s.media == nil || len(itemForEvidence.MediaRefs) == 0 {
+		return domain.Item{}, Unprocessable("evidence_unavailable", "verification evidence is unavailable")
+	}
+	resolved, err := s.media.ResolveMedia(ctx, in.TenantID, itemForEvidence.MediaRefs)
+	if err != nil || len(resolved) != len(itemForEvidence.MediaRefs) {
+		return domain.Item{}, Unprocessable("evidence_unavailable", "verification evidence is unavailable")
+	}
 	item, err := s.repo.RecordVerdict(ctx, in)
 	if err != nil {
 		return domain.Item{}, mapRepoErr(err)
@@ -198,6 +216,7 @@ func (s *Service) CloseItem(ctx context.Context, in domain.CloseAction) (domain.
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	in.ItemID = strings.TrimSpace(in.ItemID)
 	in.ActorID = strings.TrimSpace(in.ActorID)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
 	if !uuidutil.IsUUIDString(in.TenantID) || !uuidutil.IsUUIDString(in.ItemID) {
 		return domain.Item{}, BadRequest("invalid_item", "tenant_id and item_id must be UUIDs")
 	}
@@ -206,6 +225,9 @@ func (s *Service) CloseItem(ctx context.Context, in domain.CloseAction) (domain.
 	}
 	if in.RowVersion < 1 {
 		return domain.Item{}, BadRequest("invalid_row_version", "row_version is required")
+	}
+	if in.IdempotencyKey != "" && (len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 200) {
+		return domain.Item{}, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
 	}
 	item, err := s.repo.CloseItem(ctx, in)
 	if err != nil {
@@ -220,11 +242,15 @@ func (s *Service) CloseSubmission(ctx context.Context, in domain.CloseSubmission
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	in.SubmissionID = strings.TrimSpace(in.SubmissionID)
 	in.ActorID = strings.TrimSpace(in.ActorID)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
 	if !uuidutil.IsUUIDString(in.TenantID) || !uuidutil.IsUUIDString(in.SubmissionID) {
 		return nil, BadRequest("invalid_submission", "tenant_id and submission_id must be UUIDs")
 	}
 	if !uuidutil.IsUUIDString(in.ActorID) {
 		return nil, BadRequest("invalid_actor", "actor id must be a UUID")
+	}
+	if in.IdempotencyKey != "" && (len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 200) {
+		return nil, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
 	}
 	items, err := s.repo.CloseSubmission(ctx, in)
 	if err != nil {
@@ -285,6 +311,8 @@ func mapRepoErr(err error) error {
 		return NotFound("item_not_found", "verification item not found")
 	case errors.Is(err, ports.ErrConflict):
 		return Conflict("write_conflict", "verification item was modified by someone else")
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		return Conflict("idempotency_conflict", "Idempotency-Key was reused with a different request payload")
 	default:
 		return err
 	}

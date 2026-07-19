@@ -153,6 +153,58 @@ func TestGenerateForVersionCreatesSuccessorWhenCanceledWorkBecomesEligibleAgain(
 	}
 }
 
+// TestInsertSuccessorForCanceledGenerationReplayHasNoAttemptCeiling is R50-011: the successor
+// numbering loop in insertSuccessorForCanceledGenerationReplay used to hard-stop after 32 attempts.
+// That ceiling has been removed (the loop is now unbounded: `for attempt := 1; ; attempt++`). A
+// base key with 32 PRIOR canceled successor attempts (":successor:01".."32") must still mint the
+// 33rd successor instead of erroring.
+func TestInsertSuccessorForCanceledGenerationReplayHasNoAttemptCeiling(t *testing.T) {
+	ctx := context.Background()
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+
+	const baseKey = "tenant-1:rule-fmd:goat-1:1"
+	base := obldomain.NewObligation{
+		TenantID: "tenant-1", ProtocolVersionID: "version-1", RuleID: "rule-fmd",
+		TargetType: "goat", TargetID: "goat-1", ScopeType: "shed", ScopeID: "shed-1",
+		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Sequence: 1,
+	}
+	// Pre-seed 32 canceled prior successor attempts for this exact base key -- each one, on replay,
+	// resolves to "canceled" via ReopenDeferredObligationForGeneration and must NOT stop the loop.
+	for i := 1; i <= 32; i++ {
+		key := fmt.Sprintf("%s:successor:%02d", baseKey, i)
+		row := base
+		row.IdempotencyKey = key
+		row.Status = "canceled"
+		if _, applied, err := obl.InsertObligation(ctx, row); err != nil || !applied {
+			t.Fatalf("seed prior successor %d: applied=%v err=%v", i, applied, err)
+		}
+		obl.cancelReasonsByKey[key] = "ineligible_after_shift"
+	}
+	if got := len(obl.inserted); got != 32 {
+		t.Fatalf("seeded successors = %d, want 32", got)
+	}
+
+	ref, _, generated, err := gen.insertSuccessorForCanceledGenerationReplay(
+		ctx, "tenant-1", baseKey, base, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), false, "")
+	if err != nil {
+		t.Fatalf("insert successor: %v", err)
+	}
+	if !generated {
+		t.Fatalf("expected a newly generated 33rd successor, got reused ref=%#v", ref)
+	}
+	if len(obl.inserted) != 33 {
+		t.Fatalf("total inserted = %d, want 33 (32 seeded + the new 33rd)", len(obl.inserted))
+	}
+	wantKey := baseKey + ":successor:33"
+	if got := obl.inserted[32].IdempotencyKey; got != wantKey {
+		t.Fatalf("33rd successor key = %q, want %q", got, wantKey)
+	}
+	if ref.Status != "scheduled" {
+		t.Fatalf("33rd successor status = %q, want scheduled", ref.Status)
+	}
+}
+
 // TestGenerateForVersionCanceledWithoutReasonFailsClosedNoSuccessor: a canceled row whose
 // cancellation event carries NO reason (legacy data) gives no evidence the goat is returning —
 // generation must NOT mint a successor.
@@ -2584,6 +2636,16 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 	o.keyIndex[in.IdempotencyKey] = len(o.inserted)
 	o.inserted = append(o.inserted, in)
 	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) InsertDeferredObligation(ctx context.Context, in obldomain.NewObligation, _ string, occurredAt time.Time) (string, bool, error) {
+	id, applied, err := o.InsertObligation(ctx, in)
+	if err == nil && applied {
+		o.recordedStatusEvents = append(o.recordedStatusEvents, obldomain.NewStatusEvent{
+			TenantID: in.TenantID, ObligationID: id, EventType: "deferred", OccurredAt: occurredAt,
+		})
+	}
+	return id, applied, err
 }
 
 func (o *generationObligationFake) DeferOpenObligationForGeneration(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (obldomain.ObligationRef, bool, error) {

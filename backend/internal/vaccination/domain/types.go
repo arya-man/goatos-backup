@@ -98,10 +98,13 @@ type RecordedCompletion struct {
 // SubmissionCompletion is the durable per-goat completion context materialized from one
 // vaccination SOP submission. A submission may contain more than one vaccine obligation for the
 // same goat; verification groups these rows by GoatID so one handling clip can cover every vaccine
-// administered to that goat in that handling.
+// administered to that goat in that handling. ObligationID is the specific obligation this
+// completion row closes -- sopbridge's PEND-1 start trigger (markObligationsInProgress) calls
+// obligation.MarkInProgress per row using this id.
 type SubmissionCompletion struct {
 	CompletionID   string
 	SubmissionID   string
+	ObligationID   string
 	GoatID         string
 	GoatLabel      string
 	ShedID         string

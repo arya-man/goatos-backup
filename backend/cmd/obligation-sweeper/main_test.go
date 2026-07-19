@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -88,6 +89,57 @@ func TestActorIDAlwaysRequired(t *testing.T) {
 				t.Fatal("config has no actor-id, want validation error")
 			}
 		})
+	}
+}
+
+// TestParseFlagsDueBeforeDefaultsToBusinessDayBoundary is PEND-6: the default
+// -due-before cutoff must be the END of the current IST business day, not the
+// exact clock instant the sweeper happened to start at. A run late in the
+// business day (say 23:50 IST) must still pick up obligations due later that
+// same day, so two calls at different instants within the same business day
+// must resolve to the IDENTICAL default DueBefore. An explicit -due-before
+// override must still be honored verbatim, clock seam or not.
+func TestParseFlagsDueBeforeDefaultsToBusinessDayBoundary(t *testing.T) {
+	morning := time.Date(2026, 7, 19, 6, 0, 0, 0, biztime.DefaultLocation())
+	evening := time.Date(2026, 7, 19, 23, 50, 0, 0, biztime.DefaultLocation())
+	wantDueBefore := biztime.BusinessDayStart(morning).Add(24 * time.Hour)
+
+	args := []string{"-tenant-id", "tenant-1", "-actor-id", "actor-1"}
+
+	morningCfg, err := parseFlagsAt(args, morning)
+	if err != nil {
+		t.Fatalf("parseFlagsAt(morning): %v", err)
+	}
+	eveningCfg, err := parseFlagsAt(args, evening)
+	if err != nil {
+		t.Fatalf("parseFlagsAt(evening): %v", err)
+	}
+
+	if !morningCfg.DueBefore.Equal(wantDueBefore) {
+		t.Fatalf("morning DueBefore = %s, want business-day end %s", morningCfg.DueBefore, wantDueBefore)
+	}
+	if !eveningCfg.DueBefore.Equal(wantDueBefore) {
+		t.Fatalf("evening DueBefore = %s, want business-day end %s", eveningCfg.DueBefore, wantDueBefore)
+	}
+	if !morningCfg.DueBefore.Equal(eveningCfg.DueBefore) {
+		t.Fatalf("DueBefore differs across same business day: morning=%s evening=%s", morningCfg.DueBefore, eveningCfg.DueBefore)
+	}
+	// AsOf must stay the real instant, not the widened due-before boundary.
+	if !morningCfg.AsOf.Equal(morning) {
+		t.Fatalf("morning AsOf = %s, want real instant %s", morningCfg.AsOf, morning)
+	}
+	if !eveningCfg.AsOf.Equal(evening) {
+		t.Fatalf("evening AsOf = %s, want real instant %s", eveningCfg.AsOf, evening)
+	}
+
+	overrideArgs := []string{"-tenant-id", "tenant-1", "-actor-id", "actor-1", "-due-before", "2026-07-20T10:00:00+05:30"}
+	overrideCfg, err := parseFlagsAt(overrideArgs, evening)
+	if err != nil {
+		t.Fatalf("parseFlagsAt(override): %v", err)
+	}
+	wantOverride := time.Date(2026, 7, 20, 10, 0, 0, 0, biztime.DefaultLocation())
+	if !overrideCfg.DueBefore.Equal(wantOverride) {
+		t.Fatalf("override DueBefore = %s, want verbatim override %s", overrideCfg.DueBefore, wantOverride)
 	}
 }
 

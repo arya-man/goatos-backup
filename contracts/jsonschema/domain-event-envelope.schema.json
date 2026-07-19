@@ -60,8 +60,8 @@
         "notification.exhausted",
         "notification.sent",
         "obligation.missed",
-    "obligation.rescoped",
-    "goat.obligations_canceled",
+        "obligation.rescoped",
+        "goat.obligations_canceled",
         "vaccination.verify.accepted",
         "vaccination.verify.rejected",
         "vaccination.completed",
@@ -73,7 +73,8 @@
         "counts.projection_exception.opened",
         "verification.item.pending",
         "verification.verdict.rework",
-        "verification.verdict.approved"
+        "verification.verdict.approved",
+        "verification.item.closed"
       ]
     },
     "schema_version": {
@@ -126,7 +127,8 @@
         "count_base_anchor",
         "shifting_event",
         "count_projection_exception",
-        "verification_item"
+        "verification_item",
+        "notification_request"
       ]
     },
     "subject_id": {

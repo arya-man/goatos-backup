@@ -149,7 +149,10 @@ class VerifyDetailViewModel @Inject constructor(
             context = buildContext(this),
             statusTone = statusTone(effectiveStatus),
             rowVersion = rowVersion,
-            isDecisionEnabled = effectiveStatus == VerificationStatus.PENDING,
+            // R50-017: the backend now fails evidence resolution closed instead of silently
+            // omitting media, so a verdict with no resolvable evidence must stay disabled even
+            // though the item itself is still PENDING.
+            isDecisionEnabled = effectiveStatus == VerificationStatus.PENDING && evidenceAvailable,
             isSubmitting = flags.isSubmitting,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = null,

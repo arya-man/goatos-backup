@@ -161,6 +161,15 @@
       "surfaces": ["backend", "frontend", "mobile"]
     },
     {
+      "eventType": "obligation.in_progress",
+      "producer": "obligation.Repository.MarkCompleted sibling in_progress trigger + vaccination Repository.recomputeObligationBatchStatusOnComplete twin (PEND-1: the first real completion in a multi-obligation drive flips its still-open siblings to in_progress)",
+      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go", "backend/internal/vaccination/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": ["backend/internal/obligation/adapters/postgres/inprogress_integration_test.go", "backend/internal/vaccination/adapters/postgres/pend1_sibling_inprogress_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
       "eventType": "protocol.version.published",
       "producer": "protocol publish",
       "producerFiles": ["backend/internal/protocol/adapters/postgres/repository.go"],

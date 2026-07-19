@@ -40,27 +40,28 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 }
 
 type queueItemResponse struct {
-	ItemID        string             `json:"item_id"`
-	Vertical      string             `json:"vertical"`
-	Module        string             `json:"module"`
-	Category      string             `json:"category"`
-	SubjectLabel  *string            `json:"subject_label,omitempty"`
-	Status        string             `json:"status"`
-	VerdictReason *string            `json:"verdict_reason,omitempty"`
-	OperatorID    *string            `json:"operator_id,omitempty"`
-	OperatorName  *string            `json:"operator_name,omitempty"` // backend-owned display label
-	ShedID        *string            `json:"shed_id,omitempty"`
-	ShedLabel     *string            `json:"shed_label,omitempty"` // backend-owned display label
-	ParkID        *string            `json:"park_id,omitempty"`
-	ParkLabel     *string            `json:"park_label,omitempty"` // backend-owned display label
-	CapturedAt    string             `json:"captured_at"`
-	VerifiedBy    *string            `json:"verified_by,omitempty"`
-	VerifiedAt    *string            `json:"verified_at,omitempty"`
-	ClosedBy      *string            `json:"closed_by,omitempty"`
-	ClosedAt      *string            `json:"closed_at,omitempty"`
-	RowVersion    int                `json:"row_version"`
-	Media         []domain.MediaItem `json:"media"`
-	Source        sourceResponse     `json:"source"`
+	ItemID            string             `json:"item_id"`
+	Vertical          string             `json:"vertical"`
+	Module            string             `json:"module"`
+	Category          string             `json:"category"`
+	SubjectLabel      *string            `json:"subject_label,omitempty"`
+	Status            string             `json:"status"`
+	VerdictReason     *string            `json:"verdict_reason,omitempty"`
+	OperatorID        *string            `json:"operator_id,omitempty"`
+	OperatorName      *string            `json:"operator_name,omitempty"` // backend-owned display label
+	ShedID            *string            `json:"shed_id,omitempty"`
+	ShedLabel         *string            `json:"shed_label,omitempty"` // backend-owned display label
+	ParkID            *string            `json:"park_id,omitempty"`
+	ParkLabel         *string            `json:"park_label,omitempty"` // backend-owned display label
+	CapturedAt        string             `json:"captured_at"`
+	VerifiedBy        *string            `json:"verified_by,omitempty"`
+	VerifiedAt        *string            `json:"verified_at,omitempty"`
+	ClosedBy          *string            `json:"closed_by,omitempty"`
+	ClosedAt          *string            `json:"closed_at,omitempty"`
+	RowVersion        int                `json:"row_version"`
+	Media             []domain.MediaItem `json:"media"`
+	EvidenceAvailable bool               `json:"evidence_available"`
+	Source            sourceResponse     `json:"source"`
 }
 
 type sourceResponse struct {
@@ -93,26 +94,27 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		media = []domain.MediaItem{}
 	}
 	return queueItemResponse{
-		ItemID:        row.Item.ItemID,
-		Vertical:      row.Item.Vertical,
-		Module:        row.Item.Module,
-		Category:      row.Item.Category,
-		SubjectLabel:  row.Item.SubjectLabel,
-		Status:        row.Item.Status,
-		VerdictReason: row.Item.VerdictReason,
-		OperatorID:    row.Item.OperatorID,
-		OperatorName:  row.Item.OperatorName,
-		ShedID:        row.Item.ShedID,
-		ShedLabel:     row.Item.ShedLabel,
-		ParkID:        row.Item.ParkID,
-		ParkLabel:     row.Item.ParkLabel,
-		CapturedAt:    row.Item.CapturedAt.Format(rfc3339Nano),
-		VerifiedBy:    row.Item.VerifiedBy,
-		VerifiedAt:    verifiedAt,
-		ClosedBy:      row.Item.ClosedBy,
-		ClosedAt:      closedAt,
-		RowVersion:    row.Item.RowVersion,
-		Media:         media,
+		ItemID:            row.Item.ItemID,
+		Vertical:          row.Item.Vertical,
+		Module:            row.Item.Module,
+		Category:          row.Item.Category,
+		SubjectLabel:      row.Item.SubjectLabel,
+		Status:            row.Item.Status,
+		VerdictReason:     row.Item.VerdictReason,
+		OperatorID:        row.Item.OperatorID,
+		OperatorName:      row.Item.OperatorName,
+		ShedID:            row.Item.ShedID,
+		ShedLabel:         row.Item.ShedLabel,
+		ParkID:            row.Item.ParkID,
+		ParkLabel:         row.Item.ParkLabel,
+		CapturedAt:        row.Item.CapturedAt.Format(rfc3339Nano),
+		VerifiedBy:        row.Item.VerifiedBy,
+		VerifiedAt:        verifiedAt,
+		ClosedBy:          row.Item.ClosedBy,
+		ClosedAt:          closedAt,
+		RowVersion:        row.Item.RowVersion,
+		Media:             media,
+		EvidenceAvailable: row.EvidenceAvailable,
 		Source: sourceResponse{
 			Module:       row.Item.Source.Module,
 			TaskID:       row.Item.Source.TaskID,
@@ -198,6 +200,10 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	idempotencyKey, ok := requireIdempotencyKey(w, r)
+	if !ok {
+		return
+	}
 	item, err := h.service.GetItem(r.Context(), tenantID(r), r.PathValue("item_id"))
 	if err != nil {
 		h.respondError(w, r, err)
@@ -208,12 +214,13 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	item, err = h.service.RecordVerdict(r.Context(), domain.Verdict{
-		TenantID:   tenantID(r),
-		ItemID:     r.PathValue("item_id"),
-		Decision:   body.Decision,
-		Reason:     body.Reason,
-		VerifierID: actorID(r),
-		RowVersion: body.RowVersion,
+		TenantID:       tenantID(r),
+		ItemID:         r.PathValue("item_id"),
+		Decision:       body.Decision,
+		Reason:         body.Reason,
+		VerifierID:     actorID(r),
+		RowVersion:     body.RowVersion,
+		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		h.respondError(w, r, err)
@@ -234,6 +241,10 @@ func (h *Handler) CloseItem(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	idempotencyKey, ok := requireIdempotencyKey(w, r)
+	if !ok {
+		return
+	}
 	item, err := h.service.GetItem(r.Context(), tenantID(r), r.PathValue("item_id"))
 	if err != nil {
 		h.respondError(w, r, err)
@@ -244,10 +255,11 @@ func (h *Handler) CloseItem(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	item, err = h.service.CloseItem(r.Context(), domain.CloseAction{
-		TenantID:   tenantID(r),
-		ItemID:     r.PathValue("item_id"),
-		ActorID:    actorID(r),
-		RowVersion: body.RowVersion,
+		TenantID:       tenantID(r),
+		ItemID:         r.PathValue("item_id"),
+		ActorID:        actorID(r),
+		RowVersion:     body.RowVersion,
+		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		h.respondError(w, r, err)
@@ -265,6 +277,10 @@ type closeSubmissionResponse struct {
 }
 
 func (h *Handler) CloseSubmission(w nethttp.ResponseWriter, r *nethttp.Request) {
+	idempotencyKey, ok := requireIdempotencyKey(w, r)
+	if !ok {
+		return
+	}
 	submissionID := r.PathValue("submission_id")
 	items, err := h.service.GetSubmissionItems(r.Context(), tenantID(r), submissionID)
 	if err != nil {
@@ -278,9 +294,10 @@ func (h *Handler) CloseSubmission(w nethttp.ResponseWriter, r *nethttp.Request) 
 		}
 	}
 	items, err = h.service.CloseSubmission(r.Context(), domain.CloseSubmissionAction{
-		TenantID:     tenantID(r),
-		SubmissionID: submissionID,
-		ActorID:      actorID(r),
+		TenantID:       tenantID(r),
+		SubmissionID:   submissionID,
+		ActorID:        actorID(r),
+		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		h.respondError(w, r, err)
@@ -298,10 +315,19 @@ func (h *Handler) CloseSubmission(w nethttp.ResponseWriter, r *nethttp.Request) 
 
 func verificationParkScope(r *nethttp.Request, permission string) (bool, []string) {
 	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-	if len(grants) == 0 || httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
+	if len(grants) == 0 || hasTenantWidePermission(grants, tenantID(r), permission) {
 		return false, nil
 	}
 	return true, permissions.ScopeIDsForPermission(grants, permission, "park")
+}
+
+func hasTenantWidePermission(grants []permissions.ActiveGrant, tenant, permission string) bool {
+	for _, scopeID := range permissions.ScopeIDsForPermission(grants, permission, "tenant") {
+		if scopeID == tenant {
+			return true
+		}
+	}
+	return false
 }
 
 func verificationItemInScope(r *nethttp.Request, item domain.Item, permission string) bool {
@@ -373,6 +399,15 @@ func parsePositiveLimit(raw string) (int, bool) {
 		return 0, false
 	}
 	return limit, true
+}
+
+func requireIdempotencyKey(w nethttp.ResponseWriter, r *nethttp.Request) (string, bool) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(key) < 8 || len(key) > 200 {
+		writeBadJSON(w, r, "Idempotency-Key header must be between 8 and 200 characters")
+		return "", false
+	}
+	return key, true
 }
 
 func tenantID(r *nethttp.Request) string {

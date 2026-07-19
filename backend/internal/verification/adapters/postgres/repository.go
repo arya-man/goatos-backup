@@ -229,6 +229,21 @@ func (r *Repository) CloseItem(ctx context.Context, in domain.CloseAction) (doma
 		return domain.Item{}, err
 	}
 	defer rollback(ctx, tx)
+	reservation, err := reserveIdempotency(ctx, tx, in.TenantID, "verification.close-item", in.IdempotencyKey,
+		requestFingerprint(in.ItemID, in.ActorID, fmt.Sprintf("%d", in.RowVersion)))
+	if err != nil {
+		return domain.Item{}, err
+	}
+	if !reservation.proceed {
+		item, err := scanItemRow(tx.QueryRow(ctx, "SELECT "+itemColumns+" FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $2::uuid", in.TenantID, reservation.resultID))
+		if err != nil {
+			return domain.Item{}, mapWriteErr(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Item{}, err
+		}
+		return item, nil
+	}
 	tag, err := tx.Exec(ctx, `
 UPDATE verification_items
 SET closed_by = $1::uuid, closed_at = now(), row_version = row_version + 1
@@ -236,7 +251,8 @@ WHERE tenant_id = $2::uuid
   AND item_id = $3::uuid
   AND row_version = $4
   AND status = 'approved'
-  AND closed_at IS NULL`,
+  AND closed_at IS NULL
+  AND source_submission_id IS NULL`,
 		in.ActorID, in.TenantID, in.ItemID, in.RowVersion)
 	if err != nil {
 		return domain.Item{}, mapWriteErr(err)
@@ -265,6 +281,9 @@ WHERE tenant_id = $1::uuid
 	if err := insertOutboxEvent(ctx, tx, in.TenantID, EventItemClosed, in.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
 		return domain.Item{}, err
 	}
+	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-item", in.IdempotencyKey, "verification_item", item.ItemID); err != nil {
+		return domain.Item{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Item{}, err
 	}
@@ -279,6 +298,11 @@ func (r *Repository) CloseSubmission(ctx context.Context, in domain.CloseSubmiss
 		return nil, err
 	}
 	defer rollback(ctx, tx)
+	reservation, err := reserveIdempotency(ctx, tx, in.TenantID, "verification.close-submission", in.IdempotencyKey,
+		requestFingerprint(in.SubmissionID, in.ActorID))
+	if err != nil {
+		return nil, err
+	}
 
 	rows, err := tx.Query(ctx, `
 SELECT `+itemColumns+`
@@ -307,6 +331,12 @@ FOR UPDATE`, in.TenantID, in.SubmissionID)
 	if len(items) == 0 {
 		return nil, ports.ErrNotFound
 	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return items, nil
+	}
 
 	allClosed := true
 	for _, item := range items {
@@ -320,6 +350,9 @@ FOR UPDATE`, in.TenantID, in.SubmissionID)
 	// A replay after a lost response is a read-only success. A partially closed drive can only be
 	// legacy/item-level state and is failed closed rather than silently mixing authority actions.
 	if allClosed {
+		if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-submission", in.IdempotencyKey, "verification_submission", in.SubmissionID); err != nil {
+			return nil, err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
@@ -372,6 +405,9 @@ ORDER BY captured_at, item_id`, in.TenantID, in.SubmissionID)
 			return nil, err
 		}
 	}
+	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-submission", in.IdempotencyKey, "verification_submission", in.SubmissionID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -386,6 +422,21 @@ func (r *Repository) RecordVerdict(ctx context.Context, in domain.Verdict) (doma
 		return domain.Item{}, err
 	}
 	defer rollback(ctx, tx)
+	reservation, err := reserveIdempotency(ctx, tx, in.TenantID, "verification.verdict", in.IdempotencyKey,
+		requestFingerprint(in.ItemID, in.Decision, in.Reason, in.VerifierID, fmt.Sprintf("%d", in.RowVersion)))
+	if err != nil {
+		return domain.Item{}, err
+	}
+	if !reservation.proceed {
+		item, err := scanItemRow(tx.QueryRow(ctx, "SELECT "+itemColumns+" FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $2::uuid", in.TenantID, reservation.resultID))
+		if err != nil {
+			return domain.Item{}, mapWriteErr(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Item{}, err
+		}
+		return item, nil
+	}
 
 	status := domain.StatusApproved
 	if in.Decision == domain.DecisionRejected {
@@ -398,7 +449,12 @@ func (r *Repository) RecordVerdict(ctx context.Context, in domain.Verdict) (doma
 	tag, err := tx.Exec(ctx, `
 UPDATE verification_items
 SET status = $1, verdict_reason = $2, verified_by = $3::uuid, verified_at = now(), row_version = row_version + 1
-WHERE tenant_id = $4::uuid AND item_id = $5::uuid AND row_version = $6`,
+WHERE tenant_id = $4::uuid
+  AND item_id = $5::uuid
+  AND row_version = $6
+  AND status = 'pending'
+  AND closed_at IS NULL
+  AND (operator_id IS NULL OR operator_id <> $3::uuid)`,
 		status, reason, in.VerifierID, in.TenantID, in.ItemID, in.RowVersion,
 	)
 	if err != nil {
@@ -427,6 +483,9 @@ WHERE tenant_id = $4::uuid AND item_id = $5::uuid AND row_version = $6`,
 	}
 	idempotencyKey := fmt.Sprintf("%s:%s:%d", eventType, in.ItemID, item.RowVersion)
 	if err := insertOutboxEvent(ctx, tx, in.TenantID, eventType, in.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
+		return domain.Item{}, err
+	}
+	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.verdict", in.IdempotencyKey, "verification_item", item.ItemID); err != nil {
 		return domain.Item{}, err
 	}
 

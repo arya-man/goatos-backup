@@ -99,6 +99,9 @@ func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, 
 	var oldest pgtype.Timestamptz
 	err := r.pool.QueryRow(ctx, OldestDueRequestedAtSQL, tenantID, now).Scan(&oldest)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, false, nil
+		}
 		return time.Time{}, false, fmt.Errorf("notification: oldest due requested_at: %w", err)
 	}
 	if !oldest.Valid {
@@ -487,7 +490,7 @@ func insertNotificationExhaustedEvidence(ctx context.Context, tx pgx.Tx, tenantI
 			"actor_id":   nil,
 			"actor_ref":  nil,
 		},
-		"subject_type": "calendar_event",
+		"subject_type": "notification_request",
 		"subject_id":   row.CalendarEventID,
 		"visibility_scope": map[string]any{
 			"tenant_id": tenantID,
@@ -617,7 +620,7 @@ func insertNotificationSentEvidence(ctx context.Context, tx pgx.Tx, tenantID, no
 			"actor_id":   nil,
 			"actor_ref":  nil,
 		},
-		"subject_type": "calendar_event",
+		"subject_type": "notification_request",
 		"subject_id":   notificationRequestID,
 		"visibility_scope": map[string]any{
 			"tenant_id": tenantID,

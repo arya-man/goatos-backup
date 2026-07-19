@@ -5,6 +5,7 @@ package proofmedia
 
 import (
 	"context"
+	"fmt"
 
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
@@ -28,29 +29,28 @@ func NewResolver(proof Downloader) *Resolver {
 	return &Resolver{proof: proof}
 }
 
-// ResolveMedia resolves each proof id to a signed download URL. A single proof failing to resolve
-// (e.g. an artifact deleted after capture) is skipped rather than failing the whole queue page --
-// bounded by the caller's page size x media-per-item, never a per-row DB query.
+// ResolveMedia resolves every requested proof. Missing or unsignable evidence fails closed so the
+// verifier UI and verdict path cannot mistake a partial media list for complete proof.
 func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error) {
 	if r == nil || r.proof == nil {
-		return nil, nil
+		return nil, fmt.Errorf("verification proof resolver is unavailable")
 	}
 	out := make([]domain.MediaItem, 0, len(proofIDs))
 	for _, id := range proofIDs {
 		if id == "" {
-			continue
+			return nil, fmt.Errorf("verification proof id is empty")
 		}
 		if rich, ok := r.proof.(ArtifactDownloader); ok {
 			proof, url, err := rich.DownloadArtifact(ctx, tenantID, id)
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("resolve verification proof %s: %w", id, err)
 			}
 			out = append(out, domain.MediaItem{ProofID: id, DownloadURL: url, MimeType: proof.MimeType, DurationMS: proof.DurationMS})
 			continue
 		}
 		url, err := r.proof.DownloadURL(ctx, tenantID, id)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("resolve verification proof %s: %w", id, err)
 		}
 		out = append(out, domain.MediaItem{ProofID: id, DownloadURL: url})
 	}

@@ -218,3 +218,28 @@ val MIGRATION_9_10: Migration = object : Migration(9, 10) {
         )
     }
 }
+
+/** v10 -> v11: complete RFID roster rows are task-scoped and store the exact canonical tags used
+ * by the reader. Shed-only v10 rows are discarded because their task ownership cannot be inferred. */
+val MIGRATION_10_11: Migration = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `scan_roster_row`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `scan_roster_row` " +
+                "(`id` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `shedId` TEXT NOT NULL, `taskId` TEXT NOT NULL, " +
+                "`goatId` TEXT NOT NULL, `primaryTag` TEXT NOT NULL, `secondaryTag` TEXT, " +
+                "`normalizedPrimaryTag` TEXT NOT NULL, `normalizedSecondaryTag` TEXT, " +
+                "`vaccineLabel` TEXT NOT NULL, `status` TEXT NOT NULL, `obligationId` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_scan_roster_row_scopeKey` ON `scan_roster_row` (`scopeKey`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scan_roster_row_scopeKey_normalizedPrimaryTag` " +
+                "ON `scan_roster_row` (`scopeKey`, `normalizedPrimaryTag`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scan_roster_row_scopeKey_normalizedSecondaryTag` " +
+                "ON `scan_roster_row` (`scopeKey`, `normalizedSecondaryTag`)",
+        )
+    }
+}

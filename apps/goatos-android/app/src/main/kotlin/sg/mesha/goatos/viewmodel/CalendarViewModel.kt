@@ -140,6 +140,7 @@ class CalendarViewModel @Inject constructor(
     private val _historyLoadingMore = MutableStateFlow(false)
     private val _refreshInFlight = MutableStateFlow(false)
     private val _offline = MutableStateFlow(false)
+    private val _refreshError = MutableStateFlow<String?>(null)
 
     // Kotlin's typed `combine` overloads only cover up to 5 flows; this screen mixes 10 flows,
     // so we use the vararg form (one Array<*> param) and cast each element by its known index.
@@ -156,6 +157,7 @@ class CalendarViewModel @Inject constructor(
         _historyLoadingMore,
         _refreshInFlight,
         _offline,
+        _refreshError,
     ) { values: Array<Any?> ->
         buildCalendarState(
             week = values[0] as Resource<CalendarEventListResponseDto>,
@@ -169,6 +171,7 @@ class CalendarViewModel @Inject constructor(
             historyLoadingMore = values[8] as Boolean,
             refreshInFlight = values[9] as Boolean,
             offline = values[10] as Boolean,
+            refreshError = values[11] as String?,
         )
     }.stateIn(
         viewModelScope,
@@ -186,6 +189,7 @@ class CalendarViewModel @Inject constructor(
         _selectedDayLoadingMore.value = false
         _historyLoadingMore.value = false
         _refreshInFlight.value = true
+        _refreshError.value = null
 
         val requests = mutableListOf(
             async {
@@ -218,6 +222,7 @@ class CalendarViewModel @Inject constructor(
 
         _refreshInFlight.value = false
         _offline.value = results.any { it.isFailure }
+        _refreshError.value = results.firstNotNullOfOrNull { it.exceptionOrNull()?.message }
         results.forEach { reportFailure(it, "calendar refresh failed") }
     }
 
@@ -354,6 +359,7 @@ class CalendarViewModel @Inject constructor(
         historyLoadingMore: Boolean,
         refreshInFlight: Boolean,
         offline: Boolean,
+        refreshError: String?,
     ): CalendarUiState {
         val base = sampleCalendarState()
         val presentation = activePresentation(week, month, selectedDay, history)
@@ -385,6 +391,9 @@ class CalendarViewModel @Inject constructor(
                 history.lastSyncedAt,
             ).maxOrNull(),
             isOffline = offline,
+            errorMessage = refreshError?.takeIf {
+                week.data == null && month.data == null && selectedDay.data == null && history.data == null
+            }?.let { "Calendar could not load. Check your connection and try again." },
             segments = segments,
             selectedSegmentId = resolvedSegmentId,
             weekDays = buildWeekDays(week.data?.dateMarkers.orEmpty(), currentSelectedDay, today),

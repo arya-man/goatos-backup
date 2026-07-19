@@ -69,6 +69,12 @@ data class VerificationQueueItem(
     @SerialName("verified_at") val verifiedAt: String? = null,
     @SerialName("closed_by") val closedBy: String? = null,
     @SerialName("closed_at") val closedAt: String? = null,
+    /** R50-017: false when the backend's evidence resolver could not produce a signed/servable
+     *  proof for this item (missing object or signing failure) — the backend now fails that
+     *  resolution closed rather than silently omitting media, so the app must disable a verdict
+     *  decision instead of letting the verifier approve/reject on no evidence. Defaults `true`
+     *  for forward/backward compatibility with a backend that has not shipped this field yet. */
+    @SerialName("evidence_available") val evidenceAvailable: Boolean = true,
 )
 
 /** GET /verification/queue — keyset-paginated, category-filtered (~20/page, TRD §14). */

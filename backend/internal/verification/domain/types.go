@@ -106,28 +106,31 @@ type CreateItemResult struct {
 
 // Verdict is the verifier's approve/reject decision on one item.
 type Verdict struct {
-	TenantID   string
-	ItemID     string
-	Decision   string
-	Reason     string
-	VerifierID string
-	RowVersion int
+	TenantID       string
+	ItemID         string
+	Decision       string
+	Reason         string
+	VerifierID     string
+	RowVersion     int
+	IdempotencyKey string
 }
 
 // CloseAction is the leadership authority transition applied only after verifier approval.
 type CloseAction struct {
-	TenantID   string
-	ItemID     string
-	ActorID    string
-	RowVersion int
+	TenantID       string
+	ItemID         string
+	ActorID        string
+	RowVersion     int
+	IdempotencyKey string
 }
 
 // CloseSubmissionAction closes one operator submission (the vaccination drive execution unit) only
 // after every goat verification item in it has independent verifier approval.
 type CloseSubmissionAction struct {
-	TenantID     string
-	SubmissionID string
-	ActorID      string
+	TenantID       string
+	SubmissionID   string
+	ActorID        string
+	IdempotencyKey string
 }
 
 // MediaItem is one resolved, streamable media reference for display.
@@ -140,6 +143,7 @@ type MediaItem struct {
 
 // QueueRow is one queue listing row: the item plus its resolved media.
 type QueueRow struct {
-	Item  Item
-	Media []MediaItem
+	Item              Item
+	Media             []MediaItem
+	EvidenceAvailable bool
 }

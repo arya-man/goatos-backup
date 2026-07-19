@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -19,6 +20,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -29,6 +31,7 @@ import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
 import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
@@ -70,6 +73,7 @@ class ScanViewModel @Inject constructor(
     private val proofCaptureRepository: ProofCaptureRepository,
     private val proofCaptureSource: ProofCaptureSource,
     private val bootstrapRepository: BootstrapRepository,
+    private val tasksRepository: TasksRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -95,7 +99,7 @@ class ScanViewModel @Inject constructor(
     // roster upsert; combined into [state] so ring/tile counters are identical for page size 1 and 20.
     private val statusCounts: StateFlow<List<StatusCount>> =
         (if (shedId != null) {
-            repo.observeScanRosterStatusCounts(shedId)
+            repo.observeScanRosterStatusCounts(shedId, taskId)
         } else {
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -103,6 +107,14 @@ class ScanViewModel @Inject constructor(
     private val observedProofs: StateFlow<List<ProofCaptureRow>> =
         (taskId?.let { proofCaptureRepository.observeProofs(it) } ?: flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // R50-027: this task's SOP proof policy (Room-backed via TasksRepository), driving the
+    // per-goat capture's default subject instead of a hardcoded ProofSubject.GOAT.
+    private val proofPolicy: StateFlow<ProofPolicy> =
+        (taskId?.let { id ->
+            tasksRepository.observeTaskDetail(id).map { it.data?.proofPolicy ?: ProofPolicy.Default }
+        } ?: flowOf(ProofPolicy.Default))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProofPolicy.Default)
 
     private val _operatorAllowed = MutableStateFlow<Boolean?>(null)
     private var currentPrincipalId: String? = null
@@ -112,6 +124,7 @@ class ScanViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
+    private val _refreshError = MutableStateFlow<String?>(null)
 
     // Draft state for local interactions
     private val _selectedFilter = MutableStateFlow<ScanStatus?>(null)
@@ -143,6 +156,7 @@ class ScanViewModel @Inject constructor(
         statusCounts,
         observedProofs,
         _operatorAllowed,
+        _refreshError,
     ) { values: Array<Any?> ->
         val resource = values[0] as Resource<ScanRosterResponseDto>
         val isRefreshing = values[1] as Boolean
@@ -158,10 +172,11 @@ class ScanViewModel @Inject constructor(
         val counts = values[11] as List<StatusCount>
         val proofs = values[12] as List<ProofCaptureRow>
         val operatorAllowed = values[13] as Boolean?
+        val refreshError = values[14] as String?
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
         // R50-009: Cold cache + failed refresh → error/retry state (data null + error present)
-        val error = if (dto == null && resource.error != null) {
+        val error = if (dto == null && (resource.error != null || refreshError != null)) {
             ScanError(message = "Roster could not load. Check your connection and try again.", tag = "cold_cache_failed")
         } else null
         val base = dto?.let { applyResource(it, localDone, proofs, operatorAllowed == true) } ?: emptyScanState()
@@ -229,9 +244,11 @@ class ScanViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         val id = shedId ?: return@launch
         _isRefreshing.value = true
+        _refreshError.value = null
         val result = repo.refreshCompleteScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
+        _refreshError.value = result.exceptionOrNull()?.message
     }
 
     fun loadMore() = viewModelScope.launch {
@@ -289,14 +306,8 @@ class ScanViewModel @Inject constructor(
         val row = state.value.roster.firstOrNull { it.status == ScanStatus.PENDING } ?: return
         markRowDone(row)
         _manualDone.update { it + row.obligationId }
-        recordScanAttempt(
-            tag = row.primaryTag,
-            row = row,
-            outcome = RfidScanAttemptOutcome.ACCEPTED,
-            tagRole = RfidScanTagRole.PRIMARY,
-            reason = "operator_row_tap",
-        )
-        recordRosterScan(row, row.primaryTag)
+        // Manual selection is draft-only. It must never mint an accepted RFID attempt or a
+        // durable roster scan; only a subsequent physical reader event can supply that evidence.
     }
 
     /** Hardware tag read (keyboard-wedge): match the tag against the FULL roster (R50-007: via bounded
@@ -309,7 +320,7 @@ class ScanViewModel @Inject constructor(
         val id = shedId ?: return
         viewModelScope.launch {
             // R50-007: Find by tag in full shed roster via bounded indexed Room query
-            val dbRow = repo.findScanRosterByTag(id, target) ?: run {
+            val dbRow = repo.findScanRosterByTag(id, taskId, target) ?: run {
                 recordScanAttempt(
                     tag = tag,
                     row = null,
@@ -434,7 +445,7 @@ class ScanViewModel @Inject constructor(
         val extraDone = if (localDone.isEmpty()) {
             0
         } else {
-            repo.getScanRosterStatusCountsFor(id, localDone.toList())
+            repo.getScanRosterStatusCountsFor(id, taskId, localDone.toList())
                 .filter { statusOf(it.status) != ScanStatus.DONE }
                 .sumOf { it.count }
         }
@@ -456,11 +467,14 @@ class ScanViewModel @Inject constructor(
         proofs: List<ProofCaptureRow>,
         operatorAllowed: Boolean,
     ): ScanUiState {
+        // R50-029: group once instead of re-filtering the full proof list per roster row
+        // (O(rows * proofs) on every state build) — then a bounded per-row map lookup below.
+        val goatProofsBySubject = proofs.filter { it.proofSubject == ProofSubject.GOAT }.groupBy { it.subjectId }
         val rosterRows = dto.rows.map { dtoRow ->
             // Overlay local (unsynced) DONE edits so an in-progress scan survives Room re-emission.
             val locallyDone = dtoRow.obligationId.isNotBlank() && dtoRow.obligationId in localDone
             val status = if (locallyDone) ScanStatus.DONE else statusOf(dtoRow.status)
-            val goatProofs = proofs.filter { it.proofSubject == ProofSubject.GOAT && it.subjectId == dtoRow.goatId }
+            val goatProofs = goatProofsBySubject[dtoRow.goatId].orEmpty()
             RosterRow(
                 primaryTag = dtoRow.primaryTag,
                 secondaryTag = dtoRow.secondaryTag,
@@ -522,10 +536,13 @@ class ScanViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val captured = proofCaptureSource.captureVideo() ?: return@launch
+                val policy = proofPolicy.value
                 proofCaptureRepository.capture(
                     taskId = selectedTaskId,
                     fieldKey = GOAT_PROOF_FIELD_KEY,
-                    subject = ProofSubject.GOAT,
+                    // R50-027: policy-driven default subject (falls back to GOAT via
+                    // ProofPolicy.Default.subjectScope when no policy has loaded yet).
+                    subject = policy.defaultSubject,
                     subjectId = row.goatId,
                     localUri = captured.localUri,
                     mimeType = captured.mimeType,
@@ -535,6 +552,7 @@ class ScanViewModel @Inject constructor(
                     capturedStartMs = captured.startedAtMs,
                     capturedEndMs = captured.endedAtMs,
                     capturedByPrincipalId = currentPrincipalId,
+                    proofPolicy = policy,
                 )
             } finally {
                 proofCaptureInFlight = false

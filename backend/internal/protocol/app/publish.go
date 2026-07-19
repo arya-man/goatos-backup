@@ -119,6 +119,9 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 		}
 		out.MaxBufferDays = *body.MaxBufferDays
 	}
+	if out.CapacityScope != "" && out.CapacityScope != "tenant" {
+		return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity.capacity_scope %q not supported: center/shed scoping is not yet enforced by the planner; use tenant", ErrInvalidRuleDSL, out.CapacityScope)
+	}
 	if out.CapacityScope == "" {
 		out.CapacityScope = "tenant"
 	}

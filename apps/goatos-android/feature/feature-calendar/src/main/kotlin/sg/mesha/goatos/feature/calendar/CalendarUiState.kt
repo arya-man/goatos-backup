@@ -188,6 +188,10 @@ data class CalendarUiState(
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
+    /** Set when a cold cache + failed refresh leaves nothing to render (R50-009).
+     *  Non-null only when every segment resource has no cached data AND the
+     *  background refresh failed — never gates already-rendered Room data. */
+    val errorMessage: String? = null,
     val segments: List<CalendarSegment> = emptyList(),
     val selectedSegmentId: String = "",
     // WEEK

@@ -236,7 +236,8 @@ object AppModule {
         shedDao: ExecutionShedCacheDao,
         scanRosterDao: ScanRosterCacheDao,
         scanRosterRowDao: ScanRosterRowDao,
-    ): ExecutionRepository = DefaultExecutionRepository(api, rowsDao, shedDao, scanRosterDao, scanRosterRowDao)
+        database: GoatDatabase,
+    ): ExecutionRepository = DefaultExecutionRepository(api, rowsDao, shedDao, scanRosterDao, scanRosterRowDao, database)
 
     @Provides
     @Singleton

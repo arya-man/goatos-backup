@@ -7,14 +7,15 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
@@ -28,6 +29,8 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
+import java.io.File
+import java.net.URI
 import java.util.UUID
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus as EntitySyncStatus
 
@@ -266,7 +269,11 @@ interface ProofCaptureRepository {
     /** Persists a captured video to Room first, then queues its metadata registration.
      *  Returns [AppResult.Err] (no Room write) if the per-task cap
      *  ([sg.mesha.goatos.core.database.capture.ProofCaptureDao.MAX_PROOFS_PER_TASK]) is
-     *  already reached. */
+     *  already reached.
+     *
+     *  [proofPolicy] (R50-027) drives the per-subject cap and the `capture_source` metadata sent
+     *  with the registration; callers that have not loaded the task's SOP proof policy yet may
+     *  omit it and fall back to [ProofPolicy.Default] (the historical hardcoded values). */
     suspend fun capture(
         taskId: String,
         fieldKey: String,
@@ -282,6 +289,7 @@ interface ProofCaptureRepository {
         capturedStartMs: Long,
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy = ProofPolicy.Default,
     ): AppResult<ProofCaptureRow>
 
     suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit>
@@ -304,14 +312,27 @@ class DefaultProofCaptureRepository(
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : ProofCaptureRepository {
 
-    // Startup recovery is intentionally not bounded by the current device clock. Robolectric and
-    // real devices can both present non-monotonic wall-clock values across process death/reboot;
-    // every unsynced proof row is safe to revisit because enqueueRegistration uses the row's stable
-    // idempotency key.
-    private val startupRecoveryCutoffMs = Long.MAX_VALUE
+    // R50-028: reconciliation is scoped to rows that existed BEFORE this repository instance came
+    // alive (a real prior-process crash/kill, the case this recovery is actually for), snapshotted
+    // once at construction. This is what makes the now-async init (below) race-free without a lock:
+    // any row captured by THIS instance's own capture() always has capturedAtMs >= startupCutoffMs
+    // (clock() only moves forward across a single construction+use lifetime), so the reconciliation
+    // query itself can never observe a row this same instance is concurrently registering — no
+    // window exists for a double enqueueProofUpload, independent of how the two coroutines
+    // interleave. Robolectric and real devices can both present a non-monotonic wall clock across
+    // an actual process death/reboot, which is fine here: every unsynced proof row from a PRIOR
+    // process is safe to revisit regardless of its absolute timestamp, because enqueueRegistration
+    // uses the row's stable idempotency key.
+    private val startupRecoveryCutoffMs = clock()
 
     init {
-        reconcileRecoverableUploads()
+        // R50-028: never block DI construction on a Room read — launch on the app-lifetime scope
+        // so a slow/large recovery walk cannot delay first frame or any other DI consumer of this
+        // repository. reconcileRecoverableUploadsNow() itself walks bounded ~20-row keyset pages
+        // instead of reading up to MAX_PROOFS_PER_TASK rows in one shot.
+        appScope.launch(dispatchers.io) {
+            reconcileRecoverableUploadsNow()
+        }
     }
 
     override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> =
@@ -330,15 +351,19 @@ class DefaultProofCaptureRepository(
         capturedStartMs: Long,
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
         val goatId = subjectId?.takeIf { it.isNotBlank() }
         if (subject == ProofSubject.GOAT && goatId == null) {
             return@withContext AppResult.Err("Select a scanned goat before recording proof.")
         }
+        // R50-027: the per-subject cap is policy-driven (falls back to the historical hardcoded
+        // MAX_PROOFS_PER_GOAT constant via ProofPolicy.Default when no policy was supplied).
+        val maxPerSubject = proofPolicy.maximumCountPerSubject
         val existing = goatId?.let { dao.activeCountForSubject(taskId, it) } ?: 0
-        if (existing >= ProofCaptureDao.MAX_PROOFS_PER_GOAT) {
+        if (existing >= maxPerSubject) {
             return@withContext AppResult.Err(
-                "Maximum ${ProofCaptureDao.MAX_PROOFS_PER_GOAT} proof videos reached for this goat.",
+                "Maximum $maxPerSubject proof videos reached for this goat.",
             )
         }
         val id = idGenerator()
@@ -361,7 +386,7 @@ class DefaultProofCaptureRepository(
         )
         // Room FIRST — the capture is durable before any network call is even attempted.
         dao.insert(entity)
-        enqueueRegistration(entity, scopeType, scopeId)
+        enqueueRegistration(entity, scopeType, scopeId, proofPolicy)
         AppResult.Ok(entity.toRow())
     }
 
@@ -372,7 +397,11 @@ class DefaultProofCaptureRepository(
         }
 
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
+        // R50-028: fetch the row BEFORE deleting it so its local video file can be reclaimed too —
+        // otherwise every removed proof leaks its recorded clip on device storage forever.
+        val entity = dao.findById(id)?.takeIf { it.taskId == taskId }
         dao.delete(id, taskId)
+        entity?.let { deleteLocalFile(it.localUri) }
         AppResult.Ok(Unit)
     }
 
@@ -397,7 +426,10 @@ class DefaultProofCaptureRepository(
     }
 
     override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
+        // R50-028: reclaim every row's local video file before the rows themselves are deleted.
+        val entities = dao.listForTask(taskId)
         dao.clearForTask(taskId)
+        entities.forEach { deleteLocalFile(it.localUri) }
     }
 
     /** Startup/process-recreation recovery for the two proof/outbox crash gaps:
@@ -406,38 +438,58 @@ class DefaultProofCaptureRepository(
      *
      * Re-enqueue uses the row's stable [ProofCaptureEntity.idempotencyKey], so if the old process
      * did create the outbox row but died before recording its id, [SyncRepository.enqueueProofUpload]
-     * returns that existing row instead of inserting a duplicate. */
-    private fun reconcileRecoverableUploads() {
-        // This is bounded by ProofCaptureDao.MAX_PROOFS_PER_TASK and only runs once per repository
-        // construction. It must complete before the new graph proceeds so a relaunched app does not
-        // leave already-captured camera proof rows without a durable outbox item.
-        runBlocking(dispatchers.io) {
-            reconcileRecoverableUploadsNow()
-        }
-    }
-
+     * returns that existing row instead of inserting a duplicate.
+     *
+     * R50-028: walks [ProofCaptureDao.listRecoverableUploadsPage] in bounded ~20-row keyset pages
+     * (row-value keyset on capturedAtMs+id) instead of one unbounded read up to
+     * [ProofCaptureDao.MAX_PROOFS_PER_TASK] rows, and runs on the caller's dispatcher (the `init`
+     * block launches it on [appScope] so it never blocks repository construction). */
     internal suspend fun reconcileRecoverableUploadsNow() {
-        dao.listRecoverableUploads(capturedBeforeMs = startupRecoveryCutoffMs).forEach { entity ->
-            val outboxItemId = entity.outboxItemId
-            if (outboxItemId.isNullOrBlank()) {
-                enqueueRegistrationNow(entity, scopeType = "task", scopeId = entity.taskId)
-            } else {
-                followOutboxItem(entity.id, outboxItemId)
-                syncRepository.triggerDrain()
+        var afterCapturedAtMs = 0L
+        var afterId = ""
+        while (true) {
+            val page = dao.listRecoverableUploadsPage(
+                capturedBeforeMs = startupRecoveryCutoffMs,
+                afterCapturedAtMs = afterCapturedAtMs,
+                afterId = afterId,
+            )
+            if (page.isEmpty()) break
+            page.forEach { entity ->
+                val outboxItemId = entity.outboxItemId
+                if (outboxItemId.isNullOrBlank()) {
+                    enqueueRegistrationNow(entity, scopeType = "task", scopeId = entity.taskId)
+                } else {
+                    followOutboxItem(entity.id, outboxItemId)
+                    syncRepository.triggerDrain()
+                }
             }
+            val last = page.last()
+            afterCapturedAtMs = last.capturedAtMs
+            afterId = last.id
+            if (page.size < ProofCaptureDao.RECOVERABLE_UPLOADS_PAGE_SIZE) break
         }
     }
 
     /** Queues the metadata-registration write on the app-lifetime scope (never blocks the
      *  caller's [capture] — the Room write above already made the capture durable) and follows
      *  its outbox item to reflect PENDING -> IN_FLIGHT -> SYNCED/FAILED back onto the row. */
-    private fun enqueueRegistration(entity: ProofCaptureEntity, scopeType: String, scopeId: String) {
+    private fun enqueueRegistration(
+        entity: ProofCaptureEntity,
+        scopeType: String,
+        scopeId: String,
+        proofPolicy: ProofPolicy = ProofPolicy.Default,
+    ) {
         appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
-            enqueueRegistrationNow(entity, scopeType, scopeId)
+            enqueueRegistrationNow(entity, scopeType, scopeId, proofPolicy)
         }
     }
 
-    private suspend fun enqueueRegistrationNow(entity: ProofCaptureEntity, scopeType: String, scopeId: String) {
+    private suspend fun enqueueRegistrationNow(
+        entity: ProofCaptureEntity,
+        scopeType: String,
+        scopeId: String,
+        proofPolicy: ProofPolicy = ProofPolicy.Default,
+    ) {
         val request = ProofUploadRequestDto(
             proofType = "video",
             mimeType = entity.mimeType,
@@ -447,7 +499,9 @@ class DefaultProofCaptureRepository(
             subjectId = entity.subjectId,
             metadata = buildMap {
                 put("field_key", JsonPrimitive(entity.fieldKey))
-                put("capture_source", JsonPrimitive("in_app_camera"))
+                // R50-027: policy-driven, falls back to the historical hardcoded value for the
+                // startup-recovery path where the original request's policy is not available.
+                put("capture_source", JsonPrimitive(proofPolicy.captureSource))
                 entity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
                 // Camera-only capture freshness proof (docs/mobile/proof-capture-sync-and-e2e.md
                 // "Camera-only capture"): the verifier can see this was a live, timed,
@@ -476,12 +530,21 @@ class DefaultProofCaptureRepository(
         }
     }
 
+    /** R50-028: follows one outbox item to ITS terminal state, then stops — [transformWhile]
+     *  ends the collection right after the terminal emission, so this coroutine (and its
+     *  subscription to the shared [SyncRepository.observeStatus] flow) does not outlive the
+     *  proof it was tracking. Before this fix, every proof left a collector running for the rest
+     *  of the app process, growing without bound across a long shift's captures. */
     private fun followOutboxItem(rowId: String, outboxItemId: String) {
         appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
             syncRepository.observeStatus()
                 .map { status -> status.items.firstOrNull { it.id == outboxItemId } }
                 .filterNotNull()
                 .distinctUntilChanged()
+                .transformWhile { item ->
+                    emit(item)
+                    item.status != SyncItemStatus.SUCCEEDED && !item.isDeadLetter && !item.conflict
+                }
                 .collect { item ->
                     when {
                         item.status == SyncItemStatus.IN_FLIGHT ->
@@ -492,6 +555,9 @@ class DefaultProofCaptureRepository(
                                 dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
                             } else {
                                 dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
+                                // R50-028: the video is durably server-side now — reclaim the
+                                // device-local copy so a long shift's captures cannot fill storage.
+                                dao.findById(rowId)?.let { deleteLocalFile(it.localUri) }
                             }
                         }
                         item.isDeadLetter || item.conflict ->
@@ -500,6 +566,23 @@ class DefaultProofCaptureRepository(
                     }
                 }
         }
+    }
+}
+
+/** R50-028: best-effort local-file cleanup for a synced/removed/cleared proof. Deliberately
+ *  silent on failure (a stale on-disk clip the OS will eventually reclaim under storage pressure
+ *  is not a correctness issue, unlike a swallowed business-logic error) — accepts both the
+ *  `file:` URI form [InAppVideoRecorder] writes and a plain path, mirroring
+ *  `ProofBlobUploader.resolveLocalFile`. */
+private fun deleteLocalFile(localUri: String) {
+    if (localUri.isBlank()) return
+    runCatching {
+        val file = if (localUri.startsWith("file:", ignoreCase = true)) {
+            runCatching { File(URI(localUri)) }.getOrElse { File(localUri) }
+        } else {
+            File(localUri)
+        }
+        if (file.exists()) file.delete()
     }
 }
 

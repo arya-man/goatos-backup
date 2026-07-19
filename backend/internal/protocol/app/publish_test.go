@@ -88,6 +88,8 @@ func TestParseVersionedCapacityRejectsInvalid(t *testing.T) {
 		{"zero max_per_day", `{"max_per_day":0}`},
 		{"negative max_per_day", `{"max_per_day":-5}`},
 		{"negative max_buffer_days", `{"max_buffer_days":-1}`},
+		{"shed capacity_scope", `{"capacity_scope":"shed"}`},
+		{"center capacity_scope", `{"capacity_scope":"center"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,6 +101,14 @@ func TestParseVersionedCapacityRejectsInvalid(t *testing.T) {
 	// max_buffer_days: 0 is a valid business value (a same-day-only window), not an error.
 	if _, ok, err := parseVersionedCapacity([]byte(`{"max_per_day":50,"max_buffer_days":0}`)); err != nil || !ok {
 		t.Fatalf("max_buffer_days:0 is valid, got ok=%v err=%v", ok, err)
+	}
+	// tenant is the only supported scope today and must pass explicitly.
+	if got, ok, err := parseVersionedCapacity([]byte(`{"capacity_scope":"tenant"}`)); err != nil || !ok || got.CapacityScope != "tenant" {
+		t.Fatalf("explicit tenant scope must pass, got scope=%q ok=%v err=%v", got.CapacityScope, ok, err)
+	}
+	// absent capacity_scope defaults to tenant and must pass.
+	if got, ok, err := parseVersionedCapacity([]byte(`{"max_per_day":50}`)); err != nil || !ok || got.CapacityScope != "tenant" {
+		t.Fatalf("absent scope must default to tenant, got scope=%q ok=%v err=%v", got.CapacityScope, ok, err)
 	}
 }
 

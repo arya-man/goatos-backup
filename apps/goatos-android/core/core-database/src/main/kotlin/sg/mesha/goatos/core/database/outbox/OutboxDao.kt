@@ -78,11 +78,6 @@ interface OutboxDao {
     @Query("DELETE FROM outbox WHERE status = 'SUCCEEDED' AND updatedAt < :cutoffTime")
     suspend fun pruneSucceeded(cutoffTime: Long): Int
 
-    /** Legacy full-table query — DEPRECATED. Use [observeActive] instead.
-     *  Kept for backward compatibility only. */
-    @Query("SELECT * FROM outbox ORDER BY createdAt ASC")
-    fun observeAll(): Flow<List<OutboxEntity>>
-
     // --- Atomic state transitions (return rows affected: 1 = applied, 0 = lost the race) ----
 
     @Query("UPDATE outbox SET status = 'IN_FLIGHT', updatedAt = :now WHERE id = :id AND status IN ('QUEUED', 'FAILED')")

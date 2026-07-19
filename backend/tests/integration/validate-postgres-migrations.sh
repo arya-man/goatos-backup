@@ -322,6 +322,162 @@ INSERT INTO goat_identifiers (
 "
 
 # ---------------------------------------------------------------------------
+# R50 forward-compatibility assertions (000003_r50_forward_compatibility.sql):
+# every delta that was previously only applied via editing 000001 in place must
+# also be present after the ordered migration set runs here, and 000003 must be
+# a no-op on a clean install of the current baseline. Shared with the
+# old-baseline upgrade convergence check below.
+# ---------------------------------------------------------------------------
+r50_forward_compat_assertions_sql=$(cat <<'R50SQL'
+DO $$
+DECLARE
+  def text;
+BEGIN
+  SELECT pg_get_constraintdef(oid) INTO def
+  FROM pg_constraint
+  WHERE conname = 'notification_requests_type_check';
+  IF def IS NULL THEN
+    RAISE EXCEPTION 'notification_requests_type_check constraint missing';
+  END IF;
+  IF def NOT LIKE '%verification_approved%' OR def NOT LIKE '%verification_closed%' THEN
+    RAISE EXCEPTION 'notification_requests_type_check missing verification lifecycle values: %', def;
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  def text;
+BEGIN
+  SELECT pg_get_constraintdef(oid) INTO def
+  FROM pg_constraint
+  WHERE conname = 'obligation_status_events_type_check';
+  IF def IS NULL THEN
+    RAISE EXCEPTION 'obligation_status_events_type_check constraint missing';
+  END IF;
+  IF def NOT LIKE '%in_progress%' THEN
+    RAISE EXCEPTION 'obligation_status_events_type_check missing in_progress value: %', def;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('public.sop_task_scan_captures') IS NULL THEN
+    RAISE EXCEPTION 'sop_task_scan_captures table missing';
+  END IF;
+  IF to_regclass('public.sop_task_scan_attempts') IS NULL THEN
+    RAISE EXCEPTION 'sop_task_scan_attempts table missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_captures_pkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_captures_pkey missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_attempts_pkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_attempts_pkey missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'sop_task_scan_captures_idempotency_unique_idx') THEN
+    RAISE EXCEPTION 'sop_task_scan_captures_idempotency_unique_idx missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'sop_task_scan_captures_task_field_tag_unique_idx') THEN
+    RAISE EXCEPTION 'sop_task_scan_captures_task_field_tag_unique_idx missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'sop_task_scan_attempts_idempotency_unique_idx') THEN
+    RAISE EXCEPTION 'sop_task_scan_attempts_idempotency_unique_idx missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_captures_goat_id_fkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_captures_goat_id_fkey missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_captures_task_id_fkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_captures_task_id_fkey missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_captures_tenant_id_fkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_captures_tenant_id_fkey missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_attempts_goat_id_fkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_attempts_goat_id_fkey missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_attempts_task_id_fkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_attempts_task_id_fkey missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_attempts_tenant_id_fkey') THEN
+    RAISE EXCEPTION 'sop_task_scan_attempts_tenant_id_fkey missing';
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  def text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'verification_items' AND column_name = 'subject_label') THEN
+    RAISE EXCEPTION 'verification_items.subject_label column missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'verification_items' AND column_name = 'closed_by') THEN
+    RAISE EXCEPTION 'verification_items.closed_by column missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'verification_items' AND column_name = 'closed_at') THEN
+    RAISE EXCEPTION 'verification_items.closed_at column missing';
+  END IF;
+
+  SELECT pg_get_constraintdef(oid) INTO def FROM pg_constraint WHERE conname = 'verification_items_subject_label_check';
+  IF def IS NULL THEN
+    RAISE EXCEPTION 'verification_items_subject_label_check missing';
+  END IF;
+
+  SELECT pg_get_constraintdef(oid) INTO def FROM pg_constraint WHERE conname = 'verification_items_closed_pair_check';
+  IF def IS NULL OR def NOT LIKE '%closed_by IS NULL%' THEN
+    RAISE EXCEPTION 'verification_items_closed_pair_check missing or unexpected: %', def;
+  END IF;
+
+  SELECT pg_get_constraintdef(oid) INTO def FROM pg_constraint WHERE conname = 'verification_items_closed_approved_check';
+  IF def IS NULL OR def NOT LIKE '%approved%' THEN
+    RAISE EXCEPTION 'verification_items_closed_approved_check missing or unexpected: %', def;
+  END IF;
+
+  SELECT pg_get_indexdef(indexrelid) INTO def
+  FROM pg_index
+  JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+  WHERE pg_class.relname = 'outbox_messages_verification_idempotency_idx';
+  IF def IS NULL THEN
+    RAISE EXCEPTION 'outbox_messages_verification_idempotency_idx missing';
+  END IF;
+  IF def NOT LIKE '%verification.item.closed%' THEN
+    RAISE EXCEPTION 'outbox_messages_verification_idempotency_idx missing verification.item.closed predicate: %', def;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'verification_items_leadership_queue_idx') THEN
+    RAISE EXCEPTION 'verification_items_leadership_queue_idx missing';
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  bad_rows integer;
+  total_rows integer;
+BEGIN
+  SELECT count(*) INTO total_rows
+  FROM sop_versions sv
+  JOIN sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session');
+
+  IF total_rows = 0 THEN
+    RAISE EXCEPTION 'no vaccination.drive/vaccination.session sop_versions rows found to assert against';
+  END IF;
+
+  SELECT count(*) INTO bad_rows
+  FROM sop_versions sv
+  JOIN sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
+    AND COALESCE(sv.proof_policy ->> 'subject_scope', '') <> 'goat';
+
+  IF bad_rows <> 0 THEN
+    RAISE EXCEPTION '% vaccination sop_versions row(s) not on goat-scan subject_scope', bad_rows;
+  END IF;
+END $$;
+R50SQL
+)
+
+echo "Running R50 forward-compatibility assertions (clean install)"
+printf '%s\n' "$r50_forward_compat_assertions_sql" | run_psql
+
+# ---------------------------------------------------------------------------
 # Old-baseline upgrade validation: a dev/stg database that applied the ORIGINAL
 # 000001 baseline (old overflow_policy enum + old CHECK constraint) must upgrade
 # cleanly through 000002 -- proving live that the migration drops the old
@@ -370,6 +526,79 @@ ON CONFLICT (tenant_id) DO NOTHING;
 ALTER TABLE vaccination_capacity_config
   ADD CONSTRAINT vaccination_capacity_config_overflow_check
   CHECK (overflow_policy = 'split_within_safe_window_then_mark_needs_review');
+
+-- Recreate the PRE-000003 world for every R50 forward-compatibility delta: the historical
+-- (old-baseline) database predates the in-place edits that later baseline commits folded into
+-- 000001, so hand-revert each one before applying 000002/000003 below.
+
+-- Delta 1: notification_requests_type_check lacked the verification lifecycle values.
+ALTER TABLE notification_requests
+  DROP CONSTRAINT IF EXISTS notification_requests_type_check;
+ALTER TABLE notification_requests
+  ADD CONSTRAINT notification_requests_type_check
+  CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])));
+
+-- Delta 2: the SOP RFID scan-capture tables did not exist yet.
+DROP TABLE IF EXISTS sop_task_scan_attempts;
+DROP TABLE IF EXISTS sop_task_scan_captures;
+
+-- Delta 4: verification_items lacked the closure columns/checks.
+ALTER TABLE verification_items DROP CONSTRAINT IF EXISTS verification_items_closed_approved_check;
+ALTER TABLE verification_items DROP CONSTRAINT IF EXISTS verification_items_closed_pair_check;
+ALTER TABLE verification_items DROP CONSTRAINT IF EXISTS verification_items_subject_label_check;
+ALTER TABLE verification_items DROP COLUMN IF EXISTS closed_at;
+ALTER TABLE verification_items DROP COLUMN IF EXISTS closed_by;
+ALTER TABLE verification_items DROP COLUMN IF EXISTS subject_label;
+
+-- Delta 5: the outbox verification idempotency index lacked the closure event type.
+DROP INDEX IF EXISTS outbox_messages_verification_idempotency_idx;
+CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx ON outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text]));
+
+-- Delta 6: the leadership closure queue index did not exist.
+DROP INDEX IF EXISTS verification_items_leadership_queue_idx;
+
+-- Delta 7: vaccination SOP versions were still on the pre-goat-scan batch-level proof shape.
+WITH vaccination_sops AS (
+  SELECT sv.sop_version_id
+  FROM sop_versions sv
+  JOIN sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
+)
+UPDATE sop_versions sv
+SET form_dsl = sv.form_dsl - 'goat_row_proof',
+    proof_policy = jsonb_build_object(
+      'types', jsonb_build_array('video'),
+      'required', true,
+      'subject_scope', 'batch',
+      'expected_subjects', jsonb_build_array('shed', 'vial_lot', 'administration'),
+      'minimum_count', 3,
+      'maximum_count', 5,
+      'verify_capability', 'proof.verify',
+      'verify_before_apply', true,
+      'retention_policy', 'operational_90d'
+    )
+FROM vaccination_sops ids
+WHERE sv.sop_version_id = ids.sop_version_id;
+
+-- Delta 8: obligation_status_events.event_type lacked the 'in_progress' value.
+ALTER TABLE obligation_status_events
+  DROP CONSTRAINT IF EXISTS obligation_status_events_type_check;
+ALTER TABLE obligation_status_events
+  ADD CONSTRAINT obligation_status_events_type_check
+  CHECK ((event_type = ANY (ARRAY[
+    'scheduled'::text,
+    'became_due'::text,
+    'dispatched'::text,
+    'completed'::text,
+    'missed'::text,
+    'waived'::text,
+    'escalated'::text,
+    'escalation_acknowledged'::text,
+    'escalation_resolved'::text,
+    'canceled'::text,
+    'deferred'::text,
+    'rescoped'::text
+  ])));
 SQL
 
 while IFS= read -r migration; do
@@ -399,6 +628,9 @@ BEGIN
   END IF;
 END $$;
 SQL
+
+echo "Running R50 forward-compatibility assertions (old-baseline upgrade convergence)"
+printf '%s\n' "$r50_forward_compat_assertions_sql" | run_upgrade_psql
 
 echo "Old-baseline upgrade validation passed"
 

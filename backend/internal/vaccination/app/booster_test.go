@@ -391,6 +391,10 @@ func (f *boosterObligationWriterFake) InsertObligation(_ context.Context, in obl
 	return "obligation-1", true, nil
 }
 
+func (f *boosterObligationWriterFake) InsertDeferredObligation(ctx context.Context, in obldomain.NewObligation, reason string, occurredAt time.Time) (string, bool, error) {
+	return f.InsertObligation(ctx, in)
+}
+
 func (f *boosterObligationWriterFake) DeferOpenObligationForGeneration(context.Context, string, string, string, time.Time) (obldomain.ObligationRef, bool, error) {
 	return obldomain.ObligationRef{}, false, nil
 }

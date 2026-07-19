@@ -199,20 +199,24 @@ private class FakeExecutionRepository : ExecutionRepository {
 
     override suspend fun findScanRosterByTag(
         shedId: String,
+        taskId: String?,
         normalizedTag: String,
     ): sg.mesha.goatos.core.data.cache.ScanRosterRowEntity? = null
 
     override fun observeScanRosterStatusCounts(
         shedId: String,
+        taskId: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> = kotlinx.coroutines.flow.flowOf(emptyList())
 
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
+        taskId: String?,
         obligationIds: List<String>,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
 
     override suspend fun getScanRosterStatusCounts(
         shedId: String,
+        taskId: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
 
     override suspend fun rows(

@@ -38,7 +38,7 @@ WITH matched_batches AS (
   WHERE ob.tenant_id = $1::uuid
     AND $12::bool
     AND ob.status NOT IN ('superseded', 'canceled')
-    AND to_char((COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+    AND to_char((COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
     AND (
       ($4::uuid IS NOT NULL AND (
         (ob.scope_type = 'park' AND ob.scope_id = $4::uuid)

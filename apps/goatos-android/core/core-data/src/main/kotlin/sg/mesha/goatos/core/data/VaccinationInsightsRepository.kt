@@ -13,6 +13,7 @@ import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
+import sg.mesha.goatos.core.data.cache.CacheGovernance
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
@@ -216,10 +217,15 @@ class VaccinationGapsCursorException(message: String) : IllegalStateException(me
 internal fun mergeVaccinationGapsPage(
     current: VaccinationGapsResponseDto,
     page: VaccinationGapsResponseDto,
-): VaccinationGapsResponseDto = page.copy(
-    parkId = page.parkId ?: current.parkId,
-    rows = (current.rows + page.rows).distinctBy { it.stableGapIdentity() },
-)
+): VaccinationGapsResponseDto {
+    val merged = (current.rows + page.rows).distinctBy { it.stableGapIdentity() }
+    val capped = merged.take(CacheGovernance.DEFAULT_MAX_ROWS) // mobile-guard:ignore: explicit 200-row cache-governance ceiling across user-requested pages
+    return page.copy(
+        parkId = page.parkId ?: current.parkId,
+        rows = capped,
+        nextCursor = page.nextCursor?.takeIf { merged.size <= CacheGovernance.DEFAULT_MAX_ROWS },
+    )
+}
 
 private fun VaccinationGapRowDto.stableGapIdentity(): String =
     goatId.ifBlank { displayId.ifBlank { listOf(parkId, shedId, reasonCode).joinToString("|") } }

@@ -4,8 +4,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.TaskDetail
+import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -17,6 +21,7 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
+import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 
 /** In-memory [ScanCaptureRepository] test double — real dedup semantics (unique per
  *  task+field+tag), no Room. Mirrors [sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository]'s
@@ -151,6 +156,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         capturedStartMs: Long,
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
     ): AppResult<ProofCaptureRow> {
         captureCalls += CaptureCall(fieldKey, subject, subjectId, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         val activeRows = rows.count { it.subjectId == subjectId && it.syncStatus != CaptureSyncStatus.FAILED }
@@ -237,4 +243,18 @@ class FakeCaptureBootstrapRepository(
 ) : BootstrapRepository {
     override suspend fun loadNavState(): NavState = NavState.Empty
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
+}
+
+/** Minimal [TasksRepository] test double for [ScanViewModel]'s R50-027 proof-policy read — only
+ *  [observeTaskDetail] is exercised (the roster scan screen never lists/refreshes tasks itself).
+ *  Defaults to [ProofPolicy.Default] (no [detail] supplied) so existing scan tests that do not
+ *  care about proof policy keep their historical hardcoded-constant behavior unchanged. */
+class FakeTasksRepositoryForCapture(
+    private val detail: TaskDetail? = null,
+) : TasksRepository {
+    override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto = error("unused")
+    override suspend fun taskDetail(taskId: String): TaskDetail = detail ?: error("unused")
+    override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
+        MutableStateFlow(Resource(data = detail))
+    override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.success(Unit)
 }

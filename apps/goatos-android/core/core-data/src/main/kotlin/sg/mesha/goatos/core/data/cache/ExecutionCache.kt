@@ -117,17 +117,21 @@ interface ScanRosterCacheDao : JsonBlobCacheDao<ScanRosterCacheEntity> {
 @Entity(
     tableName = "scan_roster_row",
     indices = [
-        androidx.room.Index(value = ["shedId"]),
-        androidx.room.Index(value = ["shedId", "primaryTag"]),
-        androidx.room.Index(value = ["shedId", "secondaryTag"]),
+        androidx.room.Index(value = ["scopeKey"]),
+        androidx.room.Index(value = ["scopeKey", "normalizedPrimaryTag"]),
+        androidx.room.Index(value = ["scopeKey", "normalizedSecondaryTag"]),
     ],
 )
 data class ScanRosterRowEntity(
-    @PrimaryKey val id: String, // "{shedId}#{obligationId}" or "{shedId}#{goatId}#{primaryTag}"
+    @PrimaryKey val id: String,
+    val scopeKey: String,
     val shedId: String,
+    val taskId: String,
     val goatId: String,
     val primaryTag: String,
     val secondaryTag: String?,
+    val normalizedPrimaryTag: String,
+    val normalizedSecondaryTag: String?,
     val vaccineLabel: String,
     val status: String,
     val obligationId: String,
@@ -142,38 +146,42 @@ interface ScanRosterRowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<ScanRosterRowEntity>)
 
-    /** Find a roster row by shed and normalized tag (primary or secondary). Returns the first match
-     *  or null if no goat in this shed has the tag. Normalized tag comparison (alphanumeric lowercase). */
+    /** Exact lookup over the canonical tag persisted at refresh time. */
     @Query(
-        "SELECT * FROM scan_roster_row WHERE shedId = :shedId AND " +
-            "(LOWER(REPLACE(REPLACE(REPLACE(primaryTag, '-', ''), ' ', ''), '_', '')) = :normalizedTag OR " +
-            "LOWER(REPLACE(REPLACE(REPLACE(secondaryTag, '-', ''), ' ', ''), '_', '')) = :normalizedTag) " +
+        "SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey AND " +
+            "(normalizedPrimaryTag = :normalizedTag OR normalizedSecondaryTag = :normalizedTag) " +
             "LIMIT 1"
     )
-    suspend fun findByTag(shedId: String, normalizedTag: String): ScanRosterRowEntity?
+    suspend fun findByTag(scopeKey: String, normalizedTag: String): ScanRosterRowEntity?
 
     /** Count rows by status for a shed. Used to derive total/done/pending counts without reloading
      *  the entire JSON blob. (R50-008: aggregates independent of loaded page size). */
-    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE shedId = :shedId GROUP BY status")
-    suspend fun countByStatus(shedId: String): List<StatusCount>
+    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE scopeKey = :scopeKey GROUP BY status")
+    suspend fun countByStatus(scopeKey: String): List<StatusCount>
 
     /** R50-008: Observable status aggregates for a shed — a bounded GROUP BY (max a handful of
      *  status rows), re-emitted whenever the roster rows change, so ring/tile counters stay
      *  page-independent. */
-    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE shedId = :shedId GROUP BY status")
-    fun observeCountsByStatus(shedId: String): Flow<List<StatusCount>>
+    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE scopeKey = :scopeKey GROUP BY status")
+    fun observeCountsByStatus(scopeKey: String): Flow<List<StatusCount>>
 
     /** R50-008: Status aggregates for a bounded id set (the session's local unsynced DONE overlay,
      *  at most a scan session's worth of ids). Lets the ViewModel add local edits to the full-roster
      *  counts without double-counting rows the backend already reports DONE. */
     @Query(
         "SELECT status, COUNT(*) as count FROM scan_roster_row " +
-            "WHERE shedId = :shedId AND obligationId IN (:obligationIds) GROUP BY status"
+            "WHERE scopeKey = :scopeKey AND obligationId IN (:obligationIds) GROUP BY status"
     )
-    suspend fun countByStatusForObligations(shedId: String, obligationIds: List<String>): List<StatusCount>
+    suspend fun countByStatusForObligations(scopeKey: String, obligationIds: List<String>): List<StatusCount>
 
-    @Query("DELETE FROM scan_roster_row WHERE shedId = :shedId")
-    suspend fun deleteForShed(shedId: String)
+    @Query("DELETE FROM scan_roster_row WHERE scopeKey = :scopeKey")
+    suspend fun deleteForScope(scopeKey: String)
+
+    @androidx.room.Transaction
+    suspend fun replaceScope(scopeKey: String, entities: List<ScanRosterRowEntity>) {
+        deleteForScope(scopeKey)
+        upsertAll(entities)
+    }
 
     @Query("DELETE FROM scan_roster_row")
     suspend fun deleteAll()

@@ -60,7 +60,8 @@ and the event exists solely as durable lineage/audit trail. Requirements:
 - Promoting an audit-only event to consumed requires the full registration
   packet above, including the real-consumer E2E proof.
 
-Current audit-only events: `goat.obligations_canceled`, `obligation.rescoped`.
+Current audit-only events: `goat.obligations_canceled`, `obligation.rescoped`,
+`obligation.in_progress`.
 
 The machine registry is `context/architecture/domain-event-registry.json`.
 `make domain-event-architecture-guard` must pass before landing.

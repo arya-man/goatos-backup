@@ -68,6 +68,7 @@ func IsGenerationAbortError(err error) bool {
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
+	InsertDeferredObligation(ctx context.Context, in obldomain.NewObligation, reason string, occurredAt time.Time) (string, bool, error)
 	// Replay reconciliation returns the row's final persisted status and due date from the same
 	// transaction. Cross-vaccine spacing must never depend on a stale page snapshot or a proposed
 	// recovery date that the database did not apply.
@@ -1417,7 +1418,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			IdempotencyKey:    key,
 			Sequence:          rule.Sequence,
 		}
-		obID, applied, err := s.obl.InsertObligation(ctx, newObligation)
+		var applied bool
+		if deferred {
+			_, applied, err = s.obl.InsertDeferredObligation(ctx, newObligation, deferReason, asOf)
+		} else {
+			_, applied, err = s.obl.InsertObligation(ctx, newObligation)
+		}
 		if err != nil {
 			return err
 		}
@@ -1506,22 +1512,6 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 
 		if deferred {
-			// Same payload shape as DeferOpenObligationByIdempotencyKey's 'deferred' event (no drift):
-			// {reason, defer_status}. The event key carries occurredAt so repeated defer cycles each
-			// record an event (symmetric with the reopen event key).
-			payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason})
-			if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
-				TenantID:       tenantID,
-				ObligationID:   obID,
-				EventType:      "deferred",
-				OccurredAt:     asOf,
-				Payload:        payload,
-				IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339Nano),
-				Scope:          "obligation.status_event",
-				RequestHash:    "defer:" + deferReason,
-			}); err != nil {
-				return err
-			}
 			res.Deferred++
 		}
 	}
@@ -1539,34 +1529,21 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 	if deferred && deferReason == "" {
 		deferReason = "defer_state"
 	}
-	for attempt := 1; attempt <= 32; attempt++ {
+	for attempt := 1; ; attempt++ {
 		successor := base
 		successor.IdempotencyKey = fmt.Sprintf("%s:successor:%02d", baseKey, attempt)
-		obID, applied, err := s.obl.InsertObligation(ctx, successor)
+		var obID string
+		var applied bool
+		var err error
+		if deferred {
+			obID, applied, err = s.obl.InsertDeferredObligation(ctx, successor, deferReason, asOf)
+		} else {
+			obID, applied, err = s.obl.InsertObligation(ctx, successor)
+		}
 		if err != nil {
 			return obldomain.ObligationRef{}, false, false, err
 		}
 		if applied {
-			if deferred {
-				// R50-006: a deferred successor must record its 'deferred' status event exactly
-				// like the non-successor deferred path (see the caller's own
-				// s.obl.RecordStatusEvent call for the same event shape/idempotency-key pattern).
-				// Same repo call, same ctx/tx as the insert above, so this succeeds or fails with
-				// it rather than silently leaving a deferred successor with no audit event.
-				payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason})
-				if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
-					TenantID:       tenantID,
-					ObligationID:   obID,
-					EventType:      "deferred",
-					OccurredAt:     asOf,
-					Payload:        payload,
-					IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339Nano),
-					Scope:          "obligation.status_event",
-					RequestHash:    "defer:" + deferReason,
-				}); err != nil {
-					return obldomain.ObligationRef{}, false, false, err
-				}
-			}
 			return obldomain.ObligationRef{ObligationID: obID, Status: successor.Status, DueAt: successor.DueAt, Reason: ""}, false, true, nil
 		}
 		// Replay: reconcile the existing successor row with the goat's CURRENT clinical status.
@@ -1589,7 +1566,6 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 			return ref, changed, false, nil
 		}
 	}
-	return obldomain.ObligationRef{}, false, false, fmt.Errorf("vaccination generation: canceled obligation key %s exhausted successor attempts", baseKey)
 }
 
 func limitsHistoricalCatchUp(rule protodomain.Rule, baseDue, materializedDue, asOf time.Time, opts generationOptions) bool {

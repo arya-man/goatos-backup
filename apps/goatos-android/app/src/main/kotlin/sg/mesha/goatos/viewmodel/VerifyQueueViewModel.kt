@@ -105,11 +105,14 @@ class VerifyQueueViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         _isLoadingMore.value = false
         _isRefreshing.value = true
-        if (_selectedModule.value != VerifyModuleTab.VACCINATION) return@launch
-        AnalyticsFunnels.trackVerifyQueueOpened(analytics, VACCINATION_CATEGORY)
-        val result = repo.refreshQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
-        _isOffline.value = result.isFailure
-        _isRefreshing.value = false
+        try {
+            if (_selectedModule.value != VerifyModuleTab.VACCINATION) return@launch
+            AnalyticsFunnels.trackVerifyQueueOpened(analytics, VACCINATION_CATEGORY)
+            val result = repo.refreshQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+            _isOffline.value = result.isFailure
+        } finally {
+            _isRefreshing.value = false
+        }
     }
 
     private fun loadMore() = viewModelScope.launch {

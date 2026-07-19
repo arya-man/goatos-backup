@@ -3540,7 +3540,7 @@ CREATE TABLE public.notification_requests (
     CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
     CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
     CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
-    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
+    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'verification_approved'::text, 'verification_closed'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
 );
 
 
@@ -3671,7 +3671,7 @@ CREATE TABLE public.obligation_status_events (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'in_progress'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -4950,15 +4950,21 @@ CREATE TABLE public.verification_items (
     captured_at timestamp with time zone NOT NULL,
     verified_by uuid,
     verified_at timestamp with time zone,
+    subject_label text,
+    closed_by uuid,
+    closed_at timestamp with time zone,
     idempotency_key text NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
+    CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
     CONSTRAINT verification_items_idempotency_key_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT verification_items_media_refs_array_check CHECK ((jsonb_typeof(media_refs) = 'array'::text)),
     CONSTRAINT verification_items_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((verdict_reason IS NOT NULL) AND (btrim(verdict_reason) <> ''::text)))),
     CONSTRAINT verification_items_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
+    CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
+    CONSTRAINT verification_items_subject_label_check CHECK (((subject_label IS NULL) OR (btrim(subject_label) <> ''::text)))
 );
 
 
@@ -8107,7 +8113,7 @@ CREATE INDEX obligation_instances_unbatched_due_version_idx ON public.obligation
 -- Name: obligation_status_events_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_status_events_idempotency_idx ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
+CREATE UNIQUE INDEX obligation_status_events_idempotency_idx ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
 
 
 --
@@ -8275,7 +8281,7 @@ CREATE UNIQUE INDEX outbox_messages_vaccination_completed_idempotency_idx ON pub
 -- Name: outbox_messages_verification_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text]));
+CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text, 'verification.item.closed'::text]));
 
 
 --
@@ -8948,6 +8954,13 @@ CREATE UNIQUE INDEX vaccination_stage_review_items_open_idem_unique ON public.va
 --
 
 CREATE INDEX vaccination_stage_review_items_tenant_status_idx ON public.vaccination_stage_review_items USING btree (tenant_id, status, created_at DESC);
+
+
+--
+-- Name: verification_items_leadership_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_leadership_queue_idx ON public.verification_items USING btree (tenant_id, park_id, source_submission_id, captured_at, item_id) WHERE ((status = 'approved'::text) AND (closed_at IS NULL));
 
 
 --

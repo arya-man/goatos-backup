@@ -85,6 +85,7 @@ class ScanViewModelTest {
             proofCaptureRepository = FakeProofCaptureRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -158,6 +159,7 @@ class ScanViewModelTest {
             proofCaptureRepository = FakeProofCaptureRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -192,6 +194,7 @@ class ScanViewModelTest {
             proofCaptureRepository = FakeProofCaptureRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -217,7 +220,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `manual goat tap persists the same Room-first draft as an RFID hit`() = runTest(dispatcher) {
+    fun `manual goat tap is draft-only until a physical RFID read supplies durable evidence`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
@@ -231,6 +234,7 @@ class ScanViewModelTest {
             proofCaptureRepository = FakeProofCaptureRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -240,15 +244,21 @@ class ScanViewModelTest {
         scanVm.onEvent(ScanEvent.Tap)
         advanceUntilIdle()
 
+        // R50-024: a manual ring tap only advances the draft UI overlay. It must never fabricate
+        // an accepted RFID attempt or a durable roster scan/outbox write — only a subsequent
+        // physical reader event may supply that evidence.
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
-        assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(emptyList<String>(), scanCaptures.tagsForTask("task-1"))
+        assertTrue(scanAttempts.calls.isEmpty())
 
         reader.emit("TAG-100")
         advanceUntilIdle()
 
+        // A real reader hit on the same tag now replaces the draft with durable evidence: exactly
+        // one accepted attempt and one roster-scan capture, not a duplicate/second recording.
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals(
-            listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.ACCEPTED),
+            listOf(RfidScanAttemptOutcome.ACCEPTED),
             scanAttempts.calls.map { it.outcome },
         )
     }
@@ -315,6 +325,7 @@ class ScanViewModelTest {
             proofCaptureRepository = FakeProofCaptureRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -377,6 +388,7 @@ private class FakeScanExecutionRepository(
 
     override suspend fun findScanRosterByTag(
         shedId: String,
+        taskId: String?,
         normalizedTag: String,
     ): sg.mesha.goatos.core.data.cache.ScanRosterRowEntity? =
         allRows().firstOrNull {
@@ -384,10 +396,14 @@ private class FakeScanExecutionRepository(
         }?.let {
             sg.mesha.goatos.core.data.cache.ScanRosterRowEntity(
                 id = "$shedId#${it.obligationId}",
+                scopeKey = "$shedId|${taskId ?: "shed-wide"}",
                 shedId = shedId,
+                taskId = taskId ?: "shed-wide",
                 goatId = it.goatId,
                 primaryTag = it.primaryTag,
                 secondaryTag = it.secondaryTag,
+                normalizedPrimaryTag = norm(it.primaryTag),
+                normalizedSecondaryTag = it.secondaryTag?.let(::norm)?.takeIf { n -> n.isNotBlank() },
                 vaccineLabel = it.vaccineLabel,
                 status = it.status,
                 obligationId = it.obligationId,
@@ -397,6 +413,7 @@ private class FakeScanExecutionRepository(
 
     override fun observeScanRosterStatusCounts(
         shedId: String,
+        taskId: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> =
         scanRoster.map { resource ->
             resource.data?.rows.orEmpty()
@@ -407,6 +424,7 @@ private class FakeScanExecutionRepository(
 
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
+        taskId: String?,
         obligationIds: List<String>,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
         allRows().filter { it.obligationId in obligationIds }
@@ -416,6 +434,7 @@ private class FakeScanExecutionRepository(
 
     override suspend fun getScanRosterStatusCounts(
         shedId: String,
+        taskId: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
         allRows().groupingBy { it.status }
             .eachCount()

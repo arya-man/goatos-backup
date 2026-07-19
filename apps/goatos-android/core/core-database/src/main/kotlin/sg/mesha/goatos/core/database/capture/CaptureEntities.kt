@@ -215,14 +215,24 @@ interface ProofCaptureDao {
     )
     suspend fun listForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): List<ProofCaptureEntity>
 
+    /** R50-028: keyset-paged startup-recovery read — walks bounded ~20-row pages (row-value
+     *  keyset on capturedAtMs+id, guaranteeing forward progress) instead of materializing up to
+     *  [MAX_PROOFS_PER_TASK] rows in one unbounded read. [capturedBeforeMs] is STRICT (`<`, not
+     *  `<=`) so a row captured in the exact same millisecond as the caller's cutoff snapshot is
+     *  never matched — see [sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository]'s
+     *  `startupRecoveryCutoffMs` kdoc for why this makes recovery race-free against a fresh
+     *  capture on the same (just-constructed) repository instance. */
     @Query(
         "SELECT * FROM proof_capture WHERE serverProofId IS NULL AND syncStatus IN ('PENDING', 'IN_FLIGHT') " +
-            "AND capturedAtMs <= :capturedBeforeMs " +
-            "ORDER BY capturedAtMs ASC LIMIT :limit",
+            "AND capturedAtMs < :capturedBeforeMs " +
+            "AND (capturedAtMs > :afterCapturedAtMs OR (capturedAtMs = :afterCapturedAtMs AND id > :afterId)) " +
+            "ORDER BY capturedAtMs ASC, id ASC LIMIT :limit",
     )
-    suspend fun listRecoverableUploads(
+    suspend fun listRecoverableUploadsPage(
         capturedBeforeMs: Long,
-        limit: Int = MAX_PROOFS_PER_TASK,
+        afterCapturedAtMs: Long = 0L,
+        afterId: String = "",
+        limit: Int = RECOVERABLE_UPLOADS_PAGE_SIZE,
     ): List<ProofCaptureEntity>
 
     @Query(
@@ -259,5 +269,8 @@ interface ProofCaptureDao {
         /** Safety ceiling for a bounded task read; the write cap is five clips per goat. */
         const val MAX_PROOFS_PER_TASK = 10_000
         const val MAX_PROOFS_PER_GOAT = 5
+
+        /** R50-028: bounded page size for [listRecoverableUploadsPage]'s startup-recovery walk. */
+        const val RECOVERABLE_UPLOADS_PAGE_SIZE = 20
     }
 }

@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("verification: not found")
-	ErrConflict = errors.New("verification: write conflict")
+	ErrNotFound            = errors.New("verification: not found")
+	ErrConflict            = errors.New("verification: write conflict")
+	ErrIdempotencyConflict = errors.New("verification: idempotency key reused with different payload")
 )
 
 // ListQueueParams filters + keysets one page of the verifier queue.

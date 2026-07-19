@@ -40,6 +40,7 @@ import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -120,6 +121,9 @@ class SubmitViewModel @Inject constructor(
 
     private var currentTask: TaskSummaryDto? = null
     private var currentForm: FormSpec = FormSpec.Empty
+    // R50-027: this task's SOP proof policy, driving capture limits/subject instead of hardcoded
+    // client constants. Kept alongside currentTask/currentForm from the same TaskDetail resource.
+    private var currentProofPolicy: ProofPolicy = ProofPolicy.Default
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")
     private var statusJob: Job? = null
     private var scanTagJob: Job? = null
@@ -188,6 +192,7 @@ class SubmitViewModel @Inject constructor(
         if (taskId.isNullOrBlank()) {
             currentTask = null
             currentForm = FormSpec.Empty
+            currentProofPolicy = ProofPolicy.Default
             clearSavedSubmission()
             _state.value = blockedState()
             return@launch
@@ -218,6 +223,7 @@ class SubmitViewModel @Inject constructor(
             refreshFailedForTaskId = taskId
             currentTask = null
             currentForm = FormSpec.Empty
+            currentProofPolicy = ProofPolicy.Default
             clearSavedSubmission()
             _state.value = errorState()
         }
@@ -256,6 +262,7 @@ class SubmitViewModel @Inject constructor(
         if (detail == null) {
             currentTask = null
             currentForm = FormSpec.Empty
+            currentProofPolicy = ProofPolicy.Default
             // See refreshFailedForTaskId's KDoc: render the honest error instead of a bare
             // loading placeholder when we already know this exact task's refresh failed with
             // nothing cached — never let this observer overwrite that with a stale "loading".
@@ -266,12 +273,14 @@ class SubmitViewModel @Inject constructor(
         if (detail.task.taskId.isBlank()) {
             currentTask = null
             currentForm = FormSpec.Empty
+            currentProofPolicy = ProofPolicy.Default
             clearSavedSubmission()
             _state.value = blockedState()
             return
         }
         currentTask = detail.task
         currentForm = detail.form
+        currentProofPolicy = detail.proofPolicy
         bindSubmissionKey(detail.task)
         val queuedItemId = outboxItemId
         if (queuedItemId != null) {
@@ -367,6 +376,7 @@ class SubmitViewModel @Inject constructor(
                         capturedStartMs = captured.startedAtMs,
                         capturedEndMs = captured.endedAtMs,
                         capturedByPrincipalId = currentPrincipalId,
+                        proofPolicy = currentProofPolicy,
                     )
                 }
             } finally {
@@ -566,8 +576,9 @@ class SubmitViewModel @Inject constructor(
         val goatIds = currentScans
             .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
             .distinct()
-        fun proofsFor(goatId: String): List<ProofCaptureRow> =
-            currentProofs.filter { it.proofSubject == ProofSubject.GOAT && it.subjectId == goatId }
+        // R50-029: group once instead of re-filtering the full proof list 3x per goat below.
+        val proofsByGoat = currentProofs.filter { it.proofSubject == ProofSubject.GOAT }.groupBy { it.subjectId }
+        fun proofsFor(goatId: String): List<ProofCaptureRow> = proofsByGoat[goatId].orEmpty()
         val syncedProofs = goatIds.count { goatId -> proofsFor(goatId).any { it.isCompletedProofRef() } }
         val failedProofs = goatIds.count { goatId ->
             val proofs = proofsFor(goatId)
@@ -630,16 +641,15 @@ class SubmitViewModel @Inject constructor(
         val fields = form.fields.map { field -> field.toFieldUi() }
         val requiredUnansweredProofKeys = form.requiredUnansweredVideoProofKeys()
         val unreadyProof = currentProofs.firstOrNull { it.blocksSubmission(requiredUnansweredProofKeys) }
+        // R50-029: pre-index once (which goat ids already have a completed GOAT proof) instead of
+        // an O(goats * proofs) currentProofs.none{...} scan per scanned goat.
+        val goatIdsWithCompletedProof = currentProofs
+            .filter { it.proofSubject == ProofSubject.GOAT && it.isCompletedProofRef() }
+            .mapNotNullTo(mutableSetOf()) { it.subjectId }
         val missingGoatProof = currentScans
             .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
             .distinct()
-            .firstOrNull { goatId ->
-                currentProofs.none {
-                    it.proofSubject == ProofSubject.GOAT &&
-                        it.subjectId == goatId &&
-                        it.isCompletedProofRef()
-                }
-            }
+            .firstOrNull { goatId -> goatId !in goatIdsWithCompletedProof }
         val unmet = form.fields.firstOrNull { field -> !field.isAnswered() }
         return FormRunnerState(
             title = "Recording form",

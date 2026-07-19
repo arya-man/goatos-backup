@@ -3676,7 +3676,7 @@ CREATE TABLE public.obligation_status_events (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'in_progress'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -9473,7 +9473,7 @@ CREATE INDEX obligation_instances_unbatched_due_version_idx ON public.obligation
 -- Name: obligation_status_events_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX obligation_status_events_idempotency_idx ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
+CREATE UNIQUE INDEX obligation_status_events_idempotency_idx ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
 
 
 --

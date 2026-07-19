@@ -46,7 +46,14 @@ type Repository interface {
 	AttachObligationsToBatch(ctx context.Context, tenantID, batchID string, obligationIDs []string) (int64, error)
 
 	// MarkCompleted marks an obligation completed (SM-5) + writes a 'completed' event, in one txn.
-	// Returns false (no-op) when already terminal. Idempotent.
+	// Returns false (no-op) when already terminal. Idempotent. Also recomputes the owning batch's
+	// status in the same tx (completed when no sibling obligation remains open, else planned ->
+	// in_progress) so batch status stays live as a drive closes out (PEND-1 drive-close trigger).
+	// When the batch stays open, every still-open (scheduled/due) sibling obligation on that batch is
+	// ALSO flipped to in_progress in the same tx + one 'in_progress' status event/outbox row per
+	// newly-transitioned sibling -- this is the reachable PEND-1 in_progress trigger (the first real
+	// completion in a multi-obligation drive), replacing an earlier, unreachable SOP-submit-time
+	// MarkInProgress writer that this Repository no longer exposes.
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
 
 	// MarkMissedBefore marks open obligations whose deadline/window has crossed as missed and

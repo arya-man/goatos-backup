@@ -135,9 +135,12 @@ func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScop
 	if strings.Contains(calendarDriveTargetsSQL, badTargetDate) {
 		t.Fatalf("park-drive target lookup still matches batches by window_start before planned_date")
 	}
-	const wantedTargetDate = "COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end)"
+	const wantedTargetDate = "COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)"
 	if !strings.Contains(calendarDriveTargetsSQL, wantedTargetDate) {
 		t.Fatalf("park-drive target lookup must match batches by planned_date before window_start")
+	}
+	if strings.Contains(calendarDriveTargetsSQL, "ob.planned_date::timestamptz") {
+		t.Fatalf("park-drive target lookup must not depend on the PostgreSQL session timezone")
 	}
 }
 
@@ -244,12 +247,20 @@ func TestObligationBatchPlannedDateTimezoneIndependent(t *testing.T) {
 	versionID := "86000000-0000-4000-8000-0000000007a5"
 	ruleID := "86000000-0000-4000-8000-0000000007a6"
 	obligationID := "86000000-0000-4000-8000-0000000007a7"
+	goatID := "86000000-0000-4000-8000-0000000007a8"
 	dueAt := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
 
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
-	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, parkID, shedID, dueAt)
+	seedCalendarGoat(t, ctx, pool, goatID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid, scope_type = 'shed', scope_id = $4::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationID, goatID, shedID); err != nil {
+		t.Fatalf("make target obligation goat-scoped: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, parkID, shedID, dueAt, obligationID)
 
-	queryDueAt := func(sessionTZ string) time.Time {
+	queryTargets := func(sessionTZ string) int64 {
 		t.Helper()
 		tx, err := pool.Begin(ctx)
 		if err != nil {
@@ -261,23 +272,26 @@ func TestObligationBatchPlannedDateTimezoneIndependent(t *testing.T) {
 		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL timezone = '%s'", sessionTZ)); err != nil {
 			t.Fatalf("set local timezone %s: %v", sessionTZ, err)
 		}
-		var got time.Time
+		var got int64
 		err = tx.QueryRow(ctx, `
-SELECT COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)
-FROM obligation_batches ob
-WHERE ob.tenant_id = $1::uuid AND ob.batch_id = $2::uuid`,
-			testTenantID, batchID).Scan(&got)
+SELECT count(*)
+FROM (`+calendarDriveTargetsSQL+`) targets
+WHERE animal_id = $13::uuid`,
+			testTenantID, batchID, "2026-07-20", parkID, shedID, nil, nil, nil, nil, nil, nil, false, goatID).Scan(&got)
 		if err != nil {
 			t.Fatalf("query due_at fragment under session tz %s: %v", sessionTZ, err)
 		}
 		return got
 	}
 
-	utcResult := queryDueAt("UTC")
-	tokyoResult := queryDueAt("Asia/Tokyo")
+	utcResult := queryTargets("UTC")
+	tokyoResult := queryTargets("Asia/Tokyo")
 
-	if !utcResult.Equal(tokyoResult) {
-		t.Fatalf("planned_date resolution is session-timezone dependent: UTC session=%s, Asia/Tokyo session=%s",
-			utcResult.Format(time.RFC3339), tokyoResult.Format(time.RFC3339))
+	if utcResult != tokyoResult {
+		t.Fatalf("planned_date target membership is session-timezone dependent: UTC session=%d, Asia/Tokyo session=%d",
+			utcResult, tokyoResult)
+	}
+	if utcResult != 1 {
+		t.Fatalf("complete target query returned %d matching goats, want 1", utcResult)
 	}
 }

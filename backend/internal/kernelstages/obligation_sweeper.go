@@ -44,6 +44,15 @@ type SweeperConfig struct {
 	MarkMissed    bool
 	MissedGrace   time.Duration
 
+	// DueBefore optionally overrides the sweep's due-before cutoff (PEND-6).
+	// Zero value means "not set": Run defaults to the END of the current IST
+	// business day (biztime.BusinessDayStart(now).Add(24*time.Hour)) rather
+	// than the raw instant `now`, matching the default the obligation-sweeper
+	// one-shot (cmd/obligation-sweeper) uses. Set via GOATOS_SWEEPER_DUE_BEFORE
+	// (RFC3339) to pin an explicit cutoff; an explicit override always wins
+	// verbatim over the business-day-end default. See resolveDueBefore.
+	DueBefore time.Time
+
 	SweepReminders bool
 	ReminderLimit  int
 
@@ -89,6 +98,13 @@ func SweeperConfigFromEnv() (SweeperConfig, error) {
 	}
 	if cfg.MissedGrace < 0 {
 		return SweeperConfig{}, errors.New("GOATOS_SWEEPER_MISSED_GRACE must be non-negative")
+	}
+	if raw := getenv("GOATOS_SWEEPER_DUE_BEFORE"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return SweeperConfig{}, fmt.Errorf("GOATOS_SWEEPER_DUE_BEFORE must be RFC3339: %w", err)
+		}
+		cfg.DueBefore = parsed.In(biztime.DefaultLocation())
 	}
 	if cfg.Level1After < 0 || cfg.Level2After < cfg.Level1After || cfg.Level3After < cfg.Level2After || cfg.Level4After < cfg.Level3After {
 		return SweeperConfig{}, errors.New("escalation SLA thresholds must be non-negative and increasing")
@@ -177,7 +193,15 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		return errors.New("obligation sweeper: tenant id is required")
 	}
 	now := time.Now().In(biztime.DefaultLocation())
-	dueBefore := now
+	// PEND-6: default dueBefore is the END of the current IST business day, not
+	// the raw instant `now`. This is the LIVE kernel-worker path (the retired
+	// cmd/obligation-sweeper one-shot got this fix; this stage did not) --
+	// sweeping with due-before=now only picks up obligations due at or before
+	// this exact second, so a periodic pass late in the business day silently
+	// skips same-day work still due later that day. `now` (passed as asOf below)
+	// stays the real instant -- correct for hold/backdate eligibility -- only
+	// the due-before cutoff widens. See resolveDueBefore.
+	dueBefore := resolveDueBefore(cfg, now)
 	missedBefore := now.Add(-cfg.MissedGrace)
 
 	versionIDs := []string{cfg.VersionID}
@@ -386,4 +410,17 @@ func stockItemIDFromRuleDSL(raw []byte) string {
 		return itemID
 	}
 	return strings.TrimSpace(dsl.StockPolicy.ItemID)
+}
+
+// resolveDueBefore computes the sweep's due-before cutoff from a clock seam
+// (PEND-6). An explicit cfg.DueBefore (set via GOATOS_SWEEPER_DUE_BEFORE) wins
+// verbatim; otherwise the default is the END of the current IST business day
+// for `now`, not `now` itself, so two invocations at different instants within
+// the same business day resolve to the identical default cutoff. This mirrors
+// cmd/obligation-sweeper's parseFlagsAt default exactly.
+func resolveDueBefore(cfg SweeperConfig, now time.Time) time.Time {
+	if !cfg.DueBefore.IsZero() {
+		return cfg.DueBefore
+	}
+	return biztime.BusinessDayStart(now).Add(24 * time.Hour)
 }

@@ -214,8 +214,10 @@ if (all) {
     process.exit(0);
   }
   if (files.length === 0) {
-    console.log("mobile-list-fetch: ok (no mobile Kotlin changed)");
-    process.exit(0);
+    // On main (or any checkout whose diff base equals HEAD), an empty diff is not evidence that
+    // the tree is clean. Audit the authoritative source tree so the required default invocation
+    // cannot report green while known violations remain.
+    files = walkMobile(join(repo, "apps/goatos-android"));
   }
 }
 

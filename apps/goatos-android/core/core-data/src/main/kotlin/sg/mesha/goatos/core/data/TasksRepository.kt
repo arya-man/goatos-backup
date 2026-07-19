@@ -12,18 +12,23 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.forms.toFormSpec
+import sg.mesha.goatos.core.data.forms.toProofPolicy
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.SubmissionSummaryDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 
-/** A task opened for recording: the summary, its parsed [form] to render, and prior submissions. */
+/** A task opened for recording: the summary, its parsed [form] to render, prior submissions, and
+ *  the SOP's [proofPolicy] (R50-027) driving proof-capture limits/defaults instead of hardcoded
+ *  client constants. */
 data class TaskDetail(
     val task: TaskSummaryDto,
     val form: FormSpec,
     val submissions: List<SubmissionSummaryDto> = emptyList(),
+    val proofPolicy: ProofPolicy = ProofPolicy.Default,
 )
 
 /**
@@ -102,4 +107,5 @@ private fun TaskDetailResponseDto.toDomain(): TaskDetail = TaskDetail(
     task = task,
     form = sopVersion?.toFormSpec() ?: FormSpec.Empty,
     submissions = submissions,
+    proofPolicy = sopVersion?.toProofPolicy() ?: ProofPolicy.Default,
 )
