@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.BootstrapCache
 import sg.mesha.goatos.core.data.BootstrapCacheDao
 import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
@@ -409,8 +410,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideForegroundSyncController(@ApplicationContext context: Context): ForegroundSyncController =
-        AndroidForegroundSyncController(context)
+    fun provideForegroundSyncController(
+        @ApplicationContext context: Context,
+        crashReporter: CrashReporter,
+    ): ForegroundSyncController = AndroidForegroundSyncController(context, crashReporter)
 
     @Provides
     @Singleton

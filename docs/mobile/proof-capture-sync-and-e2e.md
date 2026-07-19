@@ -101,9 +101,13 @@ videos. Nothing is "submitted" straight to the network.
 - Sync runs both directions: the write outbox posts draft scans, registers and
   uploads proof blobs, then finalizes the submission; server responses (accept /
   rework / verification outcome) are written back into Room and re-emitted.
-- **Background sync survives app close.** Uploads run under a foreground service
-  with an ongoing notification showing progress (again, mirroring Photos/Drive
-  background upload). Closing the app does not lose or pause an in-flight drive.
+- **Background sync survives app close and reboot.** A user-originated upload runs
+  under a foreground service with an ongoing progress notification (again,
+  mirroring Photos/Drive). WorkManager owns process-death, reboot, and
+  `BOOT_COMPLETED` recovery from the durable Room outbox; app startup must never
+  promote the `dataSync` foreground service because Android 15+ rejects that boot
+  context. A foreground-promotion rejection defers safely to WorkManager instead
+  of crashing or losing the queued write.
 - Idempotency: each submission + each proof upload carries a stable idempotency
   key persisted with the row, so retries never double-post (see AGENTS.md write-path
   idempotency rule).

@@ -1,5 +1,6 @@
 package sg.mesha.goatos.sync
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -21,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.MainActivity
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.SyncEngine
@@ -45,14 +48,13 @@ import javax.inject.Singleton
  * ### Resume after app close / process kill
  * The outbox (Room) is the durable source of truth, not this service's in-memory state:
  *  - [ForegroundSyncController.ensureRunning] — the only way anything starts this service — is
- *    called both on every relevant enqueue (`DefaultSyncRepository.enqueue`) AND once at app
- *    startup (`GoatOsApplication.onCreate`). The startup call is what "resumes" a drive whose
- *    upload was interrupted by the app being closed or killed: a fresh service instance attaches
- *    to the SAME Room queue, and [SyncEngine.drainOnce] (via [UploadSyncCoordinator]) first
- *    reclaims any row stranded IN_FLIGHT by the earlier kill before draining PENDING rows —
- *    see `OutboxProcessRestartResumeTest` (`:core:core-data`) for the durable, Room-backed proof.
- *  - The WorkManager `SyncWorker` backstop (`:app`) is a second, OS-scheduled trigger that keeps
- *    draining even if this foreground service itself never got a chance to (re)start.
+ *    called only after a relevant user enqueue (`DefaultSyncRepository.enqueue`). It is never
+ *    started from `Application.onCreate`: WorkManager may create the app process while handling
+ *    `BOOT_COMPLETED`, and Android 15+ forbids promoting a `dataSync` service from that context.
+ *  - The WorkManager `SyncWorker` backstop (`:app`) is the OS-scheduled process-death/boot resume
+ *    path. A fresh worker attaches to the SAME Room queue, and [SyncEngine.drainOnce] first
+ *    reclaims any row stranded IN_FLIGHT by the earlier kill before draining PENDING rows — see
+ *    `OutboxProcessRestartResumeTest` (`:core:core-data`) for the durable, Room-backed proof.
  *  - No double-upload: every write carries a stable idempotency key end to end
  *    ([SyncEngine]'s KDoc) — a resumed pass either completes an interrupted upload or safely
  *    no-ops on an exact replay, never a duplicate.
@@ -67,6 +69,7 @@ class UploadForegroundService : Service() {
     @Inject lateinit var syncEngine: SyncEngine
     @Inject lateinit var outboxStore: OutboxStore
     @Inject lateinit var notifications: UploadSyncNotifications
+    @Inject lateinit var crashReporter: CrashReporter
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.Default)
@@ -90,12 +93,27 @@ class UploadForegroundService : Service() {
         // and the 3-arg startForeground(id, notification, type) overload, so no SDK_INT branch
         // is needed here — ServiceCompat still centralizes the call for readability/parity with
         // the rest of the codebase's androidx.core usage.
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notifications.buildProgress(done = 0, total = 0),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        val foregroundStarted = startForegroundOrDefer(
+            promote = {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notifications.buildProgress(done = 0, total = 0),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                )
+            },
+            isStartNotAllowed = ::isForegroundServiceStartNotAllowed,
+            onStartNotAllowed = { error ->
+                runCatching {
+                    crashReporter.recordException(
+                        error,
+                        "dataSync foreground promotion rejected; WorkManager will resume the outbox",
+                    )
+                }
+                stopSelf(startId)
+            },
         )
+        if (!foregroundStarted) return START_NOT_STICKY
         if (drainJob?.isActive != true) {
             drainJob = serviceScope.launch { runDrainLoop() }
         }
@@ -218,16 +236,26 @@ class UploadSyncNotifications @Inject constructor(
  *  wrapping [sg.mesha.goatos.sync.SyncWorker]. */
 class AndroidForegroundSyncController(
     private val context: Context,
+    private val crashReporter: CrashReporter,
 ) : ForegroundSyncController {
     override fun ensureRunning() {
         val intent = Intent(context, UploadForegroundService::class.java)
         runCatching {
             ContextCompat.startForegroundService(context, intent)
-        }.onFailure {
+        }.onFailure { error ->
             // Background-start restrictions (Android 12+) can reject this on rare OEM/timing
             // edge cases. Never crash the caller (an enqueue) over it — the WorkManager backstop
             // and the connectivity trigger still drain the durable Room queue regardless; the
             // operator just loses the visible progress notification for this pass.
+            runCatching {
+                crashReporter.recordException(
+                    error,
+                    "dataSync foreground service launch rejected; WorkManager will resume the outbox",
+                )
+            }
         }
     }
 }
+
+private fun isForegroundServiceStartNotAllowed(error: RuntimeException): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && error is ForegroundServiceStartNotAllowedException

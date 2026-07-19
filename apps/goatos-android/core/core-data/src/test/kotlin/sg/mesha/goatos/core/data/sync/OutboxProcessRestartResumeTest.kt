@@ -24,9 +24,9 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
  * instance persists rows and is closed (mirrors the app process being killed mid-upload — see
  * `docs/mobile/proof-capture-sync-and-e2e.md` §3 "Background sync survives app close"), then a
  * SECOND, entirely new [OutboxDatabase]/[RoomOutboxStore]/[SyncEngine]/[UploadSyncCoordinator]
- * instance is built over the SAME on-disk database file (mirrors
- * `sg.mesha.goatos.sync.UploadForegroundService` starting fresh on next launch — a new `Service`,
- * a new Hilt graph, but the SAME durable `goatos-outbox.db` file).
+ * instance is built over the SAME on-disk database file (mirrors WorkManager starting a fresh
+ * `SyncWorker` after process death or boot — a new worker and Hilt graph, but the SAME durable
+ * `goatos-outbox.db` file).
  *
  * Both a still-QUEUED (PENDING) row AND a row stranded IN_FLIGHT by the "kill" (never reached
  * `markSucceeded`) are still present after the simulated restart and both drain to SUCCEEDED —
@@ -106,8 +106,8 @@ class OutboxProcessRestartResumeTest {
         firstProcessDb.close()
 
         // --- "After the restart": a brand-new process opens the SAME database file, exactly as
-        // UploadForegroundService.onStartCommand -> a fresh SyncEngine/OutboxStore/Coordinator
-        // graph would after Android relaunches the app. ---
+        // WorkManager -> SyncWorker -> a fresh SyncEngine/OutboxStore graph does after Android
+        // restarts the process. ---
         val secondProcessDb = openDatabase()
         val secondProcessStore = RoomOutboxStore(secondProcessDb.outboxDao())
 

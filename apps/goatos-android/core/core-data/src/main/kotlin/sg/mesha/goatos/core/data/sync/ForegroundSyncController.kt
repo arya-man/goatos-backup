@@ -1,7 +1,7 @@
 package sg.mesha.goatos.core.data.sync
 
 /**
- * Port [DefaultSyncRepository] (and app startup) use to ask for the Drive/Photos-style
+ * Port [DefaultSyncRepository] uses after a relevant user enqueue to ask for the Drive/Photos-style
  * **background upload foreground service** (MOB-002,
  * `docs/mobile/proof-capture-sync-and-e2e.md` §3 "Background sync survives app close") to be
  * running. The concrete Android implementation
@@ -17,10 +17,9 @@ package sg.mesha.goatos.core.data.sync
  */
 fun interface ForegroundSyncController {
     /**
-     * Idempotent: ensure the background upload service is running. Cheap and safe to call on
-     * every relevant enqueue AND once at app startup (the resume-after-process-restart /
-     * resume-after-kill path) — if there is nothing upload-relevant queued, the service notices
-     * on its first pass and stops itself immediately (see [UploadSyncCoordinator.Outcome.Idle]).
+     * Idempotent: ensure the background upload service is running after a relevant user enqueue.
+     * App startup and boot recovery must use WorkManager; Android 15+ forbids promoting a
+     * `dataSync` foreground service from `BOOT_COMPLETED`.
      */
     fun ensureRunning()
 
