@@ -1123,12 +1123,15 @@ const (
 // read off the selected animal and persisted.
 func TestRecordShiftingEventStoresDerivedSourceParkAndShed(t *testing.T) {
 	repo := newFakeShiftingRepo()
+	// Same-park move: the animal's source park equals the destination park (testParkID from
+	// shiftingBodyNoImpacts), differing only by shed. A cross-park source would now be rejected at
+	// submit (CR-02), so this fixture proves source DERIVATION on a legitimate within-park move.
 	repo.goatFacts = map[string]domain.GoatShiftingFact{
 		testGoatID: {
 			GoatID:     testGoatID,
 			BreedKey:   "sirohi",
 			BreedLabel: "Sirohi",
-			ParkID:     strPtrTest(testSourceParkID),
+			ParkID:     strPtrTest(testParkID),
 			ShedID:     strPtrTest(testSourceShedID),
 		},
 	}
@@ -1141,9 +1144,9 @@ func TestRecordShiftingEventStoresDerivedSourceParkAndShed(t *testing.T) {
 	}
 
 	stored := repo.lastEvent
-	if stored.SourceParkID == nil || *stored.SourceParkID != testSourceParkID {
+	if stored.SourceParkID == nil || *stored.SourceParkID != testParkID {
 		t.Fatalf("stored source_park_id=%v, want %q -- a movement with a blank origin is not an audit trail",
-			stored.SourceParkID, testSourceParkID)
+			stored.SourceParkID, testParkID)
 	}
 	if stored.SourceShedID == nil || *stored.SourceShedID != testSourceShedID {
 		t.Fatalf("stored source_shed_id=%v, want %q", stored.SourceShedID, testSourceShedID)
@@ -1157,10 +1160,50 @@ func TestRecordShiftingEventStoresDerivedSourceParkAndShed(t *testing.T) {
 	if err := json.Unmarshal(approvals.lastSubmission.Payload, &payload); err != nil {
 		t.Fatalf("decode approval payload: %v", err)
 	}
-	if payload.SourceParkID == nil || *payload.SourceParkID != testSourceParkID ||
+	if payload.SourceParkID == nil || *payload.SourceParkID != testParkID ||
 		payload.SourceShedID == nil || *payload.SourceShedID != testSourceShedID {
 		t.Fatalf("approval payload source = %v/%v, want %q/%q",
-			payload.SourceParkID, payload.SourceShedID, testSourceParkID, testSourceShedID)
+			payload.SourceParkID, payload.SourceShedID, testParkID, testSourceShedID)
+	}
+}
+
+// TestRecordShiftingEventRejectsDerivedCrossParkMove is the CR-02 regression. When the operator
+// omits source_park_id (the simplified submit), the cross-park invariant is NOT checked by
+// normalizeShiftingEventRequest -- that guard only fires on an EXPLICIT source. Before the fix a
+// goat standing in park A could produce an authorized A->B movement, and the violation would only
+// surface at approval time AFTER the event, its outbox row, and the approval request were written.
+// The derived source park must be validated against the destination at SUBMIT, failing closed with
+// zero rows written.
+func TestRecordShiftingEventRejectsDerivedCrossParkMove(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	// The animal currently stands in a DIFFERENT park than the destination (testParkID from
+	// shiftingBodyNoImpacts). No source_park_id is sent, so this can only be caught by validating the
+	// derived source.
+	repo.goatFacts = map[string]domain.GoatShiftingFact{
+		testGoatID: {
+			GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
+			ParkID: strPtrTest(testSourceParkID), ShedID: strPtrTest(testSourceShedID),
+		},
+	}
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+
+	rec := post(t, mux, appShiftingEventRoute, "shift-cross-park-1", shiftingBodyNoImpacts(testGoatID))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400 (a derived cross-park move must be rejected at submit)", rec.Code, rec.Body.String())
+	}
+	var envelope identitydomain.ErrorEnvelope
+	decodeBody(t, rec, &envelope)
+	if envelope.Code != "cross_park_move_forbidden" {
+		t.Fatalf("error code=%q, want cross_park_move_forbidden (body=%s)", envelope.Code, rec.Body.String())
+	}
+	// The whole point of failing at submit: no movement, no outbox, no approval request. A cross-park
+	// event that reaches the ledger is already the drift this guard exists to prevent.
+	if repo.inserts != 0 {
+		t.Fatalf("inserts=%d, want 0 (a cross-park submit must record no movement)", repo.inserts)
+	}
+	if approvals.submits != 0 {
+		t.Fatalf("approval submits=%d, want 0 (a cross-park submit must never reach a park head's queue)", approvals.submits)
 	}
 }
 
@@ -1270,10 +1313,12 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 // fact succeeded.
 func TestRecordShiftingEventDerivedSourceIsIdempotentAcrossAMove(t *testing.T) {
 	repo := newFakeShiftingRepo()
+	// Same-park move (source park == destination park testParkID), differing only by shed, so the
+	// legitimate within-park movement is not rejected by the CR-02 cross-park guard.
 	repo.goatFacts = map[string]domain.GoatShiftingFact{
 		testGoatID: {
 			GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
-			ParkID: strPtrTest(testSourceParkID), ShedID: strPtrTest(testSourceShedID),
+			ParkID: strPtrTest(testParkID), ShedID: strPtrTest(testSourceShedID),
 		},
 	}
 	mux := newTestServer(t, countsapp.NewService(repo), newFakeApprovalWorkflow(), newFakeGoatValidator())

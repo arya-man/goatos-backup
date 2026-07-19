@@ -311,6 +311,19 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 			return
 		default:
 			sourceParkID, sourceShedID = derivedPark, derivedShed
+			// CR-02: cross-park validation must ALSO run on the DERIVED source, not only on an
+			// explicit one. normalizeShiftingEventRequest rejects an explicit source_park_id that
+			// disagrees with the destination, but the simplified submit omits source_park_id entirely,
+			// so without this a goat standing in park A could produce an AUTHORIZED A->B movement:
+			// the cross-park invariant would only be caught at approval time by the relocation's
+			// ground-truth guard, after the event, its outbox row, and the approval request were all
+			// written. Fail closed HERE, before any of those writes, so a cross-park submit records
+			// nothing at all.
+			if derivedPark != nil && *derivedPark != normalized.DestinationParkID {
+				h.writeAppError(w, r, identityapp.BadRequest("cross_park_move_forbidden",
+					"a shifting event must keep the animals within the same park"))
+				return
+			}
 		}
 	}
 
