@@ -123,6 +123,20 @@ type FeedProjectedCountQuery struct {
 	ShedIDs []string
 	Limit   int32
 	Offset  int32
+	// StableOrder selects a sort key that never changes between two reads of the same grain
+	// (park/shed/stage/breed/sex identity only), instead of the default head-count-DESC order.
+	//
+	// It exists for multi-page CONSISTENT-SNAPSHOT drains (feeddirection's ProjectedGrainsForSheds):
+	// the default order's leading term is GREATEST(current_head_count + pending_delta, 0), which is
+	// exactly the value a concurrent shifting-event authorization/completion can change WHILE a
+	// caller is mid-drain across several OFFSET pages. A grain whose count moves can cross a page
+	// boundary between two reads -- appearing on neither page (omission) or on both (duplication) --
+	// while the drain reports success. Sorting by the grain's own identity columns instead removes
+	// that dependency: an existing grain's park/shed/stage/breed/sex never change out from under a
+	// movement (a movement changes COUNTS via the delta CTE, not which grain rows exist), so the
+	// same grain lands at the same offset on every page of the same drain regardless of concurrent
+	// writes elsewhere in the projection.
+	StableOrder bool
 }
 
 // FeedProjectedCountRow is one projected shed grain:

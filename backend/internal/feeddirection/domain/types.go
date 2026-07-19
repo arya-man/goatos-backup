@@ -84,6 +84,11 @@ const (
 	// there is no defensible way to divide a daily quantity into the sessions that are actually
 	// packed and delivered.
 	BlockReasonNoSessionTemplate = "no_session_template"
+	// BlockReasonInvalidShedFactor means a feed_shed_factors row EXISTS for this (shed, item) but
+	// its stored multiplier is not a parseable decimal. Distinct from a MISSING factor, which
+	// safely defaults to 1.0 (declining to scale is safe); a present-but-corrupt factor must block
+	// rather than silently apply an unauthored 1.0 multiplier (P2-FACTOR).
+	BlockReasonInvalidShedFactor = "invalid_shed_factor"
 )
 
 // MultiValueSeparator joins the distinct values of a descriptive column when a shed genuinely holds

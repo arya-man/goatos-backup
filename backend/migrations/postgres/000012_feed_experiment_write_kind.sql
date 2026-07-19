@@ -59,6 +59,17 @@
 -- would imply an audit guarantee this table does not make; the write ledger records who changed
 -- what and when, which is the guarantee it does make.
 
+-- feed_config_write_log is an append-only, unboundedly-growing idempotency ledger (every authored
+-- feed-config write commits a row here). A plain DROP + ADD CONSTRAINT re-validates the widened
+-- CHECK against every existing row under an ACCESS EXCLUSIVE lock -- a full-table scan that blocks
+-- reads/writes on the ledger for its duration and gets worse every day the ledger grows. Split it:
+-- add the new CHECK NOT VALID (enforced on every subsequent INSERT immediately, no scan, brief
+-- ACCESS EXCLUSIVE just to add the constraint metadata), then VALIDATE CONSTRAINT separately, which
+-- takes only SHARE UPDATE EXCLUSIVE (blocks other DDL, not reads/writes) while it scans existing
+-- rows. Unlike shifting_events (see 000007), feed_config_write_log has no forbid on direct
+-- VALIDATE from validate-postgres-migrations -- it is a narrower, purely-additive ledger table, so
+-- validating in the same migration is safe and keeps the constraint fully enforced immediately
+-- rather than leaving it silently NOT VALID indefinitely.
 ALTER TABLE feed_config_write_log
     DROP CONSTRAINT feed_config_write_log_kind_check;
 
@@ -69,7 +80,10 @@ ALTER TABLE feed_config_write_log
         'shed_factor'::text,
         'schedule_config'::text,
         'experiment_config'::text
-    ]));
+    ])) NOT VALID;
+
+ALTER TABLE feed_config_write_log
+    VALIDATE CONSTRAINT feed_config_write_log_kind_check;
 
 COMMENT ON COLUMN feed_config_write_log.write_kind IS
   'Which authored feed-config surface this ledger row describes. ''experiment_config'' covers both authoring an experiment shed''s absolute-kg cell and switching a shed between the experiment workflow and the normal ration grid -- one authoring surface, one identity space.';

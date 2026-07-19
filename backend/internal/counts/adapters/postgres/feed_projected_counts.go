@@ -79,7 +79,7 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 //	$10 offset
 //	$11 shed_id SET filter (empty array = no set filter)
 //	$12 breed filter, normalized with feedGrainNormSQL by the caller ('' = all breeds)
-var feedProjectedShedCountsSQL = `
+var feedProjectedShedCountsBaseSQL = `
 WITH live AS MATERIALIZED (
   SELECT
     g.park_id,
@@ -243,6 +243,13 @@ LEFT JOIN locations park
        ON park.tenant_id = $1::uuid AND park.location_id = c.park_id
 LEFT JOIN locations shed
        ON shed.tenant_id = $1::uuid AND shed.location_id = c.shed_id
+`
+
+// feedProjectedCountsOrderByHeadCount is the DEFAULT display order: biggest projected shed first.
+// Its leading term is derived from current_head_count + pending_delta, which is exactly the value
+// a concurrent shifting-event authorization/completion changes -- safe for a single-page UI read,
+// unsafe as an OFFSET cursor across a multi-page drain (see StableOrder on FeedProjectedCountQuery).
+const feedProjectedCountsOrderByHeadCount = `
 ORDER BY
   GREATEST(c.current_head_count + c.pending_delta, 0) DESC,
   COALESCE(c.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
@@ -251,6 +258,30 @@ ORDER BY
   c.breed,
   c.sex
 ` + feedProjectedCountsPagingSQL
+
+// feedProjectedCountsOrderByIdentity sorts ONLY by the grain's own identity columns -- no derived
+// count anywhere in the key. An existing grain's park/shed/stage/breed/sex do not change when a
+// movement changes ITS count (a movement changes the delta CTE's contribution to a grain that
+// already exists at a fixed identity), so two reads of the same tenant/scope during the same
+// caller-side drain place the same grain at the same OFFSET regardless of concurrent writes. Used
+// by CONSISTENT-SNAPSHOT multi-page reads (FeedProjectedCountQuery.StableOrder); see
+// feeddirection/adapters/counts.Reader.ProjectedGrainsForSheds.
+const feedProjectedCountsOrderByIdentity = `
+ORDER BY
+  COALESCE(c.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(c.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  c.management_stage,
+  c.breed,
+  c.sex
+` + feedProjectedCountsPagingSQL
+
+// feedProjectedShedCountsSQL and feedProjectedShedCountsStableOrderSQL are the two complete
+// statements ProjectedShedCountsForFeed chooses between on FeedProjectedCountQuery.StableOrder.
+// Both share every CTE and predicate; only the ORDER BY differs.
+var (
+	feedProjectedShedCountsSQL            = feedProjectedShedCountsBaseSQL + feedProjectedCountsOrderByHeadCount
+	feedProjectedShedCountsStableOrderSQL = feedProjectedShedCountsBaseSQL + feedProjectedCountsOrderByIdentity
+)
 
 // feedProjectedCountsPagingSQL is split into its own literal so the paging clause carries its own
 // justification rather than inheriting one from a 150-line statement.
@@ -299,7 +330,12 @@ func (r *Repository) ProjectedShedCountsForFeed(
 
 	targetDate := biztime.BusinessDayStart(req.TargetDate)
 
-	rows, err := r.pool.Query(ctx, feedProjectedShedCountsSQL,
+	querySQL := feedProjectedShedCountsSQL
+	if req.StableOrder {
+		querySQL = feedProjectedShedCountsStableOrderSQL
+	}
+
+	rows, err := r.pool.Query(ctx, querySQL,
 		req.TenantID,
 		lifecycle,
 		ptrValue(req.ParkID),

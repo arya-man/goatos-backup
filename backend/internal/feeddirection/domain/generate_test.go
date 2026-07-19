@@ -643,6 +643,37 @@ func TestShedFactorScalesAndAMissingFactorReadsAsOne(t *testing.T) {
 	}
 }
 
+// TestCorruptShedFactorBlocksRatherThanSilentlyDefaultingToOne is the P2-FACTOR regression.
+//
+// A MISSING shed factor safely defaults to 1.0 (proven above). A PRESENT-but-unparseable factor
+// row is a different case: something was authored that this code cannot read. Before the fix,
+// normalItem's `if parsed, ok := ParseDecimal(raw); ok { ... }` silently kept the outer defaults
+// (factor=1.0) on the !ok branch instead of erroring, so a corrupt row was indistinguishable from
+// "nobody configured a factor" -- exactly the asymmetry the rate branch a few lines above already
+// guards against for feed_ration_rates. This must block instead.
+func TestCorruptShedFactorBlocksRatherThanSilentlyDefaultingToOne(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.FeedItems = []FeedItem{{Label: "Concentrate", Key: "concentrate"}}
+	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "200.000")
+	// A row EXISTS for this cell, but its stored value is not a decimal.
+	cfg.ShedFactorsByKey[ShedFactorKey(testShedID, "Concentrate")] = "not-a-number"
+
+	rows := generate(cfg, shed(ShedGrain{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 10}), 1)
+	row := rows[0]
+
+	item := itemOf(t, row, "Concentrate")
+	if item.BlockedReason == nil {
+		t.Fatalf("corrupt shed factor was not blocked: got a resolved quantity %v (silently defaulted to 1.0)", item.QuantityKg)
+	}
+	if item.BlockedReason.Code != BlockReasonInvalidShedFactor {
+		t.Fatalf("blocked code = %q, want %q", item.BlockedReason.Code, BlockReasonInvalidShedFactor)
+	}
+	if item.QuantityKg != nil {
+		t.Fatalf("blocked item carries a quantity %v, want nil", item.QuantityKg)
+	}
+}
+
 func TestZeroHeadCountProducesZeroNotBlocked(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
@@ -1333,4 +1364,42 @@ func TestExperimentShedIgnoresTheSessionSlotRecipe(t *testing.T) {
 	if row.Blocked {
 		t.Fatal("experiment row blocked; its authored cells are complete and need no session slots")
 	}
+}
+
+// TestBuildPackingRowsPanicsOnBlockedItemWithNilReason is the P3-BLOCK regression.
+//
+// Before the fix, a blocked ItemQuantity (Status == QuantityBlocked or QuantityKg == nil) with a
+// nil BlockedReason silently substituted an empty BlockedReason{} -- a packing row that LOOKS
+// blocked but carries no code/detail an operator or API consumer can act on, hiding whatever
+// upstream bug failed to set a real reason. Every legitimate blocking call site in this package
+// always sets a reason, so a nil one reaching BuildPackingRows is a programmer error and must fail
+// loudly rather than ship a hollow BlockedReason.
+func TestBuildPackingRowsPanicsOnBlockedItemWithNilReason(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	// No ration rate authored for Concentrate, so the grain resolves BLOCKED with a real reason.
+	rows := generate(cfg, shed(ShedGrain{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 10}), 1)
+	if len(rows) == 0 {
+		t.Fatal("no rows generated to corrupt")
+	}
+	item := itemOf(t, rows[0], "Concentrate")
+	if item.BlockedReason == nil {
+		t.Fatal("fixture item is not actually blocked with a reason; test setup is wrong")
+	}
+
+	// Simulate the invariant violation: the same shape a bug elsewhere in the pipeline could
+	// produce -- Status == blocked but no reason attached.
+	for i := range rows[0].Items {
+		if rows[0].Items[i].FeedItem == "Concentrate" {
+			rows[0].Items[i].BlockedReason = nil
+		}
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("BuildPackingRows did not panic on a blocked item with a nil BlockedReason")
+		}
+	}()
+	BuildPackingRows(rows, cfg.FeedItems)
+	t.Fatal("unreachable: panic expected before this point")
 }

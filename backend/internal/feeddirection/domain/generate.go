@@ -453,10 +453,19 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 			l.labels[itemKey] = item.FeedItem
 			if item.Status == QuantityBlocked || item.QuantityKg == nil {
 				if _, exists := l.blocked[itemKey]; !exists {
-					reason := BlockedReason{}
-					if item.BlockedReason != nil {
-						reason = *item.BlockedReason
+					// P3-BLOCK: a blocked item with a nil BlockedReason is a PROGRAMMER ERROR, not a
+					// legitimate "no reason given" state -- every blocking call site in this package
+					// (normalItem, blockedRow, blockedSessionItemsRow, ...) sets one. Silently
+					// substituting an empty BlockedReason{} here used to produce a packing row that
+					// LOOKS blocked (Status == "blocked") but carries an empty code/detail an
+					// operator or API consumer cannot act on, and it would hide the real upstream
+					// bug that failed to set a reason. Fail loudly instead of shipping that.
+					if item.BlockedReason == nil {
+						panic(fmt.Sprintf(
+							"feeddirection: BuildPackingRows: blocked item %q (shed %s, session %d) has a nil BlockedReason",
+							item.FeedItem, row.ShedID, row.SessionNo))
 					}
+					reason := *item.BlockedReason
 					l.blocked[itemKey] = &reason
 				}
 				continue

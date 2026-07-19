@@ -85,6 +85,11 @@ func (r *Reader) ProjectedGrainsForSheds(ctx context.Context, req ports.Projecte
 			ShedIDs:    req.ShedIDs,
 			Limit:      projectionPageSize,
 			Offset:     offset,
+			// A stable (identity-only) sort key, not the default head-count-DESC display order:
+			// this loop takes a CONSISTENT SNAPSHOT across potentially several OFFSET pages, and a
+			// movement authorized/completed between two of those reads must not shift a grain
+			// across the page boundary (CR-04). See FeedProjectedCountQuery.StableOrder.
+			StableOrder: true,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("feeddirection: projected shed counts: %w", err)

@@ -518,7 +518,7 @@ func (r *Repository) UpsertShedFactor(ctx context.Context, cmd domain.UpsertShed
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
 			return writeEffect{}, err
 		}
-		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ShedID, "shed", ports.ErrShedNotFound); err != nil {
+		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
 			return writeEffect{}, err
 		}
 
@@ -680,7 +680,7 @@ func (r *Repository) UpsertExperimentConfig(ctx context.Context, cmd domain.Upse
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
 			return writeEffect{}, err
 		}
-		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ShedID, "shed", ports.ErrShedNotFound); err != nil {
+		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
 			return writeEffect{}, err
 		}
 
@@ -716,6 +716,12 @@ RETURNING experiment_config_id::text`,
 			if err := reactivateExperimentShed(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
 				return writeEffect{}, err
 			}
+			// CR-07: sync shed-level metadata to every OTHER row of this shed. head_count and
+			// experiment_category are shed-level facts (see syncExperimentShedMetadata), not
+			// per-item ones, even though this table stores one row per (shed, feed item).
+			if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, newID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+				return writeEffect{}, err
+			}
 			return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
 		case err != nil:
 			return writeEffect{}, fmt.Errorf("feedconfig: lock experiment config: %w", err)
@@ -738,6 +744,11 @@ SET absolute_kg = $2::numeric,
 WHERE experiment_config_id = $1::uuid`,
 			openID, cmd.AbsoluteKg, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: correct experiment config: %w", err)
+		}
+		// CR-07: sync shed-level metadata to every OTHER row of this shed (see
+		// syncExperimentShedMetadata and the insert branch above).
+		if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, openID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+			return writeEffect{}, err
 		}
 		// ROOT-CAUSE FIX (P1 follow-up): editing ONE cell of a retired shed must not leave the
 		// shed mixed active/retired. SetExperimentShedStatus documents the invariant that
@@ -768,6 +779,36 @@ WHERE experiment_config_id = $1::uuid`,
 //
 // scale-guard:ignore: one set-based UPDATE over ONE shed's authored experiment cells (bounded by
 // the feed-item catalog, a handful of rows per shed today), never a per-row loop.
+// syncExperimentShedMetadata propagates head_count and experiment_category to every OTHER row of
+// the given shed (CR-07).
+//
+// feed_experiment_config stores one row per (shed, feed item), but head_count and
+// experiment_category are SHED-LEVEL facts: "how many animals are in this shed" and "which arm is
+// this shed on" do not vary by feed item. ExperimentPlanner.PlanDaily reads them off
+// cells[0] -- the first row for the shed in whatever order the config snapshot loaded them -- so
+// before this fix, editing a single cell updated ONLY that row's copy of the shed-level fields,
+// leaving every sibling row stale. Depending on load order, a generated direction could silently
+// keep serving the OLD head count/arm (edit ignored) or serve a DIFFERENT sibling row's stale
+// values (arbitrary arm) instead of the value the operator just entered.
+//
+// Called from the SAME transaction as the per-cell insert/update, immediately after it, so the
+// whole shed's rows are consistent by the time the transaction commits -- there is never a window
+// where a reader sees the edited cell's new metadata beside a sibling's old metadata.
+func syncExperimentShedMetadata(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, editedRowID string, headCount *int32, category string) error {
+	if _, err := tx.Exec(ctx, `
+UPDATE feed_experiment_config
+SET head_count = $5,
+    experiment_category = $6,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+  AND experiment_config_id <> $4::uuid
+  AND (head_count IS DISTINCT FROM $5 OR experiment_category IS DISTINCT FROM $6)`,
+		tenantID, parkID, shedID, editedRowID, headCount, category); err != nil {
+		return fmt.Errorf("feedconfig: sync experiment shed metadata: %w", err)
+	}
+	return nil
+}
+
 func reactivateExperimentShed(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID string) error {
 	if _, err := tx.Exec(ctx, `
 UPDATE feed_experiment_config
@@ -793,6 +834,9 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 func (r *Repository) SetExperimentShedStatus(ctx context.Context, cmd domain.SetExperimentShedStatusCommand) (domain.WriteResult, error) {
 	return r.runWrite(ctx, domain.WriteKindExperimentConfig, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
+			return writeEffect{}, err
+		}
+		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
 			return writeEffect{}, err
 		}
 
@@ -1010,6 +1054,32 @@ WHERE tenant_id = $1::uuid AND location_id = $2::uuid AND location_type = $3`,
 	}
 	if err != nil {
 		return fmt.Errorf("feedconfig: resolve %s: %w", locationType, err)
+	}
+	return nil
+}
+
+// requireShedInPark verifies shedID is an active shed whose parent_location_id is parkID.
+// requireLocation on ParkID and ShedID independently only proves each location EXISTS with the
+// right type; it does not prove the shed actually belongs to the given park, so a caller could
+// author feed config for shed-from-park-A scoped under park-B (CR-03). This is the single place
+// that closes that gap: any write path taking both a park and a shed argument must call this
+// instead of two independent requireLocation calls for the shed side.
+func requireShedInPark(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID string) error {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+SELECT true
+FROM locations
+WHERE tenant_id = $1::uuid
+  AND location_id = $2::uuid
+  AND location_type = 'shed'
+  AND parent_location_id = $3::uuid
+  AND status = 'active'`,
+		tenantID, shedID, parkID).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrShedNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("feedconfig: resolve shed in park: %w", err)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -35,6 +36,11 @@ const (
 	// A location that is a SHED, used to prove a shed id passed as park_id is rejected on type rather
 	// than sliding through on the foreign key alone.
 	fcOtherShed = "00000000-0000-4000-8000-000000004002"
+	// A SECOND park, and a shed that belongs to IT (not fcPark). Used to prove a write that supplies
+	// a valid park + a valid shed cannot mix the two when the shed does not belong to that park
+	// (CR-03).
+	fcOtherPark     = "00000000-0000-4000-8000-000000003002"
+	fcShedOtherPark = "00000000-0000-4000-8000-000000004003"
 )
 
 func setupFeedConfigDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
@@ -66,6 +72,18 @@ VALUES
   ($4::uuid, $1::uuid, 'shed', 'CPT-S2', 'CPT Shed 2', $2::uuid, 'active')
 ON CONFLICT (location_id) DO NOTHING`, fcTenant, fcPark, fcShed, fcOtherShed); err != nil {
 		t.Fatalf("seed sheds: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'BLR', 'BLR', 'active')
+ON CONFLICT (location_id) DO NOTHING`, fcTenant, fcOtherPark); err != nil {
+		t.Fatalf("seed other park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'BLR-S1', 'BLR Shed 1', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, fcTenant, fcOtherPark, fcShedOtherPark); err != nil {
+		t.Fatalf("seed other-park shed: %v", err)
 	}
 }
 
@@ -916,4 +934,206 @@ func TestUpsertExperimentConfigReactivatesWholeShedNotJustEditedCell(t *testing.
 				item, statuses[item])
 		}
 	}
+}
+
+// TestUpsertShedFactorRejectsShedFromDifferentPark is the CR-03 regression: a caller supplying a
+// park that exists and a shed that ALSO exists, but the shed belongs to a DIFFERENT park, must be
+// rejected. Before this fix, UpsertShedFactor validated ParkID and ShedID as two independent
+// requireLocation calls -- each proved existence + type, neither proved the shed's
+// parent_location_id actually matched the supplied park -- so a shed-from-park-A write scoped
+// under park-B would happily succeed and write a shed_factors row keyed by the WRONG park.
+func TestUpsertShedFactorRejectsShedFromDifferentPark(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	cmd := domain.UpsertShedFactorCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-19",
+			IdempotencyKey: "key-cr03-factor", RequestFingerprint: "fp-cr03-factor",
+		},
+		// fcPark is real; fcShedOtherPark is real but belongs to fcOtherPark, not fcPark.
+		ParkID: fcPark, ShedID: fcShedOtherPark, FeedItemLabel: "Concentrate", Multiplier: "1.5000",
+	}
+
+	_, err := repo.UpsertShedFactor(ctx, cmd)
+	if !errors.Is(err, ports.ErrShedNotFound) {
+		t.Fatalf("UpsertShedFactor(park-A, shed-of-park-B) err = %v, want ErrShedNotFound", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM feed_shed_factors
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid`, fcTenant, fcShedOtherPark).Scan(&count); err != nil {
+		t.Fatalf("count shed factor rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("shed factor rows for cross-park shed = %d, want 0 (no config/ledger rows created)", count)
+	}
+
+	var ledgerCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM feed_config_write_log
+WHERE tenant_id = $1::uuid AND idempotency_key = 'key-cr03-factor'`, fcTenant).Scan(&ledgerCount); err != nil {
+		t.Fatalf("count ledger rows: %v", err)
+	}
+	if ledgerCount != 0 {
+		t.Fatalf("write-log ledger rows for rejected cross-park write = %d, want 0", ledgerCount)
+	}
+}
+
+// TestUpsertExperimentConfigRejectsShedFromDifferentPark is the CR-03 regression for the experiment
+// authoring path.
+func TestUpsertExperimentConfigRejectsShedFromDifferentPark(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	cmd := domain.UpsertExperimentConfigCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-19",
+			IdempotencyKey: "key-cr03-exp", RequestFingerprint: "fp-cr03-exp",
+		},
+		ParkID: fcPark, ShedID: fcShedOtherPark, FeedItemLabel: "Concentrate", AbsoluteKg: "2.000",
+	}
+
+	_, err := repo.UpsertExperimentConfig(ctx, cmd)
+	if !errors.Is(err, ports.ErrShedNotFound) {
+		t.Fatalf("UpsertExperimentConfig(park-A, shed-of-park-B) err = %v, want ErrShedNotFound", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM feed_experiment_config
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid`, fcTenant, fcShedOtherPark).Scan(&count); err != nil {
+		t.Fatalf("count experiment config rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("experiment config rows for cross-park shed = %d, want 0", count)
+	}
+}
+
+// TestSetExperimentShedStatusRejectsShedFromDifferentPark is the CR-03 regression for the
+// whole-shed status-flip path.
+func TestSetExperimentShedStatusRejectsShedFromDifferentPark(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	_, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-19",
+			IdempotencyKey: "key-cr03-status", RequestFingerprint: "fp-cr03-status",
+		},
+		ParkID: fcPark, ShedID: fcShedOtherPark, Status: domain.ExperimentStatusRetired,
+	})
+	if !errors.Is(err, ports.ErrShedNotFound) {
+		t.Fatalf("SetExperimentShedStatus(park-A, shed-of-park-B) err = %v, want ErrShedNotFound", err)
+	}
+}
+
+// TestUpsertExperimentConfigSyncsShedMetadataAcrossCells is the CR-07 regression.
+//
+// head_count and experiment_category are shed-level facts even though feed_experiment_config
+// stores one row per (shed, feed item). Before the fix, editing ONE cell updated only that row,
+// so PlanDaily -- which reads cells[0].Category as the shed's category -- could keep serving a
+// stale category/head-count (edit ignored) or an arbitrary sibling's value, depending on load
+// order. The fix propagates every write's head_count/category to ALL of the shed's rows in the
+// same transaction.
+func TestUpsertExperimentConfigSyncsShedMetadataAcrossCells(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	initialHeadCount := int32(40)
+	items := []string{"Concentrate", "Fodder", "Mineral Mix"}
+	for i, item := range items {
+		cmd := domain.UpsertExperimentConfigCommand{
+			WriteIdentity: domain.WriteIdentity{
+				TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
+				IdempotencyKey: "key-cr07-insert-" + item, RequestFingerprint: "fp-cr07-" + item,
+			},
+			ParkID: fcPark, ShedID: fcShed, FeedItemLabel: item, AbsoluteKg: "1.500",
+			ExperimentCategory: "control", HeadCount: &initialHeadCount,
+		}
+		if _, err := repo.UpsertExperimentConfig(ctx, cmd); err != nil {
+			t.Fatalf("insert cell %d (%s): %v", i, item, err)
+		}
+	}
+
+	// Sanity: all three rows agree before the edit under test.
+	before := experimentShedMetadata(t, ctx, pool)
+	for _, item := range items {
+		if before[item].category != "control" || before[item].headCount != 40 {
+			t.Fatalf("before edit, %s = (%s, %d), want (control, 40)", item, before[item].category, before[item].headCount)
+		}
+	}
+
+	// Edit ONE cell's shed-level metadata: new arm, new head count.
+	updatedHeadCount := int32(52)
+	editCmd := domain.UpsertExperimentConfigCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
+			IdempotencyKey: "key-cr07-edit", RequestFingerprint: "fp-cr07-edit",
+		},
+		ParkID: fcPark, ShedID: fcShed, FeedItemLabel: "Concentrate", AbsoluteKg: "1.750",
+		ExperimentCategory: "treatment", HeadCount: &updatedHeadCount,
+	}
+	if _, err := repo.UpsertExperimentConfig(ctx, editCmd); err != nil {
+		t.Fatalf("edit Concentrate cell: %v", err)
+	}
+
+	// EVERY row for the shed -- not just Concentrate -- must now report the new category/head
+	// count. A sibling still showing (control, 40) is the exact bug CR-07 describes: whichever row
+	// PlanDaily happens to load first decides what the whole shed's direction prints.
+	after := experimentShedMetadata(t, ctx, pool)
+	for _, item := range items {
+		got := after[item]
+		if got.category != "treatment" || got.headCount != 52 {
+			t.Fatalf("after editing Concentrate, %s = (%s, %d), want (treatment, 52) -- sibling row not synced",
+				item, got.category, got.headCount)
+		}
+	}
+	// The edited row's own quantity (absolute_kg) is per-item and must NOT have been overwritten
+	// on the siblings: only the shed-level fields sync, not the per-cell quantity.
+	var fodderKg string
+	if err := pool.QueryRow(ctx, `
+SELECT absolute_kg::text FROM feed_experiment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+  AND feed_item_key = feed_config_norm('Fodder')`, fcTenant, fcPark, fcShed).Scan(&fodderKg); err != nil {
+		t.Fatalf("read Fodder absolute_kg: %v", err)
+	}
+	if fodderKg != "1.500" {
+		t.Fatalf("Fodder absolute_kg = %q, want unchanged 1.500 (only shed-level fields sync, not per-item quantity)", fodderKg)
+	}
+}
+
+type experimentShedRow struct {
+	category  string
+	headCount int32
+}
+
+func experimentShedMetadata(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[string]experimentShedRow {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+SELECT feed_item_label, experiment_category, head_count
+FROM feed_experiment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid`, fcTenant, fcPark, fcShed)
+	if err != nil {
+		t.Fatalf("read experiment shed metadata: %v", err)
+	}
+	defer rows.Close()
+	out := map[string]experimentShedRow{}
+	for rows.Next() {
+		var label, category string
+		var headCount int32
+		if err := rows.Scan(&label, &category, &headCount); err != nil {
+			t.Fatalf("scan experiment shed metadata: %v", err)
+		}
+		out[label] = experimentShedRow{category: category, headCount: headCount}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate experiment shed metadata: %v", err)
+	}
+	return out
 }

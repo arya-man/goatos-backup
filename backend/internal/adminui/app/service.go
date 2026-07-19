@@ -237,7 +237,7 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				table("work-board", "Vaccination work board", "/vaccination/action-center", []string{"work_state", "owner", "due", "task", "next_action"}, "ac_row"),
 				table("verification-queue", "Awaiting verification", "/vaccination/verification-queue", []string{"goat", "administered", "doses", "verify"}, "completion_id"),
-				}),
+			}),
 		page("calendar", "/calendar", "/calendar", "Calendar", "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date.", "command-lens",
 			[]domain.TableContract{table("calendar-events", "Due work", "/calendar/vaccination/events", []string{"due_at", "owner", "title", "status", "severity"}, "cal_event")}),
 		page("protocol-adherence", "/protocol-adherence", "/protocol-adherence", "Protocol Adherence", "Expected vs actual vaccination ledger, evidence, operator assignment, and next action.", "command-lens",
@@ -538,7 +538,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.work_board.aria":             "Vaccination work board",
 			"view.status_board":                   "Status board",
 			"view.sop_queues":                     "SOP queues",
-				"filter.domains.aria":                 "Domains",
+			"filter.domains.aria":                 "Domains",
 			"filter.domain.vaccination":           "Vaccination",
 			"filter.all":                          "All",
 			"filter.all_severity":                 "All severity",
@@ -3672,7 +3672,7 @@ func countsBreakdownOptionGroups() []domain.OptionGroup {
 
 // feedOptionGroups holds ONLY the Feed vocabularies that are FIXED SCHEMA CONSTRAINTS —
 // closed sets defined by a CHECK constraint or by a structural two-way distinction in
-// migrations/postgres/000006_feed_ration_config.sql. Each is safe to declare here because no
+// migrations/postgres/000009_feed_ration_config.sql. Each is safe to declare here because no
 // tenant can add a value to it without a migration.
 //
 // Deliberately NOT declared here, because they are LIVE TENANT DATA and hardcoding them would

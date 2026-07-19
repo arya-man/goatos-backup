@@ -174,3 +174,43 @@ func TestGrainReadIssuesNoReadForAnEmptyScope(t *testing.T) {
 		t.Fatalf("grains = %d, calls = %d, want 0 and 0", len(grains), projection.calls)
 	}
 }
+
+// CR-04 regression: every page request must ask for the STABLE (identity-only) order, never the
+// default head-count-DESC display order. The reader takes a consistent snapshot across potentially
+// several OFFSET pages; sorting by a value a concurrent movement can change (current_head_count +
+// pending_delta) would let a grain cross a page boundary between two reads of the same drain,
+// producing a duplicate or an omission while the drain still reports success.
+func TestGrainReadRequestsStableOrderOnEveryPage(t *testing.T) {
+	t.Parallel()
+
+	total := int(projectionPageSize)*2 + 5
+	projection := &orderCapturingProjection{fakeProjection: fakeProjection{total: total}}
+	reader := NewReader(projection)
+
+	if _, err := reader.ProjectedGrainsForSheds(context.Background(), request(shedIDs(total))); err != nil {
+		t.Fatalf("ProjectedGrainsForSheds: %v", err)
+	}
+	if len(projection.stableFlags) < 2 {
+		t.Fatalf("expected a multi-page drain, only saw %d page(s)", len(projection.stableFlags))
+	}
+	for i, stable := range projection.stableFlags {
+		if !stable {
+			t.Fatalf("page %d requested StableOrder=false, want true on every page of a multi-page drain", i)
+		}
+	}
+}
+
+// orderCapturingProjection wraps fakeProjection to record whether each call asked for the stable
+// order.
+type orderCapturingProjection struct {
+	fakeProjection
+	stableFlags []bool
+}
+
+func (f *orderCapturingProjection) ProjectedShedCountsForFeed(
+	ctx context.Context,
+	req countsdomain.FeedProjectedCountQuery,
+) (countsdomain.FeedProjectedCounts, error) {
+	f.stableFlags = append(f.stableFlags, req.StableOrder)
+	return f.fakeProjection.ProjectedShedCountsForFeed(ctx, req)
+}

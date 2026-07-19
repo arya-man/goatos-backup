@@ -282,13 +282,27 @@ func normalItem(
 	// A MISSING shed factor reads as 1.0, and that asymmetry with the rate above is deliberate:
 	// declining to scale a ration is safe, whereas inventing one is not. A factor of 0 must be
 	// authored explicitly. Migration 000003 states the same rule.
+	//
+	// A PRESENT-but-unparseable factor is a different case entirely, and must mirror the rate
+	// branch above rather than silently falling through to 1.0: an authored row exists, so "decline
+	// to scale" is no longer a safe default -- something was written that this code cannot read,
+	// and defaulting to 1.0 would apply an UNAUTHORED multiplier while looking like a deliberate
+	// "no factor configured" choice. Block the cell instead (P2-FACTOR).
 	factorLabel := "1.0000"
 	factor := new(big.Rat).SetInt64(1)
 	if raw, ok := cfg.ShedFactorsByKey[ShedFactorKey(shed.ShedID, item.Label)]; ok {
-		if parsed, ok := ParseDecimal(raw); ok {
-			factor = parsed
-			factorLabel = raw
+		parsed, parseOK := ParseDecimal(raw)
+		if !parseOK {
+			out.Blocked = &BlockedReason{
+				Code: BlockReasonInvalidShedFactor,
+				Detail: fmt.Sprintf(
+					"stored shed factor %q for shed %s / item %q is not a valid decimal",
+					raw, shed.ShedID, item.Label),
+			}
+			return out
 		}
+		factor = parsed
+		factorLabel = raw
 	}
 
 	daily := new(big.Rat).SetInt64(headCount)

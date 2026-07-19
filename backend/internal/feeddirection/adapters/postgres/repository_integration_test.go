@@ -450,6 +450,49 @@ FROM generate_series(1, $3::int) g`, fdTenant, fdPark, MaxShedScopeRows+1); err 
 	}
 }
 
+// P2-CAP regression: loadRates had no LIMIT/+1 tripwire at all before this fix -- unlike
+// ListShedScope in the same package (proved above), an oversized ration grid would be read in
+// full with no bound, rather than failing closed. Seed past MaxRationRateRows and prove the whole
+// config-snapshot load fails with ErrScopeTooLarge instead of silently loading a partial (or,
+// pre-fix, unboundedly large) grid.
+func TestLoadRatesFailsClosedRatherThanUnboundedRead(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_ration_rates (tenant_id, park_id, ration_group_label, shed_tag_label, feed_item_label, grams_per_head, valid_from, source_system)
+SELECT $1::uuid, $2::uuid, 'Bulk Group ' || g, 'Bulk Tag', 'Bulk Item', 100, '2026-01-01'::date, 'test'
+FROM generate_series(1, $3::int) g`, fdTenant, fdPark, MaxRationRateRows+1); err != nil {
+		t.Fatalf("seed bulk ration rates: %v", err)
+	}
+
+	_, err := repo.LoadConfigSnapshot(ctx, fdTenant, fdPark, time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC))
+	if !errors.Is(err, ports.ErrScopeTooLarge) {
+		t.Fatalf("err = %v, want ErrScopeTooLarge -- an oversized ration grid must never be read unboundedly", err)
+	}
+}
+
+// P2-CAP regression, session-slot twin of the ration-rate test above: loadSessionItems also had no
+// tripwire.
+func TestLoadSessionItemsFailsClosedRatherThanUnboundedRead(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+
+	// slot_no offset past the fixture's existing session-1 slots (1-3) so this bulk insert does not
+	// collide with feed_session_template_items_open_slot_uidx.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_session_template_items (tenant_id, park_id, session_no, slot_no, feed_item_label, status, valid_from)
+SELECT $1::uuid, $2::uuid, 1, 1000 + g, 'Bulk Slot Item ' || g, 'active', '2026-01-01'::date
+FROM generate_series(1, $3::int) g`, fdTenant, fdPark, MaxSessionItemRows+1); err != nil {
+		t.Fatalf("seed bulk session items: %v", err)
+	}
+
+	_, err := repo.LoadConfigSnapshot(ctx, fdTenant, fdPark, time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC))
+	if !errors.Is(err, ports.ErrScopeTooLarge) {
+		t.Fatalf("err = %v, want ErrScopeTooLarge -- an oversized session slot set must never be read unboundedly", err)
+	}
+}
+
 // A mistyped park must fail CLOSED. An empty page looks exactly like "nothing to feed today", and
 // that is the one answer a feed surface must never give by accident.
 func TestUnknownParkFailsClosedRatherThanReturningAnEmptyPage(t *testing.T) {
