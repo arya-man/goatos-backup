@@ -41,6 +41,9 @@ Feed Transfer KT findings
 Feed Direction workbook and legacy automation findings
   context/source-findings/feed-direction-workbook-automation-findings.md
 
+Feed Direction Sheets/App Script replacement PRD/story
+  docs/feed-direction/SHEETS-APP-SCRIPT-REPLACEMENT-PRD.md
+
 Goats and Parks base source findings
   context/source-findings/goats-and-parks-source-findings.md
 
