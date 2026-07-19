@@ -28,6 +28,7 @@ const internalToken =
 const uuidLiteral = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
 const stateToken = String.raw`\b(?:selected|isSelected|active|checked|current|status|tone|done|enabled|loading)\b`;
 const geometryCall = String.raw`(?:Modifier\.)?(?:padding|height|width|size|heightIn|widthIn)\s*\(`;
+const geometryName = String.raw`\b[a-zA-Z0-9_]*(?:height|width|size|padding|spacing|inset|offset)[a-zA-Z0-9_]*\b`;
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -110,6 +111,18 @@ function findingsFor(file, text) {
     "state must not change peer component geometry inside padding/height/width/size calls",
   );
   addMatches(
+    new RegExp(String.raw`\b(?:val|var)\s+${geometryName}\s*=\s*if\s*\([^)]*${stateToken}[^)]*\)[\s\S]{0,120}?(?:\.dp\b|MeshaDimens\.|Dp\b)`, "gi"),
+    "state must not compute alternate peer geometry; keep sibling cards/buttons/chips fixed-size",
+  );
+  addMatches(
+    new RegExp(String.raw`\b(?:val|var)\s+${geometryName}\s*=\s*when\s*\([^)]*${stateToken}[^)]*\)[\s\S]{0,180}?(?:\.dp\b|MeshaDimens\.|Dp\b)`, "gi"),
+    "state must not compute alternate peer geometry; keep sibling cards/buttons/chips fixed-size",
+  );
+  addMatches(
+    new RegExp(String.raw`${geometryCall}\s*\n[\s\S]{0,80}?\bif\s*\([^)]*${stateToken}[^)]*\)`, "gi"),
+    "state must not change peer component geometry inside multiline modifier arguments",
+  );
+  addMatches(
     /\bTextStyle\.NARROW\b/g,
     "TextStyle.NARROW creates one-letter date labels; use readable short labels for mobile UI",
   );
@@ -138,6 +151,8 @@ function runSelfTest() {
     CalendarWeekDay("d7", "T", "7", "")
     if (selected) Modifier.height(72.dp) else Modifier.height(60.dp)
     Modifier.padding(if (active) 12.dp else 8.dp)
+    val selectedHeight = if (selected) 72.dp else 60.dp
+    val buttonPadding = when (status) { Good -> 12.dp else -> 8.dp }
   `;
   const good = `
     Text(stringResource(R.string.proof_ready))
@@ -145,7 +160,7 @@ function runSelfTest() {
   `;
   const badFindings = findingsFor("Screen.kt", bad);
   const goodFindings = findingsFor("Screen.kt", good);
-  if (badFindings.length !== 7 || goodFindings.length !== 0) {
+  if (badFindings.length !== 9 || goodFindings.length !== 0) {
     throw new Error(
       `self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)}`,
     );

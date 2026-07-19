@@ -38,6 +38,8 @@ x-kernel-dependencies: &kernel-dependencies
     condition: service_completed_successfully
   pubsub-bootstrap:
     condition: service_completed_successfully
+  proof-storage-init:
+    condition: service_completed_successfully
 
 services:
   postgres:
@@ -101,6 +103,16 @@ services:
     depends_on:
       pubsub:
         condition: service_healthy
+    restart: "no"
+
+  proof-storage-init:
+    image: alpine:3.20
+    command:
+      - /bin/sh
+      - -c
+      - mkdir -p /var/lib/goatos/proofs && chown -R 100:101 /var/lib/goatos/proofs
+    volumes:
+      - goatos-proofs:/var/lib/goatos/proofs
     restart: "no"
 
   api:
