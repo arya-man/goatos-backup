@@ -2,6 +2,7 @@
 
 **Status:** Draft for implementation sequencing
 **Date:** 2026-07-19
+**Updated:** 2026-07-20 (legacy experiment workaround clarified)
 **Owner:** Feed Direction / GoatOS Protocol Engine
 **Companions:** [Feed Direction PRD](./PRD.md),
 [Feed Direction TRD](./TRD.md),
@@ -106,59 +107,73 @@ Relevant sheets/tabs and source roles:
 | `Feed Packing Form` | Packing submissions and videos from Slack replies | SOP submission/proof records, packing stage completion, verifier state |
 | `Feed Transport Form` | Transport proof and status | Transport stage obligation/record with consolidation map |
 | `Feed Consumption & Wastage` | Consumed/wasted quantities and videos | Consumption/wastage stage record, variance exception, proof verification |
-| Experiment Feed Directions Automation `Experiment Feed Config` | Experiment kg source by farm/shed/category/feed item | Native feed experiment allocation/treatment config inside Feed Direction; not a second backend module |
-| Experiment Feed Directions Automation `Feed Direction` | Experiment materialized directions for selected sheds | Feed Direction generation rows with `experiment_ref`/`treatment_variant_ref` overrides when active |
-| Experiment Feed Directions Automation `Feed Packing Experiment Sheds` | Experiment packing proof/checklist rows | Same packing stage obligations/proof model as main feed, scoped to experiment allocation |
-| Experiment Feed Directions Automation `Wastage Experiment Sheds` | Wastage quantity/media feedback | Observation/wastage records linked to the active experiment assignment and feed stage |
-| Experiment Feed Directions Automation `Feed Distribution Experiment Sheds` | Distribution media and direction-vs-consumption check | Distribution/consumption proof records and variance reconciliation |
+| Experiment Feed Directions Automation `Experiment Feed Config` | Per-shed kg source that works around normal Sheet/App Script allocation limits | Native versioned composition assignments inside Feed Direction; optional comparison metadata, never a second backend module |
+| Experiment Feed Directions Automation `Feed Direction` | Materialized directions for sheds using those custom compositions | Normal Feed Direction generation rows with `composition_assignment_ref` when a shed/cohort/date uses a non-default composition |
+| Experiment Feed Directions Automation `Feed Packing Experiment Sheds` | Packing proof/checklist rows for custom-composition sheds | The same packing stage obligations/proof model as every other Feed Direction row |
+| Experiment Feed Directions Automation `Wastage Experiment Sheds` | Wastage quantity/media feedback | Observation/wastage records linked to the effective composition assignment and feed stage |
+| Experiment Feed Directions Automation `Feed Distribution Experiment Sheds` | Distribution media and direction-vs-consumption check | Distribution/consumption proof records and variance reconciliation in the normal Feed Direction flow |
 | Video Verification DB | Operational media review | Platform proof/video verification queue and read model |
 
-### Experiment feed purpose and GoatOS product decision
+### Why legacy experiment feed exists and the GoatOS product decision
 
-Experiment feed exists because Google Sheets cannot express the allocation
-flexibility the Feed Director needs.
+Legacy experiment feed exists because the normal Google Sheet and Apps Script
+cannot express all of the allocation flexibility the Feed Director needs. It is
+a workaround for the tool, not a separate farming domain that GoatOS should
+copy.
 
-The normal Feed Direction workbook is effectively driven by shared
-breed/shed-tag/category rules. That is correct for standard operations, but it
-means sheds with the same tag tend to receive the same composition. Experiment
-work needs a different capability: the Feed Director must be able to assign
-different feed compositions to selected sheds or cohorts even when they have the
-same tag/category, compare the operational outcome, and then adjust the next
-composition.
+The normal workbook is effectively driven by shared breed/shed-tag/category
+rules. That works for the default ration, but it means sheds with the same tag
+tend to receive the same composition. The missing capability is simple: the
+Feed Director must be able to create multiple composition versions, assign any
+version to any selected shed or cohort even when the sheds have the same tag,
+compare what happened, and publish the next composition.
 
-The legacy workaround is the separate `Experiment Feed Config` and experiment
-Slack channels. They let operations run permutation/combination trials such as:
+The live `Experiment Feed Config` proves the same-tag case directly: three CBE
+Castro sheds are all category `Sheep M NEW`, yet each has a different
+concentrate/bhusa quantity pair. GoatOS must support that ordinary per-shed
+freedom without first forcing the user to create a formal experiment. The
+committed finding is intentionally structural rather than a dump of private
+workbook rows.
+
+The legacy workaround is the separate `Experiment Feed Config` plus six CBE/CPT
+Slack channels covering packing, distribution, and wastage. They let operations
+run permutation/combination trials such as:
 
 - same farm + same shed tag, but different concentrate/roughage quantities;
-- selected sheds held as control versus treatment variants;
+- selected sheds given different named composition versions for comparison;
 - feed composition changed after observing wastage, consumption, media proof, or
   operator remarks;
 - tomorrow's experiment packing direction regenerated from the latest approved
   experiment kg values rather than from the normal shared tag rule.
 
-The afternoon experiment packing timing is part of that feedback loop. The
-observed Apps Script trigger creates `sendExperimentPackingMessages` at about
-14:15 IST, even though an old comment says 07:15. The product intent is that the
-team can observe wastage/distribution feedback during the day, let the Feed
-Director tweak the experiment composition, and then send next-day experiment
-packing directions for the same tagged experiment sheds.
+The Slack threads prove the operational evidence loop: operators are prompted
+for packing, distribution/water, and wastage videos, and the workflow records
+completion. The afternoon packing timing is part of that loop. The observed Apps
+Script trigger creates `sendExperimentPackingMessages` at about 14:15 IST, even
+though an old comment says 07:15. GoatOS therefore needs a review window in
+which the Feed Director can inspect same-day distribution/wastage evidence,
+revise or retain a composition version, approve it, and publish the next-day
+packing direction. Slack proves collection and delivery; GoatOS audit history,
+not a Slack message, must prove who approved the next version and why.
 
 GoatOS should not rebuild this as a duplicate `experiment_feed` backend with
 parallel Feed Direction, packing, wastage, Slack, and video-verification tables.
 The right product shape is:
 
 ```text
-normal feed_direction policy
-+ optional active experiment allocation for selected shed/cohort/date
-+ treatment variant composition version
+normal feed_direction policy -> default composition
++ optional approved composition assignment for selected shed/cohort/date/session
++ optional comparison label/group when the team wants to analyse alternatives
 -> one Feed Direction generation/stage/proof/outbox flow
 ```
 
-In other words, experiment feed is a native rule/allocation mode inside Feed
-Direction. It needs explicit experiment/treatment configuration and assignment
-records, but the generated instructions, obligations, proof capture,
-Slack/mobile delivery, video verification, inventory, replay, and watchdogs are
-the same kernel path as normal feed.
+In other words, different composition assignments are a normal Feed Direction
+capability. `Experiment` may remain as an optional label for comparing variants,
+but a hypothesis, control/treatment wrapper, or separate experiment lifecycle
+must not be required just to give two same-tag sheds different rations. The
+generated instructions, obligations, proof capture, Slack/mobile delivery,
+video verification, inventory, replay, and watchdogs all use the same kernel
+path.
 
 ### Authority order when sources disagree
 
@@ -188,11 +203,11 @@ They are not automatically the final GoatOS schedule.
 | ~23:30 Day N | Current live guide | `DB` filled with real counts for the finished day | Replace with `count_base_anchors`/shifting events and immutable import run evidence |
 | ~00:30 Day N+1 | Current live guide | FutureDB night check updates projection | Replace with bounded `count_projection_recompute_runs` for `feed_target_date` |
 | ~01:00 Day N+1 | Current live guide | FutureDB rolled to tomorrow's projected shed counts | Replace with projection snapshot ready check; user specifically flagged ~1:00 afternoon consumption too, which must be verified against live trigger config before hardcoding |
-| ~03:00 | Current live guide | Experiment Feed Direction generation | Retain as experiment allocation generation only if owner approves; main Feed generation uses the same engine with no active treatment override |
+| ~03:00 | Current live guide | Legacy Experiment Feed Direction generation | Retain only as a migration clock for custom-composition assignments if the owner approves; default and custom compositions use the same generation engine |
 | ~07:15 | Current live guide and incident evidence | Experiment morning wastage/distribution and main morning consumption family | Migration notification bridge may mimic this, but canonical work must already exist in GoatOS |
 | ~07:30 | Current live guide and incident evidence | Main packing Slack from `Feed Direction` | Migration notification bridge only; final product clock should be approved against the docx model |
 | ~13:00 | User-supplied migration requirement | Afternoon consumption Slack timing to preserve/check | Mark as uncertain until live trigger inventory confirms exact Apps Script trigger and session semantics |
-| ~14:15 | Experiment trigger inventory and `experiment_sheds.js` creator | Experiment packing Slack for next-day experiment feed after same-day feedback/wastage can be reviewed | Model as a configurable notification/stage due time for experiment-assigned work, not a separate sender backend |
+| ~14:15 | Experiment trigger inventory and `experiment_sheds.js` creator | Legacy experiment packing Slack for next-day custom composition after same-day feedback/wastage can be reviewed | Model as a configurable notification/stage due time for custom-composition work, not a separate sender backend |
 | 09:00 Day N | `Feed, Shiftings and Count.docx` | Full direction for Day N+1 | Recommended GoatOS default full-generation product clock |
 | 13:30 Day N | `Feed, Shiftings and Count.docx` | Cutoff for changes that affect Day N+1 | Recommended GoatOS default cutoff |
 | 13:30-13:45 Day N | `Feed, Shiftings and Count.docx` | Diff for affected sheds | Recommended GoatOS default Diff job window |
@@ -265,14 +280,15 @@ The config pack must include:
 - ration dimensions: species, breed, shed tag/stage, kid weight band/ADG,
   pregnancy/lactation/warm-up policy, farm/park scope, feed vector family, and
   effective dates;
-- treatment dimensions: named experiment, control/treatment variant, shed/cohort
-  assignment, composition version, start/end dates, owner, hypothesis, and stop
-  criteria;
+- composition-allocation dimensions: versioned composition, shed/cohort/date/
+  session assignment, start/end dates, assignment reason, owner/reviewer, and
+  optional comparison label/group; a formal hypothesis, control/treatment
+  model, and stop criteria are optional analysis metadata, not prerequisites;
 - session policy: slot codes, serving windows, split weights, feed item
   inclusion, ordering, and disabled reasons;
-- eligibility/exclusion policy: K0/K1 milk-fed handling, experiment sheds,
-  ICU/quarantine, warm-up, and other exclusions only after Feed Director
-  approval;
+- eligibility/exclusion policy: K0/K1 milk-fed handling, ICU/quarantine,
+  warm-up, and other exclusions only after Feed Director approval; a shed using
+  a custom composition is not excluded from normal Feed Direction execution;
 - validation tolerances: KT 90-95% shed/pack/breed/tag/energy style checks and
   warm-up allowance only if approved as explicit thresholds;
 - proof policy: required media count/type, verifier roles, rejection reasons,
@@ -283,33 +299,35 @@ KT values such as `80/20`, `400-500g`, `600g`, `F1` 11-15kg, `F2` 15-20kg,
 pregnant priority windows, and 90-95% validation are candidate row values. They
 must not be hardcoded as global constants.
 
-### FR1a — Native experiment allocation, not duplicate experiment feed
+### FR1a — Native per-shed composition allocation (legacy "experiment feed")
 
-GoatOS must allow the Feed Director to override the normal ration result for
-explicitly assigned experiment sheds/cohorts without forking the Feed Direction
-workflow.
+GoatOS must let the Feed Director assign an approved composition version to any
+shed/cohort/date/session without forking the Feed Direction workflow or first
+creating a separate experiment.
 
 Requirements:
 
-1. An experiment has an owner, hypothesis, effective window, approval state,
-   control/treatment variants, and stop/review criteria.
-2. A treatment variant points to a versioned feed composition: feed item,
-   quantity, unit, session split, dry-matter/nutrition metadata where known,
-   and source evidence.
-3. An assignment maps the variant to a shed or cohort for a date range. The
-   assignment must coexist with normal shed tags; same-tag sheds may receive
-   different variants only because an approved assignment exists.
-4. Generation resolves normal policy first, then applies an active experiment
-   assignment as an auditable override. If more than one assignment matches, the
-   run fails closed with an owner-visible blocker.
+1. A composition version contains feed item, quantity, unit, session split,
+   dry-matter/nutrition metadata where known, source evidence, approval state,
+   and immutable version history.
+2. An assignment maps one approved composition version to a shed or cohort for
+   an effective date/session range. It coexists with the normal shed tag, so two
+   sheds with the same tag may intentionally receive different versions.
+3. Generation resolves the normal published policy as the default, then applies
+   the single effective approved composition assignment. More than one matching
+   assignment fails closed with an owner-visible blocker.
+4. Optional comparison metadata may group assignments under a named comparison
+   and labels such as `control`, `variant-a`, or `variant-b`. Ordinary per-shed
+   tuning must work without that metadata.
 5. Packing, distribution, consumption/wastage, media proof, rework, Slack/mobile
    notifications, and Video Verification all use the normal Feed Direction
-   kernel path with experiment references attached.
-6. Observation and wastage feedback must be queryable by experiment, treatment
-   variant, shed/cohort, date, session, and feed item so the next composition can
-   be adjusted before the next packing direction is sent.
-7. Experiment work must be safe to retire: ending an assignment returns the shed
-   to the normal published feed policy without deleting historical observations.
+   kernel path with the effective composition reference attached.
+6. Consumption, wastage, distribution/water, proof, and remarks must be
+   queryable by composition version/assignment, optional comparison group,
+   shed/cohort, date, session, and feed item so the Feed Director can approve the
+   next composition before the next packing direction is sent.
+7. Ending an assignment returns the shed to the normal published feed policy
+   without deleting the composition, evidence, approval, or observation history.
 
 ### FR2 — Counts/Shifting input contract
 
@@ -475,7 +493,7 @@ feed_direction_generation_rows
   target_date, park_id, shed_id
   session_code, stage_kind
   breed_id/key, ration_context_ref
-  experiment_id, treatment_variant_id, composition_version_id
+  composition_version_id, composition_assignment_id, optional_comparison_set_id
   feed_item_id
   planned_quantity_base_units
   quantity_unit
@@ -488,7 +506,7 @@ feed_direction_stage_records
   generation_row_id
   obligation_id
   stage_kind: packing | transport | consumption_wastage | bridge
-  experiment_observation_id
+  composition_observation_id
   planned_quantity_base_units
   actual_quantity_base_units
   consumed_quantity_base_units
@@ -516,7 +534,7 @@ feed_direction_projection_rows
   shed_id or transport_shed_id
   session_code, stage_kind
   bucket
-  experiment_id, treatment_variant_id
+  composition_version_id, composition_assignment_id, optional_comparison_set_id
   owner_ref, due_at, deadline_at
   proof_state, verification_state, escalation_state
   active_instruction_group_key
@@ -528,26 +546,13 @@ with display conversion handled at the edge. Existing `numeric` columns can
 remain where already committed, but new hot-path instruction/stage rows should
 avoid ambiguous floating math.
 
-### Experiment allocation extension
+### Native composition-allocation extension
 
-These tables are not a second feed backend. They are the missing policy layer
-that makes experiment permutations native while all downstream work still uses
-the normal Feed Direction generation/stage/proof/outbox tables above.
+These are normal Feed Direction policy records, not a second feed backend. They
+make arbitrary per-shed/per-cohort composition assignments native while all
+downstream work still uses the generation/stage/proof/outbox tables above.
 
 ```text
-feed_experiments
-  experiment_id
-  tenant_id
-  code, name
-  owner_user_id, reviewer_user_id
-  hypothesis
-  scope: park | shed | cohort
-  status: draft | approved | active | paused | completed | canceled
-  effective_from, effective_to
-  stop_criteria
-  approval_ref, source_ref
-  created_at, updated_at
-
 feed_composition_versions
   composition_version_id
   tenant_id
@@ -570,32 +575,24 @@ feed_composition_items
   wastage_factor
   sort_order
 
-feed_treatment_variants
-  treatment_variant_id
-  experiment_id
-  code, name
-  variant_kind: control | treatment
+feed_composition_assignments
+  composition_assignment_id
   composition_version_id
-  target_metric: wastage | consumption | weight_gain | health_signal | other
-  notes
-
-feed_treatment_assignments
-  treatment_assignment_id
-  experiment_id
-  treatment_variant_id
   tenant_id, park_id
   shed_id or cohort_id
-  target_date_from, target_date_to
+  target_date_from, target_date_to, optional_session_code
   assignment_reason
   priority
+  optional_comparison_set_id, optional_variant_label
+  approved_by, approved_at
   idempotency_key
   status: active | superseded | canceled
 
-feed_experiment_observations
-  experiment_observation_id
-  experiment_id
-  treatment_variant_id
-  treatment_assignment_id
+feed_composition_observations
+  composition_observation_id
+  composition_version_id
+  composition_assignment_id
+  optional_comparison_set_id
   generation_row_id
   stage_record_id
   target_date, session_code
@@ -608,12 +605,27 @@ feed_experiment_observations
   verifier_status, rejection_reason
   operator_remarks, director_notes
   observed_at, recorded_by
+
+feed_comparison_sets (optional analysis metadata)
+  comparison_set_id
+  tenant_id
+  code, name
+  owner_user_id, reviewer_user_id
+  question_or_hypothesis nullable
+  target_metric nullable
+  effective_from, effective_to
+  status: draft | active | paused | completed | canceled
+  review_or_stop_criteria nullable
+  approval_ref, source_ref
+  created_at, updated_at
 ```
 
 Implementation may store the composition payload inside
 `protocol_versions.rule_dsl` at first, but the behavior must remain the same:
-versioned composition, explicit treatment assignment, immutable generation
-reference, and observation records that can drive the next variant decision.
+versioned composition, explicit approved assignment, immutable generation
+reference, and observation records that can drive the next composition decision.
+Comparison metadata is additive and optional; it must never become a gate for
+ordinary same-tag/per-shed composition assignment.
 
 ## 7. Events, Pub/Sub, cron, and kernel responsibilities
 
@@ -675,8 +687,8 @@ All times are India business time and config-driven.
 | Full Feed Direction generation | Recommended 09:00 Day N for Day N+1 | Create immutable full instructions and obligations |
 | Diff generation | Recommended 13:30-13:45 Day N | Restate affected sheds and supersede stale work |
 | Packing/staging due sweep | Recommended 15:00 Day N, or legacy bridge window during migration | Mark packing obligations due, reserve on start, notify operators |
-| Experiment-feedback review window | Before ~14:15 experiment packing notification, if retained | Review same-day wastage/distribution observations and publish the next composition version/assignment |
-| Legacy-compatible Slack packing | ~14:15 experiment and ~07:30 main during migration only | Deliver notifications from GoatOS work to old operator channels |
+| Composition-feedback review window | Before ~14:15 custom-composition packing notification, if retained | Review same-day wastage/distribution observations and publish the next composition version/assignment |
+| Legacy-compatible Slack packing | ~14:15 custom-composition and ~07:30 default-policy flows during migration only | Deliver notifications from GoatOS work to old operator channels |
 | Consumption notification | Morning and afternoon sessions; legacy ~13:00 timing to verify | Remind/collect consumption and wastage proof |
 | Watchdog/reconciler | Every few minutes during active windows | Detect missing/duplicate Slack messages, stuck outbox, no proof, failed imports, stale projections, stock-outs |
 | Deadline sweeper | Generic kernel cadence | Missed, reminder, escalation, rework |
@@ -984,9 +996,9 @@ Before landing implementation, run the relevant repo guardrails and full
 1. Should migration notifications keep ~07:15/~07:30/~13:00 timings, or should
    GoatOS move operators to the docx 09:00/15:00 model immediately after
    cutover?
-2. Which experiment sheds/cohorts are currently assigned to active treatments,
-   which are controls, and who approves each composition version before the
-   ~14:15 packing notification?
+2. Which sheds/cohorts currently use non-default composition assignments, and
+   who approves each next composition version before the ~14:15 packing
+   notification? Which assignments, if any, also need optional comparison labels?
 3. Are K0/K1 exclusions approved as a published `feed_direction` eligibility
    rule?
 4. Does `80/20` from KT represent a packing factor, feed-type ratio, or a

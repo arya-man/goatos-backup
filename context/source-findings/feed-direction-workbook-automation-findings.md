@@ -11,6 +11,9 @@ Sources reviewed:
 - Legacy Apps Script files in `slack-automation-scripts/`: `feed_automation.js`,
   `unified_automation.js`, `counting_db_automation.js`, and
   `video_verification_system.js`.
+- Read-only live review on 2026-07-19 of the Experiment Feed Directions
+  workbook and the CBE/CPT experiment packing, distribution, and wastage Slack
+  channels.
 
 Do not commit raw workbook rows, Slack media links, user names, file ids, tokens,
 webhook URLs, or local source paths. This note records structure and design
@@ -107,6 +110,32 @@ planning and execution, not a clean domain model:
   are execution/proof surfaces with media links and processed/reconciliation
   signals. These prove stage capability requirements; they must not be copied as
   Sheet truth.
+
+### Legacy experiment-feed finding
+
+The separate experiment workbook is a workaround for a limitation in the normal
+Sheet/App Script allocation model, not evidence for a separate GoatOS product
+module. The normal workbook tends to apply one shared composition by
+breed/shed-tag/category. The experiment config instead records quantities at
+farm + shed + category + feed-item grain, allowing same-tag sheds to receive
+different composition permutations. A sanitized structural check found three
+CBE Castro sheds with the same `Sheep M NEW` category and three distinct
+concentrate/bhusa quantity pairs; raw rows and workbook identifiers are not
+committed.
+
+The live Slack workflow has six private operational channels: packing,
+distribution, and wastage for each of CBE and CPT. Threads prompt for packing,
+distribution/water, and wastage media and then record completion. Combined with
+the Apps Script afternoon packing trigger, this supports the operational loop:
+observe distribution/wastage during the day, review or revise the composition,
+and publish the next-day packing direction. Slack is proof of collection and
+delivery; it is not approval authority. GoatOS audit/version history must record
+who approved the next composition and why.
+
+Target implication: versioned per-shed/per-cohort composition assignment belongs
+inside normal Feed Direction. An optional comparison label/group may organise
+alternatives, but ordinary same-tag variation must not require a formal
+experiment, control/treatment record, or duplicate packing/wastage backend.
 
 ## Legacy Automation Findings
 
