@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -392,6 +393,38 @@ ORDER BY dmg.module_key`, tenantID, userID)
 		return nil, err
 	}
 	return out, nil
+}
+
+// EnsureBaselineDepartmentModuleGrants grants baselineModule to EVERY active department in the
+// tenant so no non-leadership operator composes an empty bottom bar (P1-NAV).
+//
+// Nav is composed purely from department_module_grants: ListGrantedModuleKeys resolves a member's
+// department grants, and a member whose department holds no ACTIVE grant to an AVAILABLE module gets
+// a blank nav. The specialised seed grant map covers only some department codes, and it maps
+// feed/breeding to 'soon' modules that contribute no available nav, so members of unmapped (e.g.
+// milk) or soon-only (feed, breeding) departments would land on a blank bar. Counts
+// (births/deaths/shifting) is the cross-cutting field module every department performs, and the one
+// AVAILABLE module safe to grant tenant-wide as the floor.
+//
+// This is grant-driven, not a per-role nav template (docs/decisions/role-module-nav-composition.md):
+// it writes department grants that the same composition path reads. Idempotent (ON CONFLICT), set-
+// based (one statement over all active departments), and it never invents a department. Returns the
+// number of rows newly inserted or reactivated.
+func (r *Repository) EnsureBaselineDepartmentModuleGrants(ctx context.Context, tenantID, baselineModule string) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+INSERT INTO public.department_module_grants (tenant_id, department_id, module_key, status)
+SELECT d.tenant_id, d.department_id, $2, 'active'
+FROM public.departments d
+WHERE d.tenant_id = $1::uuid AND d.status = 'active'
+ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE
+SET status = 'active', updated_at = now()
+WHERE public.department_module_grants.status <> 'active'`, tenantID, baselineModule)
+	if err != nil {
+		return 0, fmt.Errorf("workforce: ensure baseline department module grants: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *Repository) ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error) {

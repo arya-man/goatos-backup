@@ -759,3 +759,24 @@ func TestCountsModuleReplacesYouTabWithApproval(t *testing.T) {
 		}
 	}
 }
+
+// TestVisibleNavigationForOperatorWithBaselineCountsGrant is the composition half of the P1-NAV
+// regression. It proves that once a non-leadership operator's department is granted the baseline
+// Counts module (what EnsureBaselineDepartmentModuleGrants does in the seed), the operator composes a
+// NON-EMPTY bottom bar rather than the blank nav an ungranted department produces. Together with the
+// adapter integration test (grant -> ListGrantedModuleKeys non-empty), this covers the full chain
+// from the seed's baseline grant to a rendered nav.
+func TestVisibleNavigationForOperatorWithBaselineCountsGrant(t *testing.T) {
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
+
+	// Premise: with NO granted module the operator's nav is blank -- the bug the baseline fixes.
+	if nav := visibleNavigationFor(grants, nil, "en"); len(nav) != 0 {
+		t.Fatalf("nav with no granted module=%v, want empty (premise: an ungranted department is blank)", nav)
+	}
+
+	// With the baseline Counts grant the operator composes a non-empty bottom bar.
+	nav := visibleNavigationFor(grants, []string{"counts"}, "en")
+	if len(nav) == 0 {
+		t.Fatal("nav with the baseline 'counts' grant is empty -- an operator would still land on a blank bottom bar")
+	}
+}
