@@ -2695,23 +2695,62 @@ SELECT * FROM (
   LIMIT 12
 ) top_sheds`
 
-// scale-guard:ignore: 5k-50k-envelope — index-only aggregate on goats_tenant_management_idx /
-// goats_breed_text_sex_idx, bounded by distinct vocabulary size, not by herd size.
+// scale-guard:ignore: 5k-50k-envelope — indexed aggregate on goats_tenant_management_idx /
+// goats_breed_text_sex_idx / goats_tenant_lifecycle_shed_idx, each output bounded by distinct
+// vocabulary size, not by herd size. One set-based statement per dimension in a single batched
+// round trip: no per-row query, no loop-issued read, no N+1 fan-out.
 //
-// projection-review: membership=same tenant/merge/lifecycle scope as the grain queries but DELIBERATELY without the stage/breed/farm/shed/sex predicates; group_key=the single facet dimension per UNION branch (management_stage, then breed); join_cardinality=no joins at all, so fan-out is structurally impossible; pagination=whole-result rollup, never paged; scope=tenant_id plus lifecycle_status only
+// projection-review: membership=same tenant/merge/lifecycle scope as the grain queries but DELIBERATELY without the stage/breed/farm/shed/sex predicates; group_key=the single facet dimension per UNION branch (management_stage, then breed, then park_id, then the COMPOSITE (shed_id, park_id)); join_cardinality=the park and shed branches each LEFT JOIN locations once on (tenant_id, location_id), that table's primary key, so 1:{0,1} label lookup with no fan-out, and the stage/breed branches join nothing; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus lifecycle_status only
 //
 // Facets must describe the whole selectable vocabulary, not the current selection — filtering
 // them by the active filter would collapse each dropdown to the one value already chosen.
+//
+// Expanded rationale for the shed branch (the only one with a composite group key):
+//
+//	membership   = the same canonical goats rows as every other branch. Each animal has exactly
+//	               one shed_id and one park_id VALUE ON ITS OWN ROW, so grouping on those columns
+//	               PARTITIONS the herd: sum(shed facet counts) == the whole-herd total, exactly
+//	               once per animal. No animal can land in two shed buckets.
+//	group_key    = the COMPOSITE (shed_id, park_id), not shed_id alone, taken from the same two
+//	               denormalized goats columns that the park_id/shed_id request filters test. That
+//	               is what makes each entry self-consistent with the filter it drives: the count
+//	               shown against an entry is by construction the count a request for
+//	               ?park_id=<park_id>&shed_id=<key> returns. Grouping on shed_id alone and
+//	               reading the park from locations.parent_location_id would instead show a number
+//	               that disagrees with the filter result the moment the denormalized park_id and
+//	               the shed's parent ever drift apart. Under consistent data (verified: 0 of 1682
+//	               live animals diverge, and 0 sheds hold animals from more than one park) the
+//	               composite yields exactly one entry per shed. Under DIVERGENT data it yields one
+//	               entry per (shed, park) pair actually observed, which is truthful reporting of a
+//	               real data split rather than a double count — the animals are still partitioned.
+//	               Shed NAME is deliberately NOT part of the key: 66 of 154 real shed names are
+//	               reused across both parks, so a name-keyed facet would merge two distinct sheds.
+//	join_card    = locations is LEFT JOINed once on (tenant_id, location_id) — the
+//	               locations_tenant_location_unique constraint — so it is a strict 1:{0,1} lookup
+//	               that supplies a label and cannot multiply the COUNT. The park_id in the output
+//	               comes from the goats row, not from the joined locations row, so the join is
+//	               label-only and carries no identity.
+//	null bucket  = an animal with no shed lands in key '' exactly like the park branch's null
+//	               bucket, keeping scope semantics identical across facet dimensions.
+//	pagination   = whole-result rollup over the full tenant herd, independent of the detail
+//	               table's limit/offset. UNCAPPED on purpose: unlike countsBreakdownChartsSQL's
+//	               top-12 shed series, which is a DISPLAY bound on one chart, this list is a
+//	               filter vocabulary. A silent LIMIT here would present a partial shed list as the
+//	               complete one and hide selectable sheds from the operator. It is bounded by the
+//	               distinct shed vocabulary (154 sheds exist, 98 hold live animals), not by herd
+//	               size, so it does not grow with the herd.
+//	scope        = tenant_id plus lifecycle_status only, same as its sibling branches.
 const countsBreakdownFacetsSQL = `
 SELECT 'stage' AS dimension, COALESCE(g.management_stage, '') AS series_key,
-       COALESCE(g.management_stage, '') AS series_label, count(*) AS series_count
+       COALESCE(g.management_stage, '') AS series_label, count(*) AS series_count,
+       ''::text AS park_key
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.management_stage, '')
 UNION ALL
-SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*)
+SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*), ''::text
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
@@ -2720,14 +2759,24 @@ GROUP BY COALESCE(g.breed, '')
 UNION ALL
 SELECT 'park', COALESCE(g.park_id::text, ''),
        COALESCE(NULLIF(park.location_code, ''), park.name, ''),
-       count(*)
+       count(*), ''::text
 FROM goats g
 LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = g.park_id
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.park_id::text, ''), park.location_code, park.name
-ORDER BY 1, 2`
+UNION ALL
+SELECT 'shed', COALESCE(g.shed_id::text, ''),
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
+       count(*), COALESCE(g.park_id::text, '')
+FROM goats g
+LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = g.shed_id
+WHERE g.tenant_id = $1::uuid
+  AND g.merged_into_goat_id IS NULL
+  AND ($2 = '' OR g.lifecycle_status = $2)
+GROUP BY COALESCE(g.shed_id::text, ''), COALESCE(g.park_id::text, ''), shed.name, shed.location_code
+ORDER BY 1, 2, 5`
 
 const (
 	countsBreakdownDefaultLimit = 10
@@ -2861,7 +2910,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	for facetRows.Next() {
 		var dimension, key, label string
 		var count int64
-		if err := facetRows.Scan(&dimension, &key, &label, &count); err != nil {
+		// parkKey is populated only by the shed branch; every other dimension selects ''.
+		var parkKey string
+		if err := facetRows.Scan(&dimension, &key, &label, &count, &parkKey); err != nil {
 			facetRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets scan: %w", err)
 		}
@@ -2873,6 +2924,10 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			out.Facets.Breeds = append(out.Facets.Breeds, point)
 		case "park":
 			out.Facets.Parks = append(out.Facets.Parks, point)
+		case "shed":
+			out.Facets.Sheds = append(out.Facets.Sheds, domain.CountsBreakdownShedFacet{
+				Key: key, Label: label, Count: count, ParkID: parkKey,
+			})
 		}
 	}
 	facetRows.Close()
@@ -2900,6 +2955,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	}
 	if out.Facets.Parks == nil {
 		out.Facets.Parks = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Facets.Sheds == nil {
+		out.Facets.Sheds = []domain.CountsBreakdownShedFacet{}
 	}
 
 	out.ProjectedAt = time.Now().UTC()

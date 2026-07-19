@@ -447,6 +447,24 @@ type CountsBreakdownCharts struct {
 	Shed  []CountsBreakdownSeriesPoint `json:"shed"`
 }
 
+// CountsBreakdownShedFacet is one shed filter option: a CountsBreakdownSeriesPoint plus the park
+// that the counted animals sit in.
+//
+// The park identifier is NOT decoration. SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real seeded
+// data 66 of 154 shed names exist in BOTH parks (there is a "Castro 1" under Coimbatore and a
+// different "Castro 1" under Channapatna). A client that cascades Park -> Shed must therefore
+// filter this list by ParkID; matching on Label would silently merge two physically distinct
+// sheds into one option. Key stays the shed UUID so an entry is still unambiguous on its own,
+// and ParkID is carried as its own field rather than smuggled into Label, so the client never
+// has to parse a display string to recover an identifier.
+type CountsBreakdownShedFacet struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+	// ParkID is the park these animals are in, empty only for animals with no park assigned.
+	ParkID string `json:"park_id"`
+}
+
 // CountsBreakdownFacets reports the values actually present in the unfiltered tenant herd so a
 // filter dropdown can never offer an option that matches zero rows. This matters for stage:
 // animal_stage_lookup is joined to goats through shed_profiles, NOT through
@@ -456,6 +474,11 @@ type CountsBreakdownFacets struct {
 	Breeds []CountsBreakdownSeriesPoint `json:"breeds"`
 	// Parks keyed by park_id, labelled with the park code — the Farm filter's vocabulary.
 	Parks []CountsBreakdownSeriesPoint `json:"parks"`
+	// Sheds keyed by shed_id and carrying park_id — the Shed filter's vocabulary, cascaded from
+	// the selected park. Unlike Charts.Shed (display-capped to the top 12 bars) this list is
+	// COMPLETE: a filter dropdown that silently truncated would present a partial vocabulary as
+	// the whole one and hide sheds the operator can legitimately select.
+	Sheds []CountsBreakdownShedFacet `json:"sheds"`
 }
 
 // CountsBreakdown is the whole census breakdown payload: one page of grain rows plus

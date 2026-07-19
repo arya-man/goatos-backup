@@ -501,3 +501,506 @@ func TestCountsBreakdownFacetsIgnoreActiveDimensionFilters(t *testing.T) {
 		t.Fatalf("facets.stages=%d, want 3 — facets must not be narrowed by the active stage filter", len(got.Facets.Stages))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Shed facet — the Park -> Shed cascade's vocabulary
+// ---------------------------------------------------------------------------
+
+// A second park plus two sheds that share a NAME across parks, mirroring real seeded data where
+// 66 of 154 shed names exist under both Coimbatore and Channapatna.
+const (
+	countsParkTwo       = "00000000-0000-4000-8000-000000003002"
+	countsShedCastroOne = "00000000-0000-4000-8000-000000004011"
+	countsShedCastroTwo = "00000000-0000-4000-8000-000000004012"
+)
+
+// seedSameNamedShedsInTwoParks creates "Castro 1" TWICE — once under each park — as two distinct
+// location rows. Any facet that keys or dedupes sheds by name collapses these two physically
+// separate sheds into one option and reports a merged head count.
+func seedSameNamedShedsInTwoParks(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CBE', 'CBE', 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, countsParkTwo); err != nil {
+		t.Fatalf("seed second park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES
+  ($3::uuid, $1::uuid, 'shed', 'CPT-CASTRO-1', 'Castro 1', $2::uuid, 'active'),
+  ($5::uuid, $1::uuid, 'shed', 'CBE-CASTRO-1', 'Castro 1', $4::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, countsShedCastroOne, countsParkTwo, countsShedCastroTwo); err != nil {
+		t.Fatalf("seed same-named sheds: %v", err)
+	}
+}
+
+// shedFacetByKey indexes the shed facet by (key, park_id) — the composite the branch groups on.
+func shedFacetByKey(facets []domain.CountsBreakdownShedFacet) map[[2]string]domain.CountsBreakdownShedFacet {
+	out := make(map[[2]string]domain.CountsBreakdownShedFacet, len(facets))
+	for _, f := range facets {
+		out[[2]string{f.Key, f.ParkID}] = f
+	}
+	return out
+}
+
+// The core grain proof. Every animal carries exactly one shed_id and one park_id on its own row,
+// so grouping on those columns must PARTITION the herd: each shed's facet count equals that
+// shed's real census, and the counts sum to the whole-herd total exactly once per animal. A
+// fan-out on the locations join would inflate both.
+func TestCountsBreakdownShedFacetMatchesPerShedCensusAndPartitionsTheHerd(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	// 4 in shed A, 3 in shed B, spread across breeds/stages/sexes so the shed rollup has to
+	// aggregate across several grain rows rather than read one.
+	seed := []struct {
+		shed              string
+		breed, stage, sex string
+	}{
+		{countsShedA, "Beetal", "K1", "female"},
+		{countsShedA, "Beetal", "K2", "male"},
+		{countsShedA, "Malai", "K1", "female"},
+		{countsShedA, "Malai", "F2", "male"},
+		{countsShedB, "Beetal", "K1", "female"},
+		{countsShedB, "Sojat", "K2", "male"},
+		{countsShedB, "Sojat", "K2", "female"},
+	}
+	for i, s := range seed {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			s.sex, s.breed, "alive", s.stage, strp(countsPark), strp(s.shed), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	if len(got.Facets.Sheds) != 2 {
+		t.Fatalf("facets.sheds=%d, want 2 — one entry per shed holding animals, got %+v",
+			len(got.Facets.Sheds), got.Facets.Sheds)
+	}
+	byKey := shedFacetByKey(got.Facets.Sheds)
+	a, ok := byKey[[2]string{countsShedA, countsPark}]
+	if !ok {
+		t.Fatalf("shed A missing from facets: %+v", got.Facets.Sheds)
+	}
+	if a.Count != 4 {
+		t.Errorf("shed A count=%d, want 4 — this is the shed's real census", a.Count)
+	}
+	if a.Label != "CPT Shed 1" {
+		t.Errorf("shed A label=%q, want CPT Shed 1", a.Label)
+	}
+	b, ok := byKey[[2]string{countsShedB, countsPark}]
+	if !ok {
+		t.Fatalf("shed B missing from facets: %+v", got.Facets.Sheds)
+	}
+	if b.Count != 3 {
+		t.Errorf("shed B count=%d, want 3", b.Count)
+	}
+
+	// Partition proof: the shed facet must sum to the whole herd, never more (fan-out) and never
+	// less (a silent cap or a dropped bucket).
+	var sum int64
+	for _, f := range got.Facets.Sheds {
+		sum += f.Count
+	}
+	if sum != got.TotalCount || sum != 7 {
+		t.Errorf("sum(shed facet counts)=%d, want %d (total_count) and 7 — the shed dimension must partition the herd exactly once per animal",
+			sum, got.TotalCount)
+	}
+}
+
+// THE reason park_id is on the entry. Two sheds legitimately share the name "Castro 1" in
+// different parks. They must surface as two entries with distinct keys AND distinct park ids, so
+// a Park -> Shed cascade can tell them apart. If the facet keyed or labelled by name, an operator
+// filtering Coimbatore would see one merged "Castro 1" carrying Channapatna's animals too.
+func TestCountsBreakdownShedFacetSeparatesSameNamedShedsInDifferentParks(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	// 5 animals in the CPT "Castro 1", 2 in the CBE "Castro 1".
+	for i := 0; i < 5; i++ {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedCastroOne), nil)
+	}
+	for i := 5; i < 7; i++ {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"male", "Malai", "alive", "K2", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	var castro []domain.CountsBreakdownShedFacet
+	for _, f := range got.Facets.Sheds {
+		if f.Label == "Castro 1" {
+			castro = append(castro, f)
+		}
+	}
+	if len(castro) != 2 {
+		t.Fatalf("found %d facet entries labelled 'Castro 1', want 2 SEPARATE entries: %+v",
+			len(castro), got.Facets.Sheds)
+	}
+	if castro[0].Key == castro[1].Key {
+		t.Errorf("both 'Castro 1' entries share key %s — shed identity must be the shed UUID", castro[0].Key)
+	}
+	if castro[0].ParkID == castro[1].ParkID {
+		t.Errorf("both 'Castro 1' entries report park_id %s — the cascade cannot tell them apart", castro[0].ParkID)
+	}
+
+	byKey := shedFacetByKey(got.Facets.Sheds)
+	cpt, ok := byKey[[2]string{countsShedCastroOne, countsPark}]
+	if !ok {
+		t.Fatalf("CPT Castro 1 missing: %+v", got.Facets.Sheds)
+	}
+	if cpt.Count != 5 {
+		t.Errorf("CPT Castro 1 count=%d, want 5 — not merged with the CBE shed of the same name", cpt.Count)
+	}
+	cbe, ok := byKey[[2]string{countsShedCastroTwo, countsParkTwo}]
+	if !ok {
+		t.Fatalf("CBE Castro 1 missing: %+v", got.Facets.Sheds)
+	}
+	if cbe.Count != 2 {
+		t.Errorf("CBE Castro 1 count=%d, want 2", cbe.Count)
+	}
+}
+
+// The cascade contract, asserted from the client's side: selecting a park and keeping only the
+// shed entries whose park_id matches must yield exactly that park's sheds — and the count on
+// each entry must equal what the equivalent park_id + shed_id request actually returns. If those
+// two numbers could disagree, the dropdown would advertise a head count the filter never
+// delivers.
+func TestCountsBreakdownShedFacetParkScopeCascadeAgreesWithTheFilter(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	for i := 0; i < 5; i++ {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedCastroOne), nil)
+	}
+	insertBreakdownGoat(t, ctx, pool, goatUUID(5), goatDisplayID(5),
+		"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+	for i := 6; i < 8; i++ {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"male", "Malai", "alive", "K2", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	// Cascade for the second park: exactly one shed, the CBE Castro 1.
+	var cbeSheds []domain.CountsBreakdownShedFacet
+	for _, f := range got.Facets.Sheds {
+		if f.ParkID == countsParkTwo {
+			cbeSheds = append(cbeSheds, f)
+		}
+	}
+	if len(cbeSheds) != 1 || cbeSheds[0].Key != countsShedCastroTwo {
+		t.Fatalf("cascade for park %s produced %+v, want only the CBE Castro 1", countsParkTwo, cbeSheds)
+	}
+
+	// Cascade for the first park: its two sheds, and NOT the identically named CBE shed.
+	cptKeys := map[string]bool{}
+	for _, f := range got.Facets.Sheds {
+		if f.ParkID == countsPark {
+			cptKeys[f.Key] = true
+		}
+	}
+	if len(cptKeys) != 2 || !cptKeys[countsShedCastroOne] || !cptKeys[countsShedA] {
+		t.Fatalf("cascade for park %s produced keys %v, want exactly the two CPT sheds", countsPark, cptKeys)
+	}
+	if cptKeys[countsShedCastroTwo] {
+		t.Errorf("the CBE shed leaked into the CPT cascade — park_id is not scoping the list")
+	}
+
+	// Each advertised count must equal what the real filter returns.
+	for _, f := range got.Facets.Sheds {
+		filtered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+			TenantID: countsTenant, ParkID: strp(f.ParkID), ShedID: strp(f.Key), Limit: 50,
+		})
+		if err != nil {
+			t.Fatalf("filtered breakdown for shed %s: %v", f.Key, err)
+		}
+		if filtered.TotalCount != f.Count {
+			t.Errorf("shed %s (park %s): facet advertises %d but ?park_id=&shed_id= returns %d",
+				f.Key, f.ParkID, f.Count, filtered.TotalCount)
+		}
+	}
+}
+
+// The shed facet LEFT JOINs locations for its label. That join is on the locations primary key,
+// so it is a strict 1:{0,1} lookup — but a rewrite to join on name or code would match decoys and
+// count each animal once per matching row. Seed decoy sheds sharing the real shed's name and code
+// shape and assert the counts do not move.
+func TestCountsBreakdownShedFacetOneToManyLabelJoinDoesNotFanOutCounts(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES
+  ('00000000-0000-4000-8000-000000004091'::uuid, $1::uuid, 'shed', 'CPT-S1-DUP-A', 'CPT Shed 1', $2::uuid, 'active'),
+  ('00000000-0000-4000-8000-000000004092'::uuid, $1::uuid, 'shed', 'CPT-S1-DUP-B', 'CPT Shed 1', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, countsPark); err != nil {
+		t.Fatalf("seed decoy sheds: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if len(got.Facets.Sheds) != 1 {
+		t.Fatalf("facets.sheds=%d, want 1 — the two decoy sheds hold no animals and must not appear: %+v",
+			len(got.Facets.Sheds), got.Facets.Sheds)
+	}
+	if got.Facets.Sheds[0].Count != 3 {
+		t.Errorf("shed facet count=%d, want 3 — a fan-out on the label join would report 9", got.Facets.Sheds[0].Count)
+	}
+	if got.Facets.Sheds[0].Key != countsShedA {
+		t.Errorf("shed facet key=%q, want the shed UUID %s", got.Facets.Sheds[0].Key, countsShedA)
+	}
+}
+
+// The shed facet's membership must track the requested lifecycle bucket across the WHOLE status
+// matrix, not just the 'alive' default. Sweep every value the lifecycle CHECK constraint permits,
+// each in its own shed, then assert three things per status: the shed vocabulary contains exactly
+// the shed holding that status, its count is right, and no other status leaks in. A merged animal
+// is also seeded — it is a redirect, not a second animal, so it must stay invisible in the shed
+// vocabulary even though it is alive and sits in a real shed.
+func TestCountsBreakdownShedFacetStatusMatrixTracksTheRequestedLifecycleBucket(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	// Every value the live CHECK constraint permits, except 'merged' (covered below). Statuses
+	// are spread over four sheds so a status bucket that leaked would surface as an extra shed
+	// entry rather than only as a wrong number.
+	sheds := []struct{ shed, park string }{
+		{countsShedA, countsPark},
+		{countsShedB, countsPark},
+		{countsShedCastroOne, countsPark},
+		{countsShedCastroTwo, countsParkTwo},
+	}
+	statuses := []string{
+		"alive", "sick", "under_treatment", "quarantine", "icu",
+		"dead", "sold", "culled", "transferred", "lost", "inactive",
+	}
+	shedForStatus := map[string]struct{ shed, park string }{}
+	id := 0
+	for i, status := range statuses {
+		placement := sheds[i%len(sheds)]
+		shedForStatus[status] = placement
+		insertBreakdownGoat(t, ctx, pool, goatUUID(id), goatDisplayID(id),
+			"female", "Beetal", status, "K1", strp(placement.park), strp(placement.shed), nil)
+		id++
+	}
+
+	// A merged goat in its OWN shed: if merge exclusion were missing, that shed would appear in
+	// the vocabulary as a phantom option the operator could select and find empty.
+	survivor := goatUUID(id)
+	insertBreakdownGoat(t, ctx, pool, survivor, goatDisplayID(80),
+		"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+	id++
+	insertBreakdownGoat(t, ctx, pool, goatUUID(id), goatDisplayID(81),
+		"female", "Beetal", "alive", "K1", strp(countsParkTwo), strp(countsShedCastroTwo), strp(survivor))
+
+	// Default bucket is strictly 'alive': one swept animal plus the merge survivor, both in shed A.
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if len(got.Facets.Sheds) != 1 {
+		t.Fatalf("default facets.sheds=%d, want 1 — only shed A holds live unmerged animals: %+v",
+			len(got.Facets.Sheds), got.Facets.Sheds)
+	}
+	if got.Facets.Sheds[0].Key != countsShedA || got.Facets.Sheds[0].Count != 2 {
+		t.Fatalf("default shed facet=%+v, want shed A with count 2 (swept 'alive' + survivor); the merged twin must not add a shed",
+			got.Facets.Sheds[0])
+	}
+
+	// Every status must be individually reachable, and must select ONLY its own shed.
+	for _, status := range statuses {
+		scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+			TenantID: countsTenant, LifecycleStatus: strp(status), Limit: 50,
+		})
+		if err != nil {
+			t.Fatalf("status %s: %v", status, err)
+		}
+		want := int64(1)
+		if status == "alive" {
+			want = 2 // the swept row plus the merge survivor, both in shed A
+		}
+		if len(scoped.Facets.Sheds) != 1 {
+			t.Errorf("status %s: facets.sheds=%d, want 1 — another status bucket leaked in: %+v",
+				status, len(scoped.Facets.Sheds), scoped.Facets.Sheds)
+			continue
+		}
+		placement := shedForStatus[status]
+		entry := scoped.Facets.Sheds[0]
+		if entry.Key != placement.shed || entry.ParkID != placement.park {
+			t.Errorf("status %s: shed facet=%+v, want shed %s in park %s",
+				status, entry, placement.shed, placement.park)
+		}
+		if entry.Count != want {
+			t.Errorf("status %s: shed facet count=%d, want %d", status, entry.Count, want)
+		}
+		if entry.Count != scoped.TotalCount {
+			t.Errorf("status %s: shed facet count=%d but total_count=%d — the facet must partition the bucket",
+				status, entry.Count, scoped.TotalCount)
+		}
+	}
+}
+
+// Facets are a whole-result rollup, so the shed vocabulary must be byte-identical at every page
+// size. If it were ever derived from the returned page, the Shed dropdown would gain and lose
+// options as the operator paged the table underneath it.
+func TestCountsBreakdownShedFacetPaginationAndPageBoundaryDoNotMoveTheVocabulary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	sheds := []struct {
+		shed, park string
+	}{
+		{countsShedA, countsPark},
+		{countsShedB, countsPark},
+		{countsShedCastroOne, countsPark},
+		{countsShedCastroTwo, countsParkTwo},
+	}
+	n := 0
+	for _, s := range sheds {
+		for i := 0; i < 3; i++ {
+			insertBreakdownGoat(t, ctx, pool, goatUUID(n), goatDisplayID(n),
+				"female", "Beetal", "alive", fmt.Sprintf("K%d", i+1), strp(s.park), strp(s.shed), nil)
+			n++
+		}
+	}
+
+	full, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 100})
+	if err != nil {
+		t.Fatalf("full page: %v", err)
+	}
+	if len(full.Facets.Sheds) != 4 {
+		t.Fatalf("facets.sheds=%d, want 4: %+v", len(full.Facets.Sheds), full.Facets.Sheds)
+	}
+
+	for _, page := range []struct {
+		limit, offset int32
+	}{{1, 0}, {1, 5}, {2, 3}, {100, 0}} {
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+			TenantID: countsTenant, Limit: page.limit, Offset: page.offset,
+		})
+		if err != nil {
+			t.Fatalf("limit=%d offset=%d: %v", page.limit, page.offset, err)
+		}
+		if len(got.Facets.Sheds) != len(full.Facets.Sheds) {
+			t.Fatalf("limit=%d offset=%d: facets.sheds=%d, want %d — the shed vocabulary must not follow the page",
+				page.limit, page.offset, len(got.Facets.Sheds), len(full.Facets.Sheds))
+		}
+		for i := range got.Facets.Sheds {
+			if got.Facets.Sheds[i] != full.Facets.Sheds[i] {
+				t.Errorf("limit=%d offset=%d: shed facet[%d]=%+v, want %+v",
+					page.limit, page.offset, i, got.Facets.Sheds[i], full.Facets.Sheds[i])
+			}
+		}
+	}
+}
+
+// The shed branch must share its siblings' scope semantics exactly: facets describe the whole
+// selectable vocabulary, NOT the current selection. If an active park or shed filter narrowed
+// the shed list, picking a shed would collapse the dropdown to that one shed and the operator
+// could never switch parks. Asserted alongside the parks branch so the two cannot drift.
+func TestCountsBreakdownShedFacetIsWholeResultRollupLikeParksBranch(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	insertBreakdownGoat(t, ctx, pool, goatUUID(0), goatDisplayID(0),
+		"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(1), goatDisplayID(1),
+		"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedCastroOne), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(2), goatDisplayID(2),
+		"male", "Malai", "alive", "K2", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
+
+	unfiltered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("unfiltered: %v", err)
+	}
+
+	filtered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, ParkID: strp(countsParkTwo), ShedID: strp(countsShedCastroTwo), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("filtered: %v", err)
+	}
+	if filtered.TotalCount != 1 {
+		t.Fatalf("total_count=%d, want 1 — the park/shed filters must narrow the GRAIN rows", filtered.TotalCount)
+	}
+
+	if len(filtered.Facets.Sheds) != len(unfiltered.Facets.Sheds) || len(filtered.Facets.Sheds) != 3 {
+		t.Fatalf("filtered facets.sheds=%d, unfiltered=%d, want 3 both — the shed vocabulary must survive an active filter",
+			len(filtered.Facets.Sheds), len(unfiltered.Facets.Sheds))
+	}
+	for i := range filtered.Facets.Sheds {
+		if filtered.Facets.Sheds[i] != unfiltered.Facets.Sheds[i] {
+			t.Errorf("shed facet[%d] under filter=%+v, unfiltered=%+v", i, filtered.Facets.Sheds[i], unfiltered.Facets.Sheds[i])
+		}
+	}
+	// Same rule, sibling branch — the two must behave identically.
+	if len(filtered.Facets.Parks) != len(unfiltered.Facets.Parks) || len(filtered.Facets.Parks) != 2 {
+		t.Errorf("filtered facets.parks=%d, unfiltered=%d, want 2 both",
+			len(filtered.Facets.Parks), len(unfiltered.Facets.Parks))
+	}
+}
+
+// An animal with no shed is a real operational state (unplaced stock). It belongs in its own
+// explicit ” bucket, exactly like the parks branch's null bucket, rather than being dropped —
+// dropping it would make the shed facet stop summing to the herd total.
+func TestCountsBreakdownShedFacetKeepsUnplacedAnimalsInTheirOwnBucket(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	insertBreakdownGoat(t, ctx, pool, goatUUID(0), goatDisplayID(0),
+		"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(1), goatDisplayID(1),
+		"female", "Beetal", "alive", "K1", strp(countsPark), nil, nil)
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	byKey := shedFacetByKey(got.Facets.Sheds)
+	unplaced, ok := byKey[[2]string{"", countsPark}]
+	if !ok {
+		t.Fatalf("no '' bucket for the shedless animal: %+v", got.Facets.Sheds)
+	}
+	if unplaced.Count != 1 {
+		t.Errorf("unplaced bucket count=%d, want 1", unplaced.Count)
+	}
+	if unplaced.ParkID != countsPark {
+		t.Errorf("unplaced bucket park_id=%q, want %s — the park is still known", unplaced.ParkID, countsPark)
+	}
+
+	var sum int64
+	for _, f := range got.Facets.Sheds {
+		sum += f.Count
+	}
+	if sum != got.TotalCount {
+		t.Errorf("sum(shed facet counts)=%d, want total_count=%d — the '' bucket must keep the partition complete",
+			sum, got.TotalCount)
+	}
+}

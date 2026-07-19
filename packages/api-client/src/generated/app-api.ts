@@ -3768,12 +3768,23 @@ export interface components {
             /** @description Top sheds by head count; display-capped, never the source of totals. */
             shed: components["schemas"]["CountsBreakdownSeriesPoint"][];
         };
+        /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. */
+        CountsBreakdownShedFacet: {
+            /** @description Shed UUID; empty for the bucket of animals with no shed assigned. */
+            key: string;
+            label: string;
+            count: number;
+            /** @description Park UUID these animals sit in; empty only when the animals have no park assigned. Matches the park_id request filter, so count equals what ?park_id=<park_id>&shed_id=<key> returns. */
+            park_id: string;
+        };
         CountsBreakdownFacets: {
             /** @description Distinct management_stage values actually present, so a filter cannot offer a dead option. */
             stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
             breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
             /** @description Parks holding animals, keyed by park_id and labelled with the park code. Backs the Farm filter so its options are live data rather than a hardcoded park list. */
             parks: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description Sheds holding animals, keyed by shed_id and carrying park_id so a Park -> Shed cascade can filter them. Whole-result rollup, independent of limit/offset. UNCAPPED on purpose — unlike charts.shed, which is display-capped to the top 12 bars, this is a filter vocabulary and a silent truncation would present a partial shed list as the complete one. Bounded by the distinct shed vocabulary, not by herd size. */
+            sheds: components["schemas"]["CountsBreakdownShedFacet"][];
         };
         CountsBreakdownResponse: {
             items: components["schemas"]["CountsBreakdownRow"][];
