@@ -27,6 +27,13 @@ var (
 	ErrInvalidResolutionAction = errors.New("counts: invalid projection exception resolution action")
 	ErrInvalidExceptionFilter  = errors.New("counts: invalid projection exception filter")
 	ErrInvalidScanWindow       = errors.New("counts: invalid mismatch scan window")
+
+	// ErrImpactNotDerivable is returned when a shifting request omits impacts but does not name
+	// EXACTLY ONE animal. Impacts describe a cohort at breed grain ("12 head of Boer"); the server
+	// can only derive that description from the animals themselves when there is exactly one animal
+	// to describe. For two or more, guessing how the operator wanted the cohort split would invent
+	// business data, so the caller must state the impacts.
+	ErrImpactNotDerivable = errors.New("counts: impacts can only be derived for exactly one goat")
 )
 
 const (

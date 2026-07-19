@@ -141,19 +141,164 @@ GOATOS_LOCAL_USER_ID=90000000-0000-4000-8000-000000000103 make android-dev-run
 
 Switch role = repeat step 2 with a different `GOATOS_LOCAL_USER_ID` (grant it once via step 1 first).
 
+### Granting MODULES to a dev identity (`-modules`)
+
+Role alone no longer decides what the app shows. The bottom bar and the module drawer are
+composed from **module grants** (`department_module_grants`, mig `000002`;
+`docs/decisions/role-module-nav-composition.md`), resolved
+`user → workforce_members.department_id → module keys`. **The grant hangs off the
+department, not the user** — so `-modules` only does something alongside `-department`,
+and it grants those modules to *everyone* in that department.
+
+`-modules` defaults to `vaccination`, so the command above is unchanged and still yields a
+working vaccination identity. Pass it explicitly to get more:
+
+```bash
+cd backend
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' GOATOS_ENV=local \
+  go run ./cmd/seed-dev-grant \
+    -tenant-id 00000000-0000-4000-8000-000000000001 \
+    -user-id 90000000-0000-4000-8000-000000000101 \
+    -role operator \
+    -department preventive_care \
+    -modules vaccination,counts     # two available modules => drawer + a switchable bar
+```
+
+- **One available module** → bottom bar only, no drawer. **Two or more** → expanded drawer
+  (`navChromeFor` counts registry-known, `available`, granted modules).
+- The bar is **module-scoped**: each module carries its own `NavItems`, and picking a module
+  in the drawer swaps the bar. It is not a union of every granted module's tabs.
+- Valid keys are whatever `moduleNavRegistry`
+  (`backend/internal/workforce/app/bootstrap_copy.go`) knows: `vaccination`, `counts`, and
+  the declared-but-unbuilt `feed_direction` / `breeding`. An unknown key is stored happily
+  and simply contributes no nav — deliberate, so adding a module stays a registry entry plus
+  a grant row rather than a migration.
+- `"soon"` modules (`feed_direction`, `breeding`) show as disabled drawer rows for everyone
+  regardless of grants; granting one confers no access and does not count toward the drawer
+  threshold.
+- Idempotent: re-running upserts on `(tenant_id, department_id, module_key)` and reactivates
+  an inactive row rather than duplicating it.
+- `-modules ""` skips module granting entirely (department attachment only).
+
+**Empty bottom bar after sign-in** is almost always this: the user has a role grant and a
+workforce member, but the member's department has no `department_module_grants` row. Check:
+
+```sql
+SELECT d.code, dmg.module_key, dmg.status
+FROM workforce_members wm
+JOIN departments d ON d.tenant_id = wm.tenant_id AND d.department_id = wm.department_id
+LEFT JOIN department_module_grants dmg
+  ON dmg.tenant_id = wm.tenant_id AND dmg.department_id = wm.department_id
+WHERE wm.tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND wm.user_id = '90000000-0000-4000-8000-000000000101'
+  AND wm.status = 'active';
+```
+
+The full source seed (`make seed-vaccination-source-full`) grants department defaults on its
+own via `backend/cmd/seed-roster-real` — `preventive_care` → vaccination + counts, `health` →
+counts, plus the "soon" `feed`/`breeding` rows — so a fresh source seed yields working nav
+without this step. `-modules` is for hand-seeded dev identities that never went through the
+roster import.
+
 **Canonical dev identities (convention — any UUID works once granted):**
 
-| role (`-role`) | suggested user-id | can do |
-|---|---|---|
-| `operator` | `…000101` (the script default) | EXECUTE a drive: scan → submit + proof. Cannot close/verify. |
-| `park_head` | `…000102` | leadership follow-up in app; close + post verification on admin-web |
-| `pc_director` | `…000103` | leadership follow-up in app; close + post verification on admin-web |
-| `ceo_internal` | `…000104` | leadership follow-up in app; close + post verification on admin-web |
-| `verifier` | `…000105` | leadership follow-up in app; post verification on admin-web |
+| role (`-role`) | suggested user-id | can do | Counts module |
+|---|---|---|---|
+| `operator` | `…000101` (the script default) | EXECUTE a drive: scan → submit + proof. RECORD birth + death in Counts. Cannot close/verify a drive. | capture only — Birth/Death + Shifting, **no census** |
+| `park_head` | `…000102` | leadership follow-up in app; close + post verification on admin-web | capture only — Birth/Death + Shifting, **no census** |
+| `pc_director` | `…000103` | leadership follow-up in app; close + post verification on admin-web | **none — module not in drawer** |
+| `ceo_internal` | `…000104` | leadership follow-up in app; close + post verification on admin-web | full — census + Birth/Death + Shifting |
+| `verifier` | `…000105` | post verification on admin-web. **Cannot use the mobile app at all** (see below) | **none — module not in drawer** |
+| `admin` | (as needed) | full admin surface on admin-web | full — census + Birth/Death + Shifting |
 
 (`…` = `90000000-0000-4000-8000-0000000001`.) The current business rule: **Director / CEO / CxO / Park Head /
-verifier can close + verify through admin-web; operators execute only.** On mobile today, leadership is
-follow-up/read-only (plus assign where granted); the operator path is app-only execution.
+verifier can close + verify vaccination drives through admin-web. Operators do not close or verify —
+but they are no longer execution-only: a field operator RECORDS BIRTH and DEATH from the mobile app**
+(maintainer-approved, Counts module → Birth/Death). On mobile today, leadership is follow-up/read-only
+(plus assign where granted); the operator path is app execution plus Counts birth/death capture.
+
+### Counts access per role (maintainer decision 2026-07-18)
+
+The Counts module's three pages are gated **individually**, so one module shows a
+different bar to different jobs. The distinction being enforced: **field capture and
+tenant-wide census visibility are different authorities.** An Operator or Park Head
+records births/deaths/shiftings as their own ground truth but does **not** get a
+tenant-wide population view; Admin/CEO do.
+
+| role | census `/counts` | `/counts/birth-death` | `/counts/shifting` | module in drawer |
+|---|---|---|---|---|
+| `operator` | NO | yes | yes | yes |
+| `park_head` | NO | yes | yes | yes |
+| `admin` | yes | yes | yes | yes |
+| `ceo_internal` | yes | yes | yes | yes |
+| `pc_director` | NO | NO | NO | **NO — excluded entirely** |
+| `verifier` | NO | NO | NO | **NO — excluded entirely** |
+
+- The census page requires **`counts.read`** (Admin + CEO only); the two capture pages
+  require **`counts.write`**. `counts.read` is split off `goat.read` on purpose —
+  `goat.read` is held by nearly every role, so reusing it would have made the census
+  effectively public.
+- **This is real enforcement, not just a hidden tab.** `GET /counts/breakdown` and
+  `GET /herd-register/summary` require `counts.read`
+  (`backend/internal/permissions/routes.go`), so a hidden census page returns **403**
+  if requested directly.
+- Operator and Park Head **land on `/counts/birth-death`**, not `/counts` — the
+  module's landing href falls back to the first page the principal may actually open,
+  so nobody arrives on a route that 403s.
+- `pc_director` and `verifier` hold neither counts permission, so the module has zero
+  permitted items and is **omitted from the drawer entirely** — do not expect an empty
+  Counts row when testing those identities.
+- Pinned by `TestCountsModuleRoleMatrix`
+  (`backend/internal/workforce/app/service_test.go`); the route denials are pinned in
+  `backend/internal/permissions/permissions_test.go`.
+
+**To create a counts-capable dev identity**, grant the module to the department and use
+a role that holds a counts permission:
+
+```bash
+cd backend
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' GOATOS_ENV=local \
+  go run ./cmd/seed-dev-grant \
+    -tenant-id 00000000-0000-4000-8000-000000000001 \
+    -user-id 90000000-0000-4000-8000-000000000101 \
+    -role operator \
+    -department preventive_care \
+    -modules vaccination,counts
+```
+
+That yields a two-module drawer, with Counts showing the **two capture tabs only**. Swap
+`-role operator` for `-role ceo_internal` to see the three-tab version including census.
+Remember `-modules` grants to the **department**, so everyone in `preventive_care` gets
+Counts — but each person still sees only the pages their role permits.
+
+> **`verifier` cannot use the mobile app at all.** `RoleVerifier` does not hold
+> `app.bootstrap`, so `GET /app/bootstrap` returns **403** and the app cannot load for
+> that identity — there is no nav to inspect. This is **pre-existing** and not part of
+> the 2026-07-18 Counts decision; it simply means a verifier's exclusion from Counts is
+> enforced twice over. Use admin-web for verifier testing.
+
+Scope of the operator lifecycle write, precisely:
+- **Gained**: birth and death recording in the **Counts** module (`/counts/birth-death`).
+- **Unchanged**: operators still cannot close a vaccination drive, post verification, approve
+  proof, or run any admin bulk-status path.
+- Death recording does **not** relax the critical-action guardrail. A death exit still goes through
+  the dedicated `dead` + `died` guardrail route (`POST /admin/goats/{goat_id}/critical-death-exit`),
+  never the regular exit primitive and never the bulk-status path — see
+  `docs/features/critical-animal-action-guardrails.md`. Being reachable by an operator changes WHO
+  may call it, not WHAT it enforces.
+
+How it is wired (so you test the right route): the operator write goes through the **app** tier,
+not the admin API — `POST /app/counts/{shifting,birth,death}-events`
+(`backend/internal/counts/adapters/http/app_write_handler.go`), gated on the dedicated
+`counts.write` permission. That permission is deliberately NOT `goat.write_identity` /
+`goat.write_health`: reusing those would have handed operators every `/admin/goats/*` route.
+Birth delegates to identity's `CreateAdminGoat` and death to `CriticalDeathExit`, so the domain
+rules and the guardrail are reused, never re-implemented. `counts.write` is held by the ground
+capture roles — flat `operator` and `park_head`, plus the Assistant Manager and Manager tiers —
+and by `admin` / `ceo_internal` for oversight. It is held by **neither `verifier`** (which keeps
+capture and verification separate) **nor `pc_director` / the Head and Director tiers**, which act
+on verified work rather than capturing it. `pc_director` previously held `counts.write` and lost
+it in the 2026-07-18 decision above.
 
 Valid roles (from `seed-dev-grant`): `admin`, `verifier`, `park_head`, `pc_director`, `operator`,
 `ceo_internal`.

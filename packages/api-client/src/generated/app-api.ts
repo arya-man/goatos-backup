@@ -1266,6 +1266,206 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/shifting/destinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the park -> shed destinations an operator may shift animals into.
+         * @description Returns the destination options for the shifting form as a CASCADE: every active park, each carrying its own active sheds. It is the backend-owned option vocabulary for the two destination dropdowns - the client renders what it is given and must not hold a hardcoded shed list, re-sort the options, or construct a destination from a typed name. The cascade is required for CORRECTNESS, not presentation: shed names REPEAT across parks (for example a 'Castro 1' exists under more than one park), so a flat shed list shows the operator two identical-looking options. Nesting each shed under its park disambiguates the choice for a human, and every option carries its own shed_id so the subsequent write is addressed by id and is never ambiguous to the server. What the UI labels a 'farm' IS the park: the location hierarchy has exactly two live levels and no farm tier. Ordering is settled server-side (park name, then shed name, with an id tiebreak) so the dropdown is stable between calls. A park with no active sheds is still returned, with an empty sheds array, so a newly-created park is not invisible. This is a BOUNDED CONFIGURATION CATALOG - on the order of a few parks and ~150 sheds, sized by how many sheds the business physically builds rather than by herd size - so it is returned whole, is meant to be fetched once and cached on-device, and is deliberately NOT paginated. It is gated on the same counts.write permission as the shifting submit route, not on the admin-tier locations.read: the operator who must choose a destination is exactly the operator who may record the movement.
+         */
+        get: operations["listAppCountsShiftingDestinations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an operator-reported shifting (movement) event for approval.
+         * @description Records a movement of a cohort into a destination shed, as reported by a field operator on the phone, and raises the approval request a park_head decides. The event is recorded for review: authorization_state is 'pending', verification_state is 'unverified' and event_status is 'pending' - an operator REPORTS a movement, they do not self-authorize it. NOTHING IS APPLIED until the request is approved via POST /app/counts/approvals/{request_id}/approve. Approving it authorizes the movement AND relocates the animals named in goat_ids to the destination shed. goat_ids is REQUIRED and must name at least one animal: a submit that names nobody is rejected here, at submit time, with 400 missing_goat_ids, so the reporting operator learns immediately rather than the approver discovering it later. Idempotent via the Idempotency-Key header: an exact replay returns the original shifting_event_id with idempotent_replay=true and records no second movement; a same-key/different-payload replay is rejected with 409.
+         */
+        post: operations["recordAppCountsShiftingEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/birth-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a birth from the operator app, for approval.
+         * @description Records a birth AS A PENDING REQUEST. It creates NO animal: no goats row is written and no goat.created event is emitted, so the kid's vaccination obligations are NOT generated until a ceo_internal approves the request via POST /app/counts/approvals/{request_id}/approve. The response therefore carries an approval_request_id and no goat_id. The payload is fully VALIDATED at submit time against the same goat-creation rules the admin POST /admin/goats route applies - origin_type pinned to 'birth' (it may be omitted, but if present it must be 'birth'), dob required and not after entry_date, identifier uniqueness - so an operator learns immediately that a payload is malformed instead of finding out days later from an approver. Approving the request replays this exact payload through that same goat-creation kernel. Idempotent via the Idempotency-Key header: an exact replay returns the original approval_request_id with idempotent_replay=true and raises no second request; a same-key/different-payload replay is rejected with 409.
+         */
+        post: operations["recordAppCountsBirthEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/death-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a death from the operator app for approval, through the critical-death guardrail.
+         * @description Records the death of an animal AS A PENDING REQUEST. The animal is NOT exited: no goats row changes and no goat.exited event is emitted, so its open obligations stay open until a ceo_internal approves the request via POST /app/counts/approvals/{request_id}/approve. GUARDRAIL (unchanged, and enforced HERE at submit as well as at approval): lifecycle_status must be 'dead' AND exit_reason must be 'died'. Any other pairing is rejected with 400, so a payload the guarded path would refuse can never be parked in an approver's queue. Approving the request replays this exact payload through the SAME dedicated critical-death exit the admin POST /admin/goats/{goat_id}/critical-death-exit route uses - the transport and the allowed role widen for field operators, the medical semantics do not. The goat.exited event emitted on approval auto-cancels the animal's open obligations. Idempotent via the Idempotency-Key header: an exact replay returns the original approval_request_id with idempotent_replay=true; a same-key/different-payload replay is rejected with 409.
+         */
+        post: operations["recordAppCountsDeathEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events/pending-execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List authorized shiftings waiting to be physically executed.
+         * @description The operator's execution queue: movements that have been APPROVED but whose animals have not moved yet (event_status='authorized'). Each row carries what an operator needs in order to act - where the animals are now, where they are going, the category and priority, who approved it and when - plus the movement's full animal_count and a bounded preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. PARK SCOPE: park_id is an OPTIONAL filter matching the movement's SOURCE park (where the animals currently are - an operator has to go there to collect them). Omitting it returns every park. It is a client filter today rather than a per-operator scope derived from the caller, because no per-operator park assignment data exists yet; deriving it now would return an empty queue for every operator.
+         */
+        get: operations["listAppCountsShiftingPendingExecution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events/{shifting_event_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm an authorized shifting physically happened. THIS moves the animals.
+         * @description Records that an operator has physically moved the animals to the destination shed. THIS is the call that relocates them in `goats` - approving the shifting only authorized it. ATOMIC: the relocation, the flip to event_status='applied', and the applied_at/applied_by stamp all commit in ONE transaction. If any named animal cannot be moved (it was exited or merged) the WHOLE completion is rolled back with 409 shifting_execution_incomplete and the movement stays 'authorized' - it never half-applies. Valid ONLY from event_status='authorized'. A movement that is still pending approval, or was rejected or canceled, is refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. No request body. The animals, destination, and authorization are already recorded - accepting an animal set here would let a phone relocate a herd the approver never signed off on. Requires the Idempotency-Key header. Completing an already-applied movement returns the ORIGINAL result with idempotent_replay=true and relocates nobody a second time.
+         */
+        post: operations["completeAppCountsShiftingEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events/{shifting_event_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire an authorized shifting that will never be executed. NOTHING moves.
+         * @description Cancels an approved movement nobody is going to walk, so abandoned shiftings do not sit on the execution queue forever. NO animal moves and no location changes. A reason is REQUIRED - an abandoned movement that vanishes with no explanation is indistinguishable from one that was executed - and is enforced by the database as well as the API. Valid ONLY from event_status='authorized'. A movement still pending approval is NOT cancellable here: it is retired by its approver REJECTING the approval request instead, which keeps the decision with the person who holds the authority to make it. Any other state is refused with 400 shifting_not_authorized. ANY operator holding counts.write may cancel, on the same reasoning as complete. Requires the Idempotency-Key header; cancelling an already-cancelled movement returns the original result with idempotent_replay=true.
+         */
+        post: operations["cancelAppCountsShiftingEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List lifecycle approval requests the caller may decide.
+         * @description The approver's queue. Returns ONLY the request types the caller is authorised to decide - a park_head sees shifting requests, a ceo_internal sees birth and death requests - because the filter is derived from the caller's permissions, not from the query string. A caller with neither approval permission receives an empty list. Keyset-paginated with a maximum page size of 20: this queue is read from a phone, so a client asking for more receives one screen of work, not the whole backlog.
+         */
+        get: operations["listAppCountsApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/approvals/{request_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a pending lifecycle request.
+         * @description Applies the request. For a BIRTH this creates the kid (and generates its vaccination obligations); for a DEATH it exits the animal through the guarded critical-death path (and cancels its open obligations). Those two are unchanged: for them, the approval IS the record of the fact. A SHIFTING IS DIFFERENT (maintainer decision, 2026-07-19). Approving a shifting AUTHORIZES it and MOVES NOTHING - the animals stay in the source shed and the herd register keeps reading it, because approval is a manager's permission slip, not evidence that anybody walked the animals anywhere. The relocation happens later, when an operator confirms the movement physically happened via POST /app/counts/shifting-events/{shifting_event_id}/complete. ATOMIC: the effect and the status flip commit in ONE transaction, so a request can never be readable as 'approved' while its effect failed to save, and never applied while the request still reads 'pending'. AUTHORITY IS PER TYPE, checked against the stored request: a park_head may approve a shifting but NOT a birth or a death, and receives 403 if they address one. Requires the Idempotency-Key header. A second approve of an already-approved request applies nothing and returns the original decision with idempotent_replay=true; approving a request that was already rejected is a 409.
+         */
+        post: operations["approveAppCountsApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/approvals/{request_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a pending lifecycle request, applying nothing.
+         * @description Rejects the request. NO effect is applied: no animal is created, exited, or moved, and no shifting event is authorized. A reason is REQUIRED - a rejection without one is not actionable by the operator who raised it - and is enforced by the database as well as the API. Authority is per type, checked against the stored request, exactly as for approve. Requires the Idempotency-Key header. A second reject of an already-rejected request returns the original decision with idempotent_replay=true; rejecting a request that was already approved is a 409.
+         */
+        post: operations["rejectAppCountsApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3668,6 +3868,390 @@ export interface components {
             items: components["schemas"]["VerificationQueueItem"][];
             trace_id: string;
         };
+        ShiftingDestinationsResponse: {
+            /** @description Active parks, ordered by name. Always present; an empty array means the tenant has no active park configured, never null. */
+            parks: components["schemas"]["ShiftingDestinationPark"][];
+        };
+        ShiftingDestinationPark: {
+            /**
+             * Format: uuid
+             * @description The park's location id. This is what the UI labels a 'farm'.
+             */
+            park_id: string;
+            /** @description Display name for the park option. */
+            name: string;
+            /** @description The park's active sheds, ordered by name. Always present; a park with no active sheds returns an empty array rather than null, and is still listed. */
+            sheds: components["schemas"]["ShiftingDestinationShed"][];
+        };
+        ShiftingDestinationShed: {
+            /**
+             * Format: uuid
+             * @description The shed's location id, and the value that must be sent as destination_shed_id. Names repeat across parks, so this id - never the name - identifies the destination.
+             */
+            shed_id: string;
+            /** @description Display name for the shed option. NOT unique across parks; only meaningful within its parent park. */
+            name: string;
+        };
+        RecordShiftingEventRequest: {
+            /**
+             * Format: uuid
+             * @description Park the cohort moved out of. Omit for an intake with no tracked origin.
+             */
+            source_park_id?: string;
+            /**
+             * Format: uuid
+             * @description Shed the cohort moved out of. Omit for an intake with no tracked origin.
+             */
+            source_shed_id?: string;
+            /** Format: uuid */
+            destination_park_id: string;
+            /** Format: uuid */
+            destination_shed_id: string;
+            /**
+             * Format: date-time
+             * @description When the movement actually took effect. Defaults to the time the event is recorded. Normalized to UTC before the request is fingerprinted, so two representations of the same instant are the same request.
+             */
+            effective_at?: string;
+            /**
+             * @description Omit to accept the declared default ('normal'). A present but unrecognized value is rejected, never rewritten to a default the operator never chose.
+             * @enum {string}
+             */
+            priority?: "normal" | "high" | "emergency";
+            /**
+             * @description Omit to accept the declared default ('routine'). A present but unrecognized value is rejected.
+             * @enum {string}
+             */
+            category?: "routine" | "high_priority" | "pregnancy" | "warmup" | "medical" | "quarantine" | "other";
+            /** @description Optional reference to captured proof media for this movement. */
+            proof_ref?: string;
+            /** @description The structured cohort effect of the movement, at breed grain. OPTIONAL when goat_ids names EXACTLY ONE animal: the server then derives a single impact from that animal's own canonical facts (breed key/label, stage tag, age class, sex, head_count 1), so an operator moving one animal via RFID search does not have to describe a cohort the system already knows. REQUIRED for two or more animals, because the server will not invent the cohort split or the pregnancy/lactation/warm-up distribution across cohorts - omitting it there is rejected with 400 missing_impacts. When supplied, it is stored verbatim and no derivation runs. A derived impact never leaves pregnant/lactating/warmup non-zero; record those by supplying impacts explicitly. */
+            impacts?: components["schemas"]["RecordShiftingEventImpact"][];
+            /** @description The individual animals this movement covers. REQUIRED, and load-bearing: approving the request relocates EXACTLY these animals to the destination shed and re-scopes their shed-scoped vaccination obligations. impacts remain an AGGREGATE model - they record head counts by breed grain, never which specific animals - so this list is the only per-animal linkage the movement has. It is required because an authorized movement that names nobody relocates nobody, leaving the herd register and the shed-scoped obligations disagreeing with the count just reported. The server will still never infer which animals a head count referred to, because guessing would relocate real animals that nobody selected - so the list is demanded at submit, while the reporting operator can still supply it. Duplicates are removed. */
+            goat_ids: string[];
+        };
+        RecordShiftingEventImpact: {
+            /** Format: uuid */
+            breed_id?: string;
+            breed_key: string;
+            /** @description Human-readable breed label. Defaults to breed_key when omitted. */
+            breed_label?: string;
+            stage_tag?: string;
+            age_class?: string;
+            sex?: string;
+            /** @description Total animals moved in this cohort. Must be greater than zero. */
+            head_count: number;
+            /** @description Must not exceed head_count. */
+            pregnant_count?: number;
+            /** @description Must not exceed head_count. */
+            lactating_count?: number;
+            /** @description Must not exceed head_count. */
+            warmup_count?: number;
+        };
+        RecordShiftingEventResponse: {
+            /** Format: uuid */
+            shifting_event_id: string;
+            /**
+             * Format: uuid
+             * @description The approval request a park_head decides. The movement is not applied, and no animal moves, until this request is approved.
+             */
+            approval_request_id: string;
+            /**
+             * @description Status of the approval request. Always 'pending' on a fresh submission.
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected";
+            /** @description True when this result was returned from a previous identical request rather than a new write. */
+            idempotent_replay: boolean;
+        };
+        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. */
+        RecordBirthEventRequest: {
+            animal_identifier_1: string;
+            /** @description Optional until double RFID tagging is live; that rollout must make this mandatory in both app validation and DB constraints. */
+            animal_identifier_2?: string | null;
+            /** @enum {string} */
+            species: "goat" | "sheep";
+            /** Format: uuid */
+            farm_id?: string;
+            farm_code?: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_code?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_code?: string;
+            breed?: string;
+            /** @enum {string} */
+            sex: "female" | "male";
+            /**
+             * Format: date
+             * @description Date of birth. Required, and must not be after entry_date.
+             */
+            dob: string;
+            dob_estimated?: boolean;
+            /**
+             * @description Optional. When present it must be 'birth'; any other value is rejected.
+             * @constant
+             */
+            origin_type?: "birth";
+            /** Format: date */
+            entry_date: string;
+            management_stage?: string;
+            health_status?: string;
+            weight_kg?: number;
+            /** @description Identifier of the dam, when recorded at birth. */
+            dam_id?: string;
+            sire_or_lot?: string;
+            photo_url?: string;
+            source_record_id?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            vaccination_history?: components["schemas"]["EvidenceRef"][];
+        };
+        /** @description The guardrailed critical-death exit. lifecycle_status and exit_reason are constants: the dead+died pairing is the guardrail, and any other combination is rejected. */
+        RecordDeathEventRequest: {
+            /**
+             * Format: uuid
+             * @description The animal that died. Carried in the body because this route is not addressed per-animal.
+             */
+            goat_id: string;
+            /** @constant */
+            lifecycle_status: "dead";
+            /** @constant */
+            exit_reason: "died";
+            /** @description The operator's account of the death. */
+            reason: string;
+            /**
+             * Format: date-time
+             * @description When the death occurred. Defaults to the time the event is recorded.
+             */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            /** @description Optimistic-concurrency guard against the animal's current row version. */
+            row_version: number;
+        };
+        /** @description The identity module's goat-write result, returned unchanged by the birth and death endpoints. */
+        CountsGoatWriteResponse: {
+            goat: components["schemas"]["GoatSummary"];
+            identifiers: components["schemas"]["GoatIdentifier"][];
+            decision: components["schemas"]["CountsDecisionRecordSummary"];
+            /** @description The domain events emitted by the write (goat.created for a birth, goat.exited for a death). */
+            events: components["schemas"]["CountsEventSummary"][];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            generation_status: components["schemas"]["CountsGenerationStatus"];
+            trace_id: string;
+        };
+        CountsDecisionRecordSummary: {
+            /** Format: uuid */
+            decision_id: string;
+            decision_type: string;
+            decision_result: string;
+            /** @enum {string} */
+            decision_state: "proposed" | "approved" | "rejected" | "needs_review";
+            policy_version: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CountsEventSummary: {
+            /** Format: uuid */
+            event_id: string;
+            event_type: string;
+        };
+        /**
+         * @description Whether the write queued downstream obligation generation. A birth queues the kid's vaccination obligations; a death cancels open obligations instead of generating any.
+         * @enum {string}
+         */
+        CountsGenerationStatus: "queued" | "skipped_needs_review" | "skipped_ineligible" | "not_applicable";
+        /** @description The result of RAISING a lifecycle request. It deliberately contains no goat: birth and death are pending until approved, so at this point no animal has been created or exited. */
+        CountsApprovalSubmitResponse: {
+            /** Format: uuid */
+            approval_request_id: string;
+            /** @enum {string} */
+            request_type: "birth" | "death" | "shifting";
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected";
+            /** Format: date-time */
+            raised_at: string;
+            /** @description True when this result was returned from a previous identical request rather than a new write. */
+            idempotent_replay: boolean;
+        };
+        /** @description One row of the approver's queue - who raised what, and when. */
+        CountsApprovalListItem: {
+            /** Format: uuid */
+            approval_request_id: string;
+            /** @enum {string} */
+            request_type: "birth" | "death" | "shifting";
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected";
+            /**
+             * Format: uuid
+             * @description The operator who reported the event.
+             */
+            raised_by_user_id: string;
+            /** Format: date-time */
+            raised_at: string;
+            /**
+             * Format: uuid
+             * @description Present only for a shifting request - the pending movement this authorizes.
+             */
+            shifting_event_id?: string;
+            /**
+             * Format: uuid
+             * @description Present only for a death request - the animal the request would exit.
+             */
+            subject_goat_id?: string;
+            /** @description The submitted payload, for rendering the row without a second fetch. */
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            decided_by_user_id?: string;
+            /** Format: date-time */
+            decided_at?: string;
+            decision_reason?: string;
+        };
+        CountsApprovalListResponse: {
+            items: components["schemas"]["CountsApprovalListItem"][];
+            /** @description Opaque keyset cursor for the next page. Absent when this is the last page. Keyset, not offset: the queue is appended to continuously, so an offset page would skip or repeat rows as new requests arrive while an approver pages. */
+            next_cursor?: string;
+        };
+        CountsApprovalDecisionRequest: {
+            /** @description Why the request was decided this way. REQUIRED when rejecting (a rejection without a reason is not actionable by the operator who raised it); optional when approving. */
+            reason?: string;
+        };
+        CountsApprovalDecisionResponse: {
+            /** Format: uuid */
+            approval_request_id: string;
+            /** @enum {string} */
+            request_type: "birth" | "death" | "shifting";
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected";
+            /** Format: uuid */
+            decided_by_user_id?: string;
+            /** Format: date-time */
+            decided_at?: string;
+            decision_reason?: string;
+            /**
+             * @description What the approval produced, recorded in the SAME transaction as the status flip: 'goat' for an approved birth or death, 'shifting_event' for an approved movement. Absent on a rejection, which applies nothing.
+             * @enum {string}
+             */
+            applied_result_type?: "goat" | "shifting_event";
+            /**
+             * Format: uuid
+             * @description The id of the created/exited animal, or of the authorized shifting event.
+             */
+            applied_result_id?: string;
+            /** @description True when the request was already decided this way and this call applied nothing. A second approve never double-applies. */
+            idempotent_replay: boolean;
+        };
+        CountsShiftingCancelRequest: {
+            /** @description Why this authorized movement will never be executed. REQUIRED and enforced by the database: an abandoned movement that disappears with no explanation is indistinguishable from one that was carried out. */
+            reason: string;
+        };
+        CountsShiftingExecutionResponse: {
+            /** Format: uuid */
+            shifting_event_id: string;
+            /**
+             * @description 'applied' after a completion (the animals moved); 'canceled' after a cancellation (nothing moved).
+             * @enum {string}
+             */
+            event_status: "applied" | "canceled";
+            /** Format: uuid */
+            destination_park_id: string;
+            /** Format: uuid */
+            destination_shed_id: string;
+            /** @description Exactly which animals were relocated. Empty for a cancellation, which moves nobody. */
+            moved_goat_ids: string[];
+            moved_count: number;
+            /**
+             * Format: date-time
+             * @description When the operator confirmed the movement, as an absolute instant (UTC).
+             */
+            applied_at?: string;
+            /**
+             * Format: date-time
+             * @description The same instant rendered in the Asia/Kolkata business calendar. Goat OS business meaning is always India business-calendar meaning - a movement completed at 02:00 IST belongs to that IST date, not the previous UTC one.
+             */
+            applied_at_ist?: string;
+            /** Format: uuid */
+            applied_by?: string;
+            /** Format: date-time */
+            canceled_at?: string;
+            /**
+             * Format: date-time
+             * @description The cancellation instant in the Asia/Kolkata business calendar.
+             */
+            canceled_at_ist?: string;
+            /** Format: uuid */
+            canceled_by?: string;
+            cancel_reason?: string;
+            /** @description True when the movement had already reached this state and this call changed nothing. A replayed completion relocates nobody a second time. */
+            idempotent_replay: boolean;
+        };
+        CountsShiftingPendingExecutionResponse: {
+            items: components["schemas"]["CountsShiftingPendingExecutionItem"][];
+            /** @description Present only when another page exists. Opaque; pass back as ?cursor=. */
+            next_cursor?: string;
+        };
+        CountsShiftingPendingExecutionItem: {
+            /** Format: uuid */
+            shifting_event_id: string;
+            /**
+             * @description Always 'authorized' on this queue - the read is filtered to it.
+             * @enum {string}
+             */
+            event_status: "authorized";
+            /** @enum {string} */
+            priority: "normal" | "high" | "emergency";
+            /** @enum {string} */
+            category: "routine" | "high_priority" | "pregnancy" | "warmup" | "medical" | "quarantine" | "other";
+            /**
+             * Format: uuid
+             * @description Where the animals are NOW. Null when the movement recorded no origin.
+             */
+            source_park_id?: string;
+            source_park_name?: string;
+            /** Format: uuid */
+            source_shed_id?: string;
+            source_shed_name?: string;
+            /** Format: uuid */
+            destination_park_id: string;
+            destination_park_name: string;
+            /** Format: uuid */
+            destination_shed_id: string;
+            destination_shed_name: string;
+            /**
+             * Format: uuid
+             * @description Who authorized this movement - the operator's basis for acting.
+             */
+            approved_by_user_id?: string;
+            /** Format: date-time */
+            approved_at?: string;
+            /**
+             * Format: date-time
+             * @description The approval instant in the Asia/Kolkata business calendar.
+             */
+            approved_at_ist?: string;
+            /** Format: uuid */
+            raised_by_user_id?: string;
+            /** Format: date-time */
+            raised_at: string;
+            /** Format: date-time */
+            raised_at_ist: string;
+            /** Format: date-time */
+            effective_at: string;
+            /** @description The FULL number of animals this movement covers - not the length of the animals preview below. This is what an operator needs in order to judge whether they can do the movement now. */
+            animal_count: number;
+            /** @description True when animal_count exceeds the number of animals returned in the preview. */
+            animals_truncated: boolean;
+            /** @description A bounded preview of at most 5 animals, for recognition. A movement may name up to 500 animals; embedding all of them in a 20-row page would be a 10,000-row read to draw one phone screen, so the full roster belongs to the drill-down rather than the list row. */
+            animals: components["schemas"]["CountsShiftingPendingExecutionAnimal"][];
+        };
+        CountsShiftingPendingExecutionAnimal: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id: string;
+            /** @description The animal's active primary ear-tag/RFID identifier, when it has one. This is the label physically attached to the animal, so it is what an operator actually reads in a shed. */
+            tag?: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -6026,6 +6610,323 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VerificationCloseSubmissionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsShiftingDestinations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active park -> shed destination cascade for the caller's tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftingDestinationsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppCountsShiftingEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordShiftingEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Shifting event recorded (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordShiftingEventResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppCountsBirthEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordBirthEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Birth request raised (or replayed). Accepted, not applied - no animal exists yet. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppCountsDeathEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordDeathEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Death request raised (or replayed). Accepted, not applied - the animal is still alive and its obligations are still open. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsShiftingPendingExecution: {
+        parameters: {
+            query?: {
+                /** @description Optional. Filters to movements whose SOURCE park is this park. Omit for all parks. */
+                park_id?: string;
+                /** @description Server-capped at 20. */
+                page_size?: number;
+                /** @description Opaque keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of authorized movements awaiting execution. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsShiftingPendingExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeAppCountsShiftingEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                shifting_event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Movement executed - the animals relocated (or the original result replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsShiftingExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    cancelAppCountsShiftingEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                shifting_event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CountsShiftingCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Movement cancelled (or replayed). Nothing moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsShiftingExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsApprovals: {
+        parameters: {
+            query?: {
+                /** @description Defaults to 'pending'. */
+                status?: "pending" | "approved" | "rejected";
+                /** @description Server-capped at 20. */
+                page_size?: number;
+                /** @description Opaque keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of approval requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    approveAppCountsApproval: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CountsApprovalDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Request approved and its effect applied (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalDecisionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    rejectAppCountsApproval: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CountsApprovalDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Request rejected (or replayed). Nothing was applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalDecisionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

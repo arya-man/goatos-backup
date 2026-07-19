@@ -162,10 +162,10 @@ backend route permission and task/scope checks decide the truth.
 
 | Role | Can capture / submit assigned proof? | Can approve proof? | Can reject / request rework? | Notes |
 | --- | --- | --- | --- | --- |
-| `operator` | Yes, through `TaskExecute`: create proof upload, upload/complete proof, submit task. | No. | No. | Executes assigned field work only. Cannot self-close or verify. |
+| `operator` | Yes, through `TaskExecute`: create proof upload, upload/complete proof, submit task. | No. | No. | On the proof/verification axis: executes assigned field work, cannot self-close or verify. This is NOT a blanket "operators never write lifecycle" rule — operators also record birth/death in the Counts module (see `docs/runbooks/android-dev-device.md`); that write is out of scope for this table. |
 | `verifier` | Not in the current coarse permission map: no `TaskExecute` and no `AppBootstrap` by default. | Yes, through `TaskVerify`. | Yes, through `TaskVerify`. | Current product rule says verifier reviews via admin-web. If verifier mobile review is desired, bootstrap/app access must be reconciled. |
 | `park_head` | Yes at coarse RBAC level (`TaskExecute`) and can use app bootstrap. | Yes at coarse RBAC level (`TaskVerify`). | Yes at coarse RBAC level (`TaskVerify`). | Product flow should use this for leadership follow-up/review, not self-approval of the same work. |
-| `pc_director` | Yes at coarse RBAC level (`TaskExecute`) and can use app/admin bootstrap. | Yes at coarse RBAC level (`TaskVerify`). | Yes at coarse RBAC level (`TaskVerify`). | Director/CxO tier can close and verify; use scope and separation-of-duty checks. |
+| `pc_director` | Yes at coarse RBAC level (`TaskExecute`) and can use app/admin bootstrap. | Yes at coarse RBAC level (`TaskVerify`). | Yes at coarse RBAC level (`TaskVerify`). | Director/CxO tier can close and verify; use scope and separation-of-duty checks. On the Counts axis (out of scope for this table): `pc_director` holds neither `counts.read` nor `counts.write` as of the 2026-07-18 decision, so the Counts module does not appear in its nav at all — see `docs/runbooks/android-dev-device.md`. |
 | `admin` | Yes. | Yes. | Yes. | Full admin authority for setup, task assignment, SOP, and review. |
 | `ceo_internal` | Yes. | Yes. | Yes. | Superuser-style internal role; same separation-of-duty rule still applies unless an explicit override is approved. |
 

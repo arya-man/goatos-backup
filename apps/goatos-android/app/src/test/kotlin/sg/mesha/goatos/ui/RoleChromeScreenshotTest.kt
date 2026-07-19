@@ -13,6 +13,8 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
+import sg.mesha.goatos.core.model.nav.NavModule
+import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.feature.calendar.CalendarScreen
 import sg.mesha.goatos.feature.leadership.LeadershipScreen
@@ -72,6 +74,36 @@ class RoleChromeScreenshotTest {
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
     )
 
+    /**
+     * Backend-composed drawer rows (`/app/bootstrap` `modules`), mirroring bootstrap_copy.go's
+     * moduleNavRegistry: two built modules that each own a bar, plus the two roadmap rows the
+     * backend advertises as "soon". The drawer renders EXACTLY this — the client no longer
+     * holds a module list of its own — so these fixtures are what the EXPANDED goldens prove.
+     * Labels are backend copy and render verbatim.
+     */
+    private fun drawerModules() = listOf(
+        NavModule(
+            key = "vaccination",
+            label = "Vaccination",
+            href = Routes.VACCINATION,
+            status = NavModuleStatus.AVAILABLE,
+            navItems = operationalNavItems(),
+        ),
+        NavModule(
+            key = "counts",
+            label = "Counts",
+            href = "/counts",
+            status = NavModuleStatus.AVAILABLE,
+            navItems = listOf(
+                NavItem(key = "counts", label = "Counts", href = "/counts"),
+                NavItem(key = "birth_death", label = "Birth/Death", href = "/counts/birth-death"),
+                NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
+            ),
+        ),
+        NavModule(key = "feed_direction", label = "Feed direction", href = "", status = NavModuleStatus.SOON, navItems = emptyList()),
+        NavModule(key = "breeding", label = "Breeding", href = "", status = NavModuleStatus.SOON, navItems = emptyList()),
+    )
+
     // CEO / superuser (role `ceo_internal`, tenant-scoped): EXPANDED, landing Overview.
     @Test
     fun role_ceo() = shot("role_ceo") {
@@ -79,6 +111,7 @@ class RoleChromeScreenshotTest {
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
+                modules = drawerModules(),
             ),
             currentRoute = Routes.LEADERSHIP,
             onNavigate = {},
@@ -95,6 +128,7 @@ class RoleChromeScreenshotTest {
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
+                modules = drawerModules(),
             ),
             // Vaccination active so the golden shows the mock's active-module state (green rail +
             // check) alongside the visible modules, Soon rows, Settings, and Sign-out.
@@ -114,6 +148,7 @@ class RoleChromeScreenshotTest {
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
+                modules = drawerModules(),
             ),
             currentRoute = Routes.LEADERSHIP,
             onNavigate = {},
@@ -129,6 +164,7 @@ class RoleChromeScreenshotTest {
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
                 items = leadershipNavItems(),
+                modules = drawerModules(),
             ),
             currentRoute = Routes.LEADERSHIP,
             onNavigate = {},

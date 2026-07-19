@@ -358,6 +358,13 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
+	// Module grants drive which modules appear in the drawer and which bottom bar is
+	// served. A person with no department/grants gets an empty module set rather than
+	// an implicit default, so nav reflects real authority.
+	grantedModules, err := s.repo.ListGrantedModuleKeys(ctx, tenantID, actorID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
 	deviceID = strings.TrimSpace(deviceID)
@@ -387,8 +394,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"proof_capture":  hasCapability(caps, "media.video_capture"),
 			"animal_id_scan": hasCapability(caps, "animal_id.scan"),
 		},
-		VisibleNavigation:       visibleNavigationFor(grants, localeTag),
-		NavChrome:               navChromeFor(grants),
+		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),
+		Modules:                 modulesFor(grants, grantedModules, localeTag),
+		NavChrome:               navChromeFor(grants, grantedModules),
 		TaskQueueDescriptors:    queuesFor(caps, localeTag),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
 		SupportedFieldTypes:     []string{"text", "number", "date_time", "boolean", "select", "multiselect", "goat_scan", "animal_id_scan", "goat_lookup", "shed_picker", "photo_proof", "video_proof"},
@@ -624,16 +632,18 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 }
 
 // navChromeFor decides the nav chrome based on module count:
-// >=2 modules = sidebar (expanded); <2 modules = bottom-bar only (minimal).
-// Today, leadership principals count as multiple effective modules for nav purposes,
-// so they get expanded; field operators with a single module stay minimal.
-// TODO: when department_module_grants is populated, count actual granted modules
-// and use that instead of the leadership binary check.
-func navChromeFor(grants []domain.GrantSummary) string {
+// >=2 modules = drawer (expanded); <2 modules = bottom-bar only (minimal).
+// Leadership principals always get expanded: their nav spans modules by definition.
+// modules is the list of AVAILABLE granted module keys (soon-modules do not count —
+// a disabled roadmap row must not by itself promote a single-module operator to a drawer).
+func navChromeFor(grants []domain.GrantSummary, modules []string) string {
 	if isVerifierPrincipal(grants) {
 		return domain.NavChromeMinimal
 	}
 	if isLeadershipPrincipal(grants) {
+		return domain.NavChromeExpanded
+	}
+	if countAvailableModules(grants, modules) >= 2 {
 		return domain.NavChromeExpanded
 	}
 	// Single module = minimal nav chrome (bottom-bar only)

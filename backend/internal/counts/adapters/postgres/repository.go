@@ -55,6 +55,9 @@ type readinessSubgateReadWriter interface {
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
+	// identityTx applies an approved birth/death/shifting effect inside the approval's own
+	// transaction. Injected via WithIdentityTxWriter; see approval_repository.go.
+	identityTx IdentityTxWriter
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
@@ -1725,12 +1728,21 @@ INSERT INTO shifting_events (
   tenant_id, logical_shifting_event_key, priority, category, source_park_id, source_shed_id,
   destination_park_id, destination_shed_id, raised_at, effective_at, authorized_at, authorized_by,
   authorization_state, verification_state, event_status, source_system, source_ref, proof_ref,
-  payload_hash, idempotency_key, request_fingerprint
+  payload_hash, idempotency_key, request_fingerprint, applied_at
 ) VALUES (
   $1::uuid, $2, $3, $4, nullif($5::text, '')::uuid, nullif($6::text, '')::uuid,
   $7::uuid, $8::uuid, $9, $10, $11, nullif($12::text, '')::uuid,
   $13, $14, $15, $16, $17, nullif($18, ''),
-  $19, $20, $21
+  $19, $20, $21,
+  -- An already-'applied' movement recorded through this path is IMPORTED HISTORY: it physically
+  -- happened before GoatOS, so there is no operator who pressed "Completed" and no completion
+  -- instant to record beyond when the movement took effect. effective_at is the only truthful
+  -- answer available, and shifting_events_applied_shape_check requires one. applied_by stays NULL,
+  -- which is exactly what distinguishes an imported movement from an operator-confirmed one.
+  -- Every other status inserts NULL, as that same constraint requires.
+  -- Both binds are cast explicitly: $10 and $15 are each already used bare above, and reusing them
+  -- inside a CASE leaves Postgres unable to deduce one consistent type (SQLSTATE 42P08).
+  CASE WHEN $15::text = 'applied' THEN $10::timestamptz ELSE NULL END
 )
 RETURNING shifting_event_id::text`,
 		in.TenantID, in.LogicalShiftingEventKey, in.Priority, in.Category, ptrValue(in.SourceParkID), ptrValue(in.SourceShedID),

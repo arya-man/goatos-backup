@@ -14,8 +14,8 @@ var protectedRoutes = []Route{
 	{OperationID: "searchGoats", Method: "GET", Pattern: "/goats/search", Permissions: []string{GoatRead}},
 	{OperationID: "getGoatPassport", Method: "GET", Pattern: "/goats/{goat_id}", Permissions: []string{GoatRead}},
 	{OperationID: "getGoatTimeline", Method: "GET", Pattern: "/goats/{goat_id}/timeline", Permissions: []string{GoatRead}},
-	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{GoatRead}},
-	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{GoatRead}},
+	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{CountsRead}},
+	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{CountsRead}},
 	{OperationID: "resolveIdentifier", Method: "GET", Pattern: "/identifiers/{type}/{value}/resolve", Permissions: []string{GoatRead}},
 	{OperationID: "addGoatIdentifier", Method: "POST", Pattern: "/admin/goats/{goat_id}/identifiers", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "retireGoatIdentifier", Method: "POST", Pattern: "/admin/goats/{goat_id}/identifiers/{identifier_id}/retire", Permissions: []string{GoatWriteIdentity}},
@@ -218,6 +218,48 @@ var protectedRoutes = []Route{
 	// permission every app principal has — AppBootstrap is exactly that.
 	{OperationID: "getOperatorTimetable", Method: "GET", Pattern: "/app/roster/timetable", Permissions: []string{AppBootstrap}},
 	{OperationID: "getMyCoverage", Method: "GET", Pattern: "/app/roster/my-coverage", Permissions: []string{AppBootstrap}},
+
+	// App-tier Counts write surface: the three count-moving events a field operator records from
+	// the phone. Gated on the dedicated CountsWrite permission (see permissions.go) rather than on
+	// the admin-tier goat.write_identity/goat.write_health, which RoleOperator deliberately lacks —
+	// operators must be able to record births and deaths without also gaining every /admin/goats/*
+	// route. Birth and death delegate to the identity module's existing CreateAdminGoat /
+	// CriticalDeathExit services, so the guardrailed death semantics are unchanged.
+	// The destination catalog is a READ that belongs to the write surface. It is gated on
+	// CountsWrite, NOT on the admin-tier LocationsRead: the operator who must choose a destination
+	// shed is exactly the operator who may record the movement, and RolesAuthorize ANDs a route's
+	// permissions, so naming LocationsRead here would deny every operator who holds CountsWrite
+	// alone -- leaving them able to submit a movement but unable to see where they may move it to.
+	{OperationID: "listAppCountsShiftingDestinations", Method: "GET", Pattern: "/app/counts/shifting/destinations", Permissions: []string{CountsWrite}},
+	{OperationID: "recordAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events", Permissions: []string{CountsWrite}},
+	{OperationID: "recordAppCountsBirthEvent", Method: "POST", Pattern: "/app/counts/birth-events", Permissions: []string{CountsWrite}},
+	{OperationID: "recordAppCountsDeathEvent", Method: "POST", Pattern: "/app/counts/death-events", Permissions: []string{CountsWrite}},
+
+	// Counts lifecycle approval surface. The three routes above now RECORD a pending request; these
+	// decide it.
+	//
+	// The route gate is the coarse CountsApproveAccess (see permissions.go): a decision addresses a
+	// request by ID, so the middleware cannot know whether that ID is a birth or a shifting, and
+	// Route.Permissions is ANDed, so naming both fine-grained permissions here would deny a
+	// park_head who holds exactly one. The binding check is therefore made in the handler against
+	// the request's STORED TYPE via DecidableApprovalRequestTypes -- a park_head reaching a birth's
+	// id gets 403 there, and the pending list returns only the types the caller may decide.
+	// Shifting EXECUTION surface (maintainer decision, 2026-07-19). Approving a shifting now
+	// AUTHORIZES it and moves nothing; these three routes are the operator's half.
+	//
+	// Gated on CountsWrite, deliberately NOT on the approval permissions. Executing a movement is
+	// ground work: the operator who walks the animals is the operator who records births, deaths,
+	// and shiftings from the same phone, and is usually NOT the approver who authorized it. Any
+	// operator holding CountsWrite may complete or cancel any authorized movement in their tenant
+	// -- there is no "only the raiser" restriction, because the person who witnesses the animals
+	// move is not reliably the person who typed the request.
+	{OperationID: "listAppCountsShiftingPendingExecution", Method: "GET", Pattern: "/app/counts/shifting-events/pending-execution", Permissions: []string{CountsWrite}},
+	{OperationID: "completeAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/complete", Permissions: []string{CountsWrite}},
+	{OperationID: "cancelAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/cancel", Permissions: []string{CountsWrite}},
+
+	{OperationID: "listAppCountsApprovals", Method: "GET", Pattern: "/app/counts/approvals", Permissions: []string{CountsApproveAccess}},
+	{OperationID: "approveAppCountsApproval", Method: "POST", Pattern: "/app/counts/approvals/{request_id}/approve", Permissions: []string{CountsApproveAccess}},
+	{OperationID: "rejectAppCountsApproval", Method: "POST", Pattern: "/app/counts/approvals/{request_id}/reject", Permissions: []string{CountsApproveAccess}},
 }
 
 func ProtectedRoutes() []Route {

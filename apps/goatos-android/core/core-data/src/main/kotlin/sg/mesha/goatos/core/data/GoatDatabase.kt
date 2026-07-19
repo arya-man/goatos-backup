@@ -18,6 +18,20 @@ import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
+import sg.mesha.goatos.core.data.cache.CountsApprovalItemDao
+import sg.mesha.goatos.core.data.cache.CountsApprovalItemEntity
+import sg.mesha.goatos.core.data.cache.CountsApprovalRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.CountsApprovalRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.CountsBreakdownItemDao
+import sg.mesha.goatos.core.data.cache.CountsBreakdownItemEntity
+import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheDao
+import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
+import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheEntity
+import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
+import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
@@ -60,6 +74,12 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * v9 (see [MIGRATION_8_9]) adds normalized full-roster rows for indexed RFID lookup.
  * v10 (see [MIGRATION_9_10]) binds every vaccination clip to its goat and indexes the
  * per-goat upload/status view used on the shed scan screen.
+ * v11 (see [MIGRATION_10_11]) adds the Counts vertical's read models in one step — the
+ * herd-register summary rollup, the breakdown's fixed-size totals/charts/facets envelope,
+ * normalized per-grain breakdown rows with their page offsets, the approver queue's keyset
+ * rows and cursor, and the shifting destination catalog (the bounded park -> sheds vocabulary
+ * behind the shifting screen's cascading dropdowns, so the picker still opens with real
+ * options when the phone is offline in a shed).
  */
 @Database(
     entities = [
@@ -82,8 +102,15 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         VerificationQueueCacheEntity::class,
         CalendarScheduleEntity::class,
         CalendarScheduleRemoteKeyEntity::class,
+        HerdSummaryCacheEntity::class,
+        CountsBreakdownMetaCacheEntity::class,
+        CountsBreakdownItemEntity::class,
+        CountsBreakdownRemoteKeyEntity::class,
+        CountsApprovalItemEntity::class,
+        CountsApprovalRemoteKeyEntity::class,
+        CountsShiftingDestinationsCacheEntity::class,
     ],
-    version = 11,
+    version = 12,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -92,6 +119,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // via bounded indexed Room query (offline-first SSOT single-row entities instead of merged blob).
     // v10 (see [MIGRATION_9_10]) adds row-level vaccination proof ownership.
     // v11 (see [MIGRATION_10_11]) scopes canonical RFID rows to shed+task.
+    // v12 (see [MIGRATION_11_12]) adds the seven Counts read-model tables.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -114,4 +142,11 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun rfidScanAttemptDao(): RfidScanAttemptDao
     abstract fun proofCaptureDao(): ProofCaptureDao
     abstract fun verificationQueueCacheDao(): VerificationQueueCacheDao
+    abstract fun herdSummaryCacheDao(): HerdSummaryCacheDao
+    abstract fun countsBreakdownMetaCacheDao(): CountsBreakdownMetaCacheDao
+    abstract fun countsBreakdownItemDao(): CountsBreakdownItemDao
+    abstract fun countsBreakdownRemoteKeyDao(): CountsBreakdownRemoteKeyDao
+    abstract fun countsApprovalItemDao(): CountsApprovalItemDao
+    abstract fun countsApprovalRemoteKeyDao(): CountsApprovalRemoteKeyDao
+    abstract fun countsShiftingDestinationsCacheDao(): CountsShiftingDestinationsCacheDao
 }

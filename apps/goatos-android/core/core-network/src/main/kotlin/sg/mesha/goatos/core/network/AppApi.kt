@@ -4,9 +4,23 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
+import sg.mesha.goatos.core.model.nav.NavModule
+import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
+import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
+import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
+import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
+import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofArtifactDto
@@ -51,6 +65,11 @@ const val APP_TASK_PAGE_SIZE = 20
 data class BootstrapDto(
     @SerialName("nav_chrome") val navChrome: String = "minimal",
     @SerialName("visible_navigation") val visibleNavigation: List<NavItemDto> = emptyList(),
+    // Drawer modules, each carrying its OWN bottom bar (BootstrapModule). Selecting a module
+    // in the drawer swaps the bar to its nav_items — no second network call. Defaulted to
+    // empty so a cached pre-`modules` bootstrap still decodes and falls back to
+    // visible_navigation. See docs/decisions/role-module-nav-composition.md.
+    @SerialName("modules") val modules: List<BootstrapModuleDto> = emptyList(),
     // Extended bootstrap slice used by the shell beyond nav: identity, feature gates,
     // and version/time. All optional with defaults so the cached-bootstrap decode and
     // the original nav-only contract still succeed.
@@ -61,6 +80,20 @@ data class BootstrapDto(
     @SerialName("app_min_supported_version") val appMinSupportedVersion: String = "",
     @SerialName("server_time") val serverTime: String = "",
     @SerialName("trace_id") val traceId: String = "",
+)
+
+/**
+ * A drawer module (BootstrapModule): identity plus the module-scoped bottom bar it owns.
+ * [status] is `available` (built, tappable) or `soon` (declared roadmap, disabled row).
+ * [label] is already localized by the backend — render it verbatim.
+ */
+@Serializable
+data class BootstrapModuleDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("href") val href: String = "",
+    @SerialName("status") val status: String = "soon",
+    @SerialName("nav_items") val navItems: List<NavItemDto> = emptyList(),
 )
 
 /**
@@ -403,6 +436,113 @@ interface AppApi {
         submissionId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
+    /** GET /herd-register/summary — exact scoped census counts from canonical goats. The
+     *  response is a small fixed-size rollup (one row per scope grain), not a growable list,
+     *  so it is fetched whole rather than paged. */
+    suspend fun getHerdRegisterSummary(
+        lifecycleStatus: String? = null,
+        parkId: String? = null,
+        breed: String? = null,
+        sex: String? = null,
+    ): HerdRegisterSummaryResponseDto
+
+    /** GET /counts/breakdown — census head counts grouped by farm x stage x breed x sex x shed.
+     *  Only `items` is a page ([limit]/[offset]); `total_*`, `charts`, and `facets` are rolled
+     *  up over the FULL filtered set by the backend and must never be re-derived from the
+     *  fetched page. [limit] is capped at one screen-page of rows by the caller
+     *  (COUNTS_BREAKDOWN_PAGE_SIZE), never a whole-cohort pull. */
+    suspend fun getCountsBreakdown(
+        parkId: String? = null,
+        shedId: String? = null,
+        managementStage: String? = null,
+        breed: String? = null,
+        sex: String? = null,
+        lifecycleStatus: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): CountsBreakdownResponseDto
+
+    /**
+     * GET /app/counts/shifting/destinations — every park the caller may move animals INTO, each
+     * carrying its own sheds. Backs the shifting screen's two cascading dropdowns.
+     *
+     * Fetched whole rather than paged, and that is NOT a mobile over-fetch exemption by
+     * convenience: this is a bounded picker VOCABULARY (order-of two parks, ~154 sheds), not a
+     * screen list that grows with the herd. It changes when the farm's physical layout changes,
+     * which is approximately never, so it is cached in Room and re-served offline.
+     */
+    suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    /** POST /app/counts/shifting-events — an operator-reported movement between sheds. Drained
+     *  through the offline-sync outbox with a stable [idempotencyKey]: the backend derives the
+     *  movement's logical key from that key, so an exact retry collapses onto the SAME row
+     *  instead of recording a second movement. */
+    suspend fun recordCountsShiftingEvent(
+        idempotencyKey: String,
+        request: CountsShiftingEventRequestDto,
+    ): CountsShiftingEventResponseDto
+
+    /** POST /app/counts/birth-events — records a birth as goat creation with `origin_type`
+     *  pinned to `birth` server-side. The `goat.created` event it emits still auto-generates the
+     *  kid's vaccination obligations. Idempotent on [idempotencyKey] like every other write. */
+    suspend fun recordCountsBirthEvent(
+        idempotencyKey: String,
+        request: CountsBirthEventRequestDto,
+    ): CountsGoatLifecycleResponseDto
+
+    /** POST /app/counts/death-events — records a death through identity's guardrailed
+     *  critical-death exit. The `lifecycle_status="dead"` + `exit_reason="died"` pairing is
+     *  enforced server-side; the emitted `goat.exited` event auto-cancels the animal's open
+     *  obligations. Idempotent on [idempotencyKey]. */
+    suspend fun recordCountsDeathEvent(
+        idempotencyKey: String,
+        request: CountsDeathEventRequestDto,
+    ): CountsGoatLifecycleResponseDto
+
+    /**
+     * GET /goats/search — scope-filtered animal lookup. Backs the shifting screen's animal
+     * picker: the operator scans or types a tag, and this resolves it to the `goat_id` the
+     * shifting write must carry.
+     *
+     * [limit] is bounded by the caller to one screen-page (never a whole-cohort pull), and
+     * [cursor] is the backend's own keyset continuation.
+     */
+    suspend fun searchGoats(
+        q: String? = null,
+        parkId: String? = null,
+        locationId: String? = null,
+        status: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): GoatSearchResponseDto
+
+    /** GET /app/counts/approvals — the approver's queue, keyset-paginated and server-capped at
+     *  20 rows. Returns ONLY the request types this caller may decide; the app renders what
+     *  arrives and never re-derives that authority locally. */
+    suspend fun listCountsApprovals(
+        status: String? = null,
+        pageSize: Int? = null,
+        cursor: String? = null,
+    ): CountsApprovalListResponseDto
+
+    /** POST /app/counts/approvals/{request_id}/approve — applies the request (creates the kid,
+     *  exits the animal, or authorizes the movement AND relocates its animals), atomically with
+     *  the status flip. Drained through the offline outbox with a stable [idempotencyKey] so a
+     *  server-committed-but-client-unrecorded retry returns the original decision instead of
+     *  applying the effect twice. */
+    suspend fun approveCountsApproval(
+        requestId: String,
+        idempotencyKey: String,
+        request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto
+
+    /** POST /app/counts/approvals/{request_id}/reject — rejects the request, applying nothing.
+     *  A reason is REQUIRED server-side. Same stable-key replay contract as approve. */
+    suspend fun rejectCountsApproval(
+        requestId: String,
+        idempotencyKey: String,
+        request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto
 }
 
 /**
@@ -415,8 +555,26 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun bootstrap(deviceId: String?): BootstrapDto = BootstrapDto(
         navChrome = chrome,
         visibleNavigation = listOf(
+            NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
             NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
-            NavItemDto(key = "vaccination", label = "Vaccination", href = "/vaccination"),
+            NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+        ),
+        // Mirrors the backend moduleNavRegistry shape (available + soon) so previews and
+        // screenshot tests render the real backend-composed drawer, not a client stub.
+        modules = listOf(
+            BootstrapModuleDto(
+                key = "vaccination",
+                label = "Vaccination",
+                href = "/vaccination",
+                status = "available",
+                navItems = listOf(
+                    NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
+                    NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
+                    NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+                ),
+            ),
+            BootstrapModuleDto(key = "feed_direction", label = "Feed direction", status = "soon"),
+            BootstrapModuleDto(key = "breeding", label = "Breeding", status = "soon"),
         ),
         featureFlags = mapOf("tasks" to true, "sop_runner" to true),
         appMinSupportedVersion = "0.1.0",
@@ -615,13 +773,90 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         submissionId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto = VerificationCloseSubmissionResponseDto()
+    override suspend fun getHerdRegisterSummary(
+        lifecycleStatus: String?,
+        parkId: String?,
+        breed: String?,
+        sex: String?,
+    ): HerdRegisterSummaryResponseDto = HerdRegisterSummaryResponseDto()
+
+    override suspend fun getCountsBreakdown(
+        parkId: String?,
+        shedId: String?,
+        managementStage: String?,
+        breed: String?,
+        sex: String?,
+        lifecycleStatus: String?,
+        limit: Int?,
+        offset: Int?,
+    ): CountsBreakdownResponseDto = CountsBreakdownResponseDto()
+
+    override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
+        CountsShiftingDestinationsResponseDto()
+
+    override suspend fun recordCountsShiftingEvent(
+        idempotencyKey: String,
+        request: CountsShiftingEventRequestDto,
+    ): CountsShiftingEventResponseDto =
+        CountsShiftingEventResponseDto(shiftingEventId = "fake-shifting-$idempotencyKey")
+
+    override suspend fun recordCountsBirthEvent(
+        idempotencyKey: String,
+        request: CountsBirthEventRequestDto,
+    ): CountsGoatLifecycleResponseDto = CountsGoatLifecycleResponseDto()
+
+    override suspend fun recordCountsDeathEvent(
+        idempotencyKey: String,
+        request: CountsDeathEventRequestDto,
+    ): CountsGoatLifecycleResponseDto = CountsGoatLifecycleResponseDto()
+
+    override suspend fun searchGoats(
+        q: String?,
+        parkId: String?,
+        locationId: String?,
+        status: String?,
+        limit: Int?,
+        cursor: String?,
+    ): GoatSearchResponseDto = GoatSearchResponseDto()
+
+    override suspend fun listCountsApprovals(
+        status: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsApprovalListResponseDto = CountsApprovalListResponseDto()
+
+    override suspend fun approveCountsApproval(
+        requestId: String,
+        idempotencyKey: String,
+        request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto =
+        CountsApprovalDecisionResponseDto(approvalRequestId = requestId, status = "approved")
+
+    override suspend fun rejectCountsApproval(
+        requestId: String,
+        idempotencyKey: String,
+        request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto =
+        CountsApprovalDecisionResponseDto(approvalRequestId = requestId, status = "rejected")
 }
 
 /**
- * DTO -> domain. The backend already computed the chrome; the client only
- * parses the enum and visible nav items (TRD §14 dumb-renderer).
+ * DTO -> domain. The backend already computed the chrome, the drawer modules, and each
+ * module's bar; the client only parses them (TRD §14 dumb-renderer). Labels pass through
+ * verbatim — they are localized backend-side in `bootstrap_copy.go`.
  */
 fun BootstrapDto.toNavState(): NavState = NavState(
     chrome = if (navChrome.equals("expanded", ignoreCase = true)) NavChrome.EXPANDED else NavChrome.MINIMAL,
-    items = visibleNavigation.map { NavItem(key = it.key, label = it.label, href = it.href) },
+    items = visibleNavigation.map { it.toNavItem() },
+    modules = modules.map { module ->
+        NavModule(
+            key = module.key,
+            label = module.label,
+            href = module.href,
+            status = NavModuleStatus.from(module.status),
+            navItems = module.navItems.map { it.toNavItem() },
+        )
+    },
 )
+
+private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href)

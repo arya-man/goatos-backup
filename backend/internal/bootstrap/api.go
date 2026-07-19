@@ -356,6 +356,25 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsService := countsapp.NewService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	herdRegisterService := countsapp.NewHerdRegisterService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	herdRegisterHandler := countshttp.NewHandler(herdRegisterService, log)
+	// App-tier Counts writes (shifting/birth/death) + the lifecycle approval workflow.
+	//
+	// Per the maintainer decision (2026-07-19) the three submit routes RECORD a pending request
+	// rather than applying it; approving one applies the effect through the identity module's
+	// transaction-scoped seam, in the SAME transaction as the approval's status flip.
+	//
+	// countsApprovalRepo therefore carries the identity write seam (goat create / guarded critical-
+	// death exit / bulk relocate). identityService supplies the Prepare* validators, which validate
+	// a payload at submit time without applying it.
+	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
+		WithIdentityTxWriter(identityRepo)
+	countsApprovalService := countsapp.NewApprovalService(countsApprovalRepo, identityService, nil)
+	// Shifting execution shares countsApprovalRepo because that repository already carries the
+	// identity transaction seam the relocation runs through -- and the relocation now happens HERE,
+	// at completion, rather than at approval.
+	countsShiftingExecutionService := countsapp.NewShiftingExecutionService(countsApprovalRepo, nil)
+	countsAppWriteHandler := countshttp.NewAppWriteHandler(countsService, log).
+		WithApprovalWorkflow(countsApprovalService, identityService).
+		WithShiftingExecutionWorkflow(countsShiftingExecutionService)
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsReadiness(countsService).
 		WithCountsProjectionProvider(countsService).
@@ -508,6 +527,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	adminuihttp.Register(protectedMux, adminUIHandler)
 	appconfighttp.Register(protectedMux, appConfigHandler)
 	countshttp.Register(protectedMux, herdRegisterHandler)
+	countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 	verificationhttp.Register(protectedMux, verificationHandler)

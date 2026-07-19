@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -37,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +62,6 @@ import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
-import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.ui.CoverageBanner
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
@@ -156,48 +157,29 @@ fun CalendarScreen(
 /* Header                                                                      */
 /* --------------------------------------------------------------------------- */
 
+/**
+ * Calendar header.
+ *
+ * The hamburger is no longer drawn here. It used to be — Calendar was one of only two screens
+ * that remembered to read `LocalDrawerOpener` and render a menu button, which is exactly how the
+ * app ended up with modules that had no drawer at all. The leading affordance now comes from
+ * [MeshaScreenHeader], driven by the shell's backend-composed L0 membership.
+ */
 @Composable
 private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> Unit) {
-    val openDrawer = LocalDrawerOpener.current
-    Row(
-        Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Menu button to open the module drawer
-        HeaderIconButton(onClick = { openDrawer() }, icon = MeshaIcons.Menu, contentDescription = stringResource(R.string.calendar_button_menu))
-        Column(Modifier.weight(1f).padding(start = 8.dp)) {
-            if (state.eyebrow.isNotEmpty()) {
-                Text(
-                    // Static module eyebrow — localized client-side (the VM value is the
-                    // English module name; the visible chrome must follow the app locale).
-                    text = stringResource(R.string.calendar_eyebrow).uppercase(),
-                    color = MeshaColors.Faint,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.W700,
-                    letterSpacing = 0.6.sp,
-                )
-            }
-            Text(
-                text = stringResource(R.string.calendar_title),
-                color = MeshaColors.Ink,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.W700,
-            )
-            val window = state.windowLabel
-            val line = if (window.isNullOrEmpty()) {
-                state.selectedDateLabel
-            } else {
-                "${state.selectedDateLabel}  ·  $window"
-            }
-            if (line.isNotEmpty()) {
-                Text(
-                    text = line,
-                    color = MeshaColors.Muted,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.W600,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
+    val window = state.windowLabel
+    MeshaScreenHeader(
+        // Static screen chrome — localized client-side (the VM values are the English module
+        // name/title; the visible chrome must follow the app locale).
+        title = stringResource(R.string.calendar_title),
+        eyebrow = stringResource(R.string.calendar_eyebrow).uppercase().takeIf { state.eyebrow.isNotEmpty() },
+        subtitle = if (window.isNullOrEmpty()) {
+            state.selectedDateLabel
+        } else {
+            "${state.selectedDateLabel}  ·  $window"
+        }.takeIf { it.isNotEmpty() },
+        contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp),
+        below = {
             // Offline-first sync/stale affordance (docs/decisions/android-offline-first.md):
             // renders nothing while there is no cache yet — a cold-start/error placeholder
             // above already covers that moment — otherwise "Syncing…" / "Updated Xm ago" /
@@ -212,10 +194,15 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
                 isOffline = state.isOffline,
                 modifier = Modifier.padding(top = 4.dp),
             )
-        }
-        // Refresh button on the right
-        HeaderIconButton(onClick = { onEvent(CalendarEvent.Refresh) }, icon = MeshaIcons.Refresh, contentDescription = stringResource(R.string.calendar_button_refresh))
-    }
+        },
+        actions = {
+            HeaderIconButton(
+                onClick = { onEvent(CalendarEvent.Refresh) },
+                icon = MeshaIcons.Refresh,
+                contentDescription = stringResource(R.string.calendar_button_refresh),
+            )
+        },
+    )
 }
 
 @Composable

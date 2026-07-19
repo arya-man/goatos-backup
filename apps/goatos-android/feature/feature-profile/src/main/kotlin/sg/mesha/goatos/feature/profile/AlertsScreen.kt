@@ -30,6 +30,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
@@ -192,33 +193,33 @@ fun AlertsScreen(
     }
 }
 
+/**
+ * Alerts header.
+ *
+ * `/alerts` is a backend nav_item shared by the vaccination and leadership navs, so it is an L0
+ * root and gets the module drawer from [MeshaScreenHeader] — it previously rendered a bare title
+ * with no navigation affordance at all. "Mark all read" stays a screen-owned action.
+ */
 @Composable
 private fun AlertsHeader(title: String, markAllLabel: String?, onEvent: (AlertsEvent) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-    ) {
-        Text(
-            text = title,
-            color = AlertsTokens.Ink,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.W700,
-            modifier = Modifier.weight(1f),
-        )
-        markAllLabel?.let {
-            Text(
-                text = it,
-                color = AlertsTokens.BrandD,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W700,
-                modifier = Modifier
-                    .clickable { onEvent(AlertsEvent.MarkAllRead) }
-                    .padding(vertical = 6.dp, horizontal = 4.dp),
-            )
-        }
-    }
+    MeshaScreenHeader(
+        title = title,
+        titleColor = AlertsTokens.Ink,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+        actions = {
+            markAllLabel?.let {
+                Text(
+                    text = it,
+                    color = AlertsTokens.BrandD,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.W700,
+                    modifier = Modifier
+                        .clickable { onEvent(AlertsEvent.MarkAllRead) }
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                )
+            }
+        },
+    )
 }
 
 @Composable

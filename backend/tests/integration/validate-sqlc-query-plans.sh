@@ -183,6 +183,32 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND goat_id = '10000000-0000-4000-8000-000000000001'::uuid
 ORDER BY occurred_at DESC, identity_event_id DESC
 LIMIT 50;"
+
+  # location_display is composed from the animal's OWN park/shed (COALESCE(shed.name, park.name,
+  # 'Unknown location')), never from the vestigial goats.current_location_id. Both joins must stay
+  # indexed lookups on locations_tenant_location_unique: this is the hot /goats/search page read,
+  # and a Seq Scan on locations here would be per-page work against every location row.
+  printf '%s\n' "
+INSERT INTO locations (location_id, tenant_id, location_type, name, status)
+VALUES
+  ('30000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'park', 'sqlc-plan-park', 'active'),
+  ('30000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'shed', 'sqlc-plan-shed', 'active')
+ON CONFLICT (location_id) DO NOTHING;
+UPDATE goats
+   SET park_id = '30000000-0000-4000-8000-000000000001'::uuid,
+       shed_id = '30000000-0000-4000-8000-000000000002'::uuid
+ WHERE goat_id = '10000000-0000-4000-8000-000000000001'::uuid;
+ANALYZE locations;
+" | run_psql
+
+  explain_must_use_index "GoatSearchLocationDisplayJoins" 'Seq Scan on locations' "EXPLAIN (COSTS OFF)
+SELECT g.goat_id, COALESCE(shed.name, park.name, 'Unknown location') AS location_display
+FROM goats g
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+ORDER BY g.display_id ASC
+LIMIT 50;"
 }
 
 validate_outbox_claim_plan() {

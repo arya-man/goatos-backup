@@ -14,9 +14,33 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
+import sg.mesha.goatos.core.data.cache.AdherenceCacheEntity
+import sg.mesha.goatos.core.data.cache.CalendarCacheEntity
+import sg.mesha.goatos.core.data.cache.CalendarScheduleEntity
+import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
+import sg.mesha.goatos.core.data.cache.CountsApprovalItemEntity
+import sg.mesha.goatos.core.data.cache.CountsApprovalRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.CountsBreakdownItemEntity
+import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheEntity
+import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
+import sg.mesha.goatos.core.data.cache.ExecutionShedCacheEntity
+import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
+import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
+import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
+import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
+import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
+import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
 
 /**
  * Upgrade-crash E2E for [GoatDatabase]: simulates an already-installed APK whose on-device DB was
@@ -68,6 +92,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
+                MIGRATION_11_12,
             )
             .build()
         try {
@@ -116,6 +141,222 @@ class GoatDatabaseUpgradeCrashTest {
             val counts = rosterDao.countByStatus(scopeKey)
             assertEquals(1, counts.single().count)
             assertEquals("pending", counts.single().status)
+
+            // 6. Same proof for the seven v12 Counts tables (MIGRATION_11_12). Open-without-crash
+            //    only proves Room ACCEPTED the migrated schema; a write+read round-trip proves each
+            //    new table actually exists with the shape its @Entity declares. All three table
+            //    shapes in that single migration are exercised: the JSON-blob rollups, the
+            //    normalized per-grain rows + their page offset, and the keyset approval queue.
+            val summaryDao = upgraded.herdSummaryCacheDao()
+            summaryDao.upsert(HerdSummaryCacheEntity(cacheKey = "all", dtoJson = "{}", updatedAt = 11L))
+            assertEquals(11L, summaryDao.observe("all").first()?.updatedAt)
+
+            val metaDao = upgraded.countsBreakdownMetaCacheDao()
+            metaDao.upsert(CountsBreakdownMetaCacheEntity(cacheKey = "all", dtoJson = "{}", updatedAt = 12L))
+            assertEquals(12L, metaDao.observe("all").first()?.updatedAt)
+
+            upgraded.countsBreakdownItemDao().upsertAll(
+                listOf(
+                    CountsBreakdownItemEntity(
+                        queryKey = "all",
+                        grainKey = "park|shed|stage|breed|female",
+                        sortIndex = 0,
+                        dtoJson = "{}",
+                        updatedAt = 13L,
+                    ),
+                ),
+            )
+            val remoteKeyDao = upgraded.countsBreakdownRemoteKeyDao()
+            remoteKeyDao.upsert(
+                CountsBreakdownRemoteKeyEntity(
+                    queryKey = "all",
+                    nextOffset = 20,
+                    endReached = false,
+                    updatedAt = 14L,
+                ),
+            )
+            val remoteKey = remoteKeyDao.get("all")
+            assertEquals(20, remoteKey?.nextOffset)
+            assertEquals(false, remoteKey?.endReached)
+
+            // 7. The Counts APPROVAL tables, also part of MIGRATION_11_12. This is the
+            //    shape that actually crashed in MOB-007: an @Entity added to the @Database with
+            //    no migration to CREATE its table compiles, passes every fresh-install test, and
+            //    throws "Migration didn't properly handle counts_approval_items" on the first
+            //    launch of an UPDATED app. Only a real old-file-reopen like this one catches it.
+            upgraded.countsApprovalItemDao().upsertAll(
+                listOf(
+                    CountsApprovalItemEntity(
+                        queryKey = "pending",
+                        approvalRequestId = "req-1",
+                        sortIndex = 0,
+                        raisedAt = "2026-07-19T04:00:00Z",
+                        dtoJson = "{}",
+                        updatedAt = 15L,
+                    ),
+                ),
+            )
+            assertEquals(1, upgraded.countsApprovalItemDao().countFor("pending"))
+
+            val approvalKeyDao = upgraded.countsApprovalRemoteKeyDao()
+            approvalKeyDao.upsert(
+                CountsApprovalRemoteKeyEntity(
+                    queryKey = "pending",
+                    nextCursor = "cursor-2",
+                    endReached = false,
+                    updatedAt = 16L,
+                ),
+            )
+            val approvalKey = approvalKeyDao.get("pending")
+            assertEquals("cursor-2", approvalKey?.nextCursor)
+            assertEquals(false, approvalKey?.endReached)
+
+            // 8. The shifting DESTINATION CATALOG table, also part of MIGRATION_11_12.
+            //    The shifting screen's two cascading dropdowns render from this table, so an
+            //    upgraded install that could not open it would leave an operator with two empty
+            //    menus and no way to record a movement.
+            val destinationsDao = upgraded.countsShiftingDestinationsCacheDao()
+            destinationsDao.upsert(
+                CountsShiftingDestinationsCacheEntity(
+                    cacheKey = "shifting-destinations",
+                    dtoJson = "{\"parks\":[]}",
+                    updatedAt = 17L,
+                ),
+            )
+            assertEquals(17L, destinationsDao.observe("shifting-destinations").first()?.updatedAt)
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    /**
+     * The upgrade that THIS change actually ships: a device sitting at v10 — the version real
+     * installs of `main` carry — opening the app for the first time after the Counts feature lands.
+     * Both [MIGRATION_10_11] and [MIGRATION_11_12] run here, demonstrating the full two-step
+     * migration chain: scan_roster_row in v11, then Counts tables in v12. If either migration
+     * fails to CREATE its tables, Room throws `IllegalStateException: Migration didn't properly
+     * handle …` on this open, exactly as it would crash the operator's phone on first launch
+     * after the update.
+     */
+    @Test
+    fun `installed v10 db upgrades to v12 without crashing and keeps its data`() = runTest {
+        // 1. A shipped v10 APK's on-disk file, written by a real Room database pinned to the v10
+        //    entity set, so it carries Room's own identity metadata just like a user's phone would.
+        val oldDb = Room.databaseBuilder(context, OldGoatDatabaseV10::class.java, DB_NAME).build()
+        oldDb.bootstrapCacheDao().upsert(
+            BootstrapCacheEntity(id = 0, dtoJson = SEEDED_BOOTSTRAP_JSON, updatedAt = SEEDED_AT),
+        )
+        oldDb.scanRosterRowDao().upsert(
+            ScanRosterRowEntity(
+                id = "shed-9#obl-9",
+                shedId = "shed-9",
+                goatId = "goat-9",
+                primaryTag = "IN-9999",
+                secondaryTag = null,
+                vaccineLabel = "PPR",
+                status = "pending",
+                obligationId = "obl-9",
+                updatedAt = 99L,
+            ),
+        )
+        oldDb.close() // closes the file at user_version = 10
+
+        // 2. The app update: same file, current schema (v12), real migration chain. Room detects
+        //    user_version = 10 and runs MIGRATION_10_11 (scan_roster_row restructure)
+        //    then MIGRATION_11_12 (seven Counts tables).
+        val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+                MIGRATION_8_9,
+                MIGRATION_9_10,
+                MIGRATION_10_11,
+                MIGRATION_11_12,
+            )
+            .build()
+        try {
+            upgraded.openHelper.writableDatabase // force open + migrate + validate
+
+            // 3. Pre-upgrade data survived — the bootstrap cache is preserved across all versions.
+            //    scan_roster_row is recreated by MIGRATION_10_11 (v10->v11 restructures it to add
+            //    scopeKey, so old v10 rows are not preserved, but the table exists and is usable).
+            val kept = upgraded.bootstrapCacheDao().get()
+            assertNotNull("bootstrap row must survive the v10 -> v12 upgrade", kept)
+            assertEquals(SEEDED_BOOTSTRAP_JSON, kept?.dtoJson)
+            assertEquals(SEEDED_AT, kept?.updatedAt)
+
+            // 4. Every one of the seven v12 Counts tables (from MIGRATION_11_12) exists and round-trips
+            //    post-upgrade. These tables are purely additive — no existing table changes — so they
+            //    survive as empty tables after the migration.
+            upgraded.herdSummaryCacheDao()
+                .upsert(HerdSummaryCacheEntity(cacheKey = "all", dtoJson = "{}", updatedAt = 21L))
+            assertEquals(21L, upgraded.herdSummaryCacheDao().observe("all").first()?.updatedAt)
+
+            upgraded.countsBreakdownMetaCacheDao()
+                .upsert(CountsBreakdownMetaCacheEntity(cacheKey = "all", dtoJson = "{}", updatedAt = 22L))
+            assertEquals(22L, upgraded.countsBreakdownMetaCacheDao().observe("all").first()?.updatedAt)
+
+            upgraded.countsBreakdownItemDao().upsertAll(
+                listOf(
+                    CountsBreakdownItemEntity(
+                        queryKey = "all",
+                        grainKey = "park|shed|stage|breed|female",
+                        sortIndex = 0,
+                        dtoJson = "{}",
+                        updatedAt = 23L,
+                    ),
+                ),
+            )
+            upgraded.countsBreakdownRemoteKeyDao().upsert(
+                CountsBreakdownRemoteKeyEntity(
+                    queryKey = "all",
+                    nextOffset = 20,
+                    endReached = false,
+                    updatedAt = 24L,
+                ),
+            )
+            assertEquals(20, upgraded.countsBreakdownRemoteKeyDao().get("all")?.nextOffset)
+
+            upgraded.countsApprovalItemDao().upsertAll(
+                listOf(
+                    CountsApprovalItemEntity(
+                        queryKey = "pending",
+                        approvalRequestId = "req-1",
+                        sortIndex = 0,
+                        raisedAt = "2026-07-19T04:00:00Z",
+                        dtoJson = "{}",
+                        updatedAt = 25L,
+                    ),
+                ),
+            )
+            assertEquals(1, upgraded.countsApprovalItemDao().countFor("pending"))
+
+            upgraded.countsApprovalRemoteKeyDao().upsert(
+                CountsApprovalRemoteKeyEntity(
+                    queryKey = "pending",
+                    nextCursor = "cursor-2",
+                    endReached = false,
+                    updatedAt = 26L,
+                ),
+            )
+            assertEquals("cursor-2", upgraded.countsApprovalRemoteKeyDao().get("pending")?.nextCursor)
+
+            upgraded.countsShiftingDestinationsCacheDao().upsert(
+                CountsShiftingDestinationsCacheEntity(
+                    cacheKey = "shifting-destinations",
+                    dtoJson = "{\"parks\":[]}",
+                    updatedAt = 27L,
+                ),
+            )
+            assertEquals(
+                27L,
+                upgraded.countsShiftingDestinationsCacheDao().observe("shifting-destinations").first()?.updatedAt,
+            )
         } finally {
             upgraded.close()
         }
@@ -136,4 +377,41 @@ class GoatDatabaseUpgradeCrashTest {
 @Database(entities = [BootstrapCacheEntity::class], version = 1, exportSchema = false)
 abstract class OldGoatDatabaseV1 : RoomDatabase() {
     abstract fun bootstrapCacheDao(): BootstrapCacheDao
+}
+
+/**
+ * A minimal real Room database pinned to the v10 entity set — the schema a shipped `main` build
+ * leaves on a user's phone — used only to lay down an authentic v10 file on disk for the
+ * v10 -> v11 upgrade test. Test scope only: never shipped, never registered in DI. It must stay in
+ * lockstep with what v10 actually contained (schemas/<db>/10.json); the point is to reproduce a
+ * real installed database, not to mirror the current @Entity set.
+ */
+@Database(
+    entities = [
+        BootstrapCacheEntity::class,
+        CalendarCacheEntity::class,
+        ControlTowerCacheEntity::class,
+        ExecutionRowsCacheEntity::class,
+        ExecutionShedCacheEntity::class,
+        ScanRosterCacheEntity::class,
+        ScanRosterRowEntity::class,
+        AdherenceCacheEntity::class,
+        InsightsGapsCacheEntity::class,
+        InsightsCoverageCacheEntity::class,
+        RosterTimetableCacheEntity::class,
+        RosterCoverageCacheEntity::class,
+        TaskDetailCacheEntity::class,
+        ScannedGoatEntity::class,
+        RfidScanAttemptEntity::class,
+        ProofCaptureEntity::class,
+        VerificationQueueCacheEntity::class,
+        CalendarScheduleEntity::class,
+        CalendarScheduleRemoteKeyEntity::class,
+    ],
+    version = 10,
+    exportSchema = false,
+)
+abstract class OldGoatDatabaseV10 : RoomDatabase() {
+    abstract fun bootstrapCacheDao(): BootstrapCacheDao
+    abstract fun scanRosterRowDao(): ScanRosterRowDao
 }

@@ -1,0 +1,887 @@
+package http
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	identitydomain "github.com/vgoats/goatos/backend/internal/identity/domain"
+	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+)
+
+// App-tier Counts write surface (mobile-facing).
+//
+// These three endpoints let a FIELD OPERATOR record the three count-moving events from the phone: a
+// shifting (movement) event, a birth, and a death.
+//
+// MAINTAINER DECISION (2026-07-19) -- these routes RECORD, they no longer APPLY. An operator
+// reports what happened; an approver decides it. Concretely:
+//
+//   - birth: creates a PENDING request only. No goats row, no goat.created, and therefore NO
+//     vaccination obligations for the kid until a ceo_internal approves it. Returns 202 with an
+//     approval_request_id and no goat_id, because no animal exists yet.
+//   - death: creates a PENDING request only. The animal stays alive and its open obligations stay
+//     open until a ceo_internal approves it. The dead+died guardrail is enforced HERE at submit so
+//     a bad pairing is rejected on the phone, and again at approval.
+//   - shifting: unchanged in that shifting_events already landed with
+//     authorization_state='pending'; the new part is the linked approval request that puts it in a
+//     park_head's queue. Approving it MOVES THE ANIMALS named in goat_ids.
+//
+// The payload is validated at SUBMIT time through the owning module's Prepare* seam (which has no
+// side effects) so an operator gets an immediate, specific error instead of a rejection days later
+// from an approver. What is deferred is the APPLY, not the validation.
+//
+// Every route requires a client Idempotency-Key and honours the repo's mandatory idempotency
+// contract: first call performs the write, an exact replay returns the original result with no new
+// side effects, and a same-key/different-payload replay is rejected with 409.
+//
+// Decision endpoints live in approval_handler.go.
+const (
+	appShiftingEventRoute = "/app/counts/shifting-events"
+	appBirthEventRoute    = "/app/counts/birth-events"
+	appDeathEventRoute    = "/app/counts/death-events"
+
+	// appShiftingDestinationsRoute serves the park -> shed cascade the shifting form's destination
+	// dropdowns are built from. It is a READ on the write surface: it is gated on CountsWrite, not
+	// on the admin-tier locations.read, because the operator who must pick a destination is exactly
+	// the operator who may record the movement -- and RolesAuthorize ANDs a route's permissions, so
+	// naming locations.read here would lock out every operator who lacks it.
+	appShiftingDestinationsRoute = "/app/counts/shifting/destinations"
+
+	appShiftingEventCommand = "counts.app.shifting_event"
+	appBirthEventCommand    = "counts.app.birth_event"
+	appDeathEventCommand    = "counts.app.death_event"
+
+	// appShiftingSourceSystem marks these rows as a first-party canonical write (not a file
+	// import). It is one of the values allowed by shifting_events_source_check.
+	appShiftingSourceSystem = "goatos_canonical"
+
+	appWriteMaxBodyBytes = 1 << 20
+)
+
+// ShiftingEventRecorder is the minimal slice of counts/app.Service this handler needs.
+// *countsapp.Service already satisfies it.
+type ShiftingEventRecorder interface {
+	RecordShiftingEvent(ctx context.Context, in domain.ShiftingEvent) (id string, replay bool, err error)
+
+	// ShiftingDestinations serves the operator's park -> shed destination cascade.
+	ShiftingDestinations(ctx context.Context, tenantID string) (domain.ShiftingDestinationCatalog, error)
+
+	// DeriveShiftingImpacts builds the impact rows for a single-animal movement that supplied none.
+	DeriveShiftingImpacts(ctx context.Context, tenantID, destinationShedID string, goatIDs []string) ([]domain.ShiftingEventImpact, error)
+
+	// DeriveShiftingSource reads a single named animal's current park/shed so a movement submitted
+	// without an explicit source still records where it started.
+	DeriveShiftingSource(ctx context.Context, tenantID string, goatIDs []string) (parkID *string, shedID *string, err error)
+}
+
+// NOTE: there is deliberately NO direct goat-writing dependency on this handler any more.
+//
+// It previously held a GoatLifecycleWriter and applied births/deaths inline. Per the maintainer
+// decision (2026-07-19) those events are pending until approved, so the ability to apply one from a
+// submit route was REMOVED rather than merely left unused -- an unused apply seam is a bypass
+// waiting to be re-wired. The only path that creates or exits an animal is now the approval
+// decision, which goes through identity's guarded commands inside the approval transaction.
+
+// GoatLifecycleValidator validates a birth/death payload WITHOUT applying it, so an operator learns
+// at submit time that a dob is malformed or that a death is not a valid dead+died pairing.
+// *identityapp.Service satisfies it.
+type GoatLifecycleValidator interface {
+	PrepareCreateAdminGoat(ctx context.Context, in identityapp.CreateAdminGoatInput) (identityports.CreateAdminGoatCommand, error)
+	PrepareCriticalDeathExit(ctx context.Context, in identityapp.ExitGoatInput) (identityports.ExitGoatCommand, error)
+}
+
+type AppWriteHandler struct {
+	shifting  ShiftingEventRecorder
+	approvals ApprovalWorkflow
+	validator GoatLifecycleValidator
+	// execution owns what happens AFTER a shifting is authorized: complete, cancel, and the
+	// operator's pending-execution queue. See shifting_execution_handler.go.
+	execution ShiftingExecutionWorkflow
+	log       *slog.Logger
+}
+
+func NewAppWriteHandler(shifting ShiftingEventRecorder, log *slog.Logger) *AppWriteHandler {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &AppWriteHandler{shifting: shifting, log: log}
+}
+
+// WithApprovalWorkflow turns the three submit routes into PENDING-request writers and enables the
+// decision surface. Without it the handler has no approval workflow wired and the submit routes
+// report that rather than silently applying (which is the behaviour the maintainer decision
+// retired).
+func (h *AppWriteHandler) WithApprovalWorkflow(approvals ApprovalWorkflow, validator GoatLifecycleValidator) *AppWriteHandler {
+	h.approvals = approvals
+	h.validator = validator
+	return h
+}
+
+func RegisterAppWrites(mux *http.ServeMux, h *AppWriteHandler) {
+	mux.HandleFunc("GET "+appShiftingDestinationsRoute, h.ListShiftingDestinations)
+	mux.HandleFunc("POST "+appShiftingEventRoute, h.RecordShiftingEvent)
+	mux.HandleFunc("POST "+appBirthEventRoute, h.RecordBirthEvent)
+	mux.HandleFunc("POST "+appDeathEventRoute, h.RecordDeathEvent)
+}
+
+// ---------------------------------------------------------------------------
+// Shifting events
+// ---------------------------------------------------------------------------
+
+type appShiftingEventRequest struct {
+	SourceParkID      *string                    `json:"source_park_id,omitempty"`
+	SourceShedID      *string                    `json:"source_shed_id,omitempty"`
+	DestinationParkID string                     `json:"destination_park_id"`
+	DestinationShedID string                     `json:"destination_shed_id"`
+	EffectiveAt       *time.Time                 `json:"effective_at,omitempty"`
+	Priority          string                     `json:"priority,omitempty"`
+	Category          string                     `json:"category,omitempty"`
+	ProofRef          *string                    `json:"proof_ref,omitempty"`
+	Impacts           []appShiftingImpactRequest `json:"impacts"`
+
+	// GoatIDs names the individual animals this movement covers. REQUIRED, and load-bearing:
+	// approving the request relocates EXACTLY these animals to the destination shed.
+	//
+	// Maintainer decision (2026-07-19): a shifting event must name the animals it moves. It was
+	// previously optional because shifting_events is an aggregate model -- impacts record "12 head
+	// of Boer" by breed grain, never which twelve animals -- so a count-only movement had no
+	// per-animal list to give. That is exactly the shape being retired: an authorized movement that
+	// names nobody relocates nobody, so the herd register and the shed-scoped vaccination
+	// obligations silently disagree with the count the operator just reported. This service will
+	// still NOT infer which animals a head count referred to, because guessing would relocate real
+	// animals that nobody selected -- so the list is now demanded up front, at SUBMIT, where the
+	// operator can still supply it. The seeded shifting SOP form DSL has always declared goat_ids
+	// as a required goat_lookup field; this makes the API contract agree with it.
+	// See the note in domain.ShiftingApprovalEffect.
+	GoatIDs []string `json:"goat_ids"`
+}
+
+type appShiftingImpactRequest struct {
+	BreedID        *string `json:"breed_id,omitempty"`
+	BreedKey       string  `json:"breed_key"`
+	BreedLabel     string  `json:"breed_label,omitempty"`
+	StageTag       *string `json:"stage_tag,omitempty"`
+	AgeClass       *string `json:"age_class,omitempty"`
+	Sex            *string `json:"sex,omitempty"`
+	HeadCount      int32   `json:"head_count"`
+	PregnantCount  int32   `json:"pregnant_count,omitempty"`
+	LactatingCount int32   `json:"lactating_count,omitempty"`
+	WarmupCount    int32   `json:"warmup_count,omitempty"`
+}
+
+type appShiftingEventResponse struct {
+	ShiftingEventID string `json:"shifting_event_id"`
+	// ApprovalRequestID is the queue entry a park head decides. The movement is NOT applied until
+	// that decision.
+	ApprovalRequestID string `json:"approval_request_id"`
+	Status            string `json:"status"`
+	IdempotentReplay  bool   `json:"idempotent_replay"`
+}
+
+// appApprovalSubmitResponse is what the birth and death routes return now that they RECORD a
+// pending request instead of applying it. There is deliberately no goat_id in it: no animal has
+// been created or exited yet.
+type appApprovalSubmitResponse struct {
+	ApprovalRequestID string    `json:"approval_request_id"`
+	RequestType       string    `json:"request_type"`
+	Status            string    `json:"status"`
+	RaisedAt          time.Time `json:"raised_at"`
+	IdempotentReplay  bool      `json:"idempotent_replay"`
+}
+
+var (
+	allowedShiftingPriority = map[string]bool{"normal": true, "high": true, "emergency": true}
+	allowedShiftingCategory = map[string]bool{
+		"routine": true, "high_priority": true, "pregnancy": true, "warmup": true,
+		"medical": true, "quarantine": true, "other": true,
+	}
+)
+
+// RecordShiftingEvent records an operator-reported movement between sheds.
+//
+// The event is recorded with the service defaults authorization_state="pending" /
+// verification_state="unverified" / event_status="pending": a field operator REPORTS a movement,
+// they do not self-authorize it.
+func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	clientKey, err := appIdempotencyKey(r)
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	body, ok := h.readBody(w, r)
+	if !ok {
+		return
+	}
+	var req appShiftingEventRequest
+	if err := decodeStrictJSON(body, &req, "RecordShiftingEventRequest"); err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	normalized, err := normalizeShiftingEventRequest(req)
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+
+	// payload_hash and request_fingerprint are derived ONLY from the canonical client request, never
+	// from server-generated values such as raised_at. That is what makes an exact replay hash
+	// identically (so the repo returns the original row instead of inserting a second movement) while
+	// a same-key/different-payload replay hashes differently and is rejected as a conflict.
+	canonical, err := canonicalRequestBytes(tenantID, appShiftingEventCommand, appShiftingEventRoute, normalized)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	// Same instant, tagged Asia/Kolkata: raised_at/effective_at are business timestamps that get
+	// stored, displayed, and bucketed into business days, so the location must be the business one.
+	// This is safe for idempotency: the canonical hash above covers only the client request.
+	raisedAt := time.Now().In(biztime.DefaultLocation())
+	// effective_at stays OPTIONAL and server-defaulted: the operator is standing at the shed
+	// reporting a movement that just happened, so "now" is the right answer and the phone no longer
+	// sends the field. It remains part of the contract for back-dated corrections.
+	effectiveAt := raisedAt
+	if normalized.EffectiveAt != nil {
+		effectiveAt = *normalized.EffectiveAt
+	}
+
+	// Impacts are derived AFTER the canonical hash is taken, never before, and that ordering is
+	// load-bearing for idempotency. The hash must cover only what the CLIENT sent: if a derived
+	// impact were folded into it, an exact replay of the same request would hash differently the
+	// moment the animal's breed or stage row changed underneath, and a legitimate retry would be
+	// rejected as a same-key/different-payload conflict.
+	impacts := shiftingImpacts(normalized)
+	if len(impacts) == 0 {
+		derived, err := h.shifting.DeriveShiftingImpacts(
+			r.Context(), tenantID, normalized.DestinationShedID, normalized.GoatIDs)
+		if err != nil {
+			h.writeCountsError(w, r, err)
+			return
+		}
+		impacts = derived
+	}
+
+	// The source park/shed is backfilled here for the same reason, under the same ordering rule: the
+	// phone no longer sends a source the server can read off the animal, but the stored event still
+	// has to record where the movement started. Deriving it AFTER the canonical hash keeps a retry
+	// that arrives once the animal has already been moved hashing identically, so it replays onto the
+	// original row instead of being rejected as a same-key/different-payload conflict.
+	//
+	// An explicitly supplied source always wins: a back-dated or corrective submission is stating a
+	// source the current placement no longer reflects, and overwriting it with "where the animal is
+	// now" would silently rewrite the operator's claim.
+	// Backfilling the source DEGRADES, it never fails the write. Unlike the impact derivation --
+	// which is the only thing standing between a movement and an empty projection row, and so fails
+	// closed -- the source is enrichment of a field the caller was allowed to omit. Failing here
+	// would newly impose goat-existence validation on the explicit-impacts path, which deliberately
+	// does not read the animal at all, and would reject writes that are valid today.
+	sourceParkID, sourceShedID := normalized.SourceParkID, normalized.SourceShedID
+	if sourceParkID == nil && sourceShedID == nil {
+		derivedPark, derivedShed, err := h.shifting.DeriveShiftingSource(r.Context(), tenantID, normalized.GoatIDs)
+		switch {
+		case errors.Is(err, countsapp.ErrImpactNotDerivable):
+			// Multi-animal movement: no single truthful origin. Leave the source absent rather than
+			// labelling every animal with one animal's shed.
+		case errors.Is(err, ports.ErrGoatNotFound):
+			// Nothing to read the source from. The no-impacts path still fails closed on this same
+			// condition a few lines above, via DeriveShiftingImpacts.
+		case err != nil:
+			h.writeCountsError(w, r, err)
+			return
+		default:
+			sourceParkID, sourceShedID = derivedPark, derivedShed
+		}
+	}
+
+	event := domain.ShiftingEvent{
+		TenantID: tenantID,
+		// The logical key is the business identity of this reported movement. Deriving it from the
+		// client idempotency key keeps an exact retry (same key) collapsing onto the same row, while
+		// two genuinely separate submissions stay two separate movements.
+		LogicalShiftingEventKey: "app-counts-shifting:" + clientKey,
+		Priority:                normalized.Priority,
+		Category:                normalized.Category,
+		SourceParkID:            sourceParkID,
+		SourceShedID:            sourceShedID,
+		DestinationParkID:       normalized.DestinationParkID,
+		DestinationShedID:       normalized.DestinationShedID,
+		RaisedAt:                raisedAt,
+		EffectiveAt:             effectiveAt,
+		SourceSystem:            appShiftingSourceSystem,
+		SourceRef:               appShiftingEventRoute + ":" + clientKey,
+		ProofRef:                normalized.ProofRef,
+		PayloadHash:             stableHash("counts-app-shifting-payload", canonical),
+		IdempotencyKey:          "app-counts-shifting:" + clientKey,
+		RequestFingerprint:      stableHash("counts-app-shifting-request", canonical),
+		Impacts:                 impacts,
+	}
+
+	id, replay, err := h.shifting.RecordShiftingEvent(r.Context(), event)
+	if err != nil {
+		h.writeCountsError(w, r, err)
+		return
+	}
+
+	// The movement row is already pending (authorization_state='pending'); the approval request is
+	// what puts it in a park head's queue and what carries the animals to move on approval.
+	//
+	// The two writes are separate transactions, which is safe here ONLY because a shifting_events
+	// row is inert until authorized: an orphan is a pending movement nobody can act on, never an
+	// applied one. Both writes are keyed off the same client Idempotency-Key, so a retry replays
+	// the event insert and creates the missing request, converging. (Birth and death have no such
+	// pending representation, which is exactly why their payloads are held on the request itself.)
+	if h.approvals == nil {
+		h.writeError(w, r, http.StatusNotImplemented, "approvals_unavailable",
+			"approval workflow is not configured", nil)
+		return
+	}
+	approvalPayload, err := json.Marshal(struct {
+		ShiftingEventID   string  `json:"shifting_event_id"`
+		DestinationParkID string  `json:"destination_park_id"`
+		DestinationShedID string  `json:"destination_shed_id"`
+		SourceParkID      *string `json:"source_park_id,omitempty"`
+		SourceShedID      *string `json:"source_shed_id,omitempty"`
+		Priority          string  `json:"priority,omitempty"`
+		Category          string  `json:"category,omitempty"`
+		// Never omitempty: normalizeShiftingEventRequest guarantees a non-empty set, so a stored
+		// payload without goat_ids is a corruption signal the approval path must be able to see.
+		GoatIDs []string `json:"goat_ids"`
+	}{
+		ShiftingEventID:   id,
+		DestinationParkID: normalized.DestinationParkID,
+		DestinationShedID: normalized.DestinationShedID,
+		// The approval payload carries the SAME derived source the event stored, so the request a
+		// park head reads shows the movement's real origin rather than a blank "from".
+		SourceParkID: sourceParkID,
+		SourceShedID: sourceShedID,
+		Priority:     normalized.Priority,
+		Category:     normalized.Category,
+		GoatIDs:      normalized.GoatIDs,
+	})
+	if err != nil {
+		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
+		return
+	}
+	shiftingEventID := id
+	request, requestReplay, err := h.approvals.SubmitRequest(r.Context(), domain.ApprovalRequestSubmission{
+		TenantID:           tenantID,
+		RequestType:        domain.ApprovalRequestTypeShifting,
+		Payload:            approvalPayload,
+		ShiftingEventID:    &shiftingEventID,
+		RaisedByUserID:     httpmiddleware.ActorIDFromContext(r.Context()),
+		RaisedAt:           raisedAt,
+		IdempotencyKey:     "app-counts-shifting:" + clientKey,
+		RequestFingerprint: stableHash("counts-app-shifting-request", canonical),
+	})
+	if err != nil {
+		h.writeApprovalError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, appShiftingEventResponse{
+		ShiftingEventID:   id,
+		ApprovalRequestID: request.ApprovalRequestID,
+		Status:            request.Status,
+		IdempotentReplay:  replay && requestReplay,
+	})
+}
+
+func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEventRequest, error) {
+	req.SourceParkID = trimOptionalPtr(req.SourceParkID)
+	req.SourceShedID = trimOptionalPtr(req.SourceShedID)
+	req.ProofRef = trimOptionalPtr(req.ProofRef)
+	req.DestinationParkID = strings.TrimSpace(req.DestinationParkID)
+	req.DestinationShedID = strings.TrimSpace(req.DestinationShedID)
+	req.Priority = strings.ToLower(strings.TrimSpace(req.Priority))
+	req.Category = strings.ToLower(strings.TrimSpace(req.Category))
+	if req.EffectiveAt != nil {
+		// Normalize to UTC so two representations of the same instant are the same request.
+		utc := req.EffectiveAt.UTC()
+		req.EffectiveAt = &utc
+	}
+	if req.DestinationParkID == "" {
+		return req, identityapp.BadRequest("missing_destination_park_id", "destination_park_id is required")
+	}
+	if req.DestinationShedID == "" {
+		return req, identityapp.BadRequest("missing_destination_shed_id", "destination_shed_id is required")
+	}
+	// A present-but-invalid enum is REJECTED, never silently rewritten to a default the operator
+	// never chose. An absent value falls through to the service's declared default.
+	if req.Priority != "" && !allowedShiftingPriority[req.Priority] {
+		return req, identityapp.BadRequest("invalid_priority", "priority must be normal, high, or emergency")
+	}
+	if req.Category != "" && !allowedShiftingCategory[req.Category] {
+		return req, identityapp.BadRequest("invalid_category", "category must be routine, high_priority, pregnancy, warmup, medical, quarantine, or other")
+	}
+	// goat_ids is REQUIRED: a shifting event must name the animals it moves (maintainer decision,
+	// 2026-07-19). Rejecting here -- at SUBMIT -- rather than at approval is deliberate: the
+	// operator who knows which animals moved is standing at the shed right now, whereas the park
+	// head approving hours later is not. A missing list must fail while it can still be supplied.
+	if len(req.GoatIDs) == 0 {
+		return req, identityapp.BadRequest("missing_goat_ids",
+			"goat_ids is required and must name at least one animal")
+	}
+	// goat_ids is bounded and de-duplicated at SUBMIT time so the stored payload is already the
+	// exact set approval will relocate. A duplicate id would otherwise make the approval's
+	// requested-vs-moved comparison fail closed on a request that is actually fine.
+	if len(req.GoatIDs) > identityports.MaxRelocateGoatsPerCommand {
+		return req, identityapp.BadRequest("too_many_goat_ids",
+			fmt.Sprintf("goat_ids must contain at most %d animals", identityports.MaxRelocateGoatsPerCommand))
+	}
+	seen := make(map[string]struct{}, len(req.GoatIDs))
+	unique := make([]string, 0, len(req.GoatIDs))
+	for i, id := range req.GoatIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			return req, identityapp.BadRequest("invalid_goat_id",
+				fmt.Sprintf("goat_ids[%d] must not be empty", i))
+		}
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		unique = append(unique, trimmed)
+	}
+	sort.Strings(unique)
+	req.GoatIDs = unique
+	// impacts is OPTIONAL for the single-animal case and REQUIRED otherwise.
+	//
+	// impacts describes the movement at breed/cohort grain ("12 head of Boer, 3 pregnant"), which is
+	// what the count projection consumes. Demanding it from a field operator who is moving ONE
+	// animal the system already has canonical breed/stage/sex facts for is pure friction, so the
+	// server derives that single row itself (see Service.DeriveShiftingImpacts).
+	//
+	// It stays required for two or more animals because the server would then have to invent the
+	// cohort split and the pregnancy/lactation/warm-up distribution -- business facts nobody
+	// entered. Note this is a RELAXATION at the transport edge only: counts/app.Service still
+	// rejects an event that reaches it with zero impacts, so the invariant "a recorded movement has
+	// at least one impact" is unchanged and still enforced below the handler.
+	if len(req.Impacts) == 0 && len(req.GoatIDs) != 1 {
+		return req, identityapp.BadRequest("missing_impacts",
+			"impacts is required unless goat_ids names exactly one animal")
+	}
+	for i := range req.Impacts {
+		impact := req.Impacts[i]
+		impact.BreedID = trimOptionalPtr(impact.BreedID)
+		impact.StageTag = trimOptionalPtr(impact.StageTag)
+		impact.AgeClass = trimOptionalPtr(impact.AgeClass)
+		impact.Sex = trimOptionalPtr(impact.Sex)
+		impact.BreedKey = strings.ToLower(strings.TrimSpace(impact.BreedKey))
+		impact.BreedLabel = strings.TrimSpace(impact.BreedLabel)
+		if impact.BreedKey == "" {
+			return req, identityapp.BadRequest("missing_breed_key", fmt.Sprintf("impacts[%d].breed_key is required", i))
+		}
+		if impact.BreedLabel == "" {
+			impact.BreedLabel = impact.BreedKey
+		}
+		req.Impacts[i] = impact
+	}
+	return req, nil
+}
+
+func shiftingImpacts(req appShiftingEventRequest) []domain.ShiftingEventImpact {
+	out := make([]domain.ShiftingEventImpact, 0, len(req.Impacts))
+	for _, impact := range req.Impacts {
+		out = append(out, domain.ShiftingEventImpact{
+			GrainKey:       strings.ToLower(req.DestinationShedID) + ":" + impact.BreedKey,
+			BreedID:        impact.BreedID,
+			BreedKey:       impact.BreedKey,
+			BreedLabel:     impact.BreedLabel,
+			StageTag:       impact.StageTag,
+			AgeClass:       impact.AgeClass,
+			Sex:            impact.Sex,
+			HeadCount:      impact.HeadCount,
+			PregnantCount:  impact.PregnantCount,
+			LactatingCount: impact.LactatingCount,
+			WarmupCount:    impact.WarmupCount,
+			RiskFlagsJSON:  []byte("{}"),
+		})
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Birth events
+// ---------------------------------------------------------------------------
+
+// RecordBirthEvent records a birth as a goat creation with origin_type pinned to "birth".
+//
+// There is no birth aggregate: a birth IS goat creation. The body is the identity module's
+// CreateAdminGoatRequest, so identity keeps ownership of every rule (dob required, dob <= entry_date,
+// identifier uniqueness, location resolution, evidence refs) and of the idempotency contract. This
+// handler only pins origin_type so the app route cannot create a procured/imported animal.
+func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.readBody(w, r)
+	if !ok {
+		return
+	}
+	fields, err := decodeJSONObject(body, "RecordBirthEventRequest")
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	// origin_type is pinned, not silently rewritten: an absent value becomes "birth", but a
+	// PRESENT value that disagrees is rejected rather than being quietly overwritten.
+	if raw, present := fields["origin_type"]; present {
+		var declared string
+		if err := json.Unmarshal(raw, &declared); err != nil || strings.TrimSpace(declared) != "birth" {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_origin_type",
+				"origin_type must be birth on "+appBirthEventRoute, nil)
+			return
+		}
+	}
+	fields["origin_type"] = json.RawMessage(`"birth"`)
+	forwarded, err := json.Marshal(fields)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	clientKey, err := appIdempotencyKey(r)
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	if h.approvals == nil || h.validator == nil {
+		h.writeError(w, r, http.StatusNotImplemented, "approvals_unavailable",
+			"approval workflow is not configured", nil)
+		return
+	}
+
+	// Validate NOW, apply NEVER (here). PrepareCreateAdminGoat runs the identical decode,
+	// normalization, dob<=entry_date rule, identifier-uniqueness check and location resolution that
+	// creating the goat would run, so a malformed submission is rejected on the operator's phone
+	// immediately -- but it has NO side effects, and the command it returns is discarded. The kid
+	// is created, and its vaccination obligations generated, only when the request is approved.
+	if _, err := h.validator.PrepareCreateAdminGoat(r.Context(), identityapp.CreateAdminGoatInput{
+		TenantID:       tenantID,
+		ActorID:        httpmiddleware.ActorIDFromContext(r.Context()),
+		IdempotencyKey: clientKey,
+		TraceID:        appTraceID(r),
+		RawBody:        forwarded,
+	}); err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+
+	canonical, err := canonicalRequestBytes(tenantID, appBirthEventCommand, appBirthEventRoute, json.RawMessage(forwarded))
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	request, replay, err := h.approvals.SubmitRequest(r.Context(), domain.ApprovalRequestSubmission{
+		TenantID:           tenantID,
+		RequestType:        domain.ApprovalRequestTypeBirth,
+		Payload:            forwarded,
+		RaisedByUserID:     httpmiddleware.ActorIDFromContext(r.Context()),
+		RaisedAt:           time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey:     "app-counts-birth:" + clientKey,
+		RequestFingerprint: stableHash("counts-app-birth-request", canonical),
+	})
+	if err != nil {
+		h.writeApprovalError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusAccepted, appApprovalSubmitResponse{
+		ApprovalRequestID: request.ApprovalRequestID,
+		RequestType:       request.RequestType,
+		Status:            request.Status,
+		RaisedAt:          request.RaisedAt,
+		IdempotentReplay:  replay,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Death events
+// ---------------------------------------------------------------------------
+
+// RecordDeathEvent records a death through the dedicated guardrailed critical-death exit.
+//
+// GUARDRAIL: the lifecycle_status="dead" + exit_reason="died" pairing is NOT re-implemented or
+// relaxed here. The body (minus the goat_id addressing field, which this route carries in the body
+// rather than the path) is forwarded verbatim to identity's CriticalDeathExit, whose
+// validateCriticalDeathExit still rejects anything that is not that exact pairing. The ordinary
+// /exit path still refuses death, and this route still emits goat.exited, which auto-cancels the
+// animal's open obligations.
+func (h *AppWriteHandler) RecordDeathEvent(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.readBody(w, r)
+	if !ok {
+		return
+	}
+	fields, err := decodeJSONObject(body, "RecordDeathEventRequest")
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	rawGoatID, present := fields["goat_id"]
+	if !present {
+		h.writeError(w, r, http.StatusBadRequest, "missing_goat_id", "goat_id is required", nil)
+		return
+	}
+	var goatID string
+	if err := json.Unmarshal(rawGoatID, &goatID); err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_goat_id", "goat_id must be a string", nil)
+		return
+	}
+	// goat_id addresses the animal; identity's ExitGoatRequest decodes strictly, so it must not
+	// remain in the forwarded body. Every other field is passed through untouched.
+	delete(fields, "goat_id")
+	forwarded, err := json.Marshal(fields)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	clientKey, err := appIdempotencyKey(r)
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	if h.approvals == nil || h.validator == nil {
+		h.writeError(w, r, http.StatusNotImplemented, "approvals_unavailable",
+			"approval workflow is not configured", nil)
+		return
+	}
+	subjectGoatID := strings.TrimSpace(goatID)
+
+	// GUARDRAIL AT SUBMIT TIME. PrepareCriticalDeathExit runs validateCriticalDeathExit, so a body
+	// that is not the exact lifecycle_status="dead" + exit_reason="died" pairing is rejected right
+	// here -- the operator finds out immediately, and a payload the guarded path would refuse can
+	// never be parked in an approver's queue. The guardrail runs AGAIN at approval, on the same
+	// guarded command, and once more inside identity's adapter. Preparing applies nothing: the
+	// animal is exited, and its open obligations cancelled, only when the request is approved.
+	if _, err := h.validator.PrepareCriticalDeathExit(r.Context(), identityapp.ExitGoatInput{
+		TenantID:       tenantID,
+		ActorID:        httpmiddleware.ActorIDFromContext(r.Context()),
+		IdempotencyKey: clientKey,
+		TraceID:        appTraceID(r),
+		GoatID:         subjectGoatID,
+		RawBody:        forwarded,
+	}); err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+
+	// The stored payload keeps goat_id inline (this route has no {goat_id} path segment); the
+	// approval path splits it back out before handing the body to identity.
+	stored, err := json.Marshal(fields)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	var storedFields map[string]json.RawMessage
+	if err := json.Unmarshal(stored, &storedFields); err != nil {
+		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
+		return
+	}
+	storedFields["goat_id"] = rawGoatID
+	storedPayload, err := json.Marshal(storedFields)
+	if err != nil {
+		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
+		return
+	}
+
+	canonical, err := canonicalRequestBytes(tenantID, appDeathEventCommand, appDeathEventRoute, json.RawMessage(storedPayload))
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	request, replay, err := h.approvals.SubmitRequest(r.Context(), domain.ApprovalRequestSubmission{
+		TenantID:           tenantID,
+		RequestType:        domain.ApprovalRequestTypeDeath,
+		Payload:            storedPayload,
+		SubjectGoatID:      &subjectGoatID,
+		RaisedByUserID:     httpmiddleware.ActorIDFromContext(r.Context()),
+		RaisedAt:           time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey:     "app-counts-death:" + clientKey,
+		RequestFingerprint: stableHash("counts-app-death-request", canonical),
+	})
+	if err != nil {
+		h.writeApprovalError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusAccepted, appApprovalSubmitResponse{
+		ApprovalRequestID: request.ApprovalRequestID,
+		RequestType:       request.RequestType,
+		Status:            request.Status,
+		RaisedAt:          request.RaisedAt,
+		IdempotentReplay:  replay,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Shared transport helpers
+// ---------------------------------------------------------------------------
+
+func (h *AppWriteHandler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, appWriteMaxBodyBytes))
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body is too large or unreadable", err)
+		return nil, false
+	}
+	return body, true
+}
+
+// appIdempotencyKey applies the same client idempotency-key rule identity's write paths apply
+// (validateWriteHeaders), so all three Counts app writes reject a missing/oversized key identically.
+func appIdempotencyKey(r *http.Request) (string, error) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		return "", identityapp.BadRequest("missing_idempotency_key", "Idempotency-Key header is required")
+	}
+	if len(key) < 8 || len(key) > 200 {
+		return "", identityapp.BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
+	}
+	return key, nil
+}
+
+func appTraceID(r *http.Request) string {
+	if traceID := httpmiddleware.TraceIDFromContext(r.Context()); traceID != "" {
+		return traceID
+	}
+	return "missing-trace"
+}
+
+func decodeStrictJSON(raw []byte, dest any, schemaName string) error {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return identityapp.BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dest); err != nil {
+		return identityapp.BadRequest("invalid_json", "request body must match "+schemaName)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return identityapp.BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return nil
+}
+
+// decodeJSONObject parses the body as a generic JSON object so the handler can pin/strip exactly one
+// transport field before forwarding it. Field-level validation stays in the owning module, which
+// decodes the forwarded body strictly against its own schema.
+func decodeJSONObject(raw []byte, schemaName string) (map[string]json.RawMessage, error) {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil, identityapp.BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	var fields map[string]json.RawMessage
+	if err := decoder.Decode(&fields); err != nil || fields == nil {
+		return nil, identityapp.BadRequest("invalid_json", "request body must match "+schemaName)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, identityapp.BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return fields, nil
+}
+
+func canonicalRequestBytes(tenantID, command, route string, body any) ([]byte, error) {
+	return json.Marshal(struct {
+		TenantID string `json:"tenant_id"`
+		Command  string `json:"command"`
+		Route    string `json:"route"`
+		Body     any    `json:"body"`
+	}{TenantID: tenantID, Command: command, Route: route, Body: body})
+}
+
+func stableHash(domainSeparator string, payload []byte) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(domainSeparator))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write(payload)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func trimOptionalPtr(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*v)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func (h *AppWriteHandler) writeAppError(w http.ResponseWriter, r *http.Request, err error) {
+	var appErr *identityapp.Error
+	if errors.As(err, &appErr) {
+		h.writeError(w, r, appErr.HTTPStatus, appErr.Code, appErr.Message, err)
+		return
+	}
+	h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
+}
+
+// writeCountsError maps the counts module's own sentinel errors onto HTTP status codes. The two
+// conflict sentinels are the idempotency contract's "same key, different payload" rejection.
+func (h *AppWriteHandler) writeCountsError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		h.writeError(w, r, http.StatusConflict, "idempotency_conflict",
+			"Idempotency-Key was reused with a different payload", err)
+	case errors.Is(err, ports.ErrLogicalKeyConflict):
+		h.writeError(w, r, http.StatusConflict, "logical_key_conflict",
+			"shifting event key was reused with a different payload", err)
+	case errors.Is(err, ports.ErrIdempotencyInProgress):
+		h.writeError(w, r, http.StatusConflict, "idempotency_in_progress",
+			"a request with this Idempotency-Key is still in progress", err)
+	// A named animal that does not resolve is the operator's problem to fix (wrong RFID, animal
+	// already exited/merged), so it is a 404 with a specific code -- not a 500, and not a silent
+	// success with a placeholder impact.
+	case errors.Is(err, ports.ErrGoatNotFound):
+		h.writeError(w, r, http.StatusNotFound, "goat_not_found",
+			"one or more goat_ids did not resolve to a live animal in this tenant", err)
+	case errors.Is(err, countsapp.ErrImpactNotDerivable):
+		h.writeError(w, r, http.StatusBadRequest, "missing_impacts",
+			"impacts is required unless goat_ids names exactly one animal", err)
+	case errors.Is(err, countsapp.ErrMissingRequiredField),
+		errors.Is(err, countsapp.ErrMissingImpact),
+		errors.Is(err, countsapp.ErrInvalidCount),
+		errors.Is(err, countsapp.ErrInvalidJSON):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_shifting_event", err.Error(), err)
+	default:
+		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
+	}
+}
+
+func (h *AppWriteHandler) writeError(w http.ResponseWriter, r *http.Request, status int, code, message string, cause error) {
+	httpresponse.WriteError(w, r, h.log, status, identitydomain.ErrorEnvelope{
+		Code:        code,
+		Message:     message,
+		FieldErrors: []identitydomain.FieldError{},
+		TraceID:     appTraceID(r),
+		Retryable:   status >= http.StatusInternalServerError,
+	}, cause)
+}

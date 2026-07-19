@@ -130,6 +130,10 @@ type Repository interface {
 	AssignCapability(ctx context.Context, cmd CapabilityCommand) (domain.CapabilityAssignment, error)
 	RemoveCapability(ctx context.Context, cmd RemoveCapabilityCommand) error
 	ListCapabilities(ctx context.Context, tenantID, operatorID string) ([]domain.CapabilityAssignment, error)
+	// ListGrantedModuleKeys resolves the module keys granted to a user through their
+	// workforce member's department (department_module_grants). Returns an empty slice
+	// when the user has no active member row or the department has no grants.
+	ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error)
 	ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error)
 	RevokeDevice(ctx context.Context, cmd RevokeDeviceCommand) (domain.DeviceSummary, error)
 	ListSourceCandidates(ctx context.Context, params ListSourceCandidatesParams) ([]domain.SourceCandidate, error)

@@ -243,3 +243,83 @@ val MIGRATION_10_11: Migration = object : Migration(10, 11) {
         )
     }
 }
+
+/**
+ * v11 -> v12: adds the Counts vertical's read models in ONE step — all seven tables, no change to
+ * any existing table. Purely additive, so an installed APK upgrades in place with every cached row
+ * and every unsynced outbox write intact.
+ *
+ * Three shapes, deliberately different (see `cache/CountsCache.kt`,
+ * `cache/CountsApprovalCache.kt`):
+ *  - `herd_summary_cache` / `counts_breakdown_meta_cache` / `counts_shifting_destinations_cache`
+ *    are JSON-blob-by-scope rollups, the same `(cacheKey, dtoJson, updatedAt)` shape every other
+ *    fixed-size read model here uses. The destinations catalog is the bounded park -> sheds
+ *    vocabulary behind the shifting screen's cascading dropdowns, so the picker still opens with
+ *    real options when the phone is offline in a shed;
+ *  - `counts_breakdown_items` / `counts_breakdown_remote_keys` are normalized per-grain rows plus
+ *    their page offset, mirroring [MIGRATION_7_8]'s Calendar schedule pair, so the UI observes a
+ *    bounded Paging window instead of an ever-growing cached page blob;
+ *  - `counts_approval_items` / `counts_approval_remote_keys` are the approver queue's normalized
+ *    per-request rows plus one opaque backend keyset cursor per scope — a growable list, so it is
+ *    paginated rather than blob-cached.
+ *
+ * NOTE the Counts OUTBOX op types (COUNTS_SHIFTING / COUNTS_BIRTH / COUNTS_DEATH,
+ * COUNTS_APPROVAL_APPROVE / COUNTS_APPROVAL_REJECT) need NO migration of their own and are not
+ * touched here: they live in a different database (`goatos-outbox.db`) and are stored as plain
+ * TEXT in an existing column.
+ */
+val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Each CREATE spells its table name out as a literal rather than looping over an
+        // interpolated list. That is deliberate: `make room-migration-guard` statically matches
+        // every new v12 @Entity table against the CREATEs in this migration, and an interpolated
+        // `$table` name is invisible to it — so a loop here would let a genuinely missing table
+        // pass the very check that exists to catch the upgrade-crash defect
+        // (docs/decisions/room-migration-safety.md).
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `herd_summary_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `counts_breakdown_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `counts_breakdown_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_counts_breakdown_items_queryKey_sortIndex` " +
+                "ON `counts_breakdown_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `counts_breakdown_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `counts_approval_items` " +
+                "(`queryKey` TEXT NOT NULL, `approvalRequestId` TEXT NOT NULL, " +
+                "`sortIndex` INTEGER NOT NULL, `raisedAt` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `approvalRequestId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_counts_approval_items_queryKey_sortIndex` " +
+                "ON `counts_approval_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `counts_approval_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `counts_shifting_destinations_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

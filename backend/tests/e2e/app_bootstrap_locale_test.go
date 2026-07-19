@@ -41,7 +41,11 @@ func TestAppBootstrapLocalizesBackendOwnedStringsFromLocaleHeader(t *testing.T) 
 			ScopeID:   fxTenant,
 			Status:    "active",
 		}},
-		caps: []domain.CapabilityAssignment{{CapabilityCode: "movement.execute", Status: "active"}},
+		// Nav is composed from department_module_grants (mig 000002); a principal with
+		// no granted module gets no nav, so this locale fixture must grant one to have
+		// any labels to localize.
+		grantedModules: []string{"vaccination"},
+		caps:           []domain.CapabilityAssignment{{CapabilityCode: "movement.execute", Status: "active"}},
 	})
 	workforcehttp.Register(mux, workforcehttp.NewHandler(svc, slog.New(slog.NewTextHandler(io.Discard, nil))))
 	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
@@ -99,9 +103,10 @@ func localeStringPtr(value string) *string {
 }
 
 type bootstrapLocaleRepo struct {
-	profile domain.OperatorProfile
-	grants  []domain.GrantSummary
-	caps    []domain.CapabilityAssignment
+	profile        domain.OperatorProfile
+	grants         []domain.GrantSummary
+	caps           []domain.CapabilityAssignment
+	grantedModules []string
 }
 
 func (r *bootstrapLocaleRepo) GetMemberForActor(context.Context, string, string) (domain.OperatorProfile, error) {
@@ -114,6 +119,10 @@ func (r *bootstrapLocaleRepo) ListActiveGrantsForActor(context.Context, string, 
 
 func (r *bootstrapLocaleRepo) ListCapabilities(context.Context, string, string) ([]domain.CapabilityAssignment, error) {
 	return r.caps, nil
+}
+
+func (r *bootstrapLocaleRepo) ListGrantedModuleKeys(context.Context, string, string) ([]string, error) {
+	return r.grantedModules, nil
 }
 
 func (r *bootstrapLocaleRepo) GetDeviceForActor(context.Context, string, string, string) (domain.DeviceSummary, error) {

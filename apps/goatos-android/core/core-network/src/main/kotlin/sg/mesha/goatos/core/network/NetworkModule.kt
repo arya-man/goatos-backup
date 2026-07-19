@@ -20,6 +20,18 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
+import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
+import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
+import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
+import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteRequestDto
@@ -275,6 +287,77 @@ interface AppApiService {
         @Path("submission_id") submissionId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
+    @GET("herd-register/summary")
+    suspend fun getHerdRegisterSummary(
+        @Query("lifecycle_status") lifecycleStatus: String?,
+        @Query("park_id") parkId: String?,
+        @Query("breed") breed: String?,
+        @Query("sex") sex: String?,
+    ): HerdRegisterSummaryResponseDto
+
+    @GET("counts/breakdown")
+    suspend fun getCountsBreakdown(
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("management_stage") managementStage: String?,
+        @Query("breed") breed: String?,
+        @Query("sex") sex: String?,
+        @Query("lifecycle_status") lifecycleStatus: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): CountsBreakdownResponseDto
+
+    @POST("app/counts/shifting-events")
+    suspend fun recordCountsShiftingEvent(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsShiftingEventRequestDto,
+    ): CountsShiftingEventResponseDto
+
+    @GET("app/counts/shifting/destinations")
+    suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    @POST("app/counts/birth-events")
+    suspend fun recordCountsBirthEvent(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsBirthEventRequestDto,
+    ): CountsGoatLifecycleResponseDto
+
+    @POST("app/counts/death-events")
+    suspend fun recordCountsDeathEvent(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsDeathEventRequestDto,
+    ): CountsGoatLifecycleResponseDto
+
+    @GET("goats/search")
+    suspend fun searchGoats(
+        @Query("q") q: String?,
+        @Query("park_id") parkId: String?,
+        @Query("location_id") locationId: String?,
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): GoatSearchResponseDto
+
+    @GET("app/counts/approvals")
+    suspend fun listCountsApprovals(
+        @Query("status") status: String?,
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+    ): CountsApprovalListResponseDto
+
+    @POST("app/counts/approvals/{request_id}/approve")
+    suspend fun approveCountsApproval(
+        @Path("request_id") requestId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto
+
+    @POST("app/counts/approvals/{request_id}/reject")
+    suspend fun rejectCountsApproval(
+        @Path("request_id") requestId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -515,6 +598,70 @@ class RetrofitAppApi(
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto =
         service.closeVerificationSubmission(submissionId, idempotencyKey)
+    override suspend fun getHerdRegisterSummary(
+        lifecycleStatus: String?,
+        parkId: String?,
+        breed: String?,
+        sex: String?,
+    ): HerdRegisterSummaryResponseDto =
+        service.getHerdRegisterSummary(lifecycleStatus, parkId, breed, sex)
+
+    override suspend fun getCountsBreakdown(
+        parkId: String?,
+        shedId: String?,
+        managementStage: String?,
+        breed: String?,
+        sex: String?,
+        lifecycleStatus: String?,
+        limit: Int?,
+        offset: Int?,
+    ): CountsBreakdownResponseDto =
+        service.getCountsBreakdown(parkId, shedId, managementStage, breed, sex, lifecycleStatus, limit, offset)
+
+    override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
+        service.getCountsShiftingDestinations()
+
+    override suspend fun recordCountsShiftingEvent(
+        idempotencyKey: String,
+        request: CountsShiftingEventRequestDto,
+    ): CountsShiftingEventResponseDto = service.recordCountsShiftingEvent(idempotencyKey, request)
+
+    override suspend fun recordCountsBirthEvent(
+        idempotencyKey: String,
+        request: CountsBirthEventRequestDto,
+    ): CountsGoatLifecycleResponseDto = service.recordCountsBirthEvent(idempotencyKey, request)
+
+    override suspend fun recordCountsDeathEvent(
+        idempotencyKey: String,
+        request: CountsDeathEventRequestDto,
+    ): CountsGoatLifecycleResponseDto = service.recordCountsDeathEvent(idempotencyKey, request)
+
+    override suspend fun searchGoats(
+        q: String?,
+        parkId: String?,
+        locationId: String?,
+        status: String?,
+        limit: Int?,
+        cursor: String?,
+    ): GoatSearchResponseDto = service.searchGoats(q, parkId, locationId, status, limit, cursor)
+
+    override suspend fun listCountsApprovals(
+        status: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsApprovalListResponseDto = service.listCountsApprovals(status, pageSize, cursor)
+
+    override suspend fun approveCountsApproval(
+        requestId: String,
+        idempotencyKey: String,
+        request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto = service.approveCountsApproval(requestId, idempotencyKey, request)
+
+    override suspend fun rejectCountsApproval(
+        requestId: String,
+        idempotencyKey: String,
+        request: CountsApprovalDecisionRequestDto,
+    ): CountsApprovalDecisionResponseDto = service.rejectCountsApproval(requestId, idempotencyKey, request)
 }
 
 /**

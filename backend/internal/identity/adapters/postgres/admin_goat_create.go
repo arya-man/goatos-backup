@@ -137,19 +137,10 @@ func (r *Repository) completedAdminGoatCreateReplayTarget(ctx context.Context, k
 	return idempotency.ResultID, true, nil
 }
 
+// CreateAdminGoat owns its transaction: it begins, performs the whole create, and commits.
 func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-
-	tenantUUID, err := uuidParam(cmd.TenantID)
-	if err != nil {
-		return nil, err
-	}
-	actorUUID, err := uuidParam(cmd.ActorID)
-	if err != nil {
-		return nil, err
-	}
-	farmUUID := nullableUUID(cmd.FarmID)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -161,6 +152,45 @@ func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminG
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	result, err := r.createAdminGoatInTx(ctx, tx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	committed = true
+	return result, nil
+}
+
+// CreateAdminGoatInTx performs the identical create inside a transaction the CALLER owns and
+// commits. It exists so another module can make a goat creation atomic with its own state change --
+// specifically, so approving a pending Counts birth request flips the request to 'approved' and
+// creates the kid in ONE transaction. Without this seam the two writes would be separate
+// transactions and a request could read 'approved' while its goat never committed, which is exactly
+// what the atomic transition rule in AGENTS.md forbids.
+//
+// This is a TRANSPORT seam only. Every rule -- idempotency claim/replay, identifier uniqueness, the
+// decision record, the audit row, and the goat.created outbox message that generates the kid's
+// vaccination obligations -- is the same code the pool-owned CreateAdminGoat runs. Note that the
+// caller is responsible for the surrounding timeout: the 3s r.withTimeout applied by
+// CreateAdminGoat is deliberately NOT applied here, because the caller's transaction sets the
+// budget for all the work in it.
+func (r *Repository) CreateAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	return r.createAdminGoatInTx(ctx, tx, cmd)
+}
+
+func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := uuidParam(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	farmUUID := nullableUUID(cmd.FarmID)
+
 	qtx := r.queries.WithTx(tx)
 
 	_, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
@@ -422,10 +452,6 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'created')`,
 	}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	committed = true
 	return response, nil
 }
 

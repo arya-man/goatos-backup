@@ -129,6 +129,24 @@ func (s *Service) MoveGoat(ctx context.Context, input MoveGoatInput) (*domain.Ad
 	return adminGoatResponse(result, clientKey, input.TraceID), nil
 }
 
+// Two-route split for goat exits. Both land in exitGoat; they differ only in which
+// exit vocabulary each one ACCEPTS, and the split is the guardrail:
+//
+//	ExitGoat           sold | culled | transferred | lost   — rejects dead/died (409)
+//	CriticalDeathExit  dead + died ONLY                      — rejects everything else (400)
+//
+// Neither validator can be satisfied by the other's payload, so a death exit cannot
+// reach the repository without GuardrailApproved=true (re-checked in the postgres
+// adapter, not trusted from here). That is what buys the death-specific effects —
+// obligation cancellation and the goat.exited emission — instead of a silent status flip.
+//
+// The split is about the WRITE, not the caller. It is not an admin-web-only or
+// leadership-only path: death recording is field work (a maintainer-approved
+// operator records a death from the mobile Counts module), and the guardrail applies
+// identically to every principal that holds the route permission. Who may call it is
+// decided by permissions.RoutePermissions; what the call must prove is decided here.
+// Widening access therefore never means widening this validator — see
+// docs/features/critical-animal-action-guardrails.md.
 func (s *Service) ExitGoat(ctx context.Context, input ExitGoatInput) (*domain.AdminGoatResponse, error) {
 	return s.exitGoat(ctx, input, exitGoatCommand, "/admin/goats/{goat_id}/exit", validateExitGoat, false)
 }
@@ -723,10 +741,20 @@ func criticalHealthTransitionError() *Error {
 	return GuardrailRequired("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
 }
 
+// criticalDeathExit detects a death exit from EITHER half of the dead+died pairing
+// (OR, not AND) so a caller cannot slip past by sending only one of them. The regular
+// exit primitive uses it to reject; the guardrail primitive uses it to require. Mismatched
+// pairs (e.g. dead + sold) are then caught by validateExitGoatCommon's exitReasonByLifecycle
+// check, so the guardrail route accepts exactly dead+died.
 func criticalDeathExit(lifecycleStatus, exitReason string) bool {
 	return strings.TrimSpace(lifecycleStatus) == "dead" || strings.TrimSpace(exitReason) == "died"
 }
 
+// criticalDeathTransitionError is a 409 guardrail-required, not a 403 authorization
+// failure, and the distinction is deliberate: it says "this write must take the guarded
+// route", never "you are not allowed to record a death". An operator recording a death
+// from the mobile Counts module gets this same 409 if it aims at the regular exit
+// primitive — the fix is the route, not a role escalation.
 func criticalDeathTransitionError() *Error {
 	return GuardrailRequired("critical_death_transition_requires_guardrail", "death exits must use the critical-action guardrail path")
 }

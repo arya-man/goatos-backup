@@ -177,10 +177,40 @@ INSERT INTO goat_location_history (
 	})
 }
 
+// ExitGoat owns its transaction: it begins, performs the exit, and commits.
 func (r *Repository) ExitGoat(ctx context.Context, cmd ports.ExitGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	return r.exitGoatInTx(ctx, tx, &committed, false, cmd)
+}
+
+// ExitGoatInTx performs the identical exit inside a transaction the CALLER owns and commits. It is
+// the death half of the Counts approval seam (see CreateAdminGoatInTx): approving a pending death
+// request must flip the request to 'approved' and exit the animal in ONE transaction, so the
+// request can never read 'approved' while the exit failed to save.
+//
+// The critical-death guardrail is UNCHANGED and still runs on this path: cmd.GuardrailApproved is
+// checked below exactly as it is for the pool-owned call, so an approval that did not come through
+// the guarded CriticalDeathExit command still fails with ErrCriticalDeathGuardrailRequired. The
+// goat.exited outbox message that cancels the animal's open obligations is emitted in the caller's
+// transaction, so obligations are cancelled if and only if the approval commits.
+func (r *Repository) ExitGoatInTx(ctx context.Context, tx pgx.Tx, cmd ports.ExitGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	committed := false
+	return r.exitGoatInTx(ctx, tx, &committed, true, cmd)
+}
+
+func (r *Repository) exitGoatInTx(ctx context.Context, tx pgx.Tx, committed *bool, deferCommit bool, cmd ports.ExitGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	tenantUUID, err := uuidParam(cmd.TenantID)
 	if err != nil {
 		return nil, err
@@ -194,16 +224,6 @@ func (r *Repository) ExitGoat(ctx context.Context, cmd ports.ExitGoatCommand) (*
 		return nil, err
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback(ctx)
-		}
-	}()
 	qtx := r.queries.WithTx(tx)
 	if _, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
 		IdempotencyKey: cmd.StoredIdempotencyKey,
@@ -251,7 +271,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		"scope_type":          "goat",
 		"scope_id":            cmd.GoatID,
 	}
-	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
+	return r.finishGoatLifecycleMutation(ctx, tx, qtx, committed, goatLifecycleFinish{
 		TenantUUID:     tenantUUID,
 		ActorUUID:      actorUUID,
 		GoatUUID:       goatUUID,
@@ -270,6 +290,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		AggregateType: goatLifecycleAggregate,
 		SubjectType:   goatLifecycleSubject,
 		SubjectID:     cmd.GoatID,
+		DeferCommit:   deferCommit,
 	})
 }
 
@@ -610,6 +631,10 @@ type goatLifecycleFinish struct {
 	AggregateType  string
 	SubjectType    string
 	SubjectID      string
+	// DeferCommit leaves the transaction OPEN for the caller to commit. The zero value keeps the
+	// historical behaviour (this helper commits), so every pool-owned lifecycle write is unchanged;
+	// only the *InTx seams used by the Counts approval workflow set it.
+	DeferCommit bool
 }
 
 func goatLifecycleCommandFromMove(cmd ports.MoveGoatCommand) goatLifecycleCommand {
@@ -1067,6 +1092,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')`,
 		IdempotencyKey: finish.Command.StoredIdempotencyKey,
 	}); err != nil {
 		return nil, err
+	}
+	if finish.DeferCommit {
+		// The caller owns this transaction and commits it together with its own state change.
+		return response, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err

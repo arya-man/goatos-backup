@@ -19,7 +19,6 @@
     <string name="calendar_month_hint">ఆ రోజు బాకీ పని లేదా పూర్తి చరిత్ర కోసం రోజును నొక్కండి · చుక్కలు = ఓపెన్ పని, మసక చుక్కలు = పూర్తి చరిత్ర</string>
 
     <!-- Accessibility descriptions -->
-    <string name="calendar_button_menu">మెనూ</string>
     <string name="calendar_day_back">వెనుకకు</string>
     <string name="calendar_button_refresh">రిఫ్రెష్</string>
 

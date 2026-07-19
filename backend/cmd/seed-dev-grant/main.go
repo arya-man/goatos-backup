@@ -20,6 +20,16 @@ import (
 // departmentCodePattern mirrors departments_code_check.
 var departmentCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// moduleKeyPattern mirrors department_module_grants_module_key_check (mig 000002).
+var moduleKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// defaultDevModules is what -modules grants when the flag is not passed. It stays
+// "vaccination" so the documented invocation in docs/runbooks/android-dev-device.md
+// (-department preventive_care, no -modules) keeps producing a WORKING vaccination
+// operator: without a department_module_grants row, ListGrantedModuleKeys returns
+// empty and /app/bootstrap serves an empty bottom bar.
+const defaultDevModules = "vaccination"
+
 func main() {
 	var tenantID string
 	var userID string
@@ -27,6 +37,7 @@ func main() {
 	var authIssuer string
 	var role string
 	var department string
+	var modules string
 	var parkID string
 	var parkOnly bool
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope grant")
@@ -35,6 +46,7 @@ func main() {
 	flag.StringVar(&authIssuer, "auth-issuer", os.Getenv("GOATOS_AUTH_ISSUER"), "issuer used when mapping an external IdP subject")
 	flag.StringVar(&role, "role", "", "required role: a flat legacy role (admin, verifier, park_head, pc_director, operator, ceo_internal) or a composite tier x vertical org role key such as manager_feed, director_health, am_preventive_care (see context/architecture/org-role-model.md and permissions.RoleKey)")
 	flag.StringVar(&department, "department", "", "optional HR department code; provisions/attaches a workforce_member so department-driven nav works for this dev identity")
+	flag.StringVar(&modules, "modules", defaultDevModules, "comma-separated module keys granted to -department (e.g. \"vaccination,counts\"); requires -department, since department_module_grants is department-scoped. Pass \"\" to skip module granting. Keys are matched against moduleNavRegistry in backend/internal/workforce/app/bootstrap_copy.go -- an unknown key is stored and simply contributes no nav")
 	flag.StringVar(&parkID, "park-id", "", "optional park location UUID; when set, also seeds a scope_type='park' grant row for role (use -park-only to omit the tenant-wide grant)")
 	flag.BoolVar(&parkOnly, "park-only", false, "seed only the park-scoped grant; requires -park-id and enables honest cross-park authorization tests")
 	flag.Parse()
@@ -44,7 +56,16 @@ func main() {
 		fail("invalid department code: %q (must match ^[a-z][a-z0-9_]*$)", department)
 	}
 
-	var err error
+	moduleKeys, err := parseModuleKeys(modules)
+	if err != nil {
+		fail("%v", err)
+	}
+	// Module grants hang off the department, not the user. Failing loudly here beats
+	// silently dropping them and leaving the dev identity with an empty bottom bar.
+	if department == "" && len(moduleKeys) > 0 && modules != defaultDevModules {
+		fail("-modules requires -department (department_module_grants is department-scoped)")
+	}
+
 	userID, err = resolveGrantUserID(userID, externalSubject, authIssuer)
 	if err != nil {
 		fail("%v", err)
@@ -122,6 +143,19 @@ RETURNING grant_id::text
 			fail("provision dev department member: %v", err)
 		}
 		fmt.Printf("dev workforce_member for user %s attached to department %s\n", userID, department)
+
+		// Seed coupling for mig 000002 (docs/runbooks/initial-seed-migration-coupling.md):
+		// attaching a member to a department is only half the job now. Nav is composed from
+		// department_module_grants, so without these rows the identity signs in to an empty
+		// bottom bar even though the grant + member rows look correct.
+		if len(moduleKeys) > 0 {
+			granted, err := grantDevDepartmentModules(ctx, pool, tenantID, department, moduleKeys)
+			if err != nil {
+				fail("grant dev department modules: %v", err)
+			}
+			fmt.Printf("department %s granted modules %s (%d new)\n",
+				department, strings.Join(moduleKeys, ","), granted)
+		}
 	}
 }
 
@@ -130,6 +164,59 @@ func validateGrantScopeMode(parkID string, parkOnly bool) error {
 		return errors.New("-park-only requires -park-id")
 	}
 	return nil
+}
+
+// parseModuleKeys splits and validates the -modules list. Duplicates are collapsed so
+// a sloppy "vaccination,vaccination" is not an error; order is preserved for readable output.
+func parseModuleKeys(raw string) ([]string, error) {
+	out := make([]string, 0, 4)
+	seen := make(map[string]bool, 4)
+	for _, part := range strings.Split(raw, ",") {
+		key := strings.TrimSpace(part)
+		if key == "" {
+			continue
+		}
+		if !moduleKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("invalid module key: %q (must match ^[a-z][a-z0-9_]*$)", key)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out, nil
+}
+
+// grantDevDepartmentModules upserts department_module_grants rows for the department's
+// module keys and returns how many were newly inserted. Idempotent by the table's
+// (tenant_id, department_id, module_key) unique constraint: a re-run reactivates a row
+// that was set inactive rather than duplicating it, which matches how re-running the
+// whole dev-grant seed is expected to behave.
+func grantDevDepartmentModules(ctx context.Context, pool *pgxpool.Pool, tenantID, departmentCode string, moduleKeys []string) (int, error) {
+	var departmentID string
+	err := pool.QueryRow(ctx, `
+SELECT department_id::text FROM departments
+WHERE tenant_id = $1 AND code = $2 AND status = 'active'`, tenantID, departmentCode).Scan(&departmentID)
+	if isNoRows(err) {
+		return 0, fmt.Errorf("department %q not found for tenant %s (run migrations/seed first)", departmentCode, tenantID)
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	// One set-based statement over the key array rather than a query per key.
+	tag, err := pool.Exec(ctx, `
+INSERT INTO department_module_grants (tenant_id, department_id, module_key, status)
+SELECT $1::uuid, $2::uuid, key, 'active'
+FROM unnest($3::text[]) AS key
+ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE
+SET status = 'active', updated_at = now()
+WHERE department_module_grants.status <> 'active'`, tenantID, departmentID, moduleKeys)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // provisionDevDepartmentMember mirrors the sign-in email-claim provisioning for

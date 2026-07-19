@@ -482,3 +482,107 @@ func TestVerificationSeparationOfDuty(t *testing.T) {
 		t.Fatal("operator role must not hold verification.review")
 	}
 }
+
+// TestAppCountsWriteRoutesAllowOperatorsWithoutAdminGoatGrants pins the maintainer decision that
+// field operators may record shifting, birth, AND death from the mobile app, and pins the reason it
+// is a dedicated permission: the operator role must gain exactly that surface, not the admin
+// /admin/goats/* write surface.
+func TestAppCountsWriteRoutesAllowOperatorsWithoutAdminGoatGrants(t *testing.T) {
+	for _, pattern := range []string{
+		"/app/counts/shifting-events",
+		"/app/counts/birth-events",
+		"/app/counts/death-events",
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			route, ok := Match("POST", pattern)
+			if !ok {
+				t.Fatalf("%s is not registered", pattern)
+			}
+			if len(route.Permissions) != 1 || route.Permissions[0] != CountsWrite {
+				t.Fatalf("permissions=%v, want [%s]", route.Permissions, CountsWrite)
+			}
+			if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+				t.Fatalf("operator must authorize %s", pattern)
+			}
+			for _, role := range []string{RoleAdmin, RoleCEOInternal, RoleParkHead} {
+				if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+					t.Fatalf("%s must authorize %s", role, pattern)
+				}
+			}
+			// Maintainer decision 2026-07-18: the Counts module is scoped to ground
+			// capture (Operator, Park Head) plus full Admin/CEO oversight. PC Director
+			// and Verifier are excluded from Counts entirely — they do not see the
+			// module in nav, and must not reach its write routes either.
+			for _, role := range []string{RolePCDirector, RoleVerifier} {
+				if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+					t.Fatalf("%s must not authorize %s", role, pattern)
+				}
+			}
+		})
+	}
+
+	// The widened surface must not have leaked into the admin goat write grants.
+	if RoleHasPermission(RoleOperator, GoatWriteIdentity) || RoleHasPermission(RoleOperator, GoatWriteHealth) {
+		t.Fatal("operator must not gain admin goat write permissions from the Counts app write surface")
+	}
+	if RolesAuthorize([]string{RoleOperator}, []string{GoatWriteHealth}, false) {
+		t.Fatal("operator must still be denied the admin critical-death-exit route")
+	}
+}
+
+// TestAppCountsShiftingDestinationsIsReachableByOperators pins the gate on the shifting destination
+// catalog.
+//
+// The regression this guards is specific and would be invisible until a real operator tried to file
+// a movement: the catalog is a READ of locations rows, so the obvious instinct is to gate it on the
+// admin-tier LocationsRead. RolesAuthorize ANDs a route's permissions, and RoleOperator does not
+// hold LocationsRead -- so doing that would leave an operator able to SUBMIT a shifting event but
+// unable to load the list of destinations they are allowed to submit, which reads on the phone as
+// an empty dropdown rather than as a permission error.
+func TestAppCountsShiftingDestinationsIsReachableByOperators(t *testing.T) {
+	const pattern = "/app/counts/shifting/destinations"
+
+	route, ok := Match("GET", pattern)
+	if !ok {
+		t.Fatalf("%s is not registered", pattern)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != CountsWrite {
+		t.Fatalf("permissions=%v, want [%s]", route.Permissions, CountsWrite)
+	}
+	// The load-bearing assertion: an operator holding CountsWrite and NOT LocationsRead authorizes.
+	if RoleHasPermission(RoleOperator, LocationsRead) {
+		t.Fatal("test premise broken: RoleOperator now holds LocationsRead, so this no longer proves the gate is CountsWrite-only")
+	}
+	if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+		t.Fatalf("operator must authorize %s without LocationsRead", pattern)
+	}
+	for _, role := range []string{RoleAdmin, RoleCEOInternal, RoleParkHead} {
+		if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("%s must authorize %s", role, pattern)
+		}
+	}
+	// The catalog exposes the same surface the write routes do, so it inherits their exclusions:
+	// roles kept out of Counts entirely must not reach it either.
+	for _, role := range []string{RolePCDirector, RoleVerifier} {
+		if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("%s must not authorize %s", role, pattern)
+		}
+	}
+}
+
+// TestGroundCaptureTiersHoldCountsWrite pins CountsWrite onto the composite org roles that perform
+// ground capture, and off the tiers that act on verified work instead of capturing it.
+func TestGroundCaptureTiersHoldCountsWrite(t *testing.T) {
+	for _, tier := range []Tier{TierAssistantManager, TierManager} {
+		role := RoleKey(tier, VerticalHealth)
+		if !RoleHasPermission(role, CountsWrite) {
+			t.Fatalf("%q should hold CountsWrite (ground capture tier)", role)
+		}
+	}
+	for _, tier := range []Tier{TierHead, TierDirector} {
+		role := RoleKey(tier, VerticalHealth)
+		if RoleHasPermission(role, CountsWrite) {
+			t.Fatalf("%q must NOT hold CountsWrite (capture is ground-only)", role)
+		}
+	}
+}

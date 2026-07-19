@@ -13,7 +13,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking
-import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.BootstrapCache
 import sg.mesha.goatos.core.data.BootstrapCacheDao
 import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
@@ -38,7 +37,14 @@ import sg.mesha.goatos.core.data.DefaultTasksRepository
 import sg.mesha.goatos.core.data.DefaultVaccinationInsightsRepository
 import sg.mesha.goatos.core.data.DefaultVerificationRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.CountsApprovalRepository
+import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.DefaultCountsApprovalRepository
+import sg.mesha.goatos.core.data.DefaultCountsRepository
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheDao
+import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
+import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.DefaultRosterRepository
 import sg.mesha.goatos.core.data.RoomScreenCacheStore
@@ -61,6 +67,7 @@ import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -153,6 +160,20 @@ object AppModule {
     @Provides
     fun provideRosterTimetableCacheDao(db: GoatDatabase): RosterTimetableCacheDao = db.rosterTimetableCacheDao()
 
+    // Counts read models. The breakdown's paged rows are read through GoatDatabase directly by
+    // its RemoteMediator (it needs a transaction across the item + remote-key DAOs), so only the
+    // two fixed-size rollup DAOs are injected here.
+    @Provides
+    fun provideHerdSummaryCacheDao(db: GoatDatabase): HerdSummaryCacheDao = db.herdSummaryCacheDao()
+
+    @Provides
+    fun provideCountsBreakdownMetaCacheDao(db: GoatDatabase): CountsBreakdownMetaCacheDao =
+        db.countsBreakdownMetaCacheDao()
+
+    @Provides
+    fun provideCountsShiftingDestinationsCacheDao(db: GoatDatabase): CountsShiftingDestinationsCacheDao =
+        db.countsShiftingDestinationsCacheDao()
+
     @Provides
     fun provideRosterCoverageCacheDao(db: GoatDatabase): RosterCoverageCacheDao = db.rosterCoverageCacheDao()
 
@@ -244,6 +265,24 @@ object AppModule {
     @Singleton
     fun provideCalendarRepository(api: AppApi, dao: CalendarCacheDao, database: GoatDatabase): CalendarRepository =
         DefaultCalendarRepository(api, dao, database)
+
+    @Provides
+    @Singleton
+    fun provideCountsRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        summaryDao: HerdSummaryCacheDao,
+        breakdownMetaDao: CountsBreakdownMetaCacheDao,
+        shiftingDestinationsDao: CountsShiftingDestinationsCacheDao,
+    ): CountsRepository =
+        DefaultCountsRepository(api, database, summaryDao, breakdownMetaDao, shiftingDestinationsDao)
+
+    @Provides
+    @Singleton
+    fun provideCountsApprovalRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): CountsApprovalRepository = DefaultCountsApprovalRepository(api, database)
 
     @Provides
     @Singleton
@@ -412,8 +451,10 @@ object AppModule {
     @Singleton
     fun provideForegroundSyncController(
         @ApplicationContext context: Context,
-        crashReporter: CrashReporter,
-    ): ForegroundSyncController = AndroidForegroundSyncController(context, crashReporter)
+        syncWorkScheduler: SyncWorkScheduler,
+        analytics: AnalyticsPort,
+    ): ForegroundSyncController =
+        AndroidForegroundSyncController(context, syncWorkScheduler, analytics)
 
     @Provides
     @Singleton

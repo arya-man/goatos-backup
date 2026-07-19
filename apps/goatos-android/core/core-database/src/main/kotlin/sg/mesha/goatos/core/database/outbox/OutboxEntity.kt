@@ -19,6 +19,33 @@ enum class OutboxOpType {
     VERIFICATION_VERDICT,
     VERIFICATION_CLOSE,
     VERIFICATION_CLOSE_SUBMISSION,
+
+    /**
+     * Counts vertical writes (`POST /app/counts/…-events`). Adding an op type needs NO Room
+     * migration: [OutboxEntity.opType] is a plain TEXT column holding this enum's `name`, and
+     * `SyncEngine.dispatch` resolves it back with `OutboxOpType.valueOf`.
+     *
+     * All three are must-not-double-submit writes — a duplicated birth invents an animal, a
+     * duplicated death exits one twice, a duplicated shifting double-counts a movement — so
+     * their callers derive a STABLE idempotency key persisted in `SavedStateHandle`, never a
+     * timestamp-suffixed one.
+     */
+    COUNTS_SHIFTING,
+    COUNTS_BIRTH,
+    COUNTS_DEATH,
+
+    /**
+     * Counts lifecycle APPROVAL decisions (`POST /app/counts/approvals/{id}/{approve,reject}`).
+     *
+     * These are the writes that actually change the herd: approving a birth creates the kid and
+     * generates its vaccination obligations, approving a death exits the animal and cancels its
+     * open obligations, and approving a shifting relocates the named animals and re-scopes their
+     * shed-scoped obligations. A double-applied decision is therefore not a cosmetic duplicate —
+     * so, like the three writes above, their callers derive a STABLE `SavedStateHandle`-persisted
+     * idempotency key and never a timestamp-suffixed one.
+     */
+    COUNTS_APPROVAL_APPROVE,
+    COUNTS_APPROVAL_REJECT,
 }
 
 /**

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Header and navigation chrome -->
-    <string name="sheds_back_description">ಹಿಂದಕ್ಕೆ ಹೋಗಿ</string>
     <string name="sheds_refresh_description">ರಿಫ್ರೆಶ್</string>
     <string name="sheds_title">ಲಸಿಕಾ ಅಭಿಯಾನಗಳು</string>
     <string name="sheds_count_fmt">%1$d ಶೆಡ್‌ಗಳು</string>

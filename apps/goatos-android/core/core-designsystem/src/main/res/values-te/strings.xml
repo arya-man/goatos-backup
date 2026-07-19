@@ -5,15 +5,12 @@
     <!-- Navigation shell chrome (bottom nav bar + module drawer). -->
     <string name="nav_you">మీరు</string>
     <string name="nav_modules">మాడ్యూల్స్</string>
-    <string name="nav_vaccination">టీకా</string>
-    <string name="nav_feed_direction">ఫీడ్ దిశ</string>
-    <string name="nav_breeding">సంతానోత్పత్తి</string>
     <string name="nav_soon">త్వరలో</string>
     <string name="nav_sign_out">సైన్ అవుట్</string>
-    <string name="nav_overview">అవలోకనం</string>
-    <string name="nav_calendar">క్యాలెండర్</string>
-    <string name="nav_alerts">హెచ్చరికలు</string>
-    <string name="nav_verify">ధృవీకరణ</string>
+
+    <!-- Screen-header leading affordance (MeshaScreenHeader): accessibility labels. -->
+    <string name="nav_open_modules">మాడ్యూల్ మెనూ తెరవండి</string>
+    <string name="nav_back">వెనుకకు</string>
     <string name="lang_sheet_title">భాషను ఎంచుకోండి</string>
     <string name="lang_sheet_subtitle">ఈ ఫోన్‌లోని ప్రతి స్క్రీన్‌కు ఉంచబడింది</string>
     <string name="lang_sheet_footer">బృందం పెరిగే కొద్దీ మరిన్ని భాషలు జోడించబడతాయి</string>

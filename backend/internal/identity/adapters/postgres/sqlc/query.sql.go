@@ -56,7 +56,11 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  COALESCE(loc.name, 'Unknown location') AS location_display,
+  -- location_display resolves from the animal's OWN park/shed, never goats.current_location_id.
+  -- current_location_id is vestigial: NULL for ~81% of the live herd and stale where set, which
+  -- rendered "Unknown location" on animals whose park/shed resolved fine. Shed first, then park,
+  -- matching the bare-shed-name shape already-populated rows return today.
+  COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(g.park_id::text, '')::text AS park_id,
   COALESCE(g.shed_id::text, '')::text AS shed_id,
@@ -65,7 +69,8 @@ SELECT
   COALESCE(g.merged_into_goat_id::text, '')::text AS merged_into_goat_id,
   g.row_version
 FROM goats g
-LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
   AND animal_id_1.goat_id = g.goat_id
   AND animal_id_1.identifier_type = 'animal_identifier_1'
@@ -147,7 +152,11 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  COALESCE(loc.name, 'Unknown location') AS location_display,
+  -- location_display resolves from the animal's OWN park/shed, never goats.current_location_id.
+  -- current_location_id is vestigial: NULL for ~81% of the live herd and stale where set, which
+  -- rendered "Unknown location" on animals whose park/shed resolved fine. Shed first, then park,
+  -- matching the bare-shed-name shape already-populated rows return today.
+  COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(g.park_id::text, '')::text AS park_id,
   COALESCE(g.shed_id::text, '')::text AS shed_id,
@@ -156,7 +165,8 @@ SELECT
   COALESCE(g.merged_into_goat_id::text, '')::text AS merged_into_goat_id,
   g.row_version
 FROM goats g
-LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
   AND animal_id_1.goat_id = g.goat_id
   AND animal_id_1.identifier_type = 'animal_identifier_1'

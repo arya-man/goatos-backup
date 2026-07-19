@@ -357,6 +357,43 @@ ORDER BY wmc.status, wc.capability_code, wmc.created_at DESC`), tenantID, operat
 	return scanCapabilities(rows)
 }
 
+// ListGrantedModuleKeys resolves module access through the user's workforce member
+// department: user -> workforce_members.department_id -> department_module_grants.
+// Served by department_module_grants_tenant_department_active_idx (mig 000002); every
+// /app/bootstrap call runs this, so it must stay an indexed two-key lookup.
+func (r *Repository) ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT dmg.module_key
+FROM public.workforce_members wm
+JOIN public.department_module_grants dmg
+  ON dmg.tenant_id = wm.tenant_id
+ AND dmg.department_id = wm.department_id
+WHERE wm.tenant_id = $1::uuid
+  AND wm.user_id = $2::uuid
+  AND wm.status = 'active'
+  AND wm.department_id IS NOT NULL
+  AND dmg.status = 'active'
+ORDER BY dmg.module_key`, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0, 8)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		out = append(out, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *Repository) ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

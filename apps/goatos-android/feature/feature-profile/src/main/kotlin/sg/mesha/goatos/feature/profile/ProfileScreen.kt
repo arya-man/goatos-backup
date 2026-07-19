@@ -37,6 +37,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.profile.R
 
@@ -203,20 +204,13 @@ fun ProfileScreen(
 private fun ProfileHeader(state: ProfileUiState) {
     val localizedScreenTitle = stringResource(R.string.profile_screen_title)
     Column(modifier = Modifier.padding(top = 16.dp)) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                text = state.roleLabel.uppercase(),
-                color = MeshaColors.Faint,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.W700,
-            )
-            Text(
-                text = localizedScreenTitle,
-                color = MeshaColors.Ink,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.W700,
-            )
-        }
+        // "You" is a global L0 tab present in every module's bar, so it carries the drawer too —
+        // resolved by the shell, not asserted here.
+        MeshaScreenHeader(
+            title = localizedScreenTitle,
+            eyebrow = state.roleLabel.uppercase(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+        )
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
