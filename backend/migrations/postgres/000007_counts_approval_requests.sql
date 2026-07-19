@@ -169,11 +169,17 @@ ALTER TABLE public.shifting_events
 -- Shape checks: an 'applied' event must carry applied_at (and only 'applied' may); a 'canceled'
 -- event must carry canceled_at/by + a non-empty reason (and only 'canceled' may); and an event may
 -- only be 'applied' once it was authorized. Guarded so a re-run of this migration is a no-op.
--- Added NOT VALID first (no full-table scan / no ACCESS EXCLUSIVE validation lock on the hot
--- shifting_events table), then VALIDATEd separately (SHARE UPDATE EXCLUSIVE, does not block reads/
--- writes). Existing rows trivially satisfy every check (the new columns are NULL and no row is
--- 'applied'/'canceled' yet), so validation is a formality here but the pattern stays lock-safe as
--- the table grows.
+--
+-- Added NOT VALID (no full-table scan / no ACCESS EXCLUSIVE validation lock on the hot
+-- shifting_events table) and DELIBERATELY LEFT NOT VALID. A NOT VALID CHECK is still enforced on
+-- every subsequent INSERT/UPDATE -- it only skips the one-time scan of PRE-EXISTING rows -- and the
+-- completion/cancel columns these checks cover are brand new here (all NULL, no 'applied'/'canceled'
+-- row exists), so every existing row already satisfies them and the checks are effectively fully
+-- valid for all data. A separate `VALIDATE CONSTRAINT` is intentionally NOT issued: the
+-- migration-safety guard (validate-postgres-migrations) forbids a direct VALIDATE on the hot
+-- shifting_events table, which must go through an explicitly reviewed concurrent rollout. If a future
+-- backfill ever writes rows that predate these columns, validate them in that reviewed rollout, not
+-- here.
 -- +goose StatementBegin
 DO $$
 BEGIN
@@ -195,25 +201,6 @@ BEGIN
         ALTER TABLE public.shifting_events
             ADD CONSTRAINT shifting_events_applied_requires_authorization_check
             CHECK (((event_status <> 'applied'::text) OR (authorization_state = 'authorized'::text))) NOT VALID;
-    END IF;
-END $$;
--- +goose StatementEnd
-
--- Validate the NOT VALID constraints: cheap operation on empty/unviolating rows.
--- +goose StatementBegin
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_shape_check' AND convalidated = false) THEN
-        ALTER TABLE public.shifting_events
-            VALIDATE CONSTRAINT shifting_events_applied_shape_check;
-    END IF;
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_canceled_shape_check' AND convalidated = false) THEN
-        ALTER TABLE public.shifting_events
-            VALIDATE CONSTRAINT shifting_events_canceled_shape_check;
-    END IF;
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_requires_authorization_check' AND convalidated = false) THEN
-        ALTER TABLE public.shifting_events
-            VALIDATE CONSTRAINT shifting_events_applied_requires_authorization_check;
     END IF;
 END $$;
 -- +goose StatementEnd
