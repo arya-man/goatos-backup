@@ -261,18 +261,42 @@ COMP=$(psqlq "select completion_id from vaccination_completions where goat_id='$
 echo "SUBMISSION=$SUBID COMPLETION=$COMP"
 psql "$PGURL" -c "select completion_id,status,obligation_id from vaccination_completions where completion_id='$COMP'"
 
-echo; echo "### 7. verification queue + accept"
+echo; echo "### 7. verification queue + record verdict + close"
 VQ=$(curl -s "${A[@]}" "$API/vaccination/verification-queue?limit=100")
 echo "verification-queue contains completion: $(has "$COMP" "$VQ")"
-TASK_ROW_VERSION=$(psqlq "select row_version from sop_tasks where tenant_id='$TENANT' and task_id='$TASK'")
-[ -n "$TASK_ROW_VERSION" ] || fail "step7 missing SOP task row_version for task $TASK"
-ACC=$(curl -s "${V[@]}" -H "Content-Type: application/json" -X POST "$API/admin/tasks/$TASK/verify" -d "{\"reason\":\"accepted\",\"row_version\":$TASK_ROW_VERSION}")
-echo "verify task: $ACC"
-echo "$ACC" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get("task",{}).get("state") == "accepted", d' >/dev/null \
-  || fail "step7 SOP verify did not accept task: $ACC"
+
+# Get verification item IDs for this submission (created when submission was recorded)
+VITEM_IDS=$(psqlq "select array_agg(distinct item_id::text) from verification_items where tenant_id='$TENANT' and source->>'submission_id'='$SUBID'")
+echo "verification items for submission $SUBID: count=$(psqlq "select count(*) from verification_items where tenant_id='$TENANT' and source->>'submission_id'='$SUBID'")"
+[ "$VITEM_IDS" != "NULL" ] || fail "step7 no verification items created for submission $SUBID"
+
+# For each verification item, record a verdict with the real endpoint
+for ITEM_ID in $(psqlq "select item_id::text from verification_items where tenant_id='$TENANT' and source->>'submission_id'='$SUBID'"); do
+  ITEM_ROW_VERSION=$(psqlq "select row_version from verification_items where tenant_id='$TENANT' and item_id='$ITEM_ID'")
+  [ -n "$ITEM_ROW_VERSION" ] || fail "step7 missing verification item row_version for item $ITEM_ID"
+
+  IDEM_KEY="verdict-$ITEM_ID-$(date +%s)"
+  VERDICT=$(curl -s "${A[@]}" -H "Content-Type: application/json" -H "Idempotency-Key: $IDEM_KEY" -X POST "$API/verification/items/$ITEM_ID/verdict" -d "{\"decision\":\"approved\",\"reason\":\"proof accepted\",\"row_version\":$ITEM_ROW_VERSION}")
+  echo "  recorded verdict for $ITEM_ID: $(echo "$VERDICT" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("item",{}).get("status","ERROR"))' 2>/dev/null || echo "ERROR")"
+
+  # Get updated row_version for the close operation
+  ITEM_ROW_VERSION_UPDATED=$(psqlq "select row_version from verification_items where tenant_id='$TENANT' and item_id='$ITEM_ID'")
+  [ -n "$ITEM_ROW_VERSION_UPDATED" ] || fail "step7 failed to update verification item $ITEM_ID after verdict"
+
+  # Close the item via leadership close endpoint
+  CLOSE_KEY="close-$ITEM_ID-$(date +%s)"
+  CLOSED=$(curl -s "${A[@]}" -H "Content-Type: application/json" -H "Idempotency-Key: $CLOSE_KEY" -X POST "$API/verification/items/$ITEM_ID/close" -d "{\"row_version\":$ITEM_ROW_VERSION_UPDATED}")
+  echo "  closed item $ITEM_ID: $(echo "$CLOSED" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("item",{}).get("status","ERROR"))' 2>/dev/null || echo "ERROR")"
+done
 psql "$PGURL" -c "select c.completion_id,c.status comp,o.obligation_id,o.status obl,o.completed_at from vaccination_completions c join obligation_instances o on o.obligation_id=c.obligation_id where c.completion_id='$COMP'"
 COMPLETE_STATE=$(psqlq "select c.status || ':' || o.status || ':' || (o.completed_at is not null)::text from vaccination_completions c join obligation_instances o on o.obligation_id=c.obligation_id where c.completion_id='$COMP'")
 [ "$COMPLETE_STATE" = "accepted:completed:true" ] || fail "step7 inconsistent completion state $COMPLETE_STATE"
+
+# Verify all verification items are now closed
+CLOSED_ITEM_COUNT=$(psqlq "select count(*) from verification_items where tenant_id='$TENANT' and source->>'submission_id'='$SUBID' and status='closed'")
+TOTAL_ITEM_COUNT=$(psqlq "select count(*) from verification_items where tenant_id='$TENANT' and source->>'submission_id'='$SUBID'")
+[ "$CLOSED_ITEM_COUNT" = "$TOTAL_ITEM_COUNT" ] || fail "step7 not all verification items closed: $CLOSED_ITEM_COUNT/$TOTAL_ITEM_COUNT"
+
 VAX_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='vaccination.completed' and aggregate_id='$OBL'")
 [ "$VAX_OUTBOX_COUNT" = "1" ] || fail "step7 vaccination.completed outbox count=$VAX_OUTBOX_COUNT"
 

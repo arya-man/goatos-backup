@@ -43,6 +43,9 @@ import (
 	vaccpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
+	verifpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verifports "github.com/vgoats/goatos/backend/internal/verification/ports"
+	"github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
 )
 
 // Baseline fixture ids: every migrated database already has these rows (see migration
@@ -78,6 +81,8 @@ type Fixture struct {
 	CalendarRepo *calendarpg.Repository
 	Consumer     *domainconsumerapp.Service
 	Relay    *outboxapp.Service
+	VerifRepo    *verifpg.Repository
+	VerifMedia   verifports.MediaResolver
 }
 
 // e2eConsumerPublisher is the in-memory transport seam between the production outbox relay and
@@ -95,6 +100,14 @@ func (p e2eConsumerPublisher) Publish(ctx context.Context, message outboxports.P
 		},
 		DeliveryAttempt: 1,
 	})
+}
+
+// e2eProofDownloader is a stub proof downloader for verification tests that don't need actual media.
+type e2eProofDownloader struct{}
+
+func (d e2eProofDownloader) DownloadURL(ctx context.Context, tenantID, proofID string) (string, error) {
+	// Stub: return a placeholder URL. Real tests don't exercise media download.
+	return "http://stub-proof-url/" + proofID, nil
 }
 
 // NewFixture boots a fresh throwaway Postgres container (all committed migrations applied) and
@@ -123,6 +136,9 @@ func NewFixture(t *testing.T) *Fixture {
 	relay := outboxapp.NewService(outboxRepo, e2eConsumerPublisher{consumer: consumer}, validator, outboxapp.Config{
 		Limit: 100, MaxAttempts: 5, BackoffBase: time.Millisecond, BackoffMax: time.Millisecond,
 	})
+	verifRepo := verifpg.NewRepository(pool, timeout)
+	proofRepo := proofpg.NewRepository(pool, timeout)
+	verifMedia := proofmedia.NewResolver(e2eProofDownloader{})
 	return &Fixture{
 		T:    t,
 		Ctx:  ctx,
@@ -134,13 +150,15 @@ func NewFixture(t *testing.T) *Fixture {
 		Outbox:   outboxRepo,
 		Vacc:     vacc,
 		VaccExec: vaccexecpg.NewRepository(pool, timeout),
-		Proof:    proofpg.NewRepository(pool, timeout),
+		Proof:    proofRepo,
 		PI:       pipg.NewRepository(pool, timeout),
 		Inv:          invapp.NewService(invpg.NewRepository(pool, timeout)),
 		Calendar:     calendarapp.NewService(calendarRepo),
 		CalendarRepo: calendarRepo,
 		Consumer:     consumer,
 		Relay:    relay,
+		VerifRepo:    verifRepo,
+		VerifMedia:   verifMedia,
 	}
 }
 

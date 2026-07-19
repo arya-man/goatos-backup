@@ -120,6 +120,7 @@ guardrails:
 	$(MAKE) mobile-contract-ownership-guard
 	$(MAKE) atomic-readmodel-sync-guard
 	$(MAKE) config-validate-guard
+	$(MAKE) no-mismatch-review-queue-guard
 	$(MAKE) seed-migration-guard
 	$(MAKE) india-date-guard
 	$(MAKE) offline-first-guard
@@ -429,6 +430,14 @@ nav-composition-guard:
 
 nav-composition-guard-audit:
 	node tools/agent-hooks/check-nav-composition.mjs --all
+
+# no-mismatch-review-queue-guard: ban runtime review/repair queues for impossible-state data
+# contradictions. A state impossible with clean ingestion (stage='kid' but age>=182) must be
+# rejected at the INGESTION boundary, never persisted and then "repaired" by a runtime queue.
+# See docs/decisions/ingestion-validation-not-runtime-review.md.
+no-mismatch-review-queue-guard:
+	node tools/agent-hooks/check-no-mismatch-review-queue.mjs --self-test
+	node tools/agent-hooks/check-no-mismatch-review-queue.mjs
 
 # mobile-contract-ownership-guard: backend contract owns what the mobile user sees. Clean slice:
 # mobile UI must not gate visibility by role (`role ==`). See AGENTS.md golden frontend rule.

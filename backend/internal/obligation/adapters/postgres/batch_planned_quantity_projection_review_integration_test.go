@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -93,19 +94,19 @@ func TestBatchPlannedQuantityRecomputeOneToManyOpenSiblings(t *testing.T) {
 	}
 
 	// Cancel one obligation; cell_ledger recomputation should not error.
-	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "o2m-a", "test_cancel", time.Now().UTC())
+	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "o2m-a", "test_cancel", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel obligation: %v", err)
 	}
 
 	// Cancel another obligation.
-	_, _, err = repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "o2m-b", "test_cancel", time.Now().UTC())
+	_, _, err = repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "o2m-b", "test_cancel", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel second obligation: %v", err)
 	}
 
 	// Cancel the last obligation; recomputation must correctly sum zero.
-	_, _, err = repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "o2m-c", "test_cancel", time.Now().UTC())
+	_, _, err = repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "o2m-c", "test_cancel", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel third obligation: %v", err)
 	}
@@ -174,13 +175,13 @@ func TestBatchPlannedQuantityRecomputePageBoundaryMultipleScheduledDates(t *test
 	}
 
 	// Cancel obligation with day2 due date.
-	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "date-b", "test_cancel", time.Now().UTC())
+	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "date-b", "test_cancel", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel date-b: %v", err)
 	}
 
 	// Reschedule one obligation to a different date.
-	_, _, err = repo.RescheduleObligationByID(ctx, tenantID, obA, "reschedule-key", []string{cbePark}, day3.AddDate(0, 0, 1), time.Time{}, nil, time.Now().UTC())
+	_, _, err = repo.RescheduleObligationByID(ctx, tenantID, obA, "reschedule-key", []string{cbePark}, day3.AddDate(0, 0, 1), time.Time{}, nil, time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("reschedule: %v", err)
 	}
@@ -234,7 +235,7 @@ func TestBatchPlannedQuantityRecomputeDateShiftCellSurvivesDueDateChange(t *test
 
 	// Reschedule one obligation to a much earlier date.
 	earlierDay := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	_, _, err := repo.RescheduleObligationByID(ctx, tenantID, ob1, "shift-key", []string{cbePark}, earlierDay, time.Time{}, nil, time.Now().UTC())
+	_, _, err := repo.RescheduleObligationByID(ctx, tenantID, ob1, "shift-key", []string{cbePark}, earlierDay, time.Time{}, nil, time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("reschedule: %v", err)
 	}
@@ -292,7 +293,7 @@ func TestBatchPlannedQuantityRecomputeScopeHierarchyParkScope(t *testing.T) {
 	}
 
 	// Cancel one obligation; the batch scope boundary should be respected.
-	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "scope-1", "test_cancel", time.Now().UTC())
+	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "scope-1", "test_cancel", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel scope-1: %v", err)
 	}
@@ -353,13 +354,13 @@ func TestBatchPlannedQuantityRecomputeStatusMatrixOnlyCountsNonCanceled(t *testi
 	}
 
 	// Cancel one obligation; the recomputation should count only non-canceled rows.
-	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "status-due", "test_cancel", time.Now().UTC())
+	_, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "status-due", "test_cancel", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel status-due: %v", err)
 	}
 
 	// Cancel another; recomputation must exclude both canceled rows.
-	_, _, err = repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "status-scheduled-2", "test_cancel", time.Now().UTC())
+	_, _, err = repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, "status-scheduled-2", "test_cancel", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel status-scheduled-2: %v", err)
 	}

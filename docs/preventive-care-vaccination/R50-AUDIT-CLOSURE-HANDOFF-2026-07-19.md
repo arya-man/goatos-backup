@@ -9,9 +9,9 @@ been committed or landed unless explicitly stated.
 
 ## Repository state
 
-- Repository: `/Users/ravi/mesha/goatos`
+- Repository: `<repo-root>`
 - Working tree containing the fixes:
-  `/Users/ravi/mesha/.codex-worktrees/goatos-r50-closure`
+  `<worktree>`
 - Branch: `fix/r50-audit-closure`
 - Base commit: `b5e53201`
 - Remote target: `https://github.com/vgoats/goatos.git`
@@ -20,7 +20,7 @@ been committed or landed unless explicitly stated.
 - Commit status: not committed
 - Push/land status: not pushed and not landed to `main`
 
-The original `/Users/ravi/mesha/goatos` checkout was left untouched because it
+The original `<repo-root>` checkout was left untouched because it
 contained unrelated local changes.
 
 ## Past fixes reviewed before changing code
@@ -205,7 +205,7 @@ was a task-selection error, not a reported code-test failure.
 From the worktree root:
 
 ```bash
-cd /Users/ravi/mesha/.codex-worktrees/goatos-r50-closure
+cd <worktree>
 
 # Inspect all unfinished changes first.
 git status --short

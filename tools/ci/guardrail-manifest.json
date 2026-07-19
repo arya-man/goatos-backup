@@ -393,6 +393,16 @@
       "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
       "requiredInCI": false,
       "ciStep": "check-mock-clicks.mjs"
+    },
+    {
+      "id": "no-mismatch-review-queue",
+      "script": "tools/agent-hooks/check-no-mismatch-review-queue.mjs",
+      "makeTarget": "no-mismatch-review-queue-guard",
+      "realCheck": "node tools/agent-hooks/check-no-mismatch-review-queue.mjs",
+      "selfTest": "node tools/agent-hooks/check-no-mismatch-review-queue.mjs --self-test",
+      "owningDoc": "docs/decisions/ingestion-validation-not-runtime-review.md",
+      "requiredInCI": true,
+      "ciStep": "no-mismatch-review-queue-guard"
     }
   ]
 }

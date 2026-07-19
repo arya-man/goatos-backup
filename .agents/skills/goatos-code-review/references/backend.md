@@ -168,6 +168,32 @@ Configuration authored in the admin UI or seed must be validated on commit:
       bind array (`id = ANY($1::uuid[])`) and require a natural planner proof on
       a realistic row count.
 
+### Ingestion validation — reject at boundary, not runtime repair
+
+Data-integrity contradictions (states impossible with clean ingestion) must be
+caught and rejected at every ingestion point, never persisted and then "repaired"
+by a runtime review queue. See `docs/decisions/ingestion-validation-not-runtime-review.md`:
+
+- [ ] **Impossible-with-clean-data contradictions are reject-or-fail-with-report:**
+      An animal classified as `stage='kid'` but aged past the kid cutoff is a
+      logical contradiction. The ingestion validator derives stage from age,
+      compares, and rejects the row if they contradict — with the offending rows
+      highlighted to the operator upfront. Do NOT ingest the contradiction and
+      build a runtime "stage review" screen to fix it.
+- [ ] **Validator derives from source-of-truth:** Stage is pure function of age.
+      Location+shed are derivable from park. Vaccination schedule path is derivable
+      from species + birth date. Ingestion does not hand-fill the derived field;
+      it computes it from the independent source and validates agreement.
+- [ ] **No review/repair queues for ingestion failures:** A `*_review_item` table,
+      review endpoint, or reconciliation sweeper created SOLELY because ingestion
+      ingests dirty data is a banned anti-pattern. Such a queue masks a seeding/
+      classifier bug instead of fixing it. (Legitimate operator repair queues for
+      rare business exceptions remain valid; the ban applies only to contradictions
+      that ingestion validation should prevent.)
+- [ ] Machine-guarded: `make no-mismatch-review-queue-guard` flags new
+      `RecordStageReviewItem`, `*_review_item` table creation, and `*_review` /
+      `*_reconcile` endpoints tied to validate-at-ingestion contradictions.
+
 ### Hot-table migration lock safety (populated tables → CRITICAL if unsafe)
 
 A DDL that takes a strong lock on a large, live table stalls writes for the whole
