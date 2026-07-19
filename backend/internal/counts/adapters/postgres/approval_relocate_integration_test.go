@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
+	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -451,5 +452,68 @@ SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type =
 	}
 	if appliedAt != nil {
 		t.Fatalf("applied_at=%v after rolled-back completion, want NULL", appliedAt)
+	}
+}
+
+// TestCompleteShiftingFailsClosedWhenSourcePlacementIsStale is the CR-01 regression. The shifting
+// event captured its source placement (shed A) at approval time and passes it to the relocation as
+// FromShedID/FromParkID -- but that expectation was never ENFORCED, so a completion would overwrite
+// a NEWER legitimate relocation. Concretely: an A->B movement is approved, the animal is then
+// legitimately relocated A->C, and completing the stale A->B movement would move the animal C->B,
+// silently clobbering the newer placement. The source-placement guard must fail closed under the
+// relocation row lock, leaving the animal at C and the movement authorized for reconciliation.
+func TestCompleteShiftingFailsClosedWhenSourcePlacementIsStale(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatA := "00000000-0000-4000-8000-00000000c031"
+	goatIDs := []string{goatA}
+	// Starts in shed A -- the source the approval will capture.
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "stale-src-1", goatIDs)
+	if _, _, err := approveShifting(repo, ctx, "stale-src-1", approvalRequestID, shiftingEventID, goatIDs); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	// A NEWER legitimate relocation moves the animal A->C (same park), out of band, after approval.
+	// current_location_id/shed_id now point at C, which disagrees with the approved source (A).
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET shed_id = $3::uuid, current_location_id = $3::uuid, row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, countsTenant, goatA, countsShedC); err != nil {
+		t.Fatalf("out-of-band relocate A->C: %v", err)
+	}
+
+	// Completing the stale A->B movement must FAIL CLOSED on the source-placement mismatch rather
+	// than moving the animal C->B.
+	_, _, err := completeShifting(repo, ctx, "stale-src-1", shiftingEventID)
+	if err == nil {
+		t.Fatalf("completion succeeded, want a fail-closed stale-source error: a stale A->B move must not overwrite the newer C placement")
+	}
+	if !errors.Is(err, identityports.ErrWriteConflict) {
+		t.Fatalf("err=%v, want ErrWriteConflict (stale source placement)", err)
+	}
+
+	// The newer C placement is PRESERVED -- the whole point. Overwriting it to B is the data loss
+	// this guard prevents.
+	if got := goatShed(t, ctx, pool, goatA); got != countsShedC {
+		t.Fatalf("goat shed=%s after failed stale completion, want it preserved at the newer shed %s", got, countsShedC)
+	}
+	// No relocation artefacts and no completion stamp survived the rollback; the movement stays
+	// authorized so a human can reconcile it.
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM goat_identity_events WHERE tenant_id = $1::uuid AND event_type = 'goat.location.changed'`,
+		countsTenant); got != 0 {
+		t.Fatalf("identity events after rolled-back stale completion=%d, want 0", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'goat.location.changed'`,
+		countsTenant); got != 0 {
+		t.Fatalf("outbox messages after rolled-back stale completion=%d, want 0", got)
+	}
+	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
+		t.Fatalf("event_status=%q after failed stale completion, want it still %q for reconciliation",
+			got, domain.ShiftingEventStatusAuthorized)
 	}
 }

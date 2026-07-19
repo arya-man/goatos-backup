@@ -809,6 +809,45 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
+// assertGoatsAtExpectedSource enforces the approved per-goat source placement (CR-01). When the
+// relocation command carries an expected source shed and/or park (FromShedID/FromParkID, captured
+// on the shifting event at approval time), every named animal's CURRENT placement must still match
+// it. It must be called AFTER insertRelocationIdentityEvents has taken the FOR UPDATE lock on the
+// same rows, so the read here is stable for the rest of the transaction and a concurrent relocation
+// cannot slip a move in between this check and the apply.
+//
+// Ground-truth, not the command hint: a completion re-derives placement from goats, so a stale
+// approved source (A) that no longer matches the animal's current shed (C, after a newer A->C move)
+// fails closed here instead of being overwritten. An absent expectation (both nil) is a no-op --
+// the existing same-park guard still applies.
+func (r *Repository) assertGoatsAtExpectedSource(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) error {
+	if cmd.FromShedID == nil && cmd.FromParkID == nil {
+		return nil
+	}
+	var offending int
+	err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])
+  AND merged_into_goat_id IS NULL
+  AND exited_at IS NULL
+  AND (
+        (nullif($3::text, '') IS NOT NULL AND shed_id IS DISTINCT FROM nullif($3::text, '')::uuid)
+     OR (nullif($4::text, '') IS NOT NULL AND park_id IS DISTINCT FROM nullif($4::text, '')::uuid)
+      )`,
+		cmd.TenantID, cmd.GoatIDs, stringValue(cmd.FromShedID), stringValue(cmd.FromParkID)).Scan(&offending)
+	if err != nil {
+		return fmt.Errorf("identity: relocate goats: verify expected source placement: %w", err)
+	}
+	if offending > 0 {
+		return fmt.Errorf(
+			"%w: relocate goats: %d animal(s) are no longer at the approved source placement (expected shed %s, park %s) — a newer relocation moved them, so this stale movement must be reconciled rather than applied",
+			ports.ErrWriteConflict, offending, stringValue(cmd.FromShedID), stringValue(cmd.FromParkID))
+	}
+	return nil
+}
+
 func (r *Repository) ensureShedUnderPark(ctx context.Context, tenantID, shedID, parkID string) error {
 	var ok bool
 	err := r.pool.QueryRow(ctx, `

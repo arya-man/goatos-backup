@@ -203,15 +203,15 @@ END $$;
 -- +goose StatementBegin
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_shape_check' AND conisvalid = false) THEN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_shape_check' AND convalidated = false) THEN
         ALTER TABLE public.shifting_events
             VALIDATE CONSTRAINT shifting_events_applied_shape_check;
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_canceled_shape_check' AND conisvalid = false) THEN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_canceled_shape_check' AND convalidated = false) THEN
         ALTER TABLE public.shifting_events
             VALIDATE CONSTRAINT shifting_events_canceled_shape_check;
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_requires_authorization_check' AND conisvalid = false) THEN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_requires_authorization_check' AND convalidated = false) THEN
         ALTER TABLE public.shifting_events
             VALIDATE CONSTRAINT shifting_events_applied_requires_authorization_check;
     END IF;

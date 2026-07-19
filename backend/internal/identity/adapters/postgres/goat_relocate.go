@@ -98,6 +98,17 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	if len(assignedGoatIDs) == 0 {
 		return ports.RelocateGoatsResult{}, nil
 	}
+	// CR-01: enforce the APPROVED per-goat source placement against ground truth, now that the target
+	// rows are locked FOR UPDATE by insertRelocationIdentityEvents (the lock is held for the rest of
+	// this transaction). FromShedID/FromParkID are the source captured on the shifting event at
+	// approval time; passing them without enforcing them let this completion silently overwrite a
+	// NEWER legitimate relocation. Concretely: an A->B movement is approved (FromShedID=A), the animal
+	// is then legitimately relocated A->C, and completing the stale A->B movement would move the goat
+	// C->B, clobbering the newer placement. Failing closed here leaves the movement authorized so a
+	// human can reconcile it, rather than applying a stale move on top of current state.
+	if err := r.assertGoatsAtExpectedSource(ctx, tx, cmd); err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
 
 	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, assignedGoatIDs, assignedEventIDs)
 	if err != nil {

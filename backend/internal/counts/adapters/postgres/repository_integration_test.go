@@ -21,6 +21,10 @@ const (
 	countsPark   = "00000000-0000-4000-8000-000000003001"
 	countsShedA  = "00000000-0000-4000-8000-000000004001"
 	countsShedB  = "00000000-0000-4000-8000-000000004002"
+	// countsShedC is a THIRD shed under the same park. It exists for the CR-01 stale-source
+	// regression: an animal legitimately relocated A->C after an A->B approval must not have that
+	// newer C placement clobbered when the stale A->B movement is later completed.
+	countsShedC = "00000000-0000-4000-8000-000000004003"
 )
 
 func TestSummarizeShedBreedTotalsAggregatesReturnedProjectionRows(t *testing.T) {
@@ -1191,9 +1195,10 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, countsPark); err != nil {
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
 VALUES
   ($3::uuid, $1::uuid, 'shed', 'CPT-S1', 'CPT Shed 1', $2::uuid, 'active'),
-  ($4::uuid, $1::uuid, 'shed', 'CPT-S2', 'CPT Shed 2', $2::uuid, 'active')
+  ($4::uuid, $1::uuid, 'shed', 'CPT-S2', 'CPT Shed 2', $2::uuid, 'active'),
+  ($5::uuid, $1::uuid, 'shed', 'CPT-S3', 'CPT Shed 3', $2::uuid, 'active')
 ON CONFLICT (location_id) DO NOTHING;`,
-		countsTenant, countsPark, countsShedA, countsShedB); err != nil {
+		countsTenant, countsPark, countsShedA, countsShedB, countsShedC); err != nil {
 		t.Fatalf("seed sheds: %v", err)
 	}
 }
