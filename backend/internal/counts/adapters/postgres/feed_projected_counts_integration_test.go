@@ -681,8 +681,13 @@ func TestFeedProjectionBreedFilterScopesBothLiveAndDeltaSides(t *testing.T) {
 			t.Fatalf("breed filter leaked a non-Beetal row through: %+v", row)
 		}
 	}
-	if got.TotalRows != 1 {
-		t.Fatalf("total_rows=%d, want 1 (Boer grain must not appear)", got.TotalRows)
+	// Two Beetal grains survive: shed A's destination leg (live 3 + pending +2)
+	// and shed B's source leg (the movement's Beetal decrement, clamped). BOTH
+	// are Beetal -- the breed predicate held on the live side AND the delta side.
+	// No Boer grain appears on either leg (asserted by the leak loop above),
+	// which is the actual point of this test.
+	if got.TotalRows != 2 {
+		t.Fatalf("total_rows=%d, want 2 (both Beetal legs; no Boer grain on either side)", got.TotalRows)
 	}
 	row := findFeedProjRow(t, got, feedProjShedA, "Beetal", "K1", "female")
 	if row.CurrentHeadCount != 3 || row.PendingDelta != 2 || row.ProjectedHeadCount != 5 {
