@@ -21,7 +21,6 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
-import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 
 /** In-memory [ScanCaptureRepository] test double — real dedup semantics (unique per
  *  task+field+tag), no Room. Mirrors [sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository]'s
@@ -263,7 +262,6 @@ class FakeCaptureBootstrapRepository(
 class FakeTasksRepositoryForCapture(
     private val detail: TaskDetail? = null,
 ) : TasksRepository {
-    override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto = error("unused")
     override suspend fun taskDetail(taskId: String): TaskDetail = detail ?: error("unused")
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
         MutableStateFlow(Resource(data = detail))

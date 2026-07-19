@@ -84,9 +84,9 @@ flowchart TB
 - No complete Feed-protocol draft editor for composition/assignment children and
   their single protocol publish gate.
 - No Feed obligation/stage generation and supersession path.
-- The current `GET /app/tasks` contract has no cursor or Feed filters and cannot
-  safely expose more than its first 100 assignments. It must be extended before
-  the Feed mobile list can ship.
+- `GET /app/tasks` now has the canonical 20-row cursor boundary and completeness
+  metadata, but it still needs the Feed-specific filters below before the Feed
+  mobile list can ship.
 - No end-to-end inventory reservation/consume/release behavior for Feed.
 - No complete bounded Feed command-lens queries for the legacy stage/exception
   buckets.
@@ -362,25 +362,34 @@ Default/custom/comparison compositions share these definitions.
 - `POST /verification/items/{item_id}/verdict`
 
 The task submission route remains the operator command. Do not create one form
-endpoint per Feed stage. The current `GET /app/tasks` is **not reusable as-is**:
-it accepts only `state` and `limit <= 100` and returns no continuation cursor.
-Before Feed mobile implementation, the authoritative OpenAPI must extend it
-with:
+endpoint per Feed stage. The authoritative `GET /app/tasks` baseline now has:
 
-- bounded `limit` (`1..100`, default `50`) and opaque `cursor`;
-- filters for `vertical=feed`, business-date range, park, shed, Feed stage,
-  session, one-or-more canonical task states and exception code;
+- bounded `limit` (`1..20`, default `20`) and opaque `cursor`;
 - stable ascending keyset order
   `(COALESCE(due_at, 'infinity'), task_id)` after authorization and filters;
-- response fields `items`, nullable `next_cursor` and `trace_id`;
+- response fields `items`, page-independent `total`, `has_more`, nullable
+  `next_cursor` and `trace_id`;
+- at most 20 `items`; `has_more=true` if and only if another authorized row
+  exists, in which case `next_cursor` is non-null.
+
+Before Feed mobile implementation, the same endpoint must additionally support:
+
+- filters for `vertical=feed`, business-date range, park, shed, Feed stage,
+  session, one-or-more canonical task states and exception code;
 - a cursor bound to the principal, tenant and normalized filter/sort hash so it
   cannot be replayed under another scope or query.
 
 The query must return `next_cursor` whenever more authorized rows exist; it may
-not truncate silently at 100. Room stores the same normalized filter key,
-ordered task rows and next cursor in one transaction. Refresh replaces only that
-filter's page chain, append resumes from its stored cursor, and process death or
-offline launch continues from the last committed boundary.
+not truncate silently. Android must use Paging 3 with a Room `PagingSource` and
+`RemoteMediator`, both fixed to the same 20-row boundary. Store one task summary
+per Room row and one remote-key row per principal plus normalized filter; never
+store a page as a JSON blob or expose a direct network-only task-list repository.
+The mediator stores ordered rows, `total`, `has_more` and `next_cursor` in one
+transaction. Refresh replaces only that filter's page chain, append resumes from
+its stored cursor, and process death or offline launch continues from the last
+committed boundary. The ViewModel exposes `Flow<PagingData<TaskSummary>>` and
+Compose consumes `LazyPagingItems`; counts come from `total`, never from the
+number of currently loaded Room rows.
 
 ### 6.2 Feed planning/admin API additions
 
@@ -478,7 +487,8 @@ runs instead of becoming an unguarded mutation.
 Room stores:
 
 - role/scoped bootstrap and Feed nav configuration;
-- assigned Feed task summary list and cursor/ETag;
+- one row per assigned Feed task summary plus principal/filter-scoped remote key,
+  `total`, `has_more`, next cursor and ETag;
 - task detail and pinned SOP definition;
 - dynamic picker/reference data required by assigned tasks;
 - editable local draft answers;
@@ -898,8 +908,11 @@ Operational retirement and analytics migration are separate gates.
 ### Android
 
 - every Feed field/control in Compose, accessibility and low-end-device budget;
-- task-list contract and Room tests across the 100th/101st boundary, stable
-  cursor append, offline continuation and process-death recovery;
+- OpenAPI and Android contract tests proving default/max page size `20`, required
+  page-independent `total`/`has_more`/`next_cursor`, and rejection of `limit=21`;
+- Room `PagingSource`/`RemoteMediator` tests across the 20th/21st boundary,
+  stable cursor append without duplicates or gaps, page-independent counts,
+  offline continuation and process-death recovery;
 - offline capture, reboot, reconnect and exactly-once logical submit;
 - proof registration/upload/complete retry;
 - same key/same payload replay and same key/different payload conflict;

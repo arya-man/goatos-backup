@@ -175,7 +175,7 @@ class TelemetryInterceptorTest {
         override fun request(): Request = request
         override fun proceed(request: Request): Response = response
         override fun connection(): okhttp3.Connection? = null
-        override fun call(): okhttp3.Call? = null
+        override fun call(): okhttp3.Call = OkHttpClient().newCall(request)
         override fun connectTimeoutMillis(): Int = 0
         override fun withConnectTimeout(timeout: Int, unit: java.util.concurrent.TimeUnit): Interceptor.Chain = this
         override fun readTimeoutMillis(): Int = 0

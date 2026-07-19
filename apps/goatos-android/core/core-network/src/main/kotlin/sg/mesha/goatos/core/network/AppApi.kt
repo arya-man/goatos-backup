@@ -39,6 +39,9 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 
+/** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
+const val APP_TASK_PAGE_SIZE = 20
+
 // Wire DTOs for the nav slice of GET /app/bootstrap. The response (BootstrapResponse)
 // carries many more fields; with ignoreUnknownKeys the client only binds the ones it
 // renders. Defaults keep deserialization lenient. These hand-mapped DTOs are replaced
@@ -224,7 +227,8 @@ interface AppApi {
     /** GET /app/tasks — assigned operator tasks. */
     suspend fun listAppTasks(
         state: String? = null,
-        limit: Int? = null,
+        cursor: String? = null,
+        limit: Int = APP_TASK_PAGE_SIZE,
     ): TaskListResponseDto
 
     /** GET /app/tasks/{task_id} — the task PLUS its SOP version (`form_dsl`) so the operator
@@ -476,7 +480,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun listAppTasks(
         state: String?,
-        limit: Int?,
+        cursor: String?,
+        limit: Int,
     ): TaskListResponseDto = TaskListResponseDto()
 
     override suspend fun getAppTask(taskId: String): TaskDetailResponseDto = TaskDetailResponseDto()

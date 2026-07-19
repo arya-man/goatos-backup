@@ -48,7 +48,6 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
-import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
@@ -502,7 +501,6 @@ private class FakeTaskRepository(
 ) : TasksRepository {
     private val taskDetail = MutableStateFlow(Resource<TaskDetail>(data = null))
 
-    override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto = error("unused")
     override suspend fun taskDetail(taskId: String): TaskDetail = TaskDetail(task = task, form = form)
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> = taskDetail
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {

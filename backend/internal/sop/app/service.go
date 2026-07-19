@@ -26,6 +26,7 @@ const (
 	maxFailedSubmissionFanoutAgeMinutes     = 7 * 24 * 60
 	maxFailedSubmissionFanoutLimit          = 100
 	rosterScanFieldKey                      = "__scan_roster__"
+	AppTaskPageSize                         = 20
 )
 
 func NewService(repo ports.Repository) *Service {
@@ -238,11 +239,61 @@ func (s *Service) ListTasks(ctx context.Context, params ports.ListTasksParams, t
 	params.ScopeType = strings.TrimSpace(params.ScopeType)
 	params.ScopeID = strings.TrimSpace(params.ScopeID)
 	params.Limit = boundedLimit(params.Limit, 100)
-	items, err := s.repo.ListTasks(ctx, params)
+	page, err := s.repo.ListTasks(ctx, params)
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	return &domain.TaskListResponse{Items: items, TraceID: traceID}, nil
+	return &domain.TaskListResponse{Items: page.Items, TraceID: traceID}, nil
+}
+
+func (s *Service) ListAppTasks(ctx context.Context, params ports.ListTasksParams, traceID string) (*domain.AppTaskListResponse, error) {
+	if err := validateTenantAndActor(params.TenantID, params.ActorID); err != nil {
+		return nil, err
+	}
+	params.State = strings.TrimSpace(params.State)
+	params.AssignedTo = params.ActorID
+	params.AppView = true
+	requestedLimit := params.Limit
+	if requestedLimit <= 0 {
+		requestedLimit = AppTaskPageSize
+	}
+	if requestedLimit > AppTaskPageSize {
+		requestedLimit = AppTaskPageSize
+	}
+	params.Limit = requestedLimit + 1
+	page, err := s.repo.ListTasks(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	hasMore := len(page.Items) > requestedLimit
+	if hasMore {
+		page.Items = page.Items[:requestedLimit]
+	}
+	var next *string
+	if hasMore {
+		last := page.Items[len(page.Items)-1]
+		var dueAt *time.Time
+		if last.DueAt != nil {
+			parsed, parseErr := time.Parse(time.RFC3339Nano, *last.DueAt)
+			if parseErr != nil {
+				return nil, fmt.Errorf("sop: invalid task pagination timestamp: %w", parseErr)
+			}
+			parsed = parsed.UTC()
+			dueAt = &parsed
+		}
+		encoded, encodeErr := domain.EncodeTaskCursor(domain.TaskCursor{DueAt: dueAt, TaskID: last.TaskID})
+		if encodeErr != nil {
+			return nil, fmt.Errorf("sop: invalid task pagination cursor: %w", encodeErr)
+		}
+		next = &encoded
+	}
+	return &domain.AppTaskListResponse{
+		Items:      page.Items,
+		Total:      page.Total,
+		HasMore:    hasMore,
+		NextCursor: next,
+		TraceID:    traceID,
+	}, nil
 }
 
 func (s *Service) CreateTask(ctx context.Context, cmd ports.CreateTaskCommand, traceID string) (*domain.TaskResponse, error) {

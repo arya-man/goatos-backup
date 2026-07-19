@@ -140,7 +140,8 @@ interface AppApiService {
     @GET("app/tasks")
     suspend fun listAppTasks(
         @Query("state") state: String?,
-        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
     ): TaskListResponseDto
 
     @GET("app/tasks/{task_id}")
@@ -362,8 +363,9 @@ class RetrofitAppApi(
 
     override suspend fun listAppTasks(
         state: String?,
-        limit: Int?,
-    ): TaskListResponseDto = service.listAppTasks(state, limit)
+        cursor: String?,
+        limit: Int,
+    ): TaskListResponseDto = service.listAppTasks(state, cursor, limit)
 
     override suspend fun getAppTask(taskId: String): TaskDetailResponseDto = service.getAppTask(taskId)
 

@@ -17,6 +17,7 @@ func TestListHandlersRejectInvalidLimitBeforeRepositoryWork(t *testing.T) {
 		{name: "sops", path: "/admin/sops?limit=garbage", handler: h.ListSOPs},
 		{name: "admin tasks", path: "/admin/tasks?limit=0", handler: h.ListAdminTasks},
 		{name: "app tasks", path: "/app/tasks?limit=-1", handler: h.ListAppTasks},
+		{name: "app tasks over mobile boundary", path: "/app/tasks?limit=21", handler: h.ListAppTasks},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -29,6 +30,18 @@ func TestListHandlersRejectInvalidLimitBeforeRepositoryWork(t *testing.T) {
 				t.Fatalf("body=%s, want invalid_limit", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestListAppTasksRejectsMalformedCursorBeforeRepositoryWork(t *testing.T) {
+	h := NewHandler(nil)
+	rec := httptest.NewRecorder()
+	h.ListAppTasks(rec, httptest.NewRequest(http.MethodGet, "/app/tasks?cursor=not-a-cursor", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want 400 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"invalid_cursor"`) {
+		t.Fatalf("body=%s, want invalid_cursor", rec.Body.String())
 	}
 }
 

@@ -239,21 +239,65 @@ func (r *Repository) RetireVersion(ctx context.Context, cmd ports.VersionCommand
 	return r.setVersionStatus(ctx, cmd, "retired")
 }
 
-func (r *Repository) ListTasks(ctx context.Context, params ports.ListTasksParams) ([]domain.TaskSummary, error) {
+func (r *Repository) ListTasks(ctx context.Context, params ports.ListTasksParams) (ports.TaskListPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, taskSelectSQL(`
+	const filters = `
 WHERE st.tenant_id = $1::uuid
   AND ($2 = '' OR st.state = $2)
   AND ($3 = '' OR st.assigned_to = $3::uuid)
   AND ($4 = '' OR st.scope_type = $4)
-  AND ($5 = '' OR st.scope_id = $5::uuid)
+	  AND ($5 = '' OR st.scope_id = $5::uuid)`
+	if !params.AppView {
+		rows, err := r.pool.Query(ctx, taskSelectSQL(filters+`
 ORDER BY st.due_at NULLS LAST, st.updated_at DESC, st.task_id DESC
 LIMIT $6`), params.TenantID, params.State, params.AssignedTo, params.ScopeType, params.ScopeID, params.Limit)
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return ports.TaskListPage{}, err
+		}
+		items, err := scanTasks(rows)
+		return ports.TaskListPage{Items: items}, err
 	}
-	return scanTasks(rows)
+
+	var total int64
+	err := r.pool.QueryRow(ctx, `SELECT count(*) FROM sop_tasks st`+filters,
+		params.TenantID, params.State, params.AssignedTo, params.ScopeType, params.ScopeID).Scan(&total)
+	if err != nil {
+		return ports.TaskListPage{}, err
+	}
+	var cursorTaskID any
+	var cursorDueAt any
+	if params.Cursor != nil {
+		cursorTaskID = params.Cursor.TaskID
+		cursorDueAt = params.Cursor.DueAt
+	}
+	rows, err := r.pool.Query(ctx, taskSelectSQL(filters+`
+  AND (
+    $6::uuid IS NULL
+    OR (
+      $7::timestamptz IS NOT NULL
+      AND (
+        st.due_at > $7::timestamptz
+        OR st.due_at IS NULL
+        OR (st.due_at = $7::timestamptz AND st.task_id > $6::uuid)
+      )
+    )
+    OR (
+      $7::timestamptz IS NULL
+      AND st.due_at IS NULL
+      AND st.task_id > $6::uuid
+    )
+  )
+ORDER BY st.due_at ASC NULLS LAST, st.task_id ASC
+LIMIT $8`), params.TenantID, params.State, params.AssignedTo, params.ScopeType, params.ScopeID, cursorTaskID, cursorDueAt, params.Limit)
+	if err != nil {
+		return ports.TaskListPage{}, err
+	}
+	items, err := scanTasks(rows)
+	if err != nil {
+		return ports.TaskListPage{}, err
+	}
+	return ports.TaskListPage{Items: items, Total: total}, nil
 }
 
 func (r *Repository) CreateTask(ctx context.Context, cmd ports.CreateTaskCommand) (domain.TaskSummary, error) {

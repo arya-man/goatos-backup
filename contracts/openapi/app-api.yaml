@@ -219,7 +219,16 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 100
+            maximum: 20
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor returned as next_cursor by the previous task page.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
       responses:
         "200":
           description: Assigned tasks.
@@ -3518,12 +3527,29 @@ components:
       additionalProperties: false
       required:
         - items
+        - total
+        - has_more
+        - next_cursor
         - trace_id
       properties:
         items:
           type: array
+          maxItems: 20
           items:
             $ref: "#/components/schemas/TaskSummary"
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total authorized tasks matching the filters, independent of this page.
+        has_more:
+          type: boolean
+          description: True exactly when another keyset page is available.
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
         trace_id:
           type: string
     ProofReference:

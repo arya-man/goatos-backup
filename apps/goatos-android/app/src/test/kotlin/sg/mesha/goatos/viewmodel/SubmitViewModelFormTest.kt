@@ -40,7 +40,6 @@ import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
-import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.rfid.FakeScanSource
@@ -510,7 +509,6 @@ class SubmitViewModelFormTest {
         // Cold cache: task id present, Room + network both never answer (never call refreshTaskDetail
         // successfully) — exercised via a repository whose Flow never emits real data.
         val stuckRepository = object : TasksRepository {
-            override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto = error("unused")
             override suspend fun taskDetail(taskId: String): TaskDetail = error("unused")
             override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
                 MutableStateFlow(Resource(data = null))
@@ -572,8 +570,6 @@ private class FakeFormTasksRepository(
     private val proofPolicy: ProofPolicy = ProofPolicy(expectedSubjects = emptyList()), // R50-027: fall back to per-key mapping when expectedSubjects is empty
 ) : TasksRepository {
     private val flow = MutableStateFlow(Resource<TaskDetail>(data = null))
-
-    override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto = error("unused")
 
     override suspend fun taskDetail(taskId: String): TaskDetail = TaskDetail(task = task, form = form, proofPolicy = proofPolicy)
 

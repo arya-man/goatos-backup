@@ -25,6 +25,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     testImplementation("junit:junit:4.13.2")
+    testImplementation(kotlin("test"))
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.kotlinx.coroutines.test)
     // DTOs are hand-mapped to the current bootstrap slice for now; the full typed

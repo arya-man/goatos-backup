@@ -144,6 +144,14 @@ type TaskListResponse struct {
 	TraceID string        `json:"trace_id"`
 }
 
+type AppTaskListResponse struct {
+	Items      []TaskSummary `json:"items"`
+	Total      int64         `json:"total"`
+	HasMore    bool          `json:"has_more"`
+	NextCursor *string       `json:"next_cursor"`
+	TraceID    string        `json:"trace_id"`
+}
+
 type TaskResponse struct {
 	Task        TaskSummary         `json:"task"`
 	Version     *SOPVersion         `json:"sop_version,omitempty"`

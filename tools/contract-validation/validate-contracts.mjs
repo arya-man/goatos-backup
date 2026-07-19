@@ -172,6 +172,48 @@ async function validateVaccinationCursorContract() {
   }
 }
 
+async function validateAppTaskMobilePaginationContract() {
+  const spec = await readYaml("contracts/openapi/app-api.yaml");
+  const endpoint = spec.paths?.["/app/tasks"]?.get;
+  if (!endpoint) {
+    throw new Error("/app/tasks GET must exist");
+  }
+
+  const parameters = endpoint.parameters ?? [];
+  const limit = parameters.find((param) => param.name === "limit" && param.in === "query")?.schema;
+  if (limit?.default !== 20 || limit?.maximum !== 20) {
+    throw new Error("/app/tasks mobile limit must default to 20 and cap at 20");
+  }
+  if (!parameters.some((param) => param.name === "cursor" && param.in === "query")) {
+    throw new Error("/app/tasks must accept an opaque cursor query parameter");
+  }
+
+  const responseRef = endpoint.responses?.["200"]?.content?.["application/json"]?.schema?.$ref;
+  if (responseRef !== "#/components/schemas/TaskListResponse") {
+    throw new Error("/app/tasks 200 response must reference TaskListResponse");
+  }
+  const response = spec.components?.schemas?.TaskListResponse;
+  const required = new Set(response?.required ?? []);
+  for (const field of ["items", "total", "has_more", "next_cursor", "trace_id"]) {
+    if (!required.has(field) || !response?.properties?.[field]) {
+      throw new Error(`TaskListResponse must require ${field}`);
+    }
+  }
+  if (response.properties.items.maxItems !== 20) {
+    throw new Error("TaskListResponse.items must cap each mobile page at 20 rows");
+  }
+  if (response.properties.total.type !== "integer" || response.properties.total.minimum !== 0) {
+    throw new Error("TaskListResponse.total must be a non-negative integer");
+  }
+  if (response.properties.has_more.type !== "boolean") {
+    throw new Error("TaskListResponse.has_more must be boolean");
+  }
+  const cursorTypes = new Set(response.properties.next_cursor.type ?? []);
+  if (!cursorTypes.has("string") || !cursorTypes.has("null")) {
+    throw new Error("TaskListResponse.next_cursor must be a nullable string");
+  }
+}
+
 async function dereferenceSpec(specFile, cache) {
   if (!cache.has(specFile)) {
     cache.set(specFile, await SwaggerParser.dereference(resolveRepo(specFile), { dereference: { circular: "ignore" } }));
@@ -222,6 +264,7 @@ async function main() {
   const jsonSchemaCount = await validateJsonSchemas();
   const openApiCount = await validateOpenApiSpecs();
   await validateVaccinationCursorContract();
+  await validateAppTaskMobilePaginationContract();
   const exampleCount = await validateExamples();
 
   console.log(`Validated ${openApiCount} OpenAPI specs, ${jsonSchemaCount} JSON Schemas, and ${exampleCount} example payloads.`);

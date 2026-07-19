@@ -1350,6 +1350,14 @@ export interface components {
         };
         TaskListResponse: {
             items: components["schemas"]["TaskSummary"][];
+            /**
+             * Format: int64
+             * @description Total authorized tasks matching the filters, independent of this page.
+             */
+            total: number;
+            /** @description True exactly when another keyset page is available. */
+            has_more: boolean;
+            next_cursor: string | null;
             trace_id: string;
         };
         ProofReference: {
@@ -3935,6 +3943,8 @@ export interface operations {
             query?: {
                 state?: string;
                 limit?: number;
+                /** @description Opaque keyset cursor returned as next_cursor by the previous task page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;

@@ -35,7 +35,6 @@ import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
-import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.rfid.FakeScanSource
 
@@ -119,8 +118,6 @@ private class CountingTasksRepository(task: TaskSummaryDto) : TasksRepository {
     private val flow = MutableStateFlow(Resource(data = TaskDetail(task = task, form = FormSpec.Empty)))
     var activeDetailCollectors = 0
         private set
-
-    override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto = error("unused")
 
     override suspend fun taskDetail(taskId: String): TaskDetail = error("unused")
 

@@ -32,8 +32,14 @@ type ListTasksParams struct {
 	AssignedTo string
 	ScopeType  string
 	ScopeID    string
+	Cursor     *domain.TaskCursor
 	Limit      int
 	AppView    bool
+}
+
+type TaskListPage struct {
+	Items []domain.TaskSummary
+	Total int64
 }
 
 type CreateSOPCommand struct {
@@ -170,7 +176,7 @@ type Repository interface {
 	GetPublishedVersionByCode(ctx context.Context, tenantID, sopCode string) (domain.SOPVersion, error)
 	PublishVersion(ctx context.Context, cmd VersionCommand) (domain.SOPVersion, error)
 	RetireVersion(ctx context.Context, cmd VersionCommand) (domain.SOPVersion, error)
-	ListTasks(ctx context.Context, params ListTasksParams) ([]domain.TaskSummary, error)
+	ListTasks(ctx context.Context, params ListTasksParams) (TaskListPage, error)
 	CreateTask(ctx context.Context, cmd CreateTaskCommand) (domain.TaskSummary, error)
 	CreateTasksForBatches(ctx context.Context, tenantID, sopVersionID, actorID string, tasks []domain.BatchTaskRequest) (map[string]string, error)
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error)

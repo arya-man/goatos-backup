@@ -283,11 +283,25 @@ func (h *Handler) ListAppTasks(w nethttp.ResponseWriter, r *nethttp.Request) {
 		h.respond(w, r, nil, app.BadRequest("invalid_limit", "limit must be a positive integer"))
 		return
 	}
-	result, err := h.service.ListTasks(r.Context(), ports.ListTasksParams{
+	if limit > app.AppTaskPageSize {
+		h.respond(w, r, nil, app.BadRequest("invalid_limit", "limit must be at most 20"))
+		return
+	}
+	var cursor *domain.TaskCursor
+	if raw := q.Get("cursor"); raw != "" {
+		decoded, err := domain.DecodeTaskCursor(raw)
+		if err != nil {
+			h.respond(w, r, nil, app.BadRequest("invalid_cursor", "cursor is invalid"))
+			return
+		}
+		cursor = &decoded
+	}
+	result, err := h.service.ListAppTasks(r.Context(), ports.ListTasksParams{
 		TenantID:   tenantID(r),
 		ActorID:    actorID(r),
 		State:      q.Get("state"),
 		AssignedTo: actorID(r),
+		Cursor:     cursor,
 		Limit:      limit,
 		AppView:    true,
 	}, traceID(r))

@@ -28,7 +28,6 @@ import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
-import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -61,20 +60,13 @@ class SubmitViewModelIdentityTest {
         advanceUntilIdle()
 
         assertEquals("task-selected", repository.detailTaskId)
-        assertEquals(0, repository.listCalls)
         assertFalse(viewModel.state.value.isTaskLoadFailed)
     }
 }
 
 private class CapturingTasksRepository : TasksRepository {
-    var listCalls = 0
     var detailTaskId: String? = null
     private val detailFlow = MutableStateFlow(Resource<TaskDetail>(data = null))
-
-    override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto {
-        listCalls++
-        error("submit must not select the first task")
-    }
 
     override suspend fun taskDetail(taskId: String): TaskDetail {
         detailTaskId = taskId

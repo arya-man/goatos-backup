@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonElement
 
 /**
  * Operator Tasks:
- *   GET  /app/tasks                       -> TaskListResponse (items[] + trace_id)
+ *   GET  /app/tasks                       -> TaskListResponse (items[] + paging metadata)
  *   POST /app/tasks/{task_id}/submissions -> SubmitTaskRequest / SubmissionResponse
  *
  * snake_case wire format. Free-form JSON blobs (context, answers, metadata, result)
@@ -38,6 +38,9 @@ data class TaskSummaryDto(
 @Serializable
 data class TaskListResponseDto(
     @SerialName("items") val items: List<TaskSummaryDto> = emptyList(),
+    @SerialName("total") val total: Long = 0,
+    @SerialName("has_more") val hasMore: Boolean = false,
+    @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String = "",
 )
 

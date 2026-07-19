@@ -1078,6 +1078,53 @@ func TestListSOPsWithoutVersionsOmitsLatestVersions(t *testing.T) {
 	}
 }
 
+func TestListAppTasksUsesTwentyRowBoundaryAndCompleteMetadata(t *testing.T) {
+	repo := newFakeRepo()
+	dueAt := "2026-07-21T09:00:00Z"
+	assignedTo := testActorID
+	for i := 1; i <= AppTaskPageSize+1; i++ {
+		repo.listTasksResult = append(repo.listTasksResult, domain.TaskSummary{
+			TaskID:     fmt.Sprintf("20000000-0000-4000-8000-%012d", i),
+			TenantID:   testTenantID,
+			AssignedTo: &assignedTo,
+			DueAt:      &dueAt,
+		})
+	}
+	repo.listTasksTotal = int64(len(repo.listTasksResult))
+	service := NewService(repo)
+
+	first, err := service.ListAppTasks(context.Background(), ports.ListTasksParams{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+	}, "trace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.lastListTasks.Limit != AppTaskPageSize+1 {
+		t.Fatalf("repository limit=%d want %d lookahead rows", repo.lastListTasks.Limit, AppTaskPageSize+1)
+	}
+	if len(first.Items) != AppTaskPageSize || first.Total != int64(AppTaskPageSize+1) || !first.HasMore || first.NextCursor == nil {
+		t.Fatalf("first page=%#v", first)
+	}
+	decoded, err := domain.DecodeTaskCursor(*first.NextCursor)
+	if err != nil || decoded.TaskID != first.Items[AppTaskPageSize-1].TaskID {
+		t.Fatalf("next cursor=%+v err=%v", decoded, err)
+	}
+
+	repo.listTasksResult = repo.listTasksResult[AppTaskPageSize:]
+	last, err := service.ListAppTasks(context.Background(), ports.ListTasksParams{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		Cursor:   &decoded,
+	}, "trace-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(last.Items) != 1 || last.Total != int64(AppTaskPageSize+1) || last.HasMore || last.NextCursor != nil {
+		t.Fatalf("last page=%#v", last)
+	}
+}
+
 func TestListSOPsNormalizesFiltersAndReturnsOpaqueNextCursor(t *testing.T) {
 	repo := newFakeRepo()
 	repo.listSOPsResult = []domain.SOPDefinition{
@@ -1132,6 +1179,9 @@ type fakeRepo struct {
 	latestVersionsForResult     map[string]domain.SOPVersion
 	latestVersionsForCalls      int
 	lastLatestVersionsForIDs    []string
+	listTasksResult             []domain.TaskSummary
+	listTasksTotal              int64
+	lastListTasks               ports.ListTasksParams
 }
 
 func newFakeRepo() *fakeRepo {
@@ -1203,8 +1253,12 @@ func (f *fakeRepo) PublishVersion(context.Context, ports.VersionCommand) (domain
 func (f *fakeRepo) RetireVersion(context.Context, ports.VersionCommand) (domain.SOPVersion, error) {
 	return f.version, nil
 }
-func (f *fakeRepo) ListTasks(context.Context, ports.ListTasksParams) ([]domain.TaskSummary, error) {
-	return []domain.TaskSummary{f.task}, nil
+func (f *fakeRepo) ListTasks(_ context.Context, params ports.ListTasksParams) (ports.TaskListPage, error) {
+	f.lastListTasks = params
+	if f.listTasksResult != nil {
+		return ports.TaskListPage{Items: f.listTasksResult, Total: f.listTasksTotal}, nil
+	}
+	return ports.TaskListPage{Items: []domain.TaskSummary{f.task}, Total: 1}, nil
 }
 func (f *fakeRepo) CreateTask(context.Context, ports.CreateTaskCommand) (domain.TaskSummary, error) {
 	return f.task, nil

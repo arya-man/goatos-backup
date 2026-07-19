@@ -18,7 +18,6 @@ import sg.mesha.goatos.core.data.forms.toProofPolicy
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.SubmissionSummaryDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
-import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 
 /** A task opened for recording: the summary, its parsed [form] to render, prior submissions, and
@@ -42,11 +41,6 @@ data class TaskDetail(
  * from cache instead of a network-only blank/error wall.
  */
 interface TasksRepository {
-    suspend fun tasks(
-        state: String? = null,
-        limit: Int? = null,
-    ): TaskListResponseDto
-
     /** Opens one task WITH its SOP form (parsed from `form_dsl`) so the runner can render it.
      *  A plain network call — [refreshTaskDetail] is the Room-upserting counterpart callers
      *  observing the cache should drive a refresh through. */
@@ -68,11 +62,6 @@ class DefaultTasksRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : TasksRepository {
-    override suspend fun tasks(
-        state: String?,
-        limit: Int?,
-    ): TaskListResponseDto = api.listAppTasks(state, limit)
-
     override suspend fun taskDetail(taskId: String): TaskDetail = api.getAppTask(taskId).toDomain()
 
     // offline-first-guard:ignore: Room-backed — reads taskDetailDao.observe(); heuristic misses the dao read through the .map/toResource helper.
