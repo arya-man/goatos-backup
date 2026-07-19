@@ -29,6 +29,13 @@ type fakeRepo struct {
 	breakdownQuery domain.CountsBreakdownQuery
 	breakdownErr   error
 
+	// Live-herd feed projection. feedProjectedQuery captures the NORMALIZED query the service
+	// passed down, so a test can assert the boundary normalization (business-day target date,
+	// trimmed filters, defaulted limit) rather than only the returned rows.
+	feedProjected      domain.FeedProjectedCounts
+	feedProjectedQuery domain.FeedProjectedCountQuery
+	feedProjectedErr   error
+
 	// Operator-facing shifting support. destinations/goatFacts are the canned reads; the *Req
 	// fields capture what the service asked for so a test can assert the service passed the tenant
 	// and the exact goat id set through unchanged.
@@ -117,6 +124,11 @@ func (f *fakeRepo) GetHerdRegisterSummary(context.Context, domain.HerdRegisterSu
 func (f *fakeRepo) GetCountsBreakdown(_ context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
 	f.breakdownQuery = req
 	return f.breakdown, f.breakdownErr
+}
+
+func (f *fakeRepo) ProjectedShedCountsForFeed(_ context.Context, req domain.FeedProjectedCountQuery) (domain.FeedProjectedCounts, error) {
+	f.feedProjectedQuery = req
+	return f.feedProjected, f.feedProjectedErr
 }
 
 func TestRecordBaseCountAnchorDefaultsPhysicalSource(t *testing.T) {

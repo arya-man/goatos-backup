@@ -1,0 +1,468 @@
+package app
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+)
+
+// TestFeedOverdueShiftingCopyMatchesEnforcedLeadDays locks the Feed Direction / Feed Packing
+// "overdue movement" copy to the lead-day constants the projection actually enforces.
+//
+// The copy tells an operator WHEN an approved movement starts counting toward a shed's feed
+// ("emergency ... 1 day after approval, all others 2 days"). Those numbers are enforced by
+// counts/domain.FeedShiftingLeadDays, which is the only definition of the rule (the SQL binds
+// them as parameters rather than re-deriving them). If someone changes a lead day without
+// updating the sentence — or edits the sentence without changing enforcement — an operator would
+// be told the feed plan assumes something it does not, on the exact screen used to decide whether
+// a shed is being fed for animals that have not arrived. This test makes that drift impossible.
+func TestFeedOverdueShiftingCopyMatchesEnforcedLeadDays(t *testing.T) {
+	for _, routeID := range []string{"feed-direction", "feed-packing"} {
+		copyMap := pageSpecificCopy(routeID)
+		note, ok := copyMap["label.overdue_shifting_note"]
+		if !ok || strings.TrimSpace(note) == "" {
+			t.Fatalf("%s page copy is missing key %q", routeID, "label.overdue_shifting_note")
+		}
+		for _, want := range []int{
+			countsdomain.FeedShiftingEmergencyLeadDays,
+			countsdomain.FeedShiftingStandardLeadDays,
+		} {
+			if !strings.Contains(note, fmt.Sprintf("%d day", want)) {
+				t.Errorf(
+					"%s label.overdue_shifting_note = %q but the projection enforces a %d-day feed lead — the screen would state a lead time the engine does not apply",
+					routeID, note, want,
+				)
+			}
+		}
+	}
+}
+
+// TestFeedBlockedCopyIsNeverReadAsZero is the medical/operational twin of the schema rule in
+// migrations/postgres/000003_feed_ration_config.sql: an authored rate of 0 (K0/K1 kids on milk)
+// and a MISSING rate are different states with opposite consequences. The database keeps them
+// structurally distinct; the UI words have to as well, because "0 kg" on a blocked shed reads as
+// a complete feed sheet for a shed that is about to be fed nothing by accident.
+//
+// This asserts the two copy strings exist, are distinct, and that the blocked one explicitly
+// denies the zero reading rather than merely omitting it.
+func TestFeedBlockedCopyIsNeverReadAsZero(t *testing.T) {
+	for _, routeID := range []string{"feed-direction", "feed-packing", "feed-config"} {
+		copyMap := pageSpecificCopy(routeID)
+
+		blocked, ok := copyMap["label.blocked_note"]
+		if !ok || strings.TrimSpace(blocked) == "" {
+			t.Fatalf("%s page copy is missing key %q", routeID, "label.blocked_note")
+		}
+		zero, ok := copyMap["label.configured_zero_note"]
+		if !ok || strings.TrimSpace(zero) == "" {
+			t.Fatalf("%s page copy is missing key %q", routeID, "label.configured_zero_note")
+		}
+		if blocked == zero {
+			t.Errorf("%s blocked and configured-zero copy are identical; the two states must read differently", routeID)
+		}
+		if !strings.Contains(strings.ToLower(blocked), "not") || !strings.Contains(strings.ToLower(blocked), "zero") {
+			t.Errorf(
+				"%s label.blocked_note = %q must explicitly say a blocked row is NOT zero — an operator reading a blank as 0 kg is the starvation path this wording exists to close",
+				routeID, blocked,
+			)
+		}
+		if !strings.Contains(strings.ToLower(zero), "0") {
+			t.Errorf("%s label.configured_zero_note = %q must name the authored 0 rate", routeID, zero)
+		}
+	}
+}
+
+// TestFeedPagesDeclareRequiredCopy fails fast on the single most common way this contract breaks:
+// the frontend calls copy(key) and it THROWS at render time when the key is absent. Every key
+// listed here is a real product state the Feed pages must be able to name.
+func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
+	required := map[string][]string{
+		"feed-direction": {
+			"crumb",
+			"section.direction.title", "section.direction.aria", "section.direction.caption", "section.direction.note",
+			"table.direction.aria", "table.direction.noun",
+			"filter.all_option",
+			"label.projected_count", "label.projected_count_note",
+			"label.current_count", "label.current_count_note",
+			"label.blocked", "label.blocked_note",
+			"label.configured_zero", "label.configured_zero_note",
+			"label.overdue_shifting", "label.overdue_shifting_note",
+			"label.workflow_normal", "label.workflow_normal_note",
+			"label.workflow_experiment", "label.workflow_experiment_note",
+			"empty.direction", "empty.direction_filtered",
+			"state.direction_unavailable", "state.generation_blocked",
+		},
+		"feed-packing": {
+			"crumb",
+			"section.packing.title", "section.packing.aria", "section.packing.caption", "section.packing.note",
+			"table.packing.aria", "table.packing.noun",
+			"filter.all_option",
+			"label.blocked", "label.blocked_note",
+			"label.configured_zero", "label.configured_zero_note",
+			"label.overdue_shifting", "label.overdue_shifting_note",
+			"label.workflow_normal", "label.workflow_normal_note",
+			"label.workflow_experiment", "label.workflow_experiment_note",
+			"empty.packing", "empty.packing_filtered",
+			"state.packing_unavailable", "state.generation_blocked",
+		},
+		"feed-config": {
+			"crumb",
+			"section.ration_grid.title", "section.shed_factors.title",
+			"section.session_template.title", "section.schedule.title",
+			"table.ration_grid.aria", "table.shed_factors.aria",
+			"table.session_template.aria", "table.schedule.aria",
+			"filter.all_option",
+			"label.blocked", "label.blocked_note",
+			"label.configured_zero", "label.configured_zero_note",
+			"label.workflow_normal", "label.workflow_normal_note",
+			"label.workflow_experiment", "label.workflow_experiment_note",
+			"label.direction_time_note", "label.correction_time_note", "label.transport_time_note",
+			"empty.ration_grid", "empty.shed_factors", "empty.session_template", "empty.schedule",
+			"state.ration_grid_unavailable", "state.shed_factors_unavailable",
+			"state.session_template_unavailable", "state.schedule_unavailable",
+			// Experiment sheds.
+			"section.experiment.title", "section.experiment.aria", "section.experiment.caption",
+			"section.experiment.note", "section.experiment.switch_note",
+			"table.experiment.aria", "table.experiment.noun",
+			"label.experiment_absolute_kg", "label.experiment_absolute_kg_note",
+			"label.experiment_head_count", "label.experiment_head_count_note",
+			"label.experiment_category", "label.experiment_category_note",
+			"label.experiment_active", "label.experiment_active_note",
+			"label.experiment_retired", "label.experiment_retired_note",
+			"label.experiment_not_dated_note",
+			"action.add_experiment_shed", "action.edit_experiment_cell",
+			"action.withdraw_experiment_shed", "action.restore_experiment_shed",
+			"action.experiment_saved", "action.experiment_switched",
+			"reason.experiment_blank_is_not_zero", "reason.experiment_switch_consequence",
+			"empty.experiment", "empty.experiment_filtered", "empty.experiment_candidates",
+			"state.experiment_unavailable",
+		},
+	}
+
+	for routeID, keys := range required {
+		// pageCopy() is what the page actually receives (shared chrome + page-specific).
+		copyMap := pageCopy(routeID)
+		for _, key := range keys {
+			value, ok := copyMap[key]
+			if !ok || strings.TrimSpace(value) == "" {
+				t.Errorf("%s page copy is missing required key %q — copy() throws at render time on a missing key", routeID, key)
+			}
+		}
+	}
+}
+
+// feedTableColumnKeys returns one table's declared column keys in contract order, failing the test
+// if the page or table is absent or if any column has an empty label. The frontend renders cells
+// POSITIONALLY against these labels, so order is part of the contract, not a detail.
+func feedTableColumnKeys(t *testing.T, routeID, tableID string) []string {
+	t.Helper()
+	for _, p := range pages() {
+		if p.RouteID != routeID {
+			continue
+		}
+		for _, tbl := range p.Tables {
+			if tbl.ID != tableID {
+				continue
+			}
+			keys := make([]string, 0, len(tbl.Columns))
+			for _, col := range tbl.Columns {
+				keys = append(keys, col.Key)
+				if strings.TrimSpace(col.Label) == "" {
+					t.Errorf("%s/%s column %q has an empty label", routeID, tableID, col.Key)
+				}
+			}
+			return keys
+		}
+		t.Fatalf("%s page declares no %q table", routeID, tableID)
+	}
+	t.Fatalf("no page declares route %q", routeID)
+	return nil
+}
+
+// TestFeedTableColumnsAreExact locks every Feed table's column key list, in order.
+//
+// Two separate defects live here. The first is POSITIONAL DRIFT: the Feed pages render cells
+// positionally under `tableLabels(...)`, so a key added or removed in the contract without the
+// matching <td> silently shifts every remaining header one column sideways — a quantity ends up
+// under "Session total (kg)", which on this screen is a feeding instruction.
+//
+// The second is the reason `park` is absent from all six lists. Every Feed read endpoint
+// (/feed-direction/generation-preview, /feed-packing/worklist and all four /feed-config/*) takes
+// park_id as a REQUIRED parameter and scopes its SQL with `AND park_id = $2`. One request can only
+// ever return one park, so a park column prints an identical value on every row while consuming
+// width that the real content needs: on Feed Direction it was the difference between the
+// "Mesha Concentrate Goat" label sitting on one line and wrapping to three, which grew the page
+// 4125px -> 6022px. The pinned park is already named by each page's Park filter control. Re-adding
+// a park column here is therefore a density regression, not a feature — if Feed ever gains a
+// genuinely multi-park read, give that endpoint its own table contract.
+func TestFeedTableColumnsAreExact(t *testing.T) {
+	for _, tc := range []struct {
+		routeID string
+		tableID string
+		want    []string
+	}{
+		{"feed-direction", "direction-rows", []string{
+			"shed", "shed_tag", "breed", "session", "head_count",
+			"feed_item", "quantity_kg", "session_total_kg", "status",
+		}},
+		{"feed-packing", "packing-worklist", []string{
+			"shed", "session", "feed_item", "expected_kg", "status",
+		}},
+		{"feed-config", "ration-grid", []string{
+			"ration_group", "shed_tag", "feed_item", "grams_per_head", "valid_from", "valid_to",
+		}},
+		{"feed-config", "shed-factors", []string{
+			"shed", "feed_item", "multiplier", "valid_from", "valid_to",
+		}},
+		{"feed-config", "session-template", []string{
+			"session_no", "session_label", "split_fraction", "status",
+		}},
+		// The experiment table has NO valid_from/valid_to pair, unlike every other effective-dated
+		// table on this page — feed_experiment_config is not effective-dated (migration 000006), and
+		// declaring the columns anyway would render two permanently empty cells that read as a
+		// missing effective window rather than an absent concept.
+		{"feed-config", "experiment-config", []string{
+			"shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status",
+		}},
+	} {
+		got := feedTableColumnKeys(t, tc.routeID, tc.tableID)
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf(
+				"%s/%s columns = %v, want %v — cells are rendered positionally, so a contract change without the matching TSX cell shifts every header sideways",
+				tc.routeID, tc.tableID, got, tc.want,
+			)
+		}
+		for _, key := range got {
+			if key == "park" {
+				t.Errorf(
+					"%s/%s declares a %q column, but this endpoint requires park_id and returns exactly one park — the column would repeat one value on every row and take the width the feed-item label needs",
+					tc.routeID, tc.tableID, key,
+				)
+			}
+		}
+	}
+
+	// schedule-config is asserted separately (see below) because its column set carries an extra
+	// dispatch-time-vs-session-time rule; it must still be park-free.
+	for _, key := range feedTableColumnKeys(t, "feed-config", "schedule-config") {
+		if key == "park" {
+			t.Errorf("feed-config/schedule-config declares a %q column; every /feed-config/* read is single-park by contract", key)
+		}
+	}
+}
+
+// TestFeedScheduleColumnsAreDispatchTimesNotSessionTimes locks the feed day clock table's column
+// keys to the three fields the screen actually renders: feed_schedule_config.direction_time,
+// .correction_time and .transport_time.
+//
+// This shipped wrong once. The table was declared with session-shaped keys
+// ("session_no", "session_label", "start_time", "end_time") while the page rendered the three
+// dispatch times underneath them, so a direction time appeared as "Session name: 14:00:00" and the
+// remaining pair rendered as "Starts 14:00 / Ends 15:45" — which an operator reads as the window in
+// which the ANIMALS ARE FED. It is not: the animals eat the next morning, and 14:00/15:45 are when
+// an amended sheet is reissued and when it can no longer reach the shed. Someone trusting that
+// header would time a correction against the wrong deadline.
+//
+// The column set is asserted exactly (order included) because the frontend renders cells
+// positionally against these labels; a key added here without a matching cell silently shifts every
+// header one column to the right, which is the same class of defect.
+func TestFeedScheduleColumnsAreDispatchTimesNotSessionTimes(t *testing.T) {
+	want := []string{"workflow", "direction_time", "correction_time", "transport_time", "status"}
+
+	found := feedTableColumnKeys(t, "feed-config", "schedule-config")
+	if strings.Join(found, ",") != strings.Join(want, ",") {
+		t.Fatalf("schedule-config columns = %v, want %v — the header row must name the dispatch times the page renders, never session times", found, want)
+	}
+
+	// A session-shaped key on this table is the exact regression described above.
+	for _, banned := range []string{"session_no", "session_label", "start_time", "end_time"} {
+		for _, key := range found {
+			if key == banned {
+				t.Errorf("schedule-config declares %q — this table carries the feed day dispatch clock, not session times", banned)
+			}
+		}
+	}
+
+	// Each time column must be labelled by the ACT it performs. A bare "Starts"/"Ends" pair is what
+	// made the old header read as a feeding window.
+	for key, wantLabel := range map[string]string{
+		"direction_time":  "Direction issued",
+		"correction_time": "Corrections reissued",
+		"transport_time":  "Transport cutoff",
+	} {
+		if got := humanLabel(key); got != wantLabel {
+			t.Errorf("humanLabel(%q) = %q, want %q", key, got, wantLabel)
+		}
+	}
+}
+
+// TestFeedScheduleNoteDoesNotReadAsFeedingTime guards the helper copy under the same table. The
+// operational point of the whole section is that these clock times are when the SHEET moves, not
+// when animals eat — the note has to say so, or it re-creates the misreading the headers just fixed.
+func TestFeedScheduleNoteDoesNotReadAsFeedingTime(t *testing.T) {
+	copyMap := pageSpecificCopy("feed-config")
+	note := strings.ToLower(copyMap["section.schedule.note"])
+	if note == "" {
+		t.Fatal("feed-config is missing section.schedule.note")
+	}
+	if !strings.Contains(note, "tomorrow") && !strings.Contains(note, "next") {
+		t.Errorf("section.schedule.note = %q must say the direction is issued for the NEXT feed day; without it the times read as today's feeding window", copyMap["section.schedule.note"])
+	}
+}
+
+// TestExperimentHeadCountIsNeverPresentedAsAMultiplier is the experiment-shed twin of
+// TestFeedBlockedCopyIsNeverReadAsZero, and it guards the single most consequential confusion this
+// screen can create.
+//
+// feed_experiment_config.absolute_kg is a SHED TOTAL, already inclusive of every animal in the shed.
+// The head count beside it is context for the operator who authored the figure, NOT a multiplier —
+// multiplying the two would overfeed the shed by a factor of its entire population. That is the
+// opposite of Feed Direction, where head_count genuinely IS the first term of
+// head count x grams per head x shed factor.
+//
+// Because humanLabel() is keyed by column key alone and has no table context, the two screens are
+// kept apart by USING DIFFERENT KEYS ("informational_head_count" here, "head_count" there). This
+// test locks both halves of that arrangement: the experiment header must carry the warning, and Feed
+// Direction's must NOT — a well-meaning edit that "unified" the two keys would either deny the
+// multiplication that really happens on Feed Direction, or assert one that must never happen here.
+func TestExperimentHeadCountIsNeverPresentedAsAMultiplier(t *testing.T) {
+	if got := humanLabel("informational_head_count"); !strings.Contains(strings.ToLower(got), "informational") {
+		t.Errorf(
+			"humanLabel(%q) = %q must mark the count as informational — on an experiment row the kg is already a shed total, so a header that reads like Feed Direction's multiplier invites someone to multiply it",
+			"informational_head_count", got,
+		)
+	}
+	// The shared key must stay the plain multiplier label for Feed Direction's sake.
+	if got := humanLabel("head_count"); strings.Contains(strings.ToLower(got), "informational") {
+		t.Errorf(
+			"humanLabel(%q) = %q — this key labels Feed Direction's head count, where the value IS multiplied by the ration rate; the informational wording belongs only to %q",
+			"head_count", got, "informational_head_count",
+		)
+	}
+
+	copyMap := pageSpecificCopy("feed-config")
+
+	// The hover note must actively DENY the multiplication rather than merely omitting it, for the
+	// same reason label.blocked_note must deny the zero reading: an operator fills a silence with the
+	// behaviour they know from the other Feed screens.
+	headNote := strings.ToLower(copyMap["label.experiment_head_count_note"])
+	if headNote == "" {
+		t.Fatal("feed-config is missing label.experiment_head_count_note")
+	}
+	if !strings.Contains(headNote, "not a multiplier") && !strings.Contains(headNote, "never multiplied") {
+		t.Errorf(
+			"label.experiment_head_count_note = %q must state outright that the count is NOT a multiplier",
+			copyMap["label.experiment_head_count_note"],
+		)
+	}
+
+	kgNote := strings.ToLower(copyMap["label.experiment_absolute_kg_note"])
+	if kgNote == "" {
+		t.Fatal("feed-config is missing label.experiment_absolute_kg_note")
+	}
+	if !strings.Contains(kgNote, "not a per-head") && !strings.Contains(kgNote, "whole shed") && !strings.Contains(kgNote, "shed total") {
+		t.Errorf(
+			"label.experiment_absolute_kg_note = %q must say the quantity is a whole-shed total rather than a per-head figure",
+			copyMap["label.experiment_absolute_kg_note"],
+		)
+	}
+}
+
+// TestExperimentSwitchCopyStatesTheFeedingConsequence guards the copy behind the add/remove control.
+//
+// Membership in feed_experiment_config IS the workflow flag — there is nothing else to consult (see
+// ExperimentPlanner.Applies). So moving a shed in or out of this section is not a filing decision,
+// it changes the arithmetic that feeds the animals: absolute authored kg one way, projected head
+// count x grams per head x shed factor the other. Measured on the live 2026-07-20 data, the
+// difference for CBE was 182.0 kg vs 398.8 kg of concentrate.
+//
+// If the UI ever describes that switch in neutral list-management language ("add", "remove") without
+// the consequence attached, an operator tidying a list would silently re-plan a park's feed. This
+// test requires the section note and the switch reason to name the consequence explicitly.
+func TestExperimentSwitchCopyStatesTheFeedingConsequence(t *testing.T) {
+	copyMap := pageSpecificCopy("feed-config")
+
+	switchNote := strings.ToLower(copyMap["section.experiment.switch_note"])
+	if switchNote == "" {
+		t.Fatal("feed-config is missing section.experiment.switch_note")
+	}
+	// It must say membership IS the mechanism, so nobody goes looking for a separate flag to set.
+	if !strings.Contains(switchNote, "no other reason") && !strings.Contains(switchNote, "no separate flag") {
+		t.Errorf(
+			"section.experiment.switch_note = %q must say that being listed here is what puts a shed on the experiment workflow; otherwise the control reads as a filing action",
+			copyMap["section.experiment.switch_note"],
+		)
+	}
+	// Withdrawal keeps the authored quantities. Saying so is what stops an operator treating
+	// "return to normal grid" as destructive and hoarding stale rows to avoid it.
+	if !strings.Contains(switchNote, "keeps") && !strings.Contains(switchNote, "kept") {
+		t.Errorf(
+			"section.experiment.switch_note = %q must say the authored quantities are kept when a shed is returned to the normal grid",
+			copyMap["section.experiment.switch_note"],
+		)
+	}
+
+	consequence := strings.ToLower(copyMap["reason.experiment_switch_consequence"])
+	if consequence == "" {
+		t.Fatal("feed-config is missing reason.experiment_switch_consequence")
+	}
+	if !strings.Contains(consequence, "eat") && !strings.Contains(consequence, "fed") {
+		t.Errorf(
+			"reason.experiment_switch_consequence = %q must name the feeding consequence, not describe a display setting",
+			copyMap["reason.experiment_switch_consequence"],
+		)
+	}
+
+	// The retired label must name the arithmetic a withdrawn shed falls back to. "Retired"/"inactive"
+	// alone would not tell an operator that the shed is now being fed per head from the grid above.
+	retired := strings.ToLower(copyMap["label.experiment_retired_note"])
+	if retired == "" {
+		t.Fatal("feed-config is missing label.experiment_retired_note")
+	}
+	if !strings.Contains(retired, "grid") {
+		t.Errorf(
+			"label.experiment_retired_note = %q must say a withdrawn shed is fed from the ration grid again",
+			copyMap["label.experiment_retired_note"],
+		)
+	}
+}
+
+// TestFeedOptionGroupsCarryNoLiveTenantData guards the rule at service.go's feedOptionGroups
+// comment: only FIXED SCHEMA CONSTRAINTS may be declared in contract code. Parks, sheds, breeds,
+// ration groups, shed tags and feed items are live tenant data and must arrive through the
+// response facets or ReferenceFamilies, never as constants here.
+func TestFeedOptionGroupsCarryNoLiveTenantData(t *testing.T) {
+	allowed := map[string]bool{
+		"feed_workflow":             true,
+		"feed_row_status":           true,
+		"feed_quantity_states":      true,
+		"feed_effective_window":     true,
+		"feed_shed_tag_applies_to":  true,
+		"feed_config_status":        true,
+		"feed_quantity_units":       true,
+		"feed_generation_readiness": true,
+	}
+
+	for _, group := range feedOptionGroups() {
+		if !allowed[group.ID] {
+			t.Errorf(
+				"feedOptionGroups declares %q, which is not a known fixed schema constraint — live vocabularies (parks, sheds, breeds, ration groups, shed tags, feed items, sessions) must come from facets or ReferenceFamilies",
+				group.ID,
+			)
+		}
+		if len(group.Options) == 0 {
+			t.Errorf("feed option group %q declares no options", group.ID)
+		}
+	}
+
+	// Session numbers are authored per park in feed_session_templates; the only schema rule is
+	// session_no >= 1. Freezing today's two-session configuration into the contract would
+	// mislabel any park that later runs a third session.
+	for _, group := range feedOptionGroups() {
+		if strings.Contains(group.ID, "session") {
+			t.Errorf("feed option group %q hardcodes session vocabulary — sessions are authored per park in feed_session_templates", group.ID)
+		}
+	}
+}

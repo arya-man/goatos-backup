@@ -123,6 +123,70 @@ const (
 	// (DecidableApprovalRequestTypes). It is granted to exactly the roles that hold at least one of
 	// CountsApproveLifecycle / CountsApproveShifting, so it never widens access on its own.
 	CountsApproveAccess = "counts.approve_access"
+	// FeedConfigRead gates the AUTHORED FEED CONFIGURATION read surface (/feed-config/*): the ration
+	// grid, the breed -> ration-group map, the shed-tag vocabulary, the feed-item catalog, the
+	// session split, the per-shed multipliers, and the per-park dispatch clock.
+	//
+	// It is deliberately SEPARATE from ProtocolRead, which gates the feed-DIRECTION surface
+	// (/feed-direction/*). Those are two different authorities over two different things: direction
+	// is today's operational output ("what goes to shed 4 this morning"), while this is the authored
+	// rule that produced it ("Osmanabadi/Pregnant gets 250 g of concentrate at CBE"). A park head or
+	// an operator legitimately needs to see today's direction without being able to inspect and edit
+	// the tenant-wide grid the whole farm is fed from, and collapsing the two into one permission
+	// would make that impossible to express.
+	//
+	// It is also narrower than a generic config-read: the grid is commercially meaningful
+	// (it encodes the farm's whole feeding economics), which is why it sits with the Admin/CEO tier
+	// rather than being handed to every authenticated principal the way /app/bootstrap is.
+	//
+	// Nav consequence: the Feed Config screen declares this permission, so a principal without it
+	// does not receive that nav item. Hiding the item is not the control -- the routes require the
+	// same permission, so the screen is unreachable rather than merely invisible.
+	FeedConfigRead = "feed_config.read"
+	// FeedConfigWrite gates EDITING that configuration: authoring a ration rate, a shed multiplier,
+	// or a park's dispatch clock.
+	//
+	// This is the highest-consequence permission in the feed module, and it is granted narrowly for a
+	// specific reason: a ration rate is a FEEDING INSTRUCTION for every animal matching its
+	// (park, ration_group, shed_tag) key. One edit silently changes what hundreds of animals are fed
+	// every day until someone notices. Unlike a vaccination obligation -- which surfaces as visible,
+	// dated, chaseable work when it goes wrong -- an incorrect ration produces no alert at all; it
+	// produces thinner animals a month later. So the authority to change it sits with the Admin/CEO
+	// tier that owns farm economics, NOT with the ground roles that execute feeding.
+	//
+	// Deliberately NOT granted to RoleOperator or RoleParkHead: an operator packs and delivers what
+	// the direction says, and a park head runs a park's execution. Neither authors the rule the whole
+	// tenant is fed from. Never granted to RoleVerifier (separation of duty: the verifier checks
+	// captured work and must not be able to rewrite the standard that work is judged against).
+	//
+	// Every write it gates is effective-dated and ledgered: an edit closes the current row and opens
+	// a new one, and feed_config_write_log records who changed what, when, and under which
+	// idempotency key. The permission controls who may author; the audit trail is what makes an
+	// authored change answerable afterwards.
+	FeedConfigWrite = "feed_config.write"
+	// FeedPackingRead gates the PACKING worklist (/feed-packing/worklist): the per-shed, per-session
+	// list of feed items and expected kg that a packer physically weighs out and bags.
+	//
+	// It is a separate permission from ProtocolRead, which gates the feed-DIRECTION surface
+	// (/feed-direction/*), and the split is forward-looking rather than cosmetic. Direction and
+	// packing are the same numbers read by different people for different purposes: direction is
+	// the plan a park head reviews and corrects before dispatch, packing is the ground instruction
+	// the store team executes. Those audiences will diverge -- the packing list is the natural
+	// candidate for widening to RoleOperator once capture is built on it -- and reusing ProtocolRead
+	// would make that widening impossible to express, because it would also hand the packing team
+	// the vaccination protocol surface. Granting a distinct permission now costs nothing and keeps
+	// that door open.
+	//
+	// It is granted to the tiers that own park execution and farm oversight: Admin, ParkHead, and
+	// RoleCEOInternal (founder/builder visibility invariant -- the platform-owner cohort holds the
+	// grants for every built visible module). Deliberately NOT granted to RoleVerifier: the verifier
+	// checks captured work against a standard and has no role in dispatching feed.
+	//
+	// It is READ-ONLY and has no write twin today. The worklist records nothing: there is no proof
+	// capture, no video, and no packing status stored anywhere -- the status field is derived from
+	// the generation result. A future capture surface needs its own write permission, and reusing
+	// this one for it would silently turn every reader into a recorder.
+	FeedPackingRead = "feed_packing.read"
 	// VerificationReview is the generic Verification vertical's queue-read + verdict-write
 	// permission (context/architecture/verification-module-design.md). It is granted ONLY to the
 	// Verifier role and, per the org-role-model truth table, as a CEO/CxO override — never to
@@ -148,8 +212,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		CountsApproveLifecycle: {},
 		CountsApproveShifting:  {},
 		CountsApproveAccess:    {},
-		VerificationReview:     {},
-		VerificationAct:        {},
+		// Authored feed configuration (the ration grid + dispatch clock). Admin/CEO tier only: a
+		// ration rate is a standing feeding instruction for every animal matching its key, and a bad
+		// one produces no alert, just thinner animals a month later.
+		FeedConfigRead:     {},
+		FeedConfigWrite:    {},
+		FeedPackingRead:    {},
+		VerificationReview: {},
+		VerificationAct:    {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
@@ -179,7 +249,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		// do NOT hold CountsApproveLifecycle, so they cannot approve a birth or a death.
 		CountsApproveShifting: {},
 		CountsApproveAccess:   {},
-		VerificationAct:       {},
+		// A park head dispatches feed on their own ground, so they read the packing worklist. They
+		// still hold no feed_config.* grant: executing a ration is not authoring one.
+		FeedPackingRead: {},
+		VerificationAct: {},
 	},
 	RolePCDirector: {
 		GoatRead: {}, GoatWriteHealth: {},
@@ -212,8 +285,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		CountsApproveLifecycle: {},
 		CountsApproveShifting:  {},
 		CountsApproveAccess:    {},
-		VerificationReview:     {},
-		VerificationAct:        {},
+		// Founder/builder visibility invariant (AGENTS.md): the platform-owner leadership cohort must
+		// hold the grants for every built visible module, so a founder account is never locked out of
+		// the Feed Config screen it is expected to operate.
+		FeedConfigRead:     {},
+		FeedConfigWrite:    {},
+		FeedPackingRead:    {},
+		VerificationReview: {},
+		VerificationAct:    {},
 	},
 }
 

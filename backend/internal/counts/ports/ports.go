@@ -64,6 +64,14 @@ type Repository interface {
 	GetHerdRegisterSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error)
 	GetCountsBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
 
+	// ProjectedShedCountsForFeed returns what each shed grain will hold on a feed day, computed
+	// from the LIVE herd plus the movements that are approved but not yet executed.
+	//
+	// Parallel to ProjectedCountFor/CountAsOf above, not a replacement for them: those replay
+	// movements over a physically-counted anchor and stay in use by the counts-source import and
+	// parity tooling. This one never reads count_base_anchors or count_projection_snapshots.
+	ProjectedShedCountsForFeed(ctx context.Context, req domain.FeedProjectedCountQuery) (domain.FeedProjectedCounts, error)
+
 	// CreateApprovalRequest persists a PENDING lifecycle request. It applies nothing: a submitted
 	// birth creates no goats row and emits no goat.created. Idempotent -- an exact replay returns
 	// the original request with replay=true, a same-key/different-payload replay is a conflict.

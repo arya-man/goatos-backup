@@ -714,26 +714,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/feed-direction/readiness": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read the fail-closed Feed Direction gate and Counts/Shifting readiness state.
-         * @description Returns G1-G17, G2/CSG1-CSG10, source-priority, and safety invariants used to keep Feed generation disabled until Counts/Shifting projection, ration/context resolution, and high-risk shifted-cohort protections are source-backed and bounded.
-         */
-        get: operations["getFeedDirectionReadiness"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/feed-direction/generation-preview": {
         parameters: {
             query?: never;
@@ -743,7 +723,7 @@ export interface paths {
         };
         /**
          * Preview Feed Direction generation inputs from the bounded Counts/Shifting projection.
-         * @description Returns Feed Direction's read-only view of Counts/Shifting projected_count_for rows and aggregate shed+breed totals. The preview surfaces pregnant/lactating/warm-up shifted-cohort ration blockers, destination shortages, unsafe surplus, and unresolved ration context before generation. It never enables generation while G2-G17 remain open.
+         * @description Returns Feed Direction's read-only view of Counts/Shifting projected_count_for rows and aggregate shed+breed totals. The preview surfaces pregnant/lactating/warm-up shifted-cohort ration blockers, destination shortages, unsafe surplus, and unresolved ration context before generation. Generation is allowed only when the returned page carries no blockers.
          */
         get: operations["getFeedDirectionGenerationPreview"];
         put?: never;
@@ -808,6 +788,254 @@ export interface paths {
          * @description Dismisses an open Counts/Shifting projection exception with actor, reason, optional source reference, and idempotent replay protection. This path is for reviewed duplicates or explicitly accepted non-blocking findings; it must not be used as a hidden generation bypass.
          */
         post: operations["dismissFeedDirectionCountsProjectionException"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Generated feed direction for one park and one feed day.
+         * @description Turns the projected shed counts for `target_date` (live herd plus the movements that are approved but not yet executed) and the authored ration grid into per-session feed quantities.
+         *
+         *     Resolution rule: the ration group is `Kid` when the animals' management stage maps onto a shed tag whose `applies_to` is `kid`, otherwise the breed's authored ration group; the grid key is (park, ration_group, shed_tag, feed_item); the shed quantity is `projected_head_count x grams_per_head x shed_factor`, split across the park's sessions. The kid/adult branch comes from the SHED TAG, never from the animal's stored age band -- the two disagree on live data and the tag vocabulary is what the grid is indexed by.
+         *
+         *     `items` is a page of SHEDS (a shed's grains never straddle a page boundary). `summary` covers the WHOLE filtered result set and is invariant to `limit`/`offset` -- see `FeedDirectionPreviewSummary`.
+         *
+         *     CONFIGURED ZERO IS NOT MISSING CONFIGURATION. An authored rate of 0 is a real feeding instruction (milk-fed kids) and appears as `status: resolved` with `quantity_kg: "0.000"`. A cell with NO authored rate appears as `status: blocked` with `quantity_kg: null` and a reason. The two are never collapsed: a silently zeroed cell is a shed that goes unfed while the sheet looks complete. Clients MUST NOT treat a blocked quantity as zero, and `session_total_kg` deliberately sums resolved items only -- `blocked: true` on the row is what says the total is partial.
+         *
+         *     Paging is by SHED, so a shed's rows never straddle a page boundary and every `session_total_kg` is complete. `summary` is PAGE-SCOPED and declares so in `summary.scope`; it is not a park total.
+         */
+        get: operations["getFeedDirectionPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-packing/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-shed packing worklist for one park and one feed day.
+         * @description The same generated quantities as `/feed-direction/preview`, collapsed to the line a packer works from: one row per shed per session, with the shed's ration grains already summed, because a packer fills one bag per feed item per shed rather than one per grain. The totals are summed from the ALREADY-ROUNDED session quantities, so the worklist matches the direction sheet exactly rather than differing by a rounding step.
+         *
+         *     READ-ONLY. Nothing here is recorded: there is no proof capture, no video, and no stored packing state. `status` is DERIVED from the generation result -- `ready` when every item resolved, `blocked` when any item has no authored ration (the line must not be packed from the resolved remainder, which would send the shed short), and `empty` when the shed holds no projected animals, which is not a configuration gap.
+         *
+         *     `items` is a page of SHEDS; `summary` is the store draw for the WHOLE filtered worklist and is invariant to `limit`/`offset` -- see `FeedPackingWorklistSummary`.
+         */
+        get: operations["getFeedPackingWorklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/ration-rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the currently-in-force ration grid for a park.
+         * @description Returns one bounded page of the authored ration grid: (ration_group, shed_tag, feed_item) -> grams per head per day, for the park's rows that are currently in force (valid_to is null). Rates are PARK-SCOPED because parks genuinely differ, so park_id is required rather than optional -- a tenant-wide listing would interleave two parks' rows under identical labels. grams_per_head is returned as an exact decimal STRING, never a JSON number, so an authored rate cannot be altered by float round-tripping. A rate of 0 is a real authored value ("milk-fed kids get 0 g of solids"); the ABSENCE of a row means "not configured" and is a blocking gap the feed path must surface rather than read as 0.
+         */
+        get: operations["listFeedConfigRationRates"];
+        put?: never;
+        /**
+         * Author one cell of the ration grid, effective-dated and non-destructive.
+         * @description Authors grams_per_head for one (park, ration_group, shed_tag, feed_item) key. The write is NEVER destructive: if a row is already in force from an earlier business day it is CLOSED (valid_to set) and a new row is opened, so the previous rate survives as history. A re-edit on the SAME business day corrects the open row in place, because a window closed on the day it opened cannot satisfy valid_to > valid_from. Re-authoring the identical value writes nothing and reports outcome "unchanged". The response names which of the four happened. grams_per_head is REQUIRED and is validated, not defaulted: absent fails the request (absence of a rate means "not configured", a blocking state -- it must never be filled in as 0), an explicit 0 is accepted as a real authored value, and a negative or over-precise value is rejected with a field error rather than clamped or rounded. Requires an Idempotency-Key: an exact replay returns the original result with idempotent_replay=true and re-runs no side effect, and reusing the key with a different payload is a 409.
+         */
+        post: operations["upsertFeedConfigRationRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/ration-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the breed to ration-group mapping.
+         * @description Returns the authored map from a live breed label to its ration group. ADULT breeds only: kids resolve to the fixed "Kid" group by age band and never consult this map. The mapping is data rather than an identity function because it carries a real merge -- two live breeds can share one ration group.
+         */
+        get: operations["listFeedConfigRationGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/shed-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authored shed-tag vocabulary the ration grid is indexed by.
+         * @description Returns the tag vocabulary matched against a live animal's management stage. applies_to splits the kid course from the adult course; the two sets are disjoint, which is why the field is single-valued. A present but unrecognised applies_to filter is REJECTED rather than ignored -- silently dropping it would return the full vocabulary to a caller who asked for one course.
+         */
+        get: operations["listFeedConfigShedTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/feed-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the feed-item catalog.
+         * @description Returns the feed items and their nutritional/handling attributes. Those attributes are NULLABLE on purpose and are omitted when unset: unlike a ration rate, a missing energy value blocks only a rollup, never a feeding decision, so an honest gap is preferable to an invented number.
+         */
+        get: operations["listFeedConfigFeedItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/session-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a park's feeding-session split.
+         * @description Returns the park's feeding sessions and the fraction of the day's computed quantity each one carries. The fractions across a park's active sessions are expected to sum to 1.0 -- a cross-row invariant no column constraint can express, so it is enforced by whoever writes them.
+         */
+        get: operations["listFeedConfigSessionTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a park's currently-in-force feed dispatch clock.
+         * @description Returns the park's in-force dispatch clock per workflow. The times are LOCAL India business calendar (Asia/Kolkata) wall-clock values and carry NO UTC offset: they are recurring business-calendar rules, not instants, and a consumer combines them with a business date in Asia/Kolkata to schedule. transport_time is omitted when the park has not declared a cutoff; that absence means UNKNOWN and must never be read as "no deadline".
+         */
+        get: operations["listFeedConfigSchedule"];
+        put?: never;
+        /**
+         * Author a park's feed dispatch clock for one workflow, effective-dated.
+         * @description Authors the direction, correction, and transport times for one (park, workflow). The clock is per-workflow because the normal and experiment workflows genuinely run on different cutoffs; a single global time would issue one of them at the wrong hour every day. correction_time is when approved emergency-shifting corrections are BATCHED and the amended direction is reissued -- a fixed time rather than fire-on-approval, so a shed receives at most one amended direction per day instead of several racing ones. Times are LOCAL Asia/Kolkata wall-clock values ("07:00" or "07:00:00") with no offset; a value carrying an offset is rejected. Ordering is enforced (correction may equal but not precede direction; transport may not precede correction). transport_time may be sent as null to record "no declared cutoff", but a present-but-malformed value is REJECTED rather than dropped to null. Effective-dated and idempotent on the same terms as the ration-rate write.
+         */
+        post: operations["upsertFeedConfigSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/shed-factors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a park's authored per-shed feed multipliers.
+         * @description Returns the currently-in-force per-shed, per-feed-item multipliers -- the shed_factor term of head_count x grams_per_head x shed_factor. Only AUTHORED factors are returned: a shed with no row is treated as 1.0 by the read path, and materializing that default here would make an unauthored shed indistinguishable from one someone deliberately set to 1.0.
+         */
+        get: operations["listFeedConfigShedFactors"];
+        put?: never;
+        /**
+         * Author one per-shed feed multiplier, effective-dated.
+         * @description Authors the multiplier for one (park, shed, feed_item). multiplier is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted as a deliberate authored value, and a negative value is rejected with a field error. Effective-dated and idempotent on the same terms as the ration-rate write.
+         */
+        post: operations["upsertFeedConfigShedFactor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/experiment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a park's hand-authored experiment sheds.
+         * @description Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park. absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as informational context only -- multiplying the two would overfeed the shed by a factor of its entire population. Membership in this table with status='active' IS what makes a shed an experiment shed; a shed with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn shed's authored quantities stay visible and can be restored without re-keying them.
+         */
+        get: operations["listFeedConfigExperiment"];
+        put?: never;
+        /**
+         * Author one experiment shed's absolute kg of one feed item.
+         * @description Authors the absolute kg for one (park, shed, feed_item). absolute_kg is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm that deliberately gets none of an item), and a negative or over-precise value is rejected with a field error. Authoring a shed's FIRST cell is what enrols it onto the experiment workflow, and any write forces the row back to status='active' -- a quantity stored on a retired row is a number nothing reads. Unlike the ration-rate write this is NOT effective-dated: an existing row is corrected in place, so the outcome is never "superseded".
+         */
+        post: operations["upsertFeedConfigExperiment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/experiment/shed-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch a whole shed between the experiment workflow and the normal ration grid.
+         * @description Flips the status of EVERY one of the shed's authored experiment rows in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the shed the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). It is whole-shed because a planner owns a shed rather than a cell, so a half-enrolled shed has no representable feed. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a shed can be restored without re-keying them. A shed with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one authors its first quantity through POST /feed-config/experiment instead.
+         */
+        post: operations["setFeedConfigExperimentShedStatus"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1470,6 +1698,423 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        FeedConfigRationRate: {
+            /** Format: uuid */
+            ration_rate_id: string;
+            /** Format: uuid */
+            park_id: string;
+            ration_group: string;
+            shed_tag: string;
+            feed_item: string;
+            /** @description Authored grams per head per day, as an EXACT DECIMAL STRING rather than a JSON number, so an authored rate cannot drift through float round-tripping. "0.000" is a real authored value meaning "feed nothing"; the absence of a row entirely is the different, blocking state "not configured". */
+            grams_per_head: string;
+            /** Format: date */
+            valid_from: string;
+            /**
+             * Format: date
+             * @description Absent while this row is the one in force.
+             */
+            valid_to?: string | null;
+            source_system: string;
+        };
+        FeedConfigRationRatePage: {
+            items: components["schemas"]["FeedConfigRationRate"][];
+            limit: number;
+            offset: number;
+            /** @description Whether another page exists. Deliberately NOT a total count: counting the filtered set on every page is compute-on-read, and the grid needs "is there more", not a total. */
+            has_more: boolean;
+        };
+        FeedConfigRationGroup: {
+            /** Format: uuid */
+            ration_group_id: string;
+            breed: string;
+            ration_group: string;
+        };
+        FeedConfigRationGroupPage: {
+            items: components["schemas"]["FeedConfigRationGroup"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigShedTag: {
+            /** Format: uuid */
+            shed_tag_id: string;
+            shed_tag: string;
+            /** @enum {string} */
+            applies_to: "adult" | "kid";
+            display_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        FeedConfigShedTagPage: {
+            items: components["schemas"]["FeedConfigShedTag"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigFeedItem: {
+            /** Format: uuid */
+            feed_item_id: string;
+            feed_item: string;
+            /** @description Exact decimal string. Omitted when unset -- an honest gap, not a zero. */
+            energy_kcal_per_kg?: string;
+            dry_matter_factor?: string;
+            wastage_factor?: string;
+            display_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        FeedConfigFeedItemPage: {
+            items: components["schemas"]["FeedConfigFeedItem"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigSessionTemplate: {
+            /** Format: uuid */
+            session_template_id: string;
+            /** Format: uuid */
+            park_id: string;
+            session_no: number;
+            session_label: string;
+            /** @description Exact decimal string. A park's active sessions are expected to sum to 1.0. */
+            split_fraction: string;
+            display_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        FeedDirectionItemQuantity: {
+            feed_item: string;
+            /**
+             * @description `resolved` means the quantity was DERIVED from authored configuration -- including an authored zero, which is a real "feed nothing" instruction. `blocked` means the configuration needed to derive it does not exist.
+             * @enum {string}
+             */
+            status: "resolved" | "blocked";
+            /**
+             * @description Rounded, packable quantity in kg as an exact decimal STRING (three decimals), never a float -- a float round trip is exactly how a column total ends up reading 12.299999999.
+             *
+             *     NULL IF AND ONLY IF `status` is `blocked`. This is the safety contract of this API: an unauthored ration has NO number, so it cannot be summed, rendered, or defaulted into a plausible-looking 0. An authored zero is the opposite state and is fully numeric ("0.000"). A client that coerces null to 0 reintroduces the starvation path this distinction exists to prevent.
+             */
+            quantity_kg: string | null;
+            /** @description The authored per-head rate this quantity came from, echoed so an operator can see the input without opening the config screen. Absent for blocked cells and for the `experiment` workflow, which authors absolute kg and has no per-head rate. */
+            grams_per_head?: string;
+            /** @description The per-shed multiplier applied. Absent for blocked and experiment cells. */
+            shed_factor?: string;
+            blocked_reason?: components["schemas"]["FeedDirectionBlockedReason"];
+        };
+        FeedDirectionBlockedReason: {
+            /**
+             * @description Machine-stable reason code, so a UI can group and count authored gaps.
+             * @enum {string}
+             */
+            code: "no_ration_rate" | "unknown_shed_tag" | "unknown_ration_group" | "no_session_template";
+            /** @description The exact missing coordinate in human-readable form. A gap an operator cannot locate is a gap they cannot close. */
+            detail: string;
+        };
+        FeedDirectionRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Empty for an experiment row, which has no ration grain; that column instead carries the experiment category. */
+            shed_tag: string;
+            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. */
+            breed: string;
+            ration_group: string;
+            session_no: number;
+            session_label: string;
+            /**
+             * Format: int64
+             * @description Projected head count for this grain on the target date -- live herd plus the approved but unexecuted movements. Sex is summed away because it is not part of the ration key.
+             */
+            head_count: number;
+            /** @description True when `head_count` did NOT drive the quantity, i.e. the `experiment` workflow, whose authored kg is already a shed total. Multiplying by head count there would overfeed the shed by a factor of its whole population, so this flag exists to stop exactly that. */
+            head_count_informational: boolean;
+            /**
+             * @description Which quantity strategy produced the row. `normal` resolves from the ration grid; `experiment` uses hand-authored absolute kg per shed.
+             * @enum {string}
+             */
+            workflow: "normal" | "experiment";
+            items: components["schemas"]["FeedDirectionItemQuantity"][];
+            /** @description Sum of the RESOLVED items only, as an exact decimal string. Blocked items contribute nothing because they have no number to contribute -- `blocked` is what tells the reader this total is partial. */
+            session_total_kg: string;
+            blocked: boolean;
+            /** @description A movement this row's projected head count already assumes came due before the target date and still has not been executed. */
+            overdue_pending: boolean;
+        };
+        FeedDirectionFeedItemTotal: {
+            feed_item: string;
+            quantity_kg: string;
+            /** @description Cells for this item that could not be resolved. A column total is never read as complete when part of it is missing. */
+            blocked_cells: number;
+        };
+        FeedDirectionPreviewSummary: {
+            /**
+             * @description Always `filtered`: every figure in this summary covers every row matching the request's park, target date, shed and session filters -- NOT the returned page -- and is invariant to `limit` and `offset`. An explicit field rather than documentation so a client can assert the coverage guarantee instead of trusting prose.
+             * @enum {string}
+             */
+            scope: "filtered";
+            /** @description Distinct sheds in the whole filtered scope. */
+            shed_count: number;
+            /** @description Generated rows in the whole filtered scope. This is NOT `items.length`, which is the page; comparing the two is how a client sees what fraction of the result is visible. */
+            row_count: number;
+            /** @description Per-item totals across the WHOLE filtered scope, in authored catalog order so a client's columns are stable across pages. A blocked cell is absent from the sum and counted in `blocked_cells` instead -- never added as zero. These are summed from the same rounded per-cell quantities the rows carry, so the total equals what a packer physically packs. */
+            total_kg_by_feed_item: components["schemas"]["FeedDirectionFeedItemTotal"][];
+            /** @description Blocked ITEM cells in the whole filtered scope -- the number of authored gaps to close. */
+            blocked_count: number;
+            /** @description Distinct sheds carrying at least one blocked cell, i.e. sheds at risk of going unfed. */
+            blocked_shed_count: number;
+        };
+        FeedDirectionPreviewPage: {
+            items: components["schemas"]["FeedDirectionRow"][];
+            summary: components["schemas"]["FeedDirectionPreviewSummary"];
+            /** Format: date */
+            target_date: string;
+            /** @description Page size in SHEDS. */
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedPackingRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            session_no: number;
+            session_label: string;
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /**
+             * Format: int64
+             * @description The shed's projected head count, summed across its ration grains.
+             */
+            head_count: number;
+            /** @description SHED-level expected quantity per feed item, with the ration grains already summed, because a packer fills one bag per item per shed. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. */
+            items: components["schemas"]["FeedDirectionItemQuantity"][];
+            /** @description Sum of the resolved items, as an exact decimal string. */
+            total_kg: string;
+            /**
+             * @description DERIVED from the generation result, not stored -- this surface records nothing. `ready`: every item resolved. `blocked`: at least one item has no authored ration, so the line must NOT be packed from the resolved remainder. `empty`: the shed holds no projected animals, which is not a configuration gap and must not be confused with one.
+             * @enum {string}
+             */
+            status: "ready" | "blocked" | "empty";
+            blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
+        };
+        FeedPackingWorklistSummary: {
+            /**
+             * @description Always `filtered`: covers every line matching the request's filters, not the returned page, and is invariant to `limit` and `offset`. This is the figure an operator draws from the store before walking the park, so a page-scoped total would send them out with a fraction of the load.
+             * @enum {string}
+             */
+            scope: "filtered";
+            /** @description Distinct sheds in the whole filtered scope. */
+            shed_count: number;
+            /** @description Shed x session packing LINES in the whole filtered scope. A packer's unit of work is the bag, so this counts lines rather than the preview's ration grains. */
+            line_count: number;
+            /** @description Per-item store draw across the WHOLE filtered scope, in authored catalog order. Blocked cells are counted, never summed as zero. */
+            total_kg_by_feed_item: components["schemas"]["FeedDirectionFeedItemTotal"][];
+            /** @description Blocked item cells in the whole filtered scope. */
+            blocked_count: number;
+            /** @description Distinct sheds carrying at least one blocked cell. */
+            blocked_shed_count: number;
+            /** @description Packing lines that cannot be packed as printed. */
+            blocked_line_count: number;
+        };
+        FeedPackingWorklistPage: {
+            items: components["schemas"]["FeedPackingRow"][];
+            summary: components["schemas"]["FeedPackingWorklistSummary"];
+            /** Format: date */
+            target_date: string;
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigSessionTemplatePage: {
+            items: components["schemas"]["FeedConfigSessionTemplate"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigSchedule: {
+            /** Format: uuid */
+            schedule_config_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /**
+             * @description Which dispatch workflow this clock governs. Part of the natural key: normal and experiment genuinely run on different cutoffs.
+             * @enum {string}
+             */
+            workflow: "normal" | "experiment";
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time (HH:MM:SS) the day's packing direction is issued. No UTC offset -- a recurring business-calendar rule, not an instant.
+             * @example 07:00:00
+             */
+            direction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time at which approved emergency-shifting corrections are BATCHED and the amended direction is reissued. Fixed rather than fire-on-approval, so a shed gets at most one amended direction per day.
+             * @example 14:00:00
+             */
+            correction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock deadline after which a correction can no longer reach the shed. OMITTED when the park has declared no cutoff -- read that as UNKNOWN, never as "no deadline".
+             * @example 15:45:00
+             */
+            transport_time?: string;
+            /** Format: date */
+            valid_from: string;
+            /** Format: date */
+            valid_to?: string | null;
+        };
+        FeedConfigSchedulePage: {
+            items: components["schemas"]["FeedConfigSchedule"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigShedFactor: {
+            /** Format: uuid */
+            shed_factor_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Exact decimal string. A shed with NO row is treated as 1.0 by the read path. */
+            multiplier: string;
+            /** Format: date */
+            valid_from: string;
+            /** Format: date */
+            valid_to?: string | null;
+        };
+        FeedConfigShedFactorPage: {
+            items: components["schemas"]["FeedConfigShedFactor"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigExperiment: {
+            /** Format: uuid */
+            experiment_config_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Exact decimal string. A SHED TOTAL in kg, never a per-head rate -- it is already inclusive of however many animals are in the shed. Never multiply it by head_count. */
+            absolute_kg: string;
+            /** @description INFORMATIONAL only: the population the hand-entered quantity was authored against. It is never a multiplier. Null means the population was not recorded, which is NOT the same as 0 -- rendering null as 0 would state the shed is empty. */
+            head_count?: number | null;
+            /** @description The experiment ARM (e.g. "Sheep M NEW"). It stands in for the shed tag on the direction sheet, because an experiment shed has no ration grain and so no authored tag to report. */
+            experiment_category: string;
+            /**
+             * @description The workflow switch, not a visibility flag. "active" = this shed is fed the absolute kg authored here. "retired" = it is fed from the normal per-head ration grid instead.
+             * @enum {string}
+             */
+            status: "active" | "retired";
+        };
+        FeedConfigExperimentPage: {
+            items: components["schemas"]["FeedConfigExperiment"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        UpsertFeedConfigExperimentRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Authored ABSOLUTE kg for the whole shed. REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */
+            absolute_kg: number;
+            /** @description INFORMATIONAL population count. Never multiplied into absolute_kg. Optional: null records "not recorded", which stays distinct from an authored 0. */
+            head_count?: number | null;
+            /** @description The experiment arm. REQUIRED rather than defaulted because it is what the direction sheet prints in the shed-tag column for an experiment shed -- the operator's only cue that these numbers are hand-entered rather than computed. */
+            experiment_category: string;
+        };
+        SetFeedConfigExperimentShedStatusRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            /**
+             * @description REQUIRED with no default. This field decides which planner feeds the shed, so an absent value cannot be filled in: "active" enrols it onto authored absolute kg and "retired" returns it to head count x grams per head. Both are changes to what its animals eat.
+             * @enum {string}
+             */
+            status: "active" | "retired";
+        };
+        UpsertFeedConfigRationRateRequest: {
+            /** Format: uuid */
+            park_id: string;
+            ration_group: string;
+            shed_tag: string;
+            feed_item: string;
+            /** @description Authored grams per head per day. REQUIRED -- it must never be omitted and filled in as 0, because absence of a rate means "not configured" (blocking) while 0 means "feed nothing" (correct for milk-fed kids). An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped or rounded. A cleared input in the UI must NOT be sent as 0. */
+            grams_per_head: number;
+        };
+        UpsertFeedConfigShedFactorRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Authored multiplier. REQUIRED: an absent row reads as the safe 1.0, so omitting the field and having the server invent one would author a value nobody entered. An explicit 0 is accepted; a negative value is rejected. */
+            multiplier: number;
+        };
+        UpsertFeedConfigScheduleRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time, "HH:MM" or "HH:MM:SS". No UTC offset.
+             * @example 07:00
+             */
+            direction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time corrections are batched and reissued at. May EQUAL direction_time (the live experiment case) but may not precede it.
+             * @example 14:00
+             */
+            correction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata transport cutoff. May be sent as null to record "no declared cutoff", but a present-but-malformed value is REJECTED rather than dropped to null -- turning a typo into null would tell the dispatcher this park has no transport deadline at all. May not precede correction_time.
+             * @example 15:45
+             */
+            transport_time?: string | null;
+        };
+        FeedConfigWriteResult: {
+            /**
+             * Format: uuid
+             * @description The ledger entry recording this edit.
+             */
+            write_id: string;
+            /** @enum {string} */
+            kind: "ration_rate" | "shed_factor" | "schedule_config" | "experiment_config";
+            /**
+             * @description What the edit actually did. "inserted" = first authored value for the key. "superseded" = an earlier day's row was CLOSED and a new one opened, preserving history. "corrected" = a row authored on the SAME business day was corrected in place, because a window closed on the day it opened cannot satisfy valid_to > valid_from. "unchanged" = the value already matched and no row was written. An experiment_config write never returns "superseded": feed_experiment_config is not effective-dated, so an existing row is always corrected in place.
+             * @enum {string}
+             */
+            outcome: "inserted" | "superseded" | "corrected" | "unchanged";
+            /**
+             * Format: uuid
+             * @description The configuration row now in force. Absent only for an "unchanged" write.
+             */
+            result_row_id?: string;
+            /**
+             * Format: uuid
+             * @description The row this edit closed. Present only for "superseded".
+             */
+            superseded_row_id?: string;
+            /**
+             * Format: date
+             * @description The Asia/Kolkata business date the edit takes effect on. Server-derived from the India business calendar, never from the client and never from the database clock.
+             */
+            effective_from: string;
+            /** @description True when this response is the ORIGINAL result of an earlier identical request, returned without re-running any side effect. */
+            idempotent_replay: boolean;
+        };
         ValidationIssue: {
             field: string;
             code: string;
@@ -3206,7 +3851,7 @@ export interface components {
             /** Format: date-time */
             target_date: string;
             status: components["schemas"]["FeedDirectionReadinessStatus"];
-            /** @description Always false until Feed Direction closure gates explicitly allow generation. */
+            /** @description True only when this projection preview page carries no blockers. */
             generation_allowed: boolean;
             blocker_reason: string;
             snapshot_id: string;
@@ -3349,67 +3994,6 @@ export interface components {
             /** Format: date-time */
             resolved_at: string;
             replayed: boolean;
-        };
-        FeedDirectionReadinessResponse: {
-            tenant_id: string;
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            /** @description Current blocking Feed Direction closure gate, e.g. G2. */
-            current_gate: string;
-            /** @description False until Feed Direction source, projection, safety, and read-model gates are closed. */
-            generation_allowed: boolean;
-            next_action: string;
-            source_priority: string;
-            gates: components["schemas"]["FeedDirectionGate"][];
-            counts_shifting_subgates: components["schemas"]["FeedDirectionCountsShiftingSubgate"][];
-            safety_invariants: components["schemas"]["FeedDirectionSafetyInvariant"][];
-            /** @description disabled_until_g2_ready while this fail-closed adapter is active. */
-            generated_directions_state: string;
-        };
-        FeedDirectionGate: {
-            id: string;
-            sequence: number;
-            name: string;
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            owner: string;
-            evidence_ref: string;
-            blocker_reason?: string;
-            /** Format: date-time */
-            last_checked_at: string;
-            allows_build: boolean;
-            allows_generate: boolean;
-        };
-        FeedDirectionCountsShiftingSubgate: {
-            id: string;
-            sequence: number;
-            name: string;
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            owner: string;
-            evidence_ref: string;
-            blocker_reason: string;
-            /** Format: date-time */
-            last_checked_at: string;
-            allows_generate: boolean;
-            /** @description Bounded latest evidence rows recorded for this Counts/Shifting readiness subgate. */
-            recent_evidence?: components["schemas"]["FeedDirectionReadinessEvidence"][];
-        };
-        FeedDirectionReadinessEvidence: {
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            evidence_ref: string;
-            blocker_reason: string;
-            implementation_ref?: string;
-            /** Format: date-time */
-            recorded_at: string;
-        };
-        FeedDirectionSafetyInvariant: {
-            /** @enum {string} */
-            key: "shifted_pregnant_destination_recompute" | "destination_shed_shortage_fail_closed" | "overfeed_wastage_moist_feed_exception" | "bounded_projection_no_full_herd_scan";
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            owner: string;
-            evidence_ref: string;
-            blocker_reason: string;
-            /** Format: date-time */
-            last_checked_at: string;
-            allows_generate: boolean;
         };
         /**
          * @description Machine vocabulary for capacity/session-splitting state:
@@ -4345,6 +4929,14 @@ export interface components {
         SOPVersionId: string;
         Limit: number;
         Cursor: string;
+        /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+        FeedConfigLimit: number;
+        /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+        FeedConfigOffset: number;
+        /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+        FeedDirectionLimit: number;
+        /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+        FeedDirectionOffset: number;
         IdempotencyKey: string;
         /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
         AcceptLanguage: string;
@@ -5630,29 +6222,6 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
-    getFeedDirectionReadiness: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Feed Direction readiness. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeedDirectionReadinessResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
     getFeedDirectionGenerationPreview: {
         parameters: {
             query: {
@@ -5782,6 +6351,484 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedDirectionCountsProjectionExceptionActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedDirectionPreview: {
+        parameters: {
+            query: {
+                /** @description The park to generate for. REQUIRED: the ration grid, the session split and the dispatch clock are all park-scoped, so a tenant-wide generation would mix two parks' rations. */
+                park_id: string;
+                /** @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant: an instant would reintroduce the UTC-vs-IST day-boundary bug and generate the sheet for the wrong day. */
+                target_date: string;
+                /** @description Narrow to a single shed. */
+                shed_id?: string;
+                /** @description Narrow to one feeding session number. Absent means every session. Narrowing does NOT rescale: the morning batch stays the morning batch. */
+                session?: number;
+                /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+                limit?: components["parameters"]["FeedDirectionLimit"];
+                /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedDirectionOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of generated direction rows plus the page-scoped summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionPreviewPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedPackingWorklist: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
+                target_date: string;
+                /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+                limit?: components["parameters"]["FeedDirectionLimit"];
+                /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedDirectionOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of packing lines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPackingWorklistPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigRationRates: {
+        parameters: {
+            query: {
+                park_id: string;
+                ration_group?: string;
+                shed_tag?: string;
+                feed_item?: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of currently-in-force ration rates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigRationRatePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigRationRate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigRationRateRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigRationGroups: {
+        parameters: {
+            query?: {
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of breed to ration-group mappings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigRationGroupPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigShedTags: {
+        parameters: {
+            query?: {
+                applies_to?: "adult" | "kid";
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of shed tags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigShedTagPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigFeedItems: {
+        parameters: {
+            query?: {
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of feed items. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigFeedItemPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigSessionTemplates: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of session templates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigSessionTemplatePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigSchedule: {
+        parameters: {
+            query: {
+                park_id: string;
+                workflow?: "normal" | "experiment";
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of in-force dispatch clocks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigSchedulePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigSchedule: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigShedFactors: {
+        parameters: {
+            query: {
+                park_id: string;
+                shed_id?: string;
+                feed_item?: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of authored shed factors. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigShedFactorPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigShedFactor: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigShedFactorRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigExperiment: {
+        parameters: {
+            query: {
+                park_id: string;
+                shed_id?: string;
+                /** @description Narrow to one status. Absent returns BOTH active and retired rows. */
+                status?: "active" | "retired";
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of authored experiment cells. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigExperimentPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigExperiment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigExperimentRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setFeedConfigExperimentShedStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFeedConfigExperimentShedStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The switch's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
                 };
             };
             400: components["responses"]["BadRequest"];

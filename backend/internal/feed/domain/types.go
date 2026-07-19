@@ -142,9 +142,9 @@ type GenerationPreviewQuery struct {
 	Limit      int32
 }
 
-// GenerationPreview is Feed Direction's bounded, fail-closed view of the
-// immutable Counts/Shifting projection. It is a preview/read model only; it
-// cannot approve generated directions while later gates remain open.
+// GenerationPreview is Feed Direction's bounded view of the immutable
+// Counts/Shifting projection. It is a preview/read model: generation is allowed
+// only when the projection page carries no blockers.
 type GenerationPreview struct {
 	TenantID              string                     `json:"tenant_id"`
 	ParkID                string                     `json:"park_id"`
@@ -211,7 +211,9 @@ type GenerationPreviewBlocker struct {
 	BlockerReason string `json:"blocker_reason"`
 }
 
-// ReadinessStatus is the public gate state for Feed Direction build/readiness.
+// ReadinessStatus is the status of a Feed Direction generation preview: whether
+// the bounded Counts/Shifting projection page it was built from is clear for
+// generation, blocked by projection blockers, or still pending.
 type ReadinessStatus string
 
 const (
@@ -219,66 +221,3 @@ const (
 	ReadinessBlocked ReadinessStatus = "blocked"
 	ReadinessPending ReadinessStatus = "pending"
 )
-
-// ReadinessGate is one Feed Direction closure gate (G1-G17).
-type ReadinessGate struct {
-	ID             string          `json:"id"`
-	Sequence       int             `json:"sequence"`
-	Name           string          `json:"name"`
-	Status         ReadinessStatus `json:"status"`
-	Owner          string          `json:"owner"`
-	EvidenceRef    string          `json:"evidence_ref"`
-	BlockerReason  string          `json:"blocker_reason,omitempty"`
-	LastCheckedAt  time.Time       `json:"last_checked_at"`
-	AllowsBuild    bool            `json:"allows_build"`
-	AllowsGenerate bool            `json:"allows_generate"`
-}
-
-// CountsShiftingSubgate is the G2 subgate roll-up (CSG1-CSG10).
-type CountsShiftingSubgate struct {
-	ID             string              `json:"id"`
-	Sequence       int                 `json:"sequence"`
-	Name           string              `json:"name"`
-	Status         ReadinessStatus     `json:"status"`
-	Owner          string              `json:"owner"`
-	EvidenceRef    string              `json:"evidence_ref"`
-	BlockerReason  string              `json:"blocker_reason"`
-	LastCheckedAt  time.Time           `json:"last_checked_at"`
-	AllowsGenerate bool                `json:"allows_generate"`
-	RecentEvidence []ReadinessEvidence `json:"recent_evidence,omitempty"`
-}
-
-type ReadinessEvidence struct {
-	Status            ReadinessStatus `json:"status"`
-	EvidenceRef       string          `json:"evidence_ref"`
-	BlockerReason     string          `json:"blocker_reason"`
-	ImplementationRef string          `json:"implementation_ref,omitempty"`
-	RecordedAt        time.Time       `json:"recorded_at"`
-}
-
-// SafetyInvariant is a feed-safety rule that must stay fail-closed until its
-// backing projection/config/rework path is implemented and source-reviewed.
-type SafetyInvariant struct {
-	Key            string          `json:"key"`
-	Status         ReadinessStatus `json:"status"`
-	Owner          string          `json:"owner"`
-	EvidenceRef    string          `json:"evidence_ref"`
-	BlockerReason  string          `json:"blocker_reason"`
-	LastCheckedAt  time.Time       `json:"last_checked_at"`
-	AllowsGenerate bool            `json:"allows_generate"`
-}
-
-// Readiness is the Feed Direction gate contract used by UI and later generation
-// commands to avoid treating docs or legacy schedules as runnable GoatOS state.
-type Readiness struct {
-	TenantID                 string                  `json:"tenant_id"`
-	Status                   ReadinessStatus         `json:"status"`
-	CurrentGate              string                  `json:"current_gate"`
-	GenerationAllowed        bool                    `json:"generation_allowed"`
-	NextAction               string                  `json:"next_action"`
-	SourcePriority           string                  `json:"source_priority"`
-	Gates                    []ReadinessGate         `json:"gates"`
-	CountsShiftingSubgates   []CountsShiftingSubgate `json:"counts_shifting_subgates"`
-	SafetyInvariants         []SafetyInvariant       `json:"safety_invariants"`
-	GeneratedDirectionsState string                  `json:"generated_directions_state"`
-}

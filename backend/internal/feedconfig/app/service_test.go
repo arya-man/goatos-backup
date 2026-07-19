@@ -1,0 +1,683 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/feedconfig/domain"
+	"github.com/vgoats/goatos/backend/internal/feedconfig/ports"
+)
+
+// Fake-backed service tests. They prove the rules the service OWNS -- paging bounds, validate-or-
+// reject, and the idempotency envelope -- without a database, so they run in the default suite.
+//
+// What they deliberately cannot prove is effective dating: a fake returns whatever a test stocked
+// it with, so it would happily "confirm" a supersede the SQL never performs. That proof lives in
+// the Postgres integration tests, against the real schema.
+
+type fakeRepo struct {
+	lastRationRate domain.UpsertRationRateCommand
+	lastShedFactor domain.UpsertShedFactorCommand
+	lastSchedule   domain.UpsertScheduleConfigCommand
+	lastRateQuery  domain.RationRateQuery
+	lastTagQuery   domain.ShedTagQuery
+	lastSchedQuery domain.ScheduleConfigQuery
+
+	lastExperiment       domain.UpsertExperimentConfigCommand
+	lastExperimentStatus domain.SetExperimentShedStatusCommand
+	lastExperimentQuery  domain.ExperimentConfigQuery
+
+	result domain.WriteResult
+	err    error
+
+	// writeCalls counts how many times a write actually reached the repository, so a test can assert
+	// that a rejected request performed NO side effect rather than merely returning an error.
+	writeCalls int
+}
+
+func (f *fakeRepo) ListRationRates(_ context.Context, q domain.RationRateQuery) (domain.RationRatePage, error) {
+	f.lastRateQuery = q
+	return domain.RationRatePage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+}
+
+func (f *fakeRepo) ListRationGroups(_ context.Context, _ string, p domain.Page) (domain.RationGroupPage, error) {
+	return domain.RationGroupPage{Limit: p.Limit, Offset: p.Offset}, f.err
+}
+
+func (f *fakeRepo) ListShedTags(_ context.Context, q domain.ShedTagQuery) (domain.ShedTagPage, error) {
+	f.lastTagQuery = q
+	return domain.ShedTagPage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+}
+
+func (f *fakeRepo) ListFeedItems(_ context.Context, _ string, p domain.Page) (domain.FeedItemPage, error) {
+	return domain.FeedItemPage{Limit: p.Limit, Offset: p.Offset}, f.err
+}
+
+func (f *fakeRepo) ListSessionTemplates(_ context.Context, q domain.SessionTemplateQuery) (domain.SessionTemplatePage, error) {
+	return domain.SessionTemplatePage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+}
+
+func (f *fakeRepo) ListScheduleConfig(_ context.Context, q domain.ScheduleConfigQuery) (domain.ScheduleConfigPage, error) {
+	f.lastSchedQuery = q
+	return domain.ScheduleConfigPage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+}
+
+func (f *fakeRepo) ListShedFactors(_ context.Context, q domain.ShedFactorQuery) (domain.ShedFactorPage, error) {
+	return domain.ShedFactorPage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+}
+
+func (f *fakeRepo) ListExperimentConfig(_ context.Context, q domain.ExperimentConfigQuery) (domain.ExperimentConfigPage, error) {
+	f.lastExperimentQuery = q
+	return domain.ExperimentConfigPage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+}
+
+func (f *fakeRepo) UpsertExperimentConfig(_ context.Context, cmd domain.UpsertExperimentConfigCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastExperiment = cmd
+	return f.result, f.err
+}
+
+func (f *fakeRepo) SetExperimentShedStatus(_ context.Context, cmd domain.SetExperimentShedStatusCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastExperimentStatus = cmd
+	return f.result, f.err
+}
+
+func (f *fakeRepo) UpsertRationRate(_ context.Context, cmd domain.UpsertRationRateCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastRationRate = cmd
+	return f.result, f.err
+}
+
+func (f *fakeRepo) UpsertShedFactor(_ context.Context, cmd domain.UpsertShedFactorCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastShedFactor = cmd
+	return f.result, f.err
+}
+
+func (f *fakeRepo) UpsertScheduleConfig(_ context.Context, cmd domain.UpsertScheduleConfigCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastSchedule = cmd
+	return f.result, f.err
+}
+
+var _ ports.Repository = (*fakeRepo)(nil)
+
+// pinnedService fixes the business clock so effective_from is deterministic. 2026-07-19 21:00 UTC
+// is deliberately LATE IN THE UTC DAY: in Asia/Kolkata that is already 2026-07-20, so a service that
+// derived the business date from UTC would date the edit to the wrong day and this test would catch
+// it.
+func pinnedService(repo ports.Repository) *Service {
+	return NewService(repo).WithClock(func() time.Time {
+		return time.Date(2026, 7, 19, 21, 0, 0, 0, time.UTC)
+	})
+}
+
+func str(s string) *string { return &s }
+func i32(v int32) *int32   { return &v }
+
+// TestUpsertRationRateRejectsAbsentGramsWithoutDefaulting is the single most important test in this
+// package.
+//
+// An absent grams_per_head must FAIL. It must not be defaulted to 0, because absence of a rate means
+// "not configured" -- a state the feed path must BLOCK on -- while 0 means "feed nothing", which is
+// a correct instruction for milk-fed kids. A service that quietly filled in 0 would produce a clean,
+// complete-looking feed sheet for a shed nobody configured.
+//
+// The assertion is not only on the error: it also proves the repository was never called, so the
+// rejection happened before any side effect.
+func TestUpsertRationRateRejectsAbsentGramsWithoutDefaulting(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
+		GramsPerHead:       nil, // ABSENT
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	})
+	if !errors.Is(err, domain.ErrMissingField) {
+		t.Fatalf("absent grams_per_head error = %v, want ErrMissingField", err)
+	}
+	var fe *domain.FieldError
+	if !errors.As(err, &fe) || fe.Field != "grams_per_head" {
+		t.Fatalf("error = %v, want a FieldError naming grams_per_head", err)
+	}
+	if repo.writeCalls != 0 {
+		t.Fatalf("repository was called %d times for a rejected write, want 0", repo.writeCalls)
+	}
+}
+
+// TestUpsertRationRateAcceptsAuthoredZero is the other half of the same rule: 0 is a REAL authored
+// value and must reach the repository as "0.000", not be treated as missing.
+func TestUpsertRationRateAcceptsAuthoredZero(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		RationGroupLabel: "Kid", ShedTagLabel: "K0", FeedItemLabel: "Concentrate",
+		GramsPerHead:       str("0"),
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("authored zero rejected: %v", err)
+	}
+	if repo.lastRationRate.GramsPerHead != "0.000" {
+		t.Fatalf("grams_per_head = %q, want %q", repo.lastRationRate.GramsPerHead, "0.000")
+	}
+}
+
+// TestUpsertRationRateRejectsOutOfRangeValues covers present-but-invalid authored numbers. Each must
+// fail rather than be clamped or rounded into something the author never entered.
+func TestUpsertRationRateRejectsOutOfRangeValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		grams string
+	}{
+		{name: "negative rate", grams: "-1"},
+		{name: "negative fractional rate", grams: "-0.001"},
+		{name: "over-precise rate", grams: "10.12345"},
+		{name: "non-numeric rate", grams: "lots"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := pinnedService(repo)
+			_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
+				TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+				RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
+				GramsPerHead:       str(tc.grams),
+				IdempotencyKey:     "key-12345678",
+				RequestFingerprint: "fp",
+			})
+			if err == nil {
+				t.Fatalf("grams_per_head %q was accepted, want rejection", tc.grams)
+			}
+			if repo.writeCalls != 0 {
+				t.Fatalf("repository was called for a rejected write")
+			}
+		})
+	}
+}
+
+// TestWriteIdentityDerivesIndiaBusinessDate proves effective_from comes from the Asia/Kolkata
+// business calendar rather than the UTC day.
+//
+// The pinned clock is 2026-07-19 21:00 UTC, which is 2026-07-20 02:30 IST. A UTC-derived date would
+// be 2026-07-19 -- and for an effective-dated config row that means the edit claims to have been in
+// force yesterday.
+func TestWriteIdentityDerivesIndiaBusinessDate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
+		GramsPerHead:       str("250"),
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("UpsertRationRate: %v", err)
+	}
+	if got := repo.lastRationRate.EffectiveFrom; got != "2026-07-20" {
+		t.Fatalf("effective_from = %q, want 2026-07-20 (Asia/Kolkata), not the UTC day", got)
+	}
+}
+
+// TestWritesRequireIdempotencyKeyAndActor proves no authored write can reach persistence without the
+// idempotency envelope. Without a key, a browser retry authors a second edit.
+func TestWritesRequireIdempotencyKeyAndActor(t *testing.T) {
+	tests := []struct {
+		name        string
+		tenant      string
+		actor       string
+		key         string
+		fingerprint string
+		wantErr     error
+	}{
+		{name: "missing tenant", tenant: "", actor: "a", key: "key-12345678", fingerprint: "fp", wantErr: ErrMissingTenant},
+		{name: "missing actor", tenant: "t", actor: "", key: "key-12345678", fingerprint: "fp", wantErr: ErrMissingActor},
+		{name: "missing key", tenant: "t", actor: "a", key: "", fingerprint: "fp", wantErr: ErrMissingIdempotencyKey},
+		{name: "missing fingerprint", tenant: "t", actor: "a", key: "key-12345678", fingerprint: "", wantErr: ErrMissingIdempotencyKey},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := pinnedService(repo)
+			_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
+				TenantID: tc.tenant, ActorRef: tc.actor, ParkID: "park",
+				RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
+				GramsPerHead:       str("250"),
+				IdempotencyKey:     tc.key,
+				RequestFingerprint: tc.fingerprint,
+			})
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+			if repo.writeCalls != 0 {
+				t.Fatalf("repository was called for a rejected write")
+			}
+		})
+	}
+}
+
+// TestUpsertScheduleConfigValidation covers the dispatch-clock rules, including the live experiment
+// configuration whose direction and correction times are EQUAL.
+func TestUpsertScheduleConfigValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		workflow   string
+		direction  string
+		correction string
+		transport  *string
+		wantErr    bool
+		wantDir    string
+		wantTrans  string
+	}{
+		{
+			name: "live normal clock", workflow: "normal",
+			direction: "07:00", correction: "14:00", transport: str("15:45"),
+			wantDir: "07:00:00", wantTrans: "15:45:00",
+		},
+		{
+			// Equal direction and correction: the real experiment workflow. Must be accepted.
+			name: "live experiment clock with equal times", workflow: "experiment",
+			direction: "14:00", correction: "14:00", transport: str("15:45"),
+			wantDir: "14:00:00", wantTrans: "15:45:00",
+		},
+		{
+			name: "absent transport is allowed", workflow: "normal",
+			direction: "07:00", correction: "14:00", transport: nil,
+			wantDir: "07:00:00",
+		},
+		{name: "unknown workflow rejected", workflow: "trial", direction: "07:00", correction: "14:00", wantErr: true},
+		{name: "correction before direction rejected", workflow: "normal", direction: "14:00", correction: "07:00", wantErr: true},
+		{name: "transport before correction rejected", workflow: "normal", direction: "07:00", correction: "14:00", transport: str("13:00"), wantErr: true},
+		// A malformed transport time must FAIL, not silently become NULL: NULL means "no declared
+		// cutoff", so swallowing the typo would tell the dispatcher this park has no deadline at all.
+		{name: "malformed transport rejected not nulled", workflow: "normal", direction: "07:00", correction: "14:00", transport: str("later"), wantErr: true},
+		{name: "offset-bearing time rejected", workflow: "normal", direction: "07:00+05:30", correction: "14:00", wantErr: true},
+		{name: "missing direction rejected", workflow: "normal", direction: "", correction: "14:00", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := pinnedService(repo)
+			_, err := svc.UpsertScheduleConfig(context.Background(), UpsertScheduleConfigInput{
+				TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+				Workflow: tc.workflow, DirectionTime: tc.direction, CorrectionTime: tc.correction,
+				TransportTime: tc.transport, TransportTimeProvided: tc.transport != nil,
+				IdempotencyKey: "key-12345678", RequestFingerprint: "fp",
+			})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected rejection, got success")
+				}
+				if repo.writeCalls != 0 {
+					t.Fatalf("repository was called for a rejected write")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if repo.lastSchedule.DirectionTime != tc.wantDir {
+				t.Fatalf("direction_time = %q, want %q", repo.lastSchedule.DirectionTime, tc.wantDir)
+			}
+			if tc.wantTrans == "" {
+				if repo.lastSchedule.TransportTime != nil {
+					t.Fatalf("transport_time = %v, want nil", *repo.lastSchedule.TransportTime)
+				}
+				return
+			}
+			if repo.lastSchedule.TransportTime == nil || *repo.lastSchedule.TransportTime != tc.wantTrans {
+				t.Fatalf("transport_time = %v, want %q", repo.lastSchedule.TransportTime, tc.wantTrans)
+			}
+		})
+	}
+}
+
+func TestUpsertShedFactorValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		multiplier *string
+		wantErr    bool
+		want       string
+	}{
+		{name: "typical multiplier", multiplier: str("1.5"), want: "1.5000"},
+		// An explicitly authored 0 is legal: a shed deliberately fed none of an item. It is a different
+		// statement from having no row, which reads as the safe 1.0.
+		{name: "authored zero accepted", multiplier: str("0"), want: "0.0000"},
+		{name: "absent rejected not defaulted to one", multiplier: nil, wantErr: true},
+		{name: "negative rejected", multiplier: str("-1"), wantErr: true},
+		{name: "over-precise rejected", multiplier: str("1.234567"), wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := pinnedService(repo)
+			_, err := svc.UpsertShedFactor(context.Background(), UpsertShedFactorInput{
+				TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+				FeedItemLabel: "Concentrate", Multiplier: tc.multiplier,
+				IdempotencyKey: "key-12345678", RequestFingerprint: "fp",
+			})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected rejection, got success")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if repo.lastShedFactor.Multiplier != tc.want {
+				t.Fatalf("multiplier = %q, want %q", repo.lastShedFactor.Multiplier, tc.want)
+			}
+		})
+	}
+}
+
+// TestPagingIsBoundedAndNeverSilentlyClamped proves a present-but-out-of-range paging value is a
+// REJECTION. A caller that asked for 5000 rows and silently received 50 has a truncated grid it
+// believes is complete.
+func TestPagingIsBoundedAndNeverSilentlyClamped(t *testing.T) {
+	tests := []struct {
+		name       string
+		limit      *int32
+		offset     *int32
+		wantErr    bool
+		wantLimit  int32
+		wantOffset int32
+	}{
+		{name: "absent uses defaults", limit: nil, offset: nil, wantLimit: defaultLimit, wantOffset: 0},
+		{name: "in-range values are honoured", limit: i32(25), offset: i32(100), wantLimit: 25, wantOffset: 100},
+		{name: "max limit is allowed", limit: i32(maxLimit), wantLimit: maxLimit},
+		{name: "max offset is allowed", offset: i32(maxOffset), wantLimit: defaultLimit, wantOffset: maxOffset},
+		{name: "limit above max is rejected", limit: i32(maxLimit + 1), wantErr: true},
+		{name: "zero limit is rejected", limit: i32(0), wantErr: true},
+		{name: "negative limit is rejected", limit: i32(-1), wantErr: true},
+		{name: "offset above max is rejected", offset: i32(maxOffset + 1), wantErr: true},
+		{name: "negative offset is rejected", offset: i32(-1), wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := pinnedService(repo)
+			page, err := svc.ListRationRates(context.Background(), "tenant", "park", "", "", "", tc.limit, tc.offset)
+			if tc.wantErr {
+				if !errors.Is(err, ErrInvalidPaging) {
+					t.Fatalf("error = %v, want ErrInvalidPaging", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if page.Limit != tc.wantLimit || page.Offset != tc.wantOffset {
+				t.Fatalf("limit/offset = %d/%d, want %d/%d", page.Limit, page.Offset, tc.wantLimit, tc.wantOffset)
+			}
+		})
+	}
+}
+
+// TestListRationRatesRequiresPark pins park_id as required rather than an optional tenant-wide
+// fallback. Rates are park-scoped and two parks genuinely differ, so a tenant-wide listing would
+// interleave rows under identical labels with no way to tell them apart.
+func TestListRationRatesRequiresPark(t *testing.T) {
+	svc := pinnedService(&fakeRepo{})
+	if _, err := svc.ListRationRates(context.Background(), "tenant", "  ", "", "", "", nil, nil); !errors.Is(err, ErrMissingPark) {
+		t.Fatalf("error = %v, want ErrMissingPark", err)
+	}
+}
+
+// TestListFiltersAreValidatedNotIgnored proves an unrecognised enum filter fails instead of quietly
+// widening the result set.
+func TestListFiltersAreValidatedNotIgnored(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.ListShedTags(context.Background(), "tenant", "juvenile", nil, nil); !errors.Is(err, domain.ErrInvalidAppliesTo) {
+		t.Fatalf("bad applies_to error = %v, want ErrInvalidAppliesTo", err)
+	}
+	if _, err := svc.ListScheduleConfig(context.Background(), "tenant", "park", "trial", nil, nil); !errors.Is(err, domain.ErrInvalidWorkflow) {
+		t.Fatalf("bad workflow error = %v, want ErrInvalidWorkflow", err)
+	}
+
+	// An EMPTY filter is not an error: it means "no filter".
+	if _, err := svc.ListShedTags(context.Background(), "tenant", "", nil, nil); err != nil {
+		t.Fatalf("empty applies_to rejected: %v", err)
+	}
+	if repo.lastTagQuery.AppliesTo != "" {
+		t.Fatalf("applies_to = %q, want empty (no filter)", repo.lastTagQuery.AppliesTo)
+	}
+	if _, err := svc.ListScheduleConfig(context.Background(), "tenant", "park", "", nil, nil); err != nil {
+		t.Fatalf("empty workflow rejected: %v", err)
+	}
+	if repo.lastSchedQuery.Workflow != "" {
+		t.Fatalf("workflow = %q, want empty (no filter)", repo.lastSchedQuery.Workflow)
+	}
+}
+
+// TestRepositoryErrorsPassThrough proves the service does not swallow or reinterpret the
+// repository's idempotency verdict -- the handler needs it verbatim to answer 409.
+func TestRepositoryErrorsPassThrough(t *testing.T) {
+	repo := &fakeRepo{err: ports.ErrIdempotencyConflict}
+	svc := pinnedService(repo)
+	_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
+		GramsPerHead: str("250"), IdempotencyKey: "key-12345678", RequestFingerprint: "fp",
+	})
+	if !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("error = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
+// =================================================================================================
+// Experiment sheds
+// =================================================================================================
+
+// TestUpsertExperimentConfigRejectsAbsentAbsoluteKg is the experiment twin of
+// TestUpsertRationRateRejectsAbsentGramsWithoutDefaulting, and the consequence of getting it wrong
+// is arguably worse.
+//
+// On the ration grid, a missing rate BLOCKS the shed: the failure is loud and an operator sees a
+// gap. Here it is silent. Membership in feed_experiment_config IS the workflow flag, so a shed whose
+// cells were never authored does not appear as unconfigured -- it falls through to NormalPlanner and
+// is fed head_count x grams_per_head x shed_factor off the ration grid. Measured on the live
+// 2026-07-20 data that was roughly 2.2x the authored quantity (398.8 kg vs 182.0 kg of CBE
+// concentrate) printed on a sheet that looked complete.
+//
+// So an absent absolute_kg must fail, and it must fail BEFORE any side effect.
+func TestUpsertExperimentConfigRejectsAbsentAbsoluteKg(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	_, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		FeedItemLabel: "RGS Concentrate", ExperimentCategory: "Sheep M NEW",
+		AbsoluteKg:         nil, // ABSENT
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	})
+	if !errors.Is(err, domain.ErrMissingField) {
+		t.Fatalf("absent absolute_kg error = %v, want ErrMissingField", err)
+	}
+	var fe *domain.FieldError
+	if !errors.As(err, &fe) || fe.Field != "absolute_kg" {
+		t.Fatalf("error = %v, want a FieldError naming absolute_kg", err)
+	}
+	if repo.writeCalls != 0 {
+		t.Fatalf("repository was called %d times for a rejected write, want 0", repo.writeCalls)
+	}
+}
+
+// TestUpsertExperimentConfigAcceptsAuthoredZero: 0 kg is a REAL authored quantity here, exactly as
+// 0 g is on the ration grid. An arm that deliberately gets none of an item is part of the experiment
+// design -- the live CBE data has "Castro 1" on 0.0 kg of three of its five items -- so it must
+// reach the repository as an exact "0.000" rather than being treated as missing.
+func TestUpsertExperimentConfigAcceptsAuthoredZero(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		FeedItemLabel: "Mesha Concentrate Goat", ExperimentCategory: "Sheep M NEW",
+		AbsoluteKg:         str("0"),
+		HeadCount:          i32(64),
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("authored zero rejected: %v", err)
+	}
+	if repo.lastExperiment.AbsoluteKg != "0.000" {
+		t.Fatalf("absolute_kg = %q, want %q", repo.lastExperiment.AbsoluteKg, "0.000")
+	}
+	// The head count must travel through UNCHANGED and unscaled. Nothing in the service may fold it
+	// into the quantity -- absolute_kg is already the shed total.
+	if repo.lastExperiment.HeadCount == nil || *repo.lastExperiment.HeadCount != 64 {
+		t.Fatalf("head_count = %v, want 64 carried through untouched", repo.lastExperiment.HeadCount)
+	}
+}
+
+// TestUpsertExperimentConfigDistinguishesUnrecordedHeadCountFromZero locks the nullable head count.
+//
+// nil means "the population was not recorded alongside this quantity". 0 means "this shed is
+// empty". They are different statements about a live shed, and defaulting nil to 0 would print the
+// second when the author said the first. Because the count is informational this cannot misfeed a
+// shed -- but it is displayed next to a feeding instruction, and a wrong population there misleads
+// the operator judging whether the hand-entered kg still looks right.
+func TestUpsertExperimentConfigDistinguishesUnrecordedHeadCountFromZero(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		FeedItemLabel: "Vijay Concentrate", ExperimentCategory: "Goat F NEW",
+		AbsoluteKg:         str("12.5"),
+		HeadCount:          nil, // NOT RECORDED
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("absent head count rejected: %v", err)
+	}
+	if repo.lastExperiment.HeadCount != nil {
+		t.Fatalf("head_count = %v, want nil preserved rather than defaulted to 0", *repo.lastExperiment.HeadCount)
+	}
+
+	// A negative count is PRESENT but out of range, so it is rejected rather than clamped.
+	repo2 := &fakeRepo{}
+	_, err := pinnedService(repo2).UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		FeedItemLabel: "Vijay Concentrate", ExperimentCategory: "Goat F NEW",
+		AbsoluteKg:         str("12.5"),
+		HeadCount:          i32(-3),
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	})
+	var fe *domain.FieldError
+	if !errors.As(err, &fe) || fe.Field != "head_count" {
+		t.Fatalf("negative head count error = %v, want a FieldError naming head_count", err)
+	}
+	if repo2.writeCalls != 0 {
+		t.Fatalf("repository was called for a rejected write")
+	}
+}
+
+// TestUpsertExperimentConfigRequiresTheExperimentArm guards the field the direction sheet prints in
+// the shed-tag column for an experiment shed. Blank there produces a row that reads like an ordinary
+// untagged shed, removing the operator's only cue that these numbers were hand-entered rather than
+// computed from the grid.
+func TestUpsertExperimentConfigRequiresTheExperimentArm(t *testing.T) {
+	repo := &fakeRepo{}
+	_, err := pinnedService(repo).UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
+		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		FeedItemLabel: "RGS Concentrate", ExperimentCategory: "   ",
+		AbsoluteKg:         str("10"),
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	})
+	var fe *domain.FieldError
+	if !errors.As(err, &fe) || fe.Field != "experiment_category" {
+		t.Fatalf("blank arm error = %v, want a FieldError naming experiment_category", err)
+	}
+	if repo.writeCalls != 0 {
+		t.Fatalf("repository was called for a rejected write")
+	}
+}
+
+// TestSetExperimentShedStatusRequiresAnExplicitStatus proves the workflow switch has NO default.
+//
+// The two values are the two feeding regimes: 'active' feeds the shed authored absolute kg,
+// 'retired' returns it to projected head count x grams per head x shed factor. Neither is a safe
+// fallback for a caller who did not say, because either choice silently changes what the animals
+// eat. An unrecognised value is rejected for the same reason rather than coerced to the nearer one.
+func TestSetExperimentShedStatusRequiresAnExplicitStatus(t *testing.T) {
+	for name, status := range map[string]string{
+		"absent":       "",
+		"unrecognised": "paused",
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			_, err := pinnedService(repo).SetExperimentShedStatus(context.Background(), SetExperimentShedStatusInput{
+				TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+				Status:             status,
+				IdempotencyKey:     "key-12345678",
+				RequestFingerprint: "fp",
+			})
+			var fe *domain.FieldError
+			if !errors.As(err, &fe) || fe.Field != "status" {
+				t.Fatalf("status %q error = %v, want a FieldError naming status", status, err)
+			}
+			if repo.writeCalls != 0 {
+				t.Fatalf("repository was called for a rejected workflow switch")
+			}
+		})
+	}
+
+	// Both legal values reach the repository verbatim.
+	for _, want := range []string{domain.ExperimentStatusActive, domain.ExperimentStatusRetired} {
+		repo := &fakeRepo{}
+		if _, err := pinnedService(repo).SetExperimentShedStatus(context.Background(), SetExperimentShedStatusInput{
+			TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+			Status:             strings.ToUpper(want), // case-insensitive on the way in
+			IdempotencyKey:     "key-12345678",
+			RequestFingerprint: "fp",
+		}); err != nil {
+			t.Fatalf("status %q rejected: %v", want, err)
+		}
+		if repo.lastExperimentStatus.Status != want {
+			t.Fatalf("status = %q, want %q", repo.lastExperimentStatus.Status, want)
+		}
+	}
+}
+
+// TestListExperimentConfigDefaultsToBothStatuses locks the read default.
+//
+// A withdrawn shed's rows are retired rather than deleted, and the config screen must keep showing
+// them: they are the authored quantities that come back if the shed is restored, and hiding them
+// would make an accidental withdrawal invisible on the very screen that owns the decision. An empty
+// status filter must therefore stay empty (meaning BOTH) rather than being defaulted to 'active'.
+func TestListExperimentConfigDefaultsToBothStatuses(t *testing.T) {
+	repo := &fakeRepo{}
+	if _, err := pinnedService(repo).ListExperimentConfig(context.Background(), "tenant", "park", "", "", nil, nil); err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	if repo.lastExperimentQuery.Status != "" {
+		t.Fatalf("status filter = %q, want empty (both statuses)", repo.lastExperimentQuery.Status)
+	}
+
+	// A present-but-unrecognised status is rejected rather than silently dropped: dropping it would
+	// widen the result to both statuses for a caller who asked for one, and the two statuses are two
+	// different feeding regimes.
+	repo2 := &fakeRepo{}
+	if _, err := pinnedService(repo2).ListExperimentConfig(context.Background(), "tenant", "park", "", "paused", nil, nil); err == nil {
+		t.Fatal("unrecognised status filter was accepted; it must be rejected rather than ignored")
+	}
+}

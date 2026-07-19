@@ -217,7 +217,6 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/vaccination/operations"},
 		{"GET", "/vaccination/execution"},
 		{"GET", "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001"},
-		{"GET", "/feed-direction/readiness"},
 		{"GET", "/feed-direction/generation-preview"},
 		{"GET", "/calendar/vaccination/events"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001"},
@@ -336,7 +335,6 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		path        string
 		operationID string
 	}{
-		{"/feed-direction/readiness", "getFeedDirectionReadiness"},
 		{"/feed-direction/generation-preview", "getFeedDirectionGenerationPreview"},
 	} {
 		route, ok := Match("GET", item.path)
@@ -584,5 +582,117 @@ func TestGroundCaptureTiersHoldCountsWrite(t *testing.T) {
 		if RoleHasPermission(role, CountsWrite) {
 			t.Fatalf("%q must NOT hold CountsWrite (capture is ground-only)", role)
 		}
+	}
+}
+
+// TestFeedConfigRoutesAreRegisteredWithDedicatedPermissions pins the authored feed-configuration
+// surface onto its OWN permissions.
+//
+// The regression this blocks is reusing ProtocolRead/ProtocolWrite (the feed-DIRECTION gate) for
+// these routes. Direction is today's operational output; this is the standing rule that produced it.
+// A park head who may look at this morning's feed sheet must not thereby be able to read -- let
+// alone rewrite -- the tenant-wide ration grid the whole farm is fed from.
+func TestFeedConfigRoutesAreRegisteredWithDedicatedPermissions(t *testing.T) {
+	reads := []struct {
+		path        string
+		operationID string
+	}{
+		{"/feed-config/ration-rates", "listFeedConfigRationRates"},
+		{"/feed-config/ration-groups", "listFeedConfigRationGroups"},
+		{"/feed-config/shed-tags", "listFeedConfigShedTags"},
+		{"/feed-config/feed-items", "listFeedConfigFeedItems"},
+		{"/feed-config/session-templates", "listFeedConfigSessionTemplates"},
+		{"/feed-config/schedule", "listFeedConfigSchedule"},
+		{"/feed-config/shed-factors", "listFeedConfigShedFactors"},
+	}
+	for _, item := range reads {
+		route, ok := Match("GET", item.path)
+		if !ok {
+			t.Fatalf("feed config read route is not registered: %s", item.path)
+		}
+		if route.OperationID != item.operationID {
+			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedConfigRead {
+			t.Fatalf("%s permissions=%v, want [%s]", item.path, route.Permissions, FeedConfigRead)
+		}
+	}
+
+	writes := []struct {
+		path        string
+		operationID string
+	}{
+		{"/feed-config/ration-rates", "upsertFeedConfigRationRate"},
+		{"/feed-config/shed-factors", "upsertFeedConfigShedFactor"},
+		{"/feed-config/schedule", "upsertFeedConfigSchedule"},
+	}
+	for _, item := range writes {
+		route, ok := Match("POST", item.path)
+		if !ok {
+			t.Fatalf("feed config write route is not registered: POST %s", item.path)
+		}
+		if route.OperationID != item.operationID {
+			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedConfigWrite {
+			t.Fatalf("POST %s permissions=%v, want [%s]", item.path, route.Permissions, FeedConfigWrite)
+		}
+	}
+}
+
+// TestFeedConfigWriteIsAdminAndCEOOnly pins WHO may author the ration grid.
+//
+// A ration rate is a standing feeding instruction for every animal matching its key, and an
+// incorrect one produces no alert at all -- just thinner animals a month later. So authoring sits
+// with the tier that owns farm economics, never with the ground roles that execute feeding, and
+// never with the verifier (who must not rewrite the standard captured work is judged against).
+func TestFeedConfigWriteIsAdminAndCEOOnly(t *testing.T) {
+	writeRoute, ok := Match("POST", "/feed-config/ration-rates")
+	if !ok {
+		t.Fatal("feed config write route is not registered")
+	}
+	readRoute, ok := Match("GET", "/feed-config/ration-rates")
+	if !ok {
+		t.Fatal("feed config read route is not registered")
+	}
+
+	// The founder/builder visibility invariant: ceo_internal must never be locked out of a built
+	// visible module.
+	for _, role := range []string{RoleCEOInternal, RoleAdmin} {
+		if !RolesAuthorize([]string{role}, readRoute.Permissions, readRoute.AdminOnly) {
+			t.Fatalf("%s must authorize the feed config read route", role)
+		}
+		if !RolesAuthorize([]string{role}, writeRoute.Permissions, writeRoute.AdminOnly) {
+			t.Fatalf("%s must authorize the feed config write route", role)
+		}
+	}
+
+	for _, role := range []string{RoleOperator, RoleParkHead, RoleVerifier, RolePCDirector} {
+		if RolesAuthorize([]string{role}, writeRoute.Permissions, writeRoute.AdminOnly) {
+			t.Fatalf("%s must NOT be able to author feed configuration", role)
+		}
+		if RolesAuthorize([]string{role}, readRoute.Permissions, readRoute.AdminOnly) {
+			t.Fatalf("%s must NOT be able to read the authored feed configuration grid", role)
+		}
+	}
+}
+
+// TestFeedConfigPermissionsAreSeparateFromFeedDirection proves the two surfaces did not collapse
+// into one authority. Holding the feed-direction gate must not grant feed-config access.
+func TestFeedConfigPermissionsAreSeparateFromFeedDirection(t *testing.T) {
+	if FeedConfigRead == ProtocolRead || FeedConfigWrite == ProtocolWrite {
+		t.Fatal("feed config permissions must be distinct from the feed direction (protocol) permissions")
+	}
+	directionRoute, ok := Match("GET", "/feed-direction/generation-preview")
+	if !ok {
+		t.Fatal("feed direction route is not registered")
+	}
+	// RoleParkHead holds ProtocolRead and can therefore see today's direction preview...
+	if !RolesAuthorize([]string{RoleParkHead}, directionRoute.Permissions, directionRoute.AdminOnly) {
+		t.Fatal("park head should still authorize the feed direction preview")
+	}
+	// ...but must not thereby reach the authored grid behind it.
+	if RoleHasPermission(RoleParkHead, FeedConfigRead) || RoleHasPermission(RoleParkHead, FeedConfigWrite) {
+		t.Fatal("park head must not hold feed config permissions via the feed direction grant")
 	}
 }

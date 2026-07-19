@@ -76,6 +76,23 @@ export function todayIso(): string {
   return istDate(new Date());
 }
 
+/**
+ * Shifts a "YYYY-MM-DD" Goat OS business day by whole days.
+ *
+ * Pure calendar arithmetic on the already-resolved day string: the timezone conversion happened
+ * once in `todayIso()`, so this must NOT re-enter a timezone (adding 24h to an instant would land
+ * on the wrong IST day across a DST-shifted locale, and hardcoding +05:30 here would duplicate a
+ * fact `GOATOS_TIME_ZONE` already owns). `Date.UTC` is used purely as a month/year-rollover
+ * calculator on the bare Y-M-D, never as a clock.
+ */
+export function istDayPlus(day: string, days: number): string {
+  const [year, month, date] = day.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(date)) return day;
+  const shifted = new Date(Date.UTC(year, month - 1, date + days));
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+}
+
 export function istBusinessDayStartInstantIso(day: string): string {
   const instant = new Date(`${day}T00:00:00${IST_OFFSET}`);
   return Number.isNaN(instant.getTime()) ? day : instant.toISOString();
