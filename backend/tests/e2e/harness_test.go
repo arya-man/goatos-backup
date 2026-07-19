@@ -35,6 +35,7 @@ import (
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	outboxports "github.com/vgoats/goatos/backend/internal/outbox/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	pipg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
 	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
@@ -44,8 +45,8 @@ import (
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
 	verifpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
-	verifports "github.com/vgoats/goatos/backend/internal/verification/ports"
 	"github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
+	verifports "github.com/vgoats/goatos/backend/internal/verification/ports"
 )
 
 // Baseline fixture ids: every migrated database already has these rows (see migration
@@ -79,8 +80,9 @@ type Fixture struct {
 	// CalendarRepo is the concrete calendar repository used for direct tests that need to verify
 	// low-level storage behavior.
 	CalendarRepo *calendarpg.Repository
+	Bus          eventbus.Bus
 	Consumer     *domainconsumerapp.Service
-	Relay    *outboxapp.Service
+	Relay        *outboxapp.Service
 	VerifRepo    *verifpg.Repository
 	VerifMedia   verifports.MediaResolver
 }
@@ -144,21 +146,41 @@ func NewFixture(t *testing.T) *Fixture {
 		Ctx:  ctx,
 		Pool: pool,
 
-		Proto:    proto,
-		Identity: identity,
-		Obl:      obl,
-		Outbox:   outboxRepo,
-		Vacc:     vacc,
-		VaccExec: vaccexecpg.NewRepository(pool, timeout),
-		Proof:    proofRepo,
-		PI:       pipg.NewRepository(pool, timeout),
+		Proto:        proto,
+		Identity:     identity,
+		Obl:          obl,
+		Outbox:       outboxRepo,
+		Vacc:         vacc,
+		VaccExec:     vaccexecpg.NewRepository(pool, timeout),
+		Proof:        proofRepo,
+		PI:           pipg.NewRepository(pool, timeout),
 		Inv:          invapp.NewService(invpg.NewRepository(pool, timeout)),
 		Calendar:     calendarapp.NewService(calendarRepo),
 		CalendarRepo: calendarRepo,
+		Bus:          bus,
 		Consumer:     consumer,
-		Relay:    relay,
+		Relay:        relay,
 		VerifRepo:    verifRepo,
 		VerifMedia:   verifMedia,
+	}
+}
+
+// RelayOutboxEvents relays pending outbox messages through the domain consumer (and thus
+// all registered business handlers on the domain bus). This is used in E2E tests to drive
+// production event-based state transitions after API calls that publish outbox events.
+//
+// It drains until empty (RunUntilDrained), because relaying an event can transitively
+// enqueue a NEW outbox row that a single pass would miss. Concretely the production chain is
+// multi-hop: verification.item.closed -> VerificationHandler -> CompletionService.AcceptExisting
+// -> obligation.MarkCompleted writes a fresh vaccination.completed row to the OUTBOX in the same
+// tx -> that row must then be drained to reach VaccinationCompletedHandler, which schedules the
+// successor (booster) obligation. A single RunOnce would relay the close event but leave the
+// just-written vaccination.completed row pending, so the successor obligation would never be
+// created. Draining to empty faithfully mirrors the always-running production outbox relay.
+func (f *Fixture) RelayOutboxEvents() {
+	f.T.Helper()
+	if _, err := f.Relay.RunUntilDrained(f.Ctx); err != nil {
+		f.T.Logf("warning: relay pending outbox events: %v", err)
 	}
 }
 
@@ -597,6 +619,52 @@ func (f *Fixture) PublishSimpleProtocol(code string, offsetDays, dueWindowDays i
 		f.T.Fatalf("publish protocol version %s: %v", code, err)
 	}
 	return versionID, ruleID
+}
+
+// PublishBoosterProtocol creates and publishes a two-dose vaccination protocol version: a
+// birth-age primary dose (sequence 1) plus a booster dose (sequence 2) triggered
+// after_previous_completion. This is the multi-dose shape that lets SM-7 schedule a successor
+// obligation once the primary dose is completed and accepted — the single-rule PublishSimpleProtocol
+// has Repeat="none" and no higher sequence, so it can never produce a successor. Returns the version
+// id plus the primary and booster rule ids so callers can assert on each separately.
+func (f *Fixture) PublishBoosterProtocol(code string, primaryOffsetDays, dueWindowDays, boosterGapDays int32) (versionID, primaryRuleID, boosterRuleID string) {
+	f.T.Helper()
+	protoID, err := f.Proto.CreateDefinition(f.Ctx, protodomain.NewDefinition{
+		TenantID: fxTenant, Code: code, Name: code, Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		f.T.Fatalf("create protocol definition %s: %v", code, err)
+	}
+	versionID, err = f.Proto.CreateVersion(f.Ctx, protodomain.NewVersion{
+		TenantID: fxTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		f.T.Fatalf("create protocol version %s: %v", code, err)
+	}
+	primaryRuleID, err = f.Proto.CreateRule(f.Ctx, protodomain.NewRule{
+		TenantID: fxTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: primaryOffsetDays, DueWindowDays: dueWindowDays,
+		Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		f.T.Fatalf("create primary protocol rule %s: %v", code, err)
+	}
+	boosterRuleID, err = f.Proto.CreateRule(f.Ctx, protodomain.NewRule{
+		TenantID: fxTenant, ProtocolVersionID: versionID, DoseCode: "booster", Sequence: 2,
+		TriggerType: "after_previous_completion", OffsetDays: boosterGapDays, DueWindowDays: dueWindowDays,
+		MinGapDays: boosterGapDays, Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		f.T.Fatalf("create booster protocol rule %s: %v", code, err)
+	}
+	if err := f.Proto.PublishVersion(f.Ctx, fxTenant, versionID, nil); err != nil {
+		f.T.Fatalf("publish protocol version %s: %v", code, err)
+	}
+	return versionID, primaryRuleID, boosterRuleID
 }
 
 // DispatchVaccinationCompleted consumes the durable envelope through the production consumer and

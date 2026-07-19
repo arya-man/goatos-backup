@@ -17,6 +17,10 @@ import (
 	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
+	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 type vaccinationSOPHarness struct {
@@ -87,15 +91,46 @@ LIMIT 1`, fxTenant, batchID)
 }
 
 func newVaccinationSOPHarness(t *testing.T, fx *Fixture) *vaccinationSOPHarness {
+	return newVaccinationSOPHarnessWithBus(t, fx, nil)
+}
+
+func newVaccinationSOPHarnessWithBus(t *testing.T, fx *Fixture, bus eventbus.Bus) *vaccinationSOPHarness {
 	t.Helper()
 	sopService := sopapp.NewService(soppg.NewRepository(fx.Pool, 5*time.Second))
 	proofService := proofapp.NewService(fx.Proof, prooflocal.New(t.TempDir(), "e2e-vaccination-proof-secret"))
 	vaccinationService := vaccapp.NewService(fx.Vacc)
-	verificationBus := eventbus.NewInProcessBus()
-	vaccapp.NewVerificationHandler(vaccapp.NewCompletionService(vaccinationService, fx.Obl, fx.Inv)).Register(verificationBus)
+
+	// Use provided bus or create a new one if none is provided (for backward compatibility).
+	// Production uses the fixture's domain bus (built via BuildDomainBus), which has all handlers already registered.
+	if bus == nil {
+		bus = eventbus.NewInProcessBus()
+		// Register handlers for tests that don't use the fixture's domain bus
+		vaccinationCompletion := vaccapp.NewCompletionService(vaccinationService, fx.Obl, fx.Inv)
+		vaccapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
+		vaccinationBooster := vaccapp.NewBoosterService(fx.Proto, fx.Obl).
+			WithGoatReader(fx.Vacc).
+			WithCrossVaccineGapReader(fx.Vacc)
+		vaccapp.NewVaccinationCompletedHandler(vaccinationService, fx.Obl, vaccinationBooster).Register(bus)
+	}
+
+	// Register the generic verification producer and category for vaccination submissions.
+	// The submission bridge creates verification items when a SOP task is submitted (R50-013).
+	verificationService := verificationapp.NewService(
+		verificationpg.NewRepository(fx.Pool, 5*time.Second),
+		verificationproofmedia.NewResolver(proofService),
+	)
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      "preventive_care",
+		Module:        "vaccination",
+		Category:      sopbridge.VaccinationVerificationCategory,
+		ExpectedMedia: []string{"video"},
+	}); err != nil {
+		t.Fatalf("register verification category: %v", err)
+	}
 	sopService.WithProofValidator(proofService).
-		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
-		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, verificationBus))
+		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
+			WithVerificationProducer(verificationService)).
+		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
 	return &vaccinationSOPHarness{t: t, fx: fx, Service: sopService, proofs: proofService}
 }
 

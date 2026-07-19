@@ -12,9 +12,9 @@ import (
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verifhttp "github.com/vgoats/goatos/backend/internal/verification/adapters/http"
 	verifapp "github.com/vgoats/goatos/backend/internal/verification/app"
-	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 // TestKernelStoryZ_VerificationClosureRealEndpoints verifies the production verification closure path
@@ -48,7 +48,10 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 	fx.SeedShed(shedID, "E2E-Z", stageID)
 	fx.SeedWorkforce(operatorID, parkHeadID, verifierID, shedID)
 
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_z", 21, 0, nil)
+	// Two-dose protocol: a birth-age primary dose plus a booster dose triggered
+	// after_previous_completion. Completing the primary via verification closure must let SM-7
+	// (VaccinationCompletedHandler -> BoosterService) schedule the booster successor obligation.
+	versionID, ruleID, boosterRuleID := fx.PublishBoosterProtocol("vaccination.e2e.story_z", 21, 0, 21)
 
 	now := time.Now().UTC()
 	dob := now.AddDate(0, 0, -53)
@@ -70,7 +73,7 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
 	story.Assert("both goats' doses were generated", genRes.Generated == 2, "generated=%d", genRes.Generated)
 
-	sopHarness := newVaccinationSOPHarness(t, fx)
+	sopHarness := newVaccinationSOPHarnessWithBus(t, fx, fx.Bus)
 	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: sopHarness.Service, actorID: operatorID}, fx.Inv)
 	sweepCfg := oblapp.SweepConfig{SOPVersionID: canonicalVaccinationSOPVersion, VaccineItemID: itemID, DosesPerGoat: 1}
 	dueBefore := now.AddDate(0, 0, 1)
@@ -159,40 +162,50 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 			}
 		}
 		story.Assert(fmt.Sprintf("verdict recorded for item %s", itemID[:8]), rec.Code == http.StatusOK, "HTTP=%d body=%s", rec.Code, rec.Body.String())
+		// Relay outbox events from verdict so handlers can process them
+		fx.RelayOutboxEvents()
 	}
 	story.Assert("all verdicts recorded", verdictedCount == 2, "verdicted=%d", verdictedCount)
 
-	story.Step("Leadership closes each verified item via real API",
-		"For each verdicted item, POST /verification/items/{item_id}/close to execute leadership close.")
-	closedCount := 0
-	for _, itemID := range itemIDs {
-		var rowVersion int
-		fx.Pool.QueryRow(fx.Ctx, `SELECT row_version FROM verification_items WHERE tenant_id=$1 AND item_id=$2::uuid`, fxTenant, itemID).Scan(&rowVersion)
-		body := fmt.Sprintf(`{"row_version":%d}`, rowVersion)
+	story.Step("Leadership closes the submitted verification items via real API",
+		"Items created by an SOP submission must be closed as a batch via POST /verification/submissions/{submission_id}/close, not individually. This closes all verdicted items in the submission atomically.")
 
-		idemKey := fmt.Sprintf("close-%s", itemID)
-		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/verification/items/%s/close", itemID), bytes.NewBufferString(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Idempotency-Key", idemKey)
-		req.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
-		req.Header.Set("X-GoatOS-Actor-ID", parkHeadID)  // Leadership uses park head role for closure
-		rec := httptest.NewRecorder()
-		app.ServeHTTP(rec, req)
+	// Close the whole submission (all verification items in it) via the batch close endpoint,
+	// which is the correct production path for SOP-submitted items with source_submission_id set.
+	body := `{}`
+	idemKey := fmt.Sprintf("close-submission-%s", submissionID)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/verification/submissions/%s/close", submissionID), bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", idemKey)
+	req.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
+	req.Header.Set("X-GoatOS-Actor-ID", parkHeadID) // Leadership uses park head role for closure
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
 
-		if rec.Code == http.StatusOK {
-			var respBody struct {
-				Item struct {
-					Status  string `json:"status"`
-					ClosedAt *string `json:"closed_at"`
-				} `json:"item"`
-			}
-			if json.Unmarshal(rec.Body.Bytes(), &respBody) == nil && respBody.Item.Status == "approved" && respBody.Item.ClosedAt != nil {
+	if rec.Code != http.StatusOK {
+		story.Assert("submission closed successfully", false, "HTTP=%d body=%s", rec.Code, rec.Body.String())
+		return
+	}
+	var closeResp struct {
+		Items []struct {
+			Status   string  `json:"status"`
+			ClosedAt *string `json:"closed_at"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(rec.Body.Bytes(), &closeResp) == nil {
+		closedCount := 0
+		for _, item := range closeResp.Items {
+			if item.Status == "approved" && item.ClosedAt != nil {
 				closedCount++
 			}
 		}
-		story.Assert(fmt.Sprintf("item %s closed successfully", itemID[:8]), rec.Code == http.StatusOK, "HTTP=%d body=%s", rec.Code, rec.Body.String())
+		story.Assert("all items closed in batch", closedCount == len(itemIDs), "closed=%d expected=%d", closedCount, len(itemIDs))
+	} else {
+		story.Assert("submission close returned valid response", false, "body=%s", rec.Body.String())
+		return
 	}
-	story.Assert("all items closed", closedCount == 2, "closed=%d", closedCount)
+	// Relay outbox events from close so handlers process the closure and completion
+	fx.RelayOutboxEvents()
 
 	story.Step("Verify domain event was emitted and completion/obligation states updated",
 		"After leadership close, the verification.item.closed event is emitted, completions accepted, "+
@@ -222,11 +235,15 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 		fxTenant, batchID, ruleID)
 	story.Assert("found primary obligations completed", primaryOblCount >= 2, "obls=%d", primaryOblCount)
 
-	// Query for booster obligations (use a different rule if available, or check the next scheduled dose)
-	boosterRuleID := fx.scanText(
+	// The successor (booster) obligation is created by SM-7 (VaccinationCompletedHandler ->
+	// BoosterService.ScheduleNextDose) off the vaccination.completed event drained above, never by
+	// test SQL. It carries the booster rule id (distinct from the completed primary rule id) and a
+	// distinct obligation_id per goat.
+	observedBoosterRuleID := fx.scanText(
 		`SELECT DISTINCT rule_id::text FROM obligation_instances WHERE tenant_id=$1 AND protocol_version_id=$2 AND rule_id<>$3 LIMIT 1`,
 		fxTenant, versionID, ruleID)
-	if boosterRuleID != "" {
+	story.Assert("successor obligation carries the booster rule id", observedBoosterRuleID == boosterRuleID, "observed=%q expected=%q", observedBoosterRuleID, boosterRuleID)
+	if observedBoosterRuleID != "" {
 		boosterCount := fx.countRows(
 			`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND ((target_id=$2::uuid OR target_id=$3::uuid)) AND rule_id=$4::uuid AND status IN ('scheduled','due')`,
 			fxTenant, goat1, goat2, boosterRuleID)
@@ -239,35 +256,41 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 		fxTenant)
 	story.Assert("verification.item.closed events published", closedEventCount >= 1, "events=%d", closedEventCount)
 
-	story.Step("Idempotency: replay close on same item is no-op",
-		"A second close request with the same Idempotency-Key returns the same result without "+
-			"duplicate state changes.")
-	if len(itemIDs) > 0 {
-		itemID := itemIDs[0]
-		var rowVersion int
-		fx.Pool.QueryRow(fx.Ctx, `SELECT row_version FROM verification_items WHERE tenant_id=$1 AND item_id=$2::uuid`, fxTenant, itemID).Scan(&rowVersion)
-		body := fmt.Sprintf(`{"row_version":%d}`, rowVersion)
-		idemKey := fmt.Sprintf("close-%s", itemID)
+	story.Step("Idempotency: replay submission close is a no-op",
+		"A second submission-close request with the same Idempotency-Key returns the same result "+
+			"without duplicate state changes.")
+	// Replay the exact submission-close request issued above (same endpoint, body, and
+	// Idempotency-Key). The generic verification module must return the already-closed items and
+	// perform no new state change.
+	replayReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/verification/submissions/%s/close", submissionID), bytes.NewBufferString(body))
+	replayReq.Header.Set("Content-Type", "application/json")
+	replayReq.Header.Set("Idempotency-Key", idemKey)
+	replayReq.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
+	replayReq.Header.Set("X-GoatOS-Actor-ID", parkHeadID) // Same actor who closed it the first time
+	replayRec := httptest.NewRecorder()
+	app.ServeHTTP(replayRec, replayReq)
 
-		// First request already done above; now replay with same key
-		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/verification/items/%s/close", itemID), bytes.NewBufferString(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Idempotency-Key", idemKey)
-		req.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
-		req.Header.Set("X-GoatOS-Actor-ID", parkHeadID)  // Same actor who closed it the first time
-		rec := httptest.NewRecorder()
-		app.ServeHTTP(rec, req)
+	story.Assert("idempotent replay returns OK", replayRec.Code == http.StatusOK, "HTTP=%d body=%s", replayRec.Code, replayRec.Body.String())
 
-		story.Assert("idempotent replay returns OK", rec.Code == http.StatusOK, "HTTP=%d body=%s", rec.Code, rec.Body.String())
-
-		var respBody struct {
-			Item struct {
-				Status   string `json:"status"`
-				ClosedAt *string `json:"closed_at"`
-			} `json:"item"`
-		}
-		json.Unmarshal(rec.Body.Bytes(), &respBody)
-		// After closing, status remains 'approved' and closed_at is set
-		story.Assert("idempotent close returns already-closed status", respBody.Item.Status == "approved" && respBody.Item.ClosedAt != nil, "status=%s, closed_at=%v", respBody.Item.Status, respBody.Item.ClosedAt)
+	var replayResp struct {
+		Items []struct {
+			Status   string  `json:"status"`
+			ClosedAt *string `json:"closed_at"`
+		} `json:"items"`
 	}
+	json.Unmarshal(replayRec.Body.Bytes(), &replayResp)
+	replayClosed := 0
+	for _, item := range replayResp.Items {
+		if item.Status == "approved" && item.ClosedAt != nil {
+			replayClosed++
+		}
+	}
+	story.Assert("idempotent replay returns already-closed items", replayClosed == len(itemIDs), "closed=%d expected=%d", replayClosed, len(itemIDs))
+
+	// The replay must not have created any additional booster obligations (no duplicate side effects).
+	fx.RelayOutboxEvents()
+	boosterAfterReplay := fx.countRows(
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND ((target_id=$2::uuid OR target_id=$3::uuid)) AND rule_id=$4::uuid AND status IN ('scheduled','due')`,
+		fxTenant, goat1, goat2, boosterRuleID)
+	story.Assert("no duplicate booster obligations after idempotent replay", boosterAfterReplay == 2, "boosters=%d", boosterAfterReplay)
 }

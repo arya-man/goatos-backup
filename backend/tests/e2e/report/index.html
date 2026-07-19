@@ -97,7 +97,7 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-19 19:27:36 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-19 22:50:55 UTC &middot; backend/tests/e2e</p>
 
   <p class="subtitle">Related reports in this category:
     <a href="vaccination-closure-audit-2026-07-19.html?v=10568bc2">Vaccination Closure Audit Report (2026-07-19)</a>
@@ -105,9 +105,9 @@
 
   <div class="summary">
     <div class="tile"><span class="n">1</span>stories</div>
-    <div class="tile pass"><span class="n">0</span>stories passed</div>
-    <div class="tile fail"><span class="n">1</span>stories failed</div>
-    <div class="tile"><span class="n">7</span>assertions checked</div>
+    <div class="tile pass"><span class="n">1</span>stories passed</div>
+    <div class="tile fail"><span class="n">0</span>stories failed</div>
+    <div class="tile"><span class="n">24</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
     <div class="tile pass"><span class="n">1/1</span>certification surfaces declared</div>
   </div>
@@ -133,8 +133,8 @@
   </section>
 
 
-  <section class="story fail">
-    <h2>Verification closure via real generic verification API <span class="badge fail">FAIL</span></h2>
+  <section class="story pass">
+    <h2>Verification closure via real generic verification API <span class="badge pass">PASS</span></h2>
     <div class="certification">Certified surface: backend kernel &#43; real verification API &#43; generic verification domain events</div>
     <p class="narrative">A vaccination submission creates verified items. The verifier records verdicts and leadership closes items via the real /verification/items/{id}/verdict and /close endpoints. Domain events are emitted, obligationinstances complete, and successor obligations are created.</p>
 
@@ -179,7 +179,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;884a6707-1f80-4146-9036-d231d5a30b02&#34;</td>
+            <td class="detail">task_id=&#34;888e7af0-6da1-4e72-b386-ac9c4a32a585&#34;</td>
           </tr>
 
         </tbody>
@@ -205,6 +205,176 @@
             <td>submission fanout recorded both doses</td>
             <td>PASS</td>
             <td class="detail">recorded=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>submission created verification items in generic module</td>
+            <td>PASS</td>
+            <td class="detail">items=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Verifier records verdict for each verification item via real API</h3>
+      <p class="narrative">For each verification item, POST /verification/items/{item_id}/verdict to record an approval decision.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>found verification items to verdict</td>
+            <td>PASS</td>
+            <td class="detail">items=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>built auth middleware</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>verdict recorded for item 90e18751</td>
+            <td>PASS</td>
+            <td class="detail">HTTP=200 body={&#34;item&#34;:{&#34;item_id&#34;:&#34;90e18751-a500-4b13-b05b-92e18135dd4a&#34;,&#34;vertical&#34;:&#34;preventive_care&#34;,&#34;module&#34;:&#34;vaccination&#34;,&#34;category&#34;:&#34;vaccination_proof&#34;,&#34;subject_label&#34;:&#34;G-000002&#34;,&#34;status&#34;:&#34;approved&#34;,&#34;verdict_reason&#34;:&#34;proof accepted&#34;,&#34;operator_id&#34;:&#34;e4000000-0000-4000-8000-000000000003&#34;,&#34;shed_id&#34;:&#34;e4000000-0000-4000-8000-000000000001&#34;,&#34;park_id&#34;:&#34;00000000-0000-4000-8000-000000003001&#34;,&#34;captured_at&#34;:&#34;2026-07-20T10:50:58Z&#34;,&#34;verified_by&#34;:&#34;e4000000-0000-4000-8000-000000000005&#34;,&#34;verified_at&#34;:&#34;2026-07-20T04:20:58.878666&#43;05:30&#34;,&#34;row_version&#34;:2,&#34;media&#34;:[],&#34;evidence_available&#34;:false,&#34;source&#34;:{&#34;module&#34;:&#34;vaccination&#34;,&#34;task_id&#34;:&#34;888e7af0-6da1-4e72-b386-ac9c4a32a585&#34;,&#34;submission_id&#34;:&#34;5406a689-5111-429c-898a-6ac4dcd02464&#34;,&#34;ref_type&#34;:&#34;vaccination_goat&#34;,&#34;ref_id&#34;:&#34;e4000000-0000-4000-8000-000000000007&#34;}},&#34;trace_id&#34;:&#34;missing-trace&#34;}
+</td>
+          </tr>
+
+          <tr class="ok">
+            <td>verdict recorded for item eeced7af</td>
+            <td>PASS</td>
+            <td class="detail">HTTP=200 body={&#34;item&#34;:{&#34;item_id&#34;:&#34;eeced7af-8141-43b7-900d-b4720e153e79&#34;,&#34;vertical&#34;:&#34;preventive_care&#34;,&#34;module&#34;:&#34;vaccination&#34;,&#34;category&#34;:&#34;vaccination_proof&#34;,&#34;subject_label&#34;:&#34;G-000001&#34;,&#34;status&#34;:&#34;approved&#34;,&#34;verdict_reason&#34;:&#34;proof accepted&#34;,&#34;operator_id&#34;:&#34;e4000000-0000-4000-8000-000000000003&#34;,&#34;shed_id&#34;:&#34;e4000000-0000-4000-8000-000000000001&#34;,&#34;park_id&#34;:&#34;00000000-0000-4000-8000-000000003001&#34;,&#34;captured_at&#34;:&#34;2026-07-20T10:50:58Z&#34;,&#34;verified_by&#34;:&#34;e4000000-0000-4000-8000-000000000005&#34;,&#34;verified_at&#34;:&#34;2026-07-20T04:20:59.006919&#43;05:30&#34;,&#34;row_version&#34;:2,&#34;media&#34;:[],&#34;evidence_available&#34;:false,&#34;source&#34;:{&#34;module&#34;:&#34;vaccination&#34;,&#34;task_id&#34;:&#34;888e7af0-6da1-4e72-b386-ac9c4a32a585&#34;,&#34;submission_id&#34;:&#34;5406a689-5111-429c-898a-6ac4dcd02464&#34;,&#34;ref_type&#34;:&#34;vaccination_goat&#34;,&#34;ref_id&#34;:&#34;e4000000-0000-4000-8000-000000000006&#34;}},&#34;trace_id&#34;:&#34;missing-trace&#34;}
+</td>
+          </tr>
+
+          <tr class="ok">
+            <td>all verdicts recorded</td>
+            <td>PASS</td>
+            <td class="detail">verdicted=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Leadership closes the submitted verification items via real API</h3>
+      <p class="narrative">Items created by an SOP submission must be closed as a batch via POST /verification/submissions/{submission_id}/close, not individually. This closes all verdicted items in the submission atomically.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>all items closed in batch</td>
+            <td>PASS</td>
+            <td class="detail">closed=2 expected=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Verify domain event was emitted and completion/obligation states updated</h3>
+      <p class="narrative">After leadership close, the verification.item.closed event is emitted, completions accepted, and obligations completed.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>all verification items are closed (approved with closed_at set)</td>
+            <td>PASS</td>
+            <td class="detail">closed=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>completions accepted after verification closure</td>
+            <td>PASS</td>
+            <td class="detail">accepted=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>obligations completed after verification closure</td>
+            <td>PASS</td>
+            <td class="detail">completed=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Verify new successor obligation was created post-completion</h3>
+      <p class="narrative">After the primary obligation is completed, the vaccination.completed event triggers generation of the booster/next-dose obligation. Assert a NEW obligation exists with a different obligation_id.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>found primary obligations completed</td>
+            <td>PASS</td>
+            <td class="detail">obls=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>successor obligation carries the booster rule id</td>
+            <td>PASS</td>
+            <td class="detail">observed=&#34;5d905820-7e85-43e3-bef4-c2a182134367&#34; expected=&#34;5d905820-7e85-43e3-bef4-c2a182134367&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>new booster obligations created</td>
+            <td>PASS</td>
+            <td class="detail">boosters=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>verification.item.closed events published</td>
+            <td>PASS</td>
+            <td class="detail">events=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Idempotency: replay submission close is a no-op</h3>
+      <p class="narrative">A second submission-close request with the same Idempotency-Key returns the same result without duplicate state changes.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>idempotent replay returns OK</td>
+            <td>PASS</td>
+            <td class="detail">HTTP=200 body={&#34;items&#34;:[{&#34;item_id&#34;:&#34;90e18751-a500-4b13-b05b-92e18135dd4a&#34;,&#34;vertical&#34;:&#34;preventive_care&#34;,&#34;module&#34;:&#34;vaccination&#34;,&#34;category&#34;:&#34;vaccination_proof&#34;,&#34;subject_label&#34;:&#34;G-000002&#34;,&#34;status&#34;:&#34;approved&#34;,&#34;verdict_reason&#34;:&#34;proof accepted&#34;,&#34;operator_id&#34;:&#34;e4000000-0000-4000-8000-000000000003&#34;,&#34;shed_id&#34;:&#34;e4000000-0000-4000-8000-000000000001&#34;,&#34;park_id&#34;:&#34;00000000-0000-4000-8000-000000003001&#34;,&#34;captured_at&#34;:&#34;2026-07-20T10:50:58Z&#34;,&#34;verified_by&#34;:&#34;e4000000-0000-4000-8000-000000000005&#34;,&#34;verified_at&#34;:&#34;2026-07-20T04:20:58.878666&#43;05:30&#34;,&#34;closed_by&#34;:&#34;e4000000-0000-4000-8000-000000000004&#34;,&#34;closed_at&#34;:&#34;2026-07-20T04:20:59.015352&#43;05:30&#34;,&#34;row_version&#34;:3,&#34;media&#34;:[],&#34;evidence_available&#34;:false,&#34;source&#34;:{&#34;module&#34;:&#34;vaccination&#34;,&#34;task_id&#34;:&#34;888e7af0-6da1-4e72-b386-ac9c4a32a585&#34;,&#34;submission_id&#34;:&#34;5406a689-5111-429c-898a-6ac4dcd02464&#34;,&#34;ref_type&#34;:&#34;vaccination_goat&#34;,&#34;ref_id&#34;:&#34;e4000000-0000-4000-8000-000000000007&#34;}},{&#34;item_id&#34;:&#34;eeced7af-8141-43b7-900d-b4720e153e79&#34;,&#34;vertical&#34;:&#34;preventive_care&#34;,&#34;module&#34;:&#34;vaccination&#34;,&#34;category&#34;:&#34;vaccination_proof&#34;,&#34;subject_label&#34;:&#34;G-000001&#34;,&#34;status&#34;:&#34;approved&#34;,&#34;verdict_reason&#34;:&#34;proof accepted&#34;,&#34;operator_id&#34;:&#34;e4000000-0000-4000-8000-000000000003&#34;,&#34;shed_id&#34;:&#34;e4000000-0000-4000-8000-000000000001&#34;,&#34;park_id&#34;:&#34;00000000-0000-4000-8000-000000003001&#34;,&#34;captured_at&#34;:&#34;2026-07-20T10:50:58Z&#34;,&#34;verified_by&#34;:&#34;e4000000-0000-4000-8000-000000000005&#34;,&#34;verified_at&#34;:&#34;2026-07-20T04:20:59.006919&#43;05:30&#34;,&#34;closed_by&#34;:&#34;e4000000-0000-4000-8000-000000000004&#34;,&#34;closed_at&#34;:&#34;2026-07-20T04:20:59.015352&#43;05:30&#34;,&#34;row_version&#34;:3,&#34;media&#34;:[],&#34;evidence_available&#34;:false,&#34;source&#34;:{&#34;module&#34;:&#34;vaccination&#34;,&#34;task_id&#34;:&#34;888e7af0-6da1-4e72-b386-ac9c4a32a585&#34;,&#34;submission_id&#34;:&#34;5406a689-5111-429c-898a-6ac4dcd02464&#34;,&#34;ref_type&#34;:&#34;vaccination_goat&#34;,&#34;ref_id&#34;:&#34;e4000000-0000-4000-8000-000000000006&#34;}}],&#34;trace_id&#34;:&#34;missing-trace&#34;}
+</td>
+          </tr>
+
+          <tr class="ok">
+            <td>idempotent replay returns already-closed items</td>
+            <td>PASS</td>
+            <td class="detail">closed=2 expected=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>no duplicate booster obligations after idempotent replay</td>
+            <td>PASS</td>
+            <td class="detail">boosters=2</td>
           </tr>
 
         </tbody>
