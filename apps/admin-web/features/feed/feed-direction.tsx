@@ -309,19 +309,19 @@ export async function FeedDirectionPage({
                               </span>
                             </div>
                           </td>
+                          {/* Always the ANIMALS' management stage, on every workflow — the experiment
+                              arm has its own column now. Multi-stage sheds arrive pre-joined. */}
                           <td className="muted" rowSpan={span}>
-                            {row.shed_tag}
+                            {row.shed_tag || copy(pageContract, "label.placeholder")}
                           </td>
-                          {/* Breed and ration group differ on purpose: two breeds can share one group,
-                              and every kid breed collapses to Kid. Showing only one hides the merge. */}
-                          <td rowSpan={span}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              <span>{row.breed}</span>
-                              <span className="muted" style={{ fontSize: 11 }}>
-                                {row.ration_group}
-                              </span>
-                            </div>
-                          </td>
+                          {/* Breed only. The ration group used to print as a sub-line here, but on a
+                              feed sheet it is derivable noise: the operator reads the breed at the
+                              shed door, and the group is an internal lookup key that is empty on
+                              every experiment row anyway. It stays visible on /feed/config, which is
+                              where the breed → group merge is actually authored. A multi-breed shed
+                              arrives already joined into one label by the backend; the frontend does
+                              not decide how a mixed shed is named. */}
+                          <td rowSpan={span}>{row.breed || copy(pageContract, "label.placeholder")}</td>
                           <td className="muted" rowSpan={span}>
                             {row.session_label}
                           </td>

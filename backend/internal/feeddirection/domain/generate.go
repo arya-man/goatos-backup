@@ -158,6 +158,7 @@ func materializeRow(
 		ShedTag:                daily.ShedTag,
 		Breed:                  daily.Breed,
 		RationGroup:            daily.RationGroup,
+		ExperimentArm:          daily.ExperimentArm,
 		SessionNo:              session.SessionNo,
 		SessionLabel:           session.Label,
 		HeadCount:              daily.HeadCount,
@@ -230,6 +231,7 @@ func blockedSessionItemsRow(in GenerateInput, shed ShedInput, daily DailyRow, se
 		ShedTag:                daily.ShedTag,
 		Breed:                  daily.Breed,
 		RationGroup:            daily.RationGroup,
+		ExperimentArm:          daily.ExperimentArm,
 		SessionNo:              session.SessionNo,
 		SessionLabel:           session.Label,
 		HeadCount:              daily.HeadCount,
@@ -280,6 +282,7 @@ func blockedSessionRows(in GenerateInput, shed ShedInput, dailyRows []DailyRow) 
 			ShedTag:                daily.ShedTag,
 			Breed:                  daily.Breed,
 			RationGroup:            daily.RationGroup,
+			ExperimentArm:          daily.ExperimentArm,
 			HeadCount:              daily.HeadCount,
 			HeadCountInformational: daily.HeadCountInformational,
 			Workflow:               daily.Workflow,
@@ -423,6 +426,10 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 					SessionNo:    row.SessionNo,
 					SessionLabel: row.SessionLabel,
 					Workflow:     row.Workflow,
+					// Safe to take from the first contributing row: the planner is selected per
+					// SHED, so every row of a line shares one workflow and therefore one arm
+					// (empty for normal).
+					ExperimentArm: row.ExperimentArm,
 				},
 				grams:         map[string]int64{},
 				blocked:       map[string]*BlockedReason{},

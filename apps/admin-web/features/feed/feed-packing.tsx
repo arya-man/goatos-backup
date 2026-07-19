@@ -261,6 +261,11 @@ export async function FeedPackingPage({
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                               <span style={{ fontWeight: 650 }}>{row.shed_label}</span>
                               <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
+                              {/* No experiment arm here. A packer's unit of work is the bag: the
+                                  Experiment tag already says this shed's quantity is hand-authored
+                                  rather than per-head, which is the only part that changes how they
+                                  pack. The arm names the trial the shed is enrolled in — authoring
+                                  context, shown where it is authored, on /feed/config. */}
                             </div>
                           </td>
                           <td className="muted" rowSpan={span}>

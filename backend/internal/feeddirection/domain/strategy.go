@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -358,6 +359,71 @@ func (ExperimentPlanner) SessionFeedItems(ConfigSnapshot, SessionTemplate) ([]Fe
 	return nil, false
 }
 
+// grainStage and grainBreed are the two descriptive facets describeGrains can read off a grain.
+//
+// A stage is reported through the AUTHORED tag vocabulary when it resolves, for the same reason the
+// normal path does it (raw live text carries cosmetic variants like 'ICU- kid'). Unlike the normal
+// path an unresolvable stage does NOT block here: an experiment quantity is hand-authored and does
+// not depend on the tag at all, so falling back to the raw text is strictly more information than
+// blanking the column, and there is no ration course to guess wrong.
+func grainStage(grain ShedGrain, cfg ConfigSnapshot) string {
+	if tag, ok := cfg.ShedTagsByKey[NormalizeConfigKey(grain.ManagementStage)]; ok {
+		return tag.Label
+	}
+	return grain.ManagementStage
+}
+
+// grainBreed reports the raw live breed label. There is no authored breed vocabulary to canonicalize
+// against -- feed_ration_groups maps a breed to a GROUP, which is a different (and here unused)
+// fact -- so the live label is the most specific truth available.
+func grainBreed(grain ShedGrain, _ ConfigSnapshot) string { return grain.Breed }
+
+// describeGrains collapses a shed's grains to one honest label for a descriptive column.
+//
+// Ordering is HEAD COUNT DESCENDING, then label ascending as a deterministic tiebreak. The dominant
+// breed or stage reads first, which is what an operator scanning the sheet wants, and the tiebreak
+// means the same shed renders identically on every request -- a feed sheet whose columns reorder
+// between two loads of the same day is not usable as a printed instruction.
+//
+// Empty values are skipped rather than joined in, so a shed with one unlabelled grain reports the
+// labelled one rather than a dangling " + ".
+func describeGrains(grains []ShedGrain, cfg ConfigSnapshot, facet func(ShedGrain, ConfigSnapshot) string) string {
+	type entry struct {
+		label     string
+		headCount int64
+	}
+	byLabel := map[string]*entry{}
+	for _, grain := range grains {
+		label := facet(grain, cfg)
+		if label == "" {
+			continue
+		}
+		e, ok := byLabel[label]
+		if !ok {
+			e = &entry{label: label}
+			byLabel[label] = e
+		}
+		e.headCount += grain.HeadCount
+	}
+
+	entries := make([]*entry, 0, len(byLabel))
+	for _, e := range byLabel {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].headCount != entries[j].headCount {
+			return entries[i].headCount > entries[j].headCount
+		}
+		return entries[i].label < entries[j].label
+	})
+
+	labels := make([]string, 0, len(entries))
+	for _, e := range entries {
+		labels = append(labels, e.label)
+	}
+	return strings.Join(labels, MultiValueSeparator)
+}
+
 // PlanDaily returns ONE row for the whole shed, carrying the authored absolute quantities.
 //
 // One row, not one per ration grain, because the authored quantity is not per grain: it is a
@@ -387,13 +453,22 @@ func (ExperimentPlanner) PlanDaily(shed ShedInput, cfg ConfigSnapshot) []DailyRo
 	}
 
 	row := DailyRow{
-		// The experiment category stands in for the shed tag: an experiment shed has no ration
-		// grain, so there is no authored tag to report, and leaving the column blank would tell the
-		// operator nothing about why this shed's numbers look different.
-		ShedTag:     category,
-		Breed:       "",
-		RationGroup: "",
-		HeadCount:   headCount,
+		// THE DESCRIPTIVE COLUMNS COME FROM THE LIVE ANIMALS, exactly as they do on a normal row.
+		//
+		// An experiment shed has no ration GRAIN -- its quantity is hand-authored and consults
+		// neither the tag vocabulary nor the breed map -- but it is still a shed full of animals,
+		// and "which animals am I feeding" is the question the operator walks in holding. These two
+		// columns used to be the experiment category and an empty string respectively, which meant
+		// a real shed of 63 Anantapur Sheep tagged F2-Male printed a blank breed and an arm name
+		// where its tag belongs. The arm now travels in its own field below.
+		ShedTag: describeGrains(shed.Grains, cfg, grainStage),
+		Breed:   describeGrains(shed.Grains, cfg, grainBreed),
+		// EMPTY ON PURPOSE, and it is the one column that genuinely has no experiment value: an
+		// absolute kg is not derived through a ration group, so naming one would invent a lookup
+		// that never happened. See DirectionRow.RationGroup.
+		RationGroup:   "",
+		ExperimentArm: category,
+		HeadCount:     headCount,
 		// The flag that stops anything downstream from multiplying by head count.
 		HeadCountInformational: true,
 		OverduePending:         overduePending,

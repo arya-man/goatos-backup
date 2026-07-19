@@ -1818,11 +1818,14 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_label: string;
-            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Empty for an experiment row, which has no ration grain; that column instead carries the experiment category. */
+            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY workflow from the animals actually in the shed: an experiment row has no ration grain, but its animals still carry a management stage. It never carries the experiment arm, which has its own `experiment_arm` field. A shed holding two stages reports both, joined by ` + `. */
             shed_tag: string;
-            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. */
+            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every workflow from the animals in the shed; a multi-breed shed reports every breed joined by ` + ` (`Beetal + Sojat`) rather than naming one and implying it is the only one. */
             breed: string;
+            /** @description What the breed resolved to in the ration grid. EMPTY on an experiment row, correctly: an absolute hand-authored kg never consults the breed -> ration-group map, so there is no group to report. That is a real state, not missing data, and must render as a deliberate blank. */
             ration_group: string;
+            /** @description The trial group a hand-authored experiment shed is enrolled in (`Sheep M NEW`); empty on every normal row. A SEPARATE field from `shed_tag` because the two are different facts: a tag is the animals' management stage and selects the ration course, an arm is which trial the shed is in and selects nothing, since the quantity is hand-entered. Mirrors the `Experiment arm` column Feed Config shows over the same authored value. */
+            experiment_arm: string;
             session_no: number;
             session_label: string;
             /**
@@ -1888,6 +1891,8 @@ export interface components {
             session_label: string;
             /** @enum {string} */
             workflow: "normal" | "experiment";
+            /** @description The trial group of a hand-authored experiment shed, empty on normal lines. Carried here as well as on the direction row so a packer knows which trial a bag belongs to without cross-referencing the direction sheet. Never a shed tag. */
+            experiment_arm: string;
             /**
              * Format: int64
              * @description The shed's projected head count, summed across its ration grains.

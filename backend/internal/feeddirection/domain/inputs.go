@@ -206,7 +206,11 @@ type DailyRow struct {
 	ShedTag     string
 	Breed       string
 	RationGroup string
-	HeadCount   int64
+	// ExperimentArm is the trial group an experiment shed belongs to. Empty on every normal row.
+	// It has its OWN field rather than borrowing ShedTag because an arm and a tag are different
+	// facts about the shed -- see DirectionRow.ExperimentArm.
+	ExperimentArm string
+	HeadCount     int64
 	// HeadCountInformational is true when the quantities were NOT derived from HeadCount -- the
 	// experiment workflow. See DirectionRow.HeadCountInformational.
 	HeadCountInformational bool

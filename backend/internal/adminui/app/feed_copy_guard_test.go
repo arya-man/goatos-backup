@@ -266,10 +266,23 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 		tableID string
 		want    []string
 	}{
+		// shed_tag and breed must BOTH stay, on every workflow. The defect they close is an
+		// experiment row printing its trial arm ("Sheep M NEW") under shed_tag while the shed's
+		// real tag ("F2-Male") and breed ("Anantapur Sheep") went unreported — one column meaning
+		// "management stage" on normal rows and "trial group" on experiment rows is a column an
+		// operator cannot read without first checking the workflow tag.
+		//
+		// experiment_arm is deliberately NOT a column: it is authoring context (which trial a shed
+		// is enrolled in), not something that changes what gets weighed out, and it is empty on
+		// every normal row. It is authored and shown on /feed/config. The row contract still
+		// carries the field, so re-adding a column is a rendering decision, not a data change —
+		// but it must never be re-merged into shed_tag.
 		{"feed-direction", "direction-rows", []string{
 			"shed", "shed_tag", "breed", "session", "head_count",
 			"feed_item", "quantity_kg", "session_total_kg", "status",
 		}},
+		// The packing worklist deliberately declares NO descriptive columns — a packer's unit of
+		// work is the bag, not the animal.
 		{"feed-packing", "packing-worklist", []string{
 			"shed", "session", "feed_item", "expected_kg", "status",
 		}},

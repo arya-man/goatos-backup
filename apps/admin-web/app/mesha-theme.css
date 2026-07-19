@@ -554,6 +554,15 @@
      a sideways scroll and returns zero density. 150px is the floor, not a fixed width — the column
      still grows if a longer feed item is authored. */
   .main table.feed-table th.feed-wrap,.main table.feed-table td.feed-wrap{white-space:normal;overflow-wrap:normal;word-break:normal;min-width:150px}
+  /* The EXPERIMENT ARM column, for the same reason as `.feed-wrap` and with a cap on top of it.
+     An arm is a free-text trial name and the live data already contains a 55-character one
+     ("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80"). Under the table's default nowrap
+     that single value set the whole column's width and pushed "Session total (kg)" off the card —
+     the exact failure `.feed-wrap` was introduced to fix, arriving through a new column. It wraps
+     on WORD boundaries only (never `anywhere`, so a trial name is not broken mid-token), and unlike
+     `.feed-wrap` it also takes a max-width: a feed item must stay readable at any length because it
+     names what to weigh out, whereas an arm is context and may safely run to a few lines. The floor
+     keeps the two-word common case ("Sheep M NEW") on one line. */
   /* The session total is the number the operator came for; it never shrinks below its own value. */
   .main table.feed-table th.feed-total,.main table.feed-table td.feed-total{min-width:132px}
   /* Below the widest layouts the table still scrolls, and on macOS the overlay scrollbar is

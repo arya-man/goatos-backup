@@ -86,6 +86,17 @@ const (
 	BlockReasonNoSessionTemplate = "no_session_template"
 )
 
+// MultiValueSeparator joins the distinct values of a descriptive column when a shed genuinely holds
+// more than one -- two breeds, or two management stages.
+//
+// LISTING BEATS COLLAPSING. The alternative, a bare "Mixed", tells an operator standing at the shed
+// door strictly less than the raw data does: they cannot tell Beetal + Sojat from Beetal +
+// Osmanabadi, and both exist in live data today (Yashoda 3 and Yashoda 4). Naming both values costs
+// a few characters of column width and keeps the cell readable as what it is. The separator is
+// surrounded by spaces so a value that itself contains a hyphen ('F2-Male') cannot be misread as a
+// join.
+const MultiValueSeparator = " + "
+
 // KidRationGroupLabel is the fixed ration group every kid resolves to, of every breed. The source
 // workbook literally stores the string 'Kid' in its breed column, which is why one group covers
 // them all and why the breed map is bypassed entirely for the kid course.
@@ -178,15 +189,43 @@ type DirectionRow struct {
 	ShedID    string `json:"shed_id"`
 	ShedLabel string `json:"shed_label"`
 	// ShedTag is the authored tag label the live management_stage normalized onto -- the canonical
-	// spelling, not the raw source text. Empty for an experiment row, which has no ration grain.
+	// spelling, not the raw source text.
+	//
+	// IT IS ALWAYS THE ANIMALS' TAG, on every workflow. An experiment row has no ration GRAIN, but
+	// the shed still HOLDS animals and those animals still carry a management stage, so this column
+	// reports it. It used to carry the experiment ARM instead, which made one column mean two
+	// different things depending on the workflow -- an operator reading 'Sheep M NEW' here had no
+	// way to know the shed's 63 animals are tagged 'F2-Male', and no way to trust the column on any
+	// other row either. The arm now has its own field; see ExperimentArm.
+	//
+	// MULTI-VALUED SHEDS ARE REPRESENTED HONESTLY. A shed holding two stages reports both, joined
+	// by MultiValueSeparator ("F2-Male + F2-Female"), never one of them silently chosen. Normal rows
+	// are single-valued by construction (the grain IS the tag), so this only ever has one value
+	// there.
 	ShedTag string `json:"shed_tag"`
 	// Breed is the raw live breed label; RationGroup is what it resolved to. Both are reported
 	// because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds that
 	// share one 'Beetal/Sirohi' group, and every kid breed collapses to 'Kid'.
-	Breed        string `json:"breed"`
-	RationGroup  string `json:"ration_group"`
-	SessionNo    int32  `json:"session_no"`
-	SessionLabel string `json:"session_label"`
+	//
+	// Like ShedTag, this is populated on EVERY workflow from the live animals in the shed, and a
+	// multi-breed shed (Yashoda 3 is Beetal + Sojat) reports both joined by MultiValueSeparator. A
+	// blank breed on a row that has a head count told the operator nothing about what is standing in
+	// the shed, which is the one thing they walk in holding.
+	Breed string `json:"breed"`
+	// RationGroup is EMPTY on an experiment row, correctly: an absolute hand-authored kg never
+	// consults the breed -> ration-group map, so there is no group to report. That is a real state,
+	// not missing data, and the renderer must show it as a deliberate blank rather than a hole.
+	RationGroup string `json:"ration_group"`
+	// ExperimentArm is the trial group a hand-authored experiment shed belongs to ('Sheep M NEW').
+	// Empty on every normal row.
+	//
+	// It is a SEPARATE field from ShedTag, not a reuse of it, because the two are different facts:
+	// a tag is the animals' management stage and drives the ration course, while an arm is which
+	// trial the shed is enrolled in and drives nothing at all -- the quantity is hand-entered. It
+	// mirrors the 'Experiment arm' column Feed Config already shows over the same authored value.
+	ExperimentArm string `json:"experiment_arm"`
+	SessionNo     int32  `json:"session_no"`
+	SessionLabel  string `json:"session_label"`
 	// HeadCount is the projected head count for this grain on the target date.
 	HeadCount int64 `json:"head_count"`
 	// HeadCountInformational is true when HeadCount did NOT drive the quantity. It is true for the
@@ -333,6 +372,10 @@ type PackingRow struct {
 	SessionNo    int32  `json:"session_no"`
 	SessionLabel string `json:"session_label"`
 	Workflow     string `json:"workflow"`
+	// ExperimentArm is the trial group of a hand-authored experiment shed, empty on normal lines.
+	// Carried here as well as on DirectionRow so the packer knows which trial a bag belongs to
+	// without cross-referencing the direction sheet -- the same authored value, never a shed tag.
+	ExperimentArm string `json:"experiment_arm"`
 	// HeadCount is the shed's projected head count, summed across its ration grains.
 	HeadCount int64 `json:"head_count"`
 	// Items is the SHED-level expected quantity per feed item -- the grains are already summed,

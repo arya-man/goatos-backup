@@ -297,6 +297,16 @@ func pages() []domain.PageContract {
 		// constant column here.
 		// ---------------------------------------------------------------------------
 		page("feed-direction", "/feed/direction", "/feed/direction", "Feed Direction", "Generated per-shed feed sheet for the selected day: projected head count x authored ration, split across the park's sessions.", "module-surface",
+			// shed_tag and breed report the ANIMALS on every workflow. The experiment arm
+			// is deliberately NOT a column: it names which trial a shed is enrolled in,
+			// which is authoring context rather than anything that changes what gets
+			// weighed out, and it is empty on every normal row. It lives on /feed/config
+			// where it is authored. What must never come back is the original defect —
+			// an experiment row printing its arm ("Sheep M NEW") under SHED TAG while the
+			// shed's real tag ("F2-Male") and breed ("Anantapur Sheep") went unreported,
+			// which made the tag column untrustworthy on every row, not just experiment
+			// ones. Dropping the column does not reinstate that: the API still returns
+			// experiment_arm as its own field, it is simply not rendered here.
 			[]domain.TableContract{tableP("direction-rows", "Feed Direction rows", "/feed-direction/generation-preview", []string{"shed", "shed_tag", "breed", "session", "head_count", "feed_item", "quantity_kg", "session_total_kg", "status"}, "direction_row", []int{10, 25, 50})}),
 		page("feed-packing", "/feed/packing", "/feed/packing", "Feed Packing", "Per-shed packing worklist for the selected day: what the store weighs out per shed, session and feed item.", "module-surface",
 			[]domain.TableContract{tableP("packing-worklist", "Packing worklist", "/feed-direction/generation-preview", []string{"shed", "session", "feed_item", "expected_kg", "status"}, "packing_row", []int{10, 25, 50})}),

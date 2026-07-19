@@ -703,6 +703,218 @@ func TestExperimentStrategyUsesAbsoluteKgAndIgnoresHeadCount(t *testing.T) {
 	}
 }
 
+// An experiment shed is still a shed FULL OF ANIMALS, and the operator has to be told which ones.
+//
+// The shipped defect: an experiment row reported breed "" and put the trial ARM in the SHED TAG
+// column. Live Castro 1 returned `shed_tag:"Sheep M NEW", breed:""` for a shed holding 63 Anantapur
+// Sheep tagged F2-Male — the two facts that say what is standing in the shed were the two facts
+// missing, and the one column that was populated meant something different than it does on every
+// other row of the same table.
+func TestExperimentRowCarriesTheLiveBreedAndShedTagOfTheAnimalsInTheShed(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "39.000", Category: "Sheep M NEW"},
+	}
+
+	rows := generate(cfg, shed(ShedGrain{
+		ManagementStage: "F2-Male",
+		Breed:           "Anantapur Sheep",
+		HeadCount:       63,
+	}), 1)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	row := rows[0]
+
+	if row.Breed != "Anantapur Sheep" {
+		t.Errorf("breed = %q, want %q — an operator cannot see what is in the shed from a blank breed", row.Breed, "Anantapur Sheep")
+	}
+	if row.ShedTag != "F2-Male" {
+		t.Errorf("shed_tag = %q, want the animals' authored tag %q", row.ShedTag, "F2-Male")
+	}
+	if row.ExperimentArm != "Sheep M NEW" {
+		t.Errorf("experiment_arm = %q, want %q", row.ExperimentArm, "Sheep M NEW")
+	}
+	// The regression itself: the arm must NEVER be in the tag column. Two meanings in one column is
+	// how a column stops being trustworthy on rows that were always correct.
+	if row.ShedTag == row.ExperimentArm {
+		t.Errorf("shed_tag == experiment_arm (%q) — the arm is overloading the tag column again", row.ShedTag)
+	}
+	// The ration group stays empty: an absolute kg never consults the breed -> group map.
+	if row.RationGroup != "" {
+		t.Errorf("ration_group = %q, want empty — no group is consulted on the experiment path", row.RationGroup)
+	}
+}
+
+// The raw live stage is reported through the AUTHORED tag vocabulary, exactly as the normal path
+// does it, so a cosmetic source variant does not print two spellings of one tag.
+//
+// It does NOT block when the stage is unknown, and that asymmetry with the normal path is the
+// point: the normal path blocks because it cannot pick a ration course without the tag, while an
+// experiment quantity is hand-entered and needs no course at all. Blanking the column would be
+// strictly less information than the raw text.
+func TestExperimentShedTagNormalizesButNeverBlocksOnAnUnknownStage(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		stage   string
+		wantTag string
+	}{
+		{"cosmetic variant resolves to the authored label", "icu- kid", "ICU-Kid"},
+		{"unknown stage falls back to the raw live text", "Nursery Pen 4", "Nursery Pen 4"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := testConfig()
+			cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+				{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "10.000", Category: "Trial A"},
+			}
+			rows := generate(cfg, shed(ShedGrain{ManagementStage: tc.stage, Breed: "Beetal", HeadCount: 4}), 1)
+			if len(rows) != 1 {
+				t.Fatalf("rows = %d, want 1", len(rows))
+			}
+			if rows[0].ShedTag != tc.wantTag {
+				t.Errorf("shed_tag = %q, want %q", rows[0].ShedTag, tc.wantTag)
+			}
+			if rows[0].Blocked {
+				t.Error("row blocked — an experiment quantity is hand-authored and does not depend on the tag resolving")
+			}
+			if got := *itemOf(t, rows[0], "Concentrate").QuantityKg; got != "5.000" {
+				t.Errorf("quantity = %q, want \"5.000\" — the tag must not affect an absolute kg", got)
+			}
+		})
+	}
+}
+
+// A MULTI-BREED experiment shed names every breed it holds. Yashoda 3 (Beetal + Sojat) and
+// Yashoda 4 (Beetal + Osmanabadi) are both live today, so collapsing to one breed would not merely
+// lose detail — it would print a specific wrong answer, and print the SAME wrong answer for two
+// sheds that hold different animals.
+//
+// The same rule covers multiple management stages. No live experiment shed has two today, but the
+// code must not assume that: the assumption is not enforced anywhere upstream, so a second stage
+// arriving tomorrow would silently drop one.
+func TestExperimentRowNamesEveryBreedAndStageInAMixedShed(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "20.000", Category: "Sheep M NEW"},
+	}
+
+	rows := generate(cfg, shed(
+		// Sojat leads on head count and must therefore read first; Beetal is the minority breed.
+		ShedGrain{ManagementStage: "F2-Male", Breed: "Beetal", HeadCount: 8},
+		ShedGrain{ManagementStage: "K0", Breed: "Sojat", HeadCount: 25},
+	), 1)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1 row for the whole experiment shed", len(rows))
+	}
+	row := rows[0]
+
+	if row.Breed != "Sojat + Beetal" {
+		t.Errorf("breed = %q, want %q — both breeds named, dominant first", row.Breed, "Sojat + Beetal")
+	}
+	if row.ShedTag != "K0 + F2-Male" {
+		t.Errorf("shed_tag = %q, want %q — multiple stages are listed, not collapsed to one", row.ShedTag, "K0 + F2-Male")
+	}
+	// Head count still sums the whole shed, and the arm is unaffected by the mix.
+	if row.HeadCount != 33 {
+		t.Errorf("head_count = %d, want 33", row.HeadCount)
+	}
+	if row.ExperimentArm != "Sheep M NEW" {
+		t.Errorf("experiment_arm = %q, want %q", row.ExperimentArm, "Sheep M NEW")
+	}
+}
+
+// REGRESSION GUARD: the descriptive columns are descriptive ONLY. Adding breed/tag reporting to the
+// experiment path must not have moved a single gram — the whole point of the experiment workflow is
+// that its quantity is a hand-authored shed absolute, unrelated to which animals are in the shed.
+//
+// Pinned to the live figure the maintainer verified: Castro 1, 39.000 kg per session.
+func TestExperimentQuantityIsUnaffectedByBreedAndTagReporting(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "78.000", Category: "Sheep M NEW"},
+	}
+
+	// Three sheds that differ in every descriptive way and in head count, and must not differ by one
+	// gram: single breed, mixed breed, and no grains at all.
+	for _, tc := range []struct {
+		name   string
+		grains []ShedGrain
+	}{
+		{"single breed", []ShedGrain{{ManagementStage: "F2-Male", Breed: "Anantapur Sheep", HeadCount: 63}}},
+		{"mixed breed", []ShedGrain{
+			{ManagementStage: "F2-Male", Breed: "Beetal", HeadCount: 8},
+			{ManagementStage: "K0", Breed: "Sojat", HeadCount: 400},
+		}},
+		{"no projected animals", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rows := generate(cfg, shed(tc.grains...), 1)
+			if len(rows) != 1 {
+				t.Fatalf("rows = %d, want 1", len(rows))
+			}
+			// 78 kg/day x 0.5 = 39 kg for the session.
+			if got := *itemOf(t, rows[0], "Concentrate").QuantityKg; got != "39.000" {
+				t.Fatalf("session quantity = %q, want \"39.000\"", got)
+			}
+			if got := rows[0].SessionTotalKg; got != "39.000" {
+				t.Fatalf("session_total_kg = %q, want \"39.000\"", got)
+			}
+		})
+	}
+}
+
+// The packing worklist carries the arm too, so a packer knows which trial a bag belongs to without
+// cross-referencing the direction sheet. It must be the ARM, never the shed tag.
+func TestPackingLineCarriesTheExperimentArm(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "78.000", Category: "Sheep M NEW"},
+	}
+
+	rows := generate(cfg, shed(ShedGrain{ManagementStage: "F2-Male", Breed: "Anantapur Sheep", HeadCount: 63}), 1)
+	lines := BuildPackingRows(rows, cfg.FeedItems)
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(lines))
+	}
+	if lines[0].ExperimentArm != "Sheep M NEW" {
+		t.Errorf("packing experiment_arm = %q, want %q", lines[0].ExperimentArm, "Sheep M NEW")
+	}
+	if lines[0].TotalKg != "39.000" {
+		t.Errorf("packing total_kg = %q, want \"39.000\" — the rollup must match the direction sheet exactly", lines[0].TotalKg)
+	}
+}
+
+// A NORMAL row never carries an arm. The field is not a general-purpose label, and a normal shed
+// that acquired one would put a trial name on an animal that is not in a trial.
+func TestNormalRowsCarryNoExperimentArm(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "200.000")
+	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Hybrid", "500.000")
+
+	rows := generate(cfg, shed(ShedGrain{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 10}), 1)
+	if len(rows) == 0 {
+		t.Fatal("no rows generated")
+	}
+	for _, row := range rows {
+		if row.ExperimentArm != "" {
+			t.Errorf("normal row carries experiment_arm %q, want empty", row.ExperimentArm)
+		}
+	}
+	for _, line := range BuildPackingRows(rows, cfg.FeedItems) {
+		if line.ExperimentArm != "" {
+			t.Errorf("normal packing line carries experiment_arm %q, want empty", line.ExperimentArm)
+		}
+	}
+}
+
 // The experiment planner OWNS a shed that has authored rows, so the normal grid path must not run
 // for it at all -- even when the grid would have resolved.
 func TestExperimentPlannerTakesPrecedenceOverTheGrid(t *testing.T) {
