@@ -148,6 +148,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
 
@@ -204,6 +205,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
 
@@ -260,6 +262,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
             val captured = (
@@ -303,6 +306,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
 
@@ -352,6 +356,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
 
@@ -400,13 +405,15 @@ class CaptureRepositoryTest {
                 ),
             )
 
-            DefaultProofCaptureRepository(
+            val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = backgroundScope,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
-            advanceUntilIdle()
+            // Drive reconciliation explicitly (awaited) rather than racing the fire-and-forget init.
+            repo.reconcileRecoverableUploadsNow()
 
             val row = db.proofCaptureDao().findById("proof-orphan")
             assertEquals(1, sync.enqueueCalls.size)
@@ -438,6 +445,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
             advanceUntilIdle()
@@ -470,6 +478,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
             val firstScanInstance = DefaultScanCaptureRepository(db.scannedGoatDao(), dispatchers = unconfinedDispatchers)
@@ -496,6 +505,7 @@ class CaptureRepositoryTest {
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
                 appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
             val secondScanInstance = DefaultScanCaptureRepository(db.scannedGoatDao(), dispatchers = unconfinedDispatchers)
@@ -601,6 +611,11 @@ private class FakeSyncRepository : SyncRepository {
         localFilePath: String,
         durationMs: Long?,
     ): AppResult<String> {
+        // Mirror the real outbox's idempotency (ON CONFLICT (tenant, idempotency_key)): a repeat
+        // enqueue of the SAME proof (capture() and the init-block reconciliation both enqueue the
+        // same stable idempotencyKey) returns the EXISTING outbox id instead of minting a new one.
+        // Without this the fake handed out outbox-0 AND outbox-1 and the winner raced the assertions.
+        enqueueCalls.firstOrNull { it.idempotencyKey == idempotencyKey }?.let { return AppResult.Ok(it.outboxItemId) }
         val id = "outbox-${nextId++}"
         enqueueCalls += EnqueueCall(idempotencyKey, id, request)
         status.value = status.value.copy(

@@ -310,6 +310,11 @@ class DefaultProofCaptureRepository(
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+    // Production always reconciles orphan uploads on construction. Tests set this false to drive
+    // reconcileRecoverableUploadsNow() explicitly (awaited) instead of racing the fire-and-forget
+    // init launch — Room's suspend @Query runs on Room's own executor, so a virtual-clock
+    // advanceUntilIdle() cannot deterministically await the init launch.
+    reconcileOnStartup: Boolean = true,
 ) : ProofCaptureRepository {
 
     // R50-029: reconciliation is keyset-based (monotonic row-value cursor), never wall-clock.
@@ -326,8 +331,10 @@ class DefaultProofCaptureRepository(
         // so a slow/large recovery walk cannot delay first frame or any other DI consumer of this
         // repository. reconcileRecoverableUploadsNow() itself walks bounded ~20-row keyset pages
         // instead of reading up to MAX_PROOFS_PER_TASK rows in one shot.
-        appScope.launch(dispatchers.io) {
-            reconcileRecoverableUploadsNow()
+        if (reconcileOnStartup) {
+            appScope.launch(dispatchers.io) {
+                reconcileRecoverableUploadsNow()
+            }
         }
     }
 
