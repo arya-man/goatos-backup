@@ -7,7 +7,6 @@ import {
   getFeedDirectionPreview,
   listFeedConfigSessionTemplates,
   type FeedDirectionPreviewPage,
-  type FeedDirectionRow,
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -21,6 +20,7 @@ import {
   FeedQuantityCell,
   FeedWorkflowTag,
 } from "./feed-quantity";
+import { isNothingToFeed, visibleOperationalFeedItems } from "./feed-quantity-state";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 
 // Feed -> Feed Direction. The generated feed sheet for ONE park and ONE Asia/Kolkata business day:
@@ -30,6 +30,12 @@ import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope"
 //
 //  1. BLOCKED IS NOT ZERO. Handled once, in feed-quantity.tsx — read the header there before
 //     touching any quantity rendering. A blocked cell has no number and must never acquire one.
+//     This screen also HIDES configured-zero item lines (`visibleOperationalFeedItems`): a line
+//     reading "0.000 kg RGS Concentrate" is an instruction to do nothing, printed among the
+//     instructions to do something. Blocked lines are never hidden — the filter keys off the
+//     `configured_zero` class, not off "there is no number to show", which is the mistake that would
+//     take blocked with it. The omission is disclosed under the table so an absent line can only be
+//     read as a deliberate zero.
 //
 //  2. THE HEAD COUNT IS A PROJECTION, NOT A CENSUS. It is the live herd PLUS approved movements that
 //     are already feed-effective for the selected day. It is not how many animals are standing in the
@@ -48,9 +54,14 @@ import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope"
 const PAGE_PATH = "/feed/direction";
 const DEFAULT_PAGE_SIZE = 10;
 
-/** One table line per (row, feed item). Shed-level cells span the shed's item lines. */
-function itemLineCount(row: FeedDirectionRow): number {
-  return Math.max(1, row.items.length);
+/**
+ * One table line per VISIBLE (row, feed item). Shed-level cells span the shed's visible item lines.
+ *
+ * Counted from the visible items, not `row.items` — spanning the unfiltered count would leave the
+ * shed/breed/session cells stretching over rows that are no longer rendered, pulling the table apart.
+ */
+function itemLineCount(visibleItems: readonly unknown[]): number {
+  return Math.max(1, visibleItems.length);
 }
 
 export async function FeedDirectionPage({
@@ -272,9 +283,14 @@ export async function FeedDirectionPage({
                 </tr>
               ) : (
                 rows.flatMap((row) => {
-                  const span = itemLineCount(row);
+                  // Configured zeros drop out here. Blocked items are NOT touched by this filter.
+                  const visibleItems = visibleOperationalFeedItems(row.items);
+                  // Every item this shed has was authored at 0 — a real, explainable state that must
+                  // render as a stated "nothing to feed", never as an empty hole in the table.
+                  const nothingToFeed = isNothingToFeed(row.items);
+                  const span = itemLineCount(visibleItems);
                   const rowKey = `${row.shed_id}|${row.ration_group}|${row.breed}|${row.session_no}`;
-                  const items = row.items.length > 0 ? row.items : [null];
+                  const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
                     <tr key={`${rowKey}|${item ? item.feed_item : "none"}`}>
@@ -340,6 +356,13 @@ export async function FeedDirectionPage({
                             <FeedQuantityCell item={item} pageContract={pageContract} />
                           </td>
                         </>
+                      ) : nothingToFeed ? (
+                        /* Every item was a configured zero. Say so across the item + quantity columns
+                           rather than leaving two placeholder dashes, which would read as missing
+                           data — the one meaning this shed's state is NOT. */
+                        <td className="muted feed-wrap" colSpan={2}>
+                          {copy(pageContract, "empty.nothing_to_feed")}
+                        </td>
                       ) : (
                         <>
                           <td className="muted feed-wrap">{copy(pageContract, "label.placeholder")}</td>
@@ -381,6 +404,13 @@ export async function FeedDirectionPage({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* The omission is disclosed once, under the table it applies to — not per row. Without it a
+            reader who expects an item and cannot find it has no way to tell "authored as 0" from
+            "dropped", and those have opposite consequences. */}
+        <div className="note" style={{ marginTop: 12 }}>
+          {copy(pageContract, "label.zero_items_omitted")}
         </div>
 
         <FeedPager

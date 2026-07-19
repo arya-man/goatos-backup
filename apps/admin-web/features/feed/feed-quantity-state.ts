@@ -51,3 +51,60 @@ export function classifyFeedQuantity(item: FeedQuantityInput): FeedQuantityState
   if (typeof item.quantity_kg !== "string" || item.quantity_kg.trim() === "") return "blocked";
   return isConfiguredZeroQuantity(item.quantity_kg) ? "configured_zero" : "planned";
 }
+
+// -------------------------------------------------------------------------------------------------
+// OPERATIONAL-SHEET VISIBILITY
+//
+// Feed Direction and Feed Packing are the sheets someone works FROM. A line saying "pack 0.000 kg of
+// RGS Concentrate" is not an instruction — it is an instruction to do nothing, printed among the
+// instructions to do something, and it lengthens the sheet in proportion to how many items the park
+// has authored as zero. Castro 1 lists 5 items of which 3 are configured zero; the packer needs 2.
+//
+// So configured zero is hidden on the operational sheets. It is NOT hidden on Feed Config: that is the
+// AUTHORING surface, where a rate of 0 is the thing being edited and "Configured zero" is the useful
+// fact on screen.
+//
+// The predicate below is deliberately written as an equality against the `configured_zero` CLASS, not
+// as a test on the quantity. The tempting version —
+//
+//     if (!item.quantity_kg) hide            // WRONG
+//     if (isConfiguredZeroQuantity(...)) hide // WRONG on its own
+//
+// — hides BLOCKED cells too, because blocked carries `quantity_kg: null`. That inverts the entire
+// point of this module: a blocked cell is the loud, locatable "nobody has said what to feed these
+// animals" marker, and hiding it converts a visible gap into a silent one, on the exact sheet an
+// operator uses to decide a shed is done. Routing through classifyFeedQuantity makes that
+// unreachable: `blocked` is returned before any quantity is inspected, so no quantity shape — null,
+// empty, "0.000", or absent — can ever produce a hidden blocked cell.
+// -------------------------------------------------------------------------------------------------
+
+/**
+ * True only for an authored zero on a resolved cell — the one state hidden from Feed Direction and
+ * Feed Packing. Blocked is structurally excluded: it classifies as `blocked` before its (null)
+ * quantity is ever looked at.
+ */
+export function isHiddenOnOperationalSheet(item: FeedQuantityInput): boolean {
+  return classifyFeedQuantity(item) === "configured_zero";
+}
+
+/**
+ * The item lines an operational sheet renders: everything except configured zero.
+ *
+ * Returns the same array identity-wise unfiltered when nothing is hidden, and preserves order.
+ * Blocked and planned lines always survive.
+ */
+export function visibleOperationalFeedItems<T extends FeedQuantityInput>(items: readonly T[]): T[] {
+  return items.filter((item) => !isHiddenOnOperationalSheet(item));
+}
+
+/**
+ * True when a shed/session genuinely had item lines but every one of them was a configured zero —
+ * the "nothing to feed this session" state.
+ *
+ * Distinct from "no items at all", which is a different (backend) condition, and distinct from a row
+ * whose items are blocked: a blocked row always has at least one visible line, so it can never land
+ * here.
+ */
+export function isNothingToFeed(items: readonly FeedQuantityInput[]): boolean {
+  return items.length > 0 && visibleOperationalFeedItems(items).length === 0;
+}

@@ -5,7 +5,6 @@ import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/l
 import {
   firstAuthRequiredError,
   getFeedPackingWorklist,
-  type FeedPackingRow,
   type FeedPackingWorklistPage,
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
@@ -15,6 +14,7 @@ import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import { FeedQuantityCell, FeedWorkflowTag, isBlockedItem } from "./feed-quantity";
+import { isNothingToFeed, visibleOperationalFeedItems } from "./feed-quantity-state";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 
 // Feed -> Feed Packing. The same generated day as Feed Direction, collapsed to the line a packer
@@ -32,6 +32,12 @@ import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope"
 //   empty   — the shed holds no projected animals. That is not a configuration gap and must never be
 //             shown as one.
 //
+// Configured-zero lines are HIDDEN here (`visibleOperationalFeedItems`): nobody needs a line telling
+// them to weigh out 0.000 kg of RGS Concentrate. Blocked lines are never hidden — the filter keys off
+// the `configured_zero` class rather than off "no number to show", which is what would sweep blocked
+// up with it and send a packer out believing a shed with no authored ration was complete. The
+// omission is disclosed under the table.
+//
 // KPI cards and the store draw come from `summary`, which is WHOLE-SCOPE (`scope === "filtered"`)
 // and invariant to limit/offset. They are never computed from the visible rows: a page subtotal
 // presented as the day's truth is what sends a packer out with a fraction of the load.
@@ -39,8 +45,9 @@ import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope"
 const PAGE_PATH = "/feed/packing";
 const DEFAULT_PAGE_SIZE = 10;
 
-function itemLineCount(row: FeedPackingRow): number {
-  return Math.max(1, row.items.length);
+/** Spans are counted from the VISIBLE items — see the twin note in feed-direction.tsx. */
+function itemLineCount(visibleItems: readonly unknown[]): number {
+  return Math.max(1, visibleItems.length);
 }
 
 function statusTone(status: string): string {
@@ -235,9 +242,12 @@ export async function FeedPackingPage({
                 </tr>
               ) : (
                 rows.flatMap((row) => {
-                  const span = itemLineCount(row);
+                  // Configured zeros drop out here. Blocked items are NOT touched by this filter.
+                  const visibleItems = visibleOperationalFeedItems(row.items);
+                  const nothingToFeed = isNothingToFeed(row.items);
+                  const span = itemLineCount(visibleItems);
                   const rowKey = `${row.shed_id}|${row.session_no}`;
-                  const items = row.items.length > 0 ? row.items : [null];
+                  const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
                     <tr key={`${rowKey}|${item ? item.feed_item : "none"}`}>
@@ -268,6 +278,12 @@ export async function FeedPackingPage({
                             <FeedQuantityCell item={item} pageContract={pageContract} />
                           </td>
                         </>
+                      ) : nothingToFeed ? (
+                        /* Every item authored at 0 — stated, not left as two blank dashes that would
+                           read as missing data. */
+                        <td className="muted" colSpan={2}>
+                          {copy(pageContract, "empty.nothing_to_feed")}
+                        </td>
                       ) : (
                         <>
                           <td className="muted">{copy(pageContract, "label.placeholder")}</td>
@@ -305,6 +321,11 @@ export async function FeedPackingPage({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Disclosed once, under the table it applies to. */}
+        <div className="note" style={{ marginTop: 12 }}>
+          {copy(pageContract, "label.zero_items_omitted")}
         </div>
 
         <FeedPager

@@ -74,6 +74,67 @@ func TestFeedBlockedCopyIsNeverReadAsZero(t *testing.T) {
 	}
 }
 
+// TestFeedZeroOmissionCopyPromisesBlockedStaysVisible guards the disclosure that Feed Direction and
+// Feed Packing print because they HIDE configured-zero item lines (an authored 0 g/head is a real
+// instruction to feed none of that item, and a "pack 0.000 kg" line is noise on a working sheet).
+//
+// Hiding anything from an operational sheet creates a reading hazard: an operator who expects RGS
+// Concentrate and does not find it has to be able to conclude "authored as zero" and NOT "the rate is
+// missing". Those have opposite consequences — the second means the shed goes unfed. The copy is
+// therefore only safe if it states BOTH halves: that zeros are omitted, and that a missing rate never
+// is. This asserts the second half survives any future rewording, because a copy edit that drops it
+// silently converts a documented omission into an unexplained one.
+//
+// It also pins the scope: feed-config is the AUTHORING surface and hides nothing, so it must not
+// declare this key at all — the ration grid is exactly where a rate of 0 must stay visible and
+// editable.
+func TestFeedZeroOmissionCopyPromisesBlockedStaysVisible(t *testing.T) {
+	for _, routeID := range []string{"feed-direction", "feed-packing"} {
+		copyMap := pageSpecificCopy(routeID)
+
+		omitted, ok := copyMap["label.zero_items_omitted"]
+		if !ok || strings.TrimSpace(omitted) == "" {
+			t.Fatalf("%s page copy is missing key %q — the sheet hides rows without saying so", routeID, "label.zero_items_omitted")
+		}
+		lower := strings.ToLower(omitted)
+		// The omission itself must be stated.
+		if !strings.Contains(lower, "0 g/head") && !strings.Contains(lower, "zero") {
+			t.Errorf(
+				"%s label.zero_items_omitted = %q must name WHAT is omitted (items authored at 0 g/head), or a reader cannot tell an omitted line from a missing one",
+				routeID, omitted,
+			)
+		}
+		// The load-bearing half: a blocked/unauthored item is never among the hidden rows.
+		if !strings.Contains(lower, "never hidden") {
+			t.Errorf(
+				"%s label.zero_items_omitted = %q must promise that items with NO authored rate are NEVER hidden — without that sentence an absent line is ambiguous between 'fed none of it' and 'nobody said what to feed', which is the starvation reading",
+				routeID, omitted,
+			)
+		}
+		if !strings.Contains(lower, "no authored rate") && !strings.Contains(lower, "no ration configured") {
+			t.Errorf(
+				"%s label.zero_items_omitted = %q must name the blocked state it exempts from hiding",
+				routeID, omitted,
+			)
+		}
+
+		// The per-session empty state that replaces a shed whose every item was a configured zero.
+		nothing, ok := copyMap["empty.nothing_to_feed"]
+		if !ok || strings.TrimSpace(nothing) == "" {
+			t.Fatalf("%s page copy is missing key %q — an all-zero shed would render as a blank hole", routeID, "empty.nothing_to_feed")
+		}
+	}
+
+	// Feed Config authors rates; it must never hide a zero.
+	configCopy := pageSpecificCopy("feed-config")
+	if _, ok := configCopy["label.zero_items_omitted"]; ok {
+		t.Errorf(
+			"feed-config declares %q, but the ration grid is the authoring surface — a rate of 0 must stay visible and editable there, so nothing is omitted and no omission notice belongs on the page",
+			"label.zero_items_omitted",
+		)
+	}
+}
+
 // TestFeedPagesDeclareRequiredCopy fails fast on the single most common way this contract breaks:
 // the frontend calls copy(key) and it THROWS at render time when the key is absent. Every key
 // listed here is a real product state the Feed pages must be able to name.
@@ -91,7 +152,8 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 			"label.overdue_shifting", "label.overdue_shifting_note",
 			"label.workflow_normal", "label.workflow_normal_note",
 			"label.workflow_experiment", "label.workflow_experiment_note",
-			"empty.direction", "empty.direction_filtered",
+			"label.zero_items_omitted",
+			"empty.direction", "empty.direction_filtered", "empty.nothing_to_feed",
 			"state.direction_unavailable", "state.generation_blocked",
 		},
 		"feed-packing": {
@@ -104,7 +166,8 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 			"label.overdue_shifting", "label.overdue_shifting_note",
 			"label.workflow_normal", "label.workflow_normal_note",
 			"label.workflow_experiment", "label.workflow_experiment_note",
-			"empty.packing", "empty.packing_filtered",
+			"label.zero_items_omitted",
+			"empty.packing", "empty.packing_filtered", "empty.nothing_to_feed",
 			"state.packing_unavailable", "state.generation_blocked",
 		},
 		"feed-config": {
