@@ -151,14 +151,14 @@ func (r *Repository) CompleteShiftingEvent(
 	}
 
 	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
-		TenantID:    in.TenantID,
-		ActorID:     in.CompletedByUserID,
-		GoatIDs:     goatIDs,
-		FromParkID:  sourceParkID,
-		FromShedID:  sourceShedID,
-		ToParkID:    destParkID,
-		ToShedID:    destShedID,
-		Reason:      "counts shifting completion " + in.ShiftingEventID,
+		TenantID:   in.TenantID,
+		ActorID:    in.CompletedByUserID,
+		GoatIDs:    goatIDs,
+		FromParkID: sourceParkID,
+		FromShedID: sourceShedID,
+		ToParkID:   destParkID,
+		ToShedID:   destShedID,
+		Reason:     "counts shifting completion " + in.ShiftingEventID,
 		// The relocation is stamped with the moment of COMPLETION, not of approval: the animals'
 		// location history must read when they moved, not when someone permitted it.
 		OccurredAt: in.CompletedAt,
