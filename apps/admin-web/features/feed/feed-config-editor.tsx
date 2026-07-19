@@ -5,6 +5,7 @@ import { Pencil } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigActionResult } from "./feed-config-actions";
+import { afterSubmit, CLOSED_STATE, openIntent, type FeedConfigIdempotencyState } from "./feed-config-idempotency";
 
 // Inline editors for the three writable Feed Config surfaces.
 //
@@ -42,21 +43,31 @@ function FeedConfigFormShell({
   editLabel: string;
   openLabel: string;
 }) {
-  const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<FeedConfigActionResult | null>(null);
+  // The idempotency-key lifecycle (mint on open, reuse across retries, rotate only after a
+  // confirmed success) is a pure state machine in feed-config-idempotency.ts, tested there
+  // directly so the retry/replay behavior does not require mounting this component.
+  const [idem, setIdem] = useState<FeedConfigIdempotencyState>(CLOSED_STATE);
+
+  function handleOpen() {
+    setResult(null);
+    setIdem(openIntent(() => crypto.randomUUID()));
+  }
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     startTransition(async () => {
-      setResult(await action(formData));
+      const outcome = await action(formData);
+      setResult(outcome);
+      setIdem((prev) => afterSubmit(prev, outcome.ok, () => crypto.randomUUID()));
     });
   }
 
-  if (!open) {
+  if (!idem.open) {
     return (
-      <button type="button" className="btn sm" onClick={() => setOpen(true)} title={openLabel}>
+      <button type="button" className="btn sm" onClick={handleOpen} title={openLabel}>
         <Pencil className="ic" aria-hidden="true" />
         {editLabel}
       </button>
@@ -65,12 +76,13 @@ function FeedConfigFormShell({
 
   return (
     <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
+      <input type="hidden" name="idempotency_key" value={idem.key ?? ""} />
       {children}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <button type="submit" className="btn sm p" disabled={pending}>
           {pending ? copy(pageContract, "state.loading") : copy(pageContract, "action.apply")}
         </button>
-        <button type="button" className="btn sm" onClick={() => setOpen(false)} disabled={pending}>
+        <button type="button" className="btn sm" onClick={() => setIdem(CLOSED_STATE)} disabled={pending}>
           {copy(pageContract, "action.cancel")}
         </button>
       </div>

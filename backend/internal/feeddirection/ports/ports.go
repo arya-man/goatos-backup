@@ -36,6 +36,23 @@ var (
 	// defect class the whole-scope summary was built to remove, so hitting the bound must FAIL
 	// rather than under-report. See the summary contract on domain.PreviewSummary.
 	ErrScopeTooLarge = errors.New("feeddirection: filtered scope is too large to summarize in one request")
+	// ErrPastDateRegenerationBlocked is returned when a Preview/PackingWorklist request targets a
+	// business date strictly before today.
+	//
+	// TODO(feed-followup): persist an immutable generation/count/config snapshot per park/date,
+	// then allow past-date regeneration against that snapshot instead of live state.
+	//
+	// INTERIM SAFETY RULE, not the final design: this generator has no persisted "direction"
+	// record yet -- every Preview/PackingWorklist call recomputes the whole thing from
+	// LoadConfigSnapshot (config AS OF the target date) and the counts module's CURRENT herd/
+	// experiment/shifting state (see feeddirection/adapters/counts.Reader and
+	// LoadConfigSnapshot's asOf comment). Config is genuinely effective-dated; the herd/shed-scope
+	// side is NOT -- ListShedScope and ProjectedGrainsForSheds always read today's goats/shed
+	// rows, with no "as of that day" replay. So reopening a PAST business date silently rewrites
+	// that day's direction with today's herd and shed-scope facts, not the facts that were true on
+	// the day being planned. Rejecting the request until an immutable per-park/date snapshot
+	// exists is safer than serving a plausible-looking but wrong historical sheet.
+	ErrPastDateRegenerationBlocked = errors.New("feeddirection: cannot regenerate a past business date; only today or a future business date is allowed until immutable per-date snapshots exist")
 )
 
 // Shed is one shed in the scope.

@@ -141,7 +141,10 @@ func newTestService() (*Service, *fakeConfigRepo, *fakeCountsReader) {
 			{ManagementStage: "Non-Pregnant", Breed: "Sirohi", HeadCount: 4},
 		},
 	}}
-	return NewService(config, counts), config, counts
+	// Pinned to targetDate() rather than time.Now(): these fixtures test generation shape (paging,
+	// summaries, error propagation), not the past-date regeneration guard, so "today" must track
+	// the fixed target date regardless of when the suite actually runs.
+	return NewService(config, counts).WithNowFunc(func() time.Time { return targetDate() }), config, counts
 }
 
 func targetDate() time.Time {
@@ -544,7 +547,7 @@ func TestRepositoryErrorsPropagateRatherThanReturningAnEmptyPage(t *testing.T) {
 	// answer a feed surface must never give by accident.
 	sentinel := errors.New("boom")
 	config := &fakeConfigRepo{err: sentinel}
-	service := NewService(config, &fakeCountsReader{})
+	service := NewService(config, &fakeCountsReader{}).WithNowFunc(func() time.Time { return targetDate() })
 	if _, err := service.Preview(context.Background(), domain.PreviewQuery{
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	}); !errors.Is(err, sentinel) {
@@ -555,7 +558,7 @@ func TestRepositoryErrorsPropagateRatherThanReturningAnEmptyPage(t *testing.T) {
 func TestParkNotFoundPropagates(t *testing.T) {
 	t.Parallel()
 	config := &fakeConfigRepo{err: ports.ErrParkNotFound}
-	service := NewService(config, &fakeCountsReader{})
+	service := NewService(config, &fakeCountsReader{}).WithNowFunc(func() time.Time { return targetDate() })
 	if _, err := service.Preview(context.Background(), domain.PreviewQuery{
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	}); !errors.Is(err, ports.ErrParkNotFound) {
@@ -652,4 +655,58 @@ func kgToGrams(t *testing.T, kg string) int64 {
 		t.Fatalf("quantity %q is not a whole number of grams", kg)
 	}
 	return rat.Num().Int64()
+}
+
+// TestPreviewRejectsPastBusinessDate is the P1 follow-up interim safety test: until an immutable
+// per-park/date config+count snapshot exists (see ports.ErrPastDateRegenerationBlocked), Preview
+// and PackingWorklist must REJECT a target date before "today" rather than silently recomputing
+// that historical day's direction from today's live herd/experiment/shed-scope state.
+func TestPreviewRejectsPastBusinessDate(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+	// "Today" is pinned to targetDate() by newTestService; a day before it must be rejected.
+	pastDate := targetDate().AddDate(0, 0, -1)
+
+	_, err := service.Preview(context.Background(), domain.PreviewQuery{
+		TenantID: testTenant, ParkID: testPark, TargetDate: pastDate,
+	})
+	if !errors.Is(err, ports.ErrPastDateRegenerationBlocked) {
+		t.Fatalf("Preview(past date) err = %v, want ErrPastDateRegenerationBlocked", err)
+	}
+}
+
+// TestPackingWorklistRejectsPastBusinessDate is the PackingWorklist twin of the Preview guard
+// above -- both surfaces recompute from the same live state, so both must reject the same way.
+func TestPackingWorklistRejectsPastBusinessDate(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+	pastDate := targetDate().AddDate(0, 0, -1)
+
+	_, err := service.PackingWorklist(context.Background(), domain.PackingQuery{
+		TenantID: testTenant, ParkID: testPark, TargetDate: pastDate,
+	})
+	if !errors.Is(err, ports.ErrPastDateRegenerationBlocked) {
+		t.Fatalf("PackingWorklist(past date) err = %v, want ErrPastDateRegenerationBlocked", err)
+	}
+}
+
+// TestPreviewAllowsTodayAndFutureBusinessDate proves the guard is scoped to STRICTLY-past dates:
+// generating today's or a future day's direction is the normal, allowed operation.
+func TestPreviewAllowsTodayAndFutureBusinessDate(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+
+	for _, tc := range []struct {
+		name string
+		date time.Time
+	}{
+		{"today", targetDate()},
+		{"future", targetDate().AddDate(0, 0, 3)},
+	} {
+		if _, err := service.Preview(context.Background(), domain.PreviewQuery{
+			TenantID: testTenant, ParkID: testPark, TargetDate: tc.date,
+		}); err != nil {
+			t.Fatalf("Preview(%s) unexpected error: %v", tc.name, err)
+		}
+	}
 }

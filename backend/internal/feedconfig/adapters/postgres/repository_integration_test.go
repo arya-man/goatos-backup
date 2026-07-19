@@ -400,7 +400,7 @@ func TestUpsertRationRateRejectsNonParkLocation(t *testing.T) {
 	repo := fcRepo(pool)
 
 	cmd := rateCommand("key-badpark-001", "fp-a", "250.000", "2026-07-19")
-	cmd.ParkID = fcShed // a real location, but a SHED
+	cmd.ParkID = fcShed                                                          // a real location, but a SHED
 	if _, err := repo.UpsertRationRate(ctx, cmd); err != ports.ErrParkNotFound { //nolint:errorlint // sentinel comparison is the contract here
 		t.Fatalf("error = %v, want ErrParkNotFound", err)
 	}
@@ -820,5 +820,100 @@ WHERE tenant_id = $1::uuid AND idempotency_key = 'key-audit-0002'`, fcTenant).
 	// cannot be walked from the ledger.
 	if resultRow != second.ResultRowID || supersededRow != first.ResultRowID {
 		t.Fatalf("ledger rows = (%s, %s), want (%s, %s)", resultRow, supersededRow, second.ResultRowID, first.ResultRowID)
+	}
+}
+
+// experimentCommand builds an UpsertExperimentConfigCommand for the fixture shed. Each call needs
+// its own idempotency key/fingerprint unless the test deliberately reuses them.
+func experimentCommand(key, fingerprint, itemLabel, kg string) domain.UpsertExperimentConfigCommand {
+	return domain.UpsertExperimentConfigCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
+			IdempotencyKey: key, RequestFingerprint: fingerprint,
+		},
+		ParkID: fcPark, ShedID: fcShed, FeedItemLabel: itemLabel, AbsoluteKg: kg,
+		ExperimentCategory: "control",
+	}
+}
+
+// experimentShedStatuses returns every experiment_config row's status for the fixture shed, so a
+// test can assert the WHOLE shed, not just the edited cell.
+func experimentShedStatuses(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[string]string {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+SELECT feed_item_label, status
+FROM feed_experiment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid`, fcTenant, fcPark, fcShed)
+	if err != nil {
+		t.Fatalf("read experiment shed statuses: %v", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var label, status string
+		if err := rows.Scan(&label, &status); err != nil {
+			t.Fatalf("scan experiment shed status: %v", err)
+		}
+		out[label] = status
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate experiment shed statuses: %v", err)
+	}
+	return out
+}
+
+// TestUpsertExperimentConfigReactivatesWholeShedNotJustEditedCell is the P1 follow-up regression
+// test: retiring a five-item shed then editing ONE old cell must bring the WHOLE shed back to
+// 'active', not just the edited row. Before the fix, feeddirection's LoadConfigSnapshot (which
+// loads only active rows and treats that set as the complete experiment list --
+// ExperimentPlanner.PlanDaily) would see only 1 active row out of 5 and silently generate a
+// truncated, underfeeding direction.
+func TestUpsertExperimentConfigReactivatesWholeShedNotJustEditedCell(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	items := []string{"Concentrate", "Hybrid", "COFS", "Hedge Lucerne", "Dry Maize"}
+	for i, item := range items {
+		cmd := experimentCommand(
+			"key-retire5-insert-"+item, "fp-insert-"+item, item, "1.500")
+		if _, err := repo.UpsertExperimentConfig(ctx, cmd); err != nil {
+			t.Fatalf("insert cell %d (%s): %v", i, item, err)
+		}
+	}
+
+	// Retire the whole shed. All five rows must flip to 'retired'.
+	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
+			IdempotencyKey: "key-retire5-status", RequestFingerprint: "fp-retire5-status",
+		},
+		ParkID: fcPark, ShedID: fcShed, Status: domain.ExperimentStatusRetired,
+	}); err != nil {
+		t.Fatalf("retire shed: %v", err)
+	}
+	statuses := experimentShedStatuses(t, ctx, pool)
+	for _, item := range items {
+		if statuses[item] != domain.ExperimentStatusRetired {
+			t.Fatalf("after retire, %s status = %q, want retired", item, statuses[item])
+		}
+	}
+
+	// Edit ONE old cell (a quantity correction, not a fresh insert -- the "lock the row" branch).
+	editCmd := experimentCommand("key-retire5-edit", "fp-retire5-edit", "Concentrate", "2.000")
+	if _, err := repo.UpsertExperimentConfig(ctx, editCmd); err != nil {
+		t.Fatalf("edit one retired cell: %v", err)
+	}
+
+	// The ENTIRE shed must be active again, not just "Concentrate". A partial reactivation is
+	// exactly the underfeed bug: ExperimentPlanner.Applies enrols the shed off ANY active row,
+	// but LoadConfigSnapshot would load only the 1 reactivated row as the complete experiment
+	// list, dropping the other 4 items from the generated direction.
+	statuses = experimentShedStatuses(t, ctx, pool)
+	for _, item := range items {
+		if statuses[item] != domain.ExperimentStatusActive {
+			t.Fatalf("after editing one cell, %s status = %q, want active (whole-shed reactivation)",
+				item, statuses[item])
+		}
 	}
 }

@@ -1482,6 +1482,44 @@ ORDER BY captured_at ASC, item_id ASC
 LIMIT 20;"
 }
 
+validate_feed_config_hot_path_plans() {
+  # Feed direction generation's daily feed-sheet resolve reads three authored config tables per
+  # park (LoadConfigSnapshot -- backend/internal/feeddirection/adapters/postgres/repository.go):
+  # the ration grid, the shed factors, and the dispatch clock, each keyed by
+  # (tenant, park, ...) with valid_to IS NULL for "currently in force". Prove all three stay on
+  # their covering partial index rather than a sequential scan of the whole authored table as the
+  # grid grows past its current ~770-row live size.
+  explain_must_use_index "FeedRationRatesCurrentLookup" 'Seq Scan on feed_ration_rates' "EXPLAIN (COSTS OFF)
+SELECT feed_item_key, grams_per_head
+FROM feed_ration_rates
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND park_id = '00000000-0000-4000-8000-000000003001'::uuid
+  AND ration_group_key = feed_config_norm('Beetal/Sirohi')
+  AND shed_tag_key = feed_config_norm('Non-Pregnant')
+  AND valid_to IS NULL;"
+
+  # As-of read: the same lookup for a historical business date (audit / back-dated recompute),
+  # which must ride feed_ration_rates_asof_lookup_idx rather than scan every historical row.
+  explain_must_use_index "FeedRationRatesAsOfLookup" 'Seq Scan on feed_ration_rates' "EXPLAIN (COSTS OFF)
+SELECT feed_item_key, grams_per_head, valid_from
+FROM feed_ration_rates
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND park_id = '00000000-0000-4000-8000-000000003001'::uuid
+  AND ration_group_key = feed_config_norm('Beetal/Sirohi')
+  AND shed_tag_key = feed_config_norm('Non-Pregnant')
+  AND valid_from <= '2026-07-20'::date
+ORDER BY valid_from DESC
+LIMIT 1;"
+
+  explain_must_use_index "FeedScheduleConfigCurrentLookup" 'Seq Scan on feed_schedule_config' "EXPLAIN (COSTS OFF)
+SELECT direction_time, correction_time, transport_time
+FROM feed_schedule_config
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND park_id = '00000000-0000-4000-8000-000000003001'::uuid
+  AND workflow = 'normal'
+  AND valid_to IS NULL;"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1524,5 +1562,6 @@ validate_calendar_vaccination_plans
 validate_calendar_canonical_read_plan
 validate_herd_register_summary_plan
 validate_verification_queue_plan
+validate_feed_config_hot_path_plans
 
 echo "Validated current hot-path query plans"

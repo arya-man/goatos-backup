@@ -637,3 +637,56 @@ func TestFeedProjectionShedFilterScopesBothLiveAndDeltaSides(t *testing.T) {
 			row.CurrentHeadCount, row.PendingDelta, row.ProjectedHeadCount)
 	}
 }
+
+// TestFeedProjectionBreedFilterScopesBothLiveAndDeltaSides proves the breed filter added to close
+// the P1 gap: before this fix ProjectedShedCountsForFeed() filtered park + shed only, so
+// requesting breed=Beetal silently returned every breed (Boer included). The filter must apply on
+// the live side AND the pending/delta side, using the SAME normalization the grouping key
+// already applies (feedGrainNormSQL / countAliasNorm), so a raw label and its normalized twin
+// still match the same grain.
+func TestFeedProjectionBreedFilterScopesBothLiveAndDeltaSides(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	approvedAt := feedProjApproval(2026, time.July, 10, 9)
+	target := feedProjDay(2026, time.July, 20)
+
+	// Two breeds standing in the SAME shed, so a park/shed-only filter cannot
+	// distinguish them -- only a breed predicate can.
+	for i := 0; i < 3; i++ {
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedA)
+	}
+	for i := 3; i < 8; i++ {
+		insertFeedProjGoat(t, ctx, pool, i, "Boer", "female", "K1", feedProjShedA)
+	}
+	// A pending movement for EACH breed into the same shed, so the delta side
+	// must also be breed-scoped, not just the live side.
+	insertFeedProjShifting(t, ctx, pool, "breed-beetal", "normal", approvedAt,
+		feedProjShedB, feedProjShedA, "authorized", "authorized",
+		[]feedProjImpact{{breedLabel: "Beetal", stageTag: "K1", sex: "female", headCount: 2}})
+	insertFeedProjShifting(t, ctx, pool, "breed-boer", "normal", approvedAt,
+		feedProjShedB, feedProjShedA, "authorized", "authorized",
+		[]feedProjImpact{{breedLabel: "Boer", stageTag: "K1", sex: "female", headCount: 4}})
+
+	beetal := "Beetal"
+	q := feedProjQuery(target)
+	q.Breed = &beetal
+	got, err := repo.ProjectedShedCountsForFeed(ctx, q)
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+	}
+
+	for _, row := range got.Items {
+		if row.Breed != "Beetal" {
+			t.Fatalf("breed filter leaked a non-Beetal row through: %+v", row)
+		}
+	}
+	if got.TotalRows != 1 {
+		t.Fatalf("total_rows=%d, want 1 (Boer grain must not appear)", got.TotalRows)
+	}
+	row := findFeedProjRow(t, got, feedProjShedA, "Beetal", "K1", "female")
+	if row.CurrentHeadCount != 3 || row.PendingDelta != 2 || row.ProjectedHeadCount != 5 {
+		t.Errorf("current=%d delta=%d projected=%d, want 3/2/5",
+			row.CurrentHeadCount, row.PendingDelta, row.ProjectedHeadCount)
+	}
+}

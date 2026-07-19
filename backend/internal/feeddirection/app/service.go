@@ -48,6 +48,11 @@ type Service struct {
 	counts   ports.ShedCountsReader
 	rounding domain.RoundingPolicy
 	planners domain.PlannerSet
+	// now resolves "today" for the past-business-date regeneration guard (see
+	// ports.ErrPastDateRegenerationBlocked). Injectable so a test can pin a fixed clock rather than
+	// racing the real wall clock -- a pinned-date fixture must never depend on when the test suite
+	// happens to run.
+	now func() time.Time
 }
 
 func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *Service {
@@ -56,6 +61,7 @@ func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *S
 		counts:   counts,
 		rounding: domain.StandardRoundingPolicy(),
 		planners: domain.NewPlannerSet(),
+		now:      time.Now,
 	}
 }
 
@@ -67,9 +73,16 @@ func (s *Service) WithRoundingPolicy(policy domain.RoundingPolicy) *Service {
 	return s
 }
 
+// WithNowFunc overrides the clock the past-date regeneration guard uses. Test-only seam; production
+// always uses time.Now.
+func (s *Service) WithNowFunc(now func() time.Time) *Service {
+	s.now = now
+	return s
+}
+
 // Preview generates one page of feed direction rows.
 func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error) {
-	normalized, err := normalizePreviewQuery(q)
+	normalized, err := s.normalizePreviewQuery(q)
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
@@ -111,7 +124,7 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 // Read-only: no proof capture, no video, no packing status is recorded anywhere. The status field
 // is derived from the generation result.
 func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error) {
-	normalized, err := normalizePackingQuery(q)
+	normalized, err := s.normalizePackingQuery(q)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
@@ -301,7 +314,7 @@ func rowsForSheds(rows []domain.DirectionRow, sheds []ports.Shed) []domain.Direc
 // Query normalization
 // ---------------------------------------------------------------------------
 
-func normalizePreviewQuery(q domain.PreviewQuery) (domain.PreviewQuery, error) {
+func (s *Service) normalizePreviewQuery(q domain.PreviewQuery) (domain.PreviewQuery, error) {
 	q.TenantID = strings.TrimSpace(q.TenantID)
 	q.ParkID = strings.TrimSpace(q.ParkID)
 	q.ShedID = strings.TrimSpace(q.ShedID)
@@ -315,6 +328,9 @@ func normalizePreviewQuery(q domain.PreviewQuery) (domain.PreviewQuery, error) {
 	// late-evening UTC instant cannot push the whole generation onto the wrong feed day. Per
 	// AGENTS.md, UTC never defines a Goat OS business day.
 	q.TargetDate = biztime.BusinessDayStart(q.TargetDate)
+	if s.isPastBusinessDate(q.TargetDate) {
+		return domain.PreviewQuery{}, ports.ErrPastDateRegenerationBlocked
+	}
 
 	if q.SessionNo < 0 {
 		return domain.PreviewQuery{}, ports.ErrInvalidPaging
@@ -327,7 +343,7 @@ func normalizePreviewQuery(q domain.PreviewQuery) (domain.PreviewQuery, error) {
 	return q, nil
 }
 
-func normalizePackingQuery(q domain.PackingQuery) (domain.PackingQuery, error) {
+func (s *Service) normalizePackingQuery(q domain.PackingQuery) (domain.PackingQuery, error) {
 	q.TenantID = strings.TrimSpace(q.TenantID)
 	q.ParkID = strings.TrimSpace(q.ParkID)
 	if q.TenantID == "" || q.ParkID == "" {
@@ -337,6 +353,9 @@ func normalizePackingQuery(q domain.PackingQuery) (domain.PackingQuery, error) {
 		return domain.PackingQuery{}, ports.ErrInvalidTargetDate
 	}
 	q.TargetDate = biztime.BusinessDayStart(q.TargetDate)
+	if s.isPastBusinessDate(q.TargetDate) {
+		return domain.PackingQuery{}, ports.ErrPastDateRegenerationBlocked
+	}
 
 	limit, offset, err := normalizePaging(q.Limit, q.Offset)
 	if err != nil {
@@ -344,6 +363,20 @@ func normalizePackingQuery(q domain.PackingQuery) (domain.PackingQuery, error) {
 	}
 	q.Limit, q.Offset = limit, offset
 	return q, nil
+}
+
+// isPastBusinessDate reports whether target is strictly before today's Asia/Kolkata business day.
+//
+// TODO(feed-followup): persist an immutable generation/count/config snapshot per park/date, then
+// allow past-date regeneration against that snapshot instead of this live-state guard.
+//
+// See ports.ErrPastDateRegenerationBlocked for why: this generator has no persisted direction
+// record, so every call recomputes from CURRENT herd/shed-scope state. Allowing a target date in
+// the past would silently rewrite that day's direction with today's facts instead of the facts
+// that were true on the day being planned.
+func (s *Service) isPastBusinessDate(target time.Time) bool {
+	today := biztime.BusinessDayStart(s.now())
+	return target.Before(today)
 }
 
 // normalizePaging applies the declared default to an ABSENT value and REJECTS a present

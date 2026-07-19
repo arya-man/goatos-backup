@@ -40,7 +40,7 @@ func TestFeedOverdueShiftingCopyMatchesEnforcedLeadDays(t *testing.T) {
 }
 
 // TestFeedBlockedCopyIsNeverReadAsZero is the medical/operational twin of the schema rule in
-// migrations/postgres/000003_feed_ration_config.sql: an authored rate of 0 (K0/K1 kids on milk)
+// migrations/postgres/000006_feed_ration_config.sql: an authored rate of 0 (K0/K1 kids on milk)
 // and a MISSING rate are different states with opposite consequences. The database keeps them
 // structurally distinct; the UI words have to as well, because "0 kg" on a blocked shed reads as
 // a complete feed sheet for a shed that is about to be fed nothing by accident.

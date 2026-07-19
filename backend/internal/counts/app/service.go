@@ -763,6 +763,7 @@ func normalizeFeedProjectedCountQuery(req domain.FeedProjectedCountQuery) (domai
 	req.LifecycleStatus = trimOptionalLower(req.LifecycleStatus)
 	req.ParkID = trimOptional(req.ParkID)
 	req.ShedID = trimOptional(req.ShedID)
+	req.Breed = trimOptional(req.Breed)
 
 	// The shed-SET filter is a batch read for a caller that already holds a bounded
 	// page of shed ids. Blanks are dropped rather than passed through as empty

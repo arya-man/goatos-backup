@@ -104,6 +104,11 @@ type FeedProjectedCountQuery struct {
 	LifecycleStatus *string
 	ParkID          *string
 	ShedID          *string
+	// Breed narrows the projection to one breed. Matched against BOTH the live
+	// herd and the pending/delta legs using the same normalization
+	// (feedGrainNormSQL) the grouping key already applies, so "Beetal" and
+	// "beetal " match the same grain instead of silently returning every breed.
+	Breed *string
 	// ShedIDs restricts the projection to an explicit SET of sheds, ANDed with
 	// ShedID when both are given. Empty means "no shed-set filter".
 	//

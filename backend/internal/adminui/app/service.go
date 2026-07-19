@@ -3672,7 +3672,7 @@ func countsBreakdownOptionGroups() []domain.OptionGroup {
 
 // feedOptionGroups holds ONLY the Feed vocabularies that are FIXED SCHEMA CONSTRAINTS —
 // closed sets defined by a CHECK constraint or by a structural two-way distinction in
-// migrations/postgres/000003_feed_ration_config.sql. Each is safe to declare here because no
+// migrations/postgres/000006_feed_ration_config.sql. Each is safe to declare here because no
 // tenant can add a value to it without a migration.
 //
 // Deliberately NOT declared here, because they are LIVE TENANT DATA and hardcoding them would

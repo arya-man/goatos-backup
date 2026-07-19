@@ -183,6 +183,23 @@ COMMENT ON COLUMN feed_session_template_items.valid_to IS
 -- The pattern is anchored to the END of the label and requires whitespace before "per", so the
 -- genuine names are untouched: "Mesha Concentrate Goat" and "Mesha Concentrate Sheep" do not end in
 -- "Per Goat", and "Toor Dal Bhusa Pellet" contains neither word.
+--
+-- SCALE BOUNDARY (row-count assumption, do not remove without re-checking the live count):
+-- each regexp UPDATE below runs unconditionally over its WHOLE table (WHERE is a value predicate
+-- on feed_item_label, not a bounded key range), and all five run inside ONE goose transaction, so
+-- the row locks are held for the combined duration of all five statements. This is safe today
+-- because every table here is a small authored catalog/config table -- feed_ration_rates is the
+-- largest at ~770 rows, and the other four are lower still (three are empty in production). At
+-- that size a full-table regexp UPDATE completes in milliseconds and the lock window is
+-- negligible.
+--
+-- This stops being safe once any of these tables crosses roughly 1,000 rows: a full-table rewrite
+-- at that size starts to hold row/page locks long enough to contend with concurrent writers on a
+-- live tenant. If a future migration needs to re-run a bulk label rewrite on a table past that
+-- size, split it out of this single-transaction DO block into its own batched migration -- chunk
+-- by primary-key range or `ctid`, commit each batch, and re-check the strip's collision safety
+-- per batch (two labels that were distinct pre-strip must stay distinct) -- rather than adding a
+-- sixth statement to this pattern.
 
 -- +goose StatementBegin
 DO $$

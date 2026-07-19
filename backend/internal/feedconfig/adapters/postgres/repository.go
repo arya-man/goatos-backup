@@ -710,6 +710,12 @@ RETURNING experiment_config_id::text`,
 				cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef)).Scan(&newID); err != nil {
 				return writeEffect{}, fmt.Errorf("feedconfig: insert experiment config: %w", err)
 			}
+			// See reactivateExperimentShed: a brand-new cell inserted 'active' into a shed that
+			// still carries OTHER retired rows would leave the shed mixed-status, which
+			// ExperimentPlanner.Applies reads as "enrolled" while feeding only the active subset.
+			if err := reactivateExperimentShed(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+				return writeEffect{}, err
+			}
 			return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
 		case err != nil:
 			return writeEffect{}, fmt.Errorf("feedconfig: lock experiment config: %w", err)
@@ -733,8 +739,44 @@ WHERE experiment_config_id = $1::uuid`,
 			openID, cmd.AbsoluteKg, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: correct experiment config: %w", err)
 		}
+		// ROOT-CAUSE FIX (P1 follow-up): editing ONE cell of a retired shed must not leave the
+		// shed mixed active/retired. SetExperimentShedStatus documents the invariant that
+		// ExperimentPlanner.Applies enrols a shed the moment ANY row is active, and
+		// feeddirection's LoadConfigSnapshot loads ONLY active rows and treats that set as the
+		// COMPLETE experiment list for the shed (see ExperimentPlanner.PlanDaily). Before this
+		// fix, re-authoring one retired cell flipped ONLY that row back to 'active', so a
+		// retire-five/edit-one sequence silently produced a 1-item direction instead of 5 -- an
+		// underfeed that never surfaced as an error. Reactivating the WHOLE shed atomically, in
+		// the SAME transaction as the edit, is the safer fix versus disallowing the edit
+		// outright: it matches what an operator editing a retired cell actually means
+		// ("this shed is back on the experiment workflow"), and it cannot race with
+		// SetExperimentShedStatus because both lock the shed's rows with the same
+		// `FOR UPDATE ... WHERE shed_id = $3` pattern.
+		if err := reactivateExperimentShed(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+			return writeEffect{}, err
+		}
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: openID}, nil
 	})
+}
+
+// reactivateExperimentShed brings EVERY row of one shed's experiment config back to 'active' in a
+// single set-based UPDATE. It is called whenever UpsertExperimentConfig re-enrols a shed (by
+// inserting a new cell or correcting an existing one), so a shed can never end this transaction
+// with some rows active and some retired -- the exact mixed state that would make
+// ExperimentPlanner.Applies enrol the shed while feeddirection's LoadConfigSnapshot loads only
+// the active subset, silently truncating the generated direction.
+//
+// scale-guard:ignore: one set-based UPDATE over ONE shed's authored experiment cells (bounded by
+// the feed-item catalog, a handful of rows per shed today), never a per-row loop.
+func reactivateExperimentShed(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID string) error {
+	if _, err := tx.Exec(ctx, `
+UPDATE feed_experiment_config
+SET status = 'active', updated_at = now()
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+  AND status <> 'active'`, tenantID, parkID, shedID); err != nil {
+		return fmt.Errorf("feedconfig: reactivate experiment shed: %w", err)
+	}
+	return nil
 }
 
 // SetExperimentShedStatus switches a WHOLE SHED between the experiment workflow and the normal

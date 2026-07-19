@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 

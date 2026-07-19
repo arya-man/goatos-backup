@@ -78,6 +78,7 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 //	$9  limit
 //	$10 offset
 //	$11 shed_id SET filter (empty array = no set filter)
+//	$12 breed filter, normalized with feedGrainNormSQL by the caller ('' = all breeds)
 var feedProjectedShedCountsSQL = `
 WITH live AS MATERIALIZED (
   SELECT
@@ -101,6 +102,7 @@ WITH live AS MATERIALIZED (
     -- text on the left-hand side instead would disable that index -- the
     -- non-sargable-cast anti-pattern.
     AND (cardinality($11::uuid[]) = 0 OR g.shed_id = ANY($11::uuid[]))
+    AND ($12 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` = $12)
   GROUP BY g.park_id, g.shed_id,
            COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex
 ),
@@ -192,6 +194,7 @@ delta AS (
     -- Applied to the movement legs too, on the same terms as the live side: a
     -- shed-set page must not show a delta sourced from a shed the page excluded.
     AND (cardinality($11::uuid[]) = 0 OR l.shed_id = ANY($11::uuid[]))
+    AND ($12 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` = $12)
   GROUP BY 1, 2, 3, 4, 5
 ),
 -- FULL OUTER, not LEFT. A destination shed that holds none of this grain today has no live row at
@@ -311,6 +314,10 @@ func (r *Repository) ProjectedShedCountsForFeed(
 		// which would make the guard predicate NULL and silently drop every row.
 		// An empty array is the honest "no set filter" value.
 		append([]string{}, req.ShedIDs...),
+		// countAliasNorm is the Go twin of feedGrainNormSQL (see its doc comment
+		// above), so an empty/unset filter and an already-normalized breed_key
+		// both round-trip as a no-op.
+		countAliasNorm(ptrValue(req.Breed)),
 	)
 	if err != nil {
 		return domain.FeedProjectedCounts{}, fmt.Errorf("feed projected shed counts: query: %w", err)

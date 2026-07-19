@@ -94,6 +94,22 @@ function readRequiredText(formData: FormData, field: string): string {
   return typeof raw === "string" ? raw.trim() : "";
 }
 
+/**
+ * Reads the idempotency key minted client-side when the editing form opened (see
+ * FeedConfigFormShell in feed-config-editor.tsx). Every `upsertFeedConfig*` call below passes this
+ * through EXPLICITLY rather than relying on that function's default-parameter fallback: the
+ * default mints a brand-new key on every call, so a resubmit of the same open form (e.g. after a
+ * lost/ambiguous response) would silently send a different key and risk a second write. The
+ * fallback here exists only for a malformed/missing hidden field, which should not happen from the
+ * real form.
+ */
+function readIdempotencyKey(formData: FormData): string | undefined {
+  const raw = formData.get("idempotency_key");
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 export async function saveRationRate(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const rationGroup = readRequiredText(formData, "ration_group");
@@ -109,14 +125,17 @@ export async function saveRationRate(formData: FormData): Promise<FeedConfigActi
   if (gramsPerHead === null) return BLANK_IS_NOT_ZERO;
   if (Number.isNaN(gramsPerHead)) return { ok: false, messageKey: REJECTED };
 
-  const result = await upsertFeedConfigRationRate({
-    park_id: parkId,
-    ration_group: rationGroup,
-    shed_tag: shedTag,
-    feed_item: feedItem,
-    // Sent verbatim. A negative or over-precise value is the backend's to reject.
-    grams_per_head: gramsPerHead,
-  });
+  const result = await upsertFeedConfigRationRate(
+    {
+      park_id: parkId,
+      ration_group: rationGroup,
+      shed_tag: shedTag,
+      feed_item: feedItem,
+      // Sent verbatim. A negative or over-precise value is the backend's to reject.
+      grams_per_head: gramsPerHead,
+    },
+    readIdempotencyKey(formData),
+  );
   if (!result.ok) {
     return { ok: false, messageKey: REJECTED, detail: result.error.message };
   }
@@ -143,12 +162,15 @@ export async function saveShedFactor(formData: FormData): Promise<FeedConfigActi
   if (multiplier === null) return BLANK_IS_NOT_ZERO;
   if (Number.isNaN(multiplier)) return { ok: false, messageKey: REJECTED };
 
-  const result = await upsertFeedConfigShedFactor({
-    park_id: parkId,
-    shed_id: shedId,
-    feed_item: feedItem,
-    multiplier,
-  });
+  const result = await upsertFeedConfigShedFactor(
+    {
+      park_id: parkId,
+      shed_id: shedId,
+      feed_item: feedItem,
+      multiplier,
+    },
+    readIdempotencyKey(formData),
+  );
   if (!result.ok) {
     return { ok: false, messageKey: REJECTED, detail: result.error.message };
   }
@@ -216,17 +238,20 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
     return { ok: false, messageKey: REJECTED };
   }
 
-  const result = await upsertFeedConfigExperiment({
-    park_id: parkId,
-    shed_id: shedId,
-    feed_item: feedItem,
-    // Sent verbatim. A negative or over-precise value is the backend's to reject.
-    absolute_kg: absoluteKg,
-    // A cleared count records "not recorded" as null. It is never coerced to 0, and it is never
-    // multiplied into absolute_kg by anything on this path.
-    head_count: headCount ?? null,
-    experiment_category: category,
-  });
+  const result = await upsertFeedConfigExperiment(
+    {
+      park_id: parkId,
+      shed_id: shedId,
+      feed_item: feedItem,
+      // Sent verbatim. A negative or over-precise value is the backend's to reject.
+      absolute_kg: absoluteKg,
+      // A cleared count records "not recorded" as null. It is never coerced to 0, and it is never
+      // multiplied into absolute_kg by anything on this path.
+      head_count: headCount ?? null,
+      experiment_category: category,
+    },
+    readIdempotencyKey(formData),
+  );
   if (!result.ok) {
     return { ok: false, messageKey: REJECTED, detail: result.error.message };
   }
@@ -254,11 +279,14 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
     return { ok: false, messageKey: REJECTED };
   }
 
-  const result = await setFeedConfigExperimentShedStatus({
-    park_id: parkId,
-    shed_id: shedId,
-    status,
-  });
+  const result = await setFeedConfigExperimentShedStatus(
+    {
+      park_id: parkId,
+      shed_id: shedId,
+      status,
+    },
+    readIdempotencyKey(formData),
+  );
   if (!result.ok) {
     return { ok: false, messageKey: REJECTED, detail: result.error.message };
   }
@@ -286,18 +314,21 @@ export async function saveSchedule(formData: FormData): Promise<FeedConfigAction
   // midnight default.
   if (!directionTime || !correctionTime) return BLANK_IS_NOT_ZERO;
 
-  const result = await upsertFeedConfigSchedule({
-    park_id: parkId,
-    workflow,
-    // Wall-clock strings pass through untouched: they are recurring Asia/Kolkata business-calendar
-    // rules, not instants, and attaching an offset here would corrupt them.
-    direction_time: directionTime,
-    correction_time: correctionTime,
-    // A cleared transport time is the explicit "no declared cutoff" the contract allows as null. A
-    // malformed one is sent as typed so the backend rejects it — turning a typo into null would tell
-    // the dispatcher this park has no transport deadline at all.
-    transport_time: transportTime === "" ? null : transportTime,
-  });
+  const result = await upsertFeedConfigSchedule(
+    {
+      park_id: parkId,
+      workflow,
+      // Wall-clock strings pass through untouched: they are recurring Asia/Kolkata business-calendar
+      // rules, not instants, and attaching an offset here would corrupt them.
+      direction_time: directionTime,
+      correction_time: correctionTime,
+      // A cleared transport time is the explicit "no declared cutoff" the contract allows as null. A
+      // malformed one is sent as typed so the backend rejects it — turning a typo into null would tell
+      // the dispatcher this park has no transport deadline at all.
+      transport_time: transportTime === "" ? null : transportTime,
+    },
+    readIdempotencyKey(formData),
+  );
   if (!result.ok) {
     return { ok: false, messageKey: REJECTED, detail: result.error.message };
   }
