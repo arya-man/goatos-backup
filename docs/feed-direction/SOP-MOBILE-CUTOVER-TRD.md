@@ -16,16 +16,18 @@ Android app renders role-assigned versioned SOP tasks and works offline. GCS
 stores private proof media through signed operations. Slack and legacy Sheets
 are optional migration adapters and never participate in the canonical commit.
 
-Default and legacy "experiment" feed use the same data path. A generated row
-pins whichever approved composition assignment matched the shed/cohort/date/
-session. All later stages refer to that row and composition version.
+Default and legacy "experiment" feed use the same data path. Compositions and
+their assignments are children of one mandatory Feed `protocol_version`; they
+do not have an independent approval lifecycle. A generated row pins the
+composition assignment selected from the effective published protocol version.
+All later stages refer to that row, composition and owning protocol version.
 
 ```mermaid
 flowchart TB
     subgraph Policy["Policy and planning"]
-        P1["Protocol and composition versions"]
+        P1["One Feed protocol version with composition children"]
         P2["Counts/Shifting projection snapshot"]
-        P3["Direction generation worker"]
+        P3["Direction generation logical stage"]
     end
     subgraph Kernel["Operational kernel in Postgres"]
         K1["Generation rows"]
@@ -41,7 +43,7 @@ flowchart TB
     end
     G["Private GCS proof objects"]
     N["NotificationGateway: push and optional Slack"]
-    R["Bounded command/read projections"]
+    R["Bounded indexed reads from canonical tables"]
 
     P1 --> P3
     P2 --> P3
@@ -78,12 +80,16 @@ flowchart TB
 
 ### 2.2 Not complete today
 
-- No production Feed generation run/row worker.
-- No complete composition CRUD/review/approve/assignment path.
+- No production Feed generation run/row logical stage in the kernel worker.
+- No complete Feed-protocol draft editor for composition/assignment children and
+  their single protocol publish gate.
 - No Feed obligation/stage generation and supersession path.
-- No Feed-specific mobile task list/detail/navigation contract.
+- The current `GET /app/tasks` contract has no cursor or Feed filters and cannot
+  safely expose more than its first 100 assignments. It must be extended before
+  the Feed mobile list can ship.
 - No end-to-end inventory reservation/consume/release behavior for Feed.
-- No Feed command projection with all legacy stage/exception buckets.
+- No complete bounded Feed command-lens queries for the legacy stage/exception
+  buckets.
 - Current Feed HTTP APIs cover readiness, preview and Counts/Shifting
   exceptions, not operational execution.
 - The generic Android runner does not yet render every field needed here:
@@ -107,15 +113,15 @@ These are implementation gaps, not reasons to create a parallel Feed platform.
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | Counts/Shifting | Projected physical count snapshot and blocker state | Feed composition or operator proof |
-| Feed policy/config | Compositions, items, assignments, session/proof/tolerance policy | Mobile local state or generated execution truth |
+| Feed policy/config | Draft composition/item/assignment children of a Feed protocol version plus session/proof/tolerance policy | Independent approval/publish state, mobile local state or generated execution truth |
 | Feed generation | Deterministic run and immutable instruction rows | Direct notifications or media |
 | Operational kernel | Obligations, deadlines, escalation, SOP tasks, state transitions | Feed nutrition calculations |
 | SOP | Versioned fields/conditions, typed submissions and item answers | Direction selection |
 | Proof/GCS adapter | Private media object lifecycle and task binding | Stage acceptance by file presence |
 | Verification | Reviewer queue, verdict, rejection reason and rework signal | Mutation of original submission |
-| Inventory | Reservation/consume/release movements and availability | Composition approval |
+| Inventory | Reservation/consume/release movements and availability | Feed protocol publication |
 | App API | Role/scope-checked mobile contracts | Business truth in client code |
-| Android | Offline rendering/capture/sync | Direct Sheets/Slack/BQ/GCS/Postgres access |
+| Android | Offline rendering/capture/sync and task-bound signed HTTPS media transfer | Credentials or SDK access to Sheets/Slack/BQ/raw GCS buckets/Postgres |
 | NotificationGateway | Push and optional Slack delivery/reconciliation | Canonical task state |
 
 ## 4. Persistence design
@@ -138,10 +144,10 @@ The names may change, but these contracts are required:
 ```text
 feed_composition_versions
   id, tenant_id, code, version, name
-  protocol_version_id or governed source_ref
-  status: draft | approved | retired
-  nutrient/calculation snapshot reference
-  created_by/at, approved_by/at, notes
+  protocol_version_id NOT NULL
+  source_evidence_ref, nutrient/calculation snapshot reference
+  created_by/at, notes
+  no independent status, approver or publish timestamp
 
 feed_composition_items
   id, composition_version_id, feed_item_id
@@ -150,11 +156,11 @@ feed_composition_items
   internal calculation factors/provenance where approved
 
 feed_composition_assignments
-  id, tenant_id, composition_version_id
+  id, tenant_id, protocol_version_id NOT NULL, composition_version_id
   park_id, optional shed_id, optional cohort_id
   effective_from, effective_to, optional session_code
   priority, reason, optional comparison_set_id/variant_label
-  status, approved_by/at, idempotency_key
+  idempotency_key; no independent approval/effective status
 
 feed_direction_generation_runs
   id, tenant_id, run_kind, target_date
@@ -201,40 +207,57 @@ assignment must work without it.
 ### 4.3 Database invariants
 
 1. Every row is tenant-scoped; all foreign keys remain inside the tenant.
-2. Composition versions are immutable after approval. Change creates a version.
-3. An issued generation row pins protocol, projection, composition and
+2. Every composition and assignment belongs to exactly one Feed
+   `protocol_version_id`. It is editable only while that owning protocol version
+   is a draft, becomes immutable when the protocol is published, and inherits
+   retirement/effectivity from that protocol. Composition and assignment rows
+   have no independent publish authority.
+3. Publishing a Feed protocol validates and commits its rule DSL,
+   compositions, assignments, proof/session policy and effective window as one
+   canonical version. Publishing only a composition or assignment is impossible.
+4. An issued generation row pins protocol, projection, composition and
    assignment provenance.
-4. At most one equally specific approved assignment matches one
-   tenant/park/shed-or-cohort/date/session. Ambiguity blocks generation.
-5. Generated instruction identity is stable under replay through a business key
+5. A generation run may select only compositions and assignments whose
+   `protocol_version_id` equals its effective published Feed protocol version.
+   A missing/mismatched owner blocks generation before any obligation is made.
+6. At most one equally specific assignment inside that protocol version matches
+   one tenant/park/shed-or-cohort/date/session. Ambiguity blocks generation.
+7. Generated instruction identity is stable under replay through a business key
    such as tenant + target date + shed + session + cohort + item + run kind.
-6. Full/Diff regeneration supersedes rows and cancels/replaces stale open work;
+8. Full/Diff regeneration supersedes rows and cancels/replaces stale open work;
    it never appends a second active instruction silently.
-7. Quantities use integer base units where practical. Display conversion to kg
+9. Quantities use integer base units where practical. Display conversion to kg
    occurs at API/client edges with explicit precision.
-8. Zero, blank, not-applicable and missing are distinct.
-9. A stage record points to one obligation and immutable submission history.
-10. Original proof, corrected proof and verifier decisions are append-only.
-11. Notification references and legacy Slack links are never evidence object
+10. Zero, blank, not-applicable and missing are distinct.
+11. A stage record points to one obligation and immutable submission history.
+12. Original proof, corrected proof and verifier decisions are append-only.
+13. Notification references and legacy Slack links are never evidence object
     identifiers.
-12. Canonical stage mutation, audit and outbox write commit atomically.
+14. Canonical stage mutation, audit and outbox write commit atomically.
 
 ### 4.4 Assignment resolution
 
 Resolution order must be deterministic and versioned. A recommended specificity
 order is exact shed + cohort + session, exact shed + session, exact shed,
-cohort + park, then published default. Priority breaks only explicitly approved
-different policy classes; it must not conceal two equally valid records.
+cohort + park, then the default inside the same published protocol version.
+Priority breaks only explicit policy classes compiled into that version; it must
+not conceal two equally valid records.
 
 ```text
-candidates = approved assignments effective at target_date/session
+effective_protocol = one published feed_direction protocol version for scope/date
+candidates = assignments owned by effective_protocol and effective at date/session
 max_specificity = candidates with most exact scope dimensions
 max_priority = highest policy priority inside max_specificity
 
-0 matches -> published default composition
+0 matches -> default composition owned by effective_protocol
 1 match   -> use and pin assignment
 >1 match  -> block generation with overlap exception
 ```
+
+If any candidate or referenced composition carries a different
+`protocol_version_id`, generation fails closed. A source document, import
+reference or previously published composition can explain provenance but can
+never substitute for ownership by the effective protocol version.
 
 No averaging, last-write-wins, spreadsheet row order, or `Category` string
 guessing is allowed.
@@ -327,10 +350,9 @@ Default/custom/comparison compositions share these definitions.
 
 ## 6. API contracts
 
-### 6.1 Existing app API to reuse
+### 6.1 Shared app API and mandatory task-list extension
 
 - `GET /app/bootstrap`
-- `GET /app/tasks`
 - `GET /app/tasks/{task_id}`
 - `GET /app/sop-versions/{sop_version_id}`
 - `POST /app/tasks/{task_id}/submissions`
@@ -340,20 +362,45 @@ Default/custom/comparison compositions share these definitions.
 - `POST /verification/items/{item_id}/verdict`
 
 The task submission route remains the operator command. Do not create one form
-endpoint per Feed stage.
+endpoint per Feed stage. The current `GET /app/tasks` is **not reusable as-is**:
+it accepts only `state` and `limit <= 100` and returns no continuation cursor.
+Before Feed mobile implementation, the authoritative OpenAPI must extend it
+with:
+
+- bounded `limit` (`1..100`, default `50`) and opaque `cursor`;
+- filters for `vertical=feed`, business-date range, park, shed, Feed stage,
+  session, one-or-more canonical task states and exception code;
+- stable ascending keyset order
+  `(COALESCE(due_at, 'infinity'), task_id)` after authorization and filters;
+- response fields `items`, nullable `next_cursor` and `trace_id`;
+- a cursor bound to the principal, tenant and normalized filter/sort hash so it
+  cannot be replayed under another scope or query.
+
+The query must return `next_cursor` whenever more authorized rows exist; it may
+not truncate silently at 100. Room stores the same normalized filter key,
+ordered task rows and next cursor in one transaction. Refresh replaces only that
+filter's page chain, append resumes from its stored cursor, and process death or
+offline launch continues from the last committed boundary.
 
 ### 6.2 Feed planning/admin API additions
 
-Recommended resource contracts:
+Composition writes are draft-child edits under the existing protocol API. There
+is deliberately no composition `approve`, `activate` or independent `publish`
+route. `POST /protocols/versions/{version_id}/publish` is the only authority that
+makes Feed rules, compositions and assignments effective together.
+
+Required resource contracts:
 
 ```text
-GET    /feed-direction/compositions
-POST   /feed-direction/compositions
-POST   /feed-direction/compositions/{id}/versions
-POST   /feed-direction/composition-versions/{id}/approve
-GET    /feed-direction/composition-assignments
-POST   /feed-direction/composition-assignments
-POST   /feed-direction/composition-assignments/{id}/supersede
+POST   /protocols/{protocol_id}/versions                         existing
+GET    /protocols/versions/{version_id}                          existing
+POST   /protocols/versions/{version_id}/feed-compositions        add
+PUT    /protocols/versions/{version_id}/feed-compositions/{id}   add; draft only
+DELETE /protocols/versions/{version_id}/feed-compositions/{id}   add; draft only
+POST   /protocols/versions/{version_id}/feed-assignments         add
+PUT    /protocols/versions/{version_id}/feed-assignments/{id}    add; draft only
+DELETE /protocols/versions/{version_id}/feed-assignments/{id}    add; draft only
+POST   /protocols/versions/{version_id}/publish                  existing; sole publish
 
 POST   /feed-direction/generation-runs/preview
 POST   /feed-direction/generation-runs
@@ -367,8 +414,12 @@ POST   /feed-direction/directions/{id}/emergency-adjustments
 GET    /feed-direction/observations
 ```
 
-Reuse current readiness/preview and count-projection exception routes where the
-contract already matches. Avoid duplicate endpoints with new names.
+Creating a new effective composition or ending an assignment means creating and
+publishing a new Feed protocol version; published child rows are immutable.
+Every add/change above must land in `contracts/openapi/app-api.yaml` and its
+generated clients before backend or Android implementation. Reuse current
+readiness/preview and count-projection exception routes where the contract
+already matches. Avoid duplicate endpoints with new names.
 
 ### 6.3 Task detail contract
 
@@ -389,6 +440,37 @@ The app task detail must include:
 OpenAPI is authoritative. Generate Android and web clients; no hand-written
 shadow request models.
 
+### 6.4 Mutation idempotency and replay contract
+
+Every mutating route requires `Idempotency-Key`. The server computes a semantic
+request fingerprint from HTTP method, normalized route/path ids, tenant,
+canonical request body and expected row version. The idempotency scope is
+`tenant + command/route + key`; principal identity is recorded for audit but a
+retry by a newly authorized replacement actor cannot silently reuse another
+actor's unfinished key.
+
+The canonical transaction reserves the key before business writes and stores
+the final HTTP status, response body/resource ids and outbox event ids before
+commit. An exact replay returns that stored receipt without rerunning business
+logic. The same key with a different fingerprint returns typed `409
+idempotency_conflict` with no writes. A duplicate outbox/Pub/Sub delivery is
+deduped by event id plus the command's stable business key.
+
+| Mutation | Stable business identity included in fingerprint | Same canonical transaction must contain | Exact replay result | Different payload with same key |
+| --- | --- | --- | --- | --- |
+| `POST /protocols/{protocol_id}/versions` | protocol + proposed version/effective window | draft version, audit, outbox if any, receipt | original `201` and version id | `409`; no second draft |
+| Feed composition/assignment `POST`, `PUT`, `DELETE` under `/protocols/versions/{version_id}` | draft protocol version + child id/code/scope + expected row version | child mutation, draft row-version bump, audit, receipt | original status and child/version ids | `409`; no partial child edit |
+| `POST /protocols/versions/{version_id}/publish` | protocol version + complete compiled Feed payload hash + effective window | publish gate, immutable protocol/child state, audit, outbox and receipt | original publish receipt/status | `409`; no second window/event |
+| `POST /feed-direction/generation-runs` | target date + run kind + effective protocol + projection snapshot/source hash | run/rows or blocker set, audit, outbox and receipt | original run id/counts/blockers | `409`; no parallel logical run |
+| `POST /feed-direction/generation-runs/{id}/publish` | run id + row/source hash + expected run version | issued rows, obligations/tasks, audit, outbox and receipt | original issued counts/task ids | `409`; no duplicate work |
+| `POST /feed-direction/directions/{id}/emergency-adjustments` | direction + adjustment reason/item quantities + expected version | additive adjustment, inventory/work effects, audit, outbox and receipt | original adjustment id | `409`; no doubled ration |
+| Task submission, proof register/complete and verification verdict routes | task/proof/verification id + immutable payload/checksum + expected version | existing SOP/proof/verdict mutation, audit, outbox and receipt | original canonical response | `409`; no duplicate submit/verdict |
+
+`POST /feed-direction/generation-runs/preview` is a side-effect-free calculation:
+it creates no canonical run, audit mutation or outbox event. If implementation
+later persists previews, it moves into the same replay contract as generation
+runs instead of becoming an unguarded mutation.
+
 ## 7. Mobile architecture and offline convergence
 
 ### 7.1 Local data
@@ -407,6 +489,12 @@ Room stores:
 
 DataStore stores small non-relational preferences/config revision only. Do not
 put task truth or media payloads there.
+
+Every Feed Room row, remote-key/cursor row, outbox entry and draft carries the
+authenticated `principal_id` and `tenant_id`; repository queries include both.
+Captured proof files live under an app-private principal-scoped directory and
+their metadata records the same owner. Principal scoping limits accidental
+reads, but it does not replace the mandatory clean-slate wipe below.
 
 ### 7.2 Outbox ordering
 
@@ -469,20 +557,60 @@ Add server comparison with the client-provided cryptographic media hash; current
 GCS completion evidence alone is not enough for full end-to-end content
 identity. Any derivative/transcode is a child artifact; preserve the original.
 
+### 7.5 Logout, revocation and shared-device cleanup
+
+Feed cannot ship until every new persistence surface is registered with the
+existing clean-slate logout path. `LogoutCoordinator` must orchestrate one
+failure-tolerant local cleanup sequence:
+
+1. perform authenticated remote device deregistration best-effort while the
+   departing session is still available;
+2. cancel foreground sync, periodic/retry WorkManager jobs and in-flight Feed
+   upload/submit coroutines, then prevent new drains;
+3. clear in-memory Feed repositories, task/detail caches and pending UI state;
+4. wipe all Feed Room rows and remote keys plus every Feed outbox row, including
+   queued, in-flight, failed and terminal receipts;
+5. delete unsent and downloaded Feed media from the departing principal's
+   app-private directory and revoke any locally retained signed operation;
+6. clear push/analytics identity, session/device stores and credentials before
+   another principal can enter business UI.
+
+Server-initiated device/session revocation runs the same local steps 2-6. It
+does **not** preserve or later sync the previous principal's queue. Cleanup
+continues even when remote deregistration or one callback fails; failures are
+diagnosed without allowing another login to observe stale Feed state.
+
 ## 8. Backend command transactions
 
-### 8.1 Generate/publish
+### 8.1 Protocol and direction publish
 
-`PublishFeedDirection` transaction or durable two-phase equivalent:
+The existing `PublishProtocolVersion` command is the sole authority boundary
+for compositions and assignments. In one transaction it:
 
-1. lock/validate draft generation run and approval capability;
-2. verify projection/protocol/composition versions and overlap-free assignment;
-3. mark generation rows issued;
-4. create one obligation/task per required stage and assignment;
-5. record audit actor/reason;
-6. insert domain outbox messages;
-7. commit;
-8. workers/projectors/NotificationGateway act idempotently after commit.
+1. acquires the idempotency record and validates the semantic fingerprint;
+2. locks the draft Feed protocol version;
+3. validates its complete rule DSL, composition children, assignments,
+   effective window, overlap, proof/SOP binding and publish capability;
+4. marks the protocol version published and all child rows immutable without
+   giving those children a separate status;
+5. records audit and the protocol-published outbox event;
+6. stores the replay receipt and commits.
+
+An exact retry returns the stored publish receipt. A changed-payload retry with
+the same key returns `409` before any publish or outbox write.
+
+`PublishFeedDirection` then issues a previously generated run in one canonical
+transaction:
+
+1. acquire the idempotency record or return/conflict on its stored fingerprint;
+2. lock/validate the draft generation run and publish capability;
+3. verify projection/source hashes and prove every selected composition and
+   assignment is owned by the run's effective published Feed protocol version;
+4. mark generation rows issued;
+5. create one obligation/task per required stage and assignment;
+6. record audit actor/reason and insert domain outbox messages;
+7. store the complete replay receipt and commit;
+8. logical kernel stages and NotificationGateway act idempotently after commit.
 
 ### 8.2 Submit stage
 
@@ -493,10 +621,24 @@ identity. Any derivative/transcode is a child artifact; preserve the original.
 3. load pinned task/SOP/direction row versions;
 4. validate every typed answer and proof binding;
 5. insert immutable SOP submission/items;
-6. update stage/obligation to submitted or pending review;
+6. apply the explicit legal state mapping below;
 7. create verification item when required;
 8. write audit and outbox;
 9. store idempotency receipt and commit.
+
+| Moment | `sop_submissions.state` | `sop_tasks.state` / Feed stage state | `obligation_instances.status` |
+| --- | --- | --- | --- |
+| Submitted, review required | `needs_review` | `needs_review` | remains legal open state `in_progress` |
+| Submitted, awaiting automatic acceptance work | `submitted` | `submitted` | remains `in_progress` |
+| Accepted after review/validation | `accepted` | `accepted` | `completed` |
+| Verifier requests rework | immutable prior submission plus new rework chain | `rework_requested` | remains `in_progress` |
+| Canceled or superseded by authorized workflow | unchanged immutable submission history | `canceled` or replacement task | matching legal `canceled` or `superseded` |
+
+`submitted`, `needs_review` and `rework_requested` are never written to
+`obligation_instances`; `pending review` is not a canonical persisted value.
+When policy permits immediate server acceptance, the submission/task acceptance
+and obligation completion occur atomically rather than exposing an illegal
+intermediate obligation state.
 
 Inventory is reserved/consumed/released at the approved stage boundary in the
 same transaction or through a durable idempotent command that keeps the Feed
@@ -508,6 +650,8 @@ then hope to update the stage.
 `RecordFeedVerificationVerdict` transaction:
 
 1. validate verifier scope/capability, row version and separation of duties;
+   reject when verifier principal equals submission actor or proof capturer even
+   if that principal holds both operator and verifier capabilities;
 2. append verdict/reason without altering original submission;
 3. if accepted, complete the stage and advance eligible next work;
 4. if rejected, create rework obligation/task scoped to failed items/proof;
@@ -517,16 +661,15 @@ then hope to update the stage.
 An accepted stage cannot later become rejected by update. Reversal is a new
 authorized correction event.
 
-## 9. Events and workers
+## 9. Events and kernel-worker stages
 
 Register Feed events in the central domain-event registry using the standard
 tenant/event/id/occurred-at/trace/source envelope.
 
-Recommended events:
+Consume the existing `protocol.version.published` event for
+`category='feed_direction'`; there is no separate composition approval event.
+Recommended Feed aggregate events:
 
-- `feed_direction.composition_version.approved`
-- `feed_direction.composition_assignment.activated`
-- `feed_direction.composition_assignment.superseded`
 - `feed_direction.generation.requested`
 - `feed_direction.generation.blocked`
 - `feed_direction.full.generated`
@@ -546,20 +689,24 @@ Reuse the platform SOP/proof/verification events for generic submission,
 verdict, and rework fanout instead of publishing a second Feed-named copy of
 the same fact. Add a Feed event only when the Feed aggregate changes.
 
-Workers:
+The following are **logical stages inside the existing single modular kernel
+worker**, not separate worker services or Cloud Run Jobs:
 
-- projection/input readiness consumer;
-- full/Diff generation worker;
-- obligation/task materializer;
-- reminder/escalation sweeper;
-- proof/verification fanout;
-- inventory reconciliation worker if not atomic in the command;
-- Feed command projection updater;
-- NotificationGateway delivery/reconciliation;
-- legacy shadow comparator during migration.
+- input readiness/event consumer;
+- bounded full/Diff generation stage;
+- obligation/task materialization stage;
+- reminder/escalation cadence stage;
+- proof/verification fanout stage;
+- inventory reconciliation stage when the command cannot close atomically;
+- NotificationGateway delivery/reconciliation stage;
+- legacy shadow comparison stage during migration only.
 
-All workers lease bounded batches and checkpoint. No worker performs a full
-40k-row Sheet-style scan for every shed.
+Each logical stage leases bounded batches, checkpoints and runs under the
+kernel worker's existing supervisor/advisory-lock rules. No stage performs a
+40k-row Sheet-style scan for every shed. A separate Feed worker deployment,
+projector command or projection table is prohibited in the current 5k-50k
+envelope unless production query evidence identifies one measured hotspot and
+the scale ADR is updated first.
 
 ## 10. Scheduling and effective business time
 
@@ -603,16 +750,19 @@ actual assigned work is Feed.
 
 ## 12. Read models, indexes and scale
 
-### 12.1 Command projection
+### 12.1 Canonical command-lens reads
 
-Serve one bounded Feed projection with buckets for blocked generation,
-unassigned/due/overdue/sync conflict, packing short/proof missing, transport
-pending/rejected, distribution/water/consumption incomplete, wastage threshold,
-verification/rework, emergency reconciliation and completed work.
+Serve bounded, indexed keyset queries over canonical generation, obligation,
+SOP, proof, verification and inventory tables. The API composes buckets for
+blocked generation, unassigned/due/overdue/sync conflict, packing short/proof
+missing, transport pending/rejected, distribution/water/consumption incomplete,
+wastage threshold, verification/rework, emergency reconciliation and completed
+work. It does not maintain a Feed projection table in the current envelope.
 
-Projection rows must carry target date, park, shed/transport shed, session,
+Every returned row carries target date, park, shed/transport shed, session,
 stage, owner, deadline, composition/assignment refs, proof/verification/
-escalation state, instruction group and cursor key.
+escalation state, instruction group and stable cursor components derived from
+canonical rows.
 
 ### 12.2 Required index shapes
 
@@ -630,8 +780,9 @@ At minimum validate query plans for:
 
 Use cursor pagination and explicit limits. Validate at the current 5k-50k
 operating envelope with skewed sheds, repeated Diffs, offline backlog and media
-retry. Add a new projection table only after measured query pressure justifies
-it; the existing kernel is the default.
+retry. A new projection is the first measured-hotspot scale-out step only: it
+requires query-plan/latency evidence, an owner, replay/rebuild contract,
+architecture-guard update and an amendment to the accepted scale ADR.
 
 ## 13. Observability and audit
 
@@ -669,8 +820,9 @@ composition/direction/SOP versions and correction chain.
 - Retention/legal/access policy is explicit by proof type and environment.
 - Preview/download authorization is checked each time; stored URLs are not
   treated as permanent capability tokens.
-- Device/session revocation prevents new commands while preserving queued local
-  data for a controlled sign-out/repair path.
+- Device/session revocation prevents new commands, cancels sync and invokes the
+  same complete Feed cache/outbox/media/in-memory wipe as logout. No departing
+  principal's queued data survives for later sync or another login.
 - No PII or real legacy media in fixtures. Use generated/sanitized media.
 
 ## 15. Legacy adapters and migration
@@ -729,29 +881,49 @@ Operational retirement and analytics migration are separate gates.
 
 ### Database/integration
 
+- every Feed mutation: first request, exact replay, changed-payload/same-key
+  conflict and duplicate downstream event delivery;
+- protocol publish rejects a composition/assignment not owned by the effective
+  Feed protocol version;
 - generation replay creates no duplicate active rows;
 - Diff supersedes/cancels stale obligations and mobile tasks;
+- submit -> review -> accept and submit -> review -> rework use only legal SOP,
+  stage and obligation states;
 - atomic submission + stage + verification + audit + outbox;
 - accepted/rejected verdict and immutable correction chain;
 - inventory reserve/consume/release failure behavior;
-- tenant/park/shed scope denial and capturer self-verification denial;
+- tenant/park/shed scope denial and dual-role capturer self-verification denial;
 - all hot queries with plan checks and bounded results.
 
 ### Android
 
 - every Feed field/control in Compose, accessibility and low-end-device budget;
-- Room task-list/detail cache and process-death recovery;
+- task-list contract and Room tests across the 100th/101st boundary, stable
+  cursor append, offline continuation and process-death recovery;
 - offline capture, reboot, reconnect and exactly-once logical submit;
 - proof registration/upload/complete retry;
 - same key/same payload replay and same key/different payload conflict;
 - stale/superseded task repair;
 - old APK capability block;
-- role-aware Feed navigation and no cross-park cached data leak.
+- role-aware Feed navigation and no cross-park cached data leak;
+- seed Feed task pages, remote keys, drafts, outbox commands, receipts, media
+  files and in-memory state; logout/revoke, sign in as another principal and
+  prove none survives or syncs;
+- signed media tests prove the app receives only scoped, expiring HTTPS
+  operations—never GCS credentials, bucket-list access or public URLs.
+
+### Architecture guard
+
+- fail if Feed adds a new deployed worker service, active projector command or
+  projection table without measured hotspot evidence and a scale-ADR update;
+- keep kernel worker process count and active projection count within the
+  accepted operational envelope.
 
 ### End to end
 
 1. Default composition generation and accepted packing-through-wastage chain.
-2. Three same-tag sheds with three different approved compositions.
+2. Three same-tag sheds with three different compositions owned by the same
+   published Feed protocol version.
 3. Assignment overlap blocks one shed visibly.
 4. Offline packing with multiple videos syncs once after process death.
 5. Wrong photo for video-only proof is rejected.
@@ -762,20 +934,26 @@ Operational retirement and analytics migration are separate gates.
 10. Emergency bridge is additive and reconciles inventory/direction context.
 11. Notification outage leaves work available and later reconciles.
 12. Shadow parity catches a legacy missing/duplicate processed-flag case.
+13. One principal holding both packing and verifier roles cannot accept their
+    own submission or captured proof.
 
 ## 17. Implementation order
 
 1. Correct stale Feed docs so custom composition is never an exclusion.
 2. Ratify product decisions: stages, deadlines, roles, tolerances, proof and
    inventory boundary.
-3. Add composition/version/assignment contracts and overlap validation.
+3. Add protocol-owned composition/assignment child contracts, enforce the sole
+   protocol publish gate and reject cross-version generation.
 4. Add generation run/row persistence and deterministic replay/supersession.
 5. Materialize stage obligations/tasks using existing SOP/kernel tables.
-6. Complete SOP controls and OpenAPI task detail contract.
-7. Add Android Feed navigation, Room list/detail cache and SOP screens.
+6. Complete SOP controls and the authoritative OpenAPI task-list cursor/filter
+   plus task-detail contracts; regenerate clients.
+7. Add Android Feed navigation, principal-scoped Room list/detail/remote-key
+   cache, SOP screens and complete logout/revocation cleanup registration.
 8. Close signed-media checksum and proof-kind enforcement.
 9. Implement transactional submission, verification, rework and inventory.
-10. Add command projection, reminders, escalation and notifications.
+10. Add canonical indexed command-lens queries, reminders, escalation and
+    notifications inside the existing kernel worker.
 11. Run sanitized legacy shadow parity and failure-heavy E2E.
 12. Cut over one bounded farm/stage grain, then expand only after evidence.
 

@@ -108,7 +108,7 @@ Relevant sheets/tabs and source roles:
 | `CPT Supply Planning` / `CBE Supply Planning` | Per-feed quantity staging | Reviewed ration/config preview and immutable generation rows |
 | `CPT Validation` / `CBE Validation` / `Validation-BW` / `Feed-Energy-Protein` | Formula/feed-vector validation | Typed feed vector, constraint, alias, and solver/import config with review and publish gates |
 | `Template` | Farm sessions and feed sets | Versioned `session_policy` inside published `feed_direction` protocol config |
-| `Feed Direction` | Materialized directions, processed flags | Generation run + instruction snapshot rows + obligations/stages/projections |
+| `Feed Direction` | Materialized directions, processed flags | Generation run + instruction snapshot rows + obligations/stages + bounded canonical command-lens queries |
 | `Feed Packing Form` | Packing submissions and videos from Slack replies | SOP submission/proof records, packing stage completion, verifier state |
 | `Feed Transport Form` | Transport proof and status | Transport stage obligation/record with consolidation map |
 | `Feed Consumption & Wastage` | Consumed/wasted quantities and videos | Consumption/wastage stage record, variance exception, proof verification |
@@ -128,10 +128,11 @@ copy.
 
 The normal workbook is effectively driven by shared breed/shed-tag/category
 rules. That works for the default ration, but it means sheds with the same tag
-tend to receive the same composition. The missing capability is simple: the
-Feed Director must be able to create multiple composition versions, assign any
-version to any selected shed or cohort even when the sheds have the same tag,
-compare what happened, and publish the next composition.
+tend to receive the same composition. The missing capability is simple: inside
+one draft Feed protocol version, the Feed Director must be able to create
+multiple compositions, assign any one to a selected shed or cohort even when
+the sheds have the same tag, compare what happened, and publish the complete
+next protocol version once.
 
 The live `Experiment Feed Config` proves the same-tag case directly: three CBE
 Castro sheds are all category `Sheep M NEW`, yet each has a different
@@ -148,8 +149,9 @@ run permutation/combination trials such as:
 - selected sheds given different named composition versions for comparison;
 - feed composition changed after observing wastage, consumption, media proof, or
   operator remarks;
-- tomorrow's experiment packing direction regenerated from the latest approved
-  experiment kg values rather than from the normal shared tag rule.
+- tomorrow's experiment packing direction regenerated from the custom kg values
+  owned by the effective published Feed protocol rather than from its shared tag
+  default.
 
 The Slack threads prove the operational evidence loop: operators are prompted
 for packing, distribution/water, and wastage videos, and the workflow records
@@ -157,17 +159,18 @@ completion. The afternoon packing timing is part of that loop. The observed Apps
 Script trigger creates `sendExperimentPackingMessages` at about 14:15 IST, even
 though an old comment says 07:15. GoatOS therefore needs a review window in
 which the Feed Director can inspect same-day distribution/wastage evidence,
-revise or retain a composition version, approve it, and publish the next-day
-packing direction. Slack proves collection and delivery; GoatOS audit history,
-not a Slack message, must prove who approved the next version and why.
+revise or retain composition children in a draft Feed protocol version, and
+publish that complete version for the next-day packing direction. Slack proves
+collection and delivery; GoatOS audit history, not a Slack message, must prove
+who published the next protocol version and why.
 
 GoatOS should not rebuild this as a duplicate `experiment_feed` backend with
 parallel Feed Direction, packing, wastage, Slack, and video-verification tables.
 The right product shape is:
 
 ```text
-normal feed_direction policy -> default composition
-+ optional approved composition assignment for selected shed/cohort/date/session
+one published feed_direction protocol -> default composition
++ optional composition assignment owned by that same protocol version for selected shed/cohort/date/session
 + optional comparison label/group when the team wants to analyse alternatives
 -> one Feed Direction generation/stage/proof/outbox flow
 ```
@@ -306,21 +309,24 @@ must not be hardcoded as global constants.
 
 ### FR1a — Native per-shed composition allocation (legacy "experiment feed")
 
-GoatOS must let the Feed Director assign an approved composition version to any
-shed/cohort/date/session without forking the Feed Direction workflow or first
-creating a separate experiment.
+GoatOS must let the Feed Director assign a composition owned by the same draft
+Feed protocol version to any shed/cohort/date/session without forking the Feed
+Direction workflow or first creating a separate experiment. The assignment
+becomes effective only when that whole protocol version is published.
 
 Requirements:
 
-1. A composition version contains feed item, quantity, unit, session split,
-   dry-matter/nutrition metadata where known, source evidence, approval state,
-   and immutable version history.
-2. An assignment maps one approved composition version to a shed or cohort for
-   an effective date/session range. It coexists with the normal shed tag, so two
-   sheds with the same tag may intentionally receive different versions.
-3. Generation resolves the normal published policy as the default, then applies
-   the single effective approved composition assignment. More than one matching
-   assignment fails closed with an owner-visible blocker.
+1. A composition child contains feed item, quantity, unit, session split,
+   dry-matter/nutrition metadata where known and source evidence. It has a
+   mandatory owning `protocol_version_id` and no independent approval state.
+2. An assignment maps a composition owned by that same protocol version to a
+   shed or cohort for an effective date/session range. It coexists with the
+   normal shed tag, so two sheds with the same tag may intentionally receive
+   different compositions.
+3. Generation loads one effective published Feed protocol, resolves its default
+   and then applies the single matching assignment owned by that version. More
+   than one matching assignment—or any cross-version reference—fails closed
+   with an owner-visible blocker.
 4. Optional comparison metadata may group assignments under a named comparison
    and labels such as `control`, `variant-a`, or `variant-b`. Ordinary per-shed
    tuning must work without that metadata.
@@ -328,11 +334,12 @@ Requirements:
    notifications, and Video Verification all use the normal Feed Direction
    kernel path with the effective composition reference attached.
 6. Consumption, wastage, distribution/water, proof, and remarks must be
-   queryable by composition version/assignment, optional comparison group,
-   shed/cohort, date, session, and feed item so the Feed Director can approve the
-   next composition before the next packing direction is sent.
-7. Ending an assignment returns the shed to the normal published feed policy
-   without deleting the composition, evidence, approval, or observation history.
+   queryable by protocol/composition/assignment, optional comparison group,
+   shed/cohort, date, session, and feed item so the Feed Director can prepare
+   the next protocol version before the next packing direction is sent.
+7. Ending an assignment is expressed in a new Feed protocol version and returns
+   the shed to that version's default without deleting prior protocol,
+   composition, evidence, publication, or observation history.
 
 ### FR2 — Counts/Shifting input contract
 
@@ -369,7 +376,8 @@ At the approved full-generation schedule, GoatOS must:
 4. Write a generation run and immutable count/ration/instruction rows.
 5. Create shed/session/feed stage obligations and batches through the generic
    kernel.
-6. Emit outbox/domain events for projections, notifications, and stage tasks.
+6. Emit outbox/domain events for notifications and stage tasks; command lenses
+   read bounded canonical rows in the current scale envelope.
 
 Field-facing instructions must show as-fed gross quantities only. Dry matter and
 wastage factors remain nutrition-accounting inputs, not packing labels.
@@ -533,7 +541,7 @@ feed_direction_bridge_events
   reconciliation_state
   idempotency_key
 
-feed_direction_projection_rows
+feed_direction_projection_rows (deferred measured-hotspot option; do not create in the current envelope)
   projection_row_id
   tenant_id, park_id, target_date
   shed_id or transport_shed_id
@@ -545,6 +553,11 @@ feed_direction_projection_rows
   active_instruction_group_key
   cursor_key
 ```
+
+The active 5k-50k design has zero Feed projection commands and zero Feed
+projection tables. The deferred row shape above is only a scale-out sketch: it
+requires measured query pressure, a replay/rebuild owner and an update to the
+accepted operational-kernel scale ADR before implementation.
 
 Quantities should use whole base units, preferably grams/ml as integer values,
 with display conversion handled at the edge. Existing `numeric` columns can
@@ -561,13 +574,13 @@ downstream work still uses the generation/stage/proof/outbox tables above.
 feed_composition_versions
   composition_version_id
   tenant_id
+  protocol_version_id NOT NULL
   code, name
   version
-  source_ref
-  status: draft | approved | retired
+  source_evidence_ref
   nutrient_vector_ref
   notes
-  approved_by, approved_at
+  no independent status, approver, or publish timestamp
 
 feed_composition_items
   composition_item_id
@@ -583,15 +596,15 @@ feed_composition_items
 feed_composition_assignments
   composition_assignment_id
   composition_version_id
+  protocol_version_id NOT NULL
   tenant_id, park_id
   shed_id or cohort_id
   target_date_from, target_date_to, optional_session_code
   assignment_reason
   priority
   optional_comparison_set_id, optional_variant_label
-  approved_by, approved_at
   idempotency_key
-  status: active | superseded | canceled
+  no independent approval/effective status
 
 feed_composition_observations
   composition_observation_id
@@ -627,8 +640,10 @@ feed_comparison_sets (optional analysis metadata)
 
 Implementation may store the composition payload inside
 `protocol_versions.rule_dsl` at first, but the behavior must remain the same:
-versioned composition, explicit approved assignment, immutable generation
-reference, and observation records that can drive the next composition decision.
+every composition and assignment is owned by one mandatory protocol version,
+only publication of that complete protocol makes them effective, generated rows
+pin the immutable owner/child references, and observation records can drive the
+next protocol-version decision. There is no composition-only approval path.
 Comparison metadata is additive and optional; it must never become a gate for
 ordinary same-tag/per-shed composition assignment.
 
@@ -650,18 +665,18 @@ Proposed Feed Direction events:
 
 | Event | Producer | Consumer |
 | --- | --- | --- |
-| `feed_direction.generation.requested` | Scheduler/API | Feed generation worker |
-| `feed_direction.generation.blocked` | Feed generation worker | Action Center/projection/alerts |
-| `feed_direction.full.generated` | Feed generation worker | Kernel projection, notification planner |
-| `feed_direction.diff.generated` | Diff worker | Kernel projection, notification planner |
-| `feed_direction.instruction.superseded` | Diff/repair worker | Notification reconciler, inventory/stage guard |
+| `feed_direction.generation.requested` | Scheduler/API | Feed generation logical stage in the kernel worker |
+| `feed_direction.generation.blocked` | Kernel Feed generation stage | Action Center canonical query/alerts |
+| `feed_direction.full.generated` | Kernel Feed generation stage | Obligation stage, notification planner |
+| `feed_direction.diff.generated` | Kernel Diff stage | Obligation stage, notification planner |
+| `feed_direction.instruction.superseded` | Kernel Diff/repair stage | Notification reconciler, inventory/stage guard |
 | `feed_direction.stage.due` | Kernel sweeper | Notification planner |
 | `feed_direction.packing.started` | API/mobile | Inventory reserve app |
 | `feed_direction.packing.accepted` | Verification/API | Inventory consume/release app |
 | `feed_direction.packing.rejected` | Verification/API | Rework/escalation |
-| `feed_direction.transport.accepted` | Verification/API | Projection/rework close |
+| `feed_direction.transport.accepted` | Verification/API | Canonical stage/rework close |
 | `feed_direction.consumption_wastage.recorded` | API/mobile | Variance checker |
-| `feed_direction.bridge.recorded` | API/mobile | Reconciliation/projection |
+| `feed_direction.bridge.recorded` | API/mobile | Reconciliation/canonical command lens |
 | `feed_direction.notification.reconcile_failed` | Reconciler | Watchdog/escalation |
 
 All events use the standard envelope: tenant/scope, aggregate owner,
@@ -679,20 +694,24 @@ The logical queues are:
 - proof ingestion topic/queue for media/proof callbacks;
 - DLQ/repair queue for poison messages and source row repair.
 
-Postgres remains the source of truth. Pub/Sub only carries work. Every worker
-must be safe to replay from database state if a message is lost.
+Postgres remains the source of truth. Pub/Sub only carries work. Every logical
+stage in the existing modular kernel worker must be safe to replay from database
+state if a message is lost. These stage names do not authorize separate Feed
+worker deployments.
 
-### Cron/job schedule
+### Logical cadence schedule inside the kernel worker
 
-All times are India business time and config-driven.
+All times are India business time and config-driven. Each row below is a
+supervised stage/cadence in the existing worker, not a Cloud Scheduler cron or a
+scheduled Cloud Run Job.
 
-| Job | Default target | Responsibility |
+| Logical stage | Default target | Responsibility |
 | --- | --- | --- |
 | Counts source import/recompute | Before generation windows | Ensure `count_projection_snapshots` are ready or blocked with exceptions |
 | Full Feed Direction generation | Recommended 09:00 Day N for Day N+1 | Create immutable full instructions and obligations |
 | Diff generation | Recommended 13:30-13:45 Day N | Restate affected sheds and supersede stale work |
 | Packing/staging due sweep | Recommended 15:00 Day N, or legacy bridge window during migration | Mark packing obligations due, reserve on start, notify operators |
-| Composition-feedback review window | Before ~14:15 custom-composition packing notification, if retained | Review same-day wastage/distribution observations and publish the next composition version/assignment |
+| Composition-feedback review window | Before ~14:15 custom-composition packing notification, if retained | Review same-day wastage/distribution observations, edit the next Feed protocol's composition/assignment children, and publish that complete protocol version |
 | Legacy-compatible Slack packing | ~14:15 custom-composition and ~07:30 default-policy flows during migration only | Deliver notifications from GoatOS work to old operator channels |
 | Consumption notification | Morning and afternoon sessions; legacy ~13:00 timing to verify | Remind/collect consumption and wastage proof |
 | Watchdog/reconciler | Every few minutes during active windows | Detect missing/duplicate Slack messages, stuck outbox, no proof, failed imports, stale projections, stock-outs |
@@ -712,7 +731,7 @@ Existing Feed readiness/preview/exception APIs should remain. Add or extend:
 | `POST /feed-direction/diff-runs` | Trigger Diff generation/replay with idempotency |
 | `GET /feed-direction/generation-runs` | List runs, status, row counts, source hashes |
 | `GET /feed-direction/directions` | Cursor-paged active/superseded instruction rows |
-| `GET /feed-direction/buckets` | Operational command buckets: blocked, packing due, shortfall, proof missing, transport pending/rejected, consumption incomplete, wastage exception, bridge exception, stock-out, missed/escalated/rework |
+| `GET /feed-direction/buckets` | Bounded, indexed canonical command-lens query: blocked, packing due, shortfall, proof missing, transport pending/rejected, consumption incomplete, wastage exception, bridge exception, stock-out, missed/escalated/rework |
 | `POST /feed-direction/stages/{stage}/start` | Start packing/transport/consumption stage; reserve stock where applicable |
 | `POST /feed-direction/stages/{stage}/submit-proof` | Submit quantities, media refs, and idempotency key |
 | `POST /feed-direction/stages/{stage}/verify` | Accept/reject proof with remarks and rework policy |
@@ -1002,8 +1021,9 @@ Before landing implementation, run the relevant repo guardrails and full
    GoatOS move operators to the docx 09:00/15:00 model immediately after
    cutover?
 2. Which sheds/cohorts currently use non-default composition assignments, and
-   who approves each next composition version before the ~14:15 packing
-   notification? Which assignments, if any, also need optional comparison labels?
+   who is authorized to publish the complete next Feed protocol version before
+   the ~14:15 packing notification? Which assignments, if any, also need optional
+   comparison labels?
 3. Are K0/K1 exclusions approved as a published `feed_direction` eligibility
    rule?
 4. Does `80/20` from KT represent a packing factor, feed-type ratio, or a

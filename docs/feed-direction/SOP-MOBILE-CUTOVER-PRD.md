@@ -33,10 +33,11 @@ not erased. The task moves into rework with a reason. The worker fixes only the
 failed step. The Feed Director sees the exception and its effect on tomorrow's
 plan.
 
-If two sheds with the same tag need different mixtures, the director simply
-assigns a different approved composition version to each shed. The workers see
-the normal packing and distribution tasks. They do not enter a separate
-"experiment system."
+If two sheds with the same tag need different mixtures, the director puts both
+mixtures and their shed assignments inside the next Feed protocol version. One
+authorized publish makes that whole version effective. The workers see the
+normal packing and distribution tasks. They do not enter a separate "experiment
+system."
 
 ## 2. Product decision
 
@@ -44,7 +45,7 @@ There is one Feed Direction product and one execution chain:
 
 ```mermaid
 flowchart LR
-    A["Published feed policy and compositions"] --> B["Tomorrow direction for every shed/session"]
+    A["One published Feed protocol: rules, compositions and assignments"] --> B["Tomorrow direction for every shed/session"]
     B --> C["Role-assigned Android SOP tasks"]
     C --> D["Packing"]
     D --> E["Transport"]
@@ -88,7 +89,9 @@ the backend, mobile app, proof model, or verification process.
 - Treating a Slack message, PDF, uploaded file, or sent notification as task
   completion.
 - Hardcoding observed legacy trigger times as future business deadlines.
-- Querying Sheets, Slack, BigQuery, GCS, or Postgres directly from Android.
+- Giving Android credentials or SDK access to Sheets, Slack, BigQuery, raw GCS
+  buckets, or Postgres. Task-bound, short-lived signed HTTPS media operations
+  issued by the app API are the required exception for proof upload/download.
 - Building the full nutrition optimizer, procurement, or cost-accounting module
   inside this cutover.
 - Treating noisy KT quantities or formulas as approved production policy.
@@ -97,18 +100,23 @@ the backend, mobile app, proof model, or verification process.
 
 | Role | What the person can see and do | What they cannot do by default |
 | --- | --- | --- |
-| Feed Director | Draft/review/publish composition versions, inspect tomorrow coverage, approve exact-shed assignments, review outcomes and exceptions, issue corrections/emergency adjustments | Complete field proof as another worker or silently rewrite issued work |
-| Feed packing operator | See assigned shed/session packing tasks, enter actual quantities, capture required proof, explain shortfall and submit | Change the published expected quantity or verify own proof unless separately authorized |
+| Feed Director | Draft compositions and exact-shed assignments inside a Feed protocol version, inspect tomorrow coverage, publish that complete version when authorized, review outcomes and exceptions, issue corrections/emergency adjustments | Complete field proof as another worker or silently rewrite issued work |
+| Feed packing operator | See assigned shed/session packing tasks, enter actual quantities, capture required proof, explain shortfall and submit | Change the published expected quantity or verify their own submission/proof |
 | Feed transport operator | See assigned route/destination tasks, capture departure/arrival evidence and exceptions | Complete distribution or alter direction quantities |
-| Feed distribution operator | Record served/consumed quantity, distribution proof and water proof for assigned sheds/sessions | Approve composition policy or hide a shortfall |
+| Feed distribution operator | Record served/consumed quantity, distribution proof and water proof for assigned sheds/sessions | Publish the Feed protocol or hide a shortfall |
 | Wastage/consumption operator | Record consumed/wasted kg, reason and proof where separately assigned | Change the plan or reviewer verdict |
 | Video verifier | Inspect required evidence and quantities, accept/reject with reason, request step-specific rework | Change original submissions or approve outside assigned scope |
 | Supervisor/escalation owner | Reassign, unblock, approve allowed exceptions, follow overdue/rejected work | Erase history or bypass safety rules without reason and audit |
-| Admin/Data Ops | Manage SOP definitions, proof policy, reference data, workforce assignments, deadline policy and migration mappings | Publish feed composition unless granted Feed authority |
+| Admin/Data Ops | Manage SOP definitions, proof policy, reference data, workforce assignments, deadline policy and migration mappings | Publish a Feed protocol version unless granted Feed authority |
 
 Assignment and actual submission are separate facts. One person may help another
 in the field, but GoatOS must record who was assigned, who actually submitted,
 who approved the substitution, and why.
+
+Verification is also a separate fact. A principal who submitted an item or its
+proof can never verify that same submission, even when the principal holds both
+operator and verifier roles. Capability grants do not override this
+per-submission separation-of-duties rule.
 
 ## 6. The daily product flow
 
@@ -116,7 +124,8 @@ who approved the substitution, and why.
 
 1. GoatOS receives a safe tomorrow count/projection snapshot.
 2. It resolves each physical shed/breed row to reviewed ration context.
-3. It selects the approved composition: shared default or a more-specific
+3. It loads the single effective published Feed protocol version and selects a
+   composition owned by that version: shared default or a more-specific
    exact-shed/cohort/date/session assignment.
 4. It generates immutable direction items and validates coverage, overlap,
    stock/stage policy, and blockers.
@@ -222,8 +231,8 @@ The director needs a compact operating view, not a Sheet replica:
 - late, short, rejected, missing-proof and sync-conflict work;
 - wastage/variance threshold breaches and root-cause status;
 - stock runway/reorder/delivery signals when the inventory contract is ready;
-- proposed next-day composition changes with preview, reason, approver and
-  effective date.
+- proposed next-day protocol/composition changes with preview, reason, authorized
+  protocol publisher and effective date.
 
 Publishing remains a high-authority action with preview and confirmation; it is
 not an accidental edit from a task card.
@@ -496,6 +505,12 @@ behind it.
 - Offline media/answers survive process death and reboot.
 - Reconnect converges without duplicate task completion or evidence.
 - The UI distinguishes saved, syncing, submitted, accepted and completed.
+- Every authorized task remains reachable through stable cursor pagination;
+  crossing a page boundary, going offline and process death do not lose the
+  continuation position.
+- Every Feed cache, draft, queued command, captured file and in-memory task is
+  scoped to the signed-in principal and is removed before another principal can
+  use the device after logout or revocation.
 
 ### Proof and verification
 
@@ -518,8 +533,11 @@ behind it.
 
 - Stable business/idempotency keys make retries safe.
 - Notification failure does not change task state.
-- No mobile client directly accesses Sheets, Slack, BigQuery, GCS or Postgres.
-- Signed media operations are scoped, expiring and auditable.
+- No mobile client receives credentials or SDK access for Sheets, Slack,
+  BigQuery, raw GCS buckets or Postgres.
+- The app may upload/download proof only through task-bound, short-lived signed
+  HTTPS operations; these operations are scoped, expiring and auditable and
+  never expose a public URL or cloud credential.
 - Every command is tenant/scope/capability checked server-side.
 
 ### Cutover
