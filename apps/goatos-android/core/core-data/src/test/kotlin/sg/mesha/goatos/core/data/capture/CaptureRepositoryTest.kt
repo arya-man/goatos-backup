@@ -519,6 +519,147 @@ class CaptureRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun `remove QUEUED proof cancels outbox item FIRST then deletes row and file (BUG 8)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-bug8-queued",
+                    fieldKey = "shed_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://bug8-queued.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-bug8-queued",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+            ).value
+
+            val outboxItemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("outbox item should exist", !outboxItemId.isNullOrBlank())
+
+            // Remove the proof — must cancel outbox FIRST
+            val result = repo.remove("task-bug8-queued", captured.id)
+            assertTrue("remove must succeed", result is AppResult.Ok)
+
+            // Verify: row is deleted
+            val rowAfter = db.proofCaptureDao().findById(captured.id)
+            assertEquals("proof row must be deleted", null, rowAfter)
+
+            // Verify: sync called deleteOutboxItem (order matters — must be BEFORE row delete)
+            assertEquals("outbox item must be deleted", 1, sync.deleteOutboxCalls.size)
+            assertEquals(outboxItemId, sync.deleteOutboxCalls[0])
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `remove IN_FLIGHT proof refuses deletion to prevent orphan server proof (BUG 8)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-bug8-inflight",
+                    fieldKey = "administration_video",
+                    subject = ProofSubject.ADMINISTRATION,
+                    localUri = "file://bug8-inflight.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-bug8-inflight",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+            ).value
+
+            val outboxItemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("outbox item should exist", !outboxItemId.isNullOrBlank())
+
+            // Simulate the outbox item being IN_FLIGHT
+            sync.emit(outboxItemId!!, SyncItemStatus.IN_FLIGHT, resultJson = null)
+            advanceUntilIdle()
+
+            // Try to remove — must REFUSE because upload is in progress
+            val result = repo.remove("task-bug8-inflight", captured.id)
+            assertTrue("remove must fail for IN_FLIGHT upload", result is AppResult.Err)
+
+            // Verify: row is NOT deleted
+            val rowAfter = db.proofCaptureDao().findById(captured.id)
+            assertEquals("proof row must NOT be deleted", captured.id, rowAfter?.id)
+
+            // Verify: no deleteOutboxItem was called
+            assertEquals("deleteOutboxItem must NOT be called for IN_FLIGHT", 0, sync.deleteOutboxCalls.size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `remove surfaces deleteOutboxItem failure and preserves row and file (BUG 8)`() = runTest {
+        val db = newDb()
+        try {
+            val syncWithFailure = FakeSyncRepository(deleteOutboxItemFailure = "network error")
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = syncWithFailure,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-bug8-failure",
+                    fieldKey = "shed_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://bug8-failure.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-bug8-failure",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+            ).value
+
+            // Try to remove — outbox delete will fail
+            val result = repo.remove("task-bug8-failure", captured.id)
+            assertTrue("remove must surface the error", result is AppResult.Err)
+            assertTrue(result is AppResult.Err && result.message.contains("network error"))
+
+            // Verify: row is NOT deleted (orphan prevention)
+            val rowAfter = db.proofCaptureDao().findById(captured.id)
+            assertEquals("proof row must NOT be deleted on outbox failure", captured.id, rowAfter?.id)
+        } finally {
+            db.close()
+        }
+    }
 }
 
 private fun proofEntity(
@@ -548,7 +689,9 @@ private fun proofEntity(
 /** Minimal, deterministic [SyncRepository] test double: records every
  *  [enqueueProofUpload] call and lets the test manually drive its outbox item's status via
  *  [emit], mirroring how [sg.mesha.goatos.core.data.sync.SyncEngine] would really transition it. */
-private class FakeSyncRepository : SyncRepository {
+private class FakeSyncRepository(
+    private val deleteOutboxItemFailure: String? = null,
+) : SyncRepository {
     data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
     data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
     data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
@@ -557,6 +700,7 @@ private class FakeSyncRepository : SyncRepository {
     val scanCalls = mutableListOf<ScanCall>()
     val attemptCalls = mutableListOf<AttemptCall>()
     val retryCalls = mutableListOf<String>()
+    val deleteOutboxCalls = mutableListOf<String>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -639,7 +783,14 @@ private class FakeSyncRepository : SyncRepository {
         s.items.firstOrNull { it.id == itemId }
     }
 
-    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> {
+        deleteOutboxCalls += itemId
+        return if (deleteOutboxItemFailure != null) {
+            AppResult.Err(deleteOutboxItemFailure)
+        } else {
+            AppResult.Ok(Unit)
+        }
+    }
 
     override suspend fun triggerDrain() = Unit
 }

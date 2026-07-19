@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.transformWhile
@@ -414,20 +415,31 @@ class DefaultProofCaptureRepository(
         }
 
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
-        // R50-028: fetch the row BEFORE deleting it so its local video file can be reclaimed too —
+        // R50-028: fetch the row BEFORE processing so its local video file can be reclaimed too —
         // otherwise every removed proof leaks its recorded clip on device storage forever.
-        // ALSO: cancel the queued outbox upload for this proof if it's unsynced, so removing a proof
-        // does not leave a permanent deadletter / orphan server registration.
+        // BUG#8 FIX: cancel the outbox upload FIRST (and guard IN_FLIGHT), only delete row/file if success
         val entity = dao.findById(id)?.takeIf { it.taskId == taskId }
-        dao.delete(id, taskId)
-        entity?.let {
-            deleteLocalFile(it.localUri)
-            // R50-028: if the proof was not yet synced (still has a queued outbox item), remove
-            // the outbox entry so the server never registers an orphan proof with no local copy.
-            it.outboxItemId?.takeIf { id -> id.isNotBlank() }?.let { outboxId ->
-                syncRepository.deleteOutboxItem(outboxId)
+            ?: return@withContext AppResult.Ok(Unit)
+
+        val outboxItemId = entity.outboxItemId?.takeIf { it.isNotBlank() }
+        if (!outboxItemId.isNullOrBlank()) {
+            // R50-028: check if upload is IN_FLIGHT — don't pull the file from under an active upload
+            val outboxItem = syncRepository.observeItem(outboxItemId).first()
+            if (outboxItem?.status == SyncItemStatus.IN_FLIGHT) {
+                return@withContext AppResult.Err(
+                    "Cannot delete proof while upload is in progress. Wait for upload to complete or fail."
+                )
+            }
+            // BUG#8: delete outbox item FIRST, surface the error if it fails
+            val deleteResult = syncRepository.deleteOutboxItem(outboxItemId)
+            if (deleteResult is AppResult.Err) {
+                return@withContext deleteResult
             }
         }
+
+        // Only delete row + file after outbox is successfully cancelled
+        dao.delete(id, taskId)
+        deleteLocalFile(entity.localUri)
         AppResult.Ok(Unit)
     }
 
