@@ -1953,24 +1953,6 @@ type VaccinationSourceFact struct {
 	CreatedAt      pgtype.Timestamptz
 }
 
-type VaccinationStageReviewItem struct {
-	ReviewItemID     pgtype.UUID
-	TenantID         pgtype.UUID
-	GoatID           pgtype.UUID
-	Reason           string
-	ObservedStage    string
-	ObservedAgeWeeks int32
-	Status           string
-	ResolvedBy       pgtype.UUID
-	ResolvedAt       pgtype.Timestamptz
-	ResolutionNote   pgtype.Text
-	IdempotencyKey   string
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-	ResolutionMode   pgtype.Text
-	AgeCutoffWeeks   pgtype.Int4
-}
-
 type Vaccine struct {
 	VaccineID      pgtype.UUID
 	TenantID       pgtype.UUID
@@ -2004,6 +1986,9 @@ type VerificationItem struct {
 	CapturedAt         pgtype.Timestamptz
 	VerifiedBy         pgtype.UUID
 	VerifiedAt         pgtype.Timestamptz
+	SubjectLabel       pgtype.Text
+	ClosedBy           pgtype.UUID
+	ClosedAt           pgtype.Timestamptz
 	IdempotencyKey     string
 	RowVersion         int32
 	CreatedAt          pgtype.Timestamptz

@@ -13,13 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
-	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
@@ -28,8 +26,6 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
-	ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error)
-	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -70,8 +66,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
 	mux.HandleFunc("POST /vaccination/manual-campaigns", h.RunManualCampaign)
 	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
-	mux.HandleFunc("GET /admin/vaccination/stage-review-items", h.ListStageReviewItems)
-	mux.HandleFunc("POST /admin/vaccination/stage-review-items/{review_item_id}/resolve", h.ResolveStageReviewItem)
 }
 
 const (
@@ -380,106 +374,6 @@ func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
-}
-
-type stageReviewListResponse struct {
-	Items      []domain.StageReviewItem `json:"items"`
-	NextCursor *string                  `json:"nextCursor,omitempty"`
-}
-
-// ListStageReviewItems returns open vaccination stage/age review items for the tenant so operators
-// can discover the animals whose stale K1/K2 tag needs reconciling (VACC-REV-10).
-// Supports cursor pagination (VACC-REV-10B) for >200 items without capping access to older work.
-func (h *Handler) ListStageReviewItems(w http.ResponseWriter, r *http.Request) {
-	limit := 50
-	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
-			return
-		}
-		if n > 200 {
-			n = 200
-		}
-		limit = n
-	}
-	var cursor *domain.StageReviewItemCursor
-	if v := strings.TrimSpace(r.URL.Query().Get("cursor")); v != "" {
-		decoded, err := domain.DecodeStageReviewItemCursor(v)
-		if err != nil {
-			h.badRequest(w, r, "invalid_cursor", "cursor is malformed or invalid")
-			return
-		}
-		cursor = &decoded
-	}
-	page, err := h.svc.ListOpenStageReviewItems(r.Context(), tenantID(r), cursor, limit)
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
-			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
-		return
-	}
-	if page.Items == nil {
-		page.Items = []domain.StageReviewItem{}
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, stageReviewListResponse{Items: page.Items, NextCursor: page.NextCursor})
-}
-
-type resolveStageReviewRequest struct {
-	Resolution string `json:"resolution"`
-	Note       string `json:"note"`
-}
-
-// ResolveStageReviewItem marks an open stage/age review item resolved (VACC-REV-10). Idempotent: a
-// replay on an already-resolved (or missing) item returns 404 without changing state. A resolution
-// mode ('corrected' | 'exception') and a non-empty note are REQUIRED so an operator cannot silently
-// hide an active stage/age mismatch: they must declare whether the stage/DOB conflict was corrected
-// or is an explicit reviewed exception, and record why.
-func (h *Handler) ResolveStageReviewItem(w http.ResponseWriter, r *http.Request) {
-	reviewItemID := r.PathValue("review_item_id")
-	if !uuidutil.IsUUIDString(reviewItemID) {
-		h.badRequest(w, r, "invalid_review_item_id", "review_item_id must be a UUID")
-		return
-	}
-	var req resolveStageReviewRequest
-	if r.Body != nil {
-		dec := json.NewDecoder(io.LimitReader(r.Body, 8*1024))
-		if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-			h.badRequest(w, r, "invalid_body", "request body must be JSON")
-			return
-		}
-	}
-	resolution := strings.TrimSpace(req.Resolution)
-	if resolution != "corrected" && resolution != "exception" {
-		h.badRequest(w, r, "invalid_resolution", "resolution must be 'corrected' (stage/DOB conflict fixed) or 'exception' (explicit reviewed exception)")
-		return
-	}
-	note := strings.TrimSpace(req.Note)
-	if note == "" {
-		h.badRequest(w, r, "invalid_note", "note is required: record what was corrected or why this is an accepted exception")
-		return
-	}
-	if utf8.RuneCountInString(note) > 500 {
-		h.badRequest(w, r, "invalid_note", "note may not exceed 500 characters")
-		return
-	}
-	resolved, err := h.svc.ResolveStageReviewItem(r.Context(), tenantID(r), reviewItemID,
-		httpmiddleware.ActorIDFromContext(r.Context()), note, resolution, time.Now().In(biztime.DefaultLocation()))
-	if err != nil {
-		if errors.Is(err, vaccinationapp.ErrStageReviewStillActive) {
-			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
-				errorEnvelope{Code: "still_in_conflict", Message: "stage/age mismatch is still active; correct the goat's stage/DOB first or resolve as an exception", TraceID: traceID(r)}, nil)
-			return
-		}
-		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
-			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
-		return
-	}
-	if !resolved {
-		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
-			errorEnvelope{Code: "not_open", Message: "review item not found or already resolved", TraceID: traceID(r)}, nil)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"review_item_id": reviewItemID, "status": "resolved"})
 }
 
 func validCampaignID(value string) bool {

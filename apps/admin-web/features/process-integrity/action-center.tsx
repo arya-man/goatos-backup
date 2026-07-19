@@ -1,12 +1,11 @@
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { Ban, GitBranch, Info, ShieldCheck, Syringe, Video, X } from "lucide-react";
-import { getVaccinationActionCenter, getVaccinationVerificationQueue, listVaccinationStageReviewItems } from "@/lib/api/server";
+import { getVaccinationActionCenter, getVaccinationVerificationQueue } from "@/lib/api/server";
 import { actionFeedbackCopy, copy, optionGroup, tableLabels, tablePageSizes, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   ActionCenterObligation,
   ProcessIntegritySeverity,
-  VaccinationStageReviewItem,
   VaccinationQueueItem,
   WorkState,
 } from "@/lib/api/server";
@@ -25,7 +24,7 @@ import {
   VaccinationTablePager,
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
-import { rejectCompletionAction, resolveStageReviewAction, verifyCompletionAction } from "./actions";
+import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { ActionCenterFiltersButton } from "./action-center-filters";
 import { actionCenterRequestPlan } from "./action-center-request-plan";
 import { WorkBoard, actionWorkTitle } from "./work-board";
@@ -142,10 +141,6 @@ export async function VaccinationActionCenterPage({
   const queuePage = boundedInt(one(sp, "verify_page"), 1, 1, 1000000);
   const queueCursor = one(sp, "verify_cursor");
   const queueCursorStack = sp.verify_cursor_stack;
-  const stageCursor = one(sp, "stage_cursor");
-  const stageCursorStack = sp.stage_cursor_stack;
-  const stagePage = boundedInt(one(sp, "stage_page"), 1, 1, 1000000);
-  const stagePageSize = 20;
   const requestPlan = actionCenterRequestPlan({
     stateFilter,
     severityFilter,
@@ -162,19 +157,16 @@ export async function VaccinationActionCenterPage({
   // Both honor the top-bar park scope (park_id) so the SOP/verification queue can't show other parks.
   // IMPORTANT: Fetch only the active tab to avoid OFFSET pagination debt and dual-tab eager fetch.
   // The page shows either the board (view === "board") OR the queue (view === "verify"), never both.
-  const [actionCenter, queue, stageReview] = await Promise.all([
+  const [actionCenter, queue] = await Promise.all([
     getVaccinationActionCenter(requestPlan.actionCenter),
     view === "verify" ? getVaccinationVerificationQueue(requestPlan.verificationQueue) : Promise.resolve(null),
-    view === "stage" ? listVaccinationStageReviewItems({ limit: stagePageSize, cursor: stageCursor || undefined }) : Promise.resolve(null),
   ]);
 
   const items: ActionCenterObligation[] = actionCenter.ok ? actionCenter.data.items : [];
   const boardRows = items;
   const queueItems: VaccinationQueueItem[] = queue?.ok ? queue.data.items : [];
-  const stageItems: VaccinationStageReviewItem[] = stageReview?.ok ? stageReview.data.items : [];
   const queueTotalCount = queue?.ok ? queue.data.total_count : 0;
   const verificationHeaders = tableLabels(pageContract, "verification-queue");
-  const stageHeaders = tableLabels(pageContract, "stage-review");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const boardTotalCount = actionCenter.ok ? actionCenter.data.total_count : 0;
@@ -216,11 +208,6 @@ export async function VaccinationActionCenterPage({
       ? hrefWithPagedCursor(PATH, sp, "verify_cursor", queue.data.next_cursor, "verify_page", "verify_cursor_stack")
       : null;
   const queuePrevHref = hrefPreviousPagedCursor(PATH, sp, "verify_cursor", "verify_page", "verify_cursor_stack");
-  const stageNextHref =
-    stageReview?.ok && stageReview.data.nextCursor
-      ? hrefWithPagedCursor(PATH, sp, "stage_cursor", stageReview.data.nextCursor, "stage_page", "stage_cursor_stack")
-      : null;
-  const stagePrevHref = hrefPreviousPagedCursor(PATH, sp, "stage_cursor", "stage_page", "stage_cursor_stack");
   if (queue?.ok && normalizedQueuePage > 1 && !queueCursor && !queueCursorStack) {
     redirect(hrefWith({ bucket: "verify", verify_page: "1", verify_limit: String(requestedQueuePageSize), verify_cursor: undefined, verify_cursor_stack: undefined }));
   }
@@ -321,9 +308,6 @@ export async function VaccinationActionCenterPage({
 	        <Link href={hrefWith({ bucket: "verify" })} replace scroll={false} className={view === "verify" ? "on" : ""}>
 	          {copy(pageContract, "view.sop_queues")} <span className="cbq">{queueTotalCount}</span>
 	        </Link>
-	        <Link href={hrefWith({ bucket: "stage", stage_page: "1", stage_cursor: undefined, stage_cursor_stack: undefined })} replace scroll={false} className={view === "stage" ? "on" : ""}>
-	          {copy(pageContract, "view.stage_review")} <span className="cbq">{view === "stage" ? stageItems.length : "..."}</span>
-	        </Link>
 	      </div>
 
       {!actionCenter.ok ? (
@@ -336,24 +320,8 @@ export async function VaccinationActionCenterPage({
           <b>{queue.error.code ?? queue.error.kind}</b>&nbsp;{queue.error.message}
         </div>
       ) : null}
-      {stageReview && !stageReview.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{stageReview.error.code ?? stageReview.error.kind}</b>&nbsp;{stageReview.error.message}
-        </div>
-      ) : null}
 
-      {view === "stage" ? (
-        <StageReviewSection
-          rows={stageItems}
-          page={stagePage}
-          pageSize={stagePageSize}
-          nextHref={stageNextHref}
-          prevHref={stagePrevHref}
-          returnTo={hrefWith({ bucket: "stage", stage_page: String(stagePage), stage_cursor: stageCursor || undefined, stage_cursor_stack: typeof stageCursorStack === "string" ? stageCursorStack : undefined })}
-          pageContract={pageContract}
-          headers={stageHeaders}
-        />
-      ) : view === "verify" ? (
+      {view === "verify" ? (
         // ===== SOP queues — verification surface (accept / reject / request rework) =====
         <section className="card" data-filter-scope>
 	          <div className="hd">
@@ -572,95 +540,6 @@ export async function VaccinationActionCenterPage({
         </div>
       )}
     </div>
-  );
-}
-
-function StageReviewSection({
-  rows,
-  page,
-  pageSize,
-  nextHref,
-  prevHref,
-  returnTo,
-  pageContract,
-  headers,
-}: {
-  rows: VaccinationStageReviewItem[];
-  page: number;
-  pageSize: number;
-  nextHref: string | null;
-  prevHref: string | null;
-  returnTo: string;
-  pageContract: AdminUiPageContract;
-  headers: string[];
-}) {
-  const start = rows.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const end = rows.length === 0 ? 0 : start + rows.length - 1;
-  return (
-    <section className="card">
-      <div className="hd">
-        <ShieldCheck className="ic" style={{ color: "var(--warn)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.stage_review.title")}</h3>
-        <Tag tone={rows.length ? "warn" : "mut"}>{rows.length}</Tag>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">{copy(pageContract, "section.stage_review.rows")} {start}-{end}</span>
-      </div>
-      {rows.length === 0 ? (
-        <div className="bd">
-          <p className="muted small" style={{ margin: 0 }}>{copy(pageContract, "section.stage_review.empty")}</p>
-        </div>
-      ) : (
-        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.stage_review.aria")}>
-          <table>
-            <thead>
-              <tr>
-                {headers.map((header) => (
-                  <th key={header}>{header}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.reviewItemId}>
-                  <td>
-                    <Link href={`/goats/${encodeURIComponent(row.goatId)}`} className="gid">
-                      {shortId(row.goatId)}
-                    </Link>
-                  </td>
-                  <td><Tag tone="warn">{row.observedStage}</Tag></td>
-                  <td>{row.observedAgeWeeks}w</td>
-                  <td>{row.reason}</td>
-                  <td>{fmtDate(row.createdAt)}</td>
-                  <td>
-                    <div style={{ display: "grid", gap: 8, minWidth: 320 }}>
-                      <form action={resolveStageReviewAction} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                        <input type="hidden" name="review_item_id" value={row.reviewItemId} />
-                        <input type="hidden" name="resolution" value="corrected" />
-                        <input type="hidden" name="return_to" value={returnTo} />
-                        <input name="note" required minLength={1} maxLength={500} placeholder={copy(pageContract, "field.stage_review.correction_note")} style={{ minWidth: 180 }} />
-                        <button type="submit" className="btn sm p">{copy(pageContract, "action.stage_review_corrected")}</button>
-                      </form>
-                      <form action={resolveStageReviewAction} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                        <input type="hidden" name="review_item_id" value={row.reviewItemId} />
-                        <input type="hidden" name="resolution" value="exception" />
-                        <input type="hidden" name="return_to" value={returnTo} />
-                        <input name="note" required minLength={1} maxLength={500} placeholder={copy(pageContract, "field.stage_review.exception_note")} style={{ minWidth: 180 }} />
-                        <button type="submit" className="btn sm">{copy(pageContract, "action.stage_review_exception")}</button>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <div className="pager" style={{ marginTop: 12 }}>
-        <Link href={prevHref ?? "#"} className={`btn sm${prevHref ? "" : " dis"}`} aria-disabled={!prevHref || undefined}>{copy(pageContract, "action.previous")}</Link>
-        <span className="muted small">{copy(pageContract, "label.page")} {page}</span>
-        <Link href={nextHref ?? "#"} className={`btn sm${nextHref ? "" : " dis"}`} aria-disabled={!nextHref || undefined}>{copy(pageContract, "action.next")}</Link>
-      </div>
-    </section>
   );
 }
 

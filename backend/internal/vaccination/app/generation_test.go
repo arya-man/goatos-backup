@@ -2919,11 +2919,6 @@ func TestMissingReviewRecorderFailsOnStaleKidStage(t *testing.T) {
 	}
 }
 
-type fakeReviewRecorder struct{}
-
-func (f *fakeReviewRecorder) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
-	return nil
-}
 
 // AnchorMissingCatchUpKey must stay byte-identical to the key genOneGoat stamps on the §89 option-4
 // catch-up path (missingDueDateKey with anchorMissingReason). Seed reconciliation classifies

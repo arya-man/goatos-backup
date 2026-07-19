@@ -216,7 +216,6 @@ func mergeGenerateResult(dst *vaccinationdomain.GenerateResult, src vaccinationd
 	dst.FailedGoats += src.FailedGoats
 	dst.SkippedNoDueDate += src.SkippedNoDueDate
 	dst.SuppressedByTrustedHistory += src.SuppressedByTrustedHistory
-	dst.ReviewSignals += src.ReviewSignals
 }
 
 func parseFlags(args []string, now func() time.Time) (config, error) {

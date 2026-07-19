@@ -155,6 +155,7 @@ type stats struct {
 	KernelSuppressed   int         // kernel-suppressed (already completed) obligations
 	Purged             purgeCounts // synthetic fixtures removed
 	DobNulled          int         // purchased/imported-origin animals with provably-false DOB, nulled via -null-false-dob
+	StagesCorrected    int         // goats whose source stage contradicted age-derived stage, auto-corrected
 
 	// Fix Plan A1 — explicit, non-silent accounting for every dated (non-blank/NA/Pending)
 	// source cell. Every dated fact must land in exactly one bucket: Completed, Scheduled,
@@ -536,6 +537,16 @@ type dobDisposition struct {
 	RunTimestamp string `json:"run_timestamp"`
 }
 
+// stageCorrection tracks one goat whose source stage tag contradicted its age-derived stage.
+// The age-derived stage is authoritative; contradictions must be corrected + surfaced for review.
+type stageCorrection struct {
+	RFID         string `json:"rfid"`
+	AgeWeeks     int    `json:"age_weeks"`
+	SourceStage  string `json:"source_stage"`
+	CorrectedStage string `json:"corrected_stage"`
+	RunTimestamp string `json:"run_timestamp"`
+}
+
 // entryDateSourceLabel reports which source column resolved the animal's entry_date,
 // mirroring the precedence in buildEntryDateMapping (purchase_date -> stage_entry_date,
 // except birth-origin animals which use only their own stage_entry_date).
@@ -603,6 +614,26 @@ func writeDobDispositionAudit(sourcePath string, runDate time.Time, seedRunID st
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("write dob disposition audit %s: %w", path, err)
+	}
+	return nil
+}
+
+// writeStageCorrectionAudit writes the stage correction sidecar to
+// <sourcePath>/seed-stage-correction-<YYYY-MM-DDTHH-MM-SS>-<seedRunID>.json.
+// Records every goat whose source stage tag contradicted its age-derived stage.
+// Source files are never modified; this is an additive audit record only, and it is a no-op
+// when there is nothing to record.
+func writeStageCorrectionAudit(sourcePath string, runDate time.Time, seedRunID string, entries []stageCorrection) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	path := filepath.Join(sourcePath, fmt.Sprintf("seed-stage-correction-%s-%s.json", runDate.Format("2006-01-02T15-04-05"), seedRunID))
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal stage correction audit: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write stage correction audit %s: %w", path, err)
 	}
 	return nil
 }
@@ -687,6 +718,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool, sourcePath string, nullFalseDob bool, expectNullFalseDob int) (st stats, retErr error) {
 	now := time.Now().In(loc)
 	var dobDispositions []dobDisposition
+	var stageCorrections []stageCorrection
 
 	// VACC-REV-02: open a persisted seed-run in the `loading` state on the pool (outside the data
 	// tx). Any error return below transitions it to `failed`/reset_required via the defer, so a
@@ -963,6 +995,25 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			}
 			dobTime = &d
 			goatDOBByAnimalKey[animalKey] = dobTime
+
+			// AUTO-CORRECT: derive age-based stage and detect contradictions with source stage.
+			// The MAINTAINER RULE states: "vaccination STAGE is a pure function of AGE (DOB → age-weeks → kid cutoff).
+			// A goat tagged kid (K*) but aged past the kid cutoff is a data contradiction that must never persist.
+			// SEED must AUTO-CORRECT the tag to the age-derived stage and HIGHLIGHT it."
+			sourceStage := goatStageByAnimalKey[animalKey]
+			derivedStage := vaccinationapp.DerivedStageFromDOB(dobTime, now)
+			if derivedStage != "" && sourceStage != "" && !stagesMatch(sourceStage, derivedStage) {
+				// Stage contradiction: source says sourceStage but age says derivedStage. Correct and track.
+				ageWeeks := (now.Sub(*dobTime).Hours() / 24) / 7
+				stageCorrections = append(stageCorrections, stageCorrection{
+					RFID:           animalKey,
+					AgeWeeks:       int(ageWeeks),
+					SourceStage:    sourceStage,
+					CorrectedStage: derivedStage,
+					RunTimestamp:   now.Format(time.RFC3339),
+				})
+				goatStageByAnimalKey[animalKey] = derivedStage
+			}
 		}
 
 		// Resolve entry_date from source mapping
@@ -1364,11 +1415,27 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 	committed = true
 	// The database detail written above is canonical and atomic with the imported
-	// herd. The sidecar is only a convenience export; an unwritable source folder
+	// herd. The sidecars are only convenience exports; an unwritable source folder
 	// cannot invalidate or orphan the committed audit proof.
 	if err := writeDobDispositionAudit(sourcePath, now, seedRunID, dobDispositions); err != nil {
 		fmt.Printf("WARN: %v\n", err)
 	}
+	if err := writeStageCorrectionAudit(sourcePath, now, seedRunID, stageCorrections); err != nil {
+		fmt.Printf("WARN: %v\n", err)
+	}
+
+	// Print highlighted stage-correction report to stdout so users see it immediately.
+	if len(stageCorrections) > 0 {
+		fmt.Println("\n=== HIGHLIGHTED: STAGE AUTO-CORRECTIONS ===")
+		fmt.Printf("Seed auto-corrected %d goat(s) with age/stage contradictions:\n", len(stageCorrections))
+		for _, sc := range stageCorrections {
+			fmt.Printf("  %s: age %dw, source_stage=%q → corrected_stage=%q\n", sc.RFID, sc.AgeWeeks, sc.SourceStage, sc.CorrectedStage)
+		}
+		fmt.Println("===========================================")
+		fmt.Println()
+		st.StagesCorrected = len(stageCorrections)
+	}
+
 	// Source committed; move the run into the generating state (kernel derivation runs next).
 	if err := markSeedRunState(ctx, pool, seedRunID, seedRunStateGenerating, false); err != nil {
 		return st, err
@@ -2949,6 +3016,25 @@ func normalizeStage(stage string, age string) string {
 	default:
 		return "Adult"
 	}
+}
+
+// stagesMatch checks if two stage strings represent the same stage category (kid vs adult).
+// Used to detect contradictions between source-provided stage and age-derived stage.
+func stagesMatch(sourceStage, derivedStage string) bool {
+	// Both must be non-empty for a meaningful comparison
+	if sourceStage == "" || derivedStage == "" {
+		return true // No contradiction if either is empty
+	}
+	sourceKid := isKidStage(sourceStage)
+	derivedKid := isKidStage(derivedStage)
+	return sourceKid == derivedKid
+}
+
+// isKidStage reports whether a stage string indicates a kid/young-animal stage.
+// Kid stages start with 'K' (K0, K1, K2, K3, etc).
+func isKidStage(stage string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(stage))
+	return len(normalized) >= 1 && normalized[0] == 'K'
 }
 
 func nullString(s string) *string {

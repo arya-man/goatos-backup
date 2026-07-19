@@ -4882,31 +4882,6 @@ CREATE TABLE public.vaccination_source_facts (
 
 
 --
--- Name: vaccination_stage_review_items; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.vaccination_stage_review_items (
-    review_item_id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    reason text NOT NULL,
-    observed_stage text NOT NULL,
-    observed_age_weeks integer NOT NULL,
-    status text DEFAULT 'open'::text NOT NULL,
-    resolved_by uuid,
-    resolved_at timestamp with time zone,
-    resolution_note text,
-    idempotency_key text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    resolution_mode text,
-    age_cutoff_weeks integer,
-    CONSTRAINT vaccination_stage_review_items_resolution_mode_check CHECK (((resolution_mode IS NULL) OR (resolution_mode = ANY (ARRAY['corrected'::text, 'exception'::text])))),
-    CONSTRAINT vaccination_stage_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text])))
-);
-
-
---
 -- Name: vaccines; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6749,14 +6724,6 @@ ALTER TABLE ONLY public.vaccination_source_facts
 
 ALTER TABLE ONLY public.vaccination_source_facts
     ADD CONSTRAINT vaccination_source_facts_pkey PRIMARY KEY (source_fact_id);
-
-
---
--- Name: vaccination_stage_review_items vaccination_stage_review_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vaccination_stage_review_items
-    ADD CONSTRAINT vaccination_stage_review_items_pkey PRIMARY KEY (review_item_id);
 
 
 --
@@ -8933,27 +8900,6 @@ CREATE INDEX vaccination_reminder_cadence_fires_park_day_idx ON public.vaccinati
 --
 
 CREATE INDEX vaccination_source_facts_tenant_disposition_idx ON public.vaccination_source_facts USING btree (tenant_id, disposition);
-
-
---
--- Name: vaccination_stage_review_items_open_goat_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX vaccination_stage_review_items_open_goat_unique ON public.vaccination_stage_review_items USING btree (tenant_id, goat_id) WHERE (status = 'open'::text);
-
-
---
--- Name: vaccination_stage_review_items_open_idem_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX vaccination_stage_review_items_open_idem_unique ON public.vaccination_stage_review_items USING btree (tenant_id, idempotency_key) WHERE (status = 'open'::text);
-
-
---
--- Name: vaccination_stage_review_items_tenant_status_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_stage_review_items_tenant_status_idx ON public.vaccination_stage_review_items USING btree (tenant_id, status, created_at DESC);
 
 
 --

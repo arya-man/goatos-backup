@@ -191,7 +191,8 @@ type InsertObligationInstanceParams struct {
 
 // Deterministic idempotency_key makes generation a no-op on replay (returns no row on conflict).
 // The logical duplicate guard also prevents pre-canonical-key rows (for example old next_cycle keys)
-// from being duplicated by a later replay with a corrected idempotency key.
+// from being duplicated by a later replay with a corrected idempotency key. Bare ON CONFLICT is
+// intentional: concurrent generators can both pass NOT EXISTS, so either unique guard must converge.
 func (q *Queries) InsertObligationInstance(ctx context.Context, arg InsertObligationInstanceParams) (string, error) {
 	row := q.db.QueryRow(ctx, insertObligationInstance,
 		arg.TenantID,

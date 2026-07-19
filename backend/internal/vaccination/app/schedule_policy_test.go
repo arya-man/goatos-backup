@@ -67,13 +67,6 @@ func TestSchedulePathForGoat(t *testing.T) {
 	if got := schedulePathForGoat(procuredOldKidStage, proc, asOf, nil); got != schedulePathAdultProcurement {
 		t.Fatalf("K2 tag past 20w cutoff = %q, want adult_procurement (no stale-tag override)", got)
 	}
-	if !staleKidStageAfterCutoff(procuredOldKidStage, proc, asOf) {
-		t.Fatalf("K2 tag past 20w cutoff should raise a stale-kid-stage review signal")
-	}
-	// A K-stage tag within the finishing window is not "stale" — no review signal there.
-	if staleKidStageAfterCutoff(procuredOldKidStage, proc, dob.AddDate(0, 0, 126)) {
-		t.Fatalf("K2 tag at 18w is in-window, should not raise a stale review signal")
-	}
 
 	// B3: DOB unknown, no stage tag, no kid-course vaccination history → must route
 	// adult, never default to kid (the 257-animal blank-origin/no-DOB/no-arrival

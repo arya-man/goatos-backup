@@ -843,46 +843,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/vaccination/stage-review-items": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List open vaccination stage/age review items.
-         * @description Open, goat-scoped review items for animals past the 20-week kid cutoff that still carry a K1/K2 management-stage tag (generation routed them adult and never generates kid vaccinations). Operators use this to discover which animals need their stale tag reconciled. Supports cursor pagination (VACC-REV-10B) to handle >200 items without capping access to older work.
-         */
-        get: operations["listVaccinationStageReviewItems"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/vaccination/stage-review-items/{review_item_id}/resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Resolve an open vaccination stage/age review item.
-         * @description Marks an OPEN review item resolved once the operator has reconciled the animal's stage tag. Idempotent: resolving an already-resolved or missing item returns 404 without changing state. A later recurrence of the same conflict opens a NEW item rather than being swallowed.
-         */
-        post: operations["resolveVaccinationStageReviewItem"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/goats/bulk-status/preview": {
         parameters: {
             query?: never;
@@ -2142,20 +2102,6 @@ export interface components {
             occurred_at?: string;
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
-        };
-        /** @description An open/resolved vaccination stage/age review item for a single goat (VACC-REV-10). */
-        VaccinationStageReviewItem: {
-            /** Format: uuid */
-            reviewItemId: string;
-            /** Format: uuid */
-            goatId: string;
-            reason: string;
-            observedStage: string;
-            observedAgeWeeks: number;
-            /** @enum {string} */
-            status: "open" | "resolved";
-            /** Format: date-time */
-            createdAt: string;
         };
         RunVaccinationManualCampaignRequest: {
             /** Format: uuid */
@@ -5505,92 +5451,6 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-        };
-    };
-    listVaccinationStageReviewItems: {
-        parameters: {
-            query?: {
-                limit?: number;
-                /** @description Cursor for keyset pagination (from nextCursor in previous response). */
-                cursor?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Open stage/age review items, newest first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        items: components["schemas"]["VaccinationStageReviewItem"][];
-                        /** @description Cursor for the next page (null if no more items). */
-                        nextCursor?: string | null;
-                    };
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    resolveVaccinationStageReviewItem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                review_item_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /**
-                     * @description Whether the stage/age conflict was actually corrected ('corrected') or is being left as an explicit reviewed exception ('exception'). Required so an active mismatch cannot be silently hidden.
-                     * @enum {string}
-                     */
-                    resolution: "corrected" | "exception";
-                    /** @description What was corrected, or why this is an accepted exception. */
-                    note: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Review item resolved. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        review_item_id?: string;
-                        status?: string;
-                    };
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            /** @description resolution was 'corrected' but the stage/age mismatch is still active (the goat's stage/DOB was not actually corrected). Correct the goat first or resolve as 'exception'. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @example still_in_conflict */
-                        code?: string;
-                        message?: string;
-                        trace_id?: string;
-                    };
-                };
-            };
         };
     };
     previewBulkStatusUpdate: {

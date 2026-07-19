@@ -91,12 +91,6 @@ type GenerationRunRecorder interface {
 	HeartbeatGenerationRun(ctx context.Context, tenantID, runID string) error
 }
 
-// ReviewItemRecorder durably records a goat-scoped vaccination review item (VACC-REV-10). It is an
-// optional generation dependency: the vaccination read/write repo implements it, so no constructor
-// change is needed. Idempotent on the supplied key — replayed generation never duplicates the item.
-type ReviewItemRecorder interface {
-	RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks, cutoffWeeks int, idempotencyKey string) error
-}
 
 // CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
 // a matching post-arrival obligation. Only trusted evidence may suppress due work.
@@ -269,7 +263,6 @@ type GenerationService struct {
 	crossVaccineGap CrossVaccineGapReader
 	crossHistory    CrossVaccineGapHistoryReader
 	runs            GenerationRunRecorder
-	review          ReviewItemRecorder
 	page            int32
 }
 
@@ -290,9 +283,6 @@ func NewGenerationService(proto ProtocolReader, goats GoatLister, obl Obligation
 	if recorder, ok := goats.(GenerationRunRecorder); ok {
 		s.runs = recorder
 	}
-	if reviewer, ok := goats.(ReviewItemRecorder); ok {
-		s.review = reviewer
-	}
 	return s
 }
 
@@ -312,15 +302,6 @@ func (s *GenerationService) requireEvidenceReader() error {
 	return nil
 }
 
-// requireReviewRecorder guards generation: without a review recorder, SM-1 cannot durably record
-// operator-visible review items (VACC-REV-10). Refusing ensures generation never reports a review
-// signal without persisting actionable work for operators to discover.
-func (s *GenerationService) requireReviewRecorder() error {
-	if s.review == nil {
-		return fmt.Errorf("vaccination: generation requires a review recorder to persist operator-visible review items (VACC-REV-10); refusing to generate")
-	}
-	return nil
-}
 
 type genEligibility struct {
 	AnimalStage               genStringList `json:"animal_stage"`
@@ -1165,29 +1146,6 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
-	if staleKidStageAfterCutoff(g, policies.Procurement, asOf) {
-		// Tag/age conflict: live K-stage past the 20-week cutoff. The goat is on the adult path above
-		// (no kid vaccinations), and we record ONE durable, goat-scoped review item so an operator can
-		// find and reconcile the stale tag — idempotent on a stable per-goat key so replays add none.
-		res.ReviewSignals++
-		if s.review == nil {
-			// VACC-REV-10A: without a review recorder, we cannot durably persist operator-visible
-			// review items. Fail loudly to avoid silently dropping actionable work.
-			return fmt.Errorf("vaccination: detected stale kid stage for goat %s but review recorder is absent; cannot persist review item (VACC-REV-10A)", g.GoatID)
-		}
-		observedAgeWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
-		// One open review item per goat: the key is stable per (tenant, goat), NOT per stage. A goat
-		// moving from a stale K1 to a stale K2 updates the SAME open item, not a second one.
-		reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID
-		// Persist the EXACT cutoff that raised this item (this generation pass's effective procurement
-		// policy), so the 'corrected' re-check evaluates against the same invariant rather than a
-		// re-derived one (VACC-REV-10).
-		cutoffWeeks := kidFinishWeeks(policies.Procurement)
-		if err := s.review.RecordStageReviewItem(ctx, tenantID, g.GoatID,
-			"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, cutoffWeeks, reviewKey); err != nil {
-			return err
-		}
-	}
 	// BUG #2: track pending obligations generated in this pass to enforce cross-vaccine spacing among co-due vaccines.
 	// Sorted by rule sequence to ensure deterministic spacing order across replays.
 	var pending []pendingVaccine

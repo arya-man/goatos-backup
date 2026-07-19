@@ -5,7 +5,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -27,45 +26,6 @@ func (s *Service) RecordCompletion(ctx context.Context, in domain.NewCompletion)
 	return s.repo.RecordCompletion(ctx, in)
 }
 
-// ListOpenStageReviewItems returns open stage/age review items for operator triage (VACC-REV-10).
-// Supports cursor pagination (VACC-REV-10B) for >200 items without capping access to older work.
-func (s *Service) ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error) {
-	return s.repo.ListOpenStageReviewItems(ctx, tenantID, cursor, limit)
-}
-
-// ErrStageReviewStillActive is returned when a 'corrected' resolution is attempted but the goat still
-// trips the stale-stage/age condition — i.e. the conflict was NOT actually corrected. The caller must
-// correct the goat's stage/DOB first, or resolve as an explicit 'exception'. Mapped to HTTP 409.
-var ErrStageReviewStillActive = errors.New("vaccination: stage/age mismatch is still active")
-
-// ResolveStageReviewItem marks an open review item resolved (idempotent no-op if already resolved).
-// resolutionMode ('corrected' | 'exception') and a non-empty note are required and enforced at the
-// HTTP boundary (VACC-REV-10): an operator must declare whether the stage/DOB conflict was actually
-// corrected or is being left as an explicit reviewed exception, so an active mismatch cannot be
-// silently hidden. For 'corrected', the goat is reloaded and the stale-stage condition re-evaluated;
-// if it is still active the resolution is rejected (ErrStageReviewStillActive) so a truly-uncorrected
-// mismatch cannot be closed as corrected.
-func (s *Service) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error) {
-	if resolutionMode == "corrected" {
-		// Re-evaluate against the SAME persisted invariant that raised the item: the cutoff stored on the
-		// item row itself (age_cutoff_weeks), not a value re-derived across all published versions. The
-		// re-check and the resolve happen atomically in one locked statement, and fail closed when the
-		// goat is missing.
-		resolved, wasOpen, err := s.repo.ResolveStageReviewItemCorrected(ctx, tenantID, reviewItemID, resolvedBy, note, resolvedAt)
-		if err != nil {
-			return false, err
-		}
-		if resolved {
-			return true, nil
-		}
-		if wasOpen {
-			// Item was open but the re-check blocked the resolve (still stale, or goat missing).
-			return false, ErrStageReviewStillActive
-		}
-		return false, nil // not open -> idempotent 404
-	}
-	return s.repo.ResolveStageReviewItem(ctx, tenantID, reviewItemID, resolvedBy, note, resolutionMode, resolvedAt)
-}
 
 // AcceptCompletion accepts a recorded completion on verification, returning its verification context
 // (idempotent: applied is false on replay).

@@ -214,30 +214,6 @@ type RecentVaccineAdministration struct {
 }
 
 // GenerateResult summarises an SM-1 generation run.
-// StageReviewItem is a goat-scoped vaccination stage/age review item (VACC-REV-10) surfaced to
-// operators: which animal, why, and the observed stage/age, plus its open/resolved lifecycle state.
-type StageReviewItem struct {
-	ReviewItemID     string    `json:"reviewItemId"`
-	GoatID           string    `json:"goatId"`
-	Reason           string    `json:"reason"`
-	ObservedStage    string    `json:"observedStage"`
-	ObservedAgeWeeks int       `json:"observedAgeWeeks"`
-	Status           string    `json:"status"`
-	CreatedAt        time.Time `json:"createdAt"`
-}
-
-// StageReviewItemCursor represents a keyset pagination cursor for stage review items (VACC-REV-10B).
-type StageReviewItemCursor struct {
-	CreatedAt    time.Time
-	ReviewItemID string
-}
-
-// StageReviewItemPage holds a paginated result of stage review items (VACC-REV-10B).
-type StageReviewItemPage struct {
-	Items      []StageReviewItem
-	NextCursor *string
-}
-
 type GenerateResult struct {
 	Generated                  int
 	Deferred                   int
@@ -245,10 +221,6 @@ type GenerateResult struct {
 	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int
-	// ReviewSignals counts non-blocking tag/age conflicts surfaced for human review (e.g. a live
-	// K1/K2 stage tag on a goat proven past the 20-week kid cutoff). These animals are scheduled on
-	// the adult path; the signal never generates kid vaccinations.
-	ReviewSignals int
 }
 
 // GenerationRun is the durable operator-visible status row for an existing-cohort
