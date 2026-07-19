@@ -62,7 +62,110 @@ WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
 	if reclaimed != 1 {
 		t.Fatalf("reclaimed=%d want 1", reclaimed)
 	}
-	assertNotificationState(t, ctx, pool, failedID, "queued", 1, true)
+	// BUG-B fix: ClaimDue incremented delivery_attempts to 1 at claim time, but this row
+	// crashed before a real delivery attempt (MarkSent/MarkFailed) ever ran. Lease-expiry
+	// reclaim must restore that consumed attempt so the count reflects only claims that
+	// reached a genuine delivery outcome — see TestNotificationRepositoryReclaimRestoresAttemptAcrossRepeatedCrashes
+	// for the full max_attempts regression.
+	assertNotificationState(t, ctx, pool, failedID, "queued", 0, true)
+}
+
+// TestNotificationRepositoryReclaimRestoresAttemptAcrossRepeatedCrashes is the BUG-B
+// regression: a worker that crashes AFTER ClaimDue (which increments delivery_attempts)
+// but BEFORE a real delivery outcome (MarkSent/MarkFailed) must not permanently consume
+// that attempt. Without ReclaimStaleSending restoring the count, repeated claim/crash
+// cycles would exhaust max_attempts and the row would flip to 'exhausted' without a single
+// real delivery attempt ever happening. This drives claim -> simulate-crash (force the
+// lease to look expired) -> reclaim, MaxAttempts times, and asserts the message is still
+// 'queued' and claimable — never 'exhausted' — because none of those claims were real
+// delivery attempts. It then proves a REAL failure still counts by claiming once more and
+// calling MarkFailed, which must actually be able to exhaust the row afterward.
+func TestNotificationRepositoryReclaimRestoresAttemptAcrossRepeatedCrashes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+	requestID := seedNotification(t, ctx, pool, testEventID, "notification-repo-crash-loop", "queued", 0, nil)
+
+	const maxAttempts = 3
+
+	// Claim and "crash" (never call MarkSent/MarkFailed) maxAttempts times in a row. If the
+	// crash-before-delivery attempt were permanently consumed (the bug), the row would flip
+	// to 'exhausted' by the ClaimDue call that pushes delivery_attempts >= maxAttempts, well
+	// before any real delivery was ever attempted.
+	for i := 0; i < maxAttempts; i++ {
+		iterNow := now.Add(time.Duration(i) * time.Hour)
+		claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{
+			TenantID:    testTenantID,
+			Limit:       10,
+			MaxAttempts: maxAttempts,
+			Now:         iterNow,
+		})
+		if err != nil {
+			t.Fatalf("iteration %d: ClaimDue: %v", i, err)
+		}
+		if len(claimed) != 1 || claimed[0].NotificationRequestID != requestID {
+			t.Fatalf("iteration %d: claimed=%#v want request re-claimable every crash cycle", i, claimed)
+		}
+
+		// Simulate a crash: back-date the lease so the row looks stale, then reclaim it —
+		// exactly the recovery path a real lease-expiry sweep takes after a worker dies
+		// mid-flight, never having reached MarkSent/MarkFailed.
+		if _, err := pool.Exec(ctx, `
+UPDATE notification_requests
+SET leased_at = $3::timestamptz
+WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
+			testTenantID, requestID, iterNow.Add(-10*time.Minute)); err != nil {
+			t.Fatalf("iteration %d: back-date lease: %v", i, err)
+		}
+		reclaimed, err := repo.ReclaimStaleSending(ctx, testTenantID, iterNow, 2*time.Minute)
+		if err != nil {
+			t.Fatalf("iteration %d: ReclaimStaleSending: %v", i, err)
+		}
+		if reclaimed != 1 {
+			t.Fatalf("iteration %d: reclaimed=%d want 1", i, reclaimed)
+		}
+		// The consumed attempt must be restored every time: after each crash cycle the
+		// row is back to delivery_attempts=0, status='queued', never 'exhausted'.
+		assertNotificationState(t, ctx, pool, requestID, "queued", 0, true)
+	}
+
+	// Now prove a REAL delivery attempt still counts and can genuinely exhaust the row:
+	// claim maxAttempts times, calling MarkFailed (a real, completed delivery outcome) each
+	// time instead of crashing. The final MarkFailed call must exhaust the message.
+	var leaseToken string
+	for i := 0; i < maxAttempts; i++ {
+		iterNow := now.Add(time.Duration(maxAttempts+i) * time.Hour)
+		claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{
+			TenantID:    testTenantID,
+			Limit:       10,
+			MaxAttempts: maxAttempts,
+			Now:         iterNow,
+		})
+		if err != nil {
+			t.Fatalf("real-attempt iteration %d: ClaimDue: %v", i, err)
+		}
+		if len(claimed) != 1 || claimed[0].NotificationRequestID != requestID {
+			t.Fatalf("real-attempt iteration %d: claimed=%#v want the same request claimable", i, claimed)
+		}
+		leaseToken = claimed[0].LeaseToken
+		// Mirror the production service's retry decision (app/service.go): retryable
+		// (nextAttemptAt != nil) while DeliveryAttempts < MaxAttempts, permanent
+		// (nextAttemptAt == nil) once the real attempt count reaches MaxAttempts.
+		var nextAttempt *time.Time
+		if claimed[0].DeliveryAttempts < maxAttempts {
+			next := iterNow.Add(time.Hour)
+			nextAttempt = &next
+		}
+		if err := repo.MarkFailed(ctx, testTenantID, requestID, leaseToken, "test-dispatcher", "simulated_real_failure", nextAttempt, iterNow.Add(time.Minute)); err != nil {
+			t.Fatalf("real-attempt iteration %d: MarkFailed: %v", i, err)
+		}
+	}
+	// After maxAttempts REAL (non-crash) failures, the message must be permanently exhausted.
+	assertNotificationState(t, ctx, pool, requestID, "exhausted", maxAttempts, true)
 }
 
 // TestNotificationRepositoryClaimDuePlanSkipsFutureRetriesUnderSkew is the

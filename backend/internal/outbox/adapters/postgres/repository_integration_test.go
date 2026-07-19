@@ -185,7 +185,13 @@ WHERE outbox_id IN ($1::uuid, $3::uuid)`, target.OutboxID, outboxTestNow, older.
 		if reclaimed != 1 {
 			t.Fatalf("reclaimed=%d want 1", reclaimed)
 		}
-		assertOutboxState(t, pool, stale.OutboxID, domain.StatusPending, 2, "", false, false)
+		// BUG-B fix: ClaimPending/ClaimMessage increment attempt_count at claim time, but this
+		// row crashed before a real publish attempt (MarkPublished/MarkFailed) ever ran.
+		// ReclaimStalePublishing must restore the consumed attempt (2 -> 1) so the count
+		// reflects only claims that reached a genuine publish outcome — see
+		// TestOutboxRepositoryReclaimRestoresAttemptAcrossRepeatedCrashes for the full
+		// max_attempts regression.
+		assertOutboxState(t, pool, stale.OutboxID, domain.StatusPending, 1, "", false, false)
 		assertOutboxState(t, pool, fresh.OutboxID, domain.StatusPublishing, 3, "", false, false)
 		if _, err := pool.Exec(ctx, `UPDATE outbox_messages SET status = 'failed', last_error = 'synthetic_test_complete' WHERE outbox_id = $1`, stale.OutboxID); err != nil {
 			t.Fatal(err)
@@ -564,6 +570,100 @@ func TestOutboxRelayStageDrains500WithinFastLaneBudget(t *testing.T) {
 		t.Fatalf("published %d of %d before the %v fast-lane budget expired", total.PublishedCount, batch, budget)
 	}
 	t.Logf("drained %d messages in %v (budget %v)", batch, elapsed, budget)
+}
+
+// TestOutboxRepositoryReclaimRestoresAttemptAcrossRepeatedCrashes is the BUG-B
+// regression for outbox: ClaimPending increments attempt_count at CLAIM time, not at
+// real publish time. A worker that crashes after claiming but before a real publish
+// outcome (MarkPublished/MarkFailed) must not permanently consume that attempt --
+// otherwise repeated claim/crash cycles exhaust max_attempts and dead-letter a message
+// that was never actually published. This claims and "crashes" (simulates a lease-expiry
+// recovery via ReclaimStalePublishing, never calling MarkPublished/MarkFailed)
+// maxAttempts times and asserts the message is never dead-lettered by those crash-only
+// cycles, then proves a REAL publish failure still counts toward exhaustion.
+func TestOutboxRepositoryReclaimRestoresAttemptAcrossRepeatedCrashes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := startOutboxDB(t, ctx)
+	defer pool.Close()
+	seedOutboxGoat(t, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	msg := insertOutboxMessage(t, pool, outboxRow{Suffix: 90, Status: domain.StatusPending})
+
+	const maxAttempts = 3
+	const leaseTimeout = 5 * time.Minute
+
+	for i := 0; i < maxAttempts; i++ {
+		iterNow := outboxTestNow.Add(time.Duration(i) * time.Hour)
+		result, err := repo.ClaimPending(ctx, ports.ClaimParams{Now: iterNow, Limit: 10, MaxAttempts: maxAttempts})
+		if err != nil {
+			t.Fatalf("iteration %d: ClaimPending: %v", i, err)
+		}
+		if result.DeadLetterCount != 0 {
+			t.Fatalf("iteration %d: unexpected dead-letter before any real publish attempt: %#v", i, result)
+		}
+		if len(result.Messages) != 1 || result.Messages[0].OutboxID != msg.OutboxID {
+			t.Fatalf("iteration %d: claimed=%#v want the same message re-claimable every crash cycle", i, result.Messages)
+		}
+
+		// Simulate a crash: back-date updated_at so the row looks lease-expired, then run
+		// the same lease-expiry recovery sweep production runs after a worker dies mid-flight,
+		// never having reached MarkPublished/MarkFailed.
+		if _, err := pool.Exec(ctx, `UPDATE outbox_messages SET updated_at = $2 WHERE outbox_id = $1`,
+			msg.OutboxID, iterNow.Add(-2*leaseTimeout)); err != nil {
+			t.Fatalf("iteration %d: back-date updated_at: %v", i, err)
+		}
+		reclaimed, err := repo.ReclaimStalePublishing(ctx, iterNow, leaseTimeout)
+		if err != nil {
+			t.Fatalf("iteration %d: ReclaimStalePublishing: %v", i, err)
+		}
+		if reclaimed != 1 {
+			t.Fatalf("iteration %d: reclaimed=%d want 1", i, reclaimed)
+		}
+		// The consumed attempt must be restored every time: after each crash cycle the row is
+		// back to attempt_count=0, status='pending', never 'dead_letter'.
+		assertOutboxState(t, pool, msg.OutboxID, domain.StatusPending, 0, "", false, false)
+	}
+
+	// Now prove a REAL publish failure still counts and can genuinely dead-letter the
+	// message: claim maxAttempts times, calling MarkFailed (a real, completed publish
+	// outcome) each time instead of crashing.
+	for i := 0; i < maxAttempts; i++ {
+		iterNow := outboxTestNow.Add(time.Duration(maxAttempts+i) * time.Hour)
+		result, err := repo.ClaimPending(ctx, ports.ClaimParams{Now: iterNow, Limit: 10, MaxAttempts: maxAttempts})
+		if err != nil {
+			t.Fatalf("real-attempt iteration %d: ClaimPending: %v", i, err)
+		}
+		if len(result.Messages) != 1 || result.Messages[0].OutboxID != msg.OutboxID {
+			t.Fatalf("real-attempt iteration %d: claimed=%#v want the same message claimable", i, result.Messages)
+		}
+		if err := repo.MarkFailed(ctx, msg.OutboxID, "simulated_real_publish_failure", iterNow); err != nil {
+			t.Fatalf("real-attempt iteration %d: MarkFailed: %v", i, err)
+		}
+		// A real failure must not be silently retried forever without ever advancing state:
+		// re-open the row to 'pending' with next_attempt_at cleared so the next iteration can
+		// re-claim it immediately, mirroring the relay service's retry-scheduling step.
+		if i < maxAttempts-1 {
+			if _, err := pool.Exec(ctx, `UPDATE outbox_messages SET status = 'pending', next_attempt_at = NULL WHERE outbox_id = $1`, msg.OutboxID); err != nil {
+				t.Fatalf("real-attempt iteration %d: requeue for next real attempt: %v", i, err)
+			}
+		}
+	}
+	// After maxAttempts REAL (non-crash) publish failures reached via claim, the next claim
+	// attempt at max_attempts must dead-letter the message without publishing again.
+	if _, err := pool.Exec(ctx, `UPDATE outbox_messages SET status = 'pending', next_attempt_at = NULL WHERE outbox_id = $1`, msg.OutboxID); err != nil {
+		t.Fatalf("requeue before final claim-time dead-letter check: %v", err)
+	}
+	finalNow := outboxTestNow.Add(time.Duration(2*maxAttempts) * time.Hour)
+	result, err := repo.ClaimPending(ctx, ports.ClaimParams{Now: finalNow, Limit: 10, MaxAttempts: maxAttempts})
+	if err != nil {
+		t.Fatalf("final claim: %v", err)
+	}
+	if result.DeadLetterCount != 1 || len(result.Messages) != 0 {
+		t.Fatalf("final claim result=%#v want dead-letter after %d real attempts", result, maxAttempts)
+	}
+	assertOutboxState(t, pool, msg.OutboxID, domain.StatusDeadLetter, maxAttempts, "max_attempts_exhausted_before_publish", false, false)
 }
 
 // TestOutboxRelayCancellationRecoversWithoutLoss proves that cancelling a drain

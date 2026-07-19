@@ -110,6 +110,19 @@ func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, 
 	return oldest.Time, true, nil
 }
 
+// ReclaimStaleSending requeues 'sending' rows whose lease expired before real delivery
+// completed (worker crash/restart between ClaimDue and MarkSent/MarkFailed). ClaimDue
+// increments delivery_attempts at CLAIM time (not at actual delivery time), so a claim that
+// never reached a real delivery attempt already consumed one of max_attempts. Without
+// correction here, repeated crashes before delivery would permanently exhaust a message
+// that was never actually attempted, dead-lettering it with zero real delivery attempts.
+// Reclaim restores the consumed attempt by decrementing delivery_attempts (floored at 0) in
+// the SAME statement that requeues the row, so the count reflects only claims that reached a
+// genuine outcome (MarkSent/MarkFailed, both of which leave delivery_attempts as-is because
+// they read/return the claim-time value rather than incrementing again). This is safe against
+// double-decrement: the WHERE clause only matches rows still in 'sending' past their lease, and
+// this single atomic UPDATE flips status to 'queued' in the same statement, so a concurrent or
+// repeated reclaim sweep can never match (and decrement) the same row twice.
 func (r *Repository) ReclaimStaleSending(ctx context.Context, tenantID string, now time.Time, leaseTimeout time.Duration) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -123,6 +136,7 @@ SET status = 'queued',
     lease_token = NULL,
     leased_at = NULL,
     next_attempt_at = $2::timestamptz,
+    delivery_attempts = GREATEST(delivery_attempts - 1, 0),
     failure_reason = COALESCE(NULLIF(failure_reason, ''), 'notification_delivery_lease_expired'),
     updated_at = $2::timestamptz
 WHERE tenant_id = $1::uuid

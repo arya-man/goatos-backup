@@ -39,6 +39,18 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
+// ReclaimStalePublishing requeues 'publishing' rows whose lease expired before real
+// publish/delivery completed (worker crash/restart between ClaimPending/ClaimMessage and
+// MarkPublished/MarkFailed). ClaimPending/ClaimMessage increment attempt_count at CLAIM time
+// (not at actual publish time), so a claim that never reached a real publish attempt already
+// consumed one of max_attempts. Without correction here, repeated crashes before publish would
+// permanently exhaust a message that was never actually attempted, dead-lettering it with zero
+// real delivery attempts. Reclaim restores the consumed attempt by decrementing attempt_count
+// (floored at 0) in the SAME statement that requeues the row, so the count reflects only claims
+// that reached a genuine outcome. This is safe against double-decrement: the WHERE clause only
+// matches rows still in 'publishing' past their lease, and this single atomic UPDATE flips
+// status to 'pending' in the same statement, so a concurrent or repeated reclaim sweep can never
+// match (and decrement) the same row twice.
 func (r *Repository) ReclaimStalePublishing(ctx context.Context, now time.Time, leaseTimeout time.Duration) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -47,6 +59,7 @@ func (r *Repository) ReclaimStalePublishing(ctx context.Context, now time.Time, 
 UPDATE outbox_messages
 SET status = 'pending',
     next_attempt_at = NULL,
+    attempt_count = GREATEST(attempt_count - 1, 0),
     updated_at = $1
 WHERE status = 'publishing'
   AND updated_at <= $2`, now, cutoff)
