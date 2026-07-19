@@ -1108,27 +1108,13 @@ WHERE department_module_grants.status <> 'active'`, tenantID, pairCodes, pairMod
 	if err != nil {
 		return 0, err
 	}
-	total := int(tag.RowsAffected())
-
-	// P1-NAV baseline: every active department also gets the cross-cutting Counts module, so no
-	// operator lands on a blank bottom bar. The specialised map above covers only some department
-	// codes and maps feed/breeding to 'soon' modules that contribute no AVAILABLE nav, so members of
-	// unmapped (milk) or soon-only (feed, breeding) departments would otherwise compose an empty nav.
-	// Counts (births/deaths/shifting) is the safe universal floor. Same idempotent, set-based,
-	// grant-driven shape as above (docs/decisions/role-module-nav-composition.md).
-	baseline, err := tx.Exec(ctx, `
-INSERT INTO department_module_grants (tenant_id, department_id, module_key, status)
-SELECT d.tenant_id, d.department_id, 'counts', 'active'
-FROM departments d
-WHERE d.tenant_id = $1::uuid AND d.status = 'active'
-ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE
-SET status = 'active', updated_at = now()
-WHERE department_module_grants.status <> 'active'`, tenantID)
-	if err != nil {
-		return 0, err
-	}
-	total += int(baseline.RowsAffected())
-	return total, nil
+	// NOTE (P1-NAV): only departments with a genuine operational module are granted one. A department
+	// with no module in defaultDepartmentModules (e.g. procurement, growth, infra, milk, sales)
+	// intentionally receives NO grant and its members compose an EMPTY bottom bar -- that is correct,
+	// not a bug: nav is earned by holding a module, and inventing a phantom "baseline" module for a
+	// department that does no operational work would fabricate access. The blank-nav CRASH (a missing
+	// department_module_grants table) is fixed by migration 000008, not by over-granting here.
+	return int(tag.RowsAffected()), nil
 }
 
 func deriveRoleHint(m *memberRec, grade *string) string {
