@@ -1,4 +1,25 @@
 -- +goose Up
+-- +goose NO TRANSACTION
+-- R50-015 P0 fix: this migration was previously wrapped in goose's default single
+-- transaction. Even though the CHECK-constraint deltas below already used the
+-- DROP CONSTRAINT + ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT pattern,
+-- wrapping all three steps in ONE transaction defeats the purpose of NOT VALID:
+-- Postgres locks are held at their strongest level for the lifetime of the
+-- transaction, not the statement. DROP CONSTRAINT acquires ACCESS EXCLUSIVE on the
+-- hot table; inside a single transaction that ACCESS EXCLUSIVE lock is still held
+-- (it never downgrades) while VALIDATE CONSTRAINT performs its full-table scan,
+-- so concurrent inserts/updates on notification_requests / obligation_status_events
+-- are blocked for the entire scan duration -- exactly the outage NOT VALID is
+-- supposed to avoid. `-- +goose NO TRANSACTION` makes goose apply every statement
+-- below in its own autocommit transaction, so each ACCESS EXCLUSIVE catalog-only
+-- lock (DROP CONSTRAINT, ADD CONSTRAINT ... NOT VALID, CREATE TABLE, ADD COLUMN)
+-- is acquired and released in milliseconds, and each VALIDATE CONSTRAINT then only
+-- ever needs to hold the much weaker SHARE UPDATE EXCLUSIVE lock (which permits
+-- concurrent reads AND writes, only blocking other DDL) for the duration of its
+-- scan. Every statement in this file is already idempotent/re-runnable (IF EXISTS /
+-- IF NOT EXISTS / DO $$ existence checks), which is required for NO TRANSACTION
+-- migrations: a failure partway through does not roll back earlier statements, so a
+-- retry must be a safe no-op for everything that already applied.
 -- Forward-compatibility catch-up for dev/stg databases that already applied the ORIGINAL
 -- 000001 clean-slate baseline before it was edited in place by later commits. Every
 -- statement below is idempotent/re-runnable: a database that already has a delta (via the
@@ -10,6 +31,11 @@
 -- 1) notification_requests.notification_type: allow the verification lifecycle values that
 --    the edited baseline added ('verification_approved', 'verification_closed').
 --    Lock-safe on hot table: NOT VALID + concurrent VALIDATE for hot tables (notification_requests).
+--    Bounded lock_timeout so a lock-contended DROP/ADD/VALIDATE fails fast (statement error,
+--    retried on the next migration run) instead of hanging indefinitely behind a long-lived
+--    reader/writer transaction.
+SET lock_timeout = '5s';
+
 ALTER TABLE notification_requests
   DROP CONSTRAINT IF EXISTS notification_requests_type_check;
 
@@ -182,6 +208,9 @@ END $$;
 --    durable per-obligation status event when SOP-submit-time capture begins, mirroring
 --    MarkCompleted's existing event pattern.
 --    Lock-safe on hot table: NOT VALID + concurrent VALIDATE for hot tables (obligation_status_events).
+--    Bounded lock_timeout (see notification_requests comment above for rationale).
+SET lock_timeout = '5s';
+
 ALTER TABLE obligation_status_events
   DROP CONSTRAINT IF EXISTS obligation_status_events_type_check;
 
@@ -207,6 +236,10 @@ ALTER TABLE obligation_status_events
   VALIDATE CONSTRAINT obligation_status_events_type_check;
 
 -- +goose Down
+-- +goose NO TRANSACTION
+-- Same R50-015 P0 lock-safety rationale as the Up section above: run every
+-- statement autocommit so DROP/ADD CONSTRAINT + VALIDATE CONSTRAINT never share a
+-- transaction and never accumulate an ACCESS EXCLUSIVE hold across a table scan.
 -- Reverses the deltas above in reverse order. Steps 6/5/2/1 are structural and fully
 -- reversible. Step 4 drops columns/checks added above -- lossy if a downstream release
 -- wrote real subject_label/closed_by/closed_at data after this migration ran (matches how
@@ -218,6 +251,9 @@ ALTER TABLE obligation_status_events
 
 -- 8) Restore obligation_status_events_type_check without 'in_progress'.
 --    Lock-safe on hot table: NOT VALID + concurrent VALIDATE for hot tables (obligation_status_events).
+--    Bounded lock_timeout (see notification_requests comment in goose Up for rationale).
+SET lock_timeout = '5s';
+
 ALTER TABLE obligation_status_events
   DROP CONSTRAINT IF EXISTS obligation_status_events_type_check;
 
@@ -266,6 +302,9 @@ DROP TABLE IF EXISTS public.sop_task_scan_captures;
 
 -- 1) Restore the notification_requests_type_check without the verification lifecycle values.
 --    Lock-safe on hot table: NOT VALID + concurrent VALIDATE for hot tables (notification_requests).
+--    Bounded lock_timeout (see notification_requests comment in goose Up for rationale).
+SET lock_timeout = '5s';
+
 ALTER TABLE notification_requests
   DROP CONSTRAINT IF EXISTS notification_requests_type_check;
 
