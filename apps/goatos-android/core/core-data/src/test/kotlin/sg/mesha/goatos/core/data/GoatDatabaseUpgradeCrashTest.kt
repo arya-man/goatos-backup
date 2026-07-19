@@ -1,6 +1,11 @@
 package sg.mesha.goatos.core.data
 
+import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.test.core.app.ApplicationProvider
@@ -247,7 +252,10 @@ class GoatDatabaseUpgradeCrashTest {
             BootstrapCacheEntity(id = 0, dtoJson = SEEDED_BOOTSTRAP_JSON, updatedAt = SEEDED_AT),
         )
         oldDb.scanRosterRowDao().upsert(
-            ScanRosterRowEntity(
+            // The v10-SHAPED row (9 columns, no scopeKey/taskId/normalized* — those are added by
+            // MIGRATION_10_11). Constructing the CURRENT ScanRosterRowEntity here would seed a v11+
+            // table under a v10 database and make MIGRATION_10_11 add columns that already exist.
+            ScanRosterRowEntityV10(
                 id = "shed-9#obl-9",
                 shedId = "shed-9",
                 goatId = "goat-9",
@@ -394,7 +402,7 @@ abstract class OldGoatDatabaseV1 : RoomDatabase() {
         ExecutionRowsCacheEntity::class,
         ExecutionShedCacheEntity::class,
         ScanRosterCacheEntity::class,
-        ScanRosterRowEntity::class,
+        ScanRosterRowEntityV10::class,
         AdherenceCacheEntity::class,
         InsightsGapsCacheEntity::class,
         InsightsCoverageCacheEntity::class,
@@ -413,5 +421,31 @@ abstract class OldGoatDatabaseV1 : RoomDatabase() {
 )
 abstract class OldGoatDatabaseV10 : RoomDatabase() {
     abstract fun bootstrapCacheDao(): BootstrapCacheDao
-    abstract fun scanRosterRowDao(): ScanRosterRowDao
+    abstract fun scanRosterRowDao(): ScanRosterRowDaoV10
+}
+
+/**
+ * The v10 shape of scan_roster_row (schemas/<db>/10.json): nine columns, none of the scopeKey /
+ * taskId / normalizedPrimaryTag / normalizedSecondaryTag columns that MIGRATION_10_11 adds. It is a
+ * test-only mirror of what a shipped v10 APK actually stored, deliberately separate from the current
+ * [ScanRosterRowEntity] so this upgrade test reproduces a real v10 database rather than tracking the
+ * live entity as it evolves.
+ */
+@Entity(tableName = "scan_roster_row")
+data class ScanRosterRowEntityV10(
+    @PrimaryKey val id: String,
+    val shedId: String,
+    val goatId: String,
+    val primaryTag: String,
+    val secondaryTag: String?,
+    val vaccineLabel: String,
+    val status: String,
+    val obligationId: String,
+    val updatedAt: Long,
+)
+
+@Dao
+interface ScanRosterRowDaoV10 {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: ScanRosterRowEntityV10)
 }
