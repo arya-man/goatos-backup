@@ -199,6 +199,25 @@ BEGIN
 END $$;
 -- +goose StatementEnd
 
+-- Validate the NOT VALID constraints: cheap operation on empty/unviolating rows.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_shape_check' AND conisvalid = false) THEN
+        ALTER TABLE public.shifting_events
+            VALIDATE CONSTRAINT shifting_events_applied_shape_check;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_canceled_shape_check' AND conisvalid = false) THEN
+        ALTER TABLE public.shifting_events
+            VALIDATE CONSTRAINT shifting_events_canceled_shape_check;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_requires_authorization_check' AND conisvalid = false) THEN
+        ALTER TABLE public.shifting_events
+            VALIDATE CONSTRAINT shifting_events_applied_requires_authorization_check;
+    END IF;
+END $$;
+-- +goose StatementEnd
+
 -- +goose Down
 -- Reverse of Up: drop the shifting_events completion/cancel columns (their CHECK constraints go
 -- with them), then drop the counts_approval_requests table (its own indexes, constraints, and the
