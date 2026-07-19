@@ -1207,6 +1207,32 @@ func TestRecordShiftingEventRejectsDerivedCrossParkMove(t *testing.T) {
 	}
 }
 
+// TestRecordShiftingEventWithoutApprovalWorkflowRecordsNothing is the CR-05 regression. The
+// movement row and its approval request are separate transactions, and the event was previously
+// written BEFORE the approval workflow's availability was checked -- so when the workflow was
+// unconfigured, the event committed and then the request returned 501, leaving a pending movement
+// orphaned permanently (a retry cannot create a request in a workflow that does not exist). The
+// availability check must run BEFORE the event write, so an unavailable workflow records no
+// movement at all.
+func TestRecordShiftingEventWithoutApprovalWorkflowRecordsNothing(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	// Build the handler WITHOUT WithApprovalWorkflow, exactly as a deployment with the approval
+	// workflow unconfigured would. h.approvals is nil.
+	mux := http.NewServeMux()
+	handler := NewAppWriteHandler(countsapp.NewService(repo), nil)
+	RegisterAppWrites(mux, handler)
+
+	rec := post(t, mux, appShiftingEventRoute, "shift-no-approvals-1", shiftingBody(7))
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status=%d body=%s, want 501 (an unconfigured approval workflow must reject before any write)", rec.Code, rec.Body.String())
+	}
+	// The whole point: no orphaned movement. Before the fix the event committed first and only then
+	// hit the 501, leaving a pending shifting_events row nobody could ever approve.
+	if repo.inserts != 0 {
+		t.Fatalf("inserts=%d, want 0 (an unavailable approval workflow must record no movement)", repo.inserts)
+	}
+}
+
 // TestRecordShiftingEventKeepsAnExplicitlySuppliedSource pins the precedence. A back-dated or
 // corrective submission states a source the animal's CURRENT placement no longer reflects;
 // overwriting it with "where the animal is now" would silently rewrite the operator's claim.

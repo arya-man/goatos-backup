@@ -245,6 +245,22 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// CR-05: check that the approval workflow is available BEFORE writing anything.
+	//
+	// The movement row (shifting_events) and its approval request are separate transactions; a
+	// shifting_events row is inert until an approval links it and flips it to authorized, so an
+	// orphan is a pending movement nobody can act on, and a client retry with the same
+	// Idempotency-Key replays the event insert and creates the missing request, converging. The one
+	// window that does NOT self-heal is the workflow being UNCONFIGURED: retrying forever cannot
+	// create a request when there is no workflow to create it in, so the movement would sit orphaned
+	// permanently. Gate that deterministic case here, before the event write, so an unavailable
+	// workflow records NO movement at all rather than a permanent orphan.
+	if h.approvals == nil {
+		h.writeError(w, r, http.StatusNotImplemented, "approvals_unavailable",
+			"approval workflow is not configured", nil)
+		return
+	}
+
 	// payload_hash and request_fingerprint are derived ONLY from the canonical client request, never
 	// from server-generated values such as raised_at. That is what makes an exact replay hash
 	// identically (so the repo returns the original row instead of inserting a second movement) while
@@ -364,11 +380,8 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	// applied one. Both writes are keyed off the same client Idempotency-Key, so a retry replays
 	// the event insert and creates the missing request, converging. (Birth and death have no such
 	// pending representation, which is exactly why their payloads are held on the request itself.)
-	if h.approvals == nil {
-		h.writeError(w, r, http.StatusNotImplemented, "approvals_unavailable",
-			"approval workflow is not configured", nil)
-		return
-	}
+	// Workflow availability was already checked before the event write (CR-05), so an unconfigured
+	// workflow can no longer leave a permanent orphan here.
 	approvalPayload, err := json.Marshal(struct {
 		ShiftingEventID   string  `json:"shifting_event_id"`
 		DestinationParkID string  `json:"destination_park_id"`
