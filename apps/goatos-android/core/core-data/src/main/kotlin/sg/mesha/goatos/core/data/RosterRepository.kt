@@ -7,6 +7,7 @@ import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
+import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
@@ -67,7 +68,7 @@ class DefaultRosterRepository(
         }
 
     override fun observeCoverage(): Flow<MyCoverageResponseDto?> =
-        coverageDao.observe().map { entity ->
+        coverageDao.observe("coverage").map { entity ->
             entity?.dtoJson?.let { json -> Json.decodeFromString<MyCoverageResponseDto>(json) }
         }
 
@@ -82,6 +83,7 @@ class DefaultRosterRepository(
                     updatedAt = System.currentTimeMillis(),
                 )
             )
+            timetableDao.enforceCacheBounds()
         }.isSuccess
         // onFailure: keep cache; false lets the ViewModel show a distinct offline state.
 
@@ -95,6 +97,7 @@ class DefaultRosterRepository(
                     updatedAt = System.currentTimeMillis(),
                 )
             )
+            coverageDao.enforceCacheBounds()
         }.isSuccess
         // onFailure: keep cache; false lets the ViewModel keep the last known state.
 }

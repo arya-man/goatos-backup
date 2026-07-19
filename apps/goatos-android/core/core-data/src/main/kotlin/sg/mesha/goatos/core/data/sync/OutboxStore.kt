@@ -21,6 +21,10 @@ interface OutboxStore {
      *  SUCCEEDED or dead-letter rows. Bounded for memory/query performance. */
     fun observeActive(): Flow<List<OutboxEntity>>
 
+    /** Observes ONE row by id through every status incl. terminal (R50-030): lets a caller follow
+     *  a specific item to completion even when it is older than the recent-terminal window. */
+    fun observeById(id: String): Flow<OutboxEntity?>
+
     /** Observes a bounded window of recent terminal rows (SUCCEEDED and conflict FAILED).
      *  Used to show recent-sync context to the UI without holding entire history. */
     suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity>
@@ -61,6 +65,7 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? = dao.findByIdempotencyKey(key)
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
+    override fun observeById(id: String): Flow<OutboxEntity?> = dao.observeById(id)
     override suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity> = dao.observeRecentTerminals(recentLimit)
     override suspend fun pruneSucceeded(retentionMs: Long, now: Long): Int = dao.pruneSucceeded(cutoffTime = now - retentionMs)
     override fun observeAll(): Flow<List<OutboxEntity>> = dao.observeActive() // Delegate to active for bounded query

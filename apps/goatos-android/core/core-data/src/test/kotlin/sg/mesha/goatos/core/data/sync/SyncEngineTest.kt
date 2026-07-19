@@ -906,6 +906,7 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     }
 
     override fun observeActive() = inner.observeActive()
+    override fun observeById(id: String) = inner.observeById(id)
     override suspend fun observeRecentTerminals(recentLimit: Int) = inner.observeRecentTerminals(recentLimit)
     override suspend fun pruneSucceeded(retentionMs: Long, now: Long) = inner.pruneSucceeded(retentionMs, now)
     override fun observeAll() = inner.observeAll()

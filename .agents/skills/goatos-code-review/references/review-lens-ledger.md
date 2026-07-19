@@ -132,11 +132,23 @@ safe to work, not a new finding).
   (`run-local-stack-supervised.sh`: migrate && grant && seed-closeout), so removing a flag fails it.
 - PROOF: `dev_local_recipe_coupling_test`; landed `66a71c9d`.
 
-### CD-R50-008-010 — Android complete-roster memory
-- STATUS: **OPEN** (the one unresolved follow-up — safe to work, not a new finding)
-- GAP: the complete-roster refresh accumulates the whole roster in memory + one JSON blob
-  (unbounded at scale), and the mobile-guard baseline exempts the responsible helper (false green).
-- NEXT: bound the complete-roster memory (cap/stream) + tighten the mobile-guard baseline.
+### CD-R50-008-010 — Android roster memory + mobile-list-fetch guard
+- STATUS: **CLOSED** (re-verified against code 2026-07-20; the earlier OPEN was a stale carry-over
+  from the 2026-07-19 handoff, not a code gap — R50-008/010 had already landed by then)
+- INVARIANT: (R50-008) the SCAN/execution roster is fetched in bounded ~20-row keyset pages on
+  BOTH the network fetch and the observed Room read, with a cursor-non-advance guard +
+  `MAX_ROSTER_SYNC_PAGES` cap (no cycle, no silent truncation) and a per-row SSOT for indexed
+  lookup; every JSON-blob cache DAO honors the shared `JsonBlobCacheDao` governance
+  (`enforceCacheBounds`: TTL + row/byte cap). (R50-010) `mobile-list-fetch` guard has a
+  `--self-test` and an empty diff falls through to a full-tree audit (never a vacuous pass).
+- PROOF: `ExecutionRepository` keyset paging + cursor guard + `ExecutionRepositoryPaginationTest`
+  (landed `d437cf42`, predates this ledger); `check-mobile-list-fetch.mjs --self-test` green +
+  empty-diff→full-tree branch. Closing gap fixed here: `RosterTimetableCacheDao`/
+  `RosterCoverageCacheDao` were the only blob caches NOT implementing `JsonBlobCacheDao` — now
+  they do, `RosterRepository.refresh*` calls `enforceCacheBounds()`, proven by `RosterCacheBoundsTest`.
+- ENFORCED-BY: `mobile-list-fetch`, `android-bounded-memory`, `room-migration-safety` guards.
+- DO-NOT: re-flag R50-008/010 as open from the stale handoff doc; verify against code first. Do not
+  add a screen-facing blob cache that skips `JsonBlobCacheDao` governance.
 
 ---
 
@@ -156,7 +168,7 @@ observability → UI-contract → maintainability). Each lens → its deep chapt
 | **ingestion-validation** | ADR `ingestion-validation-not-runtime-review.md` | no-mismatch-review-queue | CD-STAGE-REVIEW |
 | **security-rbac-scope** | inline (SKILL.md priority #3) | *(no standing scope guard yet — gap)* | CD-R50-019-SCOPE |
 | **frontend-admin-web** | `references/frontend.md` | admin-web-request-reads, admin-web-prefetch, nav-composition, mock-clicks | — |
-| **mobile-android** | `references/mobile.md` | offline-first-reads, mobile-list-fetch, android-bounded-memory, android-navigation-stack, room-migration-safety | CD-R50-008-010 (OPEN) |
+| **mobile-android** | `references/mobile.md` | offline-first-reads, mobile-list-fetch, android-bounded-memory, android-navigation-stack, room-migration-safety | CD-R50-008-010 |
 | **observability-telemetry** | inline (SKILL.md priority #6) | *manual:* telemetry-guard | — |
 | **event-integration** | `context/architecture/domain-event-integration-contract.md` | domain-event-architecture | CD-R50-014 |
 

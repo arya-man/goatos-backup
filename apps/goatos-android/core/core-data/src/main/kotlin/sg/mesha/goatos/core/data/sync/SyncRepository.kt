@@ -239,8 +239,8 @@ class DefaultSyncRepository(
     override fun observeStatus(): StateFlow<SyncStatus> = _status.asStateFlow()
 
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
-        store.observeActive()
-            .map { items -> items.firstOrNull { it.id == itemId }?.toSyncQueueItem() }
+        store.observeById(itemId)
+            .map { entity -> entity?.toSyncQueueItem() }
             .distinctUntilChanged()
 
     /** DI-wiring-only hook (see AppModule's `provideConnectivitySyncTrigger`) — NOT part of

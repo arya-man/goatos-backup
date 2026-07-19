@@ -54,21 +54,33 @@ interface OutboxDao {
     )
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
-    /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, and non-conflict FAILED) — never includes
-     *  SUCCEEDED or dead-letter (conflict) rows. This bounds memory and query time.
-     *  Backs the sync-status overlay (see `SyncRepository.observeStatus`). */
+    /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, and still-retryable non-conflict FAILED) —
+     *  never includes SUCCEEDED, dead-letter (conflict) rows, OR attempt-exhausted FAILED rows
+     *  (`attemptCount >= maxAttempts`). An exhausted row is terminal (it will never be re-claimed —
+     *  see [eligibleForDrain]'s `attemptCount < maxAttempts` guard), so keeping it here would leave
+     *  it in the active set forever, unbounded-accumulating in memory. This bounds memory and query
+     *  time. Backs the sync-status overlay (see `SyncRepository.observeStatus`). */
     @Query(
         "SELECT * FROM outbox WHERE status IN ('QUEUED', 'IN_FLIGHT') " +
-            "OR (status = 'FAILED' AND conflict = 0) " +
+            "OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts) " +
             "ORDER BY createdAt ASC",
     )
     fun observeActive(): Flow<List<OutboxEntity>>
 
-    /** Observes a bounded window of recent terminal rows (SUCCEEDED and conflict FAILED),
-     *  for the UI to show recent-sync context without holding the entire history in memory.
-     *  [recentLimit] bounds the number of rows. */
+    /** Observes ONE row by id through EVERY status, including terminal SUCCEEDED/conflict/
+     *  attempt-exhausted (R50-030: leadership close must follow its own submission to a terminal
+     *  state even when that row is older than the bounded recent-terminal window, which
+     *  [observeRecentTerminals] would drop). Emits null if the row is absent/deleted. */
+    @Query("SELECT * FROM outbox WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<OutboxEntity?>
+
+    /** Observes a bounded window of recent terminal rows — SUCCEEDED, dead-letter (conflict), AND
+     *  attempt-exhausted FAILED (`attemptCount >= maxAttempts`) — for the UI to show recent-sync
+     *  context without holding the entire history in memory. [recentLimit] bounds the number of
+     *  rows. Attempt-exhausted rows appear here (as a terminal), not in [observeActive]. */
     @Query(
-        "SELECT * FROM outbox WHERE status = 'SUCCEEDED' OR (status = 'FAILED' AND conflict = 1) " +
+        "SELECT * FROM outbox WHERE status = 'SUCCEEDED' " +
+            "OR (status = 'FAILED' AND (conflict = 1 OR attemptCount >= maxAttempts)) " +
             "ORDER BY updatedAt DESC LIMIT :recentLimit",
     )
     suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity>

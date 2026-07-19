@@ -22,13 +22,25 @@ data class RosterCoverageCacheEntity(
 )
 
 @Dao
-interface RosterCoverageCacheDao {
+interface RosterCoverageCacheDao : JsonBlobCacheDao<RosterCoverageCacheEntity> {
     @Query("SELECT * FROM roster_coverage_cache WHERE cacheKey = :cacheKey")
-    fun observe(cacheKey: String = "coverage"): Flow<RosterCoverageCacheEntity?>
+    override fun observe(cacheKey: String): Flow<RosterCoverageCacheEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: RosterCoverageCacheEntity)
+    override suspend fun upsert(entity: RosterCoverageCacheEntity)
 
     @Query("DELETE FROM roster_coverage_cache WHERE cacheKey = :cacheKey")
-    suspend fun delete(cacheKey: String = "coverage")
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM roster_coverage_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM roster_coverage_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM roster_coverage_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM roster_coverage_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
 }

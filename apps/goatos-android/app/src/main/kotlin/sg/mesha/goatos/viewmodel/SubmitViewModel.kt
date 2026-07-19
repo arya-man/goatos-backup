@@ -520,8 +520,10 @@ class SubmitViewModel @Inject constructor(
     private fun observeOutboxItem(itemId: String) {
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
-            syncRepository.observeStatus()
-                .map { status -> status.items.firstOrNull { it.id == itemId } }
+            // R50-030: observe the specific outbox row by id, not the bounded recent-terminal
+            // window in observeStatus() — otherwise a close can wait forever once the row ages out
+            // of the window before its terminal status is seen.
+            syncRepository.observeItem(itemId)
                 .filterNotNull()
                 .distinctUntilChanged()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

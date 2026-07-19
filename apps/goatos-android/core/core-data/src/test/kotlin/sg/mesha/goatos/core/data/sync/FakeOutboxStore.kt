@@ -55,6 +55,9 @@ class FakeOutboxStore : OutboxStore {
             }
         }
 
+    override fun observeById(id: String): Flow<OutboxEntity?> =
+        rows.asStateFlow().map { all -> all.firstOrNull { it.id == id } }
+
     override suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity> {
         return rows.value
             .filter {

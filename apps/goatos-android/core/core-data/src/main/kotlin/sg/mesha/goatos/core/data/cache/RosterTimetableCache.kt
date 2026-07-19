@@ -21,13 +21,25 @@ data class RosterTimetableCacheEntity(
 )
 
 @Dao
-interface RosterTimetableCacheDao {
+interface RosterTimetableCacheDao : JsonBlobCacheDao<RosterTimetableCacheEntity> {
     @Query("SELECT * FROM roster_timetable_cache WHERE cacheKey = :cacheKey")
-    fun observe(cacheKey: String): Flow<RosterTimetableCacheEntity?>
+    override fun observe(cacheKey: String): Flow<RosterTimetableCacheEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: RosterTimetableCacheEntity)
+    override suspend fun upsert(entity: RosterTimetableCacheEntity)
 
     @Query("DELETE FROM roster_timetable_cache WHERE cacheKey = :cacheKey")
-    suspend fun delete(cacheKey: String)
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM roster_timetable_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM roster_timetable_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM roster_timetable_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM roster_timetable_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
 }
