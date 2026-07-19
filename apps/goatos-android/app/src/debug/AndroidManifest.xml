@@ -7,5 +7,14 @@
             android:name=".GalleryActivity"
             android:exported="true"
             android:theme="@style/Theme.GoatOs" />
+
+        <!-- Debug-only startup hook that forwards LeakCanary heap-analysis leaks to Crashlytics
+             (see sg.mesha.goatos.leak.LeakCanaryBridgeInstaller). No-op ContentProvider used purely
+             for its onCreate() at process start; not exported, unique authority per applicationId. -->
+        <provider
+            android:name="sg.mesha.goatos.leak.LeakCanaryBridgeInstaller"
+            android:authorities="${applicationId}.leakcanary-bridge-installer"
+            android:exported="false"
+            android:initOrder="1" />
     </application>
 </manifest>

@@ -58,14 +58,17 @@ android {
             versionNameSuffix = "-dev"
             buildConfigField("String", "API_BASE_URL", "\"${devApiBaseUrl.replace("\"", "\\\"")}\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
-            // Telemetry (docs/TELEMETRY.md): off by default for local dev — no registered
-            // Firebase project is confirmed for `dev` yet (app/src/dev/google-services.json is a
-            // structurally-valid PLACEHOLDER, not a real project; see app/src/google-services-README.md).
-            // Override per-invoke with -PgoatosTelemetryEnabled=true once a real dev Firebase app exists.
+            // Telemetry (docs/TELEMETRY.md): ON for dev. The dev Android client is registered in
+            // the goatos-stg Firebase PROJECT (app/src/dev/res/values/firebase.xml → project_id
+            // goatos-stg, app sg.mesha.goatos.dev), so dev analytics/crashlytics/perf report there
+            // under that app registration — separate from the stg app's own stream. This is also
+            // what surfaces LeakCanary memory leaks: the debug-only leak→Crashlytics bridge
+            // (app/src/debug/.../leak) only uploads when this reporter is the real Firebase one.
+            // Flip off per-invoke with -PgoatosTelemetryEnabled=false for a fully offline local run.
             buildConfigField(
                 "boolean",
                 "TELEMETRY_ENABLED",
-                (project.findProperty("goatosTelemetryEnabled") as String?) ?: "false",
+                (project.findProperty("goatosTelemetryEnabled") as String?) ?: "true",
             )
             // OTLP Collector endpoint — NOT deployed yet (OBSERVABILITY_DESIGN.md §6 rollout is
             // stg-first). TelemetryInterceptor only stamps traceparent + reports to Firebase Perf
