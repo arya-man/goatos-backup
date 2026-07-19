@@ -50,6 +50,19 @@ The Kotlin pivot is a **client-technology** decision only. Every backend and
 platform contract from the existing architecture still holds and is reused
 verbatim:
 
+- App orientation is **portrait-only** for all normal Goat OS screens. A future
+  dedicated live camera/video recorder Activity may opt out for capture
+  ergonomics, but the current in-app CameraX recorder is hosted inside the
+  portrait-locked `MainActivity`.
+- Calendar/date strips must use readable mobile labels (`Mon`, `Tue`, `Wed`),
+  never one-letter/narrow weekday labels (`M T W T F S S`). Date chips should
+  remain legible in real seeded data, not only in screenshot fixtures.
+- Repeated peer components — date chips, filter chips, bottom-sheet choices,
+  cards in a row/grid, segmented controls, buttons, and role/action rows — must
+  keep stable geometry across state. Selected/error/synced/loading states may
+  change color, icon, label, progress, or border, but must not make one peer
+  taller/wider than its siblings. This is an app-wide mobile UI rule, not a
+  vaccination-specific or calendar-specific exception.
 - Backend-driven UI contract: the app is a **renderer**, not product truth.
   Nav, labels, filters, disabled reasons, summary/detail field sets come from
   the backend bootstrap contract (mobile equivalent of `/admin-web/bootstrap`).

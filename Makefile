@@ -398,6 +398,8 @@ mobile-guard:
 	bash tools/android/check-no-hardcoded-design.sh
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs --self-test
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs
+	node tools/agent-hooks/check-android-orientation-lock.mjs --self-test
+	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
@@ -406,6 +408,7 @@ mobile-guard:
 mobile-guard-audit:
 	bash tools/android/check-no-hardcoded-design.sh
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs
+	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
 

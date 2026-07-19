@@ -468,6 +468,8 @@ private fun syncStatusColor(status: String) = when (status) {
 
 @Composable
 private fun ActionControl(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, done: Boolean, onClick: () -> Unit) {
+    val leadingTint = if (done) MeshaColors.Brand else MeshaColors.Muted
+    val labelColor = if (done) MeshaColors.BrandD else MeshaColors.Ink
     Row(
         Modifier
             .fillMaxWidth()
@@ -478,9 +480,13 @@ private fun ActionControl(text: String, icon: androidx.compose.ui.graphics.vecto
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = if (done) MeshaColors.Brand else MeshaColors.Muted, modifier = Modifier.size(18.dp))
-        Text(text, color = if (done) MeshaColors.BrandD else MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
-        if (done) Icon(MeshaIcons.Check, contentDescription = "Done", tint = MeshaColors.Brand, modifier = Modifier.size(16.dp))
+        Icon(icon, contentDescription = null, tint = leadingTint, modifier = Modifier.size(18.dp))
+        Text(text, color = labelColor, fontSize = 13.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
+        Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
+            if (done) {
+                Icon(MeshaIcons.Check, contentDescription = "Done", tint = MeshaColors.Brand, modifier = Modifier.size(16.dp))
+            }
+        }
     }
 }
 

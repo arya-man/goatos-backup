@@ -42,6 +42,18 @@ class CalendarViewModelTest {
     }
 
     @Test
+    fun `week strip uses readable short weekday labels not one letter chips`() {
+        val weekDays = buildWeekDays(
+            markers = listOf(CalendarDateMarkerDto(date = "2026-07-07", openCount = 2, eventCount = 2)),
+            selectedDay = LocalDate.of(2026, 7, 7),
+            today = LocalDate.of(2026, 7, 7),
+        )
+
+        assertEquals(listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), weekDays.map { it.dayName })
+        assertEquals(true, weekDays.first { it.dateKey == "2026-07-07" }.hasWork)
+    }
+
+    @Test
     fun `workflow calendar rows open shed scan target on mobile`() {
         val target = CalendarEventDto(
             eventId = "calendar:task",

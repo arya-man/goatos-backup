@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -283,6 +284,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
     onEvent: (CalendarEvent) -> Unit,
 ) {
     item {
+        val dayCellHeight = if (state.weekDays.any { it.dueCountLabel.isNotEmpty() }) 82.dp else 68.dp
         Row(
             Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -290,7 +292,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
             state.weekDays.forEach { day ->
                 WeekDayCell(
                     day = day,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(dayCellHeight),
                     onClick = { onEvent(CalendarEvent.TapDay(day.dateKey)) },
                 )
             }
@@ -339,6 +341,7 @@ private fun WeekDayCell(
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(
             text = day.dayName.uppercase(),

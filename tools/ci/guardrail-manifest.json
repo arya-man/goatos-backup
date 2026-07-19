@@ -270,6 +270,16 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-orientation-lock",
+      "script": "tools/agent-hooks/check-android-orientation-lock.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-orientation-lock.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-orientation-lock.mjs --self-test",
+      "owningDoc": "docs/mobile/README.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
       "id": "admin-web-request-reads",
       "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
       "makeTarget": "admin-web-request-reads-guard",

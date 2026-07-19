@@ -6,6 +6,8 @@
 //   - internal API/storage vocabulary rendered as user-facing copy;
 //   - raw UUID literals rendered as copy;
 //   - manual translation/absolute-offset alignment hacks that produce fragile layouts.
+//   - one-letter/narrow date labels that collapse calendar strips on real data.
+//   - state-dependent geometry that makes peer cards/buttons/chips render with mixed sizes.
 //
 // The checks intentionally target display sinks and Android string resources rather than every
 // source literal, so wire DTOs, comments, tests, and internal identifiers remain legal.
@@ -24,6 +26,8 @@ const scanRoots = [
 const internalToken =
   /\b(?:task_id|row_version|proof_id|submission_id|subject_id|scope_id|trace_id|idempotency_key|provider_message_id)\b/i;
 const uuidLiteral = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
+const stateToken = String.raw`\b(?:selected|isSelected|active|checked|current|status|tone|done|enabled|loading)\b`;
+const geometryCall = String.raw`(?:Modifier\.)?(?:padding|height|width|size|heightIn|widthIn)\s*\(`;
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -97,6 +101,31 @@ function findingsFor(file, text) {
   addMatches(/\babsoluteOffset\s*\(/g, "absoluteOffset is a fragile manual-alignment hack");
   addMatches(/\btranslation[XY]\s*=/g, "graphics translation is a fragile manual-alignment hack");
   addMatches(/\b(?:Modifier\.)?offset\s*\([^)]*-\s*\d+(?:\.\d+)?\.dp/g, "negative offset is a fragile manual-alignment hack");
+  addMatches(
+    new RegExp(String.raw`\bif\s*\([^)\n]*${stateToken}[^)\n]*\)[^\n]*(?:Modifier\.)?(?:padding|height|width|size|heightIn|widthIn)\s*\(`, "gi"),
+    "state must not change peer component geometry; keep cards/buttons/chips fixed-size and change color/copy only",
+  );
+  addMatches(
+    new RegExp(String.raw`${geometryCall}\s*\bif\s*\([^)\n]*${stateToken}`, "gi"),
+    "state must not change peer component geometry inside padding/height/width/size calls",
+  );
+  addMatches(
+    /\bTextStyle\.NARROW\b/g,
+    "TextStyle.NARROW creates one-letter date labels; use readable short labels for mobile UI",
+  );
+  addMatches(
+    /CalendarWeekDay\s*\(\s*[^,\n]+,\s*"[MTWFS]"/g,
+    "CalendarWeekDay fixtures must use readable short weekday labels, not one-letter date chips",
+  );
+  if (rel.endsWith("feature-calendar/src/main/kotlin/sg/mesha/goatos/feature/calendar/CalendarScreen.kt")) {
+    if (!/val\s+dayCellHeight\s*=/.test(text) || !/WeekDayCell\([\s\S]*?modifier\s*=\s*Modifier\.weight\(1f\)\.height\(dayCellHeight\)/.test(text)) {
+      findings.push({
+        rel,
+        line: 1,
+        message: "calendar week strip must give every day chip the same fixed height",
+      });
+    }
+  }
   return findings;
 }
 
@@ -105,6 +134,10 @@ function runSelfTest() {
     Text("proof_id")
     Modifier.absoluteOffset(x = 12.dp)
     Modifier.graphicsLayer { translationX = 8f }
+    val label = TextStyle.NARROW
+    CalendarWeekDay("d7", "T", "7", "")
+    if (selected) Modifier.height(72.dp) else Modifier.height(60.dp)
+    Modifier.padding(if (active) 12.dp else 8.dp)
   `;
   const good = `
     Text(stringResource(R.string.proof_ready))
@@ -112,7 +145,7 @@ function runSelfTest() {
   `;
   const badFindings = findingsFor("Screen.kt", bad);
   const goodFindings = findingsFor("Screen.kt", good);
-  if (badFindings.length !== 3 || goodFindings.length !== 0) {
+  if (badFindings.length !== 7 || goodFindings.length !== 0) {
     throw new Error(
       `self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)}`,
     );

@@ -67,15 +67,16 @@ fun sampleCalendarState(): CalendarUiState = CalendarUiState(
         CalendarSegment("history", "History", CalendarSegmentKind.History),
     ),
     selectedSegmentId = "week",
-    // Mock #weekStrip: Mon–Sun, single-letter day, date, dot on work days; today = Tue 7.
+    // Calendar chips must stay readable on real phones; use short weekday labels,
+    // never one-letter narrow labels that collapse Tue/Thu and Sat/Sun.
     weekDays = listOf(
-        CalendarWeekDay("d6", "M", "6", "", hasWork = false),
-        CalendarWeekDay("d7", "T", "7", "", hasWork = true, isToday = true, isSelected = true),
-        CalendarWeekDay("d8", "W", "8", "", hasWork = true),
-        CalendarWeekDay("d9", "T", "9", "", hasWork = false),
-        CalendarWeekDay("d10", "F", "10", "", hasWork = true),
-        CalendarWeekDay("d11", "S", "11", "", hasWork = false),
-        CalendarWeekDay("d12", "S", "12", "", hasWork = false),
+        CalendarWeekDay("d6", "Mon", "6", "", hasWork = false),
+        CalendarWeekDay("d7", "Tue", "7", "", hasWork = true, isToday = true, isSelected = true),
+        CalendarWeekDay("d8", "Wed", "8", "", hasWork = true),
+        CalendarWeekDay("d9", "Thu", "9", "", hasWork = false),
+        CalendarWeekDay("d10", "Fri", "10", "", hasWork = true),
+        CalendarWeekDay("d11", "Sat", "11", "", hasWork = false),
+        CalendarWeekDay("d12", "Sun", "12", "", hasWork = false),
     ),
     weekItems = listOf(
         CalendarItem(

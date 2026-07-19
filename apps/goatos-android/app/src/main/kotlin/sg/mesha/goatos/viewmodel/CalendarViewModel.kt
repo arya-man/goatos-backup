@@ -522,7 +522,7 @@ internal fun buildWeekDays(
         val openCount = marker?.openCount ?: 0
         CalendarWeekDay(
             dateKey = date.toString(),
-            dayName = date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.ENGLISH),
+            dayName = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
             dayNumber = date.dayOfMonth.toString(),
             dueCountLabel = if (openCount > 0) "$openCount due" else "",
             hasWork = openCount > 0,
