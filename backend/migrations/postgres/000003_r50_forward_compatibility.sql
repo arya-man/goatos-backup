@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose NO TRANSACTION
+-- seed-migration-guard:ignore owner=ravi issue=R50-015 reason=lock-safety-refactor-of-existing-CHECK-constraints-no-new-seed-data-or-read-model expiry=2026-10-31
 -- R50-015 P0 fix: this migration was previously wrapped in goose's default single
 -- transaction. Even though the CHECK-constraint deltas below already used the
 -- DROP CONSTRAINT + ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT pattern,

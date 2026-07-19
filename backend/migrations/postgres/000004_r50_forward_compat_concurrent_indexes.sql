@@ -1,3 +1,4 @@
+-- seed-migration-guard:ignore owner=ravi issue=R50-015 reason=one-time-dedup-cleanup-of-duplicate-rows-and-concurrent-index-swap-no-new-seed-data expiry=2026-10-31
 -- Concurrent index operations for forward-compatibility catch-up (000003 split).
 -- Items 5 & 6 from 000003_r50_forward_compatibility.sql are moved here for
 -- lock-safety: CONCURRENTLY cannot run inside a transaction, so they must be
@@ -93,7 +94,10 @@ WITH duplicate_rows AS (
   FROM public.obligation_status_events dupe
   WHERE dupe.idempotency_key IS NOT NULL
     AND dupe.recorded_at > now() - '30 days'::interval
-    AND NOT EXISTS (
+    -- Keep the EARLIEST row per (tenant_id, idempotency_key); delete a row iff an earlier row EXISTS.
+    -- (Same P0 fix as the outbox dedup above: NOT EXISTS deleted the earliest and kept the later
+    -- duplicates, so the CREATE UNIQUE INDEX CONCURRENTLY below still failed 42P10.)
+    AND EXISTS (
       SELECT 1
       FROM public.obligation_status_events keep
       WHERE keep.tenant_id = dupe.tenant_id

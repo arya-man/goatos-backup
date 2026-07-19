@@ -276,3 +276,18 @@ add this complete marker on or immediately above the SQL operation:
 
 Do not use the exception for "we will fix the seed later." The exception is only
 for reviewed no-impact cases.
+
+## R50-015 lock-safety + dedup migrations (2026-07-20, no seed impact)
+
+Migrations `000003_r50_forward_compatibility.sql` and
+`000004_r50_forward_compat_concurrent_indexes.sql` were amended to be lock-safe
+(`-- +goose NO TRANSACTION` + `lock_timeout`, `NOT VALID` + separate `VALIDATE`,
+`CREATE INDEX CONCURRENTLY` create-new-then-drop-old) and to fix a dedup that
+kept the wrong duplicate row (`NOT EXISTS` -> `EXISTS`, so the earliest row
+survives and the widened `CREATE UNIQUE INDEX CONCURRENTLY` no longer fails
+42P10). These are refactors of EXISTING forward-compatibility catch-up
+statements on `notification_requests`, `obligation_status_events`, and
+`verification_items` — they add no new seed-owned rows, no new read-model, and
+no new app-visible surface, so the seed/import path is unchanged. No seed
+command or projection recompute needs updating; the coupling companion is this
+runbook note plus the `seed-migration-guard:ignore` markers in the migrations.
