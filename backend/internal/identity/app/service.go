@@ -5,9 +5,11 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var displayIDPattern = regexp.MustCompile(`^G-[0-9]{6,}$`)
@@ -17,10 +19,23 @@ const maxMergeRedirectHops = 16
 type Service struct {
 	repo                  ports.Repository
 	bulkPreviewSigningKey string
+	// now is the business clock used to default an UNDATED lifecycle event's occurred_at. It is
+	// injectable so a caller can pin it in tests, and defaults to the current India business instant
+	// (P2-DEATH): a death submitted with no explicit date must be stamped when it is APPLIED, and the
+	// approval flow applies it by re-running PrepareCriticalDeathExit at approve time, so reading the
+	// clock here reads apply time, not the earlier submit time.
+	now func() time.Time
 }
 
 func NewService(repo ports.Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, now: defaultBusinessNow}
+}
+
+// defaultBusinessNow is the current instant tagged Asia/Kolkata, matching the business-timestamp
+// convention used across the write paths (the counts handler's raised_at, etc.). Physical storage is
+// still an absolute instant; the location tag keeps the business meaning on the India calendar.
+func defaultBusinessNow() time.Time {
+	return time.Now().In(biztime.DefaultLocation())
 }
 
 func (s *Service) WithBulkPreviewSigningKey(key string) *Service {
@@ -28,6 +43,24 @@ func (s *Service) WithBulkPreviewSigningKey(key string) *Service {
 		s.bulkPreviewSigningKey = trimmed
 	}
 	return s
+}
+
+// WithClock overrides the business clock used to default an undated lifecycle event's occurred_at.
+// Intended for tests that need to prove apply-time (not submit-time) stamping deterministically.
+func (s *Service) WithClock(now func() time.Time) *Service {
+	if now != nil {
+		s.now = now
+	}
+	return s
+}
+
+// businessNow returns the injected clock, defaulting defensively if a Service was constructed
+// without one (e.g. a zero value in a test).
+func (s *Service) businessNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return defaultBusinessNow()
 }
 
 func (s *Service) GetGoatPassport(ctx context.Context, tenantID, lookup string, traceID string) (*domain.GoatPassportResult, error) {

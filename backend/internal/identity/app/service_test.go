@@ -1641,3 +1641,85 @@ func TestIdentityGoatVACCREV12B_IST_MidnightBoundary(t *testing.T) {
 		t.Fatalf("repo.IdentityGoat called %d times, want 2 (accepted for today and yesterday)", repo.identityGoatCalls)
 	}
 }
+
+// TestPrepareCriticalDeathExitStampsApplyTimeForUndatedDeath is part of the P2-DEATH regression. A
+// death submitted with NO explicit occurred_at must be stamped when it is APPLIED, not when it was
+// submitted. In the approval flow the approval service re-runs PrepareCriticalDeathExit at approve
+// time, so the business clock read here reflects that later apply moment. The injectable clock makes
+// the apply-time-vs-submit-time distinction deterministic.
+func TestPrepareCriticalDeathExitStampsApplyTimeForUndatedDeath(t *testing.T) {
+	submitTime := time.Date(2026, 7, 1, 6, 0, 0, 0, biztime.DefaultLocation())
+	applyTime := time.Date(2026, 7, 10, 9, 30, 0, 0, biztime.DefaultLocation())
+	clock := submitTime
+	svc := NewService(&fakeRepo{}).WithClock(func() time.Time { return clock })
+
+	body := []byte(`{"lifecycle_status":"dead","exit_reason":"died","reason":"found dead in shed during morning round","row_version":1,"evidence_refs":[{"evidence_type":"media","evidence_id":"proof-1"}]}`)
+	in := ExitGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "death-apply-1",
+		TraceID: testTrace, GoatID: goatA, RawBody: body,
+	}
+
+	// SUBMIT: the handler validates now and DISCARDS the command.
+	if _, err := svc.PrepareCriticalDeathExit(context.Background(), in); err != nil {
+		t.Fatalf("submit-time prepare: %v", err)
+	}
+
+	// The request waits in the approver's queue; time passes. At APPROVE time the approval service
+	// re-runs PrepareCriticalDeathExit with the SAME stored body.
+	clock = applyTime
+	cmd, err := svc.PrepareCriticalDeathExit(context.Background(), in)
+	if err != nil {
+		t.Fatalf("apply-time prepare: %v", err)
+	}
+	if !cmd.OccurredAt.Equal(applyTime) {
+		t.Fatalf("occurred_at=%s, want the APPLY time %s -- an undated death must not be baked with the submit time %s",
+			cmd.OccurredAt, applyTime, submitTime)
+	}
+}
+
+// TestPrepareCriticalDeathExitKeepsExplicitDeathDateVerbatim pins the other half of P2-DEATH: an
+// EXPLICITLY supplied death date states when the animal actually died and must be preserved verbatim,
+// never overwritten by the apply-time clock.
+func TestPrepareCriticalDeathExitKeepsExplicitDeathDateVerbatim(t *testing.T) {
+	applyTime := time.Date(2026, 7, 10, 9, 0, 0, 0, biztime.DefaultLocation())
+	explicit := time.Date(2026, 6, 20, 4, 0, 0, 0, time.UTC)
+	svc := NewService(&fakeRepo{}).WithClock(func() time.Time { return applyTime })
+
+	body := []byte(fmt.Sprintf(`{"lifecycle_status":"dead","exit_reason":"died","reason":"back-dated death recorded late","row_version":1,"occurred_at":%q,"evidence_refs":[{"evidence_type":"media","evidence_id":"proof-2"}]}`,
+		explicit.Format(time.RFC3339Nano)))
+	cmd, err := svc.PrepareCriticalDeathExit(context.Background(), ExitGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "death-explicit-1",
+		TraceID: testTrace, GoatID: goatA, RawBody: body,
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if !cmd.OccurredAt.Equal(explicit) {
+		t.Fatalf("occurred_at=%s, want the explicitly supplied death date %s verbatim (not the apply-time clock %s)",
+			cmd.OccurredAt, explicit, applyTime)
+	}
+}
+
+// TestPrepareCriticalDeathExitDefaultsToIndiaBusinessDate proves the P2-DEATH business-calendar fix:
+// an undated death's default occurred_at is stamped on the India business calendar (Asia/Kolkata),
+// not as a bare UTC instant. Per AGENTS.md every business date must resolve on the Asia/Kolkata
+// calendar; a UTC instant near midnight buckets into the wrong business day. Uses the real default
+// clock (no injection) so it also compiles against, and fails on, the pre-fix code.
+func TestPrepareCriticalDeathExitDefaultsToIndiaBusinessDate(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	body := []byte(`{"lifecycle_status":"dead","exit_reason":"died","reason":"found dead in shed during morning round","row_version":1,"evidence_refs":[{"evidence_type":"media","evidence_id":"proof-loc"}]}`)
+	cmd, err := svc.PrepareCriticalDeathExit(context.Background(), ExitGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "death-loc-1",
+		TraceID: testTrace, GoatID: goatA, RawBody: body,
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if got := cmd.OccurredAt.Location().String(); got != biztime.DefaultLocation().String() {
+		t.Fatalf("occurred_at location=%q, want the India business location %q -- an undated death must be stamped on the Asia/Kolkata business calendar, not as a bare UTC instant",
+			got, biztime.DefaultLocation().String())
+	}
+	if delta := time.Since(cmd.OccurredAt); delta < -time.Minute || delta > time.Minute {
+		t.Fatalf("occurred_at=%s is not close to now; an undated death must default to the current business instant", cmd.OccurredAt)
+	}
+}

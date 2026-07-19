@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
@@ -115,7 +114,12 @@ func (s *Service) prepareExitGoat(input ExitGoatInput, commandName, route string
 	if err != nil {
 		return ports.ExitGoatCommand{}, BadRequest("invalid_json", "request body must be valid JSON")
 	}
-	occurredAt := time.Now().UTC()
+	// P2-DEATH: an UNDATED death is stamped at APPLY time, not submit time. In the approval flow this
+	// method is re-run by the approval service at approve time (prepareEffect), so reading the
+	// business clock here reads the moment the death is applied -- days after submit, if the request
+	// sat in a queue. An EXPLICITLY supplied date is kept verbatim: a back-dated death states when the
+	// animal actually died, which the applied instant must not overwrite.
+	occurredAt := s.businessNow()
 	if body.OccurredAt != nil {
 		occurredAt = body.OccurredAt.UTC()
 	}
