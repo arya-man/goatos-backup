@@ -201,22 +201,22 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | BUG-013 | FIXED WITH PROOF | Verification queue is cursor-paged in HTTP/repository/admin-web; E2E 201+ queue story passed. |
 | BUG-014 | FIXED WITH PROOF | Closed via C35-005 (herd-register bounded summary projection). |
 | BUG-015 | FIXED WITH PROOF | Web and Android Calendar now consume `next_cursor`; current calendar E2E/regression stories passed. Extra marker request remains C35-014. |
-| BUG-016 | STILL OPEN | Superseded by C35-006. |
+| BUG-016 | SUPERSEDED | Superseded by C35-006. |
 | BUG-017 | FIXED WITH PROOF | Closed by C35-007. |
 | BUG-018 | FIXED WITH PROOF | C35-008 is fixed. Hosted Actions billing/platform is outside this bug ledger and documented in `docs/runbooks/local-release-evidence.md`. |
-| BUG-019 | STILL OPEN | Superseded by C35-009. |
-| BUG-020 | STILL OPEN | Superseded by C35-013. |
+| BUG-019 | SUPERSEDED | Superseded by C35-009. |
+| BUG-020 | SUPERSEDED | Superseded by C35-013. |
 | BUG-021 | FIXED WITH PROOF | Closed by C35-014. |
 | BUG-022 | FIXED WITH PROOF | Closed by C35-015 for N+1 fanout; broader payload/pagination certification remains outside that row. |
 | BUG-023 | FIXED WITH PROOF | Closed by C35-016. |
-| BUG-024 | STILL OPEN | Superseded by C35-017. |
-| BUG-025 | STILL OPEN | Superseded by C35-018. |
-| BUG-026 | STILL OPEN | Superseded by C35-019. |
+| BUG-024 | SUPERSEDED | Superseded by C35-017. |
+| BUG-025 | SUPERSEDED | Superseded by C35-018. |
+| BUG-026 | SUPERSEDED | Superseded by C35-019. |
 | BUG-027 | OUT OF CURRENT SCOPE | Inventory-only issue was removed by the prior ledger; no affected inventory path is reintroduced here. |
 | BUG-028 | FIXED WITH PROOF | Closed by C35-020; guard output explicitly distinguishes ratchet pass from scale certification. |
-| BUG-029 | STILL OPEN | Superseded by C35-021. |
+| BUG-029 | SUPERSEDED | Superseded by C35-021. |
 | BUG-030 | FIXED WITH PROOF | Closed by C35-010. |
-| BUG-031 | STILL OPEN | Superseded by C35-022. |
+| BUG-031 | SUPERSEDED | Superseded by C35-022. |
 | BUG-032 | SUPERSEDED BY NEW FINDING | Deduped into C35-020. |
 | BUG-033 | FIXED WITH PROOF | Closed by C35-023. |
 | BUG-034 | FALSE POSITIVE / COUNTERED | Prior inventory/seed-scope correction remains valid. |
@@ -238,11 +238,11 @@ Every active closeout row was extracted before fresh findings were added. The de
 | Source claim | Classification | Mapping |
 | --- | --- | --- |
 | Process Integrity and Vaccination Execution god-CTEs/read-model debt | FIXED WITH PROOF | C35-002; current code review confirms the live path reads the projection table. |
-| Action Center OFFSET/fetch-both debt | STILL OPEN | C35-013 |
+| Action Center OFFSET/fetch-both debt | SUPERSEDED | C35-013 |
 | SOP/detail and sweeper fanout | FIXED WITH PROOF | C35-004/C35-015 |
-| Mobile cache principal/retention/corruption debt | STILL OPEN | C35-001/C35-017/C35-022 |
-| Scan roster/RFID/Record offline debt | STILL OPEN | C35-006/C35-018/C35-019 |
-| Mobile leadership close-flow backlog B2 | STILL OPEN | C35-011 |
+| Mobile cache principal/retention/corruption debt | SUPERSEDED | C35-001/C35-017/C35-022 |
+| Scan roster/RFID/Record offline debt | SUPERSEDED | C35-006/C35-018/C35-019 |
+| Mobile leadership close-flow backlog B2 | SUPERSEDED | C35-011 |
 | Pending handoff B1 | SUPERSEDED BY NEW FINDING | Route now opens Scan for unfinished sheds, but task identity still disappears at Scan -> Submit and the shed roster is fetched at 1,000; C35-006 is the surviving root issue. |
 | Pending handoff C1 (`RoleManager`) | FIXED WITH PROOF | Full current kernel E2E compiled and all 41 stories passed, including leadership review routes. |
 | Pending handoff A2 UUID ordering | FIXED WITH PROOF | C35-025 |
