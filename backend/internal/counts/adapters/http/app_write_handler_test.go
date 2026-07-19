@@ -172,7 +172,7 @@ func (f *fakeApprovalWorkflow) SubmitRequest(_ context.Context, in domain.Approv
 // alongside RegisterAppWrites. These tests cover the SUBMIT half of the workflow; the decision half
 // is exercised against the real service.
 func (f *fakeApprovalWorkflow) ListPending(
-	_ context.Context, _, _ string, _ []string, _ int, _ string,
+	_ context.Context, _, _ string, _ []string, _ string, _ int, _ string,
 ) (domain.ApprovalRequestPage, error) {
 	return domain.ApprovalRequestPage{Items: []domain.ApprovalRequestSummary{}}, nil
 }
@@ -1177,7 +1177,10 @@ func TestRecordShiftingEventKeepsAnExplicitlySuppliedSource(t *testing.T) {
 	}
 	mux := newTestServer(t, countsapp.NewService(repo), newFakeApprovalWorkflow(), newFakeGoatValidator())
 
-	const statedPark = "88888888-8888-4888-8888-888888888888"
+	// Same-park move (P0-1): the explicitly-stated source park must equal the destination park
+	// (testParkID from shiftingBodyNoImpacts). Precedence is still proven by the explicit source
+	// SHED, which differs from the animal's derived facts shed (testSourceShedID).
+	const statedPark = testParkID
 	const statedShed = "99999999-9999-4999-8999-999999999999"
 	body := shiftingBodyNoImpacts(testGoatID)
 	body["source_park_id"] = statedPark
@@ -1569,3 +1572,88 @@ func get(t *testing.T, mux *http.ServeMux, path string) *httptest.ResponseRecord
 }
 
 func strPtrTest(s string) *string { return &s }
+
+// TestNormalizeShiftingEventRequest_CrossParkMove verifies that normalizeShiftingEventRequest
+// rejects movements where source_park_id != destination_park_id.
+// P0-1: Cross-park move prevention.
+func TestNormalizeShiftingEventRequest_CrossParkMove(t *testing.T) {
+	tests := []struct {
+		name        string
+		sourcePark  *string
+		destPark    string
+		expectError bool
+	}{
+		{
+			name:        "no source park, should succeed",
+			sourcePark:  nil,
+			destPark:    testParkID,
+			expectError: false,
+		},
+		{
+			name:        "source and dest park match, should succeed",
+			sourcePark:  strPtrTest(testParkID),
+			destPark:    testParkID,
+			expectError: false,
+		},
+		{
+			name:        "source and dest park differ, should fail",
+			sourcePark:  strPtrTest("99999999-9999-4999-8999-999999999999"),
+			destPark:    testParkID,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := appShiftingEventRequest{
+				SourceParkID:      tt.sourcePark,
+				DestinationParkID: tt.destPark,
+				DestinationShedID: testShedID,
+				GoatIDs:           []string{testGoatID},
+			}
+			_, err := normalizeShiftingEventRequest(req)
+			if tt.expectError && err == nil {
+				t.Errorf("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestNormalizeShiftingEventRequest_MissingGoatIDs verifies that goat_ids is required.
+// P1: Unmovable animals at submit.
+func TestNormalizeShiftingEventRequest_MissingGoatIDs(t *testing.T) {
+	req := appShiftingEventRequest{
+		DestinationParkID: testParkID,
+		DestinationShedID: testShedID,
+		GoatIDs:           []string{}, // Empty goat_ids
+	}
+	_, err := normalizeShiftingEventRequest(req)
+	if err == nil {
+		t.Errorf("expected error for missing goat_ids but got none")
+	}
+}
+
+// TestNormalizeShiftingEventRequest_DeduplicatesGoatIDs verifies that duplicate goat IDs are removed
+// and the result is sorted. P1: Unmovable animals at submit.
+func TestNormalizeShiftingEventRequest_DeduplicatesGoatIDs(t *testing.T) {
+	// Use only a single animal so we don't need to provide impacts
+	req := appShiftingEventRequest{
+		DestinationParkID: testParkID,
+		DestinationShedID: testShedID,
+		GoatIDs:           []string{testGoatID, testGoatID, testGoatID}, // Has duplicates
+	}
+	normalized, err := normalizeShiftingEventRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should have 1 unique goat ID (deduplicated)
+	if len(normalized.GoatIDs) != 1 {
+		t.Errorf("expected 1 unique goat ID after deduplication, got %d: %v", len(normalized.GoatIDs), normalized.GoatIDs)
+	}
+	if normalized.GoatIDs[0] != testGoatID {
+		t.Errorf("goat ID mismatch: got %s, want %s", normalized.GoatIDs[0], testGoatID)
+	}
+}

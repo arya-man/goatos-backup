@@ -703,7 +703,17 @@ fun AppNavHost(
                 rows = rows,
                 // Birth/Death and Shifting are reached from the module-scoped bottom bar,
                 // so this screen owns no navigation of its own.
-                onEvent = vm::onEvent,
+                onEvent = { event ->
+                    when (event) {
+                        // Refresh re-runs the mediator against the backend; the VM clears
+                        // its summary banner state. The breakdown pages refresh in parallel.
+                        CountsEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
             )
         }
 

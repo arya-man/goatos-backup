@@ -79,6 +79,11 @@ type appShiftingExecutionResponse struct {
 	DestinationParkID string `json:"destination_park_id"`
 	DestinationShedID string `json:"destination_shed_id"`
 
+	// SourceParkID / SourceShedID complete the from -> to audit trail on an applied move. Omitted
+	// on cancellation and on an idempotent replay echo, where no source is resolved.
+	SourceParkID string `json:"source_park_id,omitempty"`
+	SourceShedID string `json:"source_shed_id,omitempty"`
+
 	// MovedGoatIDs is exactly which animals the completion relocated. Empty for a cancellation,
 	// which moves nobody.
 	MovedGoatIDs []string `json:"moved_goat_ids"`
@@ -233,6 +238,8 @@ func executionResponse(result domain.ShiftingExecutionResult, replay bool) appSh
 		EventStatus:       result.EventStatus,
 		DestinationParkID: result.DestinationParkID,
 		DestinationShedID: result.DestinationShedID,
+		SourceParkID:      result.SourceParkID,
+		SourceShedID:      result.SourceShedID,
 		MovedGoatIDs:      moved,
 		MovedCount:        len(moved),
 		AppliedAt:         result.AppliedAt,

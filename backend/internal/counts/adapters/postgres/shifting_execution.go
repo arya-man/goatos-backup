@@ -143,13 +143,22 @@ func (r *Repository) CompleteShiftingEvent(
 	// THE RELOCATION. This is the only place in the shifting flow that writes an animal's canonical
 	// location, and it runs here -- at completion -- rather than at approval, because only now has
 	// somebody asserted that the animals are physically standing in the destination shed.
+	//
+	// P1 follow-up #1: Defend against stale location overwrites by passing expected source park/shed.
+	sourceParkID, sourceShedID, err := r.readShiftingEventSourceLocation(ctx, tx, in.TenantID, in.ShiftingEventID)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: read shifting source location: %w", err)
+	}
+
 	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
-		TenantID: in.TenantID,
-		ActorID:  in.CompletedByUserID,
-		GoatIDs:  goatIDs,
-		ToParkID: destParkID,
-		ToShedID: destShedID,
-		Reason:   "counts shifting completion " + in.ShiftingEventID,
+		TenantID:    in.TenantID,
+		ActorID:     in.CompletedByUserID,
+		GoatIDs:     goatIDs,
+		FromParkID:  sourceParkID,
+		FromShedID:  sourceShedID,
+		ToParkID:    destParkID,
+		ToShedID:    destShedID,
+		Reason:      "counts shifting completion " + in.ShiftingEventID,
 		// The relocation is stamped with the moment of COMPLETION, not of approval: the animals'
 		// location history must read when they moved, not when someone permitted it.
 		OccurredAt: in.CompletedAt,
@@ -201,11 +210,20 @@ RETURNING applied_at, applied_by::text`,
 	}
 	committed = true
 
+	srcPark, srcShed := "", ""
+	if sourceParkID != nil {
+		srcPark = *sourceParkID
+	}
+	if sourceShedID != nil {
+		srcShed = *sourceShedID
+	}
 	return domain.ShiftingExecutionResult{
 		ShiftingEventID:   in.ShiftingEventID,
 		EventStatus:       domain.ShiftingEventStatusApplied,
 		DestinationParkID: destParkID,
 		DestinationShedID: destShedID,
+		SourceParkID:      srcPark,
+		SourceShedID:      srcShed,
 		MovedGoatIDs:      moved.MovedGoatIDs,
 		AppliedAt:         &appliedAt,
 		AppliedBy:         &appliedBy,
@@ -378,26 +396,51 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 	return out, nil
 }
 
-// shiftingMovementSet reads the animals a movement covers, plus its destination.
+// readShiftingEventSourceLocation reads the expected source park and shed for a shifting event.
+// P1 follow-up #1: Used to guard against stale location overwrites.
+func (r *Repository) readShiftingEventSourceLocation(
+	ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string,
+) (*string, *string, error) {
+	var sourceParkID, sourceShedID *string
+	err := tx.QueryRow(ctx, `
+SELECT source_park_id::text, source_shed_id::text
+FROM shifting_events
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+		tenantID, shiftingEventID).Scan(&sourceParkID, &sourceShedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ports.ErrShiftingEventNotFound
+		}
+		return nil, nil, fmt.Errorf("counts: read shifting source location: %w", err)
+	}
+	return sourceParkID, sourceShedID, nil
+}
+
+// shiftingMovementSet reads the animals a movement covers, plus its destination and source.
 //
 // The animal set is the goat_ids captured on the APPROVED approval request that authorized this
 // movement. Restricting to status='approved' is load-bearing rather than cosmetic: it means a
 // completion can only ever relocate the animal set an approver actually signed off on, so editing
 // a request after approval (or a second, still-pending request naming other animals) cannot widen
 // what completion moves.
+//
+// P1 follow-up #1: Also reads the expected source park and shed to guard against stale location
+// overwrites (an animal moved after approval but before completion).
 func (r *Repository) shiftingMovementSet(
 	ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string,
 ) (goatIDs []string, destParkID, destShedID string, err error) {
 	var payload []byte
+	var sourceParkID, sourceShedID *string
 	err = tx.QueryRow(ctx, `
-SELECT car.payload, se.destination_park_id::text, se.destination_shed_id::text
+SELECT car.payload, se.destination_park_id::text, se.destination_shed_id::text,
+       se.source_park_id::text, se.source_shed_id::text
 FROM shifting_events se
 LEFT JOIN counts_approval_requests car
        ON car.tenant_id = se.tenant_id
       AND car.shifting_event_id = se.shifting_event_id
       AND car.status = 'approved'
 WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = $2::uuid`,
-		tenantID, shiftingEventID).Scan(&payload, &destParkID, &destShedID)
+		tenantID, shiftingEventID).Scan(&payload, &destParkID, &destShedID, &sourceParkID, &sourceShedID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", "", ports.ErrShiftingEventNotFound

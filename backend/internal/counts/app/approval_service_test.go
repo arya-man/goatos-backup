@@ -421,7 +421,7 @@ func TestListPendingPassesCallerAuthorityAsTheTypeFilter(t *testing.T) {
 	svc := NewApprovalService(repo, &fakePreparer{}, nil)
 
 	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
-	if _, err := svc.ListPending(context.Background(), svcTenant, "", decidable, 20, ""); err != nil {
+	if _, err := svc.ListPending(context.Background(), svcTenant, "", decidable, "", 20, ""); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(repo.listQuery.RequestTypes) != 1 || repo.listQuery.RequestTypes[0] != domain.ApprovalRequestTypeShifting {
@@ -439,7 +439,7 @@ func TestListPendingCapsPageSize(t *testing.T) {
 	repo := &fakeApprovalRepo{}
 	svc := NewApprovalService(repo, &fakePreparer{}, nil)
 
-	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, 500, ""); err != nil {
+	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, "", 500, ""); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	// The service forwards the request; the repository clamps. Assert the domain cap is what the
@@ -453,7 +453,64 @@ func TestListPendingCapsPageSize(t *testing.T) {
 // approver at page one and make them re-decide work they already passed.
 func TestListPendingRejectsAMalformedCursor(t *testing.T) {
 	svc := NewApprovalService(&fakeApprovalRepo{}, &fakePreparer{}, nil)
-	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, 20, "!!!not-base64!!!"); err == nil {
+	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, "", 20, "!!!not-base64!!!"); err == nil {
 		t.Fatal("a malformed cursor must be rejected")
+	}
+}
+
+// P0-2 scope escalation: a park head may decide a shifting request ONLY inside the park they
+// manage. The route-level permission checks the request TYPE, not the park SCOPE, so without this
+// the same park head could approve a movement in a park they do not manage. The park lives in the
+// stored payload (destination_park_id, which equals the source park by P0-1), never in the URL.
+func TestParkHeadCannotApproveShiftingOutsideTheirPark(t *testing.T) {
+	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)} // dest park = svcPark
+	svc := NewApprovalService(repo, &fakePreparer{}, nil)
+
+	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	in := newDecisionInput("request-1", true, decidable)
+	in.CallerParkID = "77777777-7777-4777-8777-777777777777" // a DIFFERENT park than the request's
+
+	_, _, err := svc.Decide(context.Background(), in)
+	if !errors.Is(err, ErrApprovalForbiddenScope) {
+		t.Fatalf("err=%v, want ErrApprovalForbiddenScope", err)
+	}
+	if len(repo.decisions) != 0 {
+		t.Fatalf("repo decisions=%d, want 0 — an out-of-scope decision must never reach the repository", len(repo.decisions))
+	}
+}
+
+// The in-scope case must still succeed: a park head deciding a shifting request in their OWN park
+// passes the scope check and the decision is recorded.
+func TestParkHeadCanApproveShiftingInTheirPark(t *testing.T) {
+	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)} // dest park = svcPark
+	svc := NewApprovalService(repo, &fakePreparer{}, nil)
+
+	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	in := newDecisionInput("request-1", true, decidable)
+	in.CallerParkID = svcPark // the SAME park as the request
+
+	if _, _, err := svc.Decide(context.Background(), in); errors.Is(err, ErrApprovalForbiddenScope) {
+		t.Fatalf("in-scope park head was wrongly denied: %v", err)
+	}
+	if len(repo.decisions) != 1 {
+		t.Fatalf("repo decisions=%d, want 1 — an in-scope decision must be recorded", len(repo.decisions))
+	}
+}
+
+// A no-scope caller (CEO/internal, empty CallerParkID) is not restricted by park scope and may
+// decide a request in any park.
+func TestNoScopeCallerBypassesParkScopeCheck(t *testing.T) {
+	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)}
+	svc := NewApprovalService(repo, &fakePreparer{}, nil)
+
+	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	in := newDecisionInput("request-1", true, decidable)
+	in.CallerParkID = "" // no park scope
+
+	if _, _, err := svc.Decide(context.Background(), in); errors.Is(err, ErrApprovalForbiddenScope) {
+		t.Fatalf("no-scope caller was wrongly denied: %v", err)
+	}
+	if len(repo.decisions) != 1 {
+		t.Fatalf("repo decisions=%d, want 1", len(repo.decisions))
 	}
 }

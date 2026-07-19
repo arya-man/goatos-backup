@@ -781,6 +781,34 @@ LIMIT 1`, tenantID, locationType, idValue, codeValue).Scan(&locationID)
 	return locationID, err
 }
 
+// assertGoatsInPark fails closed unless EVERY movable animal in the command is currently in the
+// destination park (P0-3). This is the ground-truth cross-park guard: it reads the same rows the
+// relocation is about to lock and move, so it holds even when the command's optional FromParkID is
+// nil (a multi-animal / not-derivable submit stores a NULL source park). A move whose animals are
+// already in the destination park is a legal within-park shed move; any animal in a different park
+// makes it a forbidden cross-park move.
+func (r *Repository) assertGoatsInPark(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) error {
+	var offending int
+	err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])
+  AND merged_into_goat_id IS NULL
+  AND exited_at IS NULL
+  AND park_id IS DISTINCT FROM $3::uuid`,
+		cmd.TenantID, cmd.GoatIDs, cmd.ToParkID).Scan(&offending)
+	if err != nil {
+		return fmt.Errorf("identity: relocate goats: verify same-park: %w", err)
+	}
+	if offending > 0 {
+		return fmt.Errorf(
+			"identity: relocate goats: cross-park movement forbidden — %d animal(s) are not in destination park %s",
+			offending, cmd.ToParkID)
+	}
+	return nil
+}
+
 func (r *Repository) ensureShedUnderPark(ctx context.Context, tenantID, shedID, parkID string) error {
 	var ok bool
 	err := r.pool.QueryRow(ctx, `

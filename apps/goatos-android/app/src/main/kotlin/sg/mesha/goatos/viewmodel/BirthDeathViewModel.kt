@@ -265,11 +265,22 @@ class BirthDeathViewModel @Inject constructor(
         // Mirrors the backend rule so the operator sees it before the round trip; the server
         // still enforces it independently.
         state.dob > state.entryDate -> "Date of birth cannot be after the entry date."
+        // Park and shed are backend-owned placement values. The backend requires both as UUIDs
+        // when present (or both null). Do not send a non-UUID value.
+        // TODO(counts-followup): replace free-text park/shed + manual UUID/row_version with backend-owned
+        // selectors and tag/scan lookup (PR#11 review follow-up #2/#3).
+        !state.parkId.isBlank() && !isValidUuid(state.parkId) -> "Selector-backed park/shed and animal lookup not yet available — coming soon"
+        !state.shedId.isBlank() && !isValidUuid(state.shedId) -> "Selector-backed park/shed and animal lookup not yet available — coming soon"
         else -> null
     }
 
     private fun deathValidation(state: BirthDeathUiState): String? = when {
         state.goatId.isBlank() -> "Enter the animal that died."
+        // The goatId is a backend-owned identifier that must be a valid UUID. Operators cannot
+        // know or guess valid UUIDs.
+        // TODO(counts-followup): replace free-text park/shed + manual UUID/row_version with backend-owned
+        // selectors and tag/scan lookup (PR#11 review follow-up #2/#3).
+        !isValidUuid(state.goatId) -> "Selector-backed park/shed and animal lookup not yet available — coming soon"
         // A blank/zero row version is REJECTED, never defaulted to 1 — defaulting would silently
         // overwrite whatever concurrent edit the guard exists to catch.
         (state.rowVersion.toIntOrNull() ?: 0) < 1 -> "Enter the animal's current record version."
@@ -281,11 +292,16 @@ class BirthDeathViewModel @Inject constructor(
     /** Shape-only check; the backend parses and validates the calendar date itself. */
     private fun isIsoDate(value: String): Boolean = ISO_DATE.matches(value.trim())
 
+    /** Check if a string is a valid UUID (standard 8-4-4-4-12 hex format). */
+    private fun isValidUuid(value: String): Boolean = UUID_FORMAT.matches(value.trim())
+
     private companion object {
         const val KEY_IDEMPOTENCY = "countsBirthDeath.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "countsBirthDeath.outboxItemId"
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         const val SYNCED_MESSAGE = "Recorded."
         val ISO_DATE = Regex("""\d{4}-\d{2}-\d{2}""")
+        // UUID format: 8-4-4-4-12 hex digits with hyphens (standard RFC 4122).
+        val UUID_FORMAT = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}""", RegexOption.IGNORE_CASE)
     }
 }

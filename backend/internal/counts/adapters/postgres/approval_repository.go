@@ -212,8 +212,13 @@ WHERE tenant_id = $1::uuid
   AND status = $2
   AND request_type = ANY($3::text[])
   AND ($4::timestamptz IS NULL OR (raised_at, approval_request_id) < ($4::timestamptz, $5::uuid))
+  -- P0-2 scope filter: a park-scoped caller ($7 non-empty) sees only requests in their park. The
+  -- park lives in the shifting payload (destination_park_id, == source park by P0-1); birth/death
+  -- carry no park and are decidable only by no-scope (CEO) callers, so they correctly drop out for
+  -- a scoped caller. An empty $7 (no scope) keeps every row.
+  AND ($7::text = '' OR (payload->>'destination_park_id') = $7::text)
 ORDER BY raised_at DESC, approval_request_id DESC
-LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1)
+LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1, q.CallerParkID)
 	if err != nil {
 		return domain.ApprovalRequestPage{}, fmt.Errorf("counts: list approval requests: %w", err)
 	}

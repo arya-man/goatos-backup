@@ -2558,119 +2558,6 @@ CREATE TABLE public.count_source_import_runs (
 );
 
 --
--- Name: counts_approval_requests; Type: TABLE; Schema: public; Owner: -
---
-
--- counts_approval_requests: the Counts module's lifecycle approval workflow.
---
--- Maintainer decision (2026-07-19), superseding the previous apply-on-submit behaviour of
--- POST /app/counts/{birth,death,shifting}-events:
---
---   * BIRTH and DEATH are PENDING UNTIL APPROVED. Submitting one must NOT mutate `goats` and must
---     NOT emit goat.created / goat.exited. A kid's vaccination obligations are therefore generated
---     only on approval, and a death's open obligations are cancelled only on approval.
---   * SHIFTING already lands pending (shifting_events.authorization_state = 'pending'), so its
---     approval request LINKS to the existing row rather than duplicating the payload.
---   * Approver authority is per request_type: park_head decides shifting, ceo_internal decides
---     birth and death, operators decide nothing (permissions.CountsApproveShifting /
---     permissions.CountsApproveLifecycle).
---
--- Why the payload is stored here rather than applied eagerly: birth and death have no pending
--- representation anywhere else. `goats` is the APPLIED state, so a pending birth cannot be a goats
--- row without becoming visible to the herd register, the census, and the vaccination generator. The
--- validated request body is therefore held verbatim as JSONB and replayed through the SAME guarded
--- identity service command on approval (identity CreateAdminGoat / CriticalDeathExit) -- never a
--- bypass, so the dead+died critical-death guardrail is still enforced at apply time.
---
--- Grain: ONE row per submitted request. Not a projection, not a read model -- this is canonical
--- source state (the request and its decision), so it is rebuilt by nothing and owned here.
-
-CREATE TABLE public.counts_approval_requests (
-    approval_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    request_type text NOT NULL,
-
-    -- Birth/death carry their validated submit body verbatim; shifting carries a small descriptor
-    -- (the movement itself lives in shifting_events, referenced below) so the approvals list can be
-    -- rendered without a join.
-    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-
-    -- Set for request_type='shifting' only: the already-written pending shifting_events row this
-    -- request authorizes. Enforced by counts_approval_requests_shifting_link_check below.
-    shifting_event_id uuid,
-
-    -- Set for request_type='death' only: the animal the request would exit. Denormalised from
-    -- payload so the pending list and the duplicate-open guard do not have to parse JSONB.
-    subject_goat_id uuid,
-
-    status text DEFAULT 'pending'::text NOT NULL,
-
-    raised_by_user_id uuid NOT NULL,
-    raised_at timestamp with time zone DEFAULT now() NOT NULL,
-
-    decided_by_user_id uuid,
-    decided_at timestamp with time zone,
-    decision_reason text,
-
-    -- What the approval actually produced, recorded in the SAME transaction as the status flip.
-    -- birth/death -> ('goat', <goat_id>); shifting -> ('shifting_event', <shifting_event_id>).
-    -- A non-null pair is the proof that an 'approved' row's effect committed; it is also what makes
-    -- a second approve a no-op replay instead of a second application.
-    applied_result_type text,
-    applied_result_id uuid,
-
-    -- Submit-time idempotency (the operator's write). Mirrors the shifting_events convention:
-    -- the key identifies the request, the fingerprint identifies the payload, so an exact replay
-    -- returns the original row and a same-key/different-payload replay is a conflict.
-    idempotency_key text NOT NULL,
-    request_fingerprint text NOT NULL,
-
-    -- Decision-time idempotency (the approver's write). Approve/reject are themselves mutating
-    -- writes and carry the full contract, so they need their own key/fingerprint pair rather than
-    -- reusing the submit key.
-    decision_idempotency_key text,
-    decision_request_fingerprint text,
-
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-
-    CONSTRAINT counts_approval_requests_type_check
-        CHECK ((request_type = ANY (ARRAY['birth'::text, 'death'::text, 'shifting'::text]))),
-    CONSTRAINT counts_approval_requests_status_check
-        CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
-    CONSTRAINT counts_approval_requests_payload_object_check
-        CHECK ((jsonb_typeof(payload) = 'object'::text)),
-
-    -- A shifting request MUST point at its shifting_events row; birth/death MUST NOT. This is what
-    -- keeps "approve" able to dispatch on request_type without trusting the payload.
-    CONSTRAINT counts_approval_requests_shifting_link_check
-        CHECK (((request_type = 'shifting'::text) = (shifting_event_id IS NOT NULL))),
-    -- Only a death names a subject animal up front (a birth CREATES its animal on approval).
-    CONSTRAINT counts_approval_requests_subject_goat_check
-        CHECK (((subject_goat_id IS NULL) OR (request_type = 'death'::text))),
-
-    -- Reject requires a reason -- enforced in the DB, not only in Go (same rule as
-    -- verification_items_reject_reason_check).
-    CONSTRAINT counts_approval_requests_reject_reason_check
-        CHECK (((status <> 'rejected'::text) OR ((decision_reason IS NOT NULL) AND (btrim(decision_reason) <> ''::text)))),
-    -- A decided row must record WHO decided and WHEN; a pending row must record neither.
-    CONSTRAINT counts_approval_requests_decision_shape_check
-        CHECK ((((status = 'pending'::text) AND (decided_by_user_id IS NULL) AND (decided_at IS NULL))
-             OR ((status <> 'pending'::text) AND (decided_by_user_id IS NOT NULL) AND (decided_at IS NOT NULL)))),
-    -- An APPROVED row must carry the applied result. This is the schema-level half of the atomic
-    -- transition rule: a row cannot read 'approved' without naming the effect that committed with it.
-    CONSTRAINT counts_approval_requests_applied_result_check
-        CHECK ((((status = 'approved'::text) AND (applied_result_type IS NOT NULL) AND (applied_result_id IS NOT NULL))
-             OR ((status <> 'approved'::text) AND (applied_result_type IS NULL) AND (applied_result_id IS NULL)))),
-
-    CONSTRAINT counts_approval_requests_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
-    CONSTRAINT counts_approval_requests_fingerprint_check CHECK ((btrim(request_fingerprint) <> ''::text)),
-    CONSTRAINT counts_approval_requests_row_version_check CHECK ((row_version >= 1))
-);
-
-
---
 -- Name: counts_shifting_readiness_evidence; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2709,37 +2596,6 @@ CREATE TABLE public.counts_shifting_readiness_subgates (
     CONSTRAINT counts_shifting_readiness_status_check CHECK ((status = ANY (ARRAY['ready'::text, 'blocked'::text, 'pending'::text]))),
     CONSTRAINT counts_shifting_readiness_subgate_id_check CHECK ((subgate_id = ANY (ARRAY['CSG1'::text, 'CSG2'::text, 'CSG3'::text, 'CSG4'::text, 'CSG5'::text, 'CSG6'::text, 'CSG7'::text, 'CSG8'::text, 'CSG9'::text, 'CSG10'::text])))
 );
-
---
--- Name: department_module_grants; Type: TABLE; Schema: public; Owner: -
---
-
--- department_module_grants: the module side of "a person's job = role x granted modules".
---
--- Canonical rule: docs/decisions/role-module-nav-composition.md. Until this table
--- existed, backend/internal/workforce/app/bootstrap_copy.go hardcoded
--- grantedModules = []string{"vaccination"} and service.go derived nav chrome from a
--- leadership boolean; both carried TODOs pointing at this table.
---
--- module_key is deliberately NOT constrained to an enum of known modules. The
--- module -> nav contribution registry (moduleNavRegistry in bootstrap_copy.go) is the
--- semantic source of truth for which module keys mean anything; an unrecognised key
--- simply contributes no nav. That keeps "add a module" a registry entry plus a grant
--- row, never a schema migration, which is the intent of the nav-composition ADR.
--- The CHECK here only enforces the shared code shape used by departments.code.
-
-CREATE TABLE public.department_module_grants (
-    department_module_grant_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    department_id uuid NOT NULL,
-    module_key text NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT department_module_grants_module_key_check CHECK ((module_key ~ '^[a-z][a-z0-9_]*$'::text)),
-    CONSTRAINT department_module_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
-);
-
 
 --
 -- Name: departments; Type: TABLE; Schema: public; Owner: -
@@ -4315,37 +4171,6 @@ CREATE TABLE public.shifting_events (
     authorization_state text DEFAULT 'pending'::text NOT NULL,
     verification_state text DEFAULT 'unverified'::text NOT NULL,
     event_status text DEFAULT 'pending'::text NOT NULL,
-
-    -- EXECUTION (maintainer decision, 2026-07-19): approving a shifting AUTHORIZES it and moves
-    -- NOTHING. Authorization is a manager's permission slip, not evidence that the animals walked
-    -- to the destination shed, so the two facts are recorded separately:
-    --
-    --   authorized_at/authorized_by -> who said the movement MAY happen (approval)
-    --   applied_at/applied_by       -> who confirmed it DID happen (completion, POST .../complete)
-    --
-    -- The animals' canonical location in `goats` changes at COMPLETION, in the same transaction as
-    -- the event_status flip to 'applied'. Before that the herd register must still read the source
-    -- shed, because that is where the animals physically are.
-    applied_at timestamp with time zone,
-    applied_by uuid,
-
-    -- Cancellation retires an authorized movement that will never be executed. Nothing moves.
-    -- A reason is REQUIRED (see shifting_events_canceled_shape_check) so an abandoned movement
-    -- always records why, rather than silently disappearing from the operator's queue.
-    canceled_at timestamp with time zone,
-    canceled_by uuid,
-    cancel_reason text,
-
-    -- Execution-time idempotency. Completion and cancellation are mutating writes that a phone on a
-    -- flaky link WILL retry, and completion relocates animals, so each carries its own key +
-    -- request fingerprint persisted in the SAME transaction as its side effects. An exact replay
-    -- returns the original result and relocates nobody a second time; a same-key/different-payload
-    -- replay is a conflict. Deliberately separate from the submit-time and decision-time pairs:
-    -- these are different writes by different actors at different times.
-    completion_idempotency_key text,
-    completion_request_fingerprint text,
-    cancel_idempotency_key text,
-    cancel_request_fingerprint text,
     source_system text NOT NULL,
     source_ref text NOT NULL,
     proof_ref text,
@@ -4364,38 +4189,7 @@ CREATE TABLE public.shifting_events (
     CONSTRAINT shifting_events_source_check CHECK ((source_system = ANY (ARRAY['feed_shiftings_docx'::text, 'manual_review'::text, 'import'::text, 'goatos_canonical'::text]))),
     CONSTRAINT shifting_events_source_ref_check CHECK ((btrim(source_ref) <> ''::text)),
     CONSTRAINT shifting_events_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'authorized'::text, 'applied'::text, 'rejected'::text, 'canceled'::text, 'unresolved'::text]))),
-    CONSTRAINT shifting_events_verification_state_check CHECK ((verification_state = ANY (ARRAY['unverified'::text, 'verified'::text, 'rejected'::text]))),
-
-    -- The schema half of the atomic transition rule for EXECUTION, mirroring
-    -- counts_approval_requests_applied_result_check. A row cannot read 'applied' without recording
-    -- WHEN it was applied, and a row that is NOT applied cannot carry a completion stamp -- so a
-    -- completion stamp left behind by a rolled-back relocation is unrepresentable rather than
-    -- merely unlikely.
-    --
-    -- applied_by is deliberately OPTIONAL while applied_at is required. A movement can reach
-    -- 'applied' two ways: an operator pressing "Completed" in GoatOS (which always stamps both),
-    -- or an IMPORT of a movement that physically happened before GoatOS existed
-    -- (source_system='feed_shiftings_docx'/'import'), where there is no GoatOS actor to name.
-    -- Forcing applied_by NOT NULL would make historical imports either impossible or -- far worse
-    -- -- push them to invent an actor who never confirmed anything. A NULL applied_by on an applied
-    -- row therefore MEANS something precise: this movement came from history, not from an operator
-    -- in the field.
-    CONSTRAINT shifting_events_applied_shape_check
-        CHECK ((((event_status = 'applied'::text) AND (applied_at IS NOT NULL))
-             OR ((event_status <> 'applied'::text) AND (applied_at IS NULL) AND (applied_by IS NULL)))),
-
-    -- A canceled row must record who, when, and WHY; any other row must carry no cancellation.
-    CONSTRAINT shifting_events_canceled_shape_check
-        CHECK ((((event_status = 'canceled'::text) AND (canceled_at IS NOT NULL) AND (canceled_by IS NOT NULL)
-                 AND (cancel_reason IS NOT NULL) AND (btrim(cancel_reason) <> ''::text))
-             OR ((event_status <> 'canceled'::text) AND (canceled_at IS NULL) AND (canceled_by IS NULL)
-                 AND (cancel_reason IS NULL)))),
-
-    -- Completion is only reachable from an AUTHORIZED movement: an 'applied' row must carry the
-    -- authorization that permitted it. This closes the path where a pending (unapproved) movement
-    -- could be executed straight to 'applied' by a caller addressing its id.
-    CONSTRAINT shifting_events_applied_requires_authorization_check
-        CHECK (((event_status <> 'applied'::text) OR (authorization_state = 'authorized'::text)))
+    CONSTRAINT shifting_events_verification_state_check CHECK ((verification_state = ANY (ARRAY['unverified'::text, 'verified'::text, 'rejected'::text])))
 );
 
 --
@@ -6567,24 +6361,6 @@ ALTER TABLE ONLY public.count_source_import_runs
     ADD CONSTRAINT count_source_import_runs_pkey PRIMARY KEY (count_source_import_run_id);
 
 --
--- Name: counts_approval_requests counts_approval_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_approval_requests
-    ADD CONSTRAINT counts_approval_requests_pkey PRIMARY KEY (approval_request_id);
-
-
---
--- Name: counts_approval_requests counts_approval_requests_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
--- Composite target so future module tables can FK to (tenant_id, approval_request_id), the
--- tenant-scoped FK convention used by shifting_events_tenant_id_unique / departments.
-ALTER TABLE ONLY public.counts_approval_requests
-    ADD CONSTRAINT counts_approval_requests_tenant_id_unique UNIQUE (tenant_id, approval_request_id);
-
-
---
 -- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6597,24 +6373,6 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_pkey PRIMARY KEY (tenant_id, subgate_id);
-
---
--- Name: department_module_grants department_module_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.department_module_grants
-    ADD CONSTRAINT department_module_grants_pkey PRIMARY KEY (department_module_grant_id);
-
-
---
--- Name: department_module_grants department_module_grants_tenant_department_module_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
--- One row per (tenant, department, module); re-granting is an idempotent upsert.
-ALTER TABLE ONLY public.department_module_grants
-    ADD CONSTRAINT department_module_grants_tenant_department_module_key
-    UNIQUE (tenant_id, department_id, module_key);
-
 
 --
 -- Name: departments departments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -8110,47 +7868,6 @@ CREATE INDEX count_source_import_runs_status_idx ON public.count_source_import_r
 CREATE INDEX count_source_import_runs_tenant_started_idx ON public.count_source_import_runs USING btree (tenant_id, started_at DESC, count_source_import_run_id DESC);
 
 --
--- Name: counts_approval_requests_idempotency_unique; Type: INDEX; Schema: public; Owner: -
---
-
--- Submit idempotency: one row per (tenant, client idempotency key).
-CREATE UNIQUE INDEX counts_approval_requests_idempotency_unique ON public.counts_approval_requests USING btree (tenant_id, idempotency_key);
-
-
---
--- Name: counts_approval_requests_open_shifting_unique; Type: INDEX; Schema: public; Owner: -
---
-
--- One OPEN request per shifting event: re-submitting the same movement must not create a second
--- pending approval for a row that is already awaiting a decision. Partial so a decided request does
--- not block a legitimate later re-raise.
-CREATE UNIQUE INDEX counts_approval_requests_open_shifting_unique ON public.counts_approval_requests USING btree (tenant_id, shifting_event_id) WHERE ((status = 'pending'::text) AND (shifting_event_id IS NOT NULL));
-
-
---
--- Name: counts_approval_requests_pending_queue_idx; Type: INDEX; Schema: public; Owner: -
---
-
--- THE approvals-screen index. The pending list is the query this table exists to serve and it runs
--- on every open of the screen, so it must be an indexed keyset lookup and must not degrade into a
--- filter over decided history. PARTIAL on status='pending' keeps it bounded by the size of the
--- OPEN queue rather than by the lifetime of the table: decided rows accumulate forever, pending
--- rows do not. request_type precedes the sort key because the caller only ever lists the types its
--- role may decide (park_head -> shifting, ceo_internal -> birth/death), i.e. the predicate is
--- always `request_type = ANY($n)`.
-CREATE INDEX counts_approval_requests_pending_queue_idx ON public.counts_approval_requests USING btree (tenant_id, request_type, raised_at DESC, approval_request_id DESC) WHERE (status = 'pending'::text);
-
-
---
--- Name: counts_approval_requests_status_queue_idx; Type: INDEX; Schema: public; Owner: -
---
-
--- History/audit read path (status = approved|rejected). Separate from the hot partial index above
--- so a decided-list query never has to scan the pending index or the heap.
-CREATE INDEX counts_approval_requests_status_queue_idx ON public.counts_approval_requests USING btree (tenant_id, status, request_type, raised_at DESC, approval_request_id DESC);
-
-
---
 -- Name: counts_shifting_readiness_evidence_prefix_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8167,16 +7884,6 @@ CREATE INDEX counts_shifting_readiness_evidence_subgate_idx ON public.counts_shi
 --
 
 CREATE INDEX counts_shifting_readiness_status_idx ON public.counts_shifting_readiness_subgates USING btree (tenant_id, status, updated_at DESC);
-
---
--- Name: department_module_grants_tenant_department_active_idx; Type: INDEX; Schema: public; Owner: -
---
-
--- Bootstrap read path: user -> workforce_members.department_id -> active module keys.
--- Partial index keeps the lookup an index-only scan over live grants; every bootstrap
--- call hits this, so it must not degrade into a filter on a growing table.
-CREATE INDEX department_module_grants_tenant_department_active_idx ON public.department_module_grants USING btree (tenant_id, department_id) INCLUDE (module_key) WHERE (status = 'active'::text);
-
 
 --
 -- Name: departments_tenant_code_unique; Type: INDEX; Schema: public; Owner: -
@@ -9251,32 +8958,6 @@ CREATE INDEX shifting_event_impacts_projection_idx ON public.shifting_event_impa
 --
 
 CREATE INDEX shifting_events_destination_park_window_idx ON public.shifting_events USING btree (tenant_id, destination_park_id, event_status, effective_at, shifting_event_id) WHERE (event_status = ANY (ARRAY['authorized'::text, 'applied'::text]));
-
---
--- Name: shifting_events_pending_execution_idx; Type: INDEX; Schema: public; Owner: -
---
-
--- The operator's "authorized, waiting to be walked" queue
--- (GET /app/counts/shifting-events/pending-execution).
---
--- PARTIAL on event_status='authorized' so the index holds only open execution work: a tenant
--- accumulates 'applied' history forever, and this queue must stay the size of what is actually
--- outstanding rather than growing with everything that ever moved.
---
--- The column order IS the keyset: (authorized_at DESC, shifting_event_id DESC) is the page order,
--- so a cursor page is an index range scan bounded by the page size -- never an OFFSET walk over a
--- queue that other operators are draining while this one pages.
-CREATE INDEX shifting_events_pending_execution_idx ON public.shifting_events USING btree (tenant_id, authorized_at DESC, shifting_event_id DESC) WHERE (event_status = 'authorized'::text);
-
-
---
--- Name: shifting_events_pending_execution_park_idx; Type: INDEX; Schema: public; Owner: -
---
-
--- Same queue, filtered to one SOURCE park (the optional ?park_id=). Source rather than destination:
--- an operator executing a movement must go to where the animals currently ARE to collect them.
-CREATE INDEX shifting_events_pending_execution_park_idx ON public.shifting_events USING btree (tenant_id, source_park_id, authorized_at DESC, shifting_event_id DESC) WHERE (event_status = 'authorized'::text);
-
 
 --
 -- Name: shifting_events_idempotency_unique; Type: INDEX; Schema: public; Owner: -
@@ -10515,14 +10196,6 @@ ALTER TABLE ONLY public.count_source_import_runs
     ADD CONSTRAINT count_source_import_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 --
--- Name: counts_approval_requests counts_approval_requests_shifting_event_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.counts_approval_requests
-    ADD CONSTRAINT counts_approval_requests_shifting_event_fkey FOREIGN KEY (tenant_id, shifting_event_id) REFERENCES public.shifting_events(tenant_id, shifting_event_id) ON DELETE RESTRICT;
-
-
---
 -- Name: counts_shifting_readiness_evidence counts_shifting_readiness_evidence_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10535,14 +10208,6 @@ ALTER TABLE ONLY public.counts_shifting_readiness_evidence
 
 ALTER TABLE ONLY public.counts_shifting_readiness_subgates
     ADD CONSTRAINT counts_shifting_readiness_subgates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
---
--- Name: department_module_grants department_module_grants_department_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.department_module_grants
-    ADD CONSTRAINT department_module_grants_department_id_fkey FOREIGN KEY (tenant_id, department_id) REFERENCES public.departments(tenant_id, department_id) ON DELETE CASCADE;
-
 
 --
 -- Name: departments departments_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

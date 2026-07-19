@@ -21,6 +21,11 @@ type RelocateGoatsCommand struct {
 	// MaxRelocateGoatsPerCommand.
 	GoatIDs []string
 
+	// P1 follow-up #1: Expected source park and shed. If supplied, the relocate fails closed
+	// if any animal's current location differs, preventing stale location overwrites.
+	FromParkID *string
+	FromShedID *string
+
 	ToParkID string
 	ToShedID string
 

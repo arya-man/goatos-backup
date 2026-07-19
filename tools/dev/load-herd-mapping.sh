@@ -208,6 +208,27 @@ FROM _resolved GROUP BY 1,2,3,4 ORDER BY 5 DESC;
 \echo '== applying =='
 BEGIN;
 
+-- Fail closed on AMBIGUITY (review follow-up #4). Where a mapping row lists more than one shed or
+-- breed candidate and the animal's current value is NOT among them, the resolver above falls back
+-- to the FIRST candidate -- an invented truth. Guessing owner/location/breed on --apply corrupts
+-- the live herd, so abort the whole transaction instead. The '== ambiguity handling ==' report
+-- above (dry-run) lists the forced_first counts; disambiguate the source and re-run.
+DO \$\$
+DECLARE ambiguous bigint;
+BEGIN
+  SELECT count(*) INTO ambiguous FROM _resolved
+  WHERE (shed_candidates  > 1 AND NOT COALESCE(shed_kept, false))
+     OR (breed_candidates > 1 AND NOT COALESCE(breed_kept, false));
+  IF ambiguous > 0 THEN
+    RAISE EXCEPTION 'refusing --apply: % row(s) have ambiguous shed/breed and would be forced to the first candidate (guessed truth). Disambiguate the source and re-run.', ambiguous;
+  END IF;
+END \$\$;
+
+-- TODO(counts-followup #4): this direct UPDATE of goats bypasses the canonical identity producer,
+-- so it emits no goat.location.changed / lifecycle identity event, writes no outbox_messages row,
+-- and does not re-scope shed-scoped vaccination obligations. Route these writes through the
+-- registered identity import/relocate producer (see domain-event-registry.json) before this tool
+-- is used for anything beyond a disambiguated dev backfill.
 INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order, status)
 SELECT DISTINCT '$TENANT_ID'::uuid, r.stage, r.stage, 0, 'active' FROM _resolved r
 ON CONFLICT (tenant_id, stage_code) DO NOTHING;

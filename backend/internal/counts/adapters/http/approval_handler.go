@@ -41,7 +41,7 @@ const (
 // ApprovalWorkflow is the slice of counts/app.ApprovalService this handler needs.
 type ApprovalWorkflow interface {
 	SubmitRequest(ctx context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error)
-	ListPending(ctx context.Context, tenantID, status string, decidableTypes []string, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
+	ListPending(ctx context.Context, tenantID, status string, decidableTypes []string, callerParkID string, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
 	Decide(ctx context.Context, in countsapp.DecisionInput) (domain.ApprovalRequest, bool, error)
 }
 
@@ -88,6 +88,9 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 	}
 
 	decidable := permissions.DecidableApprovalRequestTypes(callerRoles(r))
+	// P0-2: Extract caller's park scope for filtering.
+	callerParkID := callerParkScope(r)
+
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	if status == "" {
 		status = domain.ApprovalStatusPending
@@ -107,7 +110,7 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))
+	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkID, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))
 	if err != nil {
 		h.writeApprovalError(w, r, err)
 		return
@@ -220,6 +223,7 @@ func (h *AppWriteHandler) decide(w http.ResponseWriter, r *http.Request, approve
 		return
 	}
 
+	// P0-2: Thread the caller's park scope through to the decision.
 	decided, replay, err := h.approvals.Decide(r.Context(), countsapp.DecisionInput{
 		TenantID:           tenantID,
 		ApprovalRequestID:  requestID,
@@ -230,6 +234,7 @@ func (h *AppWriteHandler) decide(w http.ResponseWriter, r *http.Request, approve
 		IdempotencyKey:     "counts-approval-decision:" + clientKey,
 		RequestFingerprint: stableHash("counts-app-approval-decision", canonical),
 		DecidableTypes:     permissions.DecidableApprovalRequestTypes(callerRoles(r)),
+		CallerParkID:       callerParkScope(r),
 	})
 	if err != nil {
 		h.writeApprovalError(w, r, err)
@@ -265,6 +270,18 @@ func callerRoles(r *http.Request) []string {
 		roles = append(roles, grant.Role)
 	}
 	return roles
+}
+
+// callerParkScope returns the park scope (park_id) the caller is scoped to, if any.
+// P0-2: Returns empty string if the caller has no scope restriction (e.g. CEO/internal).
+func callerParkScope(r *http.Request) string {
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	for _, grant := range grants {
+		if grant.ScopeType == "park" && grant.ScopeID != "" {
+			return grant.ScopeID
+		}
+	}
+	return ""
 }
 
 func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Request, err error) {

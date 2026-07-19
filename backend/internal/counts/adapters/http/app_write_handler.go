@@ -425,6 +425,12 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	if req.DestinationShedID == "" {
 		return req, identityapp.BadRequest("missing_destination_shed_id", "destination_shed_id is required")
 	}
+	// P0-1: Cross-park move prevention. Goats never move between parks; shed moves exist only
+	// within one park. Validate that source_park_id == destination_park_id when a source is supplied.
+	if req.SourceParkID != nil && *req.SourceParkID != req.DestinationParkID {
+		return req, identityapp.BadRequest("cross_park_move_forbidden",
+			"a shifting event must keep the animals within the same park")
+	}
 	// A present-but-invalid enum is REJECTED, never silently rewritten to a default the operator
 	// never chose. An absent value falls through to the service's declared default.
 	if req.Priority != "" && !allowedShiftingPriority[req.Priority] {

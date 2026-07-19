@@ -111,6 +111,13 @@ type ShiftingExecutionResult struct {
 	DestinationParkID string
 	DestinationShedID string
 
+	// SourceParkID / SourceShedID record where the animals stood before the applied move, so the
+	// completion is a full audit trail (from -> to) rather than destination-only. By the P0-1
+	// same-park rule SourceParkID equals DestinationParkID; SourceShedID is the meaningful delta.
+	// Left empty on cancellation (nothing moved) and on an idempotent replay echo.
+	SourceParkID string
+	SourceShedID string
+
 	// MovedGoatIDs is the animal set the completion relocated. Empty for a cancellation, which
 	// moves nobody.
 	MovedGoatIDs []string

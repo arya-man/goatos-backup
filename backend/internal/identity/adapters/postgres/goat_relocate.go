@@ -62,6 +62,23 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 			"identity: relocate goats: %d animals exceeds the per-command cap of %d",
 			len(cmd.GoatIDs), ports.MaxRelocateGoatsPerCommand)
 	}
+	// P0-1: Cross-park move prevention (defense in depth). Goats never move between parks.
+	// P1 follow-up #1: Stale location overwrite prevention. If an expected source park is supplied,
+	// fail closed when it disagrees with the destination.
+	if cmd.FromParkID != nil && *cmd.FromParkID != cmd.ToParkID {
+		return ports.RelocateGoatsResult{}, fmt.Errorf(
+			"identity: relocate goats: cross-park movement forbidden (from: %s, to: %s)",
+			*cmd.FromParkID, cmd.ToParkID)
+	}
+	// P0-3 (review judge): the supplied FromParkID is OPTIONAL and can be nil (a multi-animal or
+	// not-derivable submit stores a NULL source park), so the check above alone lets a cross-park
+	// move through on the nil path. Enforce the invariant against GROUND TRUTH instead: every
+	// movable animal's CURRENT park must equal the destination park. This reads the same rows the
+	// relocation is about to lock+move, so a mismatch cannot slip past regardless of what the
+	// (optional) source hint said.
+	if err := r.assertGoatsInPark(ctx, tx, cmd); err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
 	if err := r.ensureShedUnderPark(ctx, cmd.TenantID, cmd.ToShedID, cmd.ToParkID); err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}

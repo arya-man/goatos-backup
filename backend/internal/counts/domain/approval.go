@@ -172,6 +172,10 @@ type ApprovalRequestQuery struct {
 	// through births.
 	RequestTypes []string
 
+	// P1: CallerParkID filters the page to requests in the caller's park scope.
+	// Empty string means no scope restriction (e.g. CEO/internal).
+	CallerParkID string
+
 	PageSize int
 	Cursor   *ApprovalRequestCursor
 }

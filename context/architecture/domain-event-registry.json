@@ -182,6 +182,7 @@
   "allowedHerdMutationWriters": [
     {"path": "backend/internal/identity/adapters/postgres/admin_goat_create.go", "owner": "identity", "reason": "canonical goat create producer"},
     {"path": "backend/internal/identity/adapters/postgres/goat_lifecycle.go", "owner": "identity", "reason": "canonical goat lifecycle/location/stage/health/reproductive/identity producer"},
+    {"path": "backend/internal/identity/adapters/postgres/goat_relocate.go", "owner": "identity", "reason": "canonical bulk shifting-execution relocation producer; emits per-animal goat.location.changed into goat_identity_events and the matching outbox_messages row in the same transaction (enforced by outbox_messages_validate_event_tenant_trg), consumed by obligation/app/shift.go to re-scope shed-scoped vaccination obligations"},
     {"path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql", "owner": "identity", "reason": "sqlc source for identity lifecycle commands"},
     {"path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql.go", "owner": "identity", "reason": "generated sqlc identity lifecycle commands"},
     {"path": "backend/internal/procurement/adapters/postgres/repository.go", "owner": "procurement", "reason": "registered existing procurement intake/exit writer; future expansion must emit/bridge domain events"},
