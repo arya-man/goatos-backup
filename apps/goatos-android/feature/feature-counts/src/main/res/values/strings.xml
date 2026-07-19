@@ -27,6 +27,19 @@
     <string name="counts_grain_fmt">%1$d grouped rows across the full filtered herd</string>
     <string name="counts_breakdown_caption">BREAKDOWN · farm · stage · breed · sex · shed</string>
     <string name="counts_stage_unknown">Unspecified stage</string>
+
+    <!-- Census filter bar. Only the CHROME lives here: every option vocabulary (park, shed, breed)
+         comes from the backend `facets` and is never hardcoded on device. -->
+    <string name="counts_filters_title">FILTERS</string>
+    <string name="counts_filters_clear">Clear</string>
+    <string name="counts_filter_park">Park</string>
+    <string name="counts_filter_shed">Shed</string>
+    <string name="counts_filter_breed">Breed</string>
+    <string name="counts_filter_all_parks">All parks</string>
+    <string name="counts_filter_all_sheds">All sheds</string>
+    <string name="counts_filter_all_breeds">All breeds</string>
+    <string name="counts_filter_park_first">Pick a park first</string>
+    <string name="counts_filter_shed_unavailable">Not available</string>
     <string name="counts_empty_message">No animals match this scope</string>
     <string name="counts_error_message">Couldn\'t load counts. Tap refresh to retry.</string>
 

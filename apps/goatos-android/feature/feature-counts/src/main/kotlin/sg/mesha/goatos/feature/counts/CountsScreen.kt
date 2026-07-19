@@ -84,12 +84,62 @@ data class CountsTotalsUi(
     val projectedAt: String = "",
 )
 
+/**
+ * One selectable value in a census filter dropdown, straight from the backend's `facets`.
+ *
+ * [key] is what the filter SENDS (a park/shed uuid, or the breed's own value) and [label] is only
+ * ever rendered — the two are never interchangeable. [count] is the facet's own head count for
+ * this value, shown next to the option so an operator can see the size of a cohort before
+ * selecting it. Nothing here is invented on device: the whole vocabulary is backend-owned.
+ */
+@Immutable
+data class CountsFilterOptionUi(
+    val key: String,
+    val label: String,
+    val count: Int,
+)
+
+/**
+ * The census filter bar's whole state.
+ *
+ * Park -> shed CASCADES: [sheds] holds ONLY the sheds of the currently selected park, and choosing
+ * a different park resets [selectedShedId]. That is load-bearing rather than tidy — 66 of the ~154
+ * shed names exist in BOTH parks, so a flat shed list is genuinely ambiguous to read and a shed id
+ * left over from another park would filter the census to a cohort the operator did not ask for.
+ *
+ * [shedFilterSupported] is false when the backend has not shipped the `sheds` facet (or shipped it
+ * without park attribution). The shed dropdown then renders DISABLED rather than empty-but-tappable
+ * — an operator must never open a filter that silently cannot work.
+ */
+@Immutable
+data class CountsFiltersUi(
+    val parks: List<CountsFilterOptionUi> = emptyList(),
+    val sheds: List<CountsFilterOptionUi> = emptyList(),
+    val breeds: List<CountsFilterOptionUi> = emptyList(),
+    val selectedParkId: String = "",
+    val selectedShedId: String = "",
+    val selectedBreed: String = "",
+    /** Resolved from the facets by the ViewModel, so this screen never maps a key to a label. */
+    val selectedParkLabel: String? = null,
+    val selectedShedLabel: String? = null,
+    val selectedBreedLabel: String? = null,
+    val shedFilterSupported: Boolean = false,
+) {
+    val hasActiveFilter: Boolean
+        get() = selectedParkId.isNotBlank() || selectedShedId.isNotBlank() || selectedBreed.isNotBlank()
+
+    /** A park must be chosen before its sheds can be offered — see the cascade note above. */
+    val isShedFilterEnabled: Boolean
+        get() = shedFilterSupported && selectedParkId.isNotBlank() && sheds.isNotEmpty()
+}
+
 @Immutable
 data class CountsUiState(
     val title: String,
     val scopeLabel: String = "",
     val totals: CountsTotalsUi = CountsTotalsUi(),
     val hasTotals: Boolean = false,
+    val filters: CountsFiltersUi = CountsFiltersUi(),
     /** Honest zero/error copy shown when there is nothing cached AND nothing served. */
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
@@ -103,6 +153,24 @@ data class CountsUiState(
 
 sealed interface CountsEvent {
     data object Refresh : CountsEvent
+
+    /**
+     * Chooses a park, or clears the park filter with a blank [parkId] ("All parks").
+     *
+     * Handling this RESETS the shed selection. A shed belongs to exactly one park, so a shed id
+     * carried across a park change would either match nothing or — worse, given the repeated shed
+     * names — quietly describe a different shed than the one the operator is looking at.
+     */
+    data class SelectPark(val parkId: String) : CountsEvent
+
+    /** Chooses a shed within the selected park, or clears it with a blank [shedId]. */
+    data class SelectShed(val shedId: String) : CountsEvent
+
+    /** Chooses a breed, or clears it with a blank [breed]. */
+    data class SelectBreed(val breed: String) : CountsEvent
+
+    /** Drops every filter at once and returns the census to the whole live herd. */
+    data object ClearFilters : CountsEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +195,11 @@ fun CountsScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Filters sit ABOVE the totals on purpose: they are the input, and the card directly
+            // under them is the whole-result rollup they produce.
+            item(key = "filters") {
+                CountsFilterBar(filters = state.filters, onEvent = onEvent)
+            }
             item(key = "totals") { CountsTotalsCard(state) }
             item(key = "caption") {
                 SectionCaption(stringResource(R.string.counts_breakdown_caption))
@@ -206,6 +279,105 @@ private fun CountsHeader(state: CountsUiState, onRefresh: () -> Unit) {
             }
         },
     )
+}
+
+/**
+ * The census filter bar: park, shed, breed.
+ *
+ * Every dropdown entry is keyed by the facet's own `key` (a uuid for park/shed) and never by its
+ * label, and every option list comes from the backend `facets` — this composable holds no park
+ * name, shed name, or breed vocabulary of its own.
+ *
+ * Selecting anything re-queries the BACKEND with the new params; nothing here filters the page it
+ * was handed. That distinction is not stylistic: the totals card above is a whole-result rollup
+ * computed by the server over the full filtered set, so a client-side filter over the ~20 rows
+ * currently paged in would disagree with the number printed directly beneath it.
+ *
+ * Layout: park and shed share a row because they cascade and their labels are short (codes and
+ * shed names); breed gets the full width because breed names are long enough to truncate.
+ */
+@Composable
+private fun CountsFilterBar(filters: CountsFiltersUi, onEvent: (CountsEvent) -> Unit) {
+    val allParks = stringResource(R.string.counts_filter_all_parks)
+    val allSheds = stringResource(R.string.counts_filter_all_sheds)
+    val allBreeds = stringResource(R.string.counts_filter_all_breeds)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.counts_filters_title),
+                color = MeshaColors.Muted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W700,
+                modifier = Modifier.weight(1f),
+            )
+            // Only offered when there is something to clear — a permanently-visible Clear on an
+            // unfiltered screen reads as an action that does nothing.
+            if (filters.hasActiveFilter) {
+                Text(
+                    text = stringResource(R.string.counts_filters_clear),
+                    color = MeshaColors.BrandD,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.W700,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onEvent(CountsEvent.ClearFilters) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            CountsDropdownField(
+                label = stringResource(R.string.counts_filter_park),
+                selectedLabel = filters.selectedParkLabel,
+                placeholder = allParks,
+                // The "All" sentinel carries a blank key, which is exactly what the ViewModel
+                // treats as "send no park_id".
+                options = listOf(CountsDropdownOption(key = "", label = allParks)) +
+                    filters.parks.map { CountsDropdownOption(it.key, it.label, it.count) },
+                onSelect = { onEvent(CountsEvent.SelectPark(it)) },
+                enabled = filters.parks.isNotEmpty(),
+                modifier = Modifier.weight(1f),
+            )
+            CountsDropdownField(
+                label = stringResource(R.string.counts_filter_shed),
+                selectedLabel = filters.selectedShedLabel,
+                placeholder = when {
+                    !filters.shedFilterSupported -> stringResource(R.string.counts_filter_shed_unavailable)
+                    filters.selectedParkId.isBlank() -> stringResource(R.string.counts_filter_park_first)
+                    else -> allSheds
+                },
+                options = listOf(CountsDropdownOption(key = "", label = allSheds)) +
+                    filters.sheds.map { CountsDropdownOption(it.key, it.label, it.count) },
+                onSelect = { onEvent(CountsEvent.SelectShed(it)) },
+                enabled = filters.isShedFilterEnabled,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        CountsDropdownField(
+            label = stringResource(R.string.counts_filter_breed),
+            selectedLabel = filters.selectedBreedLabel,
+            placeholder = allBreeds,
+            options = listOf(CountsDropdownOption(key = "", label = allBreeds)) +
+                filters.breeds.map { CountsDropdownOption(it.key, it.label, it.count) },
+            onSelect = { onEvent(CountsEvent.SelectBreed(it)) },
+            enabled = filters.breeds.isNotEmpty(),
+        )
+    }
 }
 
 @Composable

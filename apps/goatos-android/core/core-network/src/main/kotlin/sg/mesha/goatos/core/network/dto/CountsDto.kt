@@ -95,12 +95,42 @@ data class CountsBreakdownChartsDto(
     @SerialName("shed") val shed: List<CountsBreakdownSeriesPointDto> = emptyList(),
 )
 
+/**
+ * One shed the census may be filtered to.
+ *
+ * Identical to [CountsBreakdownSeriesPointDto] plus [parkId], and that extra field is the whole
+ * point: 66 of the ~154 shed NAMES exist in BOTH parks, so a flat shed vocabulary is genuinely
+ * ambiguous to read and impossible to cascade. [key] is the shed's own id (what a filter sends);
+ * [parkId] is the park it belongs to (what narrows the dropdown once a park is chosen).
+ *
+ * Defaults everywhere, per this file's lenient-decode rule, so a backend that has not yet shipped
+ * the `sheds` facet decodes to an empty list and the shed filter degrades to disabled rather than
+ * crashing — and so an entry that arrives without a park attribution is simply not offered under
+ * any park, instead of being offered under the wrong one.
+ */
+@Serializable
+data class CountsBreakdownShedFacetDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("count") val count: Int = 0,
+    @SerialName("park_id") val parkId: String = "",
+)
+
 @Serializable
 data class CountsBreakdownFacetsDto(
     @SerialName("stages") val stages: List<CountsBreakdownSeriesPointDto> = emptyList(),
     @SerialName("breeds") val breeds: List<CountsBreakdownSeriesPointDto> = emptyList(),
     @SerialName("parks") val parks: List<CountsBreakdownSeriesPointDto> = emptyList(),
-)
+    @SerialName("sheds") val sheds: List<CountsBreakdownShedFacetDto> = emptyList(),
+) {
+    /**
+     * True once ANY dimension has arrived. Used to decide whether a freshly-emitted envelope
+     * carries a usable vocabulary or is an empty placeholder that must not overwrite the one the
+     * filter bar is already showing.
+     */
+    val hasAnyDimension: Boolean
+        get() = stages.isNotEmpty() || breeds.isNotEmpty() || parks.isNotEmpty() || sheds.isNotEmpty()
+}
 
 /**
  * `total_*` and every `charts` series are rolled up over the FULL filtered result set and are

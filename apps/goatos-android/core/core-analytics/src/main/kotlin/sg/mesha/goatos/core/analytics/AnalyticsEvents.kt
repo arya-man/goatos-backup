@@ -71,6 +71,16 @@ object AnalyticsEvents {
     /** A Counts read (summary, breakdown page, or approval queue) failed to refresh. */
     const val COUNTS_READ_FAILURE = "counts_read_failure"
 
+    /**
+     * The operator changed a census filter on the Counts screen. [Params.DIMENSION] is which
+     * filter (`park`/`shed`/`breed`/`all`) and [Params.ACTION] is `set` or `cleared`.
+     *
+     * Measures which slices of the herd operators actually look at, which is what tells us whether
+     * the three dimensions offered are the right three — and `cleared` on `all` is the signal that
+     * a filter combination produced nothing useful and had to be abandoned.
+     */
+    const val COUNTS_FILTER_APPLIED = "counts_filter_applied"
+
     /** The Counts approver's pending-decision queue was opened. */
     const val COUNTS_APPROVAL_QUEUE_VIEWED = "counts_approval_queue_viewed"
 
@@ -118,6 +128,15 @@ object AnalyticsEvents {
 
         /** How an approval request was decided (`approved`/`rejected`). */
         const val DECISION = "decision"
+
+        /**
+         * Which dimension a filter/grouping event refers to (`park`/`shed`/`breed`/`all`).
+         *
+         * Deliberately the dimension NAME, not the selected value: a park or shed id is livestock
+         * operations data rather than PII, but the analytics question here is "which slices do
+         * operators reach for", which the name answers and the id only bloats.
+         */
+        const val DIMENSION = "dimension"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */

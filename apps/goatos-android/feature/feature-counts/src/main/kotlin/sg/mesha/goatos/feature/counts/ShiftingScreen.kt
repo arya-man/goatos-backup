@@ -7,28 +7,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -253,7 +245,7 @@ fun ShiftingScreen(
                     placeholder = stringResource(R.string.counts_select_farm),
                     // Keyed by park_id, and disabled until the catalog is in hand so an operator
                     // cannot open an empty menu and conclude the farm has no parks.
-                    options = state.destinationParks.map { it.parkId to it.name },
+                    options = state.destinationParks.map { CountsDropdownOption(it.parkId, it.name) },
                     onSelect = { onEvent(ShiftingEvent.SelectDestinationPark(it)) },
                     enabled = state.destinationParks.isNotEmpty(),
                 )
@@ -271,7 +263,7 @@ fun ShiftingScreen(
                     },
                     // Entries are keyed by shed_id: shed NAMES repeat across parks, so a
                     // name-keyed menu would collapse two real sheds into one entry.
-                    options = sheds.map { it.shedId to it.name },
+                    options = sheds.map { CountsDropdownOption(it.shedId, it.name) },
                     onSelect = { onEvent(ShiftingEvent.SelectDestinationShed(it)) },
                     enabled = sheds.isNotEmpty(),
                 )
@@ -445,75 +437,5 @@ private fun ReadOnlyFact(label: String, value: String) {
     ) {
         Text(text = label, color = MeshaColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
         Text(text = value, color = MeshaColors.Ink, fontSize = 12.sp, fontWeight = FontWeight.W600)
-    }
-}
-
-/**
- * A single-choice dropdown over a backend-supplied vocabulary.
- *
- * [options] is a list of `key to label` pairs and the KEY is what is emitted — the label is only
- * ever rendered. That distinction is load-bearing for the shed dropdown, whose labels repeat across
- * parks while its keys are unique.
- *
- * Only the open/closed state is local, per the frontend contract: the option vocabulary, the
- * labels, and the selection all come from the backend-owned state above.
- */
-@Composable
-private fun CountsDropdownField(
-    label: String,
-    selectedLabel: String?,
-    placeholder: String,
-    options: List<Pair<String, String>>,
-    onSelect: (String) -> Unit,
-    enabled: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(text = label, color = MeshaColors.Muted, fontSize = 12.sp)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (enabled) MeshaColors.Surf else MeshaColors.Surf3)
-                    .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
-                    .clickable(enabled = enabled) { expanded = true }
-                    .padding(horizontal = 12.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = selectedLabel ?: placeholder,
-                    color = if (selectedLabel != null) MeshaColors.Ink else MeshaColors.Faint,
-                    fontSize = 14.sp,
-                    fontWeight = if (selectedLabel != null) FontWeight.W600 else FontWeight.W400,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    imageVector = MeshaIcons.ChevronDown,
-                    contentDescription = null,
-                    tint = if (enabled) MeshaColors.Muted else MeshaColors.Faint,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                // Capped height so a park with many sheds scrolls inside the menu instead of
-                // rendering a list taller than the screen.
-                modifier = Modifier.heightIn(max = 320.dp),
-            ) {
-                options.forEach { (key, optionLabel) ->
-                    DropdownMenuItem(
-                        text = { Text(optionLabel, fontSize = 14.sp) },
-                        onClick = {
-                            expanded = false
-                            onSelect(key)
-                        },
-                    )
-                }
-            }
-        }
     }
 }
