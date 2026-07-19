@@ -79,6 +79,9 @@ type ObligationWriter interface {
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
+	// NextSuccessorSuffix computes the next free numeric successor suffix for a base idempotency key
+	// in one bounded query (R50-011), avoiding O(N) probe round trips on large collision histories.
+	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
 }
 
 // GenerationRunRecorder persists operator-visible generation status. It is optional for unit
@@ -1487,7 +1490,14 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 	if deferred && deferReason == "" {
 		deferReason = "defer_state"
 	}
-	for attempt := 1; ; attempt++ {
+	// R50-011: Find the next free successor suffix in one bounded query (max 2000 attempts).
+	// Never O(N) round trips for large collision histories.
+	nextSuffix, err := s.obl.NextSuccessorSuffix(ctx, tenantID, baseKey)
+	if err != nil {
+		return obldomain.ObligationRef{}, false, false, fmt.Errorf("get next successor suffix: %w", err)
+	}
+
+	for attempt := nextSuffix; attempt < nextSuffix+100; attempt++ {
 		successor := base
 		successor.IdempotencyKey = fmt.Sprintf("%s:successor:%02d", baseKey, attempt)
 		var obID string
@@ -1524,6 +1534,7 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 			return ref, changed, false, nil
 		}
 	}
+	return obldomain.ObligationRef{}, false, false, fmt.Errorf("exhausted successor suffix attempts (max 100 from computed next=%d)", nextSuffix)
 }
 
 func limitsHistoricalCatchUp(rule protodomain.Rule, baseDue, materializedDue, asOf time.Time, opts generationOptions) bool {

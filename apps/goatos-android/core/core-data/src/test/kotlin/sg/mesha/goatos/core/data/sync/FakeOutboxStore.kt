@@ -138,6 +138,10 @@ class FakeOutboxStore : OutboxStore {
         return stranded
     }
 
+    override suspend fun delete(id: String) {
+        rows.update { list -> list.filterNot { it.id == id } }
+    }
+
     private fun mutateIf(id: String, expected: Set<String>, transform: (OutboxEntity) -> OutboxEntity): Boolean {
         val current = rows.value.firstOrNull { it.id == id } ?: return false
         if (current.status !in expected) return false

@@ -138,8 +138,38 @@ WHERE tenant_id = $1::uuid
 // query-plan gate (validate-sqlc-plans + the scale EXPLAIN test) exercises the
 // REAL writable CTE — candidate selection, FOR UPDATE SKIP LOCKED row locking,
 // and the UPDATE ... RETURNING — instead of a simplified imitation that could
-// drift from what production runs. Params: $1 tenant, $2 now, $3 limit, $4 max attempts.
-const ClaimDueSQL = `
+// drift from what production runs.
+
+func (r *Repository) ClaimDue(ctx context.Context, params ports.ClaimParams) ([]domain.Request, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if params.Limit <= 0 {
+		params.Limit = 50
+	}
+	if params.MaxAttempts <= 0 {
+		params.MaxAttempts = 5
+	}
+
+	// First, count and transition exhausted rows (delivery_attempts >= max_attempts but still queued/failed)
+	// to 'exhausted' status to prevent them from accumulating in the active set forever.
+	exhaustedCount, err := r.pool.Exec(ctx, `
+UPDATE notification_requests
+SET status = 'exhausted',
+    failure_reason = COALESCE(NULLIF(failure_reason, ''), 'max_delivery_attempts_exceeded'),
+    next_attempt_at = NULL,
+    lease_token = NULL,
+    leased_at = NULL,
+    updated_at = $2::timestamptz
+WHERE tenant_id = $1::uuid
+  AND status IN ('queued', 'failed')
+  AND delivery_attempts >= $3`, params.TenantID, params.Now, params.MaxAttempts)
+	if err != nil {
+		return nil, fmt.Errorf("notification: transition exhausted rows: %w", err)
+	}
+	_ = exhaustedCount // captured for observability; not returned in this path as ClaimDue signature
+
+	// Now claim retryable rows (delivery_attempts < max_attempts)
+	rows, err := r.pool.Query(ctx, `
 WITH candidates AS (
   SELECT notification_request_id
   FROM notification_requests
@@ -185,18 +215,7 @@ claimed AS (
 )
 SELECT *
 FROM claimed
-ORDER BY requested_at, notification_request_id`
-
-func (r *Repository) ClaimDue(ctx context.Context, params ports.ClaimParams) ([]domain.Request, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	if params.Limit <= 0 {
-		params.Limit = 50
-	}
-	if params.MaxAttempts <= 0 {
-		params.MaxAttempts = 5
-	}
-	rows, err := r.pool.Query(ctx, ClaimDueSQL, params.TenantID, params.Now, params.Limit, params.MaxAttempts)
+ORDER BY requested_at, notification_request_id`, params.TenantID, params.Now, params.Limit, params.MaxAttempts)
 	if err != nil {
 		return nil, fmt.Errorf("notification: claim due: %w", err)
 	}
@@ -491,7 +510,7 @@ func insertNotificationExhaustedEvidence(ctx context.Context, tx pgx.Tx, tenantI
 			"actor_ref":  nil,
 		},
 		"subject_type": "notification_request",
-		"subject_id":   row.CalendarEventID,
+		"subject_id":   notificationRequestID,
 		"visibility_scope": map[string]any{
 			"tenant_id": tenantID,
 		},

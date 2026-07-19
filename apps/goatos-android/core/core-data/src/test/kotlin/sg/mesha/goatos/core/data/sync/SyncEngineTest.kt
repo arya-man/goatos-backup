@@ -915,4 +915,5 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
         inner.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, now)
     override suspend fun markRetryReady(id: String, now: Long) = inner.markRetryReady(id, now)
     override suspend fun reclaimInFlight(now: Long) = inner.reclaimInFlight(now)
+    override suspend fun delete(id: String) = inner.delete(id)
 }

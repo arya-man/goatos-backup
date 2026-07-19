@@ -49,6 +49,10 @@ interface OutboxStore {
      *  QUEUED. Returns the number reclaimed. Called at the top of every drain pass (safe under
      *  the drain mutex — no dispatch is concurrently in progress). */
     suspend fun reclaimInFlight(now: Long): Int
+
+    /** Deletes an outbox item by id (R50-028: cancelling unsynced operations). Safe to call on
+     *  any status, but IN_FLIGHT deletions should be rare (a race with in-flight dispatch). */
+    suspend fun delete(id: String)
 }
 
 class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
@@ -78,6 +82,8 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun markRetryReady(id: String, now: Long): Boolean = dao.markRetryReady(id, now) > 0
 
     override suspend fun reclaimInFlight(now: Long): Int = dao.reclaimInFlight(now)
+
+    override suspend fun delete(id: String) = dao.delete(id)
 }
 
 /** Room row -> UI/ViewModel-facing model (see [SyncQueueItem]). */

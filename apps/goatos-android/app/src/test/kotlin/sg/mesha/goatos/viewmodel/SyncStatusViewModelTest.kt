@@ -44,6 +44,8 @@ class SyncStatusViewModelTest {
         var drainCount = 0
 
         override fun observeStatus(): StateFlow<SyncStatus> = status
+        override fun observeItem(itemId: String): kotlinx.coroutines.flow.Flow<SyncQueueItem?> = kotlinx.coroutines.flow.flowOf(null)
+        override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
         override suspend fun retry(itemId: String): AppResult<Unit> {
             retried += itemId
             return AppResult.Ok(Unit)

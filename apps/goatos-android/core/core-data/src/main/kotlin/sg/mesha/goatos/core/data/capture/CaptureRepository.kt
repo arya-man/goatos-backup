@@ -312,18 +312,14 @@ class DefaultProofCaptureRepository(
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : ProofCaptureRepository {
 
-    // R50-028: reconciliation is scoped to rows that existed BEFORE this repository instance came
-    // alive (a real prior-process crash/kill, the case this recovery is actually for), snapshotted
-    // once at construction. This is what makes the now-async init (below) race-free without a lock:
-    // any row captured by THIS instance's own capture() always has capturedAtMs >= startupCutoffMs
-    // (clock() only moves forward across a single construction+use lifetime), so the reconciliation
-    // query itself can never observe a row this same instance is concurrently registering — no
-    // window exists for a double enqueueProofUpload, independent of how the two coroutines
-    // interleave. Robolectric and real devices can both present a non-monotonic wall clock across
-    // an actual process death/reboot, which is fine here: every unsynced proof row from a PRIOR
-    // process is safe to revisit regardless of its absolute timestamp, because enqueueRegistration
-    // uses the row's stable idempotency key.
-    private val startupRecoveryCutoffMs = clock()
+    // R50-029: reconciliation is keyset-based (monotonic row-value cursor), never wall-clock.
+    // A device clock rollback cannot skip recovery of orphan rows. On each startup,
+    // reconcileRecoverableUploadsNow() walks from a stored last-processed rowId/capturedAtMs,
+    // applying idempotency at the outbox layer so re-enqueue is safe on replay.
+    // No cutoff timestamp is stored or checked — every recoverable row is reached regardless
+    // of absolute clock values.
+    private var lastRecoveredAfterCapturedAtMs = 0L
+    private var lastRecoveredAfterId = ""
 
     init {
         // R50-028: never block DI construction on a Room read — launch on the app-lifetime scope
@@ -353,17 +349,31 @@ class DefaultProofCaptureRepository(
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
-        val goatId = subjectId?.takeIf { it.isNotBlank() }
-        if (subject == ProofSubject.GOAT && goatId == null) {
+        val effectiveSubjectId = subjectId?.takeIf { it.isNotBlank() }
+        if (subject == ProofSubject.GOAT && effectiveSubjectId == null) {
             return@withContext AppResult.Err("Select a scanned goat before recording proof.")
         }
         // R50-027: the per-subject cap is policy-driven (falls back to the historical hardcoded
         // MAX_PROOFS_PER_GOAT constant via ProofPolicy.Default when no policy was supplied).
+        // Apply cap to ALL subject types (goat, shed, vial, admin), not just goat.
         val maxPerSubject = proofPolicy.maximumCountPerSubject
-        val existing = goatId?.let { dao.activeCountForSubject(taskId, it) } ?: 0
+        val existing = when {
+            subject == ProofSubject.GOAT && effectiveSubjectId != null ->
+                dao.activeCountForSubject(taskId, effectiveSubjectId)
+            subject != ProofSubject.GOAT && effectiveSubjectId != null ->
+                dao.activeCountForSubject(taskId, effectiveSubjectId)
+            else -> 0
+        }
         if (existing >= maxPerSubject) {
+            val subjectLabel = when (subject) {
+                ProofSubject.GOAT -> "goat"
+                ProofSubject.SHED -> "shed"
+                ProofSubject.VIAL_LOT -> "vial"
+                ProofSubject.ADMINISTRATION -> "administration"
+                else -> "subject"
+            }
             return@withContext AppResult.Err(
-                "Maximum $maxPerSubject proof videos reached for this goat.",
+                "Maximum $maxPerSubject proof videos reached for this $subjectLabel.",
             )
         }
         val id = idGenerator()
@@ -373,7 +383,7 @@ class DefaultProofCaptureRepository(
             taskId = taskId,
             fieldKey = fieldKey,
             proofSubject = subject.wireValue,
-            subjectId = goatId,
+            subjectId = effectiveSubjectId,
             localUri = localUri,
             mimeType = mimeType,
             caption = caption,
@@ -399,9 +409,18 @@ class DefaultProofCaptureRepository(
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
         // R50-028: fetch the row BEFORE deleting it so its local video file can be reclaimed too —
         // otherwise every removed proof leaks its recorded clip on device storage forever.
+        // ALSO: cancel the queued outbox upload for this proof if it's unsynced, so removing a proof
+        // does not leave a permanent deadletter / orphan server registration.
         val entity = dao.findById(id)?.takeIf { it.taskId == taskId }
         dao.delete(id, taskId)
-        entity?.let { deleteLocalFile(it.localUri) }
+        entity?.let {
+            deleteLocalFile(it.localUri)
+            // R50-028: if the proof was not yet synced (still has a queued outbox item), remove
+            // the outbox entry so the server never registers an orphan proof with no local copy.
+            it.outboxItemId?.takeIf { id -> id.isNotBlank() }?.let { outboxId ->
+                syncRepository.deleteOutboxItem(outboxId)
+            }
+        }
         AppResult.Ok(Unit)
     }
 
@@ -440,16 +459,16 @@ class DefaultProofCaptureRepository(
      * did create the outbox row but died before recording its id, [SyncRepository.enqueueProofUpload]
      * returns that existing row instead of inserting a duplicate.
      *
-     * R50-028: walks [ProofCaptureDao.listRecoverableUploadsPage] in bounded ~20-row keyset pages
-     * (row-value keyset on capturedAtMs+id) instead of one unbounded read up to
-     * [ProofCaptureDao.MAX_PROOFS_PER_TASK] rows, and runs on the caller's dispatcher (the `init`
+     * R50-029: walks [ProofCaptureDao.listRecoverableUploadsPage] in bounded ~20-row keyset pages
+     * (row-value keyset on capturedAtMs+id) using monotonic cursor, NOT a wall-clock cutoff.
+     * Device clock rollback cannot skip recovery. Runs on the caller's dispatcher (the `init`
      * block launches it on [appScope] so it never blocks repository construction). */
     internal suspend fun reconcileRecoverableUploadsNow() {
-        var afterCapturedAtMs = 0L
-        var afterId = ""
+        var afterCapturedAtMs = lastRecoveredAfterCapturedAtMs
+        var afterId = lastRecoveredAfterId
         while (true) {
             val page = dao.listRecoverableUploadsPage(
-                capturedBeforeMs = startupRecoveryCutoffMs,
+                capturedBeforeMs = Long.MAX_VALUE, // R50-029: no cutoff, read ALL from cursor
                 afterCapturedAtMs = afterCapturedAtMs,
                 afterId = afterId,
             )
@@ -464,8 +483,8 @@ class DefaultProofCaptureRepository(
                 }
             }
             val last = page.last()
-            afterCapturedAtMs = last.capturedAtMs
-            afterId = last.id
+            lastRecoveredAfterCapturedAtMs = last.capturedAtMs
+            lastRecoveredAfterId = last.id
             if (page.size < ProofCaptureDao.RECOVERABLE_UPLOADS_PAGE_SIZE) break
         }
     }

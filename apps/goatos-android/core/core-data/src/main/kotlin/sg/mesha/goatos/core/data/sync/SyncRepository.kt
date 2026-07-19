@@ -2,9 +2,12 @@ package sg.mesha.goatos.core.data.sync
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.AppResult
@@ -62,6 +65,11 @@ import java.util.UUID
  */
 interface SyncRepository {
     fun observeStatus(): StateFlow<SyncStatus>
+
+    /** Observes a specific outbox item by id (R50-006: leadership close needs to observe items
+     *  that may be older than the recent-terminal window). Returns a Flow that emits whenever
+     *  the item's status changes, never emitting null (item not found = no emission). */
+    fun observeItem(itemId: String): Flow<SyncQueueItem?>
 
     /** Enqueues a shed-submit write (`POST /app/tasks/{task_id}/submissions`). [groupKey]
      *  orders same-shed writes FIFO (TRD: outbox is "ordered per shed"); different groups
@@ -159,6 +167,10 @@ interface SyncRepository {
      *  retry affordance. */
     suspend fun retry(itemId: String): AppResult<Unit>
 
+    /** Deletes an outbox item by id. Used when cancelling unsynced operations (R50-028: removing
+     *  a proof that was never uploaded should clean up its queued outbox entry). */
+    suspend fun deleteOutboxItem(itemId: String): AppResult<Unit>
+
     /** Forces an immediate drain pass (pull-to-refresh, a manual "sync now", or connectivity
      *  regained). `enqueue*` already triggers this automatically — call this directly only
      *  when nothing new was enqueued but a retry should still happen right away. */
@@ -225,6 +237,11 @@ class DefaultSyncRepository(
     }
 
     override fun observeStatus(): StateFlow<SyncStatus> = _status.asStateFlow()
+
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
+        store.observeActive()
+            .map { items -> items.firstOrNull { it.id == itemId }?.toSyncQueueItem() }
+            .distinctUntilChanged()
 
     /** DI-wiring-only hook (see AppModule's `provideConnectivitySyncTrigger`) — NOT part of
      *  the [SyncRepository] port; UI/ViewModel code never calls this directly. */
@@ -476,6 +493,21 @@ class DefaultSyncRepository(
             throw cancellation
         } catch (e: Throwable) {
             AppResult.Err("Couldn't retry: ${e.message}", e)
+        }
+    }
+
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
+        try {
+            store.findById(itemId) ?: throw NoSuchElementException("Outbox item not found: $itemId")
+            // R50-028: delete the outbox item — safe to delete unsynced items (PENDING/FAILED).
+            // IN_FLIGHT items should not be deleted (in-progress dispatch), but a race is benign
+            // (the delete is idempotent; the drain will see it's gone).
+            store.delete(itemId)
+            AppResult.Ok(Unit)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't delete outbox item: ${e.message}", e)
         }
     }
 

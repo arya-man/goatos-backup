@@ -170,92 +170,11 @@ END $$;
 --    for the leadership review queue.
 --    Handled concurrently in 000004_r50_forward_compat_concurrent_indexes.sql for large-table safety.
 
--- 7) Vaccination goat-scan SOP: rewrite form_dsl/proof_policy for the vaccination.drive /
---    vaccination.session SOP versions from batch-level proof to per-goat-row proof capture.
---    Guarded by subject_scope so a clean install (already migrated inside 000001's own tail)
---    or a prior run of this migration is a no-op.
-WITH vaccination_sops AS (
-  SELECT sv.sop_version_id
-  FROM public.sop_versions sv
-  JOIN public.sop_definitions sd
-    ON sd.tenant_id = sv.tenant_id
-   AND sd.sop_id = sv.sop_id
-  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
-    AND COALESCE(sv.proof_policy ->> 'subject_scope', '') <> 'goat'
-),
-rewritten AS (
-  SELECT
-    sv.sop_version_id,
-    jsonb_set(
-      jsonb_set(
-        sv.form_dsl,
-        '{fields}',
-        COALESCE((
-          SELECT jsonb_agg(
-            CASE
-              WHEN field ->> 'key' = 'goat_ids' THEN
-                jsonb_set(
-                  field,
-                  '{description}',
-                  to_jsonb('Scan each goat as it is vaccinated, then attach live camera proof from that goat row.'::text),
-                  true
-                )
-              ELSE field
-            END
-            ORDER BY ordinal
-          )
-          FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'fields', '[]'::jsonb))
-            WITH ORDINALITY AS entries(field, ordinal)
-          WHERE field ->> 'key' NOT IN (
-            'shed_video', 'vial_lot_video', 'administration_video',
-            'extra_video_1', 'extra_video_1_caption', 'extra_video_2', 'extra_video_2_caption'
-          )
-        ), '[]'::jsonb),
-        true
-      ),
-      '{rules}',
-      COALESCE((
-        SELECT jsonb_agg(rule ORDER BY ordinal)
-        FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'rules', '[]'::jsonb))
-          WITH ORDINALITY AS entries(rule, ordinal)
-        WHERE COALESCE(rule ->> 'field', '') NOT IN (
-          'shed_video', 'vial_lot_video', 'administration_video',
-          'extra_video_1_caption', 'extra_video_2_caption'
-        )
-      ), '[]'::jsonb),
-      true
-    ) || jsonb_build_object(
-      'goat_row_proof',
-      jsonb_build_object(
-        'subject_scope', 'goat',
-        'capture_source', 'in_app_camera',
-        'minimum_clips', 1,
-        'maximum_clips', 5,
-        'one_clip_covers_same_handling_vaccines', true
-      )
-    ) AS form_dsl
-  FROM public.sop_versions sv
-  JOIN vaccination_sops ids ON ids.sop_version_id = sv.sop_version_id
-)
-UPDATE public.sop_versions sv
-SET form_dsl = rewritten.form_dsl,
-    proof_policy = jsonb_build_object(
-      'types', jsonb_build_array('video'),
-      'required', true,
-      'subject_scope', 'goat',
-      'expected_subjects', jsonb_build_array('goat'),
-      'minimum_count', 1,
-      'minimum_count_per_subject', 1,
-      'maximum_count_per_subject', 5,
-      'capture_source', 'in_app_camera',
-      'one_clip_covers_same_handling_vaccines', true,
-      'verify_capability', 'proof.verify',
-      'verify_before_apply', true,
-      'retention_policy', 'operational_90d'
-    ),
-    updated_at = now()
-FROM rewritten
-WHERE sv.sop_version_id = rewritten.sop_version_id;
+-- 7) Vaccination goat-scan SOP: MOVED TO 000006_r50_vaccination_sop_dml.sql for lock safety.
+--    This step (step 7) is heavy DML that rewrites form_dsl/proof_policy for vaccination.drive /
+--    vaccination.session SOP versions. Keeping it in this transaction with fast DDL would hold
+--    ACCESS EXCLUSIVE locks on hot tables for the duration of the long UPDATE. Moved to a
+--    separate migration to release DDL locks quickly (R50-015 P0).
 
 -- 8) obligation_status_events.event_type: allow 'in_progress' so MarkInProgress (PEND-1: the
 --    obligation_instances/obligation_batches 'in_progress' writer that was missing entirely,
@@ -322,39 +241,8 @@ ALTER TABLE obligation_status_events
 ALTER TABLE obligation_status_events
   VALIDATE CONSTRAINT obligation_status_events_type_check;
 
--- 7) Best-effort revert of the goat-scan SOP rewrite back to a batch-level proof shape.
-WITH vaccination_sops AS (
-  SELECT sv.sop_version_id
-  FROM public.sop_versions sv
-  JOIN public.sop_definitions sd
-    ON sd.tenant_id = sv.tenant_id
-   AND sd.sop_id = sv.sop_id
-  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
-    AND COALESCE(sv.proof_policy ->> 'subject_scope', '') = 'goat'
-),
-reverted AS (
-  SELECT
-    sv.sop_version_id,
-    (sv.form_dsl - 'goat_row_proof') AS form_dsl
-  FROM public.sop_versions sv
-  JOIN vaccination_sops ids ON ids.sop_version_id = sv.sop_version_id
-)
-UPDATE public.sop_versions sv
-SET form_dsl = reverted.form_dsl,
-    proof_policy = jsonb_build_object(
-      'types', jsonb_build_array('video'),
-      'required', true,
-      'subject_scope', 'batch',
-      'expected_subjects', jsonb_build_array('shed', 'vial_lot', 'administration'),
-      'minimum_count', 3,
-      'maximum_count', 5,
-      'verify_capability', 'proof.verify',
-      'verify_before_apply', true,
-      'retention_policy', 'operational_90d'
-    ),
-    updated_at = now()
-FROM reverted
-WHERE sv.sop_version_id = reverted.sop_version_id;
+-- 7) Best-effort revert of the goat-scan SOP rewrite: MOVED TO 000006_r50_vaccination_sop_dml.sql.
+--    The revert logic is in that separate migration's Down section.
 
 -- 6) Drop the leadership closure queue index.
 --    Handled concurrently in 000004_r50_forward_compat_concurrent_indexes.sql for large-table safety.

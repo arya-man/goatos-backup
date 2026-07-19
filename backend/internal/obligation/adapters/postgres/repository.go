@@ -1138,6 +1138,13 @@ WITH target AS (
     AND idempotency_key = $2
     AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
   FOR UPDATE
+),
+batch_lock AS (
+  SELECT 1
+  FROM obligation_batches
+  WHERE tenant_id = $1
+    AND batch_id = (SELECT batch_id FROM target)
+  FOR UPDATE
 )
 UPDATE obligation_instances oi
 SET status = 'canceled',
@@ -5024,4 +5031,36 @@ func (r *Repository) RecordStatusEvent(ctx context.Context, ev domain.NewStatusE
 		return "", false, fmt.Errorf("obligation: commit: %w", err)
 	}
 	return eventID, true, nil
+}
+
+// NextSuccessorSuffix computes the next available numeric successor suffix for a base idempotency
+// key in one bounded query, never O(N) round trips. Returns 1 if no successors exist yet.
+func (r *Repository) NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	// Query finds the maximum existing successor suffix and returns next available.
+	// Pattern: baseKey + ":successor:NN" where NN is a 2-digit number.
+	var nextSuffix int
+	err = r.pool.QueryRow(ctx, `
+SELECT COALESCE(MAX(suffix), 0) + 1
+FROM (
+  SELECT (
+    CAST(SUBSTRING(idempotency_key, LENGTH($2) + 12, 2) AS INTEGER)
+  ) AS suffix
+  FROM idempotency_keys
+  WHERE tenant_id = $1
+    AND idempotency_key LIKE $2 || ':successor:' || '__'
+) t
+WHERE suffix > 0 AND suffix < 2000`, tenant, baseKey).Scan(&nextSuffix)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("obligation: next successor suffix: %w", err)
+	}
+	if nextSuffix == 0 {
+		nextSuffix = 1
+	}
+	return nextSuffix, nil
 }

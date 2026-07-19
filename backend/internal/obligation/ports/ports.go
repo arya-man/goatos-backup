@@ -84,4 +84,10 @@ type Repository interface {
 	// CancelOpenObligationByIdempotencyKey closes one open obligation by deterministic key. Used when
 	// a placeholder/generated row is superseded by better source data.
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
+
+	// NextSuccessorSuffix computes the next available numeric successor suffix for a base idempotency
+	// key, e.g. for baseKey "goat:123:cancel_reason", returns the lowest integer N where
+	// "goat:123:cancel_reason:successor:NN" does not yet exist. Returns 1 if no successors exist yet.
+	// One bounded query, never O(N) round trips.
+	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
 }

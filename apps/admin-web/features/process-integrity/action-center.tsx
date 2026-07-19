@@ -125,7 +125,7 @@ export async function VaccinationActionCenterPage({
 }) {
   const sp = searchParams ?? {};
   const requestedView = one(sp, "bucket");
-  const view = requestedView === "verify" || requestedView === "stage" ? requestedView : "board";
+  const view = requestedView === "verify" ? requestedView : "board";
   const stateFilter = (WORK_STATE_ORDER.find((s) => s === one(sp, "state")) ?? "all") as WorkState | "all";
   const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as ProcessIntegritySeverity | "all";
   const { parkId, asOf } = backendScope(parseScope(sp));
@@ -237,9 +237,6 @@ export async function VaccinationActionCenterPage({
       verify_limit: String(queuePaged.pageSize),
       verify_cursor: undefined,
       verify_cursor_stack: undefined,
-      stage_page: String(stagePage),
-      stage_cursor: stageCursor || undefined,
-      stage_cursor_stack: typeof stageCursorStack === "string" ? stageCursorStack : undefined,
       ...overrides,
     });
   }

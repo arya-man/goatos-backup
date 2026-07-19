@@ -252,6 +252,7 @@ func TestObligationBatchPlannedDateTimezoneIndependent(t *testing.T) {
 
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
 	seedCalendarGoat(t, ctx, pool, goatID)
+	seedCalendarLocations(t, ctx, pool, parkID, shedID)
 	if _, err := pool.Exec(ctx, `
 UPDATE obligation_instances
 SET target_type = 'goat', target_id = $3::uuid, scope_type = 'shed', scope_id = $4::uuid
@@ -273,11 +274,14 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 			t.Fatalf("set local timezone %s: %v", sessionTZ, err)
 		}
 		var got int64
+		parkIDs := []string{}
+		shedIDs := []string{}
+		var parkID, shedID, tenantID, ruleID, cursorID interface{}
 		err = tx.QueryRow(ctx, `
 SELECT count(*)
 FROM (`+calendarDriveTargetsSQL+`) targets
-WHERE animal_id = $13::uuid`,
-			testTenantID, batchID, "2026-07-20", parkID, shedID, nil, nil, nil, nil, nil, nil, false, goatID).Scan(&got)
+WHERE animal_id::text = $15::text`,
+			testTenantID, batchID, "", parkID, shedID, tenantID, ruleID, cursorID, true, parkIDs, shedIDs, false, 21, "", goatID).Scan(&got)
 		if err != nil {
 			t.Fatalf("query due_at fragment under session tz %s: %v", sessionTZ, err)
 		}

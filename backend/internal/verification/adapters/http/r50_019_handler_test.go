@@ -139,3 +139,49 @@ func TestHasTenantWidePermissionUsesCorrectScopeFilter(t *testing.T) {
 		t.Errorf("park-scoped grant should not match tenant-wide check: got %v, expected false", result)
 	}
 }
+
+// R50-019 EXPLOIT TEST: Mixed-grant permission escape. Actor with a tenant-wide grant for a
+// DIFFERENT permission plus a park-only grant for the REQUESTED permission must NOT escape to
+// tenant scope. The hasTenantWidePermission check filters by the requested permission; it must
+// not accept a tenant-wide grant for any other permission.
+func TestHasTenantWidePermissionMixedGrantExploitBlocked(t *testing.T) {
+	const testTenant = "tenant-001"
+	const testPark = "park-001"
+
+	// Exploit attempt: actor has tenant-wide grant for PermissionA but only park-scoped grant for PermissionB
+	grants := []permissions.ActiveGrant{
+		// Tenant-wide grant for a DIFFERENT permission (operator has TaskExecute, not VerificationReview)
+		{
+			Role:      permissions.RoleOperator,
+			ScopeType: "tenant",
+			ScopeID:   testTenant,
+		},
+		// Park-scoped grant for the REQUESTED permission (verifier has VerificationReview)
+		{
+			Role:      permissions.RoleVerifier,
+			ScopeType: "park",
+			ScopeID:   testPark,
+		},
+	}
+
+	// The exploit attempt: try to use the tenant-wide operator grant to satisfy a VerificationReview check.
+	// This MUST fail because ScopeIDsForPermission filters by the requested permission,
+	// and the operator role does NOT have VerificationReview.
+	result := hasTenantWidePermission(grants, testTenant, permissions.VerificationReview)
+	if result {
+		t.Errorf("mixed-grant exploit: tenant-wide grant for different permission (operator/TaskExecute) must NOT satisfy VerificationReview check; got %v, expected false", result)
+	}
+
+	// Verify that a genuine tenant-wide grant for the SAME permission DOES work
+	grants2 := []permissions.ActiveGrant{
+		{
+			Role:      permissions.RoleVerifier,
+			ScopeType: "tenant",
+			ScopeID:   testTenant,
+		},
+	}
+	result2 := hasTenantWidePermission(grants2, testTenant, permissions.VerificationReview)
+	if !result2 {
+		t.Errorf("legitimate tenant-wide grant must satisfy check: got %v, expected true", result2)
+	}
+}

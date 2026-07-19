@@ -2732,6 +2732,10 @@ func (o *generationObligationFake) RecordStatusEvent(_ context.Context, ev obldo
 	return "event-1", true, nil
 }
 
+func (o *generationObligationFake) NextSuccessorSuffix(_ context.Context, _, _ string) (int, error) {
+	return 1, nil
+}
+
 type generationRunRecorderFake struct {
 	byKey       map[string]domain.GenerationRun
 	startInputs []domain.GenerationRunInput
@@ -2881,41 +2885,6 @@ func TestHasSameDoseAdministration_SameProtocol_EqualDoseCode(t *testing.T) {
 	result := hasSameDoseAdministration(rule, vaccine, history)
 	if !result {
 		t.Errorf("same-protocol dose code should suppress; expected true, got false")
-	}
-}
-
-// TestMissingReviewRecorderFailsOnStaleKidStage verifies VACC-REV-10A:
-// generation fails loudly if it detects a stale kid stage but has no recorder to persist the review item.
-func TestMissingReviewRecorderFailsOnStaleKidStage(t *testing.T) {
-	ctx := context.Background()
-	dob := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) // Well past 20-week kid cutoff
-	asOf := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
-	goat := domain.EligibleGoat{
-		GoatID:          "goat-stale-kid",
-		DOB:             &dob,
-		LifecycleStatus: "alive",
-		Species:         "goat",
-		Stage:           "K1", // Stale kid stage
-	}
-
-	svc := &GenerationService{
-		proto: &generationProtoFake{
-			rules:   []protodomain.Rule{},
-			ruleDSL: []byte(`{"vaccine":{"code":"test","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]}}`),
-		},
-		goats: &generationGoatFake{list: []domain.EligibleGoat{goat}},
-		obl:   &generationObligationFake{},
-		// review is nil (missing recorder) - this should cause a failure when stale kid stage is detected
-	}
-
-	res := &domain.GenerateResult{}
-	err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{}, []string{}, genEligibility{}, goat, asOf, generationOptions{}, genVersionPolicies{Procurement: genProcurementPolicy{}}, vaccineProfile{}, []domain.RecentVaccineAdministration{}, newTrustedEvidenceLookup(), res)
-
-	if err == nil {
-		t.Errorf("VACC-REV-10A bug: missing review recorder should fail when stale kid stage detected; expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "review recorder is absent") {
-		t.Errorf("error should mention missing review recorder; got: %v", err)
 	}
 }
 

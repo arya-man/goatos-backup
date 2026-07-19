@@ -159,8 +159,19 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         proofPolicy: ProofPolicy,
     ): AppResult<ProofCaptureRow> {
         captureCalls += CaptureCall(fieldKey, subject, subjectId, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
+        // R50-027: respect proofPolicy.maximumCountPerSubject instead of hardcoded max
+        val effectiveMaxProofs = proofPolicy.maximumCountPerSubject
         val activeRows = rows.count { it.subjectId == subjectId && it.syncStatus != CaptureSyncStatus.FAILED }
-        if (activeRows >= maxProofs) return AppResult.Err("Maximum $maxProofs proof videos reached for this goat.")
+        if (activeRows >= effectiveMaxProofs) {
+            val subjectLabel = when (subject) {
+                ProofSubject.GOAT -> "goat"
+                ProofSubject.SHED -> "shed"
+                ProofSubject.VIAL_LOT -> "vial"
+                ProofSubject.ADMINISTRATION -> "administration"
+                else -> "subject"
+            }
+            return AppResult.Err("Maximum $effectiveMaxProofs proof videos reached for this $subjectLabel.")
+        }
         val row = ProofCaptureRow(
             id = "proof-${nextId++}",
             fieldKey = fieldKey,

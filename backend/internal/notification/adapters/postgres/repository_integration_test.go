@@ -165,9 +165,53 @@ FROM generate_series(1, $5::int) g`,
 	}
 }
 
-// postgresClaimDueSQL returns the exact production claim SQL (notificationpg.ClaimDueSQL)
-// so this plan gate cannot drift into a simplified imitation.
-func postgresClaimDueSQL() string { return ClaimDueSQL }
+// postgresClaimDueSQL returns the exact production claim SQL (the inner query from ClaimDue)
+// so this plan gate cannot drift into a simplified imitation. The query is the CTE that
+// claims retryable rows after exhausted rows are transitioned to 'exhausted' status.
+func postgresClaimDueSQL() string {
+	return `
+WITH candidates AS (
+  SELECT notification_request_id
+  FROM notification_requests
+  WHERE tenant_id = $1::uuid
+    AND status IN ('queued', 'failed')
+    AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz
+    AND delivery_attempts < $4
+  ORDER BY COALESCE(next_attempt_at, requested_at), notification_request_id
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+),
+claimed AS (
+  UPDATE notification_requests nr
+  SET status = 'sending',
+      lease_token = gen_random_uuid(),
+      leased_at = $2::timestamptz,
+      delivery_attempts = delivery_attempts + 1,
+      updated_at = $2::timestamptz
+  FROM candidates c
+  WHERE nr.notification_request_id = c.notification_request_id
+  RETURNING
+    nr.notification_request_id::text,
+    nr.tenant_id::text,
+    nr.calendar_event_id,
+    nr.target_type,
+    COALESCE(nr.target_id::text, ''),
+    nr.notification_type,
+    nr.channel,
+    COALESCE(nr.recipient_ref, ''),
+    nr.title,
+    nr.body,
+    nr.status,
+    COALESCE(nr.trace_id, ''),
+    nr.context,
+    nr.delivery_attempts,
+    nr.lease_token::text,
+    nr.requested_at
+)
+SELECT *
+FROM claimed
+ORDER BY requested_at, notification_request_id`
+}
 
 type planNode struct {
 	NodeType        string     `json:"Node Type"`

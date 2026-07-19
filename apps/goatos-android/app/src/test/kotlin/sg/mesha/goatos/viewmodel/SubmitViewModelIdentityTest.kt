@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -94,6 +95,8 @@ private class CapturingTasksRepository : TasksRepository {
 private class NoopSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     override fun observeStatus(): StateFlow<SyncStatus> = status
+    override fun observeItem(itemId: String): kotlinx.coroutines.flow.Flow<SyncQueueItem?> = kotlinx.coroutines.flow.flowOf(null)
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")

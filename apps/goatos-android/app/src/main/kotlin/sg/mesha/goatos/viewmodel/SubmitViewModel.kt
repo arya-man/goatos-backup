@@ -627,20 +627,42 @@ class SubmitViewModel @Inject constructor(
 
     /** Generic non-vaccination forms may still map named media subjects. Vaccination goat
      *  clips are captured from the scan row with [ProofSubject.GOAT] and never use this mapper. */
-    private fun subjectForFieldKey(key: String): ProofSubject = when (key) {
-        "shed_video" -> ProofSubject.SHED
-        "vial_lot_video" -> ProofSubject.VIAL_LOT
-        "administration_video" -> ProofSubject.ADMINISTRATION
-        else -> ProofSubject.EXTRA
+    // R50-027: derive subject from the task's proof policy expectedSubjects, not hardcoded.
+    // Falls back to per-key hardcoded mapping only when policy has no explicit mapping.
+    private fun subjectForFieldKey(key: String): ProofSubject {
+        // First check if policy provides an expected subject set for this key
+        val expectedFromPolicy = currentProofPolicy.expectedSubjects
+            .mapNotNull { raw -> ProofSubject.entries.firstOrNull { it.wireValue == raw } }
+        if (expectedFromPolicy.isNotEmpty()) {
+            // Use first expected subject from policy; special-case goat to always check scanned context
+            return if (ProofSubject.GOAT in expectedFromPolicy) ProofSubject.GOAT else expectedFromPolicy.first()
+        }
+        // Fall back to historical per-key mapping for backward compatibility
+        return when (key) {
+            "shed_video" -> ProofSubject.SHED
+            "vial_lot_video" -> ProofSubject.VIAL_LOT
+            "administration_video" -> ProofSubject.ADMINISTRATION
+            else -> ProofSubject.EXTRA
+        }
     }
 
     /** Builds the render-ready form + computes the honest submit gate: the first unmet
-     *  required field's reason, or null when nothing blocks submission. */
+     *  required field's reason, or null when nothing blocks submission.
+     *  R50-027: enforces minimum count + per-subject caps from proofPolicy. */
     private fun buildFormRunnerState(form: FormSpec, task: TaskSummaryDto): FormRunnerState? {
         if (form.isEmpty) return null
         val fields = form.fields.map { field -> field.toFieldUi() }
         val requiredUnansweredProofKeys = form.requiredUnansweredVideoProofKeys()
         val unreadyProof = currentProofs.firstOrNull { it.blocksSubmission(requiredUnansweredProofKeys) }
+
+        // R50-027: check minimum count enforcement
+        val minimumCountViolation = if (currentProofPolicy.minimumCount > 0) {
+            val completedCount = currentProofs.count { it.isCompletedProofRef() }
+            if (completedCount < currentProofPolicy.minimumCount) {
+                "A minimum of ${currentProofPolicy.minimumCount} camera clip(s) are required before submitting."
+            } else null
+        } else null
+
         // R50-029: pre-index once (which goat ids already have a completed GOAT proof) instead of
         // an O(goats * proofs) currentProofs.none{...} scan per scanned goat.
         val goatIdsWithCompletedProof = currentProofs
@@ -657,6 +679,7 @@ class SubmitViewModel @Inject constructor(
             fields = fields,
             submitLabel = "Submit",
             blockedReason = unreadyProof?.let { blockedReasonForProofUpload(it) }
+                ?: minimumCountViolation
                 ?: missingGoatProof?.let { "Add and sync a camera clip for every scanned goat before submitting." }
                 ?: unmet?.let { blockedReasonFor(it) },
         )
@@ -760,6 +783,8 @@ class SubmitViewModel @Inject constructor(
             val items = currentProofs.filter { it.fieldKey == key }
             val isExtraSlot = repeat
             val activeCaptured = currentProofs.count { it.syncStatus != CaptureSyncStatus.FAILED }
+            // R50-027: respect the per-subject cap from policy, not hardcoded MAX_PROOFS_PER_TASK
+            val policyMaxCount = currentProofPolicy.maximumCountPerSubject
             FormFieldUi(
                 key = key,
                 label = label,
@@ -769,7 +794,7 @@ class SubmitViewModel @Inject constructor(
                 proofCaptured = items.isNotEmpty(),
                 proofItems = items.map { it.toProofItemUi(label, isExtraSlot) },
                 canCaptureMore = if (isExtraSlot) {
-                    activeCaptured < MAX_PROOFS_PER_TASK
+                    activeCaptured < policyMaxCount
                 } else {
                     items.none { it.syncStatus != CaptureSyncStatus.FAILED }
                 },

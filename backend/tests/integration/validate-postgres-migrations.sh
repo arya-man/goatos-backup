@@ -110,6 +110,45 @@ while IFS= read -r migration; do
 done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 
 run_psql <<'SQL'
+\echo 'R50-015 P0: Verify no 42P10-window exists for ON CONFLICT targets'
+DO $$
+DECLARE
+  msg text;
+BEGIN
+  -- Assert that outbox_messages has a unique index on (tenant_id, idempotency_key)
+  -- covering at least the verification event types (needed for ON CONFLICT).
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'outbox_messages'
+      AND indexname IN ('outbox_messages_verification_idempotency_idx', 'outbox_messages_verification_idempotency_idx_v2')
+      AND indexdef LIKE '%UNIQUE%'
+  ) THEN
+    RAISE EXCEPTION 'R50-015: outbox_messages missing unique index on (tenant_id, idempotency_key) for ON CONFLICT';
+  END IF;
+
+  -- Assert that obligation_status_events has a unique index on (tenant_id, idempotency_key)
+  -- needed for ON CONFLICT in InsertDeferredObligation.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'obligation_status_events'
+      AND indexname IN ('obligation_status_events_idempotency_idx', 'obligation_status_events_idempotency_idx_v2')
+      AND indexdef LIKE '%UNIQUE%'
+  ) THEN
+    RAISE EXCEPTION 'R50-015: obligation_status_events missing unique index on (tenant_id, idempotency_key) for ON CONFLICT';
+  END IF;
+
+  -- Assert no stale/dangling plain (non-unique) index on obligation_status_events
+  -- (old broken index must be gone after migration).
+  IF (SELECT count(*) FROM pg_indexes
+      WHERE tablename = 'obligation_status_events'
+        AND indexname = 'obligation_status_events_idempotency_idx'
+        AND indexdef NOT LIKE '%UNIQUE%') > 0 THEN
+    RAISE EXCEPTION 'R50-015: obligation_status_events has dangling non-unique idempotency_idx (old broken index not removed)';
+  END IF;
+
+  RAISE INFO 'R50-015: 42P10-window assertion passed — unique indexes exist for ON CONFLICT targets';
+END $$;
+
 \echo 'Running clean-slate GoatOS invariant checks'
 
 SELECT tenant_id
@@ -431,12 +470,13 @@ BEGIN
     RAISE EXCEPTION 'verification_items_closed_approved_check missing or unexpected: %', def;
   END IF;
 
+  -- R50-015: Accept either the original index name or the _v2 variant (created to avoid DROP-before-CREATE window)
   SELECT pg_get_indexdef(indexrelid) INTO def
   FROM pg_index
   JOIN pg_class ON pg_class.oid = pg_index.indexrelid
-  WHERE pg_class.relname = 'outbox_messages_verification_idempotency_idx';
+  WHERE pg_class.relname IN ('outbox_messages_verification_idempotency_idx', 'outbox_messages_verification_idempotency_idx_v2');
   IF def IS NULL THEN
-    RAISE EXCEPTION 'outbox_messages_verification_idempotency_idx missing';
+    RAISE EXCEPTION 'outbox_messages_verification_idempotency_idx (or _v2 variant) missing';
   END IF;
   IF def NOT LIKE '%verification.item.closed%' THEN
     RAISE EXCEPTION 'outbox_messages_verification_idempotency_idx missing verification.item.closed predicate: %', def;

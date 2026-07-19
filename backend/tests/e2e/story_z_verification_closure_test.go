@@ -98,14 +98,14 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 	story.Assert("submission fanout recorded both doses", recordedCount == 2, "recorded=%d", recordedCount)
 
 	// Assert that verification items were created for this submission
-	itemCount := fx.countRows(`SELECT count(*) FROM verification_items WHERE tenant_id=$1 AND source->>'submission_id'=$2`, fxTenant, submissionID)
+	itemCount := fx.countRows(`SELECT count(*) FROM verification_items WHERE tenant_id=$1 AND source_submission_id=$2::uuid`, fxTenant, submissionID)
 	story.Assert("submission created verification items in generic module", itemCount == 2, "items=%d", itemCount)
 
 	story.Step("Verifier records verdict for each verification item via real API",
 		"For each verification item, POST /verification/items/{item_id}/verdict to record an approval decision.")
 	// Get all verification item IDs for this submission
 	itemRows, _ := fx.Pool.Query(fx.Ctx,
-		`SELECT item_id::text FROM verification_items WHERE tenant_id=$1 AND source->>'submission_id'=$2 ORDER BY item_id`,
+		`SELECT item_id::text FROM verification_items WHERE tenant_id=$1 AND source_submission_id=$2::uuid ORDER BY item_id`,
 		fxTenant, submissionID)
 	itemIDs := []string{}
 	for itemRows.Next() {
@@ -121,9 +121,11 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 	mux := http.NewServeMux()
 	verifhttp.Register(mux, verifHandler)
 
-	// Set up auth for verifier role
+	// Set up auth for two roles: verifier (for verdict) and park head (for close).
+	// RoleVerifier has VerificationReview; RoleParkHead has VerificationAct.
 	grantSource := storyAAGrantSource{byActor: map[string][]permissions.ActiveGrant{
-		verifierID: {{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: fxTenant}},
+		verifierID: {{Role: permissions.RoleVerifier, ScopeType: "tenant", ScopeID: fxTenant}},
+		parkHeadID: {{Role: permissions.RoleParkHead, ScopeType: "tenant", ScopeID: fxTenant}},
 	}}
 	auth, authErr := httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
 		Mode: httpmiddleware.AuthModeDevHeaders, DevHeadersAllowed: true, Environment: "test",
@@ -173,17 +175,18 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", idemKey)
 		req.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
-		req.Header.Set("X-GoatOS-Actor-ID", verifierID)
+		req.Header.Set("X-GoatOS-Actor-ID", parkHeadID)  // Leadership uses park head role for closure
 		rec := httptest.NewRecorder()
 		app.ServeHTTP(rec, req)
 
 		if rec.Code == http.StatusOK {
 			var respBody struct {
 				Item struct {
-					Status string `json:"status"`
+					Status  string `json:"status"`
+					ClosedAt *string `json:"closed_at"`
 				} `json:"item"`
 			}
-			if json.Unmarshal(rec.Body.Bytes(), &respBody) == nil && respBody.Item.Status == "closed" {
+			if json.Unmarshal(rec.Body.Bytes(), &respBody) == nil && respBody.Item.Status == "approved" && respBody.Item.ClosedAt != nil {
 				closedCount++
 			}
 		}
@@ -196,9 +199,10 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 			"and obligations completed.")
 
 	// Check that all verification items are now closed
-	allClosedCount := fx.countRows(`SELECT count(*) FROM verification_items WHERE tenant_id=$1 AND source->>'submission_id'=$2 AND status='closed'`,
+	// Note: status remains 'approved' after closing; the closed_at timestamp indicates closure.
+	allClosedCount := fx.countRows(`SELECT count(*) FROM verification_items WHERE tenant_id=$1 AND source_submission_id=$2::uuid AND status='approved' AND closed_at IS NOT NULL`,
 		fxTenant, submissionID)
-	story.Assert("all verification items are in closed state", allClosedCount == 2, "closed=%d", allClosedCount)
+	story.Assert("all verification items are closed (approved with closed_at set)", allClosedCount == 2, "closed=%d", allClosedCount)
 
 	// Check that the vaccination completion is accepted and the obligation is completed
 	completionCount := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND status='accepted'`,
@@ -250,7 +254,7 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", idemKey)
 		req.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
-		req.Header.Set("X-GoatOS-Actor-ID", verifierID)
+		req.Header.Set("X-GoatOS-Actor-ID", parkHeadID)  // Same actor who closed it the first time
 		rec := httptest.NewRecorder()
 		app.ServeHTTP(rec, req)
 
@@ -258,10 +262,12 @@ func TestKernelStoryZ_VerificationClosureRealEndpoints(t *testing.T) {
 
 		var respBody struct {
 			Item struct {
-				Status string `json:"status"`
+				Status   string `json:"status"`
+				ClosedAt *string `json:"closed_at"`
 			} `json:"item"`
 		}
 		json.Unmarshal(rec.Body.Bytes(), &respBody)
-		story.Assert("idempotent close returns already-closed status", respBody.Item.Status == "closed", "status=%s", respBody.Item.Status)
+		// After closing, status remains 'approved' and closed_at is set
+		story.Assert("idempotent close returns already-closed status", respBody.Item.Status == "approved" && respBody.Item.ClosedAt != nil, "status=%s, closed_at=%v", respBody.Item.Status, respBody.Item.ClosedAt)
 	}
 }

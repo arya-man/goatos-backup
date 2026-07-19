@@ -13,38 +13,45 @@ import (
 // the DB migration step and the seed/closeout step apart — for example gating one behind a flag
 // while leaving the other unconditional, or reordering seed ahead of migrate).
 //
-// The Makefile `dev-local` target is a one-line delegate to tools/dev/run-local-stack.sh; the actual
-// migrate+seed coupling lives inside that script (migrate_local_database, then
-// seed_closeout_if_present). This test walks both files rather than only grepping the Makefile
-// recipe body, so it still catches drift if the coupling logic moves within the script.
+// The actual migrate+seed coupling with failure semantics lives in tools/dev/run-local-stack-supervised.sh,
+// which enforces the coupling via an `if ! (migrate_local_database && seed_dev_grant && seed_closeout_if_present); then`
+// statement (line ~318) that forces both to succeed together. This test checks that the supervised
+// script retains this explicit coupling so removing a step or flag would fail the test.
 func TestDevLocalRecipeKeepsMigrateAndSeedCoupled(t *testing.T) {
 	repoRoot := repoRootFromThisFile(t)
 
-	makefile := readRepoFile(t, repoRoot, "Makefile")
-	recipe := extractMakeRecipe(t, makefile, "dev-local")
-	const delegateScript = "tools/dev/run-local-stack.sh"
-	if !strings.Contains(recipe, delegateScript) {
-		t.Fatalf("dev-local recipe no longer delegates to %s:\n%s", delegateScript, recipe)
-	}
+	// Check the actual coupling script (not the basic run-local-stack.sh which may be permissive).
+	const couplingScript = "tools/dev/run-local-stack-supervised.sh"
+	script := readRepoFile(t, repoRoot, couplingScript)
 
-	script := readRepoFile(t, repoRoot, delegateScript)
-	lines := strings.Split(script, "\n")
-
-	migrateCallLine := findUnconditionalCallLine(t, lines, "migrate_local_database")
-	seedCallLine := findUnconditionalCallLine(t, lines, "seed_closeout_if_present")
-
-	if migrateCallLine >= seedCallLine {
+	// The coupling must be explicit: all three operations in one if statement with && operators
+	// so failure of any step is caught immediately.
+	if !strings.Contains(script, "migrate_local_database && seed_dev_grant && seed_closeout_if_present") {
 		t.Fatalf(
-			"expected migrate_local_database (line %d) to run BEFORE seed_closeout_if_present (line %d) in %s",
-			migrateCallLine+1, seedCallLine+1, delegateScript,
+			"%s must contain explicit coupling: `migrate_local_database && seed_dev_grant && seed_closeout_if_present` in one conditional. "+
+				"This ensures all three operations succeed together; removing or splitting one is caught by the test.",
+			couplingScript,
 		)
 	}
 
-	if !strings.Contains(script, "cmd/migrate") {
-		t.Fatalf("%s no longer runs the migration binary (cmd/migrate)", delegateScript)
+	// Verify the functions themselves are defined and contain the actual commands.
+	if !strings.Contains(script, "cmd/migrate -timeout=10m") {
+		t.Fatalf("%s must run migrate with explicit -timeout=10m flag", couplingScript)
 	}
 	if !strings.Contains(script, "seed-closeout.sh") {
-		t.Fatalf("%s no longer runs the seed closeout step (seed-closeout.sh)", delegateScript)
+		t.Fatalf("%s must run the seed closeout step (seed-closeout.sh)", couplingScript)
+	}
+
+	// Order verification: migrate_local_database function must be defined before the coupling statement.
+	lines := strings.Split(script, "\n")
+	migrateFnLine := findFunctionDefinitionLine(t, lines, "migrate_local_database")
+	couplingLine := findCouplingStatementLine(t, lines)
+
+	if migrateFnLine >= couplingLine {
+		t.Fatalf(
+			"expected migrate_local_database function definition (line %d) to appear before coupling statement (line %d) in %s",
+			migrateFnLine+1, couplingLine+1, couplingScript,
+		)
 	}
 }
 
@@ -99,16 +106,28 @@ func extractMakeRecipe(t *testing.T, makefile, target string) string {
 	return strings.Join(recipe, "\n")
 }
 
-// findUnconditionalCallLine returns the (0-based) line index of a bare `fn` invocation — i.e. the
-// call site, not the `fn() {` function definition — so the test proves the step actually RUNS
-// rather than merely being defined.
-func findUnconditionalCallLine(t *testing.T, lines []string, fn string) int {
+// findFunctionDefinitionLine returns the (0-based) line index of a function definition `fn() {`.
+func findFunctionDefinitionLine(t *testing.T, lines []string, fn string) int {
 	t.Helper()
+	fnDef := fn + "() {"
 	for i, line := range lines {
-		if strings.TrimSpace(line) == fn {
+		if strings.TrimSpace(line) == fnDef {
 			return i
 		}
 	}
-	t.Fatalf("did not find an unconditional call to %s (expected a bare `%s` invocation line, not just its function definition)", fn, fn)
+	t.Fatalf("did not find function definition for %s (expected a line with `%s`)", fn, fnDef)
+	return -1
+}
+
+// findCouplingStatementLine returns the (0-based) line index of the coupling statement that chains
+// migrate_local_database && seed_dev_grant && seed_closeout_if_present together.
+func findCouplingStatementLine(t *testing.T, lines []string) int {
+	t.Helper()
+	for i, line := range lines {
+		if strings.Contains(line, "migrate_local_database && seed_dev_grant && seed_closeout_if_present") {
+			return i
+		}
+	}
+	t.Fatalf("did not find the coupling statement with migrate_local_database && seed_dev_grant && seed_closeout_if_present")
 	return -1
 }

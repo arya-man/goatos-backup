@@ -1910,6 +1910,10 @@ func (f *fakeSweepRepo) RecordStatusEvent(context.Context, domain.NewStatusEvent
 	return "", false, nil
 }
 
+func (f *fakeSweepRepo) NextSuccessorSuffix(context.Context, string, string) (int, error) {
+	return 1, nil
+}
+
 type fakeSweepTaskCreator struct {
 	id            string
 	calls         int

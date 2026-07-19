@@ -116,6 +116,12 @@ interface OutboxDao {
     @Query("UPDATE outbox SET status = 'QUEUED', updatedAt = :now WHERE status = 'IN_FLIGHT'")
     suspend fun reclaimInFlight(now: Long): Int
 
+    /** Deletes a specific outbox item by id (R50-028: cancelling unsynced operations like removing
+     *  a proof that was never uploaded). Safe to call on any status except IN_FLIGHT, but a race
+     *  with an in-flight drain is benign (the delete is idempotent). */
+    @Query("DELETE FROM outbox WHERE id = :id")
+    suspend fun delete(id: String)
+
     /** Wipes the entire outbox. Used ONLY by the logout full clean-slate wipe (C35-001): any
      *  operator-authored write not yet synced belongs to the departing user's session and must
      *  never survive to the next principal on this device (regardless of QUEUED/FAILED/

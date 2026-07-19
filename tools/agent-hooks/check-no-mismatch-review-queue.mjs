@@ -172,7 +172,16 @@ function main() {
     if (!existsSync(join(repo, file))) continue;
 
     const diff = getDiffContent(file);
-    const findings = findingsForSource(diff);
+    // Scan only ADDED lines (new code). Removing the banned pattern (a purge/cleanup) must
+    // PASS the guard, so strip context and '-' removed lines and scan only '+' additions
+    // (excluding the '+++' file header). Otherwise deleting a stage-review table/test would
+    // false-flag the very cleanup that satisfies this rule.
+    const addedSource = diff
+      .split("\n")
+      .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+      .map((l) => l.slice(1))
+      .join("\n");
+    const findings = findingsForSource(addedSource);
 
     if (findings.length > 0) {
       allFindings.push({ file, findings });

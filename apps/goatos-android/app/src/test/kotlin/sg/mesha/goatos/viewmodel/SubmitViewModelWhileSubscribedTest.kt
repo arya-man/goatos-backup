@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -220,6 +221,8 @@ private class WhileSubNoopSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
+    override fun observeItem(itemId: String): kotlinx.coroutines.flow.Flow<SyncQueueItem?> = kotlinx.coroutines.flow.flowOf(null)
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
 
     override suspend fun enqueueShedSubmit(
         taskId: String,

@@ -423,3 +423,7 @@ func (f *boosterObligationWriterFake) RecordStatusEvent(_ context.Context, ev ob
 	f.events = append(f.events, ev)
 	return "event-1", true, nil
 }
+
+func (f *boosterObligationWriterFake) NextSuccessorSuffix(_ context.Context, _, _ string) (int, error) {
+	return 1, nil
+}

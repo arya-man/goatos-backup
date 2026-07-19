@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -31,6 +32,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -567,17 +569,18 @@ class SubmitViewModelFormTest {
 private class FakeFormTasksRepository(
     private val task: TaskSummaryDto,
     private val form: FormSpec,
+    private val proofPolicy: ProofPolicy = ProofPolicy(expectedSubjects = emptyList()), // R50-027: fall back to per-key mapping when expectedSubjects is empty
 ) : TasksRepository {
     private val flow = MutableStateFlow(Resource<TaskDetail>(data = null))
 
     override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto = error("unused")
 
-    override suspend fun taskDetail(taskId: String): TaskDetail = TaskDetail(task = task, form = form)
+    override suspend fun taskDetail(taskId: String): TaskDetail = TaskDetail(task = task, form = form, proofPolicy = proofPolicy)
 
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> = flow
 
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
-        flow.value = Resource(data = TaskDetail(task = task, form = form), lastSyncedAt = 1L)
+        flow.value = Resource(data = TaskDetail(task = task, form = form, proofPolicy = proofPolicy), lastSyncedAt = 1L)
     }
 }
 
@@ -586,6 +589,8 @@ private class CapturingSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
+
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = emptyFlow()
 
     override suspend fun enqueueShedSubmit(
         taskId: String,
@@ -635,6 +640,8 @@ private class CapturingSyncRepository : SyncRepository {
     override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
 
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
 
     override suspend fun triggerDrain() = Unit
 }

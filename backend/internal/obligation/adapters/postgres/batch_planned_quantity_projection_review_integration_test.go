@@ -13,14 +13,15 @@ import (
 )
 
 // seedGoat inserts an alive goat in the given scope.
+// For these adversarial projection tests, scope is always 'park', so both current_location_id
+// and park_id are set to the same scopeID.
 func seedGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, scopeType, scopeID string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, CASE WHEN $5 = 'park' THEN $6 ELSE
-			   (SELECT park_id FROM sheds WHERE shed_id = $6 LIMIT 1) END)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)
 			 ON CONFLICT (goat_id) DO NOTHING`,
-		goatID, tenantID, meshaParty, scopeID, scopeType, scopeID); err != nil {
+		goatID, tenantID, meshaParty, scopeID); err != nil {
 		t.Fatalf("seed goat %s: %v", goatID, err)
 	}
 }

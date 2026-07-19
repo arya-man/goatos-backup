@@ -235,8 +235,10 @@ class LeadershipViewModel @Inject constructor(
         when (val enqueue = syncRepository.enqueueVerificationSubmissionClose(submissionId)) {
             is AppResult.Ok -> {
                 syncRepository.triggerDrain()
-                val terminal = syncRepository.observeStatus()
-                    .map { status -> status.items.firstOrNull { it.id == enqueue.value } }
+                // R50-006 (leadership close HANG): observe the specific outbox item by id, not the
+                // recent-terminal window which may have pruned older items. observeItem() watches the
+                // item's status from creation through terminal state, regardless of age.
+                val terminal = syncRepository.observeItem(enqueue.value)
                     .filterNotNull()
                     .first { item ->
                         item.status == sg.mesha.goatos.core.data.sync.SyncItemStatus.SUCCEEDED ||

@@ -541,13 +541,41 @@ func TestVerificationItemClosedEventProduced_RealPostgres(t *testing.T) {
 		t.Fatalf("event_type = %s, want %s", eventType, EventItemClosed)
 	}
 
-	// Verify payload structure.
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(payload), &data); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
+	// Verify domain event envelope structure and nested payload.
+	var envelope map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
 	}
 
-	if status, ok := data["status"].(string); !ok || status != domain.StatusApproved {
-		t.Fatalf("payload missing or invalid status")
+	// The outbox stores the full domain event envelope with a nested "payload" field.
+	if envelope["event_type"] != EventItemClosed {
+		t.Fatalf("envelope event_type = %v, want %s", envelope["event_type"], EventItemClosed)
+	}
+
+	payloadObj, ok := envelope["payload"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("envelope missing payload field")
+	}
+
+	// After closing, the status remains "approved" (there is no "closed" status).
+	// The closed_at timestamp in the DB row indicates the item was closed.
+	status, ok := payloadObj["status"].(string)
+	if !ok || status != domain.StatusApproved {
+		t.Fatalf("payload status = %v, want %s", payloadObj["status"], domain.StatusApproved)
+	}
+
+	// Verify the event payload includes all required fields for the domain event contract.
+	if itemID, ok := payloadObj["item_id"].(string); !ok || itemID == "" {
+		t.Fatalf("payload missing item_id")
+	}
+	if tenantID, ok := payloadObj["tenant_id"].(string); !ok || tenantID == "" {
+		t.Fatalf("payload missing tenant_id")
+	}
+	if sourceObj, ok := payloadObj["source"].(map[string]interface{}); !ok {
+		t.Fatalf("payload missing or invalid source")
+	} else {
+		if module, ok := sourceObj["module"].(string); !ok || module == "" {
+			t.Fatalf("payload source missing module")
+		}
 	}
 }

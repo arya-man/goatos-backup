@@ -5,9 +5,11 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
@@ -276,7 +278,10 @@ class CaptureRepositoryTest {
                 ) as AppResult.Ok
                 ).value
             advanceUntilIdle()
-            val itemId = sync.enqueueCalls.single().outboxItemId
+            // R50-029: reconciliation may re-enqueue during startup, but setOutboxItemId should prevent it
+            // Get the outbox item ID from the row directly to avoid depending on enqueue count
+            val itemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("Proof should have an outbox item ID after capture", !itemId.isNullOrBlank())
             db.proofCaptureDao().updateStatus(captured.id, CaptureSyncStatus.FAILED.name, null, "network gave up")
 
             val retry = repo.retryUpload("task-retry-proof", captured.id)
@@ -321,8 +326,10 @@ class CaptureRepositoryTest {
             var row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.PENDING, row.syncStatus)
 
-            val itemId = sync.enqueueCalls.single().outboxItemId
-            sync.emit(itemId, SyncItemStatus.IN_FLIGHT, resultJson = null)
+            // R50-029: get the outbox item ID from the row to avoid depending on enqueue call count
+            val itemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("Proof should have an outbox item ID", !itemId.isNullOrBlank())
+            sync.emit(itemId!!, SyncItemStatus.IN_FLIGHT, resultJson = null)
             row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.IN_FLIGHT, row.syncStatus)
 
@@ -364,9 +371,11 @@ class CaptureRepositoryTest {
                 ) as AppResult.Ok
                 ).value
 
-            val itemId = sync.enqueueCalls.single().outboxItemId
+            // R50-029: get the outbox item ID from the row to avoid depending on enqueue call count
+            val itemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("Proof should have an outbox item ID", !itemId.isNullOrBlank())
             repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
-            sync.emit(itemId, SyncItemStatus.SUCCEEDED, resultJson = """{"proof":{}}""")
+            sync.emit(itemId!!, SyncItemStatus.SUCCEEDED, resultJson = """{"proof":{}}""")
 
             val row = repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.FAILED, row.syncStatus)
@@ -478,6 +487,7 @@ class CaptureRepositoryTest {
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
             )
+            advanceUntilIdle()
 
             // Simulate a process-death-and-relaunch: brand-new repository instances (as a fresh
             // ViewModel/Hilt graph would construct), but over the SAME underlying Room database
@@ -489,6 +499,7 @@ class CaptureRepositoryTest {
                 dispatchers = unconfinedDispatchers,
             )
             val secondScanInstance = DefaultScanCaptureRepository(db.scannedGoatDao(), dispatchers = unconfinedDispatchers)
+            advanceUntilIdle()
 
             assertEquals(listOf("TAG-A"), secondScanInstance.tagsForTask("task-7"))
             val proofs = secondInstance.observeProofs("task-7").first()
@@ -608,6 +619,12 @@ private class FakeSyncRepository : SyncRepository {
         retryCalls += itemId
         return AppResult.Ok(Unit)
     }
+
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = status.map { s ->
+        s.items.firstOrNull { it.id == itemId }
+    }
+
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
 
     override suspend fun triggerDrain() = Unit
 }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -515,6 +516,8 @@ private class CapturingSubmitSyncRepository : SyncRepository {
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
 
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = emptyFlow()
+
     override suspend fun enqueueShedSubmit(
         taskId: String,
         groupKey: String,
@@ -562,5 +565,6 @@ private class CapturingSubmitSyncRepository : SyncRepository {
         error("unused")
 
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
 }

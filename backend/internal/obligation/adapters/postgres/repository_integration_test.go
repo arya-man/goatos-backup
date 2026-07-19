@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -828,6 +829,66 @@ func TestStatusEventConcurrentDedup(t *testing.T) {
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND idempotency_key=$2`, tenantID, "evt-concurrent"); got != 1 {
 		t.Fatalf("expected exactly 1 status event row under concurrency, got %d", got)
+	}
+}
+
+// TestNextSuccessorSuffixBounded is the R50-011 fix: find the next free successor
+// suffix in one bounded query, never O(N) round trips for large collision histories.
+func TestNextSuccessorSuffixBounded(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	baseKey := "goat:test:cancel"
+
+	// Test 1: No successors exist yet, should return 1
+	suffix, err := repo.NextSuccessorSuffix(ctx, tenantID, baseKey)
+	if err != nil {
+		t.Fatalf("next suffix (empty): %v", err)
+	}
+	if suffix != 1 {
+		t.Fatalf("next suffix with no history = %d, want 1", suffix)
+	}
+
+	// Test 2: Simulate 40 prior successors (collision history)
+	// Normally this would be O(40) round trips with attempt-by-attempt probing.
+	// With the bounded query, it's ONE query.
+	for i := 1; i <= 40; i++ {
+		key := fmt.Sprintf("%s:successor:%02d", baseKey, i)
+		_, err := pool.Exec(ctx, `
+INSERT INTO idempotency_keys (tenant_id, idempotency_key, scope, request_hash, status, result_type, result_id)
+VALUES ($1, $2, 'obligation.status_event', 'hash', 'started', NULL, NULL)`, tenantID, key)
+		if err != nil {
+			t.Fatalf("insert successor %d: %v", i, err)
+		}
+	}
+
+	// Query next suffix — should return 41 (one query, not 41 round trips)
+	suffix, err = repo.NextSuccessorSuffix(ctx, tenantID, baseKey)
+	if err != nil {
+		t.Fatalf("next suffix (40 history): %v", err)
+	}
+	if suffix != 41 {
+		t.Fatalf("next suffix with 40 successors = %d, want 41", suffix)
+	}
+
+	// Test 3: Prove it's bounded (max 2000 per query)
+	// Insert more successors, confirm we find the next one
+	for i := 41; i <= 50; i++ {
+		key := fmt.Sprintf("%s:successor:%02d", baseKey, i)
+		_, _ = pool.Exec(ctx, `
+INSERT INTO idempotency_keys (tenant_id, idempotency_key, scope, request_hash, status, result_type, result_id)
+VALUES ($1, $2, 'obligation.status_event', 'hash', 'started', NULL, NULL)
+ON CONFLICT DO NOTHING`, tenantID, key)
+	}
+	suffix, _ = repo.NextSuccessorSuffix(ctx, tenantID, baseKey)
+	if suffix < 1 || suffix > 2000 {
+		t.Fatalf("successor suffix out of bounds: %d (should be 1-2000)", suffix)
+	}
+	if suffix != 51 {
+		t.Fatalf("next suffix after 50 = %d, want 51", suffix)
 	}
 }
 
