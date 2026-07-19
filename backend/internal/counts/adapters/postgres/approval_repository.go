@@ -321,15 +321,15 @@ FOR UPDATE`, in.TenantID, in.ApprovalRequestID))
 		return domain.ApprovalRequest{}, false, fmt.Errorf("counts: lock approval request: %w", err)
 	}
 
-	if current.Status != domain.ApprovalStatusPending {
-		// Already decided. Repeating the same decision is a no-op replay; flipping it is a conflict.
-		if current.Status != in.Status {
-			return domain.ApprovalRequest{}, false, ports.ErrApprovalAlreadyDecided
-		}
-		return current, true, nil
-	}
-
-	// Decision-level idempotency: a replay with the same key must not re-run the effect.
+	// CR-06: the same-key fingerprint check must run BEFORE the terminal-status early return.
+	//
+	// Decision-level idempotency: a replay with the same key must not re-run the effect, and a replay
+	// that REUSES the same key with a DIFFERENT payload (e.g. an altered reject reason) must be a
+	// conflict -- not a silent success. If this ran only after the terminal-status branch below, an
+	// already-decided request retried with the same idempotency key but a changed reason would fall
+	// into the "same decision" replay path (current.Status == in.Status) and return the original row
+	// with replay=true, quietly accepting a payload it never applied. Checking key+fingerprint first
+	// makes a same-key/different-payload retry conflict whether the request is pending OR decided.
 	if in.IdempotencyKey != "" {
 		var (
 			storedKey         *string
@@ -348,6 +348,15 @@ WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`,
 			}
 			return current, true, nil
 		}
+	}
+
+	if current.Status != domain.ApprovalStatusPending {
+		// Already decided under a DIFFERENT key (the same-key case was handled above). Repeating the
+		// same decision is a no-op replay; flipping it is a conflict.
+		if current.Status != in.Status {
+			return domain.ApprovalRequest{}, false, ports.ErrApprovalAlreadyDecided
+		}
+		return current, true, nil
 	}
 
 	var (

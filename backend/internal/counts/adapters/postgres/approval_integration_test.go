@@ -379,6 +379,66 @@ func TestDoubleApproveDoesNotDoubleApply(t *testing.T) {
 	}
 }
 
+// TestDecideSameKeyChangedPayloadConflictsAfterDecision is the CR-06 regression. Reusing a decision
+// idempotency key with a CHANGED payload must be a conflict even AFTER the request is decided. The
+// same-key/fingerprint check previously ran only after the terminal-status early return, so an
+// already-decided request retried with the same key but a different reason fell into the "same
+// decision" replay path and returned the original row as a silent success -- accepting a payload it
+// never applied. The check must fire whether the request is pending or decided.
+func TestDecideSameKeyChangedPayloadConflictsAfterDecision(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status string
+		reason string
+	}{
+		{name: "after approve", status: domain.ApprovalStatusApproved, reason: ""},
+		{name: "after reject", status: domain.ApprovalStatusRejected, reason: "duplicate report"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := setupCountsDB(t, ctx)
+			identity := &fakeIdentityTx{}
+			repo := newApprovalRepo(t, pool, identity)
+
+			req, _, err := repo.CreateApprovalRequest(ctx, birthSubmission("birth-cr06-"+tc.name))
+			if err != nil {
+				t.Fatalf("submit: %v", err)
+			}
+			decision := domain.ApprovalDecision{
+				TenantID:           countsTenant,
+				ApprovalRequestID:  req.ApprovalRequestID,
+				Status:             tc.status,
+				DecidedByUserID:    countsApprover,
+				DecidedAt:          time.Now().In(biztime.DefaultLocation()),
+				Reason:             tc.reason,
+				IdempotencyKey:     "decide-cr06-" + tc.name,
+				RequestFingerprint: "decide-fp-cr06-" + tc.name,
+			}
+			if tc.status == domain.ApprovalStatusApproved {
+				decision.Effect = &domain.ApprovalEffect{CreateGoat: identityports.CreateAdminGoatCommand{TenantID: countsTenant}}
+			}
+			if _, _, err := repo.DecideApprovalRequest(ctx, decision); err != nil {
+				t.Fatalf("first decision: %v", err)
+			}
+
+			// Exact replay (same key, same fingerprint) still succeeds as an idempotent no-op.
+			if _, replay, err := repo.DecideApprovalRequest(ctx, decision); err != nil || !replay {
+				t.Fatalf("exact replay: replay=%v err=%v, want a clean replay", replay, err)
+			}
+
+			// Same key, CHANGED payload (a different fingerprint / altered reason) must CONFLICT, not
+			// silently return the original decision as a replay.
+			changed := decision
+			changed.RequestFingerprint = "decide-fp-cr06-" + tc.name + "-altered"
+			changed.Reason = "a different account of the same decision"
+			_, replay, err := repo.DecideApprovalRequest(ctx, changed)
+			if !errors.Is(err, ports.ErrIdempotencyConflict) {
+				t.Fatalf("same-key/changed-payload after decision: err=%v replay=%v, want ErrIdempotencyConflict", err, replay)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Reject applies nothing
 // ---------------------------------------------------------------------------
