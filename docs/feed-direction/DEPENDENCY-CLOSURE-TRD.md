@@ -336,10 +336,11 @@ Reviewed values are not publishable until `review_status='approved'`,
 publish transaction must also enforce the actor/job capability check for
 `protocol.publish.feed_direction` or its approved service equivalent.
 
-Warmup, K0/K1, Experiment, F2/Fattening, SIROHI->Beetal, and any other legacy
-stage/breed transforms must be captured as reviewed config or explicit
-Feed-Director exclusions. Do not treat automation zero rows as automatic policy
-authority.
+Warmup, K0/K1, F2/Fattening, SIROHI->Beetal, and any other legacy stage/breed
+transforms must be captured as reviewed config or explicit Feed-Director
+exclusions. Native exact-shed custom-composition assignment is reviewed config,
+not an exclusion. Do not treat a legacy Experiment zero row in the normal branch
+as policy authority; it records diversion to the separate custom branch.
 
 Workbook tab names are not product module or table names. `CPT Validation`,
 `CBE Validation`, `Feed-Energy-Protein`, `Supply Planning`, `Template`,
@@ -893,8 +894,8 @@ Required tests/checks:
    legacy installed trigger functions, archive/retry/watchdog behavior, and
    proof/stock side effects only for retain/retire/replace cutover decisions.
 3. Close `G4`-`G6`: add ration DSL validators, provenance requirements, KT
-   candidate parameter review, Warmup/pregnancy/K0/K1/Experiment sign-off, and
-   quantity/precision decisions.
+   candidate parameter review, Warmup/pregnancy/K0/K1 and native
+   custom-composition sign-off, and quantity/precision decisions.
 4. Add generation run/count snapshot/generation row/manual bridge-log
    migrations.
 5. Build full generation service and idempotency tests.
@@ -929,7 +930,8 @@ Required tests/checks:
 - Count-mismatch/unreported-shifting detection creates exception work and
   reviewed resolve/dismiss closure is idempotent.
 - Ration key normalization and eligibility exclusions.
-- Warmup/K0/K1/Experiment policy cannot publish without sign-off/provenance.
+- Warmup/K0/K1 and native custom-composition policy cannot publish without
+  sign-off/provenance; custom composition remains eligible Feed work.
 - Ration publish gate rejects missing approval metadata or missing publish
   capability.
 - Baking-soda precision and feed-unit boundary are tested.

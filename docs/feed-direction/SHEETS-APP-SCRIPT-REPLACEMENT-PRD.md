@@ -6,12 +6,17 @@
 **Owner:** Feed Direction / GoatOS Protocol Engine
 **Companions:** [Feed Direction PRD](./PRD.md),
 [Feed Direction TRD](./TRD.md),
+[Mobile SOP Cutover PRD](./SOP-MOBILE-CUTOVER-PRD.md),
+[Mobile SOP Cutover TRD](./SOP-MOBILE-CUTOVER-TRD.md),
 [Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
 [Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md),
 [Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md),
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md),
 [legacy incident investigation](./legacy-feed-direction-incident-investigation-2026-07-16.md),
 and [Protocol Engine state machines](../protocol-engine/state-machines.md).
+
+The reusable discovery inventory is
+[Feed Direction Legacy System Reference](../../context/source-findings/feed-direction-legacy-system-reference.md).
 
 ## 1. Product story in plain language
 

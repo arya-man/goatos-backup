@@ -2,6 +2,12 @@
 
 Status: sanitized source finding for Feed Direction implementation reference.
 
+For the complete, reusable source catalog—including authorized Sheet/document
+links, Slack channels and prompts, Apps Script functions/triggers, BigQuery
+schemas, field maps, defects, confidence gaps, and future read order—use
+`context/source-findings/feed-direction-legacy-system-reference.md`. This older
+finding remains the focused workbook/automation interpretation.
+
 Sources reviewed:
 
 - `Feed, Shiftings and Count.docx` v1.1, June 2026.
@@ -15,9 +21,10 @@ Sources reviewed:
   workbook and the CBE/CPT experiment packing, distribution, and wastage Slack
   channels.
 
-Do not commit raw workbook rows, Slack media links, user names, file ids, tokens,
-webhook URLs, or local source paths. This note records structure and design
-implications only.
+Do not commit raw workbook rows, Slack message/media links, user names, tokens,
+webhook URLs, or private payloads. Stable access-controlled source-file links
+and channel identifiers may be recorded only in the canonical legacy reference
+so authorized maintainers can re-check evidence.
 
 ## Controlling Rule
 

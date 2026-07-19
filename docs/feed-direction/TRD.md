@@ -10,6 +10,11 @@
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md)
 **Feature closure plan:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md)
 **Build-to-done charter:** [Feed Direction Build-To-Done Goal](./BUILD-TO-DONE-GOAL.md)
+**Mobile/SOP cutover:**
+[SOP Mobile Cutover PRD](./SOP-MOBILE-CUTOVER-PRD.md) and
+[SOP Mobile Cutover TRD](./SOP-MOBILE-CUTOVER-TRD.md)
+**Legacy reference:**
+[Feed Direction Legacy System Reference](../../context/source-findings/feed-direction-legacy-system-reference.md)
 
 > v2 correction: the previous TRD treated a typed Sheet-shaped `feed_*` schema as
 > the target. The committed repo moved the other way. Migration
@@ -247,8 +252,10 @@ config:
   Warmup transition.
 - ICU, Quarantine, Flushing, and Breeding shed tags require explicit ration path,
   exclusion, or process-exception policy before they affect packed-feed output.
-- K0/K1 milk-fed cohort exclusions and Experiment zero-direction behavior are
-  candidate policy from legacy automation/zero rows until Feed Director approval.
+- K0/K1 milk-fed cohort exclusions are candidate policy from legacy automation/
+  zero rows until Feed Director approval. Legacy Experiment zero rows instead
+  indicate diversion to the exact-shed custom-composition path and must not
+  suppress GoatOS generation for that shed.
 - F2/Fattening, SIROHI->Beetal where approved, shed-tag aliases, and other legacy
   labels normalize before count matching and ration lookup.
 - Non-baking-soda feed quantities round up to the source-backed packing unit at
@@ -269,7 +276,8 @@ Feed configuration lives in `protocol_versions.rule_dsl` for
   one or more approved nutrition/ration cohort keys, and what blocker is emitted
   when context is missing.
 - Warmup stage policy and approved alias/exclusion handling.
-- Feed eligibility rules and zero-direction exclusions.
+- Feed eligibility rules and explicit owner-approved zero-direction exclusions;
+  a custom composition assignment is not an exclusion.
 - Feed item reference to `inventory_items.category='feed'`.
 - As-fed quantity and unit.
 - Session policy. The June 2026 source default is two sessions with a 50/50 split,
@@ -635,7 +643,7 @@ references must be re-verified before import/cutover work.
 | Milk Preparation verification | Separate feed-adjacent workflow with Pending/Verified/Rejected media correctness and Slack notification behavior | Out of the packed-feed Feed Direction slice. Treat as a sibling verification workflow if reopened, not as implicit packing/transport/consumption scope. |
 | Video verification / rejection tracker | Media correctness `Pending`/`Verified`/`Rejected`, remarks required on rejection, notification and rejected-media list | Platform proof verification state, audit trail, rejection reason, and follow-up obligation. |
 | Packing quantity discrepancy | Expected vs actual quantity discrepancy, red-flag/admin notification behavior, and video-verification packing quantity reset/re-send behavior | GoatOS formalizes this as typed packing discrepancy/rework/reissue with audit and idempotency; do not copy Sheet flag resets or thread deletion as runtime authority. |
-| Experiment sheds | Experiment tag and zero count/feed quantities in source evidence | Candidate feed eligibility exclusion / zero-direction rule requiring Feed Director sign-off. |
+| Experiment sheds | Normal workbook zeroes/diverts selected sheds while a separate exact-shed config supplies their kg | Native versioned composition assignment in the same generation/stage/proof path. A zero in the normal legacy branch is diversion evidence, not a GoatOS eligibility exclusion. |
 | Warmup stage tags | Warmup operating states from source findings, not fully covered by feed docx ration table | Reviewed ration path or explicit exclusion before Feed Direction publish. |
 | K0/K1 feed exclusions | Milk-fed cohorts filtered out of legacy supply/diff paths | Candidate eligibility rule from legacy evidence; requires Feed Director approval before publish, not an incidental transform. |
 | Per-farm Template sheet / session policy | Session labels, serving windows, split defaults, and which feed items appear in each session; June source default is two slots with 50/50 split and an explicit note to revisit if breed + tag needs uneven split | Versioned `session_policy` in `feed_direction` protocol config. Default publish uses the docx two slots; Feed Director/COO can add, disable, reorder, or reweight slots through an effective-dated protocol version. |

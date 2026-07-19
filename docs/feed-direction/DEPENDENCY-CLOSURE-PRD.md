@@ -104,7 +104,7 @@ questions must reference these IDs rather than maintaining independent lists.
 | G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed ration-context resolution state, idempotency, stale/imported mismatch scanning through the bounded `counts-mismatch-scan` worker path with durable scan-run evidence, recompute worker evidence through `count_projection_recompute_runs`, fail-closed exceptions with reviewed resolve/dismiss audit, and `CSG1`-`CSG10` readiness breakdown under `G2`. Breed/tag constraint tables without shed placement must produce a blocker until reviewed context resolves the physical count row to a nutrition cohort. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
 | G3 | Clock and legacy trigger inventory | Feed Director signs off the default Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving slots. `G5` owns approved session-slot changes beyond that default. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, uploaded breed/tag/energy constraint tables, quantity/weight thresholds, constraint hashes, approval metadata, publish authority checks, and typed CRUD/import/review/publish flow are defined. KT examples such as `80/20`, `400-500g`, `600g`, `F1` `11-15kg`, and `F2` `15-20kg` are reviewed as candidate row values, not hardcoded constants. `G4` must define the runtime template pipeline: source tables -> typed parameter rows -> dimension/alias/source-hash validation -> calculation preview -> row repair/DLQ -> approved `feed_direction_config_pack`. Workbook formulas and tabs are evidence only. | Source/owner |
-| G5 | Eligibility and stage-tag/session policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, pregnant-animal policy, lactation/warm-up safety policy, and versioned session-slot/feed-set policy are explicitly approved. The source default is two serving slots with 50/50 split, but admins may add, disable, reorder, or reweight slots only through approved effective-dated Feed Direction protocol config with validation and supersession rules. KT pregnant windows such as `12:30-15:00`/`14:00-15:00` are policy candidates only; they do not override docx clocks unless approved. Shifted pregnant/lactating/warm-up cohorts must re-resolve destination shed ration context and block on shortage or missing policy before generation/Diff. | Source/owner |
+| G5 | Eligibility, custom composition, and stage-tag/session policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, F2/Fattening, SIROHI->Beetal or other breed aliases, pregnant-animal policy, lactation/warm-up safety policy, native exact-shed custom-composition assignment, and versioned session-slot/feed-set policy are explicitly approved. A legacy Experiment zero row means diversion to that custom-composition path, not automatic exclusion. The source default is two serving slots with 50/50 split, but admins may add, disable, reorder, or reweight slots only through approved effective-dated Feed Direction protocol config with validation and supersession rules. KT pregnant windows such as `12:30-15:00`/`14:00-15:00` are policy candidates only; they do not override docx clocks unless approved. Shifted pregnant/lactating/warm-up cohorts must re-resolve destination shed ration context and block on shortage or missing policy before generation/Diff. | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
 | G7 | Stage model | Packing, transport, consumption/wastage, bridge proof/rework model chosen with a durable queryable `stage_kind` discriminator | Architecture |
 | G8 | Transport map and checklist entity | Direction-shed to transport-shed consolidation owner/storage is confirmed, and any transport list/checklist entity from legacy overlap has a GoatOS equivalent | Source/owner |
@@ -242,9 +242,11 @@ They may become reviewed ration paths, explicit exclusions, or process-exception
 states, but they must not inherit packed-feed behavior through catch-all alias
 cleanup.
 
-K0/K1 and Experiment exclusions are not settled by the feed docx alone. Treat
-legacy zero rows/automation filters as candidate policy evidence and require
-Feed Director approval before suppressing normal packed-feed obligations.
+K0/K1 and other true exclusions are not settled by the feed docx alone. Treat
+legacy zero rows/automation filters as candidate evidence and require Feed
+Director approval before suppressing packed-feed obligations. Do not classify a
+legacy Experiment zero row as exclusion: the separate workbook supplies that
+shed's custom composition, which GoatOS executes on the normal Feed path.
 
 The legacy workbooks show why `G4` cannot close with a spreadsheet clone. The
 closure must specify the admin/data-ops surfaces or import APIs that create,
@@ -421,8 +423,10 @@ This phase is complete when:
 3. Ration values and KT-derived candidate parameters are source-backed through
    solver or reviewed import, and publishability requires
    `review_status='approved'`, approval metadata, and publish authority checks.
-4. Warmup, pregnancy, K0/K1, Experiment, breed aliases, and versioned
-   session-slot/feed-set policy are explicitly approved. The June 2026 `50/50`
+4. Warmup, pregnancy, K0/K1, breed aliases, native custom-composition
+   assignments, and versioned session-slot/feed-set policy are explicitly
+   approved. Legacy Experiment zero rows are diversion evidence, not an
+   exclusion. The June 2026 `50/50`
    two-session split is a deliberate source simplification, not derived
    nutrition logic; GoatOS must support admin-approved effective-dated slot
    changes without silently mutating already-generated FeedDirection/Diff rows.

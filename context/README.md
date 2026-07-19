@@ -212,6 +212,13 @@ context/source-findings/
   rule that Sheds DB becomes governed Location/Park profile data, not a raw
   runtime spreadsheet dependency.
 
+  `feed-direction-legacy-system-reference.md` is the reusable Feed Direction
+  discovery map. It records the authorized Drive/Sheet links, relevant wiki
+  sources, Slack channels/prompts, Apps Script functions/triggers, legacy
+  BigQuery tables, workbook/form fields, operating roles, defects, confidence
+  gaps, and their one-path GoatOS mapping. Read it before reopening raw legacy
+  sources.
+
 context/architecture/
   contexts, wires, ports, deploy model, infra decisions
 

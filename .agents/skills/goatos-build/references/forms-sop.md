@@ -15,6 +15,9 @@ Canonical docs:
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/sop-vaccination-backend-handoff.md`
 - `context/execution/vaccination-process-integrity-backend-handoff.md`
+- `context/source-findings/feed-direction-legacy-system-reference.md`
+- `docs/feed-direction/SOP-MOBILE-CUTOVER-PRD.md`
+- `docs/feed-direction/SOP-MOBILE-CUTOVER-TRD.md`
 
 Rules:
 
@@ -26,6 +29,11 @@ Rules:
   state, idempotency, and workflow gates.
 - `repeat_for_each_goat` is a first-class batch semantic, not a normal field.
 - Slack forms are legacy discovery/migration input only.
+- Feed Direction Slack prompts are captured in the canonical Feed legacy
+  reference. Packing, transport, distribution/consumption, water, wastage,
+  verification, rework, and emergency bridge must render as versioned Android
+  SOP tasks on the same kernel. Default and custom-composition sheds share one
+  execution path.
 - Legacy Slack schemas are now captured canonically: death, shifting, birth/
   abortion, health diagnosis/follow-up, not-eating, proof policy, correction
   and rectification behavior.

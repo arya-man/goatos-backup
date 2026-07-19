@@ -31,6 +31,14 @@ bounded product milestone order and loop guard; the build charter owns session
 stop rules for source priority, backend/frontend integration, seeds, E2E proof,
 high-effort review agents, and Mesha/VGoats push verification.
 
+**Mobile/SOP cutover:** Use
+[SOP-MOBILE-CUTOVER-PRD.md](./SOP-MOBILE-CUTOVER-PRD.md) and
+[SOP-MOBILE-CUTOVER-TRD.md](./SOP-MOBILE-CUTOVER-TRD.md) for the role-assigned
+Android replacement of every Feed Slack form/prompt. Use the
+[canonical legacy system reference](../../context/source-findings/feed-direction-legacy-system-reference.md)
+for workbook, Slack channel, Apps Script, trigger, wiki, BigQuery, role, field,
+and defect evidence.
+
 **Design decision:** Ratify the committed `000079_feed_direction_module.sql`
 direction unless the owner explicitly reverses it. Feed Direction reuses the
 generic protocol, obligation, SOP, inventory, audit, outbox, and projection
@@ -252,11 +260,12 @@ paired overshoot ceiling, and replace the RationTable output wholesale after a
 reviewed re-solve instead of blending old and new versions.
 
 Feed eligibility is reviewed config, not presentation cleanup. K0/K1 milk-fed
-exclusions and legacy Experiment zero-direction handling are candidate policy
-from zero rows/automation behavior, not settled by the feed docx alone. They
-must receive Feed Director approval before suppressing packed-feed obligations.
-A custom composition assignment is not itself an exclusion and continues
-through the normal generation and execution flow. The June 2026 source default
+exclusions are candidate policy from zero rows/automation behavior, not settled
+by the feed docx alone, and require Feed Director approval before suppressing
+packed-feed obligations. Legacy Experiment zero rows often mean the shed was
+diverted into the separate exact-shed composition workaround; they are not
+evidence that GoatOS should suppress that shed. A custom composition assignment
+continues through normal generation and execution. The June 2026 source default
 is two sessions with a 50/50 split, and
 the same source calls that split a deliberate simplification to revisit if a
 breed + tag combo needs an uneven split. GoatOS therefore must model session
@@ -479,9 +488,10 @@ Under reopened `G1`, when building Feed Direction UI:
   cohort/stage impact fails closed before counts or ration selection change.
 - Warmup, K0/K1, breed/stage aliases, and custom composition assignments cannot
   publish without reviewed source/provenance and Feed Director sign-off.
-- K0/K1 and explicit legacy zero-direction exclusions suppress packed-feed
-  obligations only after the approved policy says so; a custom composition
-  assignment remains inside normal Feed Direction execution.
+- K0/K1 and other explicit owner-approved non-Feed eligibility exclusions
+  suppress packed-feed obligations only after policy says so. A legacy
+  Experiment zero row is treated as diversion evidence, and its custom
+  composition assignment remains inside normal Feed Direction execution.
 - Same-tag sheds can receive different approved composition versions without a
   separate experiment backend, and the effective assignment/version is visible
   on generation, proof, wastage, audit, and next-day review records.
@@ -535,9 +545,10 @@ Under reopened `G1`, when building Feed Direction UI:
    Explicitly review KT examples such as `80/20`, `400-500g`, `600g`, `F1`
    `11-15kg`, and `F2` `15-20kg` before treating them as protocol values.
 6. `G5`: Confirm Warmup 14-day transition handling, ICU, Quarantine, Flushing,
-   Breeding, K0/K1, legacy Experiment zero-direction exclusions,
-   F2/Fattening, SIROHI->Beetal, and other alias/exclusion policies; confirm the
-   native custom-composition assignment approval roles separately, plus which
+   Breeding, K0/K1, F2/Fattening, SIROHI->Beetal, and other true alias/exclusion
+   policies. Treat legacy Experiment zero rows as diversion into a custom
+   composition path, not an exclusion; confirm native custom-composition
+   assignment approval roles separately, plus which
    admin roles may draft/publish effective-dated session-slot changes.
 7. `G9`: Confirm whether KT `90-95%` shed/pack/breed/tag/energy matching and
    warm-up allowance become reviewed validation thresholds, draft-only warnings,

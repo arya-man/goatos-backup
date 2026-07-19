@@ -10,6 +10,7 @@ Canonical docs:
 - `context/source-findings/customer-promise-safety-findings.md`
 - `context/source-findings/feed-transfer-kt-2026-06-24.md`
 - `context/source-findings/feed-direction-workbook-automation-findings.md`
+- `context/source-findings/feed-direction-legacy-system-reference.md`
 - `context/source-findings/goats-and-parks-source-findings.md`
 - `context/source-findings/goats-and-parks-alignment-audit-2026-06-30.md`
 - `context/source-findings/sheds-db-source-findings.md`
@@ -20,8 +21,11 @@ Canonical docs:
 Rules:
 
 - Commit sanitized summaries only. Do not commit raw Drive files, raw Slack
-  exports, contacts, phone numbers, local filesystem paths, media URLs, tokens,
-  screenshots, or private rows.
+  exports, contacts, phone numbers, media URLs, tokens, screenshots, or private
+  rows. The designated Feed legacy reference may list stable access-controlled
+  source-file links, source paths, and Slack channel identifiers so authorized
+  maintainers can re-check evidence; never include message/file links or row
+  payloads.
 - If a source fact affects build behavior, it must land in an authoritative
   context doc, not only in analysis or archive.
 - `Goats and Parks.docx` is the base source for goat and park semantics across
@@ -58,6 +62,12 @@ Rules:
   copies, processed flags, and legacy Apps Script glue must be replaced by
   typed imports, CRUD/review/publish config, immutable generation snapshots,
   stage obligations, proof/rework, audit/outbox, and bounded Postgres reads.
+- For Feed questions, start with
+  `feed-direction-legacy-system-reference.md` before opening raw wiki, Sheets,
+  Slack, Apps Script, or BigQuery. Legacy Experiment Feed is the exact-shed
+  composition workaround for Sheet/App Script constraints. GoatOS models it as
+  native versioned composition assignment on the same Feed execution path, not
+  as an exclusion or duplicate backend.
 - Deleted archive docs and old phase ladders are historical only. If a breed,
   table, SOP, or form field only exists in git history, it is not
   build-canonical.
