@@ -5043,17 +5043,19 @@ func (r *Repository) NextSuccessorSuffix(ctx context.Context, tenantID, baseKey 
 		return 0, fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	// Query finds the maximum existing successor suffix and returns next available.
-	// Pattern: baseKey + ":successor:NN" where NN is a 2-digit number.
+	// Pattern: baseKey + ":successor:N" where N is a variable-width, zero-padded integer
+	// (generation.go formats with %02d, so 2+ digits: 01..99, 100..199, 200..). The suffix must be
+	// parsed as its FULL digit run, not a fixed 2 chars — a fixed-2 read capped the max at 99, so
+	// past 99 successors NextSuccessorSuffix returned a colliding value and creation failed.
 	var nextSuffix int
 	err = r.pool.QueryRow(ctx, `
 SELECT COALESCE(MAX(suffix), 0) + 1
 FROM (
-  SELECT (
-    CAST(SUBSTRING(idempotency_key, LENGTH($2) + 12, 2) AS INTEGER)
-  ) AS suffix
+  SELECT CAST(SUBSTRING(idempotency_key FROM LENGTH($2) + 12) AS INTEGER) AS suffix
   FROM idempotency_keys
   WHERE tenant_id = $1
-    AND idempotency_key LIKE $2 || ':successor:' || '__'
+    AND idempotency_key LIKE $2 || ':successor:%'
+    AND SUBSTRING(idempotency_key FROM LENGTH($2) + 12) ~ '^[0-9]+$'
 ) t
 WHERE suffix > 0 AND suffix < 2000`, tenant, baseKey).Scan(&nextSuffix)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {

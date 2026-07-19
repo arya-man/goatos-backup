@@ -29,7 +29,11 @@ WITH duplicate_rows AS (
       'verification.verdict.rework'::text,
       'verification.item.closed'::text
     ])
-    AND NOT EXISTS (
+    -- Keep the EARLIEST (tenant_id, idempotency_key) row per group; a row is a duplicate-to-delete
+    -- iff an earlier row EXISTS. (Bug fix: this was NOT EXISTS, which selected the earliest row
+    -- itself for deletion and left every later duplicate — so 3 dupes left 2 and the CREATE UNIQUE
+    -- INDEX CONCURRENTLY below still failed 42P10.)
+    AND EXISTS (
       SELECT 1
       FROM public.outbox_messages keep
       WHERE keep.tenant_id = dupe.tenant_id

@@ -890,6 +890,26 @@ ON CONFLICT DO NOTHING`, tenantID, key)
 	if suffix != 51 {
 		t.Fatalf("next suffix after 50 = %d, want 51", suffix)
 	}
+
+	// Test 4 (R50-011 3-digit fix): past 99 the suffix is 3 digits ("100", "105"). A fixed
+	// 2-char SUBSTRING read capped MAX at 99 and returned a colliding value, so successor
+	// creation past 99 failed. Insert up to 105 and assert the next free suffix is 106.
+	for i := 51; i <= 105; i++ {
+		key := fmt.Sprintf("%s:successor:%02d", baseKey, i)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO idempotency_keys (tenant_id, idempotency_key, scope, request_hash, status, result_type, result_id)
+VALUES ($1, $2, 'obligation.status_event', 'hash', 'started', NULL, NULL)
+ON CONFLICT DO NOTHING`, tenantID, key); err != nil {
+			t.Fatalf("insert successor %d: %v", i, err)
+		}
+	}
+	suffix, err = repo.NextSuccessorSuffix(ctx, tenantID, baseKey)
+	if err != nil {
+		t.Fatalf("next suffix (105 history): %v", err)
+	}
+	if suffix != 106 {
+		t.Fatalf("next suffix after 105 (3-digit) = %d, want 106", suffix)
+	}
 }
 
 // mustVersionOf / mustRuleOf re-read the seeded ids for the replay test.
