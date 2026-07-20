@@ -566,15 +566,15 @@
   .schedule-dot.state-scheduled,.schedule-cell.state-scheduled,.schedule-date-cell.state-scheduled{background:var(--infox);color:var(--info)}
   .schedule-dot.state-up_to_date,.schedule-cell.state-up_to_date,.schedule-date-cell.state-up_to_date{background:var(--okx);color:var(--brand-d)}
   .schedule-dot.state-no_record,.schedule-cell.state-no_record,.schedule-date-cell.state-no_record{background:var(--bg);color:var(--faint)}
-  .main table.full-vaccine-schedule-table{table-layout:fixed;min-width:1340px}
+  .main table.full-vaccine-schedule-table{table-layout:fixed;min-width:1160px}
   .main table.full-vaccine-schedule-table th,.main table.full-vaccine-schedule-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.full-vaccine-schedule-table th{padding:9px 12px}
   .main table.full-vaccine-schedule-table td{padding:0;border-bottom-color:var(--line2)}
   .main table.full-vaccine-schedule-table th:nth-child(1),.main table.full-vaccine-schedule-table td:nth-child(1){width:150px;min-width:150px}
   .main table.full-vaccine-schedule-table th:nth-child(2),.main table.full-vaccine-schedule-table td:nth-child(2){width:128px;min-width:128px}
-  .main table.full-vaccine-schedule-table th:nth-child(3),.main table.full-vaccine-schedule-table td:nth-child(3){width:420px;min-width:420px;white-space:normal}
+  .main table.full-vaccine-schedule-table th:nth-child(3),.main table.full-vaccine-schedule-table td:nth-child(3){width:330px;min-width:330px;white-space:normal}
   .main table.full-vaccine-schedule-table th:nth-child(4),.main table.full-vaccine-schedule-table td:nth-child(4){width:92px;min-width:92px}
-  .main table.full-vaccine-schedule-table th:nth-child(5),.main table.full-vaccine-schedule-table td:nth-child(5){width:410px;min-width:410px;white-space:normal}
+  .main table.full-vaccine-schedule-table th:nth-child(5),.main table.full-vaccine-schedule-table td:nth-child(5){width:300px;min-width:300px;white-space:normal}
   .main table.full-vaccine-schedule-table th:nth-child(6),.main table.full-vaccine-schedule-table td:nth-child(6){width:140px;min-width:140px;text-align:center}
   .main table.full-vaccine-schedule-table .celllink{min-height:58px;display:flex;align-items:center;margin:0;padding:10px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .main table.full-vaccine-schedule-table .celllink.num{justify-content:flex-start;color:var(--ink);font-weight:850;font-size:18px}
@@ -585,12 +585,30 @@
   .schedule-date-main{font-size:15px;font-weight:850}
   .schedule-date-sub{font-size:10.5px;text-transform:uppercase;color:color-mix(in srgb,currentColor 70%,var(--muted));letter-spacing:.4px}
   .main table.full-vaccine-schedule-table .schedule-status-link .tag{margin:0}
-  .main table.full-vaccine-schedule-table .schedule-wrap-link{align-items:flex-start;white-space:normal;overflow:visible;text-overflow:clip;min-height:58px}
-  .schedule-chip-list{display:flex;align-items:center;align-content:center;gap:6px;flex-wrap:wrap;min-width:0}
+  .main table.full-vaccine-schedule-table .schedule-wrap-link{align-items:center;white-space:nowrap;overflow:hidden;text-overflow:clip;min-height:58px}
+  .main table.full-vaccine-schedule-table .schedule-shed-cell{overflow:hidden}
+  .schedule-chip-list{display:flex;align-items:center;align-content:center;gap:6px;flex-wrap:nowrap;min-width:0;max-width:100%;overflow:hidden}
+  .schedule-chip-list-compact .schedule-mini-chip{max-width:104px}
   .schedule-mini-chip{display:inline-flex;align-items:center;max-width:180px;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 82%,var(--bg));border-radius:999px;padding:4px 8px;font-size:12px;line-height:1.1;color:var(--muted);font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .schedule-count-chip{color:var(--brand-d);border-color:color-mix(in srgb,var(--brand) 36%,var(--line));background:var(--brand-soft)}
+  .schedule-more-chip{border-color:color-mix(in srgb,var(--info) 36%,var(--line2));background:var(--infox);color:var(--info);font-weight:850}
   .vaccine-chip{color:var(--ink);border-color:color-mix(in srgb,var(--info) 32%,var(--line));background:var(--infox)}
-  .schedule-animals-link{justify-content:center}
+  .schedule-animals-link{justify-content:center;text-align:center}
+  .schedule-load-stack{display:grid;gap:3px;line-height:1.08}
+  .schedule-load-stack b{font-size:18px;color:var(--ink)}
+  .schedule-load-stack span{max-width:84px;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.25px}
+  .schedule-drawer-backdrop{position:fixed;inset:0;z-index:219;pointer-events:none;background:linear-gradient(90deg,transparent 0%,transparent 55%,color-mix(in srgb,var(--bg) 58%,transparent));backdrop-filter:blur(2px)}
+  .schedule-side-drawer{position:fixed;top:0;right:0;width:min(460px,calc(100vw - 28px));height:100vh;display:flex;flex-direction:column;pointer-events:auto;background:color-mix(in srgb,var(--panel) 96%,var(--bg));border-left:1px solid var(--line);box-shadow:-18px 0 50px rgba(0,0,0,.32);z-index:220}
+  .schedule-drawer-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:18px 18px 14px;border-bottom:1px solid var(--line2)}
+  .schedule-drawer-head h3{margin:3px 0 4px;font-size:18px}
+  .schedule-drawer-search{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line2);background:color-mix(in srgb,var(--bg) 52%,transparent)}
+  .schedule-drawer-search .ic{width:16px;height:16px;color:var(--muted);flex:0 0 auto}
+  .schedule-drawer-search input[name="schedule_sheds_q"]{min-width:0;flex:1;border:1px solid var(--line2);border-radius:10px;background:var(--bg);color:var(--ink);padding:8px 10px;font:inherit}
+  .schedule-drawer-list{display:grid;gap:8px;align-content:start;overflow:auto;padding:14px;flex:1}
+  .schedule-drawer-shed-row{display:flex;align-items:center;gap:10px;border:1px solid var(--line2);border-radius:12px;padding:10px 12px;background:color-mix(in srgb,var(--panel) 78%,var(--bg));font-weight:800;color:var(--ink)}
+  .schedule-drawer-shed-row .ic{width:16px;height:16px;color:var(--brand-d);flex:0 0 auto}
+  .schedule-drawer-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-top:1px solid var(--line2)}
+  .schedule-drawer-foot .chip.disabled{opacity:.45;pointer-events:none}
   .main table.full-vaccine-schedule-table .schedule-cell-link{display:flex;min-height:48px;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;color:inherit;text-decoration:none;padding:8px 10px}
   .main table.full-vaccine-schedule-table .schedule-cell-link > span{font-size:12.5px;line-height:1}
   .main table.full-vaccine-schedule-table .schedule-cell-link .tag{font-size:10.5px;padding:2px 7px}

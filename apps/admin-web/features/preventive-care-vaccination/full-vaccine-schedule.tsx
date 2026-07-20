@@ -1,5 +1,5 @@
 import Link from "@/components/no-prefetch-link";
-import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
+import { CalendarDays, Layers, MapPinned, Search, Warehouse, X } from "lucide-react";
 import { type ApiResult } from "@/lib/api/server";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate, todayIso } from "@/lib/format";
@@ -10,7 +10,10 @@ import { getCalendarVaccinationEvents, type CalendarEvent, type CalendarEventLis
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
-const PAGE_LIMIT = 500;
+const PAGE_LIMIT = 100;
+const SHED_CHIP_PREVIEW_LIMIT = 3;
+const VACCINE_CHIP_PREVIEW_LIMIT = 2;
+const SHED_DRAWER_PAGE_SIZE = 12;
 
 type ScheduleState = "overdue" | "due_soon" | "up_to_date" | "scheduled" | "no_record";
 
@@ -39,6 +42,19 @@ function selectedScheduleMonth(searchParams: RouteSearchParams | undefined): num
 function selectedScheduleCursor(searchParams: RouteSearchParams | undefined): string | undefined {
   const cursor = one(searchParams ?? {}, "schedule_cursor");
   return cursor && cursor.length <= 512 ? cursor : undefined;
+}
+
+function selectedScheduleEvent(searchParams: RouteSearchParams | undefined): string | undefined {
+  const eventId = one(searchParams ?? {}, "schedule_event");
+  return eventId && eventId.length <= 256 ? eventId : undefined;
+}
+
+function selectedShedQuery(searchParams: RouteSearchParams | undefined): string {
+  return (one(searchParams ?? {}, "schedule_sheds_q") ?? "").trim().slice(0, 80);
+}
+
+function selectedShedPage(searchParams: RouteSearchParams | undefined): number {
+  return boundedInt(one(searchParams ?? {}, "schedule_sheds_page"), 1, 1, 1_000_000);
 }
 
 function monthLabel(year: number, month: number): string {
@@ -81,6 +97,28 @@ function uniqueSorted(values: Array<string | null | undefined>): string[] {
 
 function countUnit(pageContract: AdminUiPageContract, count: number, singularKey: string, pluralKey: string): string {
   return `${count} ${copy(pageContract, count === 1 ? singularKey : pluralKey)}`;
+}
+
+function scheduleLoadLines(event: CalendarEvent, animals: number, pageContract: AdminUiPageContract): string[] {
+  const driveCount = event.drive_count ?? 0;
+  const scheduled = event.scheduled_count ?? 0;
+  const deferred = event.deferred_count ?? 0;
+  const totalDoses = event.drive_summary?.total_count ?? event.target_count ?? animals;
+  const lines = [
+    `${animals} ${copy(pageContract, animals === 1 ? "schedule.unit.animal" : "schedule.unit.animals")}`,
+  ];
+  if (totalDoses !== animals) {
+    lines.push(`${totalDoses} ${copy(pageContract, totalDoses === 1 ? "schedule.unit.dose" : "schedule.unit.doses")}`);
+  }
+  if (driveCount > 1) {
+    lines.push(`${driveCount} ${copy(pageContract, "schedule.unit.drives")}`);
+  }
+  if (deferred > 0) {
+    lines.push(`${deferred} ${copy(pageContract, "schedule.unit.deferred")}`);
+  } else if (scheduled > 0) {
+    lines.push(`${scheduled} ${copy(pageContract, "schedule.unit.scheduled")}`);
+  }
+  return lines;
 }
 
 function dateEyebrow(date: string): string {
@@ -180,6 +218,9 @@ export async function VaccinationFullSchedule({
   const year = selectedScheduleYear(searchParams);
   const month = selectedScheduleMonth(searchParams);
   const cursor = selectedScheduleCursor(searchParams);
+  const selectedEventId = selectedScheduleEvent(searchParams);
+  const shedQuery = selectedShedQuery(searchParams);
+  const shedPage = selectedShedPage(searchParams);
   const result = scheduleResult ?? (await loadFullSchedule(scope, year, month, cursor));
   const rows = result.ok
     ? result.data.items
@@ -198,6 +239,7 @@ export async function VaccinationFullSchedule({
   const fixedColumns = scheduleTable.columns.filter((column) => column.visible);
   const legend = optionGroup(pageContract, "schedule_status_legend");
   const currentScheduleHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
+  const selectedRow = selectedEventId ? rows.find((row) => row.event_id === selectedEventId) : undefined;
   const staleSchedule = Boolean(result.ok && (result.data.projection?.stale || result.data.projection?.partial_coverage));
   const nextScheduleHref =
     result.ok && result.data.next_cursor
@@ -214,6 +256,25 @@ export async function VaccinationFullSchedule({
 
   function driveHref(row: CalendarEvent): string {
     return scopeHref(`/calendar/drive/${encodeURIComponent(row.event_id)}`, scope, {}, { ret: currentScheduleHref });
+  }
+
+  function shedDrawerHref(row: CalendarEvent, extra?: Record<string, string | undefined>): string {
+    return scopeHref("/vaccination", scope, {}, {
+      view: "schedule",
+      schedule_year: String(year),
+      schedule_month: String(month),
+      schedule_event: row.event_id,
+      schedule_sheds_page: "1",
+      ...extra,
+    });
+  }
+
+  function drawerPageHref(page: number): string {
+    if (!selectedRow) return currentScheduleHref;
+    return shedDrawerHref(selectedRow, {
+      schedule_sheds_q: shedQuery || undefined,
+      schedule_sheds_page: String(page),
+    });
   }
 
   return (
@@ -332,7 +393,12 @@ export async function VaccinationFullSchedule({
                   const statusLabel = legend.find((item) => item.key === view.state)?.label ?? view.state;
                   const date = eventDate(row);
                   const shedTitle = sheds.join(", ") || row.shed_name || "";
+                  const previewSheds = sheds.slice(0, SHED_CHIP_PREVIEW_LIMIT);
+                  const hiddenShedCount = Math.max(0, shedCount - previewSheds.length);
                   const vaccineTitle = vaccines.join(", ");
+                  const previewVaccines = vaccines.slice(0, VACCINE_CHIP_PREVIEW_LIMIT);
+                  const hiddenVaccineCount = Math.max(0, vaccines.length - previewVaccines.length);
+                  const loadLines = scheduleLoadLines(row, animals, pageContract);
                   return (
                     <tr key={row.event_id} className="schedule-click-row">
                       <td className={`schedule-date-cell state-${view.state}`} title={view.title}>
@@ -349,24 +415,35 @@ export async function VaccinationFullSchedule({
                         </Link>
                       </td>
                       <td>
-                        <Link href={driveHref(row)} className="celllink schedule-wrap-link" scroll={false} prefetch={false} title={shedTitle}>
-                          <span className="schedule-chip-list">
+                        <Link href={shedDrawerHref(row)} className="celllink schedule-wrap-link schedule-shed-cell" scroll={false} prefetch={false} title={shedTitle || copy(pageContract, "schedule.drawer.open_sheds")}>
+                          <span className="schedule-chip-list schedule-chip-list-compact">
                             <span className="schedule-mini-chip schedule-count-chip">{countUnit(pageContract, shedCount, "schedule.unit.shed", "schedule.unit.sheds")}</span>
-                            {sheds.map((shed) => (
+                            {previewSheds.map((shed) => (
                               <span key={shed} className="schedule-mini-chip">{shed}</span>
                             ))}
+                            {hiddenShedCount > 0 ? (
+                              <span className="schedule-mini-chip schedule-more-chip">+{hiddenShedCount} {copy(pageContract, "schedule.drawer.more")}</span>
+                            ) : null}
                           </span>
                         </Link>
                       </td>
                       <td className="muted num">
-                        <Link href={driveHref(row)} className="celllink num schedule-animals-link" scroll={false} prefetch={false}>{animals}</Link>
+                        <Link href={driveHref(row)} className="celllink num schedule-animals-link" scroll={false} prefetch={false} title={loadLines.join(" · ")}>
+                          <span className="schedule-load-stack">
+                            <b>{animals}</b>
+                            <span>{loadLines.slice(1).join(" · ") || copy(pageContract, "schedule.load.single_drive")}</span>
+                          </span>
+                        </Link>
                       </td>
                       <td>
                         <Link href={driveHref(row)} className="celllink schedule-wrap-link" scroll={false} prefetch={false} title={vaccineTitle}>
-                          <span className="schedule-chip-list vaccine-chip-list">
-                            {vaccines.length > 0 ? vaccines.map((vaccine) => (
+                          <span className="schedule-chip-list vaccine-chip-list schedule-chip-list-compact">
+                            {vaccines.length > 0 ? previewVaccines.map((vaccine) => (
                               <span key={vaccine} className="schedule-mini-chip vaccine-chip">{vaccine}</span>
                             )) : <span className="schedule-mini-chip">{copy(pageContract, "label.placeholder")}</span>}
+                            {hiddenVaccineCount > 0 ? (
+                              <span className="schedule-mini-chip schedule-more-chip">+{hiddenVaccineCount} {copy(pageContract, "schedule.drawer.more")}</span>
+                            ) : null}
                           </span>
                         </Link>
                       </td>
@@ -388,8 +465,115 @@ export async function VaccinationFullSchedule({
               </Link>
             </div>
           ) : null}
+          {selectedRow ? (
+            <ScheduleShedDrawer
+              pageContract={pageContract}
+              row={selectedRow}
+              currentScheduleHref={currentScheduleHref}
+              shedQuery={shedQuery}
+              shedPage={shedPage}
+              year={year}
+              month={month}
+              scope={scope}
+              drawerPageHref={drawerPageHref}
+            />
+          ) : null}
         </>
       )}
     </section>
+  );
+}
+
+function ScheduleShedDrawer({
+  pageContract,
+  row,
+  currentScheduleHref,
+  shedQuery,
+  shedPage,
+  year,
+  month,
+  scope,
+  drawerPageHref,
+}: {
+  pageContract: AdminUiPageContract;
+  row: CalendarEvent;
+  currentScheduleHref: string;
+  shedQuery: string;
+  shedPage: number;
+  year: number;
+  month: number;
+  scope: Scope;
+  drawerPageHref: (page: number) => string;
+}) {
+  const allSheds = uniqueSorted(row.shed_labels ?? []);
+  const filteredSheds = shedQuery
+    ? allSheds.filter((shed) => shed.toLowerCase().includes(shedQuery.toLowerCase()))
+    : allSheds;
+  const totalPages = Math.max(1, Math.ceil(filteredSheds.length / SHED_DRAWER_PAGE_SIZE));
+  const page = Math.min(shedPage, totalPages);
+  const start = (page - 1) * SHED_DRAWER_PAGE_SIZE;
+  const pageSheds = filteredSheds.slice(start, start + SHED_DRAWER_PAGE_SIZE);
+  const summary = row.drive_summary;
+  const date = eventDate(row);
+  const vaccines = uniqueSorted([...(summary?.vaccine_labels ?? []), ...(row.vaccine_labels ?? [])]);
+
+  return (
+    <div className="schedule-drawer-backdrop" role="presentation">
+      <aside className="schedule-side-drawer" role="dialog" aria-modal="false" aria-labelledby="schedule-shed-drawer-title">
+        <div className="schedule-drawer-head">
+          <div style={{ minWidth: 0 }}>
+            <span className="eyebrow">{date ? `${fmtDate(date)} · ${summary?.park_name ?? row.park_code ?? copy(pageContract, "label.placeholder")}` : copy(pageContract, "label.placeholder")}</span>
+            <h3 id="schedule-shed-drawer-title">{copy(pageContract, "schedule.drawer.title")}</h3>
+            <p className="muted small">{allSheds.length} {copy(pageContract, "schedule.unit.sheds")} · {vaccines.join(", ") || copy(pageContract, "label.placeholder")}</p>
+          </div>
+          <Link href={currentScheduleHref} className="iconbtn" scroll={false} prefetch={false} aria-label={copy(pageContract, "schedule.drawer.close")}>
+            <X className="ic" aria-hidden="true" />
+          </Link>
+        </div>
+
+        <form className="schedule-drawer-search" action="/vaccination" method="get">
+          <input type="hidden" name="view" value="schedule" />
+          <input type="hidden" name="schedule_year" value={String(year)} />
+          <input type="hidden" name="schedule_month" value={String(month)} />
+          <input type="hidden" name="scope_mode" value={scope.mode} />
+          {scope.parkId ? <input type="hidden" name="park" value={scope.parkId} /> : null}
+          {scope.range !== "last_30_days" ? <input type="hidden" name="range" value={scope.range} /> : null}
+          {scope.asOf ? <input type="hidden" name="as_of" value={scope.asOf} /> : null}
+          {scope.domain ? <input type="hidden" name="domain" value={scope.domain} /> : null}
+          {scope.range === "custom" && scope.dateFrom ? <input type="hidden" name="date_from" value={scope.dateFrom} /> : null}
+          {scope.range === "custom" && scope.dateTo ? <input type="hidden" name="date_to" value={scope.dateTo} /> : null}
+          <input type="hidden" name="schedule_event" value={row.event_id} />
+          <input type="hidden" name="schedule_sheds_page" value="1" />
+          <Search className="ic" aria-hidden="true" />
+          <input name="schedule_sheds_q" defaultValue={shedQuery} placeholder={copy(pageContract, "schedule.drawer.search")} />
+          <button className="btn sm" type="submit">{copy(pageContract, "schedule.drawer.search_action")}</button>
+        </form>
+
+        <div className="schedule-drawer-list" role="list" aria-label={copy(pageContract, "schedule.drawer.title")}>
+          {pageSheds.length > 0 ? pageSheds.map((shed) => (
+            <div key={shed} className="schedule-drawer-shed-row" role="listitem">
+              <Warehouse className="ic" aria-hidden="true" />
+              <span>{shed}</span>
+            </div>
+          )) : (
+            <div className="empty">{copy(pageContract, "schedule.drawer.empty")}</div>
+          )}
+        </div>
+
+        <div className="schedule-drawer-foot">
+          <span className="muted small">
+            {copy(pageContract, "schedule.drawer.page_label")} {page} / {totalPages} · {filteredSheds.length} {copy(pageContract, "schedule.drawer.rows_label")}
+          </span>
+          <div className="chips">
+            <Link href={drawerPageHref(Math.max(1, page - 1))} className={`chip${page <= 1 ? " disabled" : ""}`} scroll={false} prefetch={false} aria-disabled={page <= 1}>
+              {copy(pageContract, "schedule.drawer.previous_page")}
+            </Link>
+            <Link href={drawerPageHref(Math.min(totalPages, page + 1))} className={`chip${page >= totalPages ? " disabled" : ""}`} scroll={false} prefetch={false} aria-disabled={page >= totalPages}>
+              {copy(pageContract, "schedule.drawer.next_page")}
+            </Link>
+          </div>
+        </div>
+      </aside>
+    </div>
   );
 }
