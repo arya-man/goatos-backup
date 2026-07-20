@@ -82,7 +82,7 @@ class FakeProofCaptureSource(
  *  scope for "release the camera the moment the capture surface leaves composition". */
 @EntryPoint
 @InstallIn(SingletonComponent::class)
-internal interface ProofCaptureSourceEntryPoint {
+interface ProofCaptureSourceEntryPoint {
     fun delegatingProofCaptureSource(): DelegatingProofCaptureSource
 }
 
