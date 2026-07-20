@@ -478,7 +478,11 @@ export async function VaccinationFullSchedule({
                         <a href={shedDrawerHref(row)} className="celllink num schedule-animals-link" title={loadLines.join(" · ")}>
                           <span className="schedule-load-stack">
                             <b>{animals}</b>
-                            <span>{loadLines.slice(1).join(" · ") || copy(pageContract, "schedule.load.single_drive")}</span>
+                            <span className="schedule-load-meta">
+                              {(loadLines.slice(1).length > 0 ? loadLines.slice(1) : [copy(pageContract, "schedule.load.single_drive")]).map((line) => (
+                                <span key={line}>{line}</span>
+                              ))}
+                            </span>
                           </span>
                         </a>
                       </td>

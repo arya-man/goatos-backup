@@ -607,9 +607,10 @@
   .schedule-more-chip{flex:0 0 auto;max-width:none!important;border-color:color-mix(in srgb,var(--info) 36%,var(--line2));background:var(--infox);color:var(--info);font-weight:850}
   .vaccine-chip{color:var(--ink);border-color:color-mix(in srgb,var(--info) 32%,var(--line));background:var(--infox)}
   .schedule-animals-link{justify-content:center;text-align:center}
-  .schedule-load-stack{display:grid;gap:3px;line-height:1.08}
+  .schedule-load-stack{display:grid;justify-items:center;gap:4px;line-height:1.08;width:100%;min-width:0}
   .schedule-load-stack b{font-size:18px;color:var(--ink)}
-  .schedule-load-stack span{max-width:132px;white-space:normal;overflow:hidden;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.2px}
+  .schedule-load-meta{display:grid;justify-items:center;gap:2px;max-width:100%;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.2px}
+  .schedule-load-meta span{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .schedule-drawer-backdrop{position:fixed;inset:0;z-index:219;background:linear-gradient(90deg,transparent 0%,transparent 55%,color-mix(in srgb,var(--bg) 58%,transparent));backdrop-filter:blur(2px)}
   .schedule-drawer-close-layer{position:fixed;inset:0;z-index:219;display:block;border:0;background:transparent;padding:0;text-align:left;cursor:default}
   .schedule-side-drawer{position:fixed;top:0;right:0;width:min(460px,calc(100vw - 28px));height:100vh;display:flex;flex-direction:column;pointer-events:auto;background:color-mix(in srgb,var(--panel) 96%,var(--bg));border-left:1px solid var(--line);box-shadow:-18px 0 50px rgba(0,0,0,.32);z-index:220}
