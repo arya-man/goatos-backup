@@ -104,6 +104,9 @@ export async function FeedPackingPage({
       param: "fp_date",
       label: copy(pageContract, "filter.date_label"),
       value: scope.targetDate,
+      // Bound to [today, tomorrow] — see the twin note on Feed Direction.
+      min: scope.minDate,
+      max: scope.maxDate,
     },
     {
       kind: "select",

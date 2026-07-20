@@ -40,12 +40,32 @@ const (
 const (
 	// LifecycleStateDraft -- a live what-if compute (draft=true), explicitly NOT an issued sheet.
 	LifecycleStateDraft = "draft"
+	// LifecycleStatePreview -- the requested feed day has NO issued sheet, so the serve path GENERATES
+	// the full scope on demand and returns it, labelled as a not-yet-issued preview (maintainer
+	// decision 2026-07-20: "whenever I ask for feed data by date, generate the feed for that date").
+	// It is distinct from Draft (Draft is the explicit config-authoring what-if escape hatch) and from
+	// an ISSUED sheet (which serves FROZEN stored rows). The per-workflow detail still carries
+	// pending/not_issued and the expected issue instant, so an operator can see when the sheet WILL be
+	// formally frozen.
+	LifecycleStatePreview = "preview"
 	// LifecycleStatePending -- the feed day is in the future beyond its issue instant; the sheet
-	// will be issued at a known time, and is reported as pending with that time, never computed.
+	// will be issued at a known time. Retained as a PER-WORKFLOW state inside a preview lifecycle so
+	// the operator sees the expected issue time; the serve path no longer returns it as an aggregate
+	// empty wall.
 	LifecycleStatePending = "pending"
-	// LifecycleStateNotIssued -- the issue instant has passed and no sheet was ever issued. An
-	// honest empty state, not a live recompute.
+	// LifecycleStateNotIssued -- the issue instant has passed and no sheet was ever issued. Retained
+	// as a PER-WORKFLOW state inside a preview lifecycle (the aggregate is preview, with rows).
 	LifecycleStateNotIssued = "not_issued"
+	// LifecycleStateBeyondHorizon -- the requested feed day has NO issued sheet AND falls OUTSIDE the
+	// [today, tomorrow] projection window, so the serve path REFUSES to generate rather than
+	// fabricating a sheet (maintainer decision 2026-07-20). The projected shed count = live herd +
+	// approved-but-unexecuted shiftings is only meaningful for today (being fed) and tomorrow (being
+	// packed now); beyond tomorrow the counts depend on shiftings not yet approved, and a past day's
+	// herd is not what it is now. Either way, generating would silently freeze today's herd onto the
+	// wrong day. The aggregate carries this state with NO rows and an operator sentence naming the
+	// horizon; it is NEVER stored on an issue (an already-issued sheet for any date still serves its
+	// frozen rows -- the guard applies ONLY to on-the-fly generation).
+	LifecycleStateBeyondHorizon = "beyond_horizon"
 )
 
 // SourceContract / version stamped on every issue for provenance, mirroring the counts snapshots.

@@ -38,11 +38,46 @@ export type FeedScope = {
   /** True when the top bar owns the park, which makes the page's park control read-only. */
   parkLockedByTopBar: boolean;
   targetDate: string;
+  /**
+   * The inclusive feed-day window bounds, in Asia/Kolkata business dates. The date picker is bound to
+   * these so the operator physically cannot pick outside [today, tomorrow].
+   */
+  minDate: string;
+  maxDate: string;
 };
 
 /** The day a feed sheet opened right now is for: the next feed day, in Asia/Kolkata. */
 export function defaultFeedDay(): string {
   return istDayPlus(todayIso(), FEED_DAY_LEAD_DAYS);
+}
+
+/**
+ * The valid feed-day window [today, tomorrow] in Asia/Kolkata.
+ *
+ * The projected shed count that drives a sheet — live herd + approved-but-unexecuted shiftings — is
+ * only meaningful for today (being fed, packed yesterday) and tomorrow (being packed now). Beyond
+ * tomorrow the counts depend on shiftings not yet approved; a past day's herd is not what it is now.
+ * So a sheet for any other day is fabricated, and the backend refuses to generate it. `today` and
+ * `tomorrow` come from the SAME Asia/Kolkata helpers the default feed day uses (todayIso + istDayPlus),
+ * resolved server-side — never a raw browser clock or a hardcoded offset.
+ */
+export function feedDayWindow(): { min: string; max: string } {
+  const today = todayIso();
+  return { min: today, max: istDayPlus(today, FEED_DAY_LEAD_DAYS) };
+}
+
+/**
+ * Clamps a requested feed day into [today, tomorrow]. A stale bookmark to a far-future or past day
+ * (e.g. `?fd_date=2026-08-15`) is pulled to the nearest valid day rather than requesting a day the
+ * backend can only answer with a fabricated or beyond-horizon sheet. An unparseable value falls back
+ * to the default (tomorrow).
+ */
+export function clampFeedDay(requested: string): string {
+  const { min, max } = feedDayWindow();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(requested)) return defaultFeedDay();
+  if (requested < min) return min;
+  if (requested > max) return max;
+  return requested;
 }
 
 export function resolveFeedScope(
@@ -54,10 +89,17 @@ export function resolveFeedScope(
   const { parkId: topBarParkId } = backendScope(parseScope(sp));
   const pageParkId = one(sp, parkParam);
   const selected = topBarParkId || pageParkId || parks[0]?.id || "";
+  const { min, max } = feedDayWindow();
+  const requested = one(sp, dateParam);
+  // Default to tomorrow when absent; clamp an out-of-window value into [today, tomorrow] so the page
+  // never requests a fabricated/beyond-horizon day even from a stale URL.
+  const targetDate = requested ? clampFeedDay(requested) : defaultFeedDay();
   return {
     parkId: selected,
     parkLockedByTopBar: Boolean(topBarParkId),
-    targetDate: one(sp, dateParam) || defaultFeedDay(),
+    targetDate,
+    minDate: min,
+    maxDate: max,
   };
 }
 

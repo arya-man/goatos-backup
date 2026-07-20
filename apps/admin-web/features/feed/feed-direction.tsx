@@ -122,6 +122,10 @@ export async function FeedDirectionPage({
       param: "fd_date",
       label: copy(pageContract, "filter.date_label"),
       value: scope.targetDate,
+      // Bound to [today, tomorrow]: beyond that the projected counts are unknown, so the backend
+      // refuses to generate a sheet. Preventing the pick is the honest, no-fabrication guard.
+      min: scope.minDate,
+      max: scope.maxDate,
     },
     {
       kind: "select",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,56 +268,193 @@ func TestServeIssuedReturnsStoredRowsWithPageInvariantSummary(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Serve: pending / never-issued
+// Serve: generated preview (no issued sheet)
 // ---------------------------------------------------------------------------
 
-// A future date with no issue returns the pending state naming WHEN it will be issued, and does NOT
-// live-compute a speculative number.
-func TestServeFutureWithNoIssueReturnsPending(t *testing.T) {
+// TOMORROW (the default feed day) with no issue GENERATES the sheet and returns it as a `preview`
+// (maintainer decision 2026-07-20): rows AND a whole-scope summary, plus the per-workflow expected
+// issue time so the operator sees when it WILL be issued. Tomorrow is inside the [today, tomorrow]
+// generation horizon, so the on-the-fly generate is allowed. The per-workflow detail is `pending`
+// (issue instant still ahead). It live-computes, and it is NOT labelled draft.
+func TestServeTomorrowWithNoIssueReturnsGeneratedPreview(t *testing.T) {
 	t.Parallel()
-	now := istInstant(2026, 7, 28, 6) // before the 2026-07-29 07:00 issue instant
+	// now = 2026-07-29 06:00 -> today 07-29, tomorrow 07-30 (= feedDayTarget), before the 07:00 issue.
+	now := istInstant(2026, 7, 29, 6)
 	svc, config, counts, _ := newLifecycleService(now)
 
 	page, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if page.Lifecycle.State != domain.LifecycleStatePending {
-		t.Fatalf("state = %q, want pending", page.Lifecycle.State)
+	if page.Lifecycle.State != domain.LifecycleStatePreview {
+		t.Fatalf("state = %q, want preview", page.Lifecycle.State)
 	}
-	if len(page.Items) != 0 {
-		t.Fatalf("pending must return NO computed rows, got %d", len(page.Items))
+	if page.Draft {
+		t.Fatal("a generated preview must NOT be labelled draft")
+	}
+	if len(page.Items) == 0 {
+		t.Fatal("preview must GENERATE and return rows, not an empty wall")
+	}
+	if page.Summary.Scope != domain.SummaryScopeFiltered || len(page.Summary.TotalKgByFeedItem) == 0 {
+		t.Fatalf("preview must carry a whole-scope summary, got %+v", page.Summary)
 	}
 	if len(page.Lifecycle.Workflows) != 1 || page.Lifecycle.Workflows[0].ExpectedIssueAt == nil {
-		t.Fatalf("pending must name the expected issue instant, got %+v", page.Lifecycle.Workflows)
+		t.Fatalf("preview must name the expected issue instant per workflow, got %+v", page.Lifecycle.Workflows)
+	}
+	if page.Lifecycle.Workflows[0].State != domain.LifecycleStatePending {
+		t.Fatalf("future workflow detail = %q, want pending", page.Lifecycle.Workflows[0].State)
 	}
 	want := domain.FormatBusinessInstant(istInstant(2026, 7, 29, 7))
 	if *page.Lifecycle.Workflows[0].ExpectedIssueAt != want {
 		t.Fatalf("expected_issue_at = %s, want %s", *page.Lifecycle.Workflows[0].ExpectedIssueAt, want)
 	}
-	if config.snapshotCalls != 0 || counts.calls != 0 {
-		t.Fatal("pending must NOT live-compute")
+	if config.snapshotCalls == 0 || counts.calls == 0 {
+		t.Fatal("a generated preview MUST live-compute the rows")
 	}
 }
 
-// A past/current date with no issue is the honest never-issued state, again not a recompute.
-func TestServePastWithNoIssueReturnsNotIssued(t *testing.T) {
+// TODAY with no issue also GENERATES a `preview` — today is the lower bound of the [today, tomorrow]
+// horizon ("today" is being fed, packed yesterday). The per-workflow detail is `not_issued` because
+// today's issue instant (yesterday 07:00) has passed.
+func TestServeTodayWithNoIssueReturnsGeneratedPreview(t *testing.T) {
 	t.Parallel()
-	now := istInstant(2026, 7, 30, 8) // after the 2026-07-29 07:00 issue instant
+	// now = 2026-07-30 08:00 -> today 07-30 (= feedDayTarget), after the 07-29 07:00 issue instant.
+	now := istInstant(2026, 7, 30, 8)
 	svc, config, counts, _ := newLifecycleService(now)
 
 	page, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if page.Lifecycle.State != domain.LifecycleStateNotIssued {
-		t.Fatalf("state = %q, want not_issued", page.Lifecycle.State)
+	if page.Lifecycle.State != domain.LifecycleStatePreview {
+		t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+	}
+	if len(page.Items) == 0 {
+		t.Fatal("today's preview must GENERATE rows")
+	}
+	if len(page.Lifecycle.Workflows) != 1 || page.Lifecycle.Workflows[0].State != domain.LifecycleStateNotIssued {
+		t.Fatalf("today workflow detail = %+v, want not_issued", page.Lifecycle.Workflows)
+	}
+	if config.snapshotCalls == 0 || counts.calls == 0 {
+		t.Fatal("a generated preview MUST live-compute the rows")
+	}
+}
+
+// BEYOND the horizon (tomorrow+1 or later) with no issue is REFUSED, not fabricated (maintainer
+// decision 2026-07-20). The projected counts are unknown past tomorrow, so generating would silently
+// freeze today's herd onto the wrong day. The serve path returns an honest `beyond_horizon` state
+// with NO rows, an empty whole-scope summary, and a message naming tomorrow as the limit — and it
+// must NOT touch the generation reads (no config snapshot, no counts).
+func TestServeBeyondHorizonReturnsHonestNoData(t *testing.T) {
+	t.Parallel()
+	// now = 2026-07-28 06:00 -> today 07-28, tomorrow 07-29. feedDayTarget 07-30 is tomorrow+1.
+	now := istInstant(2026, 7, 28, 6)
+	svc, config, counts, _ := newLifecycleService(now)
+
+	page, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if page.Lifecycle.State != domain.LifecycleStateBeyondHorizon {
+		t.Fatalf("state = %q, want beyond_horizon", page.Lifecycle.State)
 	}
 	if len(page.Items) != 0 {
-		t.Fatalf("not_issued must return no rows, got %d", len(page.Items))
+		t.Fatalf("beyond-horizon serve must return NO rows (not fabricated), got %d", len(page.Items))
+	}
+	if len(page.Summary.TotalKgByFeedItem) != 0 || page.Summary.ShedCount != 0 || page.Summary.RowCount != 0 {
+		t.Fatalf("beyond-horizon summary must be empty, got %+v", page.Summary)
+	}
+	if !strings.Contains(page.Lifecycle.Message, "2026-07-29") {
+		t.Fatalf("beyond-horizon message must name the tomorrow limit 2026-07-29, got %q", page.Lifecycle.Message)
+	}
+	// The whole point: it did NOT fabricate a sheet, so it never ran generation.
+	if config.snapshotCalls != 0 || counts.calls != 0 {
+		t.Fatalf("beyond-horizon serve must NOT live-compute (snapshot=%d counts=%d)", config.snapshotCalls, counts.calls)
+	}
+}
+
+// A PAST date with no issue is ALSO refused generation (same reasoning: today's herd is not what the
+// past day's was). It returns the honest `beyond_horizon` no-data state with no rows and no
+// generation. Critically, the draft-only past-date regeneration guard is not what stops it here — the
+// non-draft serve path simply refuses to generate outside [today, tomorrow].
+func TestServePastWithNoIssueReturnsHonestNoData(t *testing.T) {
+	t.Parallel()
+	now := istInstant(2026, 8, 1, 8) // target feed day 2026-07-30 is strictly in the past
+	svc, config, counts, _ := newLifecycleService(now)
+
+	page, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	if err != nil {
+		t.Fatalf("Preview (past date must not error): %v", err)
+	}
+	if page.Lifecycle.State != domain.LifecycleStateBeyondHorizon {
+		t.Fatalf("state = %q, want beyond_horizon", page.Lifecycle.State)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("a past day with no issue must return NO rows, got %d", len(page.Items))
 	}
 	if config.snapshotCalls != 0 || counts.calls != 0 {
-		t.Fatal("not_issued must NOT live-compute")
+		t.Fatalf("a past day with no issue must NOT live-compute (snapshot=%d counts=%d)", config.snapshotCalls, counts.calls)
+	}
+}
+
+// An ISSUED sheet whose feed day has drifted OUTSIDE the horizon (e.g. it is now a past day) still
+// serves its FROZEN rows unchanged. The horizon guard is on GENERATION only; a real historical record
+// is not a fabrication.
+func TestServeIssuedBeyondHorizonStillServesFrozenRows(t *testing.T) {
+	t.Parallel()
+	// Issue for feed day 2026-07-30 (as-of 07-29), then read it from a clock far in the future where
+	// 07-30 is well past the [today, tomorrow] window.
+	svc, _, _, _ := newLifecycleService(istInstant(2026, 8, 10, 8))
+	ctx := context.Background()
+	if _, err := svc.IssueDirection(ctx, IssueRequest{TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal, AsOf: istInstant(2026, 7, 29, 9)}); err != nil {
+		t.Fatalf("IssueDirection: %v", err)
+	}
+
+	page, err := svc.Preview(ctx, domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	if err != nil {
+		t.Fatalf("serve issued far-future/past: %v", err)
+	}
+	if page.Lifecycle.State != domain.IssueStateIssued {
+		t.Fatalf("state = %q, want issued (frozen rows serve regardless of the horizon)", page.Lifecycle.State)
+	}
+	if len(page.Items) == 0 {
+		t.Fatal("an issued sheet must serve its frozen rows even when its feed day is beyond the horizon")
+	}
+}
+
+// The preview summary is WHOLE-SCOPE and page-size invariant, and blocked-vs-zero survives the
+// generated path exactly as it does on an issued sheet: a blocked cell is null + counted, never a 0.
+func TestServePreviewSummaryIsWholeScopeAndPreservesBlocked(t *testing.T) {
+	t.Parallel()
+	now := istInstant(2026, 7, 29, 6) // tomorrow = feedDayTarget 07-30, inside the generation horizon
+	svc, _, counts, _ := newLifecycleService(now)
+	// Give shed B a management stage with no authored ration so at least one cell BLOCKS.
+	counts.grains[shedB] = []domain.ShedGrain{{ManagementStage: "No-Such-Stage", Breed: "No-Such-Breed", HeadCount: 12}}
+
+	var reference domain.PreviewSummary
+	for i, limit := range []int32{1, 2, 50} {
+		page, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget(), Limit: limit})
+		if err != nil {
+			t.Fatalf("preview(limit=%d): %v", limit, err)
+		}
+		if page.Lifecycle.State != domain.LifecycleStatePreview {
+			t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+		}
+		if i == 0 {
+			reference = page.Summary
+		} else {
+			if page.Summary.RowCount != reference.RowCount || page.Summary.BlockedCount != reference.BlockedCount {
+				t.Fatalf("summary moved with page size: rows %d/%d blocked %d/%d",
+					page.Summary.RowCount, reference.RowCount, page.Summary.BlockedCount, reference.BlockedCount)
+			}
+			if page.Summary.TotalKgByFeedItem[0].QuantityKg != reference.TotalKgByFeedItem[0].QuantityKg {
+				t.Fatalf("total moved with page size: %s vs %s",
+					page.Summary.TotalKgByFeedItem[0].QuantityKg, reference.TotalKgByFeedItem[0].QuantityKg)
+			}
+		}
+	}
+	if reference.BlockedCount == 0 {
+		t.Fatal("the unauthored shed must produce a blocked cell in the preview summary")
 	}
 }
 
@@ -405,7 +543,7 @@ func TestAmendAndLockLifecycle(t *testing.T) {
 // live-computes nothing.
 func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 	t.Parallel()
-	now := istInstant(2026, 7, 28, 6)
+	now := istInstant(2026, 7, 29, 6) // tomorrow = feedDayTarget 07-30, so the non-draft serve is in-window
 	svc, config, counts, _ := newLifecycleService(now)
 	ctx := context.Background()
 
@@ -423,8 +561,9 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 		t.Fatal("draft must actually hit the generation reads")
 	}
 
-	// The non-draft serve of the same future day computes nothing (it is pending).
-	snapBefore, countBefore := config.snapshotCalls, counts.calls
+	// The non-draft serve of the same future day now GENERATES a preview (it also live-computes), but
+	// it is a `preview`, never a `draft`: draft is the explicit config-authoring escape hatch, preview
+	// is the serve-path fallback for a day with no issued sheet.
 	page, err := svc.Preview(ctx, domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
 	if err != nil {
 		t.Fatalf("serve Preview: %v", err)
@@ -432,8 +571,8 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 	if page.Draft {
 		t.Fatal("a non-draft serve must not be draft")
 	}
-	if config.snapshotCalls != snapBefore || counts.calls != countBefore {
-		t.Fatal("a non-draft serve must not live-compute")
+	if page.Lifecycle.State != domain.LifecycleStatePreview {
+		t.Fatalf("non-draft serve of an un-issued day = %q, want preview", page.Lifecycle.State)
 	}
 }
 

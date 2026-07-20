@@ -33,6 +33,9 @@ export type FeedFilterField =
       param: string;
       label: string;
       value: string;
+      /** Inclusive lower/upper bounds for the picker, so an out-of-window day cannot be selected. */
+      min?: string;
+      max?: string;
       disabledReason?: string;
     };
 
@@ -95,6 +98,8 @@ export function FeedFilters({
               className="tsize"
               type="date"
               value={field.value}
+              min={field.min}
+              max={field.max}
               aria-label={field.label}
               disabled={Boolean(field.disabledReason)}
               title={field.disabledReason}

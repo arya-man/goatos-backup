@@ -181,8 +181,10 @@ func (s *Service) prepareLifecycle(ctx context.Context, req IssueRequest, genera
 // Serve path
 // ---------------------------------------------------------------------------
 
-// servePreview reads the FROZEN sheet for a feed day and returns one page of its stored rows, or the
-// honest pending/never-issued state when nothing was issued.
+// servePreview serves one page of feed direction rows for a feed day. When an issued/amended/locked
+// sheet exists it returns the FROZEN stored rows (issued always wins). When NOTHING is issued it does
+// NOT show an empty wall: it GENERATES the full scope on demand and returns it as a `preview`
+// lifecycle (maintainer decision 2026-07-20 -- see LifecycleStatePreview).
 func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error) {
 	if s.issues == nil {
 		return domain.PreviewPage{}, fmt.Errorf("feeddirection: issue store is required to serve issued sheets")
@@ -193,14 +195,7 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 		return domain.PreviewPage{}, err
 	}
 	if !served {
-		return domain.PreviewPage{
-			Items:      []domain.DirectionRow{},
-			Summary:    domain.SummarizeScope(nil, nil),
-			Lifecycle:  lifecycle,
-			TargetDate: feedDay,
-			Limit:      q.Limit,
-			Offset:     q.Offset,
-		}, nil
+		return s.servePreviewGenerated(ctx, q, feedDay)
 	}
 
 	// Apply the shed and session narrowing to the stored rows, exactly as the live path filtered its
@@ -233,14 +228,7 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		return domain.PackingPage{}, err
 	}
 	if !served {
-		return domain.PackingPage{
-			Items:      []domain.PackingRow{},
-			Summary:    domain.SummarizePacking(nil, nil),
-			Lifecycle:  lifecycle,
-			TargetDate: feedDay,
-			Limit:      q.Limit,
-			Offset:     q.Offset,
-		}, nil
+		return s.servePackingGenerated(ctx, q, feedDay)
 	}
 
 	shedOrder := shedOrderOf(scopeRows)
@@ -259,16 +247,16 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 	}, nil
 }
 
-// loadServedRows loads the frozen rows for a park-day and builds the lifecycle metadata. served is
-// false when nothing was issued -- lifecycle then carries the pending or never-issued state.
+// loadServedRows loads the FROZEN rows for a park-day. served is false when nothing was issued; the
+// caller then GENERATES a preview instead (see servePreviewGenerated / servePackingGenerated), so no
+// lifecycle is built here for the unserved case.
 func (s *Service) loadServedRows(ctx context.Context, tenantID, parkID, feedDay, workflow string) ([]domain.DirectionRow, domain.Lifecycle, bool, error) {
 	headers, err := s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
 	if err != nil {
 		return nil, domain.Lifecycle{}, false, err
 	}
 	if len(headers) == 0 {
-		lifecycle, err := s.pendingLifecycle(ctx, tenantID, parkID, feedDay, workflow)
-		return nil, lifecycle, false, err
+		return nil, domain.Lifecycle{}, false, nil
 	}
 
 	issueIDs := make([]string, 0, len(headers))
@@ -287,37 +275,212 @@ func (s *Service) loadServedRows(ctx context.Context, tenantID, parkID, feedDay,
 	return scopeRows, aggregateLifecycle(headers), true, nil
 }
 
-// pendingLifecycle builds the not-yet-issued / never-issued state, naming when each expected
-// workflow is (or was) due to be issued. It is the state the maintainer wants for a future date
-// instead of a speculative number.
-func (s *Service) pendingLifecycle(ctx context.Context, tenantID, parkID, feedDay, workflow string) (domain.Lifecycle, error) {
+// servePreviewGenerated LIVE-GENERATES the full scope for a feed day that has NO issued sheet and
+// returns it labelled as a `preview` lifecycle. It reuses the SAME generation path the draft/issue
+// paths use (s.generate) -- the kilogram-exact math is not forked -- and pages it by shed exactly as
+// the frozen serve path pages stored rows, so a preview and an issued sheet have an identical shape
+// (paged page + whole-scope, page-size-invariant summary; blocked-vs-zero preserved).
+func (s *Service) servePreviewGenerated(ctx context.Context, q domain.PreviewQuery, feedDay string) (domain.PreviewPage, error) {
+	// HORIZON GUARD (maintainer decision 2026-07-20). A feed day with no issued sheet is generated on
+	// demand ONLY when it is within [today, tomorrow]; outside that window generating would fabricate a
+	// sheet by silently freezing today's herd onto a day whose real counts are unknown. Return an
+	// honest empty beyond_horizon state instead of a made-up sheet, and DO NOT read config/counts.
+	if !s.withinFeedHorizon(feedDay) {
+		return domain.PreviewPage{
+			Items:      []domain.DirectionRow{},
+			Summary:    emptyPreviewSummary(),
+			Lifecycle:  s.beyondHorizonLifecycle(feedDay),
+			TargetDate: feedDay,
+			Limit:      q.Limit,
+			Offset:     q.Offset,
+		}, nil
+	}
+	// Generate the WHOLE scope (shed + session filters are honoured inside generate). MaxShedPageLimit
+	// only bounds generate's own page; scopeRows is always the full scope, and we re-page it below
+	// AFTER the workflow filter so a shed's grains never straddle a page boundary.
+	result, err := s.generate(ctx, generateRequest{
+		tenantID:   q.TenantID,
+		parkID:     q.ParkID,
+		targetDate: q.TargetDate,
+		shedID:     q.ShedID,
+		sessionNo:  q.SessionNo,
+		limit:      MaxShedPageLimit,
+	})
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	scopeRows := result.scopeRows
+	if q.Workflow != "" {
+		scopeRows = rowsForWorkflow(scopeRows, q.Workflow)
+	}
+	lifecycle, err := s.previewLifecycle(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+
+	shedOrder := shedOrderOf(scopeRows)
+	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
+	pageRows := rowsForShedIDs(scopeRows, pageSheds)
+	items := domain.DistinctFeedItems(scopeRows)
+
+	return domain.PreviewPage{
+		Items:      pageRows,
+		Summary:    domain.SummarizeScope(scopeRows, items),
+		Lifecycle:  lifecycle,
+		TargetDate: feedDay,
+		Limit:      q.Limit,
+		Offset:     q.Offset,
+		HasMore:    hasMore,
+	}, nil
+}
+
+// servePackingGenerated is the packing-worklist twin of servePreviewGenerated.
+func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQuery, feedDay string) (domain.PackingPage, error) {
+	// Same horizon guard as servePreviewGenerated: refuse to generate a worklist for a day outside
+	// [today, tomorrow] rather than fabricating one from today's herd.
+	if !s.withinFeedHorizon(feedDay) {
+		return domain.PackingPage{
+			Items:      []domain.PackingRow{},
+			Summary:    emptyPackingSummary(),
+			Lifecycle:  s.beyondHorizonLifecycle(feedDay),
+			TargetDate: feedDay,
+			Limit:      q.Limit,
+			Offset:     q.Offset,
+		}, nil
+	}
+	result, err := s.generate(ctx, generateRequest{
+		tenantID:   q.TenantID,
+		parkID:     q.ParkID,
+		targetDate: q.TargetDate,
+		limit:      MaxShedPageLimit,
+	})
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	scopeRows := result.scopeRows
+	if q.Workflow != "" {
+		scopeRows = rowsForWorkflow(scopeRows, q.Workflow)
+	}
+	lifecycle, err := s.previewLifecycle(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+
+	shedOrder := shedOrderOf(scopeRows)
+	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
+	pageRows := rowsForShedIDs(scopeRows, pageSheds)
+	items := domain.DistinctFeedItems(scopeRows)
+
+	return domain.PackingPage{
+		Items:      domain.BuildPackingRows(pageRows, items),
+		Summary:    domain.SummarizePacking(domain.BuildPackingRows(scopeRows, items), items),
+		Lifecycle:  lifecycle,
+		TargetDate: feedDay,
+		Limit:      q.Limit,
+		Offset:     q.Offset,
+		HasMore:    hasMore,
+	}, nil
+}
+
+// previewLifecycle builds the `preview` lifecycle for a generated (not-yet-issued) feed day. The
+// aggregate state is preview -- the rows ARE returned -- while each workflow still carries its
+// pending (issue instant ahead) or not_issued (issue instant passed) detail plus the expected issue
+// instant, so the operator sees when the sheet WILL be formally frozen.
+func (s *Service) previewLifecycle(ctx context.Context, tenantID, parkID, feedDay, workflow string) (domain.Lifecycle, error) {
+	wfs, err := s.pendingWorkflows(ctx, tenantID, parkID, feedDay, workflow)
+	if err != nil {
+		return domain.Lifecycle{}, err
+	}
+	return domain.Lifecycle{
+		State:     domain.LifecycleStatePreview,
+		Message:   fmt.Sprintf("generated preview — the sheet for %s has not been issued yet", feedDay),
+		Workflows: wfs,
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Generation horizon [today, tomorrow]
+// ---------------------------------------------------------------------------
+
+// withinFeedHorizon reports whether feedDay (an Asia/Kolkata business date, YYYY-MM-DD) falls inside
+// the on-demand generation window [today, tomorrow].
+//
+// The window is exactly two business days: "today" is being fed (packed yesterday) and "tomorrow" is
+// being packed now. The projected shed count that drives a sheet -- live herd + approved-but-
+// unexecuted shiftings (emergency +1 day, normal +2 days) -- is only meaningful across those two
+// days. Beyond tomorrow the counts depend on shiftings not yet approved; before today the herd is no
+// longer what it was. Generating outside the window would silently freeze today's herd onto the
+// wrong day, which is fabrication.
+//
+// "today"/"tomorrow" come from the injected clock (s.now(), in Asia/Kolkata), NOT SQL now(), so a
+// pinned-clock test is deterministic. Business-date strings compare correctly with ==.
+func (s *Service) withinFeedHorizon(feedDay string) bool {
+	today, tomorrow := s.feedHorizon()
+	return feedDay == today || feedDay == tomorrow
+}
+
+// feedHorizon returns the inclusive [today, tomorrow] window as Asia/Kolkata business dates.
+func (s *Service) feedHorizon() (today, tomorrow string) {
+	todayStart := biztime.BusinessDayStart(s.now())
+	return biztime.BusinessDate(todayStart), biztime.BusinessDate(todayStart.AddDate(0, 0, 1))
+}
+
+// beyondHorizonLifecycle builds the honest no-data lifecycle for a feed day outside [today, tomorrow]
+// that has no issued sheet. The message names the tomorrow limit (or, for a past day, why the past is
+// not regenerated) so the operator understands this is the honest replacement for a fabricated sheet,
+// not an error.
+func (s *Service) beyondHorizonLifecycle(feedDay string) domain.Lifecycle {
+	today, tomorrow := s.feedHorizon()
+	var msg string
+	if feedDay < today {
+		msg = fmt.Sprintf("%s is before today (%s); feed counts are only projected for today and tomorrow (through %s), so a feed sheet for a past day cannot be produced from current counts", feedDay, today, tomorrow)
+	} else {
+		msg = fmt.Sprintf("counts are only projected through %s; a feed sheet for %s cannot be produced yet", tomorrow, feedDay)
+	}
+	return domain.Lifecycle{
+		State:     domain.LifecycleStateBeyondHorizon,
+		Message:   msg,
+		Workflows: []domain.WorkflowLifecycle{},
+	}
+}
+
+// emptyPreviewSummary is the whole-scope summary of a beyond-horizon preview: no rows, no totals. It
+// still stamps SummaryScopeFiltered so a client's coverage assertion holds.
+func emptyPreviewSummary() domain.PreviewSummary {
+	return domain.PreviewSummary{Scope: domain.SummaryScopeFiltered, TotalKgByFeedItem: []domain.FeedItemTotal{}}
+}
+
+// emptyPackingSummary is the packing twin of emptyPreviewSummary.
+func emptyPackingSummary() domain.PackingSummary {
+	return domain.PackingSummary{Scope: domain.SummaryScopeFiltered, TotalKgByFeedItem: []domain.FeedItemTotal{}}
+}
+
+// pendingWorkflows reads the dispatch clocks and returns, per matching workflow, its pending
+// (issue instant still ahead) or not_issued (issue instant passed) state plus the expected issue
+// instant. It never live-computes feed quantities; it only reads the schedule clock.
+func (s *Service) pendingWorkflows(ctx context.Context, tenantID, parkID, feedDay, workflow string) ([]domain.WorkflowLifecycle, error) {
 	if s.schedule == nil {
-		return domain.Lifecycle{State: domain.LifecycleStateNotIssued, Workflows: []domain.WorkflowLifecycle{}}, nil
+		return []domain.WorkflowLifecycle{}, nil
 	}
 	clocks, err := s.schedule.ListScheduleClocks(ctx, tenantID, parkID, s.now())
 	if err != nil {
-		return domain.Lifecycle{}, err
+		return nil, err
 	}
 	now := s.now().In(biztime.DefaultLocation())
 
 	wfs := make([]domain.WorkflowLifecycle, 0, len(clocks))
-	allPending := true
-	anyExpected := false
 	for _, clock := range clocks {
 		if workflow != "" && clock.Workflow != workflow {
 			continue
 		}
-		anyExpected = true
 		issueAt, err := clock.ExpectedIssueInstant(feedDay)
 		if err != nil {
-			return domain.Lifecycle{}, err
+			return nil, err
 		}
 		expected := domain.FormatBusinessInstant(issueAt)
 		state := domain.LifecycleStateNotIssued
 		if now.Before(issueAt) {
 			state = domain.LifecycleStatePending
-		} else {
-			allPending = false
 		}
 		wfs = append(wfs, domain.WorkflowLifecycle{
 			Workflow:        clock.Workflow,
@@ -325,22 +488,7 @@ func (s *Service) pendingLifecycle(ctx context.Context, tenantID, parkID, feedDa
 			ExpectedIssueAt: &expected,
 		})
 	}
-
-	lifecycle := domain.Lifecycle{Workflows: wfs}
-	switch {
-	case !anyExpected:
-		// No dispatch clock for this park/workflow: nothing was scheduled to issue, so nothing was
-		// ever issued. Honest and explicit, not a live compute.
-		lifecycle.State = domain.LifecycleStateNotIssued
-		lifecycle.Message = fmt.Sprintf("no feed sheet was issued for %s and no dispatch clock is configured", feedDay)
-	case allPending:
-		lifecycle.State = domain.LifecycleStatePending
-		lifecycle.Message = fmt.Sprintf("feed sheet for %s has not been issued yet; %s", feedDay, describeExpected(wfs))
-	default:
-		lifecycle.State = domain.LifecycleStateNotIssued
-		lifecycle.Message = fmt.Sprintf("no feed sheet was issued for %s", feedDay)
-	}
-	return lifecycle, nil
+	return wfs, nil
 }
 
 // aggregateLifecycle rolls the (at most two) issue headers into one lifecycle. The aggregate state
@@ -486,18 +634,6 @@ func rowsForShedIDs(rows []domain.DirectionRow, sheds []string) []domain.Directi
 		}
 	}
 	return out
-}
-
-func describeExpected(wfs []domain.WorkflowLifecycle) string {
-	parts := make([]string, 0, len(wfs))
-	for _, wf := range wfs {
-		at := ""
-		if wf.ExpectedIssueAt != nil {
-			at = *wf.ExpectedIssueAt
-		}
-		parts = append(parts, fmt.Sprintf("%s at %s", wf.Workflow, at))
-	}
-	return "expected: " + strings.Join(parts, "; ")
 }
 
 func instantPtr(t *time.Time) *string {

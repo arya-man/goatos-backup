@@ -1,9 +1,15 @@
 import type { ComponentType, SVGProps } from "react";
-import { AlertTriangle, CheckCircle2, Clock, FlaskConical, Lock, PencilLine } from "lucide-react";
+import { AlertTriangle, CalendarOff, CheckCircle2, Clock, Eye, FlaskConical, Lock, PencilLine } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedDirectionLifecycle, FeedDirectionWorkflowLifecycle } from "@/lib/api/server";
 import { fmtDate, fmtDateTime } from "@/lib/format";
+
+import { isLifecycleEmpty } from "./feed-lifecycle-state";
+
+// Re-exported so existing importers (feed-direction.tsx, feed-packing.tsx) keep a single import site;
+// the pure predicate lives in feed-lifecycle-state.ts so it is unit-testable without JSX.
+export { isLifecycleEmpty };
 
 // The issue -> amend -> lock lifecycle banner shared by Feed Direction and Feed Packing.
 //
@@ -29,6 +35,12 @@ const STATE_ICON: Record<LifecycleState, IconType> = {
   locked: Lock,
   pending: Clock,
   not_issued: AlertTriangle,
+  // `preview` = the rows were GENERATED on demand for a day with no issued sheet. Informational, not
+  // alarming — an eye, not a warning triangle.
+  preview: Eye,
+  // `beyond_horizon` = the day is outside the [today, tomorrow] projection window and has no issued
+  // sheet, so no rows could be produced. A calendar-off marker: nothing wrong, just out of range.
+  beyond_horizon: CalendarOff,
   draft: FlaskConical,
 };
 
@@ -40,7 +52,6 @@ function alertClass(state: LifecycleState): string {
   if (state === "amended" || state === "not_issued") return "alert warn";
   return "alert info";
 }
-
 function workflowChipTone(state: WorkflowState): string {
   switch (state) {
     case "issued":
@@ -97,13 +108,18 @@ export function FeedLifecycleBanner({
   const state = lifecycle.state;
   const Icon = STATE_ICON[state];
   const instant = headlineInstant(lifecycle);
-  const nothingIssued = state === "pending" || state === "not_issued";
+  // Not-yet-frozen states are anchored by WHICH feed day they cover and by the per-workflow expected
+  // issue times, not by a frozen instant. `preview` (rows generated on demand) belongs here too — it
+  // is a not-yet-issued day that now carries data. `beyond_horizon` is anchored by the feed day it
+  // covers as well (the day is simply out of the projection window).
+  const notFrozen =
+    state === "pending" || state === "not_issued" || state === "preview" || state === "beyond_horizon";
 
   // Per-workflow breakdown is legible only when the workflows disagree (e.g. normal issued at 07:00
   // while experiment is still pending until 14:00), or when nothing is issued yet and the expected
   // issue times per workflow are the point. A uniform park-day says all it needs to in the headline.
   const statesDiffer = new Set(lifecycle.workflows.map((wf) => wf.state)).size > 1;
-  const showBreakdown = lifecycle.workflows.length > 1 && (statesDiffer || nothingIssued);
+  const showBreakdown = lifecycle.workflows.length > 1 && (statesDiffer || notFrozen);
 
   return (
     <div
@@ -120,7 +136,7 @@ export function FeedLifecycleBanner({
               is. Both are client-formatted from a backend instant/date, never a literal. */}
           {instant ? (
             <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(instant)}</span>
-          ) : nothingIssued ? (
+          ) : notFrozen ? (
             <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDate(feedDay)}</span>
           ) : null}
           {state === "amended" ? (
@@ -149,13 +165,4 @@ export function FeedLifecycleBanner({
       </div>
     </div>
   );
-}
-
-/**
- * A served park-day whose empty table is EXPLAINED by the lifecycle (nothing was issued), as opposed
- * to a filter excluding rows from a sheet that does exist. Only the former replaces the table with
- * the banner; the latter keeps the normal "no rows match these filters" empty state.
- */
-export function isLifecycleEmpty(lifecycle: FeedDirectionLifecycle, rowCount: number): boolean {
-  return rowCount === 0 && (lifecycle.state === "pending" || lifecycle.state === "not_issued");
 }
