@@ -22,6 +22,8 @@ test("vaccination schedule drawer supports real close and roster drilldown", () 
   assert.match(source, /schedule-drawer-close-layer/);
   assert.match(source, /\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(group\.shedId\)\}/);
   assert.match(source, /drive_due_date/);
+  assert.match(source, /shed\.shed_id\s*\?\?\s*shed\.shedId/);
+  assert.match(source, /shed\.total_animals\s*\?\?\s*shed\.totalAnimals/);
   assert.equal(
     /\.schedule-drawer-backdrop\{[^}]*pointer-events\s*:\s*none/.test(css),
     false,

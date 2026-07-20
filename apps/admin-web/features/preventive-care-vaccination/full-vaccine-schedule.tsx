@@ -37,6 +37,25 @@ type ScheduleShedGroup = {
   count: number;
 };
 
+type DriveSummaryShedShape = {
+  shed_id?: string | null;
+  shedId?: string | null;
+  shed_name?: string | null;
+  shedName?: string | null;
+  total_animals?: number | null;
+  totalAnimals?: number | null;
+};
+
+function scheduleShedGroups(event: CalendarEvent): ScheduleShedGroup[] {
+  return ((event.drive_summary?.sheds ?? []) as DriveSummaryShedShape[])
+    .map((shed) => ({
+      shed: String(shed.shed_name ?? shed.shedName ?? "").trim(),
+      shedId: String(shed.shed_id ?? shed.shedId ?? "").trim() || undefined,
+      count: Number(shed.total_animals ?? shed.totalAnimals ?? 0) || 0,
+    }))
+    .filter((shed) => shed.shed);
+}
+
 function selectedScheduleYear(searchParams: RouteSearchParams | undefined): number {
   return boundedInt(one(searchParams ?? {}, "schedule_year"), CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR + 5);
 }
@@ -509,11 +528,7 @@ async function ScheduleShedDrawer({
   scope: Scope;
   drawerPageHref: (page: number) => string;
 }) {
-  const summaryShedGroups: ScheduleShedGroup[] = (row.drive_summary?.sheds ?? []).map((shed) => ({
-    shed: shed.shed_name,
-    shedId: shed.shed_id,
-    count: shed.total_animals,
-  }));
+  const summaryShedGroups = scheduleShedGroups(row);
   const fallbackSheds = uniqueSorted(row.shed_labels ?? []).map((shed) => ({ shed, count: 0 }));
   const shedGroups = summaryShedGroups.length > 0 ? summaryShedGroups : fallbackSheds;
   const filteredShedGroups = shedQuery
@@ -553,7 +568,7 @@ async function ScheduleShedDrawer({
 
   return (
     <div className="schedule-drawer-backdrop" role="presentation">
-      <Link href={currentScheduleHref} className="schedule-drawer-close-layer" aria-label={copy(pageContract, "schedule.drawer.close")} scroll={false} prefetch={false} />
+      <a href={currentScheduleHref} className="schedule-drawer-close-layer" aria-label={copy(pageContract, "schedule.drawer.close")} />
       <aside className="schedule-side-drawer" role="dialog" aria-modal="false" aria-labelledby="schedule-shed-drawer-title">
         <div className="schedule-drawer-head">
           <div style={{ minWidth: 0 }}>
@@ -563,9 +578,9 @@ async function ScheduleShedDrawer({
               {shedGroups.length || row.shed_count || 0} {copy(pageContract, "schedule.unit.sheds")} · {summary?.total_animals ?? row.target_count ?? 0} {copy(pageContract, "schedule.unit.animals")} · {vaccines.join(", ") || copy(pageContract, "label.placeholder")}
             </p>
           </div>
-          <Link href={currentScheduleHref} className="iconbtn" scroll={false} prefetch={false} aria-label={copy(pageContract, "schedule.drawer.close")}>
+          <a href={currentScheduleHref} className="iconbtn" aria-label={copy(pageContract, "schedule.drawer.close")}>
             <X className="ic" aria-hidden="true" />
-          </Link>
+          </a>
         </div>
 
         <form className="schedule-drawer-search" action="/vaccination" method="get">
@@ -588,11 +603,11 @@ async function ScheduleShedDrawer({
 
         <div className="schedule-drawer-list" role="list" aria-label={copy(pageContract, "schedule.drawer.title")}>
           {pageShedGroups.length > 0 ? pageShedGroups.map((group) => (
-            <Link key={group.shed} href={selectedShedHref(group)} className="schedule-drawer-shed-row" role="listitem" scroll={false} prefetch={false}>
+            <a key={group.shed} href={selectedShedHref(group)} className="schedule-drawer-shed-row" role="listitem">
               <Warehouse className="ic" aria-hidden="true" />
               <span>{group.shed}</span>
               <Tag tone="info">{group.count > 0 ? `${group.count} ${copy(pageContract, "schedule.unit.animals")}` : copy(pageContract, "schedule.drawer.open_roster")}</Tag>
-            </Link>
+            </a>
           )) : (
             <div className="empty">{copy(pageContract, "schedule.drawer.empty")}</div>
           )}
@@ -603,12 +618,12 @@ async function ScheduleShedDrawer({
             {copy(pageContract, "schedule.drawer.page_label")} {page} / {totalPages} · {filteredShedGroups.length} {copy(pageContract, "schedule.drawer.rows_label")}
           </span>
           <div className="chips">
-            <Link href={drawerPageHref(Math.max(1, page - 1))} className={`chip${page <= 1 ? " disabled" : ""}`} scroll={false} prefetch={false} aria-disabled={page <= 1}>
+            <a href={drawerPageHref(Math.max(1, page - 1))} className={`chip${page <= 1 ? " disabled" : ""}`} aria-disabled={page <= 1}>
               {copy(pageContract, "schedule.drawer.previous_page")}
-            </Link>
-            <Link href={drawerPageHref(Math.min(totalPages, page + 1))} className={`chip${page >= totalPages ? " disabled" : ""}`} scroll={false} prefetch={false} aria-disabled={page >= totalPages}>
+            </a>
+            <a href={drawerPageHref(Math.min(totalPages, page + 1))} className={`chip${page >= totalPages ? " disabled" : ""}`} aria-disabled={page >= totalPages}>
               {copy(pageContract, "schedule.drawer.next_page")}
-            </Link>
+            </a>
           </div>
         </div>
       </aside>
