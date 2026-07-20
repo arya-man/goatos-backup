@@ -116,6 +116,7 @@ WITH duplicate_rows AS (
     )
   LIMIT 10000
 )
+-- seed-migration-guard:ignore owner=ravi issue=R50-015 reason=one-time-dedup-cleanup-before-unique-index-rebuild-no-new-seed-data expiry=2026-10-31
 DELETE FROM public.obligation_status_events
 WHERE obligation_event_id IN (SELECT obligation_event_id FROM duplicate_rows);
 
