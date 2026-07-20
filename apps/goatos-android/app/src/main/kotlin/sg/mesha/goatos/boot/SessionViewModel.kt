@@ -25,6 +25,8 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.datastore.SessionStore
+import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.AuthSessionEventRequestDto
 import sg.mesha.goatos.feature.auth.LoginError
 import java.io.IOException
 import javax.inject.Inject
@@ -79,6 +81,7 @@ class SessionViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val logoutCoordinator: LogoutCoordinator,
     private val syncJobsScheduler: SyncJobsScheduler,
+    private val appApi: AppApi,
 ) : ViewModel() {
 
     private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
@@ -192,6 +195,24 @@ class SessionViewModel @Inject constructor(
                     isLoading = false,
                     errorReason = LoginError.UNKNOWN,
                     errorDetail = "Signed in, but no Firebase session token was issued.",
+                )
+            }
+            return
+        }
+        runCatching {
+            appApi.recordAuthSessionEvent(
+                AuthSessionEventRequestDto(
+                    eventType = "auth.sign_in",
+                    source = "android-${BuildConfig.FLAVOR}",
+                ),
+            )
+        }.onFailure { t ->
+            analytics.track(AnalyticsEvents.LOGIN_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "session_event_failed"))
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    errorReason = LoginError.UNKNOWN,
+                    errorDetail = t.message ?: "Signed in, but Goat OS could not open your workspace.",
                 )
             }
             return

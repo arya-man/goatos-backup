@@ -111,7 +111,7 @@ class SessionViewModelAnalyticsTest {
             onOutboxCleared = { outboxCleared = true },
             onJobsCancelled = { jobsCancelled = true },
         )
-        val vm = SessionViewModel(store, auth, analytics, logoutCoordinator, SyncJobsScheduler { })
+        val vm = SessionViewModel(store, auth, analytics, logoutCoordinator, SyncJobsScheduler { }, api)
 
         vm.signOut()
         advanceUntilIdle()

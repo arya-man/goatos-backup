@@ -118,6 +118,23 @@ data class DeviceResponseDto(
     @SerialName("trace_id") val traceId: String = "",
 )
 
+/** Request body for POST /auth/session-events.
+ *
+ * Firebase ID tokens do not carry Goat OS tenant/role grants. The backend uses
+ * this audited session event to claim a pending email grant and attach the
+ * Firebase principal to its Goat OS workforce actor before /app/bootstrap runs.
+ */
+@Serializable
+data class AuthSessionEventRequestDto(
+    @SerialName("event_type") val eventType: String,
+    @SerialName("source") val source: String,
+)
+
+@Serializable
+data class AuthSessionEventResponseDto(
+    @SerialName("trace_id") val traceId: String = "",
+)
+
 @Serializable
 data class NavItemDto(
     val key: String = "",
@@ -154,6 +171,10 @@ data class BootstrapOperatorProfileDto(
  * the :app layer, not here.
  */
 interface AppApi {
+    /** POST /auth/session-events — audited sign-in/session-refresh bridge for Firebase auth. */
+    suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto): AuthSessionEventResponseDto =
+        AuthSessionEventResponseDto()
+
     /** GET /app/bootstrap — nav + identity + device state. [deviceId] identifies a
      *  previously-registered device so the backend can return its device_state. */
     suspend fun bootstrap(deviceId: String? = null): BootstrapDto
