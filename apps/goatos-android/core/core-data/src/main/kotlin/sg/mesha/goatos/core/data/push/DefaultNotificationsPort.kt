@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.data.push
 
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.network.AppApi
@@ -28,9 +29,9 @@ import sg.mesha.goatos.core.notifications.NotificationsPort
  * Synchronous [registerToken] (matches [NotificationsPort]): Firebase's `onNewToken` callback
  * is not itself a suspend function, so the actual network call is dispatched onto [appScope]
  * (the app's own singleton lifetime scope, injected — never `GlobalScope`) rather than blocking
- * the caller. Best-effort: a failed registration is logged, not retried inline — the next
- * `onNewToken` (token rotation) or [sg.mesha.goatos.push.PushTokenSync] pass (bootstrap/login)
- * naturally retries.
+ * the caller. Best-effort: a failed registration is logged and retried inside the app scope with
+ * short bounded delays. The first FCM token can arrive before Firebase Auth/session bootstrap is
+ * ready; a single HTTP 401 must not strand the token until the next rare token rotation.
  */
 class DefaultNotificationsPort(
     private val api: AppApi,
@@ -43,37 +44,49 @@ class DefaultNotificationsPort(
     override fun registerToken(token: String) {
         if (token.isBlank()) return
         appScope.launch {
-            runCatching {
-                val deviceId = deviceStore.deviceId()?.takeIf { it.isNotBlank() }
-                if (deviceId != null) {
-                    api.heartbeatDevice(
-                        deviceId,
-                        HeartbeatDeviceRequestDto(
-                            appVersion = appVersion,
-                            osVersion = osVersion,
-                            pushTokenHash = null,
-                            fcmToken = token,
-                        ),
-                    )
-                } else {
-                    val response = api.registerDevice(
-                        RegisterDeviceRequestDto(
-                            appInstallId = deviceStore.appInstallId(),
-                            appVersion = appVersion,
-                            osVersion = osVersion,
-                            pushTokenHash = null,
-                            fcmToken = token,
-                        ),
-                    )
-                    deviceStore.setDeviceId(response.device.deviceId.ifBlank { null })
+            for (attempt in 1..MAX_REGISTER_ATTEMPTS) {
+                val result = runCatching { registerTokenOnce(token) }
+                if (result.isSuccess) return@launch
+                val error = result.exceptionOrNull()
+                if (attempt == MAX_REGISTER_ATTEMPTS) {
+                    Log.w(TAG, "Push token registration failed after bounded retries.", error)
+                    return@launch
                 }
-            }.onFailure { t ->
-                Log.w(TAG, "Push token registration failed; will retry on next token rotation/bootstrap.", t)
+                Log.w(TAG, "Push token registration failed; retrying after auth/bootstrap settles.", error)
+                delay(REGISTER_RETRY_DELAYS_MS[attempt - 1])
             }
+        }
+    }
+
+    private suspend fun registerTokenOnce(token: String) {
+        val deviceId = deviceStore.deviceId()?.takeIf { it.isNotBlank() }
+        if (deviceId != null) {
+            api.heartbeatDevice(
+                deviceId,
+                HeartbeatDeviceRequestDto(
+                    appVersion = appVersion,
+                    osVersion = osVersion,
+                    pushTokenHash = null,
+                    fcmToken = token,
+                ),
+            )
+        } else {
+            val response = api.registerDevice(
+                RegisterDeviceRequestDto(
+                    appInstallId = deviceStore.appInstallId(),
+                    appVersion = appVersion,
+                    osVersion = osVersion,
+                    pushTokenHash = null,
+                    fcmToken = token,
+                ),
+            )
+            deviceStore.setDeviceId(response.device.deviceId.ifBlank { null })
         }
     }
 
     private companion object {
         const val TAG = "NotificationsPort"
+        const val MAX_REGISTER_ATTEMPTS = 3
+        val REGISTER_RETRY_DELAYS_MS = longArrayOf(5_000L, 20_000L)
     }
 }

@@ -80,7 +80,7 @@ android {
             dimension = "env"
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
-            buildConfigField("String", "API_BASE_URL", "\"https://goatos-api-stg-514832198871.asia-south1.run.app/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://stg-api.dashboard.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://stg.dashboard.mesha.sg/login\"")
             // Telemetry (docs/TELEMETRY.md): stg has a CONFIRMED real Firebase project
             // (goatos-stg — see app/src/stg/res/values/firebase.xml + app/src/stg/google-services.json,

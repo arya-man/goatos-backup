@@ -196,6 +196,14 @@ stg.dashboard.mesha.sg -> goatos-stg
 dashboard.mesha.sg     -> goatos-prod
 ```
 
+Planned public API hostnames:
+
+```text
+dev API: local/laptop or dev API host, depending on the test being run
+stg-api.dashboard.mesha.sg -> goatos-api-stg
+prod API host -> goatos-api-prod (create later, after prod is live)
+```
+
 Current live dashboard hostnames:
 
 ```text
@@ -218,6 +226,21 @@ Certificate: goatos-stg-dashboard-cert, ACTIVE for stg.dashboard.mesha.sg
 Backend:     goatos-admin-web-stg through serverless NEG goatos-admin-web-stg-neg
 ```
 
+Current live staging API hostname:
+
+```text
+URL:         https://stg-api.dashboard.mesha.sg/
+Project:     goatos-stg
+Cloudflare:  mesha.sg zone, Manju@flokx.io Cloudflare account
+DNS record:  A stg-api.dashboard -> 8.233.143.24, DNS-only
+LB IP name:  goatos-stg-dashboard-ip
+LB IP:       8.233.143.24
+Certificate: goatos-stg-api-cert
+Backend:     goatos-api-stg through serverless NEG goatos-api-stg-neg
+URL map:     goatos-stg-dashboard-map host rule stg-api.dashboard.mesha.sg -> goatos-api-stg-backend
+Android stg: BuildConfig.API_BASE_URL=https://stg-api.dashboard.mesha.sg/
+```
+
 Dev and staging are separate Google projects and separate load balancers.
 Production must use a separate prod IP/LB and must not reuse the dev/stg
 non-prod IPs.
@@ -226,6 +249,13 @@ Cloudflare records for Google-managed certificates should start as DNS-only
 while Google provisions or renews the certificate. Do not orange-cloud/proxy the
 record unless that behavior has been explicitly tested with the selected Google
 certificate and OAuth setup.
+
+If no scoped Cloudflare API token is available, use the logged-in Cloudflare
+browser session to add DNS records. Do not store a personal Cloudflare token in
+`.zshrc` or commit it. For CI/future automation, create a Cloudflare token
+scoped only to the `mesha.sg` zone with `Zone:Read` and `DNS:Edit`, store it as
+`CLOUDFLARE_API_TOKEN_MESHA_DNS`, and store the zone id separately as
+`CLOUDFLARE_ZONE_ID_MESHA_SG`.
 
 Custom-host auth has two independent allowlists:
 

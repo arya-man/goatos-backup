@@ -44,6 +44,22 @@ Certificate status: ACTIVE
 Canonical host env: GOATOS_CANONICAL_DASHBOARD_HOST=stg.dashboard.mesha.sg
 ```
 
+Staging API public host:
+
+```text
+URL:         https://stg-api.dashboard.mesha.sg/
+Project:     goatos-stg
+Region:      asia-south1
+Cloud Run:   goatos-api-stg
+Raw URL:     https://goatos-api-stg-awtrpmn4za-el.a.run.app
+LB IP:       8.233.143.24
+NEG:         goatos-api-stg-neg
+Backend:     goatos-api-stg-backend
+URL map:     goatos-stg-dashboard-map host rule stg-api.dashboard.mesha.sg -> api-host
+Certificate: goatos-stg-api-cert
+Android stg API_BASE_URL: https://stg-api.dashboard.mesha.sg/
+```
+
 DNS lives in Cloudflare, not Google Cloud DNS:
 
 ```text
@@ -51,24 +67,49 @@ Cloudflare account: Manju@flokx.io's Account
 Cloudflare account id: 13c352a0cade56bf65b77c0d8b78bf53
 Zone: mesha.sg
 Record: A stg.dashboard -> 8.233.143.24
+Record: A stg-api.dashboard -> 8.233.143.24
 Proxy: DNS only
 TTL: Auto
 ```
+
+If there is no scoped Cloudflare API token available locally, use the logged-in
+Cloudflare browser session to add/update the DNS record. Do not store a
+personal Cloudflare token in `.zshrc`. For future automation, create a
+zone-scoped token for `mesha.sg` with only `Zone:Read` and `DNS:Edit`, then
+store it as a GitHub secret such as `CLOUDFLARE_API_TOKEN_MESHA_DNS`; store the
+zone id separately as `CLOUDFLARE_ZONE_ID_MESHA_SG`.
 
 Use this verification set after DNS or LB changes:
 
 ```bash
 dig +short stg.dashboard.mesha.sg A
+dig +short stg-api.dashboard.mesha.sg A
 gcloud compute ssl-certificates describe goatos-stg-dashboard-cert \
   --project=goatos-stg \
   --global \
   --format='json(managed.status,managed.domainStatus)'
+gcloud compute ssl-certificates describe goatos-stg-api-cert \
+  --project=goatos-stg \
+  --global \
+  --format='json(managed.status,managed.domainStatus)'
 curl -fsSI https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app/login
+curl -fsSI https://stg.dashboard.mesha.sg/login
+curl -sSI https://stg-api.dashboard.mesha.sg/app/bootstrap | sed -n '1,8p'
 ```
 
 Do not set `GOATOS_CANONICAL_DASHBOARD_HOST=stg.dashboard.mesha.sg` on
 admin-web until the Google-managed certificate is `ACTIVE`; otherwise the raw
 Cloud Run URL redirects users to a host that may still fail TLS.
+
+Do not create prod DNS/certs until the prod API/backend/Firebase project are
+live. Prod should reuse the same shape later:
+
+```text
+Android package: sg.mesha.goatos
+Firebase project: goatos-prod/goatos-prd (final name to be created/confirmed)
+API host: https://api.dashboard.mesha.sg/ or the final approved prod API host
+Dashboard host: https://dashboard.mesha.sg/
+```
 
 Google SSO uses the classic Google Auth Platform web client below. The broken
 IAM OAuth UUID-style client must not be used for Google Identity Services.

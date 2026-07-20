@@ -1,27 +1,44 @@
 {
-  "_comment": "NON-SECRET PLACEHOLDER. Not the real goatos-stg Firebase config. Exists only so :app:compileStgReleaseKotlin / :app:testStgReleaseUnitTest (make ci-local JOB=android) can resolve the google-services Gradle plugin on a fresh clone without the real per-machine google-services.json secret. See app/src/google-services-README.md. Replace with the real download from the Firebase console (goatos-stg project, sg.mesha.goatos.stg Android app) for any build that needs working Firebase/Crashlytics/Perf/Auth telemetry.",
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "goatos-placeholder",
-    "storage_bucket": "goatos-placeholder.appspot.com"
+    "project_number": "514832198871",
+    "project_id": "goatos-stg",
+    "storage_bucket": "goatos-stg.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "mobilesdk_app_id": "1:514832198871:android:0cb898377ba4f7f7f19492",
         "android_client_info": {
           "package_name": "sg.mesha.goatos.stg"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "514832198871-ucslnet88jrirhobk8tm5nf0kqkpcldt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "sg.mesha.goatos.stg",
+            "certificate_hash": "68575e9101132902438e82e3ac41c6f9d83bea0b"
+          }
+        },
+        {
+          "client_id": "514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyPLACEHOLDER00000000000000000000000"
+          "current_key": "AIzaSyA8RmTTxegtjFO0z0ewZJ5ckyDxKguvHEk"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

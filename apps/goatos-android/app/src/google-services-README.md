@@ -12,27 +12,27 @@ google-services.json is missing.` The files below are force-committed
 
 | Flavor | File | Status | Firebase project |
 |---|---|---|---|
-| `stg` | `app/src/stg/google-services.json` | **Placeholder** — schema-valid, fake ids (force-committed so fresh-clone/CI compile works) | not asserted here |
+| `stg` | `app/src/stg/google-services.json` | **Real staging config** for package `sg.mesha.goatos.stg` | `goatos-stg` |
 | `dev` | `app/src/dev/google-services.json` | **Placeholder** — schema-valid, fake ids (force-committed so `assembleDevDebug` / `android-dev-run` works) | not confirmed |
 | `prod` | `app/src/prod/google-services.json` | Not created — prod is never compiled by CI or `android-dev-run` | not confirmed |
 
-## Why placeholders, not the real stg config
+## stg: real Firebase config
 
-`app/src/stg/res/values/firebase.xml` ("Generated-equivalent Firebase options for the
-goatos-stg Android client") already carries the real, non-secret `goatos-stg` client values
-(`project_id`, `mobilesdk_app_id`, `api_key`, `storage_bucket`, `default_web_client_id`) and is
-left untouched — this change never reads from or overwrites it. An earlier pass considered
-reconstructing `app/src/stg/google-services.json` from those same values, but that file was
-never actually committed (the blanket `google-services.json` gitignore rule silently dropped
-it), which is the root cause of the CI gap this change closes. Rather than re-assert a real
-project's identifiers from a placeholder-fixing change, `app/src/stg/google-services.json` now
-ships as an **obviously-fake placeholder** (`goatos-placeholder` project id, `000000000000`
-numbers) — sufficient for the `google-services`/Crashlytics/Perf Gradle plugins to process the
-file and for `:app:compileStgReleaseKotlin` / `:app:testStgReleaseUnitTest` to pass, since
-`BuildConfig.TELEMETRY_ENABLED` is only `true` for `stg` at runtime, not at compile/unit-test
-time. Wiring real stg Firebase Crashlytics/Perf/Auth end-to-end (regenerating this file from the
-Firebase console, or from `firebase.xml`'s values, as a deliberate reviewed change) is a
-separate follow-up, not done here.
+`app/src/stg/google-services.json` is the real, non-secret Firebase Android client config for
+the `goatos-stg` project and package `sg.mesha.goatos.stg`. It must match the Firebase Android
+app used by `firebaseAppDistribution.appId` in `app/build.gradle.kts`.
+
+The stg Android API host is intentionally the API hostname, not the dashboard HTML host and not
+the raw Cloud Run URL:
+
+```text
+BuildConfig.API_BASE_URL = https://stg-api.dashboard.mesha.sg/
+Dashboard/Auth continue URL = https://stg.dashboard.mesha.sg/login
+```
+
+`stg-api.dashboard.mesha.sg` is a DNS-only Cloudflare A record pointing to the staging Google
+external managed HTTPS load balancer IP. The load balancer routes that host to `goatos-api-stg`;
+`stg.dashboard.mesha.sg` remains the admin web host.
 
 ## dev / prod — placeholders, not invented project ids
 

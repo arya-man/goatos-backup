@@ -101,17 +101,14 @@ needed, just the call.
 
 | Flavor | Firebase project | Evidence | `TELEMETRY_ENABLED` |
 |---|---|---|---|
-| `stg` | `goatos-stg` | **Confirmed** — already committed in `app/src/stg/res/values/firebase.xml` ("Generated-equivalent Firebase options for the goatos-stg Android client") and `app/build.gradle.kts`'s `firebaseAppDistribution { appId = "1:514832198871:android:0cb898377ba4f7f7f19492" }` | `true` |
+| `stg` | `goatos-stg` | **Confirmed** — committed in `app/src/stg/google-services.json`, `app/src/stg/res/values/firebase.xml`, and `app/build.gradle.kts`'s `firebaseAppDistribution { appId = "1:514832198871:android:0cb898377ba4f7f7f19492" }` | `true` |
 | `dev` | **not confirmed** | No Firebase config of any kind existed in this repo for `dev` before this change | `false` |
 | `prod` | **not confirmed** | No Firebase config of any kind existed in this repo for `prod` before this change | `false` |
 
-`app/src/stg/google-services.json` (new) was reconstructed from those SAME already-committed
-real values — nothing was invented — so the `com.google.gms.google-services` plugin (newly
-applied) has a real file to process for `stg` without disturbing the existing
-`firebase.xml`-based wiring. `app/src/dev/google-services.json` and
-`app/src/prod/google-services.json` are schema-valid PLACEHOLDERS with obviously-fake ids
-(`000000000000`, `REPLACE_WITH_REAL_...`) — they let those flavors' builds process cleanly
-without asserting an unconfirmed project id as fact. Full detail + setup steps:
+`app/src/stg/google-services.json` is the real staging Firebase Android client config for
+`sg.mesha.goatos.stg`. `app/src/dev/google-services.json` is a schema-valid placeholder with
+obviously-fake ids; prod remains unwired until the real prod Firebase project/app exists. Full
+detail + setup steps:
 `app/src/google-services-README.md`.
 
 The `OBSERVABILITY_DESIGN.md` §2.5 convention ("Firebase project is per env flavor... each
@@ -123,12 +120,14 @@ steps).
 
 ## 5. India region (asia-south1)
 
-- `stg`'s backend (`API_BASE_URL`) already runs in `asia-south1` (Mumbai):
-  `https://goatos-api-stg-514832198871.asia-south1.run.app/`. Per
-  `OBSERVABILITY_DESIGN.md` (header: "First target env: **stg** (`goatos-stg`, `asia-south1`)"),
-  the OTel Collector Cloud Run service MUST also be provisioned in `asia-south1` — when it is
-  deployed, `BuildConfig.OTLP_ENDPOINT` for `stg` should point at an `asia-south1` Cloud Run URL
-  (same region/naming convention as `API_BASE_URL` above), not any other region.
+- `stg`'s mobile API host is `https://stg-api.dashboard.mesha.sg/`, backed by
+  `goatos-api-stg` in `asia-south1` (Mumbai). Do not point the stg release APK at
+  `https://stg.dashboard.mesha.sg/` because that is the admin web/dashboard host. Do not use the
+  raw Cloud Run URL for distribution builds once the API load-balancer host is live.
+  Per `OBSERVABILITY_DESIGN.md` (header: "First target env: **stg** (`goatos-stg`,
+  `asia-south1`)"), the OTel Collector Cloud Run service MUST also be provisioned in
+  `asia-south1` — when it is deployed, `BuildConfig.OTLP_ENDPOINT` for `stg` should point at an
+  `asia-south1` endpoint, not any other region.
 - **GA4 → BigQuery export**: Firebase Analytics' native BigQuery export
   (`OBSERVABILITY_DESIGN.md` §2.6 — "GA4 (per Firebase project) → BigQuery daily export") must be
   linked, in the Firebase console / GCP BigQuery settings, to a dataset in the **`asia-south1`
