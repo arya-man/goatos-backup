@@ -45,7 +45,7 @@ class BootstrapViewModelAnalyticsTest {
         val context = AnalyticsContext(flavor = "dev")
         val repo = FakeBootstrapRepository(
             navState = NavState(NavChrome.EXPANDED, emptyList()),
-            profile = BootstrapOperatorProfileDto(primaryRoleHint = "operator", primaryLocation = "Park A"),
+            profile = BootstrapOperatorProfileDto(operatorId = "member-123", primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
 
         BootstrapViewModel(repo, analytics, context, PushTokenSync {})
@@ -59,6 +59,7 @@ class BootstrapViewModelAnalyticsTest {
         assertEquals("operator", analytics.userProps[AnalyticsEvents.UserProps.ROLE])
         assertEquals("Park A", analytics.userProps[AnalyticsEvents.UserProps.PRIMARY_PARK])
         assertEquals("dev", analytics.userProps[AnalyticsEvents.UserProps.FLAVOR])
+        assertEquals("member-123", analytics.userId)
     }
 
     @Test
@@ -78,6 +79,7 @@ class BootstrapViewModelAnalyticsTest {
 
         assertNull("no profile -> role stays unknown", context.role)
         assertNull("no profile -> park stays unknown", context.parkScope)
+        assertNull("no profile -> user id stays unknown", analytics.userId)
         assertNull(analytics.userProps[AnalyticsEvents.UserProps.ROLE])
         // Flavor is build-fixed, so it is set regardless of whether a profile exists.
         assertEquals("stg", analytics.userProps[AnalyticsEvents.UserProps.FLAVOR])
@@ -97,6 +99,7 @@ class BootstrapViewModelAnalyticsTest {
 
         assertNull("blank role hint -> null identity", context.role)
         assertNull("blank location -> null identity", context.parkScope)
+        assertNull("blank operator id -> null user id", analytics.userId)
     }
 
     @Test

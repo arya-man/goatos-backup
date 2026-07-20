@@ -233,9 +233,13 @@ thing.
   not require being graded `CXO`. The two lists are seeded/maintained
   independently.
 - Provisioning path: an approved row in `auth_pending_email_grants` with
-  `role='ceo_internal'`, `scope_type='tenant'`, and no department/module
-  side effects. This is a **data/config action against existing schema**
-  (approve N email rows), not a migration.
+  `role='ceo_internal'`, `scope_type='tenant'`. On first SSO claim, backend
+  provisioning must create the matching active `user_scope_grants` row **and**
+  a linked active `workforce_members` profile for the same `user_id`; Android
+  bootstrap requires that person/profile row. The claim does not create
+  department/module relationships; visible modules still come from RBAC and the
+  committed route contract. This is a **data/config action against existing
+  schema** (approve N email rows), not a migration.
 - **Initial cohort size:** 5 accounts. The exact emails are operational seed
   truth in `AGENTS.md` and `docs/runbooks/auth.md`; they must stay in the
   `leadership` department with all built modules visible at all times.

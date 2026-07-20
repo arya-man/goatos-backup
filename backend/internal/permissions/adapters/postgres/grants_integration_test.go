@@ -123,6 +123,18 @@ VALUES ('`+meshaTenant+`', 'Ravi@Mesha.SG', 'ravi@mesha.sg', 'ceo_internal', 'te
 	if len(roles) != 1 || roles[0] != permissions.RoleCEOInternal {
 		t.Fatalf("email grant roles=%#v", roles)
 	}
+	var memberCount int
+	var roleHint string
+	var designationGrade *string
+	if err := pool.QueryRow(ctx, `
+SELECT count(*), max(primary_role_hint), max(hr_designation_grade)
+FROM workforce_members
+WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'`, meshaTenant, emailGrantUser).Scan(&memberCount, &roleHint, &designationGrade); err != nil {
+		t.Fatalf("count claimed email workforce member rows: %v", err)
+	}
+	if memberCount != 1 || roleHint != "admin" || designationGrade == nil || *designationGrade != "cxo" {
+		t.Fatalf("claimed email workforce profile count=%d roleHint=%q designationGrade=%v, want one admin/cxo profile", memberCount, roleHint, designationGrade)
+	}
 	result, err = claimer.ClaimPendingEmailGrant(ctx, permissions.PendingEmailGrantClaim{
 		TenantID:        meshaTenant,
 		UserID:          emailGrantUser,
@@ -147,6 +159,15 @@ WHERE tenant_id = $1 AND user_id = $2 AND role = 'ceo_internal' AND status = 'ac
 	}
 	if grantCount != 1 {
 		t.Fatalf("grantCount=%d want 1", grantCount)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM workforce_members
+WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'`, meshaTenant, emailGrantUser).Scan(&memberCount); err != nil {
+		t.Fatalf("count idempotent email workforce member rows: %v", err)
+	}
+	if memberCount != 1 {
+		t.Fatalf("memberCount=%d want 1", memberCount)
 	}
 	var auditCount int
 	if err := pool.QueryRow(ctx, `

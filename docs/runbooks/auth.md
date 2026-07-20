@@ -532,6 +532,20 @@ tenant-scoped `ceo_internal` RBAC. That platform-owner cohort must have every
 built visible module available, including `admin.people`. Do not seed these
 accounts as department-scoped vaccination/admin operators.
 
+The secure provisioning model is:
+
+1. Keep only the approved founder/CXO emails in `auth_pending_email_grants`.
+2. On SSO, the backend validates the Firebase token and normalized email.
+3. If the email matches an active pending grant, the backend atomically creates
+   both:
+   - `user_scope_grants` with role `ceo_internal`, `scope_type='tenant'`.
+   - one active `workforce_members` profile linked to the same `user_id`.
+4. Android bootstrap must not depend on `user_scope_grants` alone. A claimed
+   CEO/CXO account without an active `workforce_members.user_id` row is an
+   invalid seed/provisioning state and will fail `/app/bootstrap`.
+5. Never grant CEO/CXO from the mobile app. Mobile presents Firebase identity;
+   backend seed/config decides the grant.
+
 ```bash
 GOATOS_ENV=stg DATABASE_URL="$DATABASE_URL" go run ./backend/cmd/seed-dev-email-grants \
   -tenant-id 00000000-0000-4000-8000-000000000001 \
@@ -543,6 +557,37 @@ GOATOS_ENV=stg DATABASE_URL="$DATABASE_URL" go run ./backend/cmd/seed-dev-email-
   -email manju@mesha.sg \
   -email abhishek@mesha.sg \
   -email aryaman@mesha.sg
+```
+
+Post-seed / post-login verification:
+
+```sql
+SELECT p.normalized_email,
+       p.role,
+       p.status AS pending_status,
+       p.last_claimed_user_id IS NOT NULL AS claimed,
+       g.grant_id IS NOT NULL AS has_active_grant,
+       m.workforce_member_id IS NOT NULL AS has_active_workforce_profile
+FROM auth_pending_email_grants p
+LEFT JOIN user_scope_grants g
+  ON g.tenant_id = p.tenant_id
+ AND g.user_id = p.last_claimed_user_id
+ AND g.role = p.role
+ AND g.scope_type = p.scope_type
+ AND g.scope_id = p.scope_id
+ AND g.status = 'active'
+LEFT JOIN workforce_members m
+  ON m.tenant_id = p.tenant_id
+ AND m.user_id = p.last_claimed_user_id
+ AND m.status = 'active'
+WHERE p.normalized_email IN (
+  'ravi@mesha.sg',
+  'manohark@mesha.sg',
+  'manju@mesha.sg',
+  'abhishek@mesha.sg',
+  'aryaman@mesha.sg'
+)
+ORDER BY p.normalized_email;
 ```
 
 For localhost Firebase testing, run the admin web app in the shared-env mode,
