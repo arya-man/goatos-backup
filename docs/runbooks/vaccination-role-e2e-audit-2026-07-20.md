@@ -3,6 +3,7 @@
 Status: **locally verified with explicit external-delivery and verifier-context limitations**
 Environment: isolated local backend, throwaway PostgreSQL, physical Infinix, and independent Android emulator
 Source baseline at emulator snapshot: `f9e76e6d6f54dae4713bc7a48d82476509d4334b`
+Final latest-main rerun baseline: candidate rebased onto `origin/main` `8699e0ea7bea3565f1001b63fc2909431ca6d7f8`
 
 ## Decision
 
@@ -16,7 +17,7 @@ The closure also has one material product-context gap: the verifier UI does not 
 
 | Surface | Result | Boundary |
 |---|---|---|
-| Physical Android + local backend + throwaway DB | **VERIFIED** | Operator scan, proof, submit, verifier approval, park-head close, inventory, SOP rollup, and role landing screens were exercised locally. |
+| Physical Android + local backend + throwaway DB | **VERIFIED** | Operator scan, proof, submit, verifier approval, park-head close, inventory, SOP rollup, and role landing screens were exercised locally. The final latest-main APK also repeated the affected HID scan, camera, proof-sync, and process-death restore path. |
 | Android emulator + isolated backend/DB | **VERIFIED (operator path)** | Permission gate, HID scan, process restoration, camera exclusivity, real MP4 upload, task-scoped deep link, FEFO lot selection, and system insets passed. Emulator intentionally stopped before Submit. |
 | Synthetic notification routing | **VERIFIED** | Exactly 4 `verification_pending`, 4 `verification_approved`, and 4 `verification_closed` requests queued to the expected synthetic role tokens. All 12 source events republished; zero failed/dead-letter. |
 | Real FCM delivery and notification tap | **NOT CERTIFIED** | Dev APK uses placeholder Firebase configuration. No real device token or external sender was used. |
@@ -37,6 +38,9 @@ Physical role evidence:
 
 - Operator final system insets and human stage label: [01-operator/27-system-insets-and-human-stage-final.png](evidence/vaccination-role-e2e-2026-07-20/01-operator/27-system-insets-and-human-stage-final.png)
 - Operator proof sync: [01-operator/13-two-proofs-synced.png](evidence/vaccination-role-e2e-2026-07-20/01-operator/13-two-proofs-synced.png)
+- Latest-main compact proof sheet: [01-operator/28-latest-main-bottom-sheet-proof-action.png](evidence/vaccination-role-e2e-2026-07-20/01-operator/28-latest-main-bottom-sheet-proof-action.png)
+- Latest-main exclusive camera and recording: [01-operator/29-latest-main-camera-exclusive.png](evidence/vaccination-role-e2e-2026-07-20/01-operator/29-latest-main-camera-exclusive.png), [01-operator/30-latest-main-camera-recording.png](evidence/vaccination-role-e2e-2026-07-20/01-operator/30-latest-main-camera-recording.png)
+- Latest-main proof sync and process restore: [01-operator/31-latest-main-scan-proof-synced.png](evidence/vaccination-role-e2e-2026-07-20/01-operator/31-latest-main-scan-proof-synced.png), [01-operator/32-latest-main-proof-restored-after-process-death.png](evidence/vaccination-role-e2e-2026-07-20/01-operator/32-latest-main-proof-restored-after-process-death.png)
 - Verifier final queue: [02-verifier/01-role-queue-after-approval.png](evidence/vaccination-role-e2e-2026-07-20/02-verifier/01-role-queue-after-approval.png)
 - Park-head final overview: [03-park-head/01-role-overview-after-close.png](evidence/vaccination-role-e2e-2026-07-20/03-park-head/01-role-overview-after-close.png)
 - PC director landing: [04-pc-director/01-role-home.png](evidence/vaccination-role-e2e-2026-07-20/04-pc-director/01-role-home.png)
@@ -113,7 +117,8 @@ The emulator did not submit the record and did not run verifier or leadership cl
 | Notification bridge confused user IDs and workforce-member IDs | **FIXED** | Synthetic 4/4/4 queue split and focused bridge/workforce tests passed. |
 | Verification closure did not atomically roll SOP items → submission → task | **FIXED** | Throwaway DB shows task/submission and all 4 items accepted after the real event replay. |
 | SOP scan timestamps lost Android epoch-millisecond precision | **FIXED** | Scan capture, attempt, and list projections now use `RFC3339Nano`; the full Postgres SOP adapter suite passed with `GOATOS_RUN_POSTGRES_TESTS=1`. |
-| Restored scan ring can show `1/1` while activity feed says `No taps yet` | **OPEN FOLLOW-UP** | Observed by emulator after process death; persistence-to-feed projection needs correction. |
+| Task cleanup paged the global recoverable-upload queue before filtering by task, leaking terminal local clips | **FIXED** | Cleanup now uses a task-scoped, all-status keyset walk. The failing-before regression covers 24+ target rows over multiple pages with interleaved other-task PENDING/SYNCED/FAILED rows; all 17 capture repository tests pass. |
+| Restored scan ring can show completed progress while activity feed says `No taps yet` | **OPEN FOLLOW-UP** | Reproduced on emulator and again as physical `2/2` after process death; persistence-to-feed projection needs correction. |
 | Local scan/attempt entities can remain `PENDING` after outbox success | **OPEN FOLLOW-UP** | Observed in emulator DB despite corresponding server rows; reconciliation status needs review. |
 | Verifier cannot see route/site/adverse-reaction context | **OPEN PRODUCT GAP** | Backend submission context exists, but it is not rendered in the current verifier detail UI. |
 
@@ -125,9 +130,17 @@ A read-only inspection of the actual `slack-automation-scripts` repository found
 
 ## Origin/main change handling
 
-An origin watcher remained active during closure. When a relevant main change affected Android outbox/leadership close behavior, the integrated branch was refreshed and only the affected cache/outbox/leadership-close checks were rerun; unrelated operator/verifier suites were not restarted. Relevant migration changes require a newly created throwaway database before their targeted E2E is treated as current.
+An origin watcher remained active during closure. The candidate was rebased onto `origin/main` `8699e0ea`, which includes the streamed scan-roster paging and proof repository changes. No later main commit existed at the final device rerun.
 
-Final merge/landing gates must still confirm the candidate is based on the then-current `origin/main`. This report records the tested local evidence; it does not claim that a later unintegrated main commit was tested.
+Only the affected paths were repeated:
+
+- `ExecutionRepositoryPaginationTest` passed for the multi-page streamed roster.
+- `CaptureRepositoryTest` passed all 17 tests, including the new task-scoped all-status cleanup regression; it was also run together with the pagination suite after an existing Room-invalidation sampling race was made deterministic.
+- `make mobile-guard` passed.
+- `backend/tests/integration/validate-postgres-migrations.sh` passed fresh-baseline and old-baseline upgrade convergence.
+- A newly queued throwaway task, `24cc8a96-8a3e-4262-9216-9797c9fa8538`, exercised two physical HID scans, exclusive camera capture, one completed goat proof, and force-stop/relaunch restoration on the rebuilt APK. Backend proof `e818d978-e3be-4e37-916b-f9e062d276ea` is `completed` for the exact task/goat with an 11,483 ms video.
+
+Unrelated verifier, park-head, director, and CEO lanes were not repeated because these main changes did not affect their contracts. The final landing command must still refetch main and rerun the repository gate on the exact pushed candidate.
 
 ## Evidence index
 
@@ -142,6 +155,9 @@ Physical evidence root: `docs/runbooks/evidence/vaccination-role-e2e-2026-07-20/
 - `01-operator/23-scan-double-inset-before.png` and `24-scan-single-inset-after.png` — safe-area correction.
 - `01-operator/25-vaccination-drives-semantic-copy-fixed.png` — shed summary copy and progress correction.
 - `01-operator/27-system-insets-and-human-stage-final.png` — final physical UI with system insets and human animal stage.
+- `01-operator/28-latest-main-bottom-sheet-proof-action.png` — compact phone proof action is full-width and aligned.
+- `01-operator/29-latest-main-camera-exclusive.png` and `30-latest-main-camera-recording.png` — latest-main exclusive camera lifecycle.
+- `01-operator/31-latest-main-scan-proof-synced.png` and `32-latest-main-proof-restored-after-process-death.png` — latest-main proof sync and process restoration.
 - `02-verifier/01-role-queue-after-approval.png` — physical verifier role with the completed queue clear.
 - `03-park-head/01-role-overview-after-close.png` — physical park-head role with no remaining closure work.
 - `04-pc-director/01-role-home.png` — PC director physical role landing.
@@ -161,4 +177,4 @@ Independent emulator evidence root: `/Users/ravi/.codex/results/goatos-vaccinati
 1. Add valid non-production Firebase configuration and certify real role-wise FCM delivery and notification-tap routing.
 2. Obtain product approval or removal of draft-derived `route_site`; expose the approved administration/adverse context to the verifier and run a physical verifier UI decision check.
 3. Fix restored-scan activity-feed hydration and reconcile local entity status after successful outbox delivery.
-4. Refresh onto final `origin/main`, create a fresh throwaway DB for any new migrations, and rerun only affected E2E paths before landing.
+4. For any commit that lands after the recorded `8699e0ea` baseline, rerun only the impacted E2E slice before release certification.

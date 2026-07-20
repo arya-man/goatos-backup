@@ -471,15 +471,17 @@ class DefaultProofCaptureRepository(
     override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
         // R50-029: reclaim EVERY row's local video file using keyset pagination (matching the
         // row-delete set) — no read/delete-count mismatch even if task has >MAX_PROOFS_PER_TASK proofs.
-        var afterCapturedAtMs = 0L
+        // The cleanup read is task-scoped and includes terminal rows. Reusing the global
+        // recoverable-upload query here skipped SYNCED/FAILED files and could stop on a page made
+        // entirely of another task's rows after post-filtering.
+        var afterCapturedAtMs = Long.MIN_VALUE
         var afterId = ""
         while (true) {
-            val page = dao.listRecoverableUploadsPage(
-                capturedBeforeMs = Long.MAX_VALUE,
+            val page = dao.listForTaskCleanupPage(
+                taskId = taskId,
                 afterCapturedAtMs = afterCapturedAtMs,
                 afterId = afterId,
             )
-                .filter { it.taskId == taskId }
             if (page.isEmpty()) break
             page.forEach { entity ->
                 deleteLocalFile(entity.localUri)
@@ -487,7 +489,7 @@ class DefaultProofCaptureRepository(
             val last = page.last()
             afterCapturedAtMs = last.capturedAtMs
             afterId = last.id
-            if (page.size < ProofCaptureDao.RECOVERABLE_UPLOADS_PAGE_SIZE) break
+            if (page.size < ProofCaptureDao.TASK_CLEANUP_PAGE_SIZE) break
         }
         dao.clearForTask(taskId)
     }

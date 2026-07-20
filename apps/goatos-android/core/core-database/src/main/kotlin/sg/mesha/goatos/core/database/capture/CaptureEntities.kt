@@ -215,6 +215,21 @@ interface ProofCaptureDao {
     )
     suspend fun listForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): List<ProofCaptureEntity>
 
+    /** Task-scoped, all-status cleanup walk. This is deliberately separate from
+     *  [listRecoverableUploadsPage]: terminal SYNCED/FAILED rows still own local files that must
+     *  be reclaimed, and paging globally before filtering by task can skip an interleaved task. */
+    @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :taskId " +
+            "AND (capturedAtMs > :afterCapturedAtMs OR (capturedAtMs = :afterCapturedAtMs AND id > :afterId)) " +
+            "ORDER BY capturedAtMs ASC, id ASC LIMIT :limit",
+    )
+    suspend fun listForTaskCleanupPage(
+        taskId: String,
+        afterCapturedAtMs: Long,
+        afterId: String,
+        limit: Int = TASK_CLEANUP_PAGE_SIZE,
+    ): List<ProofCaptureEntity>
+
     /** R50-028: keyset-paged startup-recovery read — walks bounded ~20-row pages (row-value
      *  keyset on capturedAtMs+id, guaranteeing forward progress) instead of materializing up to
      *  [MAX_PROOFS_PER_TASK] rows in one unbounded read. [capturedBeforeMs] is STRICT (`<`, not
@@ -278,5 +293,8 @@ interface ProofCaptureDao {
 
         /** R50-028: bounded page size for [listRecoverableUploadsPage]'s startup-recovery walk. */
         const val RECOVERABLE_UPLOADS_PAGE_SIZE = 20
+
+        /** Bounded page size for task-local file cleanup before deleting the task's Room rows. */
+        const val TASK_CLEANUP_PAGE_SIZE = 20
     }
 }

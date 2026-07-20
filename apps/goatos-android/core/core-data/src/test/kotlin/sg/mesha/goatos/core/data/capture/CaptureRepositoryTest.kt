@@ -2,6 +2,8 @@ package sg.mesha.goatos.core.data.capture
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import java.io.File
+import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,6 +23,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -756,6 +759,86 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `clearForTask deletes every status and file only for the requested task across pages`() = runTest {
+        val db = newDb()
+        val tempDir = Files.createTempDirectory("proof-clear-task-test").toFile()
+        try {
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = FakeSyncRepository(),
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            val targetTaskId = "task-to-clear"
+            val otherTaskId = "task-to-preserve"
+            val statuses = listOf(
+                CaptureSyncStatus.PENDING,
+                CaptureSyncStatus.SYNCED,
+                CaptureSyncStatus.FAILED,
+            )
+            val rowCount = ProofCaptureDao.TASK_CLEANUP_PAGE_SIZE + 4
+            val targetFiles = mutableListOf<File>()
+            val otherFiles = mutableListOf<File>()
+
+            // More than one cleanup page, with another task interleaved at every keyset position.
+            repeat(rowCount) { index ->
+                val capturedAtMs = 1_000L + index
+                val targetStatus = statuses[index % statuses.size]
+                val otherStatus = statuses[(index + 1) % statuses.size]
+                val targetFile = File(tempDir, "target-$index.mp4").apply { writeText("target") }
+                val otherFile = File(tempDir, "other-$index.mp4").apply { writeText("other") }
+                targetFiles += targetFile
+                otherFiles += otherFile
+                db.proofCaptureDao().insert(
+                    proofEntity(
+                        id = "target-$index",
+                        taskId = targetTaskId,
+                        fieldKey = "shed_video",
+                        idempotencyKey = "proof-upload:$targetTaskId:$index",
+                    ).copy(
+                        localUri = targetFile.toURI().toString(),
+                        capturedAtMs = capturedAtMs,
+                        syncStatus = targetStatus.name,
+                        serverProofId = if (targetStatus == CaptureSyncStatus.SYNCED) {
+                            "server-target-$index"
+                        } else {
+                            null
+                        },
+                    ),
+                )
+                db.proofCaptureDao().insert(
+                    proofEntity(
+                        id = "other-$index",
+                        taskId = otherTaskId,
+                        fieldKey = "shed_video",
+                        idempotencyKey = "proof-upload:$otherTaskId:$index",
+                    ).copy(
+                        localUri = otherFile.toURI().toString(),
+                        capturedAtMs = capturedAtMs,
+                        syncStatus = otherStatus.name,
+                        serverProofId = if (otherStatus == CaptureSyncStatus.SYNCED) {
+                            "server-other-$index"
+                        } else {
+                            null
+                        },
+                    ),
+                )
+            }
+
+            repo.clearForTask(targetTaskId)
+
+            assertTrue(db.proofCaptureDao().listForTask(targetTaskId, Int.MAX_VALUE).isEmpty())
+            assertEquals(rowCount, db.proofCaptureDao().listForTask(otherTaskId, Int.MAX_VALUE).size)
+            assertTrue("every target-task file must be deleted", targetFiles.none { it.exists() })
+            assertTrue("other-task files must be preserved", otherFiles.all { it.exists() })
+        } finally {
+            db.close()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `proof completion follows specific item id even when many items terminalize (R50-029 BUG 2)`() = runTest {
         val db = newDb()
         try {
@@ -803,7 +886,13 @@ class CaptureRepositoryTest {
             // Move the target item to IN_FLIGHT
             sync.emit(targetOutboxItemId!!, SyncItemStatus.IN_FLIGHT, resultJson = null)
             advanceUntilIdle()
-            row = repo.observeProofs("task-many-items").first().first { it.id == targetProof.id }
+            // Room invalidation is dispatched independently of the coroutine-test scheduler.
+            // Wait for the repository-visible state instead of sampling the first stale emission.
+            row = repo.observeProofs("task-many-items")
+                .first { proofs ->
+                    proofs.firstOrNull { it.id == targetProof.id }?.syncStatus == CaptureSyncStatus.IN_FLIGHT
+                }
+                .first { it.id == targetProof.id }
             assertEquals(CaptureSyncStatus.IN_FLIGHT, row.syncStatus)
 
             // Now terminalize all 30 OTHER items — with the BUG, the target item may fall out of the window
@@ -819,7 +908,11 @@ class CaptureRepositoryTest {
             advanceUntilIdle()
 
             // Verify: the target proof reached SYNCED despite the other 30 items dropping out
-            row = repo.observeProofs("task-many-items").first().first { it.id == targetProof.id }
+            row = repo.observeProofs("task-many-items")
+                .first { proofs ->
+                    proofs.firstOrNull { it.id == targetProof.id }?.syncStatus == CaptureSyncStatus.SYNCED
+                }
+                .first { it.id == targetProof.id }
             assertEquals("target proof must reach SYNCED even when many items drop out", CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-many-items", row.serverProofId)
         } finally {

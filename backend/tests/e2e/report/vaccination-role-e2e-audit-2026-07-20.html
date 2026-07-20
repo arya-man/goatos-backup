@@ -30,7 +30,7 @@
   <section class="panel">
     <h2>Certification boundary</h2>
     <table><thead><tr><th>Surface</th><th>Result</th><th>Boundary</th></tr></thead><tbody>
-      <tr><td>Physical Android + local backend/DB</td><td><span class="tag pass">VERIFIED</span></td><td>Operator scan/proof/submit, approvals, park-head close, inventory, SOP rollup, and leadership landing.</td></tr>
+      <tr><td>Physical Android + local backend/DB</td><td><span class="tag pass">VERIFIED</span></td><td>Operator scan/proof/submit, approvals, park-head close, inventory, SOP rollup, and leadership landing. The final latest-main APK repeated affected HID scan, camera, proof-sync, and process-restore paths.</td></tr>
       <tr><td>Independent emulator</td><td><span class="tag pass">VERIFIED — OPERATOR</span></td><td>Permissions, HID, restoration, camera, MP4 upload, deep link, FEFO, and safe areas. No Submit.</td></tr>
       <tr><td>Synthetic role routing</td><td><span class="tag pass">VERIFIED</span></td><td>4 pending → verifier, 4 approved → park head, 4 closed → operator; no external dispatcher.</td></tr>
       <tr><td>Real FCM</td><td><span class="tag limited">NOT CERTIFIED</span></td><td>Committed dev Firebase configuration contains placeholder identifiers.</td></tr>
@@ -95,7 +95,8 @@
       <tr><td>User-ID/member-ID notification mismatch</td><td><span class="tag pass">FIXED</span></td><td>Verified synthetic 4/4/4 routing.</td></tr>
       <tr><td>SOP closure failed to roll task hierarchy</td><td><span class="tag pass">FIXED</span></td><td>Task, submission, and 4/4 items accepted.</td></tr>
       <tr><td>Android scan timestamp lost millisecond precision</td><td><span class="tag pass">FIXED</span></td><td>Capture/attempt/list use RFC3339Nano; full Postgres SOP adapter suite passed.</td></tr>
-      <tr><td>Restored 1/1 ring with <q>No taps yet</q> feed</td><td><span class="tag limited">OPEN</span></td><td>Emulator persistence/feed mismatch.</td></tr>
+      <tr><td>Task cleanup filtered a global page and leaked terminal local clips</td><td><span class="tag pass">FIXED</span></td><td>Task-scoped all-status keyset walk; failing-before 24+ row interleaving regression; all 17 capture repository tests pass.</td></tr>
+      <tr><td>Restored completed ring with <q>No taps yet</q> feed</td><td><span class="tag limited">OPEN</span></td><td>Reproduced on emulator and again as physical 2/2 after process death.</td></tr>
       <tr><td>Local scan entities remain PENDING after outbox success</td><td><span class="tag limited">OPEN</span></td><td>Emulator reconciliation follow-up.</td></tr>
       <tr><td>Verifier route/site/adverse context missing</td><td><span class="tag gap">OPEN GAP</span></td><td>Not exposed by verifier UI.</td></tr>
     </tbody></table>
@@ -109,8 +110,9 @@
 
   <section class="panel">
     <h2>Origin/main targeted reruns</h2>
-    <p>An origin watcher remained active. A relevant Android outbox/leadership-close change triggered only the affected cache, outbox, and close-path checks; unrelated role suites were not restarted. Migration changes require a newly created throwaway database before their affected E2E is current.</p>
-    <p class="muted">The final landing gate must still confirm the candidate is based on then-current <code>origin/main</code>. This report does not claim coverage for later unintegrated commits.</p>
+    <p>The candidate was rebased onto <code>origin/main</code> <code>8699e0ea</code>; no later main commit existed at the final device rerun. The affected streamed-roster pagination and full 17-test capture repository suites passed together, <code>make mobile-guard</code> passed, and fresh/old-baseline migration convergence passed.</p>
+    <p>A new throwaway task <code>24cc8a96-8a3e-4262-9216-9797c9fa8538</code> repeated two physical HID scans, an exclusive camera recording, completed proof sync, and force-stop/relaunch restoration. Backend proof <code>e818d978-e3be-4e37-916b-f9e062d276ea</code> completed for the exact task and goat with an 11,483 ms video. Unaffected role lanes were not restarted.</p>
+    <p class="muted">The landing command still refetches main and runs the repository gate on the exact pushed candidate.</p>
   </section>
 
   <section class="panel">
@@ -119,7 +121,7 @@
       <li>Add valid non-production Firebase configuration and certify real role-wise delivery and notification taps.</li>
       <li>Approve or remove draft-derived <code>route_site</code>; expose approved administration/adverse context to the verifier and run a physical verifier UI decision check.</li>
       <li>Fix restored-feed hydration and local status reconciliation.</li>
-      <li>Refresh final <code>origin/main</code>, use a fresh DB for new migrations, and rerun affected paths before landing.</li>
+      <li>For commits after the recorded <code>8699e0ea</code> baseline, rerun only the impacted E2E slice before release certification.</li>
     </ol>
   </section>
 
