@@ -388,6 +388,117 @@ class ScanViewModelTest {
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertFalse(vm.state.value.feed.any { it.status == ScanStatus.SKIPPED && it.primaryTag == "TAG-200" })
     }
+
+    // --- Submit proof gate over the FULL shed roster (option 2) -------------------------------------
+
+    @Test
+    fun `all done animals with synced proofs allow submit`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val vm = proofGateVm(doneRosterRepo(3), proofRepo)
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals(0, vm.state.value.pendingCount)
+
+        (1..3).forEach { seedSyncedProof(proofRepo, "goat-$it") }
+        advanceUntilIdle()
+
+        assertTrue("all done animals proof-synced ⇒ submit allowed", vm.state.value.canSubmit)
+        assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+    }
+
+    @Test
+    fun `a pending proof upload blocks submit and surfaces the animal`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val vm = proofGateVm(doneRosterRepo(3), proofRepo)
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        seedSyncedProof(proofRepo, "goat-1")
+        seedSyncedProof(proofRepo, "goat-2")
+        proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-3", localUri = "file://g3.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op") // stays PENDING
+        advanceUntilIdle()
+
+        assertFalse("a pending upload blocks submit", vm.state.value.canSubmit)
+        assertEquals(listOf("goat-3"), vm.state.value.proofActionNeeded.map { it.goatId })
+    }
+
+    @Test
+    fun `a failed proof upload blocks submit and marks the animal action-needed`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val vm = proofGateVm(doneRosterRepo(2), proofRepo)
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        seedSyncedProof(proofRepo, "goat-1")
+        val failing = proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-2", localUri = "file://g2.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op") as AppResult.Ok
+        proofRepo.markFailed(failing.value.id, "upload failed")
+        advanceUntilIdle()
+
+        assertFalse("a failed upload blocks submit", vm.state.value.canSubmit)
+        val action = vm.state.value.proofActionNeeded.single()
+        assertEquals("goat-2", action.goatId)
+        assertEquals(sg.mesha.goatos.feature.scan.ProofUploadStatus.FAILED, action.proofUploadStatus)
+    }
+
+    @Test
+    fun `a page-N done animal still requires proof before submit`() = runTest(dispatcher) {
+        // 21 done animals → the 21st is on page two (below the 20-row window). Its missing proof must
+        // still block submit and appear in the action-needed list even though it is off-screen.
+        val proofRepo = FakeProofCaptureRepository()
+        val vm = proofGateVm(doneRosterRepo(21), proofRepo)
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("window is bounded to one page", 20, vm.state.value.roster.size)
+        assertTrue(vm.state.value.hasMore)
+
+        (1..20).forEach { seedSyncedProof(proofRepo, "goat-$it") } // everyone in the window is synced
+        advanceUntilIdle()
+
+        assertFalse("the off-window page-N animal still blocks submit", vm.state.value.canSubmit)
+        assertEquals(listOf("goat-21"), vm.state.value.proofActionNeeded.map { it.goatId })
+        assertFalse("goat-21 is not in the visible window", vm.state.value.roster.any { it.goatId == "goat-21" })
+
+        seedSyncedProof(proofRepo, "goat-21")
+        advanceUntilIdle()
+        assertTrue("all done animals synced ⇒ submit allowed", vm.state.value.canSubmit)
+    }
+
+    private fun proofGateVm(repo: ExecutionRepository, proofRepo: FakeProofCaptureRepository): ScanViewModel =
+        ScanViewModel(
+            repo = repo,
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+
+    private suspend fun seedSyncedProof(proofRepo: FakeProofCaptureRepository, goatId: String) {
+        val created = proofRepo.capture(
+            taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT,
+            subjectId = goatId, localUri = "file://$goatId.mp4", mimeType = "video/mp4", caption = null,
+            scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2,
+            capturedByPrincipalId = "op",
+        ) as AppResult.Ok
+        proofRepo.markSynced(created.value.id, "server-$goatId")
+    }
+
+    private fun doneRosterRepo(n: Int): FakeScanExecutionRepository {
+        val done = (1..n).map { scanRow("goat-$it", "TAG-$it", "obl-$it").copy(status = "done") }
+        val pages = done.chunked(20)
+        val continuation = mutableMapOf<String, ScanRosterResponseDto>()
+        pages.forEachIndexed { index, pageRows ->
+            val next = if (index + 1 < pages.size) "cursor-${index + 1}" else null
+            val dto = ScanRosterResponseDto(rows = pageRows, nextCursor = next)
+            if (index == 0) Unit else continuation["cursor-$index"] = dto
+        }
+        val first = ScanRosterResponseDto(rows = pages.first(), nextCursor = if (pages.size > 1) "cursor-1" else null)
+        return FakeScanExecutionRepository(firstPage = first, continuationPages = continuation)
+    }
 }
 
 private fun scanRow(goatId: String, tag: String, obligationId: String, secondaryTag: String? = null): ScanRosterRowDto =
@@ -421,47 +532,68 @@ private class FakeScanExecutionRepository(
     private val firstPage: ScanRosterResponseDto,
     private val continuationPages: Map<String, ScanRosterResponseDto> = emptyMap(),
 ) : ExecutionRepository {
-    private val scanRoster = MutableStateFlow(Resource<ScanRosterResponseDto>(data = null))
-
-    override fun observeScanRoster(shedId: String, taskId: String?, limit: Int?): Flow<Resource<ScanRosterResponseDto>> = scanRoster
+    // In-memory per-row SSOT — the fake mirrors the production contract: refreshScanRoster walks the
+    // WHOLE roster into this list (with backend seq order); every read is a bounded/aggregate query
+    // over it. No whole-collection blob.
+    private val rows = MutableStateFlow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>>(emptyList())
 
     private fun norm(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
 
-    private fun allRows() = scanRoster.value.data?.rows.orEmpty()
+    private fun ScanRosterRowDto.toEntity(shedId: String, taskId: String?, seq: Long) =
+        sg.mesha.goatos.core.data.cache.ScanRosterRowEntity(
+            id = "$shedId|${taskId ?: "shed-wide"}#${obligationId.ifBlank { "$goatId#$primaryTag" }}",
+            scopeKey = "$shedId|${taskId ?: "shed-wide"}",
+            shedId = shedId,
+            taskId = taskId ?: "shed-wide",
+            goatId = goatId,
+            primaryTag = primaryTag,
+            secondaryTag = secondaryTag,
+            normalizedPrimaryTag = norm(primaryTag),
+            normalizedSecondaryTag = secondaryTag?.let(::norm)?.takeIf { n -> n.isNotBlank() },
+            vaccineLabel = vaccineLabel,
+            status = status,
+            obligationId = obligationId,
+            seq = seq,
+            updatedAt = 1L,
+        )
+
+    private fun statusIsDone(status: String): Boolean =
+        status.lowercase().let { it.contains("done") || it.contains("complete") }
+
+    override fun observeScanRosterRows(
+        shedId: String,
+        taskId: String?,
+        windowSize: Int,
+    ): Flow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>> =
+        rows.map { it.take(windowSize) }
+
+    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> = rows.map { it.size }
+
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
+        rows.map { list -> list.filter { it.goatId.isNotBlank() && statusIsDone(it.status) }.map { it.goatId }.distinct() }
+
+    override suspend fun scanRosterRowsByGoatIds(
+        shedId: String,
+        taskId: String?,
+        goatIds: List<String>,
+    ): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        rows.value.filter { it.goatId in goatIds }
 
     override suspend fun findScanRosterByTag(
         shedId: String,
         taskId: String?,
         normalizedTag: String,
     ): sg.mesha.goatos.core.data.cache.ScanRosterRowEntity? =
-        allRows().firstOrNull {
-            norm(it.primaryTag) == normalizedTag || it.secondaryTag?.let { s -> norm(s) == normalizedTag } == true
-        }?.let {
-            sg.mesha.goatos.core.data.cache.ScanRosterRowEntity(
-                id = "$shedId#${it.obligationId}",
-                scopeKey = "$shedId|${taskId ?: "shed-wide"}",
-                shedId = shedId,
-                taskId = taskId ?: "shed-wide",
-                goatId = it.goatId,
-                primaryTag = it.primaryTag,
-                secondaryTag = it.secondaryTag,
-                normalizedPrimaryTag = norm(it.primaryTag),
-                normalizedSecondaryTag = it.secondaryTag?.let(::norm)?.takeIf { n -> n.isNotBlank() },
-                vaccineLabel = it.vaccineLabel,
-                status = it.status,
-                obligationId = it.obligationId,
-                updatedAt = 0L,
-            )
+        rows.value.firstOrNull {
+            it.normalizedPrimaryTag == normalizedTag || it.normalizedSecondaryTag == normalizedTag
         }
 
     override fun observeScanRosterStatusCounts(
         shedId: String,
         taskId: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> =
-        scanRoster.map { resource ->
-            resource.data?.rows.orEmpty()
-                .groupingBy { it.status }
-                .eachCount()
+        rows.map { list ->
+            list.groupingBy { it.status }.eachCount()
                 .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
         }
 
@@ -470,42 +602,32 @@ private class FakeScanExecutionRepository(
         taskId: String?,
         obligationIds: List<String>,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
-        allRows().filter { it.obligationId in obligationIds }
-            .groupingBy { it.status }
-            .eachCount()
+        rows.value.filter { it.obligationId in obligationIds }
+            .groupingBy { it.status }.eachCount()
             .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
 
     override suspend fun getScanRosterStatusCounts(
         shedId: String,
         taskId: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
-        allRows().groupingBy { it.status }
-            .eachCount()
+        rows.value.groupingBy { it.status }.eachCount()
             .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
-        scanRoster.value = Resource(data = firstPage, lastSyncedAt = 1L)
-    }
-
-    override suspend fun refreshCompleteScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
-        var merged = firstPage
-        scanRoster.value = Resource(data = merged, lastSyncedAt = 1L)
-        var cursor = merged.nextCursor
-        while (cursor != null) {
-            val page = continuationPages[cursor] ?: error("missing page")
-            merged = page.copy(rows = merged.rows + page.rows)
-            scanRoster.value = Resource(data = merged, lastSyncedAt = 2L)
-            cursor = merged.nextCursor
+        val staged = mutableListOf<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>()
+        var seq = 0L
+        var page: ScanRosterResponseDto? = firstPage
+        var cursor: String? = null
+        val seen = mutableSetOf<String>()
+        while (page != null) {
+            page.rows.forEach { staged += it.toEntity(shedId, taskId, seq++) }
+            cursor = page.nextCursor
+            page = cursor?.let { c ->
+                check(seen.add(c)) { "non-advancing cursor" }
+                continuationPages[c] ?: error("missing page $c")
+            }
         }
-    }
-
-    override suspend fun appendScanRoster(shedId: String, taskId: String?, cursor: String, limit: Int?): Result<Unit> = runCatching {
-        val current = scanRoster.value.data ?: error("no first page")
-        val page = continuationPages[cursor] ?: error("missing page")
-        scanRoster.value = Resource(
-            data = page.copy(rows = current.rows + page.rows),
-            lastSyncedAt = 2L,
-        )
+        rows.value = staged.distinctBy { it.id }
     }
 
     override suspend fun rows(

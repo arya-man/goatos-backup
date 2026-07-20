@@ -14,8 +14,6 @@ import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheEntity
-import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
-import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.StatusCount
@@ -30,12 +28,19 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 /**
  * Vaccination execution screen area: the execution row list, the per-shed
  * drilldown, and the per-animal scan roster. Offline-first
- * (docs/decisions/android-offline-first.md): Room is the UI's single source of truth for all
- * three reads, each backed by its own cache table ([ExecutionRowsCacheDao] / [ExecutionShedCacheDao] /
- * [ScanRosterCacheDao]). observeX is cache-first and reactive; refreshX is the network side of
- * stale-while-revalidate — it upserts Room on success and leaves the cache untouched on
- * failure. rows/shed/scanRoster are kept as the plain network calls refreshX wraps.
- * DTO -> UiState mapping stays in :app.
+ * (docs/decisions/android-offline-first.md): Room is the UI's single source of truth.
+ *
+ * The execution-row and shed-drilldown reads are JSON-blob-by-scope caches
+ * ([ExecutionRowsCacheDao] / [ExecutionShedCacheDao]). The scan roster is the exception, and
+ * deliberately so (docs/decisions/mobile-data-fetch-anti-patterns.md): it is a per-animal SSOT
+ * ([ScanRosterRowDao]), never a whole-collection blob. [refreshScanRoster] walks the whole shed
+ * roster page-by-page into that table (each network page stays ~20 rows, streamed straight into the
+ * DAO); the scan LIST then renders a bounded keyset window ([observeScanRosterRows]), RFID
+ * validation matches the full roster ([findScanRosterByTag]), counters are full-roster GROUP BY
+ * aggregates, and the submit proof gate resolves the full DONE set ([observeScanRosterDoneGoatIds]).
+ *
+ * observeX is cache-first and reactive; refreshX is the network side of stale-while-revalidate — it
+ * upserts Room on success and leaves the cache untouched on failure. DTO -> UiState mapping stays in :app.
  */
 interface ExecutionRepository {
     suspend fun rows(
@@ -108,34 +113,35 @@ interface ExecutionRepository {
         limit: Int? = null,
     ): ScanRosterResponseDto
 
-    /** Cache-first stream for this shed's scan roster. */
-    fun observeScanRoster(
+    /** The scan LIST read: a bounded keyset WINDOW of the per-row SSOT (never the whole collection),
+     *  ordered by backend roster position and re-emitted on every roster upsert. The ViewModel grows
+     *  [windowSize] as the user scrolls; the full roster already lives in Room after [refreshScanRoster],
+     *  so paging is a local window advance, not a network call — page-N animals work offline. */
+    fun observeScanRosterRows(
         shedId: String,
         taskId: String? = null,
-        limit: Int? = null,
-    ): Flow<Resource<ScanRosterResponseDto>>
+        windowSize: Int,
+    ): Flow<List<ScanRosterRowEntity>>
 
-    /** Fetches and upserts Room on success; leaves the cache untouched on failure. */
+    /** Full-roster row count for this shed/task scope — drives `hasMore` (window < total). */
+    fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int>
+
+    /** Distinct goat ids of every DONE/completed animal in the FULL roster (page-independent). The
+     *  submit proof gate requires a synced proof for each; see [scanRosterRowsByGoatIds]. */
+    fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>>
+
+    /** Rows for a bounded goat-id set — the proof-incomplete animals the submit gate surfaces for
+     *  retry/replace, so action-needed animals outside the visible window are still shown. */
+    suspend fun scanRosterRowsByGoatIds(shedId: String, taskId: String?, goatIds: List<String>): List<ScanRosterRowEntity>
+
+    /** Walks the WHOLE shed roster page-by-page into the per-row SSOT ([ScanRosterRowDao]) — each
+     *  network page stays ~20 rows, streamed straight into the DAO with its backend `seq` order, and
+     *  the whole replace is atomic (a mid-walk failure rolls back and leaves the prior roster intact).
+     *  On success the full roster is local, so tag validation, counters, the windowed list, and the
+     *  proof gate all resolve without another network round trip. No whole-collection blob is written. */
     suspend fun refreshScanRoster(
         shedId: String,
         taskId: String? = null,
-        limit: Int? = null,
-    ): Result<Unit>
-
-    /** Fetches every bounded scan-roster page for this shed/task and keeps the merged roster in
-     *  Room. The BLE screen needs a complete local tag index before accepting hardware reads;
-     *  otherwise a valid goat on page 2 can be misclassified as an unknown tag. */
-    suspend fun refreshCompleteScanRoster(
-        shedId: String,
-        taskId: String? = null,
-        limit: Int? = null,
-    ): Result<Unit>
-
-    /** Appends exactly the current server continuation page to the Room-backed scope. */
-    suspend fun appendScanRoster(
-        shedId: String,
-        taskId: String? = null,
-        cursor: String,
         limit: Int? = null,
     ): Result<Unit>
 
@@ -159,7 +165,6 @@ class DefaultExecutionRepository(
     private val api: AppApi,
     private val rowsDao: ExecutionRowsCacheDao,
     private val shedDao: ExecutionShedCacheDao,
-    private val scanRosterDao: ScanRosterCacheDao,
     private val scanRosterRowDao: ScanRosterRowDao,
     private val database: GoatDatabase,
     private val json: Json = Json { ignoreUnknownKeys = true },
@@ -278,16 +283,27 @@ class DefaultExecutionRepository(
         limit: Int?,
     ): ScanRosterResponseDto = api.getScanRoster(shedId, taskId, cursor, limit)
 
-    override fun observeScanRoster(
+    override fun observeScanRosterRows(
         shedId: String,
         taskId: String?,
-        limit: Int?,
-    ): Flow<Resource<ScanRosterResponseDto>> {
-        val key = scanRosterScopeKey(shedId, taskId, limit)
-        return scanRosterDao.observe(key)
-            .map { entity -> entity.toResource(key) }
+        windowSize: Int,
+    ): Flow<List<ScanRosterRowEntity>> =
+        scanRosterRowDao.observeRowsWindow(scanRosterRowScopeKey(shedId, taskId), windowSize)
             .flowOn(Dispatchers.Default)
-    }
+
+    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> =
+        scanRosterRowDao.observeScopeTotal(scanRosterRowScopeKey(shedId, taskId)).flowOn(Dispatchers.Default)
+
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
+        scanRosterRowDao.observeDoneGoatIds(scanRosterRowScopeKey(shedId, taskId)).flowOn(Dispatchers.Default)
+
+    override suspend fun scanRosterRowsByGoatIds(
+        shedId: String,
+        taskId: String?,
+        goatIds: List<String>,
+    ): List<ScanRosterRowEntity> =
+        if (goatIds.isEmpty()) emptyList()
+        else scanRosterRowDao.rowsByGoatIds(scanRosterRowScopeKey(shedId, taskId), goatIds)
 
     override suspend fun refreshScanRoster(
         shedId: String,
@@ -295,114 +311,32 @@ class DefaultExecutionRepository(
         limit: Int?,
     ): Result<Unit> = runCatching {
         scanAppendMutex.withLock {
-            val key = scanRosterScopeKey(shedId, taskId, limit)
             val rowScope = scanRosterRowScopeKey(shedId, taskId)
-            // R50-007/R50-008: fetch the WHOLE shed roster keyset page-by-page, RemoteMediator-style
-            // (each network page stays ~20 rows), staging rows locally so a mid-walk network failure
-            // fails the whole refresh and leaves both caches untouched (atomic terminal publish).
-            // Forward progress is guaranteed by seenCursors (a repeated cursor is a backend defect,
-            // not silently truncated) rather than a fixed page-count cutoff.
-            // R50-008 memory optimization: stream each page's rows directly into the per-row SSOT
-            // without accumulating all pages in a single in-heap list (eliminates dual memory retention
-            // for large sheds: ~50+ pages hold entire roster twice during refresh).
-            val first = scanRoster(shedId, taskId, cursor = null, limit = limit)
-            val firstEntities = first.rows.map { it.toRowEntity(rowScope, shedId, taskId, clock()) }
-            val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's total page count, not a persistent field
-
+            // Fetch the WHOLE shed roster keyset page-by-page (each network page stays ~20 rows) and
+            // stream each page STRAIGHT into the per-row SSOT — no whole-collection JSON blob, and no
+            // in-heap accumulation of the full roster (memory stays O(page), R50-008). `seq` records
+            // the backend roster order so the windowed UI read is stable. Forward progress is
+            // guaranteed by seenCursors (a repeated cursor is a backend defect, not silent truncation).
+            // The whole replace is ONE transaction: a mid-walk network failure rolls back and leaves
+            // the previously-persisted roster intact (offline-safe atomic publish).
+            val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's page count, not a persistent field
+            var seq = 0L
             database.withTransaction {
-                // Clear the old roster and insert the first page
+                val first = scanRoster(shedId, taskId, cursor = null, limit = limit)
                 scanRosterRowDao.deleteForScope(rowScope)
+                val firstEntities = first.rows.map { it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
                 scanRosterRowDao.upsertAll(firstEntities.distinctBy { it.id })
-
-                // Stream subsequent pages into the DAO without accumulating in memory
                 var nextCursor = first.nextCursor
                 while (nextCursor != null) {
                     if (!seenCursors.add(nextCursor)) {
                         throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
                     }
                     val page = scanRoster(shedId, taskId, cursor = nextCursor, limit = limit)
-                    val pageEntities = page.rows.map { it.toRowEntity(rowScope, shedId, taskId, clock()) }
+                    val pageEntities = page.rows.map { it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
                     scanRosterRowDao.upsertAll(pageEntities.distinctBy { it.id })
                     nextCursor = page.nextCursor
                 }
-
-                // The UI blob still holds only the first ~20-row page (the observed window stays bounded,
-                // paged forward by appendScanRoster as the user scrolls); the per-row SSOT holds every
-                // roster row for indexed tag lookup + GROUP BY aggregates, published atomically with it.
-                scanRosterDao.upsert(
-                    ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(first), updatedAt = clock()),
-                )
             }
-            scanRosterDao.enforceCacheBounds()
-        }
-    }
-
-    override suspend fun refreshCompleteScanRoster(
-        shedId: String,
-        taskId: String?,
-        limit: Int?,
-    ): Result<Unit> = runCatching {
-        scanAppendMutex.withLock {
-            val key = scanRosterScopeKey(shedId, taskId, limit)
-            val rowScope = scanRosterRowScopeKey(shedId, taskId)
-            // The BLE screen needs a complete local tag index AND a fully rendered list before
-            // accepting hardware reads, so (unlike refreshScanRoster) the observed blob itself
-            // accumulates every page (mobile-guard:ignore below), staged locally and published
-            // atomically at the terminal cursor together with the row-level SSOT.
-            var merged = scanRoster(shedId, taskId, cursor = null, limit = limit)
-            val entities = merged.rows.mapTo(mutableListOf()) { it.toRowEntity(rowScope, shedId, taskId, clock()) }
-            var cursor = merged.nextCursor
-            val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's total page count, not a persistent field
-            while (cursor != null) {
-                if (!seenCursors.add(cursor)) {
-                    throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
-                }
-                val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
-                page.rows.mapTo(entities) { it.toRowEntity(rowScope, shedId, taskId, clock()) }
-                merged = mergeScanRosterPage(merged, page)
-                cursor = page.nextCursor
-            }
-            database.withTransaction {
-                scanRosterDao.upsert(
-                    ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(merged), updatedAt = clock()),
-                )
-                scanRosterRowDao.replaceScope(rowScope, entities.distinctBy { it.id })
-            }
-            scanRosterDao.enforceCacheBounds()
-        }
-    }
-
-    override suspend fun appendScanRoster(
-        shedId: String,
-        taskId: String?,
-        cursor: String,
-        limit: Int?,
-    ): Result<Unit> = runCatching {
-        scanAppendMutex.withLock {
-            val key = scanRosterScopeKey(shedId, taskId, limit)
-            val currentEntity = scanRosterDao.get(key)
-            val current = readCachedJson<ScanRosterResponseDto>(
-                json = json,
-                cacheKey = key,
-                dtoJson = currentEntity?.dtoJson,
-                updatedAt = currentEntity?.updatedAt,
-                now = clock(),
-                quarantine = { scanRosterDao.delete(it) },
-            ).data ?: throw ScanRosterCursorException("scan roster continuation has no cached first page")
-            if (current.nextCursor != cursor) {
-                throw ScanRosterCursorException("scan roster cursor is stale or belongs to another task/shed-wide scope")
-            }
-            val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
-            if (page.nextCursor == cursor) {
-                throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
-            }
-            val merged = mergeScanRosterPage(current, page)
-            scanRosterDao.upsert(
-                ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(merged), updatedAt = clock()),
-            )
-            // R50-007: keep the appended page's rows fresh in the per-row SSOT too
-            val rowScope = scanRosterRowScopeKey(shedId, taskId)
-            scanRosterRowDao.upsertAll(page.rows.map { it.toRowEntity(rowScope, shedId, taskId, clock()) })
         }
     }
 
@@ -430,21 +364,6 @@ class DefaultExecutionRepository(
         return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
     }
 
-    private suspend fun ScanRosterCacheEntity?.toResource(key: String): Resource<ScanRosterResponseDto> {
-        val cached = readCachedJson<ScanRosterResponseDto>(
-            json = json,
-            cacheKey = key,
-            dtoJson = this?.dtoJson,
-            updatedAt = this?.updatedAt,
-            now = clock(),
-            quarantine = { scanRosterDao.delete(it) },
-        )
-        return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
-    }
-
-    private fun scanRosterScopeKey(shedId: String, taskId: String?, limit: Int?): String =
-        cacheKey(shedId, taskId ?: "shed-wide", limit?.toString())
-
     override suspend fun findScanRosterByTag(shedId: String, taskId: String?, normalizedTag: String): ScanRosterRowEntity? =
         scanRosterRowDao.findByTag(scanRosterRowScopeKey(shedId, taskId), normalizedTag)
 
@@ -467,6 +386,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     scopeKey: String,
     shedId: String,
     taskId: String?,
+    seq: Long,
     now: Long,
 ): ScanRosterRowEntity = ScanRosterRowEntity(
     id = "$scopeKey#${obligationId.ifBlank { "$goatId#$primaryTag" }}",
@@ -481,6 +401,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     vaccineLabel = vaccineLabel,
     status = status,
     obligationId = obligationId,
+    seq = seq,
     updatedAt = now,
 )
 
@@ -507,15 +428,5 @@ internal fun mergeExecutionRowsPage(
             row.sopTaskId.orEmpty(),
             row.obligationId.orEmpty(),
         ).joinToString("|")
-    },
-)
-
-internal fun mergeScanRosterPage(
-    current: ScanRosterResponseDto,
-    page: ScanRosterResponseDto,
-): ScanRosterResponseDto = page.copy(
-    rows = (current.rows + page.rows).distinctBy { row -> // mobile-guard:ignore: capped blob (enforceCacheBounds); per-row truth lives in scan_roster_row
-        row.obligationId.takeIf { it.isNotBlank() }
-            ?: listOf(row.goatId, row.primaryTag, row.vaccineLabel).joinToString("|")
     },
 )

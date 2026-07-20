@@ -57,7 +57,6 @@ import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
-import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
@@ -135,9 +134,6 @@ object AppModule {
 
     @Provides
     fun provideExecutionShedCacheDao(db: GoatDatabase): ExecutionShedCacheDao = db.executionShedCacheDao()
-
-    @Provides
-    fun provideScanRosterCacheDao(db: GoatDatabase): ScanRosterCacheDao = db.scanRosterCacheDao()
 
     @Provides
     fun provideScanRosterRowDao(db: GoatDatabase): ScanRosterRowDao = db.scanRosterRowDao()
@@ -240,10 +236,9 @@ object AppModule {
         api: AppApi,
         rowsDao: ExecutionRowsCacheDao,
         shedDao: ExecutionShedCacheDao,
-        scanRosterDao: ScanRosterCacheDao,
         scanRosterRowDao: ScanRosterRowDao,
         database: GoatDatabase,
-    ): ExecutionRepository = DefaultExecutionRepository(api, rowsDao, shedDao, scanRosterDao, scanRosterRowDao, database)
+    ): ExecutionRepository = DefaultExecutionRepository(api, rowsDao, shedDao, scanRosterRowDao, database)
 
     @Provides
     @Singleton

@@ -30,8 +30,6 @@ import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
-import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
-import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
@@ -73,7 +71,6 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         ControlTowerCacheEntity::class,
         ExecutionRowsCacheEntity::class,
         ExecutionShedCacheEntity::class,
-        ScanRosterCacheEntity::class,
         ScanRosterRowEntity::class,
         AdherenceCacheEntity::class,
         InsightsGapsCacheEntity::class,
@@ -89,7 +86,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CalendarScheduleEntity::class,
         CalendarScheduleRemoteKeyEntity::class,
     ],
-    version = 13,
+    version = 14,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -101,6 +98,9 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // v12 (see [MIGRATION_11_12]) adds the shed-completion-summary cache table.
     // v13 (see [MIGRATION_12_13]) persists capture_source on proof_capture so startup-recovery
     // re-registration re-sends the original source instead of a default fallback.
+    // v14 (see [MIGRATION_13_14]) makes the per-row scan_roster_row SSOT the sole source for the
+    // shed scan screen: adds `seq` (backend roster order) so the UI renders a bounded keyset window
+    // instead of a whole-collection JSON blob, and DROPS the now-unused scan_roster_cache blob table.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -111,7 +111,6 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun controlTowerCacheDao(): ControlTowerCacheDao
     abstract fun executionRowsCacheDao(): ExecutionRowsCacheDao
     abstract fun executionShedCacheDao(): ExecutionShedCacheDao
-    abstract fun scanRosterCacheDao(): ScanRosterCacheDao
     abstract fun scanRosterRowDao(): ScanRosterRowDao
     abstract fun adherenceCacheDao(): AdherenceCacheDao
     abstract fun insightsGapsCacheDao(): InsightsGapsCacheDao

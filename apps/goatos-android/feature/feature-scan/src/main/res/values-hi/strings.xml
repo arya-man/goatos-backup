@@ -14,6 +14,10 @@
     <string name="scan_add_clip">कैमरा क्लिप जोड़ें</string>
     <string name="scan_proof_needed">कैमरा प्रूफ़ चाहिए</string>
     <string name="scan_proof_uploading">प्रूफ़ अपलोड हो रहा है…</string>
+    <plurals name="scan_proof_action_needed">
+        <item quantity="one">सबमिट करने से पहले %1$d पशु के लिए प्रूफ वीडियो चाहिए</item>
+        <item quantity="other">सबमिट करने से पहले %1$d पशुओं के लिए प्रूफ वीडियो चाहिए</item>
+    </plurals>
     <plurals name="scan_proof_synced">
         <item quantity="one">%1$d क्लिप सिंक हो गई</item>
         <item quantity="other">%1$d क्लिप सिंक हो गईं</item>

@@ -143,12 +143,19 @@ heap and grows without bound as the scope grows.
 - The UI list observes the SSOT scope (a bounded Room query), not a decoded whole-collection blob.
 - The blob cache is for a bounded *window* (first page) only, paged forward, never the whole thing.
 
-Known open item (2026-07-20): `ExecutionRepository.refreshCompleteScanRoster` still serializes the
-whole shed roster into one `ScanRosterCacheEntity` blob. It is bounded-by-shed today (tens–hundreds
-of animals, `mobile-guard:ignore`'d) so it is not a live crash, but the scale-safe fix is to render
-`ScanViewModel`'s roster list from a `scanRosterRowDao` observe (the SSOT already holds every row)
-and drop the whole-roster blob. This is a UI-layer refactor with a real design choice (the list is
-already paginated via `loadMore`/`appendScanRoster`), so it is tracked separately rather than rushed.
+CLOSED (2026-07-20, GoatDatabase v13→v14): the scan roster no longer has a whole-collection blob.
+`ScanViewModel` renders its list from `ScanRosterRowDao.observeRowsWindow` — a bounded
+`ORDER BY seq LIMIT :window` keyset window over the per-row SSOT, advanced LOCALLY by scroll (the
+whole roster is already in Room after `refreshScanRoster`, so page-N works offline with no extra
+network). RFID validation (`findByTag`), ring/tile counters (`observeCountsByStatus`), and the submit
+proof gate (`observeDoneGoatIds` + `scanRosterRowsByGoatIds`, evaluated over the FULL roster — every
+DONE animal must have a synced proof video) all read the SSOT. The `ScanRosterCacheEntity` blob table,
+the `refreshCompleteScanRoster` / `appendScanRoster` blob methods, and the `mergeScanRosterPage`
+whole-collection helper were deleted; `MIGRATION_13_14` adds the `seq` ordering column and DROPs
+`scan_roster_cache`. No whole-collection blob (or its `mobile-guard:ignore`) remains on any
+scan-roster path — the only surviving ignore on `refreshScanRoster` is the function-local
+`seenCursors` set that guarantees forward progress (bounded by one shed's page count, GC'd on
+return), which is a memory-guard false positive, not a fetch or a serialized roster.
 
 ## Verified NON-issues (do not re-flag as bugs)
 

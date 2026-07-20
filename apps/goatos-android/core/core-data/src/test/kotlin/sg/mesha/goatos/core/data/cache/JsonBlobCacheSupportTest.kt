@@ -22,7 +22,7 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
  * Coverage for the shared JSON-blob-by-scope cache layer (C35-017 TTL/cap/eviction,
  * C35-022 corrupt-blob quarantine). Exercised through [CalendarCacheDao] as a representative
  * table — every other JSON-blob cache table ([ControlTowerCacheDao], [ExecutionRowsCacheDao],
- * [ExecutionShedCacheDao], [ScanRosterCacheDao], [AdherenceCacheDao], [InsightsGapsCacheDao],
+ * [ExecutionShedCacheDao], [AdherenceCacheDao], [InsightsGapsCacheDao],
  * [InsightsCoverageCacheDao]) implements the identical [JsonBlobCacheDao] contract and shares
  * this exact [readCachedJson] / [enforceCacheBounds] code path, so proving the policy once
  * here proves it everywhere it's wired.

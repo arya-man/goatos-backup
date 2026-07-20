@@ -241,14 +241,22 @@ private class FakeExecutionRepository : ExecutionRepository {
     override suspend fun scanRoster(shedId: String, taskId: String?, cursor: String?, limit: Int?): ScanRosterResponseDto =
         error("unused")
 
-    override fun observeScanRoster(shedId: String, taskId: String?, limit: Int?): Flow<Resource<ScanRosterResponseDto>> =
-        error("unused")
+    override fun observeScanRosterRows(
+        shedId: String,
+        taskId: String?,
+        windowSize: Int,
+    ): Flow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
+
+    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
+
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
+
+    override suspend fun scanRosterRowsByGoatIds(
+        shedId: String,
+        taskId: String?,
+        goatIds: List<String>,
+    ): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> = emptyList()
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = error("unused")
-
-    override suspend fun refreshCompleteScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> =
-        error("unused")
-
-    override suspend fun appendScanRoster(shedId: String, taskId: String?, cursor: String, limit: Int?): Result<Unit> =
-        error("unused")
 }

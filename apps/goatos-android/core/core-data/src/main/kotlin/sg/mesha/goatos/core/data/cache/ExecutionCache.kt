@@ -77,47 +77,24 @@ interface ExecutionShedCacheDao : JsonBlobCacheDao<ExecutionShedCacheEntity> {
     override suspend fun deleteOldest(n: Int)
 }
 
-@Entity(tableName = "scan_roster_cache")
-data class ScanRosterCacheEntity(
-    @PrimaryKey val cacheKey: String,
-    val dtoJson: String,
-    val updatedAt: Long,
-)
-
-@Dao
-interface ScanRosterCacheDao : JsonBlobCacheDao<ScanRosterCacheEntity> {
-    @Query("SELECT * FROM scan_roster_cache WHERE cacheKey = :cacheKey")
-    override fun observe(cacheKey: String): Flow<ScanRosterCacheEntity?>
-
-    @Query("SELECT * FROM scan_roster_cache WHERE cacheKey = :cacheKey")
-    suspend fun get(cacheKey: String): ScanRosterCacheEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    override suspend fun upsert(entity: ScanRosterCacheEntity)
-
-    @Query("DELETE FROM scan_roster_cache WHERE cacheKey = :cacheKey")
-    override suspend fun delete(cacheKey: String)
-
-    @Query("SELECT COUNT(*) FROM scan_roster_cache")
-    override suspend fun count(): Int
-
-    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM scan_roster_cache")
-    override suspend fun totalBytes(): Long
-
-    @Query(
-        "DELETE FROM scan_roster_cache WHERE cacheKey IN " +
-            "(SELECT cacheKey FROM scan_roster_cache ORDER BY updatedAt ASC LIMIT :n)",
-    )
-    override suspend fun deleteOldest(n: Int)
-}
-
-/** Individual scan roster row for tag-based lookup (R50-007: RFID tag matching against the full shed
- *  roster, not just the loaded page). Indexed on shed_id + primary_tag + secondary_tag for efficient
- *  keyset searches. Per offline-first rules, Room is the single source of truth for the roster. */
+/** Individual scan roster row — the per-animal SSOT for the shed scan screen. Room is the single
+ *  source of truth for the whole roster (docs/decisions/android-offline-first.md +
+ *  docs/decisions/mobile-data-fetch-anti-patterns.md "render list UIs from a bounded SSOT, never a
+ *  whole-collection JSON blob"). Every consumer reads this table, never a serialized whole-roster
+ *  blob:
+ *   - the scan LIST renders a bounded keyset window ([observeRowsWindow]) advanced by scroll;
+ *   - RFID tag validation matches the FULL roster via the indexed [findByTag] (R50-007);
+ *   - ring/tile counters are full-roster GROUP BY aggregates ([observeCountsByStatus], R50-008);
+ *   - the submit proof gate resolves the FULL set of DONE animals ([observeDoneGoatIds]) and the
+ *     rows for any proof-incomplete animals ([rowsByGoatIds]), independent of the visible window.
+ *  `seq` is the backend roster order captured at refresh time so the windowed read is stable and
+ *  page N shows the same animals the backend would. Indexed on scopeKey (+ seq for the window,
+ *  + normalized tags for lookup). */
 @Entity(
     tableName = "scan_roster_row",
     indices = [
         androidx.room.Index(value = ["scopeKey"]),
+        androidx.room.Index(value = ["scopeKey", "seq"]),
         androidx.room.Index(value = ["scopeKey", "normalizedPrimaryTag"]),
         androidx.room.Index(value = ["scopeKey", "normalizedSecondaryTag"]),
     ],
@@ -135,6 +112,9 @@ data class ScanRosterRowEntity(
     val vaccineLabel: String,
     val status: String,
     val obligationId: String,
+    /** Backend roster order captured at refresh, so the windowed UI read is stable and page-N
+     *  matches backend order. Defaults to 0 for rows written before the ordering column existed. */
+    val seq: Long = 0,
     val updatedAt: Long,
 )
 
@@ -145,6 +125,31 @@ interface ScanRosterRowDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<ScanRosterRowEntity>)
+
+    /** The UI list read: a BOUNDED keyset window over the per-row SSOT ordered by backend roster
+     *  position, advanced by scroll (never the whole collection). Re-emits on every roster upsert.
+     *  This is the offline-first SSOT read that replaces the whole-roster JSON blob. */
+    @Query("SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey ORDER BY seq ASC, id ASC LIMIT :limit")
+    fun observeRowsWindow(scopeKey: String, limit: Int): Flow<List<ScanRosterRowEntity>>
+
+    /** Full-roster row count for this scope — drives `hasMore` (window < total) without loading rows. */
+    @Query("SELECT COUNT(*) FROM scan_roster_row WHERE scopeKey = :scopeKey")
+    fun observeScopeTotal(scopeKey: String): Flow<Int>
+
+    /** Distinct goat ids of every DONE/completed animal in the FULL roster (backend-persisted status).
+     *  The submit proof gate unions this with the session's local-done overlay to require a synced
+     *  proof for every vaccinated animal, page-independent. Bounded by one shed's animal count. */
+    @Query(
+        "SELECT DISTINCT goatId FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' AND " +
+            "(LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%')"
+    )
+    fun observeDoneGoatIds(scopeKey: String): Flow<List<String>>
+
+    /** Rows for a bounded goat-id set (the proof-incomplete animals the submit gate surfaces for
+     *  retry/replace), so action-needed animals OUTSIDE the visible window can still be shown. The
+     *  result is bounded by the passed id set; the caller sorts for display. */
+    @Query("SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId IN (:goatIds)")
+    suspend fun rowsByGoatIds(scopeKey: String, goatIds: List<String>): List<ScanRosterRowEntity>
 
     /** Exact lookup over the canonical tag persisted at refresh time. */
     @Query(

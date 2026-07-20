@@ -193,6 +193,11 @@ data class ScanUiState(
     val rosterExpanded: Boolean = false,
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false,
+    // Submit proof gate (full-roster): DONE animals whose proof video is not yet SYNCED
+    // (MISSING/UPLOADING/FAILED). Non-empty ⇒ submit is blocked; each row carries its proof status
+    // and supports CaptureProof (replace) / RetryProof so the operator can resolve it, including
+    // animals below the visible scroll window.
+    val proofActionNeeded: List<RosterRow> = emptyList(),
     val readerConnection: ScanReaderConnection? = null,
 )
 
@@ -338,6 +343,14 @@ fun ScanScreen(
                     ) { _, entry -> FeedRow(entry) }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
+            }
+
+            if (state.proofActionNeeded.isNotEmpty()) {
+                ProofActionNeededSection(
+                    rows = state.proofActionNeeded,
+                    captureEnabled = state.scanEnabled,
+                    onEvent = onEvent,
+                )
             }
 
             ScanFooter(
@@ -1095,6 +1108,46 @@ private fun ProofActions(
             ) {
                 Box(modifier = Modifier.weight(1f)) { status() }
                 addClip(Modifier)
+            }
+        }
+    }
+}
+
+/**
+ * Full-roster submit proof gate surface: the DONE animals whose proof video is still
+ * MISSING/UPLOADING/FAILED (option 2 — every vaccinated animal needs a synced proof before submit).
+ * Renders each one with its tag + [ProofActions] (retry/replace), including animals below the visible
+ * scroll window, so the operator can resolve exactly which videos are still pending or failed.
+ */
+@Composable
+private fun ProofActionNeededSection(
+    rows: List<RosterRow>,
+    captureEnabled: Boolean,
+    onEvent: (ScanEvent) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            pluralStringResource(R.plurals.scan_proof_action_needed, rows.size, rows.size),
+            color = ScanTokens.danger,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        rows.forEach { row ->
+            Column {
+                Text(
+                    row.primaryTag,
+                    color = ScanTokens.ink,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                )
+                ProofActions(row = row, captureEnabled = captureEnabled, onEvent = onEvent)
             }
         }
     }

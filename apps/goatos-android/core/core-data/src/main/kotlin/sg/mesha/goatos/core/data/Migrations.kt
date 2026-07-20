@@ -269,3 +269,26 @@ val MIGRATION_12_13: Migration = object : Migration(12, 13) {
         )
     }
 }
+
+/** v13 -> v14: the per-row `scan_roster_row` SSOT becomes the sole source for the shed scan screen.
+ *
+ *  1. Adds `seq` (backend roster order captured at refresh) so the scan LIST can render a bounded
+ *     keyset window (`ORDER BY seq LIMIT n`) advanced by scroll, instead of the app deserializing a
+ *     whole-collection JSON blob to draw the list. Existing rows backfill `0` (`NOT NULL DEFAULT 0`)
+ *     and are re-seeded with real order on the next roster refresh; the tie-break on `id` keeps the
+ *     window stable meanwhile. An index over `(scopeKey, seq)` serves the windowed read.
+ *  2. DROPS the now-unused `scan_roster_cache` whole-roster blob table. Nothing reads it anymore —
+ *     tag validation, counters, and the submit proof gate all resolve the full roster from
+ *     `scan_roster_row`. Dropping it is safe: it only ever held a re-fetchable cache of a network
+ *     read, never unsynced operator writes (those live in the outbox / proof_capture, untouched).
+ */
+val MIGRATION_13_14: Migration = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `seq` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scan_roster_row_scopeKey_seq` " +
+                "ON `scan_roster_row` (`scopeKey`, `seq`)",
+        )
+        db.execSQL("DROP TABLE IF EXISTS `scan_roster_cache`")
+    }
+}

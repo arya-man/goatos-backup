@@ -14,6 +14,10 @@
     <string name="scan_add_clip">కెమెరా క్లిప్ జోడించండి</string>
     <string name="scan_proof_needed">కెమెరా ప్రూఫ్ అవసరం</string>
     <string name="scan_proof_uploading">ప్రూఫ్ అప్‌లోడ్ అవుతోంది…</string>
+    <plurals name="scan_proof_action_needed">
+        <item quantity="one">సబ్మిట్ చేయడానికి ముందు %1$d జంతువుకు ప్రూఫ్ వీడియో అవసరం</item>
+        <item quantity="other">సబ్మిట్ చేయడానికి ముందు %1$d జంతువులకు ప్రూఫ్ వీడియో అవసరం</item>
+    </plurals>
     <plurals name="scan_proof_synced">
         <item quantity="one">%1$d క్లిప్ సింక్ అయింది</item>
         <item quantity="other">%1$d క్లిప్‌లు సింక్ అయ్యాయి</item>

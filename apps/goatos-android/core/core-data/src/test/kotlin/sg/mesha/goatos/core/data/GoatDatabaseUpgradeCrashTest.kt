@@ -72,6 +72,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_10_11,
                 MIGRATION_11_12,
                 MIGRATION_12_13,
+                MIGRATION_13_14,
             )
             .build()
         try {
@@ -112,6 +113,7 @@ class GoatDatabaseUpgradeCrashTest {
                     vaccineLabel = "ET+TT",
                     status = "pending",
                     obligationId = "obl-1",
+                    seq = 3,
                     updatedAt = 9L,
                 ),
             )
@@ -119,6 +121,10 @@ class GoatDatabaseUpgradeCrashTest {
             assertEquals("obl-1", byTag?.obligationId)
             val counts = rosterDao.countByStatus(scopeKey)
             assertEquals(1, counts.single().count)
+            // v14 (MIGRATION_13_14): the added `seq` column round-trips through the bounded window read
+            // (so the ordering column Room now validates against actually exists post-upgrade), and the
+            // dropped scan_roster_cache blob table is gone.
+            assertEquals(3L, rosterDao.observeRowsWindow(scopeKey, 20).first().single().seq)
             assertEquals("pending", counts.single().status)
 
             // 6. The v12 shed_completion_summary_cache table (vaccination shed acknowledgement) is

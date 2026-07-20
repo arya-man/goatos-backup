@@ -4,12 +4,14 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -17,10 +19,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
-import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -32,8 +34,6 @@ import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.forms.ProofPolicy
-import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
-import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanError
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
@@ -80,20 +80,35 @@ class ScanViewModel @Inject constructor(
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
     private val taskId: String? = savedStateHandle.get<String>("taskId")
-    private var nextCursor: String? = null
     private var readerRefreshJob: Job? = null
 
-    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
-    private val observedResource: StateFlow<Resource<ScanRosterResponseDto>> =
+    // The visible scan-list window size. loadMore() grows it; the full roster is already local in the
+    // per-row SSOT after a refresh, so paging is a LOCAL window advance (page-N works offline), not a
+    // network call. Room re-queries the bounded window whenever this changes.
+    private val _windowSize = MutableStateFlow(SCAN_PAGE_SIZE)
+
+    // Upstream Room flow: the scan LIST is a BOUNDED keyset window over the per-row SSOT
+    // (docs/decisions/mobile-data-fetch-anti-patterns.md — render from a bounded SSOT, never a
+    // whole-collection blob). Re-emits on window growth and on every roster upsert; lifecycle-aware.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val observedRows: StateFlow<List<ScanRosterRowEntity>> =
         (if (shedId != null) {
-            repo.observeScanRoster(shedId, taskId, limit = SCAN_PAGE_SIZE)
+            _windowSize.flatMapLatest { size -> repo.observeScanRosterRows(shedId, taskId, windowSize = size) }
         } else {
-            flowOf(Resource(data = null))
-        }).stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            Resource(data = null)
-        )
+            flowOf(emptyList())
+        }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Full-roster row count for this scope (page-independent) — drives hasMore and the sync/error gates.
+    private val rosterTotal: StateFlow<Int> =
+        (if (shedId != null) repo.observeScanRosterTotal(shedId, taskId) else flowOf(0))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    // Every DONE animal across the FULL roster (backend-persisted status), page-independent. The
+    // submit proof gate unions this with the session local-done overlay and requires a synced proof
+    // for each; see [computeProofGate].
+    private val persistedDoneGoatIds: StateFlow<List<String>> =
+        (if (shedId != null) repo.observeScanRosterDoneGoatIds(shedId, taskId) else flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // R50-008: full-roster status aggregates (Room GROUP BY, page-independent). Re-emits on every
     // roster upsert; combined into [state] so ring/tile counters are identical for page size 1 and 20.
@@ -149,13 +164,20 @@ class ScanViewModel @Inject constructor(
     // re-enter through [persistedScanDone]; manual taps intentionally disappear after recreation.
     private val _localDone = MutableStateFlow<Set<String>>(emptySet())
     private val _manualDone = MutableStateFlow<Set<String>>(emptySet())
+    // goatIds marked DONE this session (reader or manual). Unioned into the submit proof-gate's
+    // required set so an in-session completion needs a synced proof before submit is enabled, even
+    // before a refresh syncs the backend status. Monotonic within a session (a done animal keeps
+    // requiring proof); rebuilt from the SSOT after a refresh via [persistedDoneGoatIds].
+    private val _localDoneGoatIds = MutableStateFlow<Set<String>>(emptySet())
     private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
 
-    // Combines observed resource with transient flags + draft overlay; lifecycle-aware.
-    // >5 flows > Kotlin's typed combine limit (5), so use the vararg Array<*> form and cast.
+    // Combines the bounded SSOT window + full-roster aggregates with transient flags + draft overlay;
+    // lifecycle-aware. >5 flows > Kotlin's typed combine limit (5), so use the vararg Array<*> form.
     @Suppress("UNCHECKED_CAST")
     val state: StateFlow<ScanUiState> = combine(
-        observedResource,
+        observedRows,
+        rosterTotal,
+        persistedDoneGoatIds,
         _isRefreshing,
         _isOffline,
         _isLoadingMore,
@@ -164,6 +186,7 @@ class ScanViewModel @Inject constructor(
         _selectedVaccineGroupId,
         persistedScanDone,
         _localDone,
+        _localDoneGoatIds,
         _feed,
         reader.status,
         reader.readerName,
@@ -172,41 +195,48 @@ class ScanViewModel @Inject constructor(
         _operatorAllowed,
         _refreshError,
     ) { values: Array<Any?> ->
-        val resource = values[0] as Resource<ScanRosterResponseDto>
-        val isRefreshing = values[1] as Boolean
-        val isOffline = values[2] as Boolean
-        val isLoadingMore = values[3] as Boolean
-        val selectedFilter = values[4] as ScanStatus?
-        val rosterExpanded = values[5] as Boolean
-        val selectedGroupId = values[6] as String?
-        val persistedDone = values[7] as Set<String>
-        val localDone = persistedDone + (values[8] as Set<String>)
-        val feed = values[9] as List<ScanFeedEntry>
-        val readerStatus = values[10] as RfidReaderStatus
-        val readerName = values[11] as String?
-        val counts = values[12] as List<StatusCount>
-        val proofs = values[13] as List<ProofCaptureRow>
-        val operatorAllowed = values[14] as Boolean?
-        val refreshError = values[15] as String?
-        val dto = resource.data
-        nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
-        // R50-009: Cold cache + failed refresh → error/retry state (data null + error present)
-        val error = if (dto == null && (resource.error != null || refreshError != null)) {
+        val rows = values[0] as List<ScanRosterRowEntity>
+        val total = values[1] as Int
+        val persistedDoneGoats = values[2] as List<String>
+        val isRefreshing = values[3] as Boolean
+        val isOffline = values[4] as Boolean
+        val isLoadingMore = values[5] as Boolean
+        val selectedFilter = values[6] as ScanStatus?
+        val rosterExpanded = values[7] as Boolean
+        val selectedGroupId = values[8] as String?
+        val persistedDone = values[9] as Set<String>
+        val localDone = persistedDone + (values[10] as Set<String>)
+        val localDoneGoats = values[11] as Set<String>
+        val feed = values[12] as List<ScanFeedEntry>
+        val readerStatus = values[13] as RfidReaderStatus
+        val readerName = values[14] as String?
+        val counts = values[15] as List<StatusCount>
+        val proofs = values[16] as List<ProofCaptureRow>
+        val operatorAllowed = values[17] as Boolean?
+        val refreshError = values[18] as String?
+        // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
+        // screen; the refresh failure only flips the offline indicator.
+        val error = if (total == 0 && refreshError != null) {
             ScanError(message = "Roster could not load. Check your connection and try again.", tag = "cold_cache_failed")
         } else null
-        val base = dto?.let { applyResource(it, localDone, proofs, operatorAllowed == true) } ?: emptyScanState()
-        // R50-008: overlay page-independent full-roster aggregates onto the page-derived base.
+        // The scan LIST renders from the bounded SSOT window; page-N animals are present once the
+        // full roster is persisted (the whole roster is fetched on refresh).
+        val base = applyRows(rows, total, localDone, proofs, operatorAllowed == true, isRefreshing)
+        // Full-roster (page-independent) aggregates overlay the window-derived counts (R50-008).
         val aggregated = applyFullRosterCounts(base, counts, localDone)
-        aggregated.copy(
+        // Submit proof gate over the FULL roster (not just the window): every DONE animal must have a
+        // synced proof video. Surfaces the proof-incomplete animals for retry/replace.
+        val gate = computeProofGate(aggregated, persistedDoneGoats, localDoneGoats, proofs, operatorAllowed == true)
+        gate.copy(
             feed = feed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
-            lastSyncedAt = resource.lastSyncedAt ?: aggregated.lastSyncedAt,
+            lastSyncedAt = rows.maxOfOrNull { it.updatedAt } ?: gate.lastSyncedAt,
             isOffline = isOffline,
             error = error,
             selectedFilter = selectedFilter,
             rosterExpanded = rosterExpanded,
-            vaccineGroups = aggregated.vaccineGroups.map { group ->
+            vaccineGroups = gate.vaccineGroups.map { group ->
                 group.copy(active = group.id == selectedGroupId)
             },
             readerConnection = readerStatus.toScanReaderConnection(readerName),
@@ -253,27 +283,25 @@ class ScanViewModel @Inject constructor(
         reader.setCaptureEnabled(false)
     }
 
-    /** Network side of stale-while-revalidate: upserts Room on success (the [observedResource]
-     *  StateFlow re-emits and updates [state]); on failure it only flips [_isOffline] —
-     *  cached content, if any, stays on screen. */
+    /** Network side of stale-while-revalidate: walks the WHOLE shed roster into the per-row SSOT
+     *  (the [observedRows]/[rosterTotal] Flows re-emit and update [state]); on failure it only flips
+     *  [_isOffline] — the previously-persisted roster, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         val id = shedId ?: return@launch
         _isRefreshing.value = true
         _refreshError.value = null
-        val result = repo.refreshCompleteScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
+        val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         _refreshError.value = result.exceptionOrNull()?.message
     }
 
-    fun loadMore() = viewModelScope.launch {
-        val id = shedId ?: return@launch
-        val cursor = nextCursor ?: return@launch
-        if (_isLoadingMore.value) return@launch
-        _isLoadingMore.value = true
-        val result = repo.appendScanRoster(id, taskId, cursor, limit = SCAN_PAGE_SIZE)
-        _isLoadingMore.value = false
-        _isOffline.value = result.isFailure
+    /** Reveal the next page of the ALREADY-LOCAL roster by growing the observed SSOT window. No
+     *  network call — the whole roster is in Room after [refresh], so page-N works offline. */
+    fun loadMore() {
+        if (shedId == null) return
+        if (_windowSize.value >= rosterTotal.value) return
+        _windowSize.update { it + SCAN_PAGE_SIZE }
     }
 
     private fun loadRosterAndRefresh() {
@@ -385,10 +413,12 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun canAcceptScanInput(): Boolean {
-        val current = state.value
-        return _operatorAllowed.value == true && current.roster.isNotEmpty() && !current.hasMore
-    }
+    /** RFID/manual input is accepted once the FULL roster is local (any tag validates against the
+     *  complete SSOT via [findScanRosterByTag], independent of the visible window) and a refresh is
+     *  not mid-flight. This is why a page-2/page-N animal scans correctly — the SSOT holds it even
+     *  when it is below the scroll window. */
+    private fun canAcceptScanInput(): Boolean =
+        _operatorAllowed.value == true && rosterTotal.value > 0 && !_isRefreshing.value
 
     private fun draftDoneIds(): Set<String> = persistedScanDone.value + _localDone.value
 
@@ -398,6 +428,9 @@ class ScanViewModel @Inject constructor(
     private fun markRowDone(row: RosterRow) {
         if (row.obligationId.isBlank()) return
         _localDone.update { it + row.obligationId }
+        // Track the goat as done this session so the submit proof gate requires its proof video even
+        // before a refresh syncs the backend status (option 2: proof over the full roster).
+        if (row.goatId.isNotBlank()) _localDoneGoatIds.update { it + row.goatId }
         _feed.update {
             prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE), it)
         }
@@ -468,63 +501,103 @@ class ScanViewModel @Inject constructor(
         }
         val done = (dbDone + extraDone).coerceAtMost(dbTotal)
         val pending = (dbTotal - done - dbSkipped).coerceAtLeast(0)
+        // canSubmit is decided authoritatively by [computeProofGate] (pending + full-roster proof).
         return base.copy(
             ringTotal = dbTotal,
             ringDone = done,
             doneCount = done,
             pendingCount = pending,
             skippedCount = dbSkipped,
-            canSubmit = base.canSubmit && pending == 0 && !base.hasMore,
         )
     }
 
-    private fun applyResource(
-        dto: ScanRosterResponseDto,
+    /** Builds the visible scan-list rows from the BOUNDED SSOT window (never a whole-collection blob).
+     *  Counters here are provisional window-derived values overridden by [applyFullRosterCounts]; the
+     *  submit gate is decided by [computeProofGate]. `scanEnabled`/`hasMore` derive from the FULL
+     *  roster total, not the window, so page-N animals are reachable and scanning is enabled once the
+     *  whole roster is local. */
+    private fun applyRows(
+        rows: List<ScanRosterRowEntity>,
+        total: Int,
         localDone: Set<String>,
         proofs: List<ProofCaptureRow>,
         operatorAllowed: Boolean,
+        isRefreshing: Boolean,
     ): ScanUiState {
         // R50-029: group once instead of re-filtering the full proof list per roster row
         // (O(rows * proofs) on every state build) — then a bounded per-row map lookup below.
         val goatProofsBySubject = proofs.filter { it.proofSubject == ProofSubject.GOAT }.groupBy { it.subjectId }
-        val rosterRows = dto.rows.map { dtoRow ->
-            // Overlay local (unsynced) DONE edits so an in-progress scan survives Room re-emission.
-            val locallyDone = dtoRow.obligationId.isNotBlank() && dtoRow.obligationId in localDone
-            val status = if (locallyDone) ScanStatus.DONE else statusOf(dtoRow.status)
-            val goatProofs = goatProofsBySubject[dtoRow.goatId].orEmpty()
-            RosterRow(
-                primaryTag = dtoRow.primaryTag,
-                secondaryTag = dtoRow.secondaryTag,
-                vaccineLabel = dtoRow.vaccineLabel,
-                status = status,
-                unsynced = locallyDone,
-                goatId = dtoRow.goatId,
-                obligationId = dtoRow.obligationId,
-                proofClipCount = goatProofs.count { it.syncStatus != CaptureSyncStatus.FAILED },
-                proofUploadStatus = proofStatus(goatProofs),
-            )
-        }
-        // Page-derived counts are only the cold fallback; [applyFullRosterCounts] overrides them with
-        // the page-independent full-roster aggregates once scan_roster_row is populated (R50-008).
-        // The per-row localDone overlay above already flips loaded rows to DONE, so no extra add here.
+        val rosterRows = rows.map { it.toRosterRow(localDone, goatProofsBySubject) }
         val done = rosterRows.count { it.status == ScanStatus.DONE }
         val skipped = rosterRows.count { it.status == ScanStatus.SKIPPED }
         val pending = (rosterRows.size - done - skipped).coerceAtLeast(0)
         return emptyScanState().copy(
             roster = rosterRows,
-            ringTotal = rosterRows.size,
+            ringTotal = total.coerceAtLeast(rosterRows.size),
             ringDone = done,
             doneCount = done,
             pendingCount = pending,
             skippedCount = skipped,
-            canSubmit = pending == 0 &&
-                dto.nextCursor == null &&
-                rosterRows.filter { it.status == ScanStatus.DONE }.all {
-                    it.proofUploadStatus == ProofUploadStatus.SYNCED
-                },
-            scanEnabled = operatorAllowed && rosterRows.isNotEmpty() && dto.nextCursor == null,
-            hasMore = dto.nextCursor != null,
+            canSubmit = false, // computeProofGate decides
+            scanEnabled = operatorAllowed && total > 0 && !isRefreshing,
+            hasMore = total > rosterRows.size,
         )
+    }
+
+    /** Maps one SSOT row to a [RosterRow], overlaying the session's local (unsynced) DONE edits and
+     *  the per-goat proof status. */
+    private fun ScanRosterRowEntity.toRosterRow(
+        localDone: Set<String>,
+        goatProofsBySubject: Map<String, List<ProofCaptureRow>>,
+    ): RosterRow {
+        val locallyDone = obligationId.isNotBlank() && obligationId in localDone
+        val goatProofs = goatProofsBySubject[goatId].orEmpty()
+        return RosterRow(
+            primaryTag = primaryTag,
+            secondaryTag = secondaryTag,
+            vaccineLabel = vaccineLabel,
+            status = if (locallyDone) ScanStatus.DONE else statusOf(status),
+            unsynced = locallyDone,
+            goatId = goatId,
+            obligationId = obligationId,
+            proofClipCount = goatProofs.count { it.syncStatus != CaptureSyncStatus.FAILED },
+            proofUploadStatus = proofStatus(goatProofs),
+        )
+    }
+
+    /** The submit proof gate (option 2), evaluated over the FULL shed roster, not just the window:
+     *  every DONE/vaccinated animal must have a SYNCED proof video before the operator can mark the
+     *  shed done, because verifier approval depends on the video being available in the backend/GCS.
+     *  Any animal whose proof is still MISSING / UPLOADING / FAILED blocks submit and is surfaced in
+     *  [ScanUiState.proofActionNeeded] (with its per-goat status) so the operator can retry/replace —
+     *  even for animals below the visible scroll window. Final drive closure still requires verifier
+     *  and director/CXO approval on the backend; this gate is only the operator-completion step. */
+    private suspend fun computeProofGate(
+        base: ScanUiState,
+        persistedDoneGoats: List<String>,
+        localDoneGoats: Set<String>,
+        proofs: List<ProofCaptureRow>,
+        operatorAllowed: Boolean,
+    ): ScanUiState {
+        val id = shedId ?: return base
+        val requiredGoatIds = (persistedDoneGoats.toSet() + localDoneGoats).filter { it.isNotBlank() }.toSet()
+        val syncedGoatIds = proofs
+            .filter { it.proofSubject == ProofSubject.GOAT && it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
+            .map { it.subjectId }
+            .toSet()
+        val missingGoatIds = requiredGoatIds - syncedGoatIds
+        val proofComplete = missingGoatIds.isEmpty()
+        // Surface the proof-incomplete animals (bounded set) even if they are outside the window.
+        val goatProofsBySubject = proofs.filter { it.proofSubject == ProofSubject.GOAT }.groupBy { it.subjectId }
+        val actionNeeded = if (missingGoatIds.isEmpty()) {
+            emptyList()
+        } else {
+            repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds.toList())
+                .sortedBy { it.seq }
+                .map { it.toRosterRow(emptySet(), goatProofsBySubject) }
+        }
+        val canSubmit = base.ringTotal > 0 && base.pendingCount == 0 && proofComplete
+        return base.copy(canSubmit = canSubmit, proofActionNeeded = actionNeeded)
     }
 
     private fun statusOf(raw: String): ScanStatus {
@@ -548,7 +621,11 @@ class ScanViewModel @Inject constructor(
     private fun requestGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
         if (_operatorAllowed.value != true || goatId.isBlank() || proofCaptureInFlight) return
-        val row = state.value.roster.firstOrNull { it.goatId == goatId && it.status == ScanStatus.DONE } ?: return
+        // Resolve the goat from the visible window OR the proof-action-needed list — an animal needing
+        // a proof re-capture may be below the scroll window (the gate surfaces the full-roster set).
+        val current = state.value
+        val row = (current.roster + current.proofActionNeeded)
+            .firstOrNull { it.goatId == goatId && it.status == ScanStatus.DONE } ?: return
         proofCaptureInFlight = true
         viewModelScope.launch {
             try {

@@ -19,6 +19,15 @@ import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 
+/**
+ * Scan roster is a per-row SSOT ([ScanRosterRowDao]), never a whole-collection JSON blob
+ * (docs/decisions/mobile-data-fetch-anti-patterns.md). [DefaultExecutionRepository.refreshScanRoster]
+ * walks the WHOLE shed roster page-by-page straight into that table; the UI reads a bounded keyset
+ * window, tag lookup + counters + the submit proof-gate resolve the full roster. These tests prove:
+ * the whole roster lands in the SSOT with backend `seq` order, the windowed read stays bounded and
+ * pages forward LOCALLY (no extra network — page-N works offline), the refresh is atomic (a mid-walk
+ * failure leaves the prior roster intact), and no whole-collection blob is written.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
@@ -45,102 +54,132 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
-    fun `bounded cursor pages append through Room without duplicates`() = runTest {
+    fun `refresh walks the whole roster into the per-row SSOT ordered by backend seq`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = ::numberedPage
+
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
-            repository.appendScanRoster(SHED_ID, TASK_ID, "cursor-1", PAGE_SIZE).getOrThrow()
-            repository.appendScanRoster(SHED_ID, TASK_ID, "cursor-2", PAGE_SIZE).getOrThrow()
 
-            val cached = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
-            assertEquals(TOTAL_ROWS, cached.rows.size)
-            assertEquals(TOTAL_ROWS, cached.rows.map { it.obligationId }.distinct().size)
-            assertNull(cached.nextCursor)
-            // refresh now walks the whole keyset (R50-007/008 full-roster row sync: null, c1, c2),
-            // then the two appends re-fetch their continuation pages for the UI blob.
-            assertEquals(
-                listOf(null, "cursor-1", "cursor-2", "cursor-1", "cursor-2"),
-                requests.map { it.cursor },
-            )
-            assertTrue(requests.all { it.shedId == SHED_ID && it.taskId == TASK_ID && it.limit == PAGE_SIZE })
-
-            // R50-008: the per-row SSOT holds EVERY roster row after a plain refresh, so status
-            // aggregates are independent of the loaded page size.
+            // Every row landed in the SSOT (full roster), independent of the UI page size.
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
             assertEquals(TOTAL_ROWS, repository.getScanRosterStatusCounts(SHED_ID, TASK_ID).sumOf { it.count })
-            // R50-007: a page-3 tag resolves from Room even though the UI blob paged.
+            // The UI list read is a BOUNDED window in backend order (obligation-1..20), not the whole set.
+            val window = repository.observeScanRosterRows(SHED_ID, TASK_ID, windowSize = PAGE_SIZE).first()
+            assertEquals(PAGE_SIZE, window.size)
+            assertEquals((1..PAGE_SIZE).map { "obligation-$it" }, window.map { it.obligationId })
+            assertEquals((0L until PAGE_SIZE.toLong()).toList(), window.map { it.seq })
+            // A page-3 tag resolves against the full SSOT even though the UI window only shows page 1.
             assertEquals("obligation-45", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag45")?.obligationId)
-        }
-    }
-
-    @Test
-    fun `complete scan roster warms every page into Room before BLE capture`() = runTest {
-        withRepository { repository, backend, requests ->
-            backend.response = ::numberedPage
-
-            repository.refreshCompleteScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
-
-            val cached = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
-            assertEquals(TOTAL_ROWS, cached.rows.size)
-            assertNull(cached.nextCursor)
+            // The refresh walked exactly the keyset chain once; no whole-collection blob fetch.
             assertEquals(listOf(null, "cursor-1", "cursor-2"), requests.map { it.cursor })
         }
     }
 
     @Test
-    fun `stale cursor is rejected before network and cache stays intact`() = runTest {
+    fun `windowed read pages forward locally after refresh with no extra network (offline)`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = ::numberedPage
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+            val networkAfterRefresh = requests.size
 
-            val result = repository.appendScanRoster(SHED_ID, TASK_ID, "wrong-cursor", PAGE_SIZE)
-
-            assertTrue(result.exceptionOrNull() is ScanRosterCursorException)
-            assertEquals(3, requests.size) // the refresh row-sync walk (null, c1, c2); no append fetch
-            val cached = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
-            assertEquals(PAGE_SIZE, cached.rows.size)
-            assertEquals("cursor-1", cached.nextCursor)
+            // Growing the window reveals page-2 / page-N animals with NO further network — the whole
+            // roster is already local, so a scrolling operator (even offline) sees every animal.
+            assertEquals(PAGE_SIZE, repository.observeScanRosterRows(SHED_ID, TASK_ID, PAGE_SIZE).first().size)
+            assertEquals(PAGE_SIZE * 2, repository.observeScanRosterRows(SHED_ID, TASK_ID, PAGE_SIZE * 2).first().size)
+            val full = repository.observeScanRosterRows(SHED_ID, TASK_ID, PAGE_SIZE * 3).first()
+            assertEquals(TOTAL_ROWS, full.size)
+            // Page-2 and page-3 animals are present and in order.
+            assertEquals("obligation-21", full[20].obligationId)
+            assertEquals("obligation-45", full.last().obligationId)
+            assertEquals(networkAfterRefresh, requests.size) // ZERO extra network for local paging
         }
     }
 
     @Test
-    fun `offline continuation preserves Room cursor for retry`() = runTest {
+    fun `refresh is atomic - a mid-walk failure leaves the prior roster intact`() = runTest {
         withRepository { repository, backend, _ ->
             backend.response = ::numberedPage
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+
+            // A later refresh fails on page 2 (offline). The transaction rolls back; the previously
+            // persisted full roster must survive so the operator can still scan offline.
             backend.offlineCursor = "cursor-1"
-
-            assertTrue(repository.appendScanRoster(SHED_ID, TASK_ID, "cursor-1", PAGE_SIZE).isFailure)
-            val stale = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
-            assertEquals(PAGE_SIZE, stale.rows.size)
-            assertEquals("cursor-1", stale.nextCursor)
-
-            backend.offlineCursor = null
-            repository.appendScanRoster(SHED_ID, TASK_ID, "cursor-1", PAGE_SIZE).getOrThrow()
-            val recovered = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
-            assertEquals(PAGE_SIZE * 2, recovered.rows.size)
-            assertEquals("cursor-2", recovered.nextCursor)
+            assertTrue(repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).isFailure)
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals("obligation-45", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag45")?.obligationId)
         }
     }
 
     @Test
-    fun `shed-wide scan roster omits task id and keeps its own cache scope`() = runTest {
-        withRepository { repository, backend, requests ->
+    fun `non-advancing cursor is rejected and the prior roster is intact`() = runTest {
+        withRepository { repository, backend, _ ->
+            backend.response = ::numberedPage
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            backend.response = { _ -> ScanRosterResponseDto(source = "api", rows = emptyList(), nextCursor = "cursor-stuck") }
+            val result = repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE)
+            assertTrue(result.exceptionOrNull() is ScanRosterCursorException)
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+        }
+    }
+
+    @Test
+    fun `done goat ids and rows-by-goat resolve the full-roster done set for the proof gate`() = runTest {
+        withRepository { repository, backend, _ ->
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "done", obligationId = "obl-1"),
+                            ScanRosterRowDto(goatId = "goat-2", primaryTag = "tag-2", vaccineLabel = "FMD", status = "due", obligationId = "obl-2"),
+                            ScanRosterRowDto(goatId = "goat-3", primaryTag = "tag-3", vaccineLabel = "FMD", status = "completed", obligationId = "obl-3"),
+                        ),
+                        nextCursor = null,
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val done = repository.observeScanRosterDoneGoatIds(SHED_ID, TASK_ID).first().toSet()
+            assertEquals(setOf("goat-1", "goat-3"), done)
+            val rows = repository.scanRosterRowsByGoatIds(SHED_ID, TASK_ID, listOf("goat-1", "goat-3"))
+            assertEquals(setOf("obl-1", "obl-3"), rows.map { it.obligationId }.toSet())
+            assertTrue(repository.scanRosterRowsByGoatIds(SHED_ID, TASK_ID, emptyList()).isEmpty())
+        }
+    }
+
+    @Test
+    fun `shed-wide and task-scoped rosters keep separate SSOT scopes`() = runTest {
+        withRepository { repository, backend, _ ->
             backend.response = ::numberedPage
             repository.refreshScanRoster(SHED_ID, taskId = null, limit = PAGE_SIZE).getOrThrow()
-            repository.appendScanRoster(SHED_ID, taskId = null, cursor = "cursor-1", limit = PAGE_SIZE).getOrThrow()
-
-            val shedWide = repository.observeScanRoster(SHED_ID, taskId = null, limit = PAGE_SIZE).first().data!!
-            assertEquals(PAGE_SIZE * 2, shedWide.rows.size)
-            // refresh row-sync walk = 3 shed-wide requests (null, c1, c2), then 1 append request
-            assertEquals(listOf(null, null, null, null), requests.map { it.taskId })
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, taskId = null).first())
+            // The task scope is still empty until its own refresh.
+            assertEquals(0, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
 
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
-            val taskScoped = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
-            assertEquals(PAGE_SIZE, taskScoped.rows.size)
-            assertEquals(
-                listOf(null, null, null, null, TASK_ID, TASK_ID, TASK_ID),
-                requests.map { it.taskId },
-            )
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, taskId = null).first())
+        }
+    }
+
+    @Test
+    fun `large multi-page roster streams every page into the SSOT with a bounded window`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = ::largeNumberedPage
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            // The UI window stays bounded to one page even though the SSOT holds all 80 rows.
+            assertEquals(PAGE_SIZE, repository.observeScanRosterRows(SHED_ID, TASK_ID, PAGE_SIZE).first().size)
+            assertEquals(LARGE_TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            // Page-3 and page-4 animals are present in the SSOT for tag lookup.
+            assertEquals("obligation-55", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag55")?.obligationId)
+            assertEquals("obligation-80", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag80")?.obligationId)
+            assertEquals(listOf(null, "cursor-1", "cursor-2", "cursor-3"), requests.map { it.cursor })
         }
     }
 
@@ -180,7 +219,6 @@ class ExecutionRepositoryPaginationTest {
                     api,
                     database.executionRowsCacheDao(),
                     database.executionShedCacheDao(),
-                    database.scanRosterCacheDao(),
                     database.scanRosterRowDao(),
                     database,
                     clock = { 42L },
@@ -217,7 +255,6 @@ class ExecutionRepositoryPaginationTest {
         return ScanRosterResponseDto(source = "api", rows = rows, nextCursor = next)
     }
 
-
     private fun largeNumberedPage(cursor: String?): ScanRosterResponseDto {
         val pageIndex = when (cursor) {
             null -> 0
@@ -244,34 +281,6 @@ class ExecutionRepositoryPaginationTest {
         animalStage = "K1",
         sopTaskId = taskId,
     )
-
-
-    @Test
-    fun `R50-008 scan roster refresh streams multi-page roster without retaining all pages in memory`() = runTest {
-        withRepository { repository, backend, requests ->
-            backend.response = ::largeNumberedPage
-            // This refresh loads 80 rows across 4 pages without accumulating all pages in a single in-heap list.
-            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
-
-            // Verify the UI cache holds only the first page (bounded blob per design)
-            val cachedBlob = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
-            assertEquals(PAGE_SIZE, cachedBlob.rows.size)
-            assertEquals("obligation-1", cachedBlob.rows.first().obligationId)
-            assertEquals("obligation-20", cachedBlob.rows.last().obligationId)
-            assertEquals("cursor-1", cachedBlob.nextCursor)
-
-            // Verify the per-row SSOT holds EVERY row from all 4 pages (full roster for tag lookup and aggregates)
-            val allCounts = repository.getScanRosterStatusCounts(SHED_ID, TASK_ID)
-            assertEquals(LARGE_TOTAL_ROWS, allCounts.sumOf { it.count })
-
-            // Spot-check a row from page 3 and page 4 to prove all pages landed in Room
-            assertEquals("obligation-55", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag55")?.obligationId)
-            assertEquals("obligation-80", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag80")?.obligationId)
-
-            // Verify we walked the correct cursor chain (no duplicates, all pages fetched)
-            assertEquals(listOf(null, "cursor-1", "cursor-2", "cursor-3"), requests.map { it.cursor })
-        }
-    }
 
     private companion object {
         const val SHED_ID = "shed-a"

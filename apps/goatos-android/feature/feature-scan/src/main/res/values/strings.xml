@@ -15,6 +15,10 @@
     <string name="scan_add_clip">Add camera clip</string>
     <string name="scan_proof_needed">Camera proof needed</string>
     <string name="scan_proof_uploading">Uploading proof…</string>
+    <plurals name="scan_proof_action_needed">
+        <item quantity="one">%1$d animal needs a proof video before you can submit</item>
+        <item quantity="other">%1$d animals need a proof video before you can submit</item>
+    </plurals>
     <plurals name="scan_proof_synced">
         <item quantity="one">%1$d clip synced</item>
         <item quantity="other">%1$d clips synced</item>
