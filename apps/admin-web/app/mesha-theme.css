@@ -637,10 +637,18 @@
   .main table.vaccination-cohort-detail-table{min-width:980px}
   .main table.vaccination-cohort-detail-table th:nth-child(6),.main table.vaccination-cohort-detail-table td:nth-child(6){min-width:132px}
   .main table.shed-animal-roster-table{min-width:1600px;table-layout:auto}
-  /* Linked animal roster cells must scroll horizontally as a table, never break short values
-     into characters ("female" -> "fe/ma/le", "381d" -> "3/8/1/d"). */
-  .main table.shed-animal-roster-table th,.main table.shed-animal-roster-table td,.main table.shed-animal-roster-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-  .main table.shed-animal-roster-table td .celllink{width:max-content;max-width:none}
+  /* The mock makes an animal record one tap target. Keep a single semantic/deep-linkable anchor
+     stretched over the row instead of eleven text-sized cell links; non-interactive cell content
+     passes pointer events through to it, while future real controls can opt back in below. */
+  .main table.shed-animal-roster-table .shed-animal-roster-row{position:relative;cursor:pointer}
+  .main table.shed-animal-roster-table .shed-animal-roster-row:hover td{background:var(--bg)}
+  .main table.shed-animal-roster-table .shed-animal-roster-row-link{position:absolute;inset:0;z-index:1;display:block;color:inherit;text-decoration:none}
+  .main table.shed-animal-roster-table .shed-animal-roster-row-link:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:4px}
+  .main table.shed-animal-roster-table .shed-animal-roster-cell-content{position:relative;z-index:2;pointer-events:none;display:block;min-width:0}
+  .main table.shed-animal-roster-table .shed-animal-roster-cell-content :is(a,button,input,select,textarea,[role="button"]){position:relative;z-index:3;pointer-events:auto}
+  /* Animal roster values scroll horizontally as a table and never break into characters
+     ("female" -> "fe/ma/le", "381d" -> "3/8/1/d"). */
+  .main table.shed-animal-roster-table th,.main table.shed-animal-roster-table td,.main table.shed-animal-roster-table .shed-animal-roster-cell-content{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.shed-animal-roster-table th:nth-child(1),.main table.shed-animal-roster-table td:nth-child(1){min-width:112px}
   .main table.shed-animal-roster-table th:nth-child(2),.main table.shed-animal-roster-table td:nth-child(2),.main table.shed-animal-roster-table th:nth-child(3),.main table.shed-animal-roster-table td:nth-child(3){min-width:170px}
   .main table.shed-animal-roster-table th:nth-child(4),.main table.shed-animal-roster-table td:nth-child(4){min-width:160px}

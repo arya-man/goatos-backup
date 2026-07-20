@@ -293,71 +293,46 @@ function AnimalRosterCard({
               <tbody>
                 {rows.map((a) => {
                   const href = passportHref(a.goatId);
+                  const cell = (content: React.ReactNode, extra?: string, withRowLink = false) => (
+                    <td className={extra}>
+                      {withRowLink ? (
+                        <LocalOverlayLink
+                          href={href}
+                          replace
+                          scroll={false}
+                          prefetch={false}
+                          className="shed-animal-roster-row-link"
+                          aria-label={`${copy(pageContract, "action.open_passport")} — ${a.displayId}`}
+                        />
+                      ) : null}
+                      <span className="shed-animal-roster-cell-content">{content}</span>
+                    </td>
+                  );
                   return (
-                    <tr key={a.goatId} className="schedule-click-row">
-                      <td>
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="gid">
-                          {a.displayId}
-                        </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.tag1 ?? copy(pageContract, "label.placeholder")}
-                        </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.tag2 ?? copy(pageContract, "label.placeholder")}
-                        </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.breed ?? copy(pageContract, "label.placeholder")}
-                        </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.sex}
-                        </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.age ?? copy(pageContract, "label.placeholder")}
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.lifecycleStatus ? (
-                            <Tag tone={passportStatusTone(a.lifecycleStatus, "lifecycle")}>{humanStatus(a.lifecycleStatus)}</Tag>
-                          ) : (
-                            <span className="muted">{copy(pageContract, "label.placeholder")}</span>
-                          )}
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.healthStatus ? (
-                            <Tag tone={passportStatusTone(a.healthStatus, "health")}>{humanStatus(a.healthStatus)}</Tag>
-                          ) : (
-                            <span className="muted">{copy(pageContract, "label.placeholder")}</span>
-                          )}
-                        </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.lastDose ? fmtDate(a.lastDose) : copy(pageContract, "label.placeholder")}
-                        </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          {a.nextDue ? fmtDate(a.nextDue) : copy(pageContract, "label.placeholder")}
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
-                          <Tag tone={animalVaccinationWorkTone(a.status)}>{animalVaccinationWorkLabel(pageContract, a.status)}</Tag>
-                        </LocalOverlayLink>
-                      </td>
+                    <tr key={a.goatId} className="shed-animal-roster-row">
+                      {cell(<span className="gid">{a.displayId}</span>, undefined, true)}
+                      {cell(a.tag1 ?? copy(pageContract, "label.placeholder"), "muted")}
+                      {cell(a.tag2 ?? copy(pageContract, "label.placeholder"), "muted")}
+                      {cell(a.breed ?? copy(pageContract, "label.placeholder"), "muted")}
+                      {cell(a.sex, "muted")}
+                      {cell(a.age ?? copy(pageContract, "label.placeholder"), "muted")}
+                      {cell(
+                        a.lifecycleStatus ? (
+                          <Tag tone={passportStatusTone(a.lifecycleStatus, "lifecycle")}>{humanStatus(a.lifecycleStatus)}</Tag>
+                        ) : (
+                          <span className="muted">{copy(pageContract, "label.placeholder")}</span>
+                        ),
+                      )}
+                      {cell(
+                        a.healthStatus ? (
+                          <Tag tone={passportStatusTone(a.healthStatus, "health")}>{humanStatus(a.healthStatus)}</Tag>
+                        ) : (
+                          <span className="muted">{copy(pageContract, "label.placeholder")}</span>
+                        ),
+                      )}
+                      {cell(a.lastDose ? fmtDate(a.lastDose) : copy(pageContract, "label.placeholder"), "muted")}
+                      {cell(a.nextDue ? fmtDate(a.nextDue) : copy(pageContract, "label.placeholder"), "muted")}
+                      {cell(<Tag tone={animalVaccinationWorkTone(a.status)}>{animalVaccinationWorkLabel(pageContract, a.status)}</Tag>)}
                     </tr>
                   );
                 })}

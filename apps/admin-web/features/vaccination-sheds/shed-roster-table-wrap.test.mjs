@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(resolve(here, "../../app/mesha-theme.css"), "utf8");
+const pageSource = readFileSync(resolve(here, "shed-detail.tsx"), "utf8");
 
 function declarationsFor(selectorNeedles) {
   const matches = [];
@@ -24,20 +25,20 @@ function hasDeclaration(selectorNeedles, declaration) {
   return declarationsFor(selectorNeedles).some((body) => body.includes(declaration));
 }
 
-test("shed animal roster linked cells do not split short values into characters", () => {
-  const selector = ["table.shed-animal-roster-table", "td .celllink"];
+test("shed animal roster row content does not split short values into characters", () => {
+  const selector = ["table.shed-animal-roster-table", ".shed-animal-roster-cell-content"];
 
   assert.ok(
     hasDeclaration(selector, "white-space:nowrap"),
-    "clickable shed roster cells must be nowrap; otherwise values like female/381d wrap character-by-character",
+    "shed roster cells must be nowrap; otherwise values like female/381d wrap character-by-character",
   );
   assert.ok(
     hasDeclaration(selector, "overflow-wrap:normal"),
-    "clickable shed roster cells must override the global .celllink overflow-wrap:anywhere",
+    "shed roster cells must override free-text overflow wrapping",
   );
   assert.ok(
     hasDeclaration(selector, "word-break:normal"),
-    "clickable shed roster cells must override the global .celllink word-break:break-word",
+    "shed roster cells must override free-text word breaking",
   );
 });
 
@@ -47,4 +48,35 @@ test("shed animal roster owns horizontal scroll with stable column widths", () =
 
   assert.ok(minWidth, "shed roster table needs a min-width so columns cannot collapse to slivers");
   assert.ok(Number(minWidth[1]) >= 1500, "shed roster table must scroll horizontally instead of wrapping dense columns");
+});
+
+test("each shed animal roster record has one keyboard-accessible link covering the whole row", () => {
+  const rosterStart = pageSource.indexOf("function AnimalRosterCard");
+  const rosterEnd = pageSource.indexOf("// Shed-wise vaccination detail", rosterStart);
+  const rosterSource = pageSource.slice(rosterStart, rosterEnd);
+
+  assert.match(rosterSource, /<tr key=\{a\.goatId\} className="shed-animal-roster-row">/);
+  assert.match(
+    rosterSource,
+    /<LocalOverlayLink[\s\S]*?className="shed-animal-roster-row-link"[\s\S]*?aria-label=/,
+    "the row target must remain a real LocalOverlayLink so keyboard, deep-link, and no-JS behavior survive",
+  );
+  assert.equal(
+    (rosterSource.match(/<LocalOverlayLink\b/g) ?? []).length,
+    1,
+    "one animal record must expose one row link, not eleven text-sized cell links",
+  );
+
+  assert.ok(
+    hasDeclaration(["table.shed-animal-roster-table", ".shed-animal-roster-row"], "position:relative"),
+    "the animal row must establish the containing block for its full-row link",
+  );
+  const linkRule = declarationsFor(["table.shed-animal-roster-table", ".shed-animal-roster-row-link"]).join("");
+  assert.ok(linkRule.includes("position:absolute"), "the row link must stretch independently of cell text width");
+  assert.ok(linkRule.includes("inset:0"), "the row link must cover blank space across the entire animal row");
+
+  assert.ok(
+    hasDeclaration(["table.shed-animal-roster-table", ".shed-animal-roster-cell-content", ":is(a,button"], "pointer-events:auto"),
+    "a real control added to a row must remain independently clickable instead of being swallowed by the row link",
+  );
 });
