@@ -220,11 +220,24 @@ Drive grouping is stage-aware:
   rule so Goat Pox never leaks to sheep and Sheep Pox/Blue Tongue never leaks to
   goats.
 
-### 4.4 Field worker executes (SOP + proof)
-Worker runs the vaccination SOP: animal scan, administer, record vaccine, medicine
-batch or vial/lot, dose, administered date/time, cold-chain/quantity checks
-where required, proof media, adverse-reaction fields, and park-head/verifier
-review. Per-animal completion recorded; verifier reviews.
+### 4.4 Field worker executes (per-animal scan + proof, then shed acknowledgement)
+The real work happens at ANIMAL level: the operator scans each animal (RFID/old tag)
+and captures ONE live camera proof clip per animal at the moment of administration.
+There is **no shed-level manual medical form** — the operator does not re-enter vaccine
+batch, cold chain, dose, route/site, administered date/time, or adverse-reaction fields
+on a recap screen. Those are either derived server-side (`administered_at` = the submit
+time) or handled on separate paths (adverse events go through the health problem-report
+workflow, not a vaccination form field).
+
+Shed completion is a **final acknowledgement**: a read-only summary (see the
+`ShedCompletionSummary` contract in [TRD §6](./TRD.md)) showing the human shed name, drive
+name, expected/handled/proof-ready counts, and vaccine breakdown, plus a Submit button.
+Submit is enabled only when **every expected animal in the shed is scanned AND has proof
+ready** (`handled_count == expected_count AND proof_ready_count == expected_count`);
+over-scanning or any unscanned/un-proofed animal blocks submit with a human
+`blocking_reason`. Submitting records one per-animal completion derived from scan+proof;
+the verifier then reviews. See ADR
+[docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md).
 
 ### 4.5 Completion → cascade
 Per `vaccination_completion`: obligation → `completed`; **FEFO inventory** consumed by writing `consume`/`release` rows to `inventory_stock_movements` (balance updates from the ledger in the same txn — no direct decrement); booster scheduled from *actual* administration date; coverage/overdue refresh.
@@ -479,14 +492,17 @@ Vaccination replaces legacy SOP/form behavior with GoatOS protocol, SOP, proof,
 completion, inventory, and verification records. Capability parity means
 preserve useful source signals and close legacy gaps; it does not mean copying
 weak proof assumptions. Known legacy gaps to close: row/header existence cannot
-count as dose proof, medicine batch/vial-lot cannot be optional, adverse
-reactions need notes/follow-up, and verifier/park-head review must be durable.
+count as dose proof, and verifier/park-head review must be durable. The shed SOP
+is deliberately **not** a manual medical form — the real evidence is the per-animal
+scan + per-animal camera proof, and shed completion is an acknowledgement over that
+state. See ADR
+[docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md).
 
 | Legacy/source signal | GoatOS contract |
 | --- | --- |
 | SOP playground labels `PPR`, `ET`, `FMD`, `HS`, `BQ` | Keep as tracked SOP/vocabulary labels. Schedule-bearing obligations come from the active vaccination matrix version, not labels or one-vaccine protocol rows. |
-| SOP proof fields: scheduled date, operator, animal scan, vaccine name, medicine batch, dose ml, administered date, proof photo/media, adverse reaction, verifier, notes | Normalize into `protocol_versions.rule_dsl.proof_policy`, `sop_versions.form_dsl`, `sop_submissions`, and `vaccination_completions`. Required first-slice fields are animal scan, vaccine, medicine batch/vial-lot, dose, administered date/time, proof media, adverse-reaction flag/notes, and verifier/park-head review. |
-| Committed `000075` draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`) | Treat as the committed starting skeleton, not the final source contract. Upgrade the SOP version/proof policy to the source-normalized shape before calling vaccination SOP parity closed. |
+| SOP proof fields: scheduled date, operator, animal scan, vaccine name, medicine batch, dose ml, administered date, proof photo/media, adverse reaction, verifier, notes | The **only** operator-collected SOP field is the per-animal scan roster (`goat_ids`), each scanned row carrying its own live camera proof. Vaccine + dose come from the drive/obligation (config), `administered_at` is derived server-side, and adverse events are filed on the health problem-report path — none are shed-form answers. Manual fields (`vaccine_lot_id`, `cold_chain_verified`, `dose_ml_given`, `route_site`, `administered_at`, `adverse_reaction`, `adverse_reaction_notes`) are **banned** from `sop_versions.form_dsl`; `vaccination_completions` keeps those columns but populates them server-side (dose/route NULL, adverse false). Verifier/park-head review stays durable. |
+| Committed draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`) | Superseded. These batch-level videos and manual fields were stripped from the vaccination SOP form_dsl (migration `000006` removed the batch videos; `000007` removed the remaining manual medical fields). Do not reintroduce them — enforced by the `vaccination-shed-ack-guard` CI check. |
 | Procurement/legacy rows that mention vaccination | Treat as source evidence with confidence/proof semantics only. The live legacy guardrail found no reliable first-class vaccination evidence field in cleaned BigQuery tables, so a procurement row/header alone is not an administered dose. |
 | Reliable historical vaccination record, if later proven | Import to staging, reconcile into `vaccination_completions`, mark matching obligations completed, and schedule boosters from the actual administered date. |
 | Missing or untrusted history | Do not invent completions. For older animals whose old dose windows are already past, create one safe catch-up/review action first, not every missed historical dose as same-day work. After Preventive Care (PC) approval, generate baseline/catch-up shed drives per `docs/protocol-engine/migration-and-cutover.md` instead of fabricating administered history. |

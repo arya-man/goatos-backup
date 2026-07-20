@@ -16,6 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
+import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 
 /**
@@ -68,6 +69,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
+                MIGRATION_11_12,
             )
             .build()
         try {
@@ -116,6 +118,16 @@ class GoatDatabaseUpgradeCrashTest {
             val counts = rosterDao.countByStatus(scopeKey)
             assertEquals(1, counts.single().count)
             assertEquals("pending", counts.single().status)
+
+            // 6. The v12 shed_completion_summary_cache table (vaccination shed acknowledgement) is
+            //    present and usable post-upgrade — a write + read round-trip proves MIGRATION_11_12
+            //    created the table with the shape Room expects.
+            val summaryDao = upgraded.shedCompletionSummaryCacheDao()
+            summaryDao.upsert(
+                ShedCompletionSummaryCacheEntity(cacheKey = "task-1", dtoJson = "{}", updatedAt = 13L),
+            )
+            val summaryRow = summaryDao.observe("task-1").first()
+            assertEquals(13L, summaryRow?.updatedAt)
         } finally {
             upgraded.close()
         }

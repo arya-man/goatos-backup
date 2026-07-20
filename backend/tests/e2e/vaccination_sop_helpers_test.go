@@ -180,12 +180,13 @@ func (h *vaccinationSOPHarness) submissionRequest(taskID, _ string, actorID, lot
 	for i := range goatIDs {
 		goats[i] = goatIDs[i]
 	}
+	// Vaccination shed completion is an acknowledgement: submit only with per-animal scans and proof.
+	// Manual medical fields (vaccine_lot_id, cold_chain_verified, dose_ml_given, route_site,
+	// administered_at, adverse_reaction) are removed; administered_at is derived server-side.
 	return sopdomain.SubmitTaskRequest{
 		SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: idempotencyKey, ProofRefs: proofRefs,
 		Answers: map[string]any{
-			"vaccine_lot_id": lotID, "cold_chain_verified": true, "goat_ids": goats,
-			"dose_ml_given": 1.0, "doses": 1, "route_site": routeSite, "administered_at": administeredAt.Format(time.RFC3339),
-			"adverse_reaction": false,
+			"goat_ids": goats,
 		},
 	}, nil
 }

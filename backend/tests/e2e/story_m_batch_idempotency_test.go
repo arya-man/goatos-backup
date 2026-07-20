@@ -114,21 +114,26 @@ func TestKernelStoryM_BatchIdempotency(t *testing.T) {
 		"task=%s key=%s", taskID, key)
 
 	story.Step("Same key, DIFFERENT payload is rejected",
-		"Reusing the SOP key with a changed route/site must be rejected with an idempotency conflict and must not mutate the bridged completion.")
+		"Reusing the SOP key with a different acknowledgement payload (same scanned goat, but a changed "+
+			"answer fingerprint) must be rejected with an idempotency conflict and must not mutate the "+
+			"bridged completion.")
 	conflictBody := body
-	conflictBody.Answers = make(map[string]any, len(body.Answers))
+	conflictBody.Answers = make(map[string]any, len(body.Answers)+1)
 	for field, value := range body.Answers {
 		conflictBody.Answers[field] = value
 	}
-	conflictBody.Answers["route_site"] = "intramuscular"
+	// Keep the same scanned+proofed goat (so the submission still validates), but change the payload
+	// fingerprint under the same idempotency key -- the conflict is detected on the answers/proof hash.
+	conflictBody.Answers["client_note"] = "resubmit-with-changed-payload"
 	_, err = submit(conflictBody, "story-m-conflict")
 	var conflictErr *sopapp.Error
 	story.Assert("same-key-different-payload is rejected with the SOP idempotency_conflict contract",
 		errors.As(err, &conflictErr) && conflictErr.Code == "idempotency_conflict", "err=%v", err)
 	afterConflict := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, oblID)
 	story.Assert("still exactly one completion row after the rejected replay", afterConflict == 1, "rows=%d", afterConflict)
-	routeStored := fx.scanText(`SELECT route_site FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, oblID)
-	story.Assert("the original payload is intact (route unchanged by the rejected replay)", routeStored == "subcutaneous", "route_site=%q", routeStored)
+	// Shed completion is an acknowledgement: route_site is server-side NULL, never an operator answer.
+	routeIsNull := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid AND route_site IS NULL`, fxTenant, oblID)
+	story.Assert("the recorded completion has no manual route_site (server-derived NULL)", routeIsNull == 1, "route_null_rows=%d", routeIsNull)
 
 	story.Step("No duplicate obligation completion downstream",
 		"The obligation still maps to exactly one recorded completion -- the drive cannot double-complete "+

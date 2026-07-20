@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -42,6 +43,8 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
+import sg.mesha.goatos.core.network.dto.VaccineBreakdownItemDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.feature.submit.SubmitEvent
@@ -643,6 +646,10 @@ class SubmitViewModelFormTest {
             override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
                 MutableStateFlow(Resource(data = null))
             override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.failure(IllegalStateException("offline"))
+            override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+                MutableStateFlow(null)
+            override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> =
+                Result.failure(IllegalStateException("offline"))
         }
         val coldCacheVm = viewModel(stuckRepository, CapturingSyncRepository(), "task-x")
         backgroundScope.launch { coldCacheVm.state.collect {} }
@@ -721,6 +728,97 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `vaccination shed completion renders a read-only summary and gates Submit on backend submit_enabled`() = runTest(dispatcher) {
+        // The vaccination SOP form_dsl has no manual medical fields — shed completion is an
+        // acknowledgement. The screen must render the backend shed-completion summary (human shed
+        // name, drive name, counts, vaccine breakdown) and enable Submit ONLY when the backend
+        // says submit_enabled == true.
+        val task = TaskSummaryDto(
+            taskId = "task-shed-ack",
+            sopVersionId = "sop-shed-ack",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-A",
+            rowVersion = 1,
+        )
+        val blockedSummary = ShedCompletionSummaryDto(
+            taskId = "task-shed-ack",
+            shedName = "Shed A — Weaners",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 50,
+            handledCount = 47,
+            proofReadyCount = 45,
+            vaccineBreakdown = listOf(
+                VaccineBreakdownItemDto(vaccine = "FMD", count = 47),
+                VaccineBreakdownItemDto(vaccine = "PPR", count = 45),
+            ),
+            submitEnabled = false,
+            blockingReason = "3 animals not yet scanned",
+            submitState = "draft",
+        )
+        // Empty SOP form_dsl (no manual fields) — the summary stands in for the form.
+        val repository = FakeFormTasksRepository(task, FormSpec.Empty, shedSummary = blockedSummary)
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(repository, sync, "task-shed-ack")
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val blocked = viewModel.state.value
+        assertEquals("Shed A — Weaners", blocked.shedCompletionSummary?.shedName)
+        assertEquals("Vaccination · July 2026", blocked.shedCompletionSummary?.driveName)
+        assertEquals(50, blocked.shedCompletionSummary?.expectedCount)
+        assertEquals(47, blocked.shedCompletionSummary?.handledCount)
+        assertEquals(45, blocked.shedCompletionSummary?.proofReadyCount)
+        assertEquals(2, blocked.vaccineBreakdown.size)
+        assertEquals("FMD", blocked.vaccineBreakdown.first().vaccine)
+        assertNull("no empty manual form is rendered for the vaccination shed ack", blocked.formRunner)
+        assertFalse("Submit stays disabled while backend submit_enabled is false", blocked.canSubmit)
+        assertEquals("3 animals not yet scanned", blocked.blockingReason)
+
+        // Submit while blocked must never reach the outbox.
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNull("a backend-blocked shed ack must never enqueue a submission", sync.lastRequest)
+    }
+
+    @Test
+    fun `vaccination shed completion enables Submit when backend reports it ready`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-ready",
+            sopVersionId = "sop-shed-ready",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-B",
+            rowVersion = 1,
+        )
+        val readySummary = ShedCompletionSummaryDto(
+            taskId = "task-shed-ready",
+            shedName = "Shed B — Adults",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 30,
+            handledCount = 30,
+            proofReadyCount = 30,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "FMD", count = 30)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val repository = FakeFormTasksRepository(task, FormSpec.Empty, shedSummary = readySummary)
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(repository, sync, "task-shed-ready")
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val ready = viewModel.state.value
+        assertTrue("Submit enables once backend submit_enabled is true", ready.canSubmit)
+        assertNull("no blocking reason when submit is enabled", ready.blockingReason)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNotNull("a ready shed ack must enqueue the acknowledgement submission", sync.lastRequest)
+    }
+
+    @Test
     fun `an approver-only principal with no operator profile is capture-role-blocked`() = runTest(dispatcher) {
         val task = TaskSummaryDto(taskId = "task-role", sopVersionId = "sop-role", scopeId = "shed-4", title = "Role shed", rowVersion = 1)
         val form = FormSpec(
@@ -760,8 +858,10 @@ private class FakeFormTasksRepository(
     private val task: TaskSummaryDto,
     private val form: FormSpec,
     private val proofPolicy: ProofPolicy = ProofPolicy(expectedSubjects = emptyList()), // R50-027: fall back to per-key mapping when expectedSubjects is empty
+    private val shedSummary: ShedCompletionSummaryDto? = null,
 ) : TasksRepository {
     private val flow = MutableStateFlow(Resource<TaskDetail>(data = null))
+    private val summaryFlow = MutableStateFlow<ShedCompletionSummaryDto?>(null)
 
     override suspend fun taskDetail(taskId: String): TaskDetail = TaskDetail(task = task, form = form, proofPolicy = proofPolicy)
 
@@ -769,6 +869,12 @@ private class FakeFormTasksRepository(
 
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
         flow.value = Resource(data = TaskDetail(task = task, form = form, proofPolicy = proofPolicy), lastSyncedAt = 1L)
+    }
+
+    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> = summaryFlow
+
+    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = runCatching {
+        summaryFlow.value = shedSummary
     }
 }
 

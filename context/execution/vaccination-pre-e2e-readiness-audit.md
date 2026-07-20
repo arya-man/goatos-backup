@@ -54,7 +54,7 @@ E2E can start only after this chain works from current source:
 
 ```text
 source-backed vaccination protocol published
-  -> vaccination SOP published with cold-chain, vaccine batch, proof, verification, repeat-per-goat semantics
+  -> vaccination SOP published with per-animal scan + per-animal camera proof + shed-acknowledgement semantics (no manual medical form; see ADR docs/decisions/vaccination-shed-ack-not-form.md)
   -> accepted-intake goat enters clean Preventive Care (PC) scope
   -> goat.created or accepted-intake event is delivered to the registered vaccination generation handler
   -> vaccination obligations are generated

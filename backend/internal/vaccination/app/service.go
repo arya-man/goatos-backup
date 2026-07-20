@@ -26,7 +26,6 @@ func (s *Service) RecordCompletion(ctx context.Context, in domain.NewCompletion)
 	return s.repo.RecordCompletion(ctx, in)
 }
 
-
 // AcceptCompletion accepts a recorded completion on verification, returning its verification context
 // (idempotent: applied is false on replay).
 func (s *Service) AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptedCompletion, bool, error) {
@@ -120,6 +119,13 @@ func (s *Service) RecordCompletionsFromSubmission(ctx context.Context, tenantID,
 // SubmissionCompletions returns the per-goat completion context created by one SOP submission.
 func (s *Service) SubmissionCompletions(ctx context.Context, tenantID, submissionID string) ([]domain.SubmissionCompletion, error) {
 	return s.repo.ListSubmissionCompletions(ctx, tenantID, submissionID)
+}
+
+// ShedCompletionSummary returns the read-only shed-completion/submit summary for a vaccination
+// task: shed completion is an acknowledgement, not a manual form, so the summary is computed
+// entirely from scan + proof + obligation state, never from submitted answers.
+func (s *Service) ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error) {
+	return s.repo.ShedCompletionSummary(ctx, tenantID, taskID)
 }
 
 // LastAccepted returns a goat's most recent accepted administration (Goat Passport / SM-7 basis).

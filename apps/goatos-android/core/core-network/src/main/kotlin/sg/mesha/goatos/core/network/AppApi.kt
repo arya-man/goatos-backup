@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
@@ -239,6 +240,10 @@ interface AppApi {
     /** GET /app/vaccination/tasks/{task_id}/option-values — backend-pinned FEFO/source options
      *  for the exact task row. Labels and disabled reasons are already locale-aware. */
     suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto
+
+    /** GET /app/tasks/{task_id}/shed-completion-summary — vaccination shed completion summary
+     *  (read-only acknowledgement contract: shed name, drive name, animal counts, vaccine breakdown). */
+    suspend fun getShedCompletionSummary(taskId: String): ShedCompletionSummaryDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -493,6 +498,20 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         TaskOptionValuesResponseDto(taskId = taskId)
+
+    override suspend fun getShedCompletionSummary(taskId: String): ShedCompletionSummaryDto =
+        ShedCompletionSummaryDto(
+            taskId = taskId,
+            shedName = "Shed A — Weaners",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 50,
+            handledCount = 50,
+            proofReadyCount = 50,
+            vaccineBreakdown = emptyList(),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
 
     override suspend fun submitAppTask(
         taskId: String,

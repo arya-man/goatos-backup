@@ -540,11 +540,11 @@ type dobDisposition struct {
 // stageCorrection tracks one goat whose source stage tag contradicted its age-derived stage.
 // The age-derived stage is authoritative; contradictions must be corrected + surfaced for review.
 type stageCorrection struct {
-	RFID         string `json:"rfid"`
-	AgeWeeks     int    `json:"age_weeks"`
-	SourceStage  string `json:"source_stage"`
+	RFID           string `json:"rfid"`
+	AgeWeeks       int    `json:"age_weeks"`
+	SourceStage    string `json:"source_stage"`
 	CorrectedStage string `json:"corrected_stage"`
-	RunTimestamp string `json:"run_timestamp"`
+	RunTimestamp   string `json:"run_timestamp"`
 }
 
 // entryDateSourceLabel reports which source column resolved the animal's entry_date,
@@ -3245,7 +3245,6 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		DoseUnit            string  `json:"dose_unit"`
 		VialDoses           int     `json:"vial_doses"`
 		ScheduleNote        string  `json:"schedule_note,omitempty"`
-		RouteSite           string  `json:"route_site"`
 		MaxDelayDays        int     `json:"max_delay_days"`
 		CourseLapsePolicy   string  `json:"course_lapse_policy"`
 		MinGapDays          int     `json:"min_gap_days"`
@@ -3301,7 +3300,6 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				DoseUnit:            "ml",
 				VialDoses:           def.VialDoses,
 				ScheduleNote:        "real vaccination seed source matrix",
-				RouteSite:           "subcutaneous",
 				MaxDelayDays:        7,
 				CourseLapsePolicy:   "preventive_care_review",
 				MinGapDays:          wave.MinGapDays,
@@ -3328,7 +3326,6 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				DoseUnit:            "ml",
 				VialDoses:           def.VialDoses,
 				ScheduleNote:        "real vaccination seed source matrix",
-				RouteSite:           "subcutaneous",
 				MaxDelayDays:        7,
 				CourseLapsePolicy:   "preventive_care_review",
 				MinGapDays:          wave.MinGapDays,
@@ -3355,7 +3352,6 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				DoseUnit:       "ml",
 				VialDoses:      def.VialDoses,
 				ScheduleNote:   "real vaccination seed source matrix",
-				RouteSite:      "subcutaneous",
 				// Repeat rows expose a 30-day due window, so the protocol's
 				// publishability invariant requires the maximum allowed delay to
 				// cover that full window as well.

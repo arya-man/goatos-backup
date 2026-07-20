@@ -3,8 +3,13 @@
     <string name="submit_eyebrow">టీకా</string>
     <string name="submit_record_title">షెడ్ రికార్డు</string>
     <string name="submit_summary_shed">షెడ్</string>
+    <string name="submit_summary_drive">డ్రైవ్</string>
     <string name="submit_summary_cohort">జంతువు దశ</string>
     <string name="submit_summary_date">తేదీ</string>
+    <string name="submit_summary_expected">ఆశించిన జంతువులు</string>
+    <string name="submit_summary_handled">స్కాన్ చేయబడిన</string>
+    <string name="submit_summary_proof_ready">రుజువు సిద్ధం</string>
+    <string name="submit_vaccine_breakdown_label">టీకా విభజన</string>
     <string name="submit_dose_label">డోస్</string>
     <string name="submit_goat_proof_title">మేక కెమెరా రుజువు</string>
     <string name="submit_goat_proof_synced">%2$d మేకల్లో %1$d సింక్ అయ్యాయి</string>

@@ -131,7 +131,6 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 
 	taskID := fx.scanText(`SELECT COALESCE(sop_task_id::text, '') FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
 	story.Assert("production sweeper created executable SOP task", taskID != "", "task_id=%q", taskID)
-	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	story.Step("Operator uploads proof and submits the exact micro-drive task",
 		"The canonical SOP validates the completed camera clip bound to the scanned goat and materializes the recorded dose from the per-goat submission item.")
@@ -170,22 +169,40 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	sopService.WithProofValidator(proofService).
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, verificationBus))
-	administeredAt := time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC)
+	story.Step("Readiness gate: acknowledgement is REJECTED when the scanned animal has no proof",
+		"Shed completion is an acknowledgement that every expected animal is scanned AND proofed. "+
+			"Submitting the scan roster with no proof clip for the expected goat must be rejected -- "+
+			"there is nothing to acknowledge until the per-animal camera proof is ready.")
+	_, notReadyErr := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
+		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
+		Body: sopdomain.SubmitTaskRequest{
+			SOPVersionID:   canonicalVaccinationSOPVersion,
+			IdempotencyKey: "story-aa-submit-missing-proof",
+			// Same scan roster, but no proof references: the acknowledgement is not ready.
+			Answers:   map[string]any{"goat_ids": []any{goatID}},
+			ProofRefs: nil,
+		},
+	}, "story-aa-submit-missing-proof")
+	story.Assert("submit is rejected while the scanned animal is missing proof", notReadyErr != nil, "err=%v", notReadyErr)
+	story.Assert("no completion is recorded from the rejected acknowledgement",
+		fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=(SELECT obligation_id FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2)`, fxTenant, goatID) == 0,
+		"goat=%s", goatID)
+
+	// Shed completion is an acknowledgement: submission carries only the per-animal scan roster and
+	// proof; no manual medical fields. administered_at is derived server-side (the submit time).
+	// See docs/decisions/vaccination-shed-ack-not-form.md.
 	submitted, submitErr := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
 		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
 		Body: sopdomain.SubmitTaskRequest{
 			SOPVersionID:   canonicalVaccinationSOPVersion,
 			IdempotencyKey: "story-aa-submit",
 			Answers: map[string]any{
-				"vaccine_lot_id": reservedLot, "cold_chain_verified": true,
-				"goat_ids": []any{goatID}, "dose_ml_given": 1.0, "doses": 1,
-				"route_site": "subcutaneous", "administered_at": administeredAt.Format(time.RFC3339),
-				"adverse_reaction": false,
+				"goat_ids": []any{goatID},
 			},
 			ProofRefs: proofRefs,
 		},
 	}, "story-aa-submit")
-	story.Assert("canonical SOP submission succeeded", submitErr == nil, "err=%v", submitErr)
+	story.Assert("canonical SOP submission succeeded once scan + proof are ready", submitErr == nil, "err=%v", submitErr)
 	if submitErr != nil {
 		return
 	}
@@ -238,7 +255,10 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	nextCount := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status IN ('scheduled','due')`, fxTenant, goatID)
 	story.Assert("SM-7 scheduled exactly one next obligation", nextCount == 1, "count=%d", nextCount)
 	nextDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status IN ('scheduled','due') ORDER BY due_at LIMIT 1`, fxTenant, goatID)
-	story.Assert("yearly recurrence uses administration date plus one year", sameDay(nextDue, administeredAt.AddDate(1, 0, 0)), "due=%s", nextDue)
+	// administered_at is derived server-side (the acknowledgement submit time), never an operator
+	// answer. Yearly recurrence anchors on that recorded administration date + one year.
+	administeredAt := fx.scanTime(`SELECT administered_at FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid AND status='accepted' ORDER BY administered_at LIMIT 1`, fxTenant, obligationID)
+	story.Assert("yearly recurrence uses the server-derived administration date plus one year", sameDay(nextDue, administeredAt.AddDate(1, 0, 0)), "due=%s administered=%s", nextDue, administeredAt)
 }
 
 func storyAAPtrString(value string) *string { return &value }

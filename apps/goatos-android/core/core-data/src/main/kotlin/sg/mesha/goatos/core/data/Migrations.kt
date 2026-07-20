@@ -243,3 +243,15 @@ val MIGRATION_10_11: Migration = object : Migration(10, 11) {
         )
     }
 }
+
+/** v11 -> v12: adds the shed-completion-summary cache (JSON-blob-by-task offline-first read for
+ * the vaccination shed acknowledgement Submit screen). Additive, non-destructive. */
+val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `shed_completion_summary_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

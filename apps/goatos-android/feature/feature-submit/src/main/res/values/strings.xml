@@ -9,8 +9,13 @@
     <string name="submit_record_title">Shed record</string>
     <!-- Record summary labels -->
     <string name="submit_summary_shed">Shed</string>
+    <string name="submit_summary_drive">Drive</string>
     <string name="submit_summary_cohort">Animal stage</string>
     <string name="submit_summary_date">Date</string>
+    <string name="submit_summary_expected">Expected animals</string>
+    <string name="submit_summary_handled">Scanned</string>
+    <string name="submit_summary_proof_ready">Proof ready</string>
+    <string name="submit_vaccine_breakdown_label">Vaccine breakdown</string>
     <string name="submit_dose_label">Dose</string>
     <string name="submit_goat_proof_title">Goat camera proof</string>
     <string name="submit_goat_proof_synced">%1$d of %2$d goats synced</string>

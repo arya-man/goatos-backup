@@ -34,6 +34,8 @@ import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
+import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
+import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
@@ -60,6 +62,9 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * v9 (see [MIGRATION_8_9]) adds normalized full-roster rows for indexed RFID lookup.
  * v10 (see [MIGRATION_9_10]) binds every vaccination clip to its goat and indexes the
  * per-goat upload/status view used on the shed scan screen.
+ * v12 (see [MIGRATION_11_12]) adds the shed-completion-summary cache — the vaccination
+ * shed-acknowledgement read the Submit screen renders, offline-first from day one like every
+ * other screen-facing read model.
  */
 @Database(
     entities = [
@@ -76,6 +81,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         RosterTimetableCacheEntity::class,
         RosterCoverageCacheEntity::class,
         TaskDetailCacheEntity::class,
+        ShedCompletionSummaryCacheEntity::class,
         ScannedGoatEntity::class,
         RfidScanAttemptEntity::class,
         ProofCaptureEntity::class,
@@ -83,7 +89,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CalendarScheduleEntity::class,
         CalendarScheduleRemoteKeyEntity::class,
     ],
-    version = 11,
+    version = 12,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -92,6 +98,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // via bounded indexed Room query (offline-first SSOT single-row entities instead of merged blob).
     // v10 (see [MIGRATION_9_10]) adds row-level vaccination proof ownership.
     // v11 (see [MIGRATION_10_11]) scopes canonical RFID rows to shed+task.
+    // v12 (see [MIGRATION_11_12]) adds the shed-completion-summary cache table.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -110,6 +117,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun rosterTimetableCacheDao(): RosterTimetableCacheDao
     abstract fun rosterCoverageCacheDao(): RosterCoverageCacheDao
     abstract fun taskDetailCacheDao(): TaskDetailCacheDao
+    abstract fun shedCompletionSummaryCacheDao(): ShedCompletionSummaryCacheDao
     abstract fun scannedGoatDao(): ScannedGoatDao
     abstract fun rfidScanAttemptDao(): RfidScanAttemptDao
     abstract fun proofCaptureDao(): ProofCaptureDao

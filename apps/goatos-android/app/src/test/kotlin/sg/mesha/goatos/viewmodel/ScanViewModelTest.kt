@@ -47,6 +47,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -548,6 +549,9 @@ private class FakeTaskRepository(
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
         taskDetail.value = Resource(data = TaskDetail(task = task, form = form), lastSyncedAt = 1L)
     }
+    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+        MutableStateFlow(null)
+    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = Result.success(Unit)
 }
 
 private class CapturingSubmitSyncRepository : SyncRepository {

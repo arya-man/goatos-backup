@@ -103,7 +103,6 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
 	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
 	story.Assert("sweeper created the executable SOP task", taskID != "", "task_id=%q", taskID)
-	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	story.Step("Capture canonical proof and submit both administrations",
 		"The operator captures one task-bound camera clip from each scanned goat row. Submission fanout, not test code, records one completion per goat.")
@@ -149,17 +148,36 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, verifyBus))
 	submitted, err := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
 		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
+		// Shed completion is an acknowledgement: the submission carries only the per-animal scan
+		// roster; no manual medical fields (batch/cold-chain/dose/route/administered-at/adverse).
+		// administered_at is derived server-side. See docs/decisions/vaccination-shed-ack-not-form.md.
 		Body: sopdomain.SubmitTaskRequest{SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: "story-c-submit", ProofRefs: proofRefs,
 			Answers: map[string]any{
-				"vaccine_lot_id": reservedLot, "cold_chain_verified": true, "goat_ids": []any{goat1, goat2},
-				"dose_ml_given": 1.0, "doses": 1, "route_site": "subcutaneous", "administered_at": now.Format(time.RFC3339),
-				"adverse_reaction": false,
+				"goat_ids": []any{goat1, goat2},
 			}},
 	}, "story-c-submit")
 	story.Assert("canonical two-goat submission succeeded", err == nil, "err=%v", err)
 	if err != nil {
 		return
 	}
+	story.Assert("server stamped a submit time on the acknowledgement", submitted.Submission.SubmittedAt != "", "submitted_at=%q", submitted.Submission.SubmittedAt)
+
+	story.Step("Recorded completions carry server-derived values, not operator answers",
+		"Because shed completion is an acknowledgement, each per-goat completion must derive its "+
+			"clinical fields server-side: administered_at defaults to the submit time, and dose/route "+
+			"are NULL while adverse_reaction is false -- no manual medical form was ever filled.")
+	story.Assert("dose_ml_given is NULL for every recorded completion (no manual dose answer)",
+		fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND dose_ml_given IS NOT NULL`, fxTenant, batchID) == 0,
+		"batch=%s", batchID)
+	story.Assert("route_site is NULL for every recorded completion (no manual route answer)",
+		fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND route_site IS NOT NULL`, fxTenant, batchID) == 0,
+		"batch=%s", batchID)
+	story.Assert("adverse_reaction is false for every recorded completion (no adverse form)",
+		fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND adverse_reaction IS TRUE`, fxTenant, batchID) == 0,
+		"batch=%s", batchID)
+	story.Assert("administered_at is server-derived (non-NULL, within 2 minutes of the server submit time)",
+		fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND (administered_at IS NULL OR administered_at < $3::timestamptz - INTERVAL '2 minutes' OR administered_at > $3::timestamptz + INTERVAL '2 minutes')`, fxTenant, batchID, submitted.Submission.SubmittedAt) == 0,
+		"batch=%s submitted_at=%q", batchID, submitted.Submission.SubmittedAt)
 	story.Assert("submission fanout recorded both doses", fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND status='recorded'`, fxTenant, batchID) == 2, "batch=%s", batchID)
 
 	story.Step("Control tower shows the open verification-pending alert",

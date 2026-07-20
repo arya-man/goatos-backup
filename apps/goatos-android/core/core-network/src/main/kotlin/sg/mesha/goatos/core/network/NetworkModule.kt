@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 // Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
@@ -150,6 +151,9 @@ interface AppApiService {
 
     @GET("app/vaccination/tasks/{task_id}/option-values")
     suspend fun getTaskOptionValues(@Path("task_id") taskId: String): TaskOptionValuesResponseDto
+
+    @GET("app/tasks/{task_id}/shed-completion-summary")
+    suspend fun getShedCompletionSummary(@Path("task_id") taskId: String): ShedCompletionSummaryDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -375,6 +379,9 @@ class RetrofitAppApi(
 
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         service.getTaskOptionValues(taskId)
+
+    override suspend fun getShedCompletionSummary(taskId: String): ShedCompletionSummaryDto =
+        service.getShedCompletionSummary(taskId)
 
     override suspend fun submitAppTask(
         taskId: String,

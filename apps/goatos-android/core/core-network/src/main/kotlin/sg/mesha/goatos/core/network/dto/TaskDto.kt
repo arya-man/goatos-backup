@@ -94,6 +94,26 @@ data class SubmissionItemDto(
 )
 
 @Serializable
+data class VaccineBreakdownItemDto(
+    @SerialName("vaccine") val vaccine: String = "",
+    @SerialName("count") val count: Int = 0,
+)
+
+@Serializable
+data class ShedCompletionSummaryDto(
+    @SerialName("task_id") val taskId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("drive_name") val driveName: String = "",
+    @SerialName("expected_count") val expectedCount: Int = 0,
+    @SerialName("handled_count") val handledCount: Int = 0,
+    @SerialName("proof_ready_count") val proofReadyCount: Int = 0,
+    @SerialName("vaccine_breakdown") val vaccineBreakdown: List<VaccineBreakdownItemDto> = emptyList(),
+    @SerialName("submit_enabled") val submitEnabled: Boolean = false,
+    @SerialName("blocking_reason") val blockingReason: String? = null,
+    @SerialName("submit_state") val submitState: String = "",
+)
+
+@Serializable
 data class SubmissionSummaryDto(
     @SerialName("submission_id") val submissionId: String = "",
     @SerialName("task_id") val taskId: String = "",
