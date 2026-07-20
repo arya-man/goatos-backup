@@ -143,6 +143,14 @@ Calendar or dashboard label.
   handoff.
 - Run lint/typecheck/build, and run `smoke:visual:live` when local backend and
   admin-web can be started.
+- For any route, table, chip row, drawer, modal, popover, or navigation change,
+  open the rendered local page and inspect the screenshots before handoff. When
+  a user supplies a screenshot, reproduce that exact route/viewport. The review
+  must explicitly cover right-edge/status-column clipping, horizontal overflow,
+  chip truncation/wrapping, active navigation state, row-click destination,
+  outside-click/back close, close-button behavior, and whether drilldown pages
+  show only the scoped real records for the clicked row. Do not claim a UI fix
+  from code inspection alone.
 
 For Next.js, React, TypeScript, Node, TanStack Query, Playwright, accessibility,
 visual review, and CI practice, follow

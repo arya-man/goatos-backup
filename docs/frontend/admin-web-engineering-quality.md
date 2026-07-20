@@ -141,6 +141,11 @@ drawer, modal, table, form, and navigation surface:
   `mock/goatos-dashboard-mock.html`; verify alignment, spacing, card/table
   anatomy, wrapping, overflow, focus, hover, active, empty, loading, and error
   states;
+- when a route/table/chip row/drawer/modal/popover/navigation path changes,
+  reproduce the exact URL and viewport under review and inspect for right-edge
+  column clipping, horizontal overflow, clipped chips, wrong selected nav item,
+  wrong row-click destination, outside-click close failure, and close-button
+  failure;
 - use semantic HTML first (`button`, `a`, `label`, headings, lists, tables,
   dialogs). Do not attach click behavior to a `div`/`span` without the full
   keyboard and accessibility contract;
@@ -152,6 +157,11 @@ drawer, modal, table, form, and navigation surface:
   every state and viewport;
 - tables own horizontal overflow and stable column widths; values must not wrap
   character-by-character or escape cards;
+- tables, chip groups, drawers, popovers, and side panels must be reviewed at the
+  exact route/viewport being changed. Verify no right-edge clipping, no accidental
+  whole-page horizontal scroll, no clipped status/actions column, working outside
+  click/back close behavior, correct sidebar highlight, and scoped drilldowns that
+  show only the records for the clicked row.
 - navigation tests assert the user-visible route and selected state, including
   direct URL, refresh, Back/Forward, role-denied, and narrow viewport behavior.
 

@@ -42,6 +42,12 @@ import { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";
 const DEFAULT_PAGE_SIZE = 10;
 
 type GoatRow = GoatSearchResponse["items"][number];
+type HerdSummaryRow = HerdRegisterSummaryResponse["items"][number] & Record<string, unknown>;
+
+function summaryNumber(row: HerdSummaryRow, camelKey: string, snakeKey: string): number {
+  const value = row[camelKey] ?? row[snakeKey];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
 
 function hrefWithDrawerParam(pathname: string, params: RouteSearchParams, key: string, value: string | null): string {
   const next = new URLSearchParams();
@@ -93,14 +99,14 @@ function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegist
   const totals = summary
     ? summary.items.reduce(
         (acc, row) => ({
-          total: acc.total + (row.totalCount ?? row.activeCount ?? 0),
-          active: acc.active + (row.activeCount ?? 0),
-          adult: acc.adult + (row.adultCount ?? 0),
-          kid: acc.kid + (row.kidCount ?? 0),
-          untaggedKid: acc.untaggedKid + (row.untaggedKidCount ?? 0),
-          dead: acc.dead + (row.deadCount ?? 0),
-          sold: acc.sold + (row.soldCount ?? 0),
-          culled: acc.culled + (row.culledCount ?? 0),
+          total: acc.total + summaryNumber(row, "totalCount", "total_count"),
+          active: acc.active + summaryNumber(row, "activeCount", "active_count"),
+          adult: acc.adult + summaryNumber(row, "adultCount", "adult_count"),
+          kid: acc.kid + summaryNumber(row, "kidCount", "kid_count"),
+          untaggedKid: acc.untaggedKid + summaryNumber(row, "untaggedKidCount", "untagged_kid_count"),
+          dead: acc.dead + summaryNumber(row, "deadCount", "dead_count"),
+          sold: acc.sold + summaryNumber(row, "soldCount", "sold_count"),
+          culled: acc.culled + summaryNumber(row, "culledCount", "culled_count"),
         }),
         { total: 0, active: 0, adult: 0, kid: 0, untaggedKid: 0, dead: 0, sold: 0, culled: 0 },
       )

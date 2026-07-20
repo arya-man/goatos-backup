@@ -527,6 +527,21 @@ Do:
   under `.codex-goatos-render/admin-web-screenshots/` and include the screenshot
   review result in the handoff before pushing. Build passing means only that the
   code compiles; it does not mean the UI ships.
+  Route/table/drawer/popover changes also require reproducing the exact changed
+  URL and viewport, then visually checking right-edge columns, horizontal
+  overflow, clipped or stripped chips, active nav highlight, row-click
+  destination, drawer/popup outside-click close, and drawer/popup close button
+  behavior. A screenshot supplied by a reviewer/user is a failing visual test
+  case until the same route is re-opened and the rendered screen is inspected.
+- Admin-web route/table/drawer/popover changes require a visual-closeout checklist
+  before push. Reproduce the exact URL/viewport from any user screenshot when one
+  exists, then verify: no right-edge/status-column clipping; no horizontal page
+  overflow unless the table owns it; chips truncate intentionally without
+  character-splitting or escaping their cell; drawers and popovers close by their
+  close control and by outside click/back navigation; row clicks keep the correct
+  module selected in the sidebar; and opened detail views show only the scoped
+  real records for the clicked row. If any of these cannot be visually confirmed,
+  the change is not ready to land.
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
 - Treat scale-safe design as a hard requirement on every design, prompt, and
   code change, sized to the current release scale target. Per

@@ -2987,6 +2987,14 @@ func TestDriveSummaryDistinctAnimalCoverageOneToMany(t *testing.T) {
 	if s.CompletedAnimals != 0 {
 		t.Errorf("(CDR-001 scenario 1) completed_animals = %d, want 0 (one obligation still open, goat not fully covered)", s.CompletedAnimals)
 	}
+	// OneToMany MultiPage DateShift ParkScope StatusBuckets: the per-shed drawer summary must stay on
+	// the same aggregate grain as drive_summary, not a separately paged or status-filtered roster read.
+	if len(s.Sheds) != 1 {
+		t.Fatalf("(CDR-001 scenario 1) drive_summary.sheds len = %d, want 1", len(s.Sheds))
+	}
+	if s.Sheds[0].ShedID != shedID || s.Sheds[0].TotalAnimals != 1 {
+		t.Errorf("(CDR-001 scenario 1) drive_summary.sheds[0] = %#v, want shed %s with 1 animal", s.Sheds[0], shedID)
+	}
 
 	// Scenario 2: Both obligations completed (goat IS fully covered).
 	setDriveObligationStatus(t, ctx, pool, obl2, "completed")
