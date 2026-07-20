@@ -655,9 +655,6 @@ private class FakeScanExecutionRepository(
 
     override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): Result<Unit> =
         error("unused")
-
-    override suspend fun scanRoster(shedId: String, taskId: String?, cursor: String?, limit: Int?): ScanRosterResponseDto =
-        error("unused")
 }
 
 private class FakeTaskRepository(

@@ -226,7 +226,7 @@ class ScanViewModel @Inject constructor(
         val aggregated = applyFullRosterCounts(base, counts, localDone)
         // Submit proof gate over the FULL roster (not just the window): every DONE animal must have a
         // synced proof video. Surfaces the proof-incomplete animals for retry/replace.
-        val gate = computeProofGate(aggregated, persistedDoneGoats, localDoneGoats, proofs, operatorAllowed == true)
+        val gate = computeProofGate(aggregated, persistedDoneGoats, localDoneGoats, proofs)
         gate.copy(
             feed = feed,
             isRefreshing = isRefreshing,
@@ -548,7 +548,7 @@ class ScanViewModel @Inject constructor(
      *  the per-goat proof status. */
     private fun ScanRosterRowEntity.toRosterRow(
         localDone: Set<String>,
-        goatProofsBySubject: Map<String, List<ProofCaptureRow>>,
+        goatProofsBySubject: Map<String?, List<ProofCaptureRow>>,
     ): RosterRow {
         val locallyDone = obligationId.isNotBlank() && obligationId in localDone
         val goatProofs = goatProofsBySubject[goatId].orEmpty()
@@ -577,13 +577,12 @@ class ScanViewModel @Inject constructor(
         persistedDoneGoats: List<String>,
         localDoneGoats: Set<String>,
         proofs: List<ProofCaptureRow>,
-        operatorAllowed: Boolean,
     ): ScanUiState {
         val id = shedId ?: return base
         val requiredGoatIds = (persistedDoneGoats.toSet() + localDoneGoats).filter { it.isNotBlank() }.toSet()
         val syncedGoatIds = proofs
             .filter { it.proofSubject == ProofSubject.GOAT && it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
-            .map { it.subjectId }
+            .mapNotNull { it.subjectId }
             .toSet()
         val missingGoatIds = requiredGoatIds - syncedGoatIds
         val proofComplete = missingGoatIds.isEmpty()

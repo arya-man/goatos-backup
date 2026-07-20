@@ -105,14 +105,6 @@ interface ExecutionRepository {
         limit: Int? = null,
     ): Result<Unit>
 
-    /** Per-animal scan roster (RFID tags + due vaccine) for a shed. */
-    suspend fun scanRoster(
-        shedId: String,
-        taskId: String? = null,
-        cursor: String? = null,
-        limit: Int? = null,
-    ): ScanRosterResponseDto
-
     /** The scan LIST read: a bounded keyset WINDOW of the per-row SSOT (never the whole collection),
      *  ordered by backend roster position and re-emitted on every roster upsert. The ViewModel grows
      *  [windowSize] as the user scrolls; the full roster already lives in Room after [refreshScanRoster],
@@ -276,7 +268,10 @@ class DefaultExecutionRepository(
         shedDao.enforceCacheBounds()
     }
 
-    override suspend fun scanRoster(
+    // Internal network fetch of one bounded scan-roster page. Not part of the screen-facing contract:
+    // the offline-first read the UI observes is [observeScanRosterRows] (Room SSOT); this only feeds
+    // [refreshScanRoster]'s walk into that SSOT.
+    private suspend fun scanRoster(
         shedId: String,
         taskId: String?,
         cursor: String?,
