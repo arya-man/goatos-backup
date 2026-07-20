@@ -135,6 +135,7 @@ guardrails:
 	$(MAKE) android-navigation-stack-guard
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
+	$(MAKE) admin-web-local-overlay-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
 	$(MAKE) local-gcp-kernel-parity-guard
@@ -504,6 +505,14 @@ admin-web-request-reads-guard-audit:
 admin-web-prefetch-guard:
 	node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test
 	node tools/agent-hooks/check-admin-web-prefetch.mjs
+
+# admin-web-local-overlay-guard: prevent same-page drawers backed by already-loaded
+# rows from navigating through Next Server Components. New Link-driven veil/drawer
+# pairs are forbidden; the explicit legacy baseline can only shrink.
+.PHONY: admin-web-local-overlay-guard
+admin-web-local-overlay-guard:
+	node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test
+	node tools/agent-hooks/check-admin-web-local-overlays.mjs
 
 # android-bounded-memory-guard: block unbounded in-memory growth in the Android data layer
 # (an in-heap cache/accumulator with no cap/TTL/eviction, or a DAO reading a whole table into

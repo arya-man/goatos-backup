@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { ArrowRight, Syringe } from "lucide-react";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
 import { copy, optionGroup, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -8,6 +9,9 @@ import {
 } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+import { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
+
+export { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
 
 // SLA tint for the due chip, mapped from the server-computed work state (no client date math).
 function slaClass(state: WorkState): string {
@@ -54,29 +58,8 @@ function optionTone(options: AdminUiOption[], key: string): Tone {
   return (option.tone || "mut") as Tone;
 }
 
-export function actionDriveLabel(pageContract: AdminUiPageContract, row: Pick<ActionCenterObligation, "drive_name" | "protocol_name" | "dose_code">): string {
-  const raw = row.drive_name || `${row.protocol_name} ${row.dose_code}` || copy(pageContract, "label.vaccination_drive");
-  const cleaned = raw
-    .replace(/\s+[-–]\s+PC-[A-Z0-9-]+$/i, "")
-    .replace(/\s+[-–]\s+[A-Z]+-[A-Z0-9-]+$/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned || copy(pageContract, "label.vaccination_drive");
-}
-
-export function actionWorkTitle(pageContract: AdminUiPageContract, row: ActionCenterObligation): string {
-  const shed = row.shed_name || copy(pageContract, "label.shed_fallback");
-  if (row.owner_state === "missing" || !row.owner?.operator_name) {
-    return `${copy(pageContract, "action.assign_owner_chain")} — ${shed}`;
-  }
-  if (row.proof_state === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${shed}`;
-  if (row.verification_state === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${shed}`;
-  if (row.work_state === "overdue") return `${actionDriveLabel(pageContract, row)} ${copy(pageContract, "label.overdue_suffix")} — ${shed}`;
-  return `${actionDriveLabel(pageContract, row)} — ${shed}`;
-}
-
 // One mock-shaped task card for a single Action Center obligation (ported from the mock taskCard2).
-function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string }) {
+function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string; localOverlay: boolean }) {
   const operatorMissing = row.owner_state === "missing" || !row.owner?.operator_name;
   const blocker = displayBlocker(row.blocker_reason);
   const drive = actionDriveLabel(pageContract, row);
@@ -92,16 +75,8 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const proofStateOptions = optionGroup(pageContract, "proof_state_chips");
-  return (
-    <Link
-      href={href}
-      scroll={false}
-      className="task task-ac"
-      data-filter-row
-      aria-label={openLabel}
-      title={`${title} · ${drive} · ${ownerLabel ?? copy(pageContract, "label.unassigned")}`}
-      style={{ color: "inherit", textDecoration: "none" }}
-    >
+  const contents = (
+    <>
       <div className="tt">
         <span className="fic">
           <Syringe className="ic" style={{ width: 14 }} aria-hidden="true" />
@@ -138,7 +113,21 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
         </span>
         <ArrowRight className="ic" style={{ width: 13, marginLeft: "auto", flexShrink: 0 }} aria-hidden="true" />
       </div>
-    </Link>
+    </>
+  );
+  const linkProps = {
+    href,
+    scroll: false,
+    className: "task task-ac",
+    "data-filter-row": true,
+    "aria-label": openLabel,
+    title: `${title} · ${drive} · ${ownerLabel ?? copy(pageContract, "label.unassigned")}`,
+    style: { color: "inherit", textDecoration: "none" },
+  } as const;
+  return localOverlay ? (
+    <LocalOverlayLink {...linkProps}>{contents}</LocalOverlayLink>
+  ) : (
+    <Link {...linkProps}>{contents}</Link>
   );
 }
 
@@ -233,6 +222,7 @@ export function WorkBoard({
                     pageContract={pageContract}
                     row={row}
                     href={drawerHrefForRow ? drawerHrefForRow(row) : `/workflows/${encodeURIComponent(row.row_id)}`}
+                    localOverlay={Boolean(drawerHrefForRow)}
                   />
                 ))
               ) : (

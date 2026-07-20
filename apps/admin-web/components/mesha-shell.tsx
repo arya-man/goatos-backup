@@ -264,6 +264,7 @@ export function MeshaShell({
       const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
       if (!anchor || anchor.target || anchor.hasAttribute("download")) return;
       if (anchor.getAttribute("aria-disabled") === "true") return;
+      if (anchor.dataset.localOverlayNavigation === "true") return;
       const nextUrl = new URL(anchor.href, window.location.href);
       if (nextUrl.origin !== window.location.origin) return;
       if (nextUrl.pathname === window.location.pathname && nextUrl.search === window.location.search) return;

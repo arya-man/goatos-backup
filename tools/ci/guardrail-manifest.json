@@ -350,6 +350,16 @@
       "ciStep": "admin-web-prefetch-guard"
     },
     {
+      "id": "admin-web-local-overlays",
+      "script": "tools/agent-hooks/check-admin-web-local-overlays.mjs",
+      "makeTarget": "admin-web-local-overlay-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-local-overlays.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-local-overlay-guard"
+    },
+    {
       "id": "android-bounded-memory",
       "script": "tools/agent-hooks/check-android-bounded-memory.mjs",
       "makeTarget": "android-bounded-memory-guard",

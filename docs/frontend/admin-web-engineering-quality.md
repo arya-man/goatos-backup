@@ -137,6 +137,17 @@ TanStack Query:
 Framework correctness does not prove a usable screen. For every changed route,
 drawer, modal, table, form, and navigation surface:
 
+- a same-page drawer/modal/popover whose complete detail data is already loaded
+  must use `LocalOverlayLink` plus client-local open/closed state. Its real href
+  must remain a refreshable deep link, but an ordinary click must not issue a
+  Next.js document/RSC request, refetch the route, or trigger the global
+  route-pending UI;
+- opening such an overlay pushes a hash-backed history entry; Back, Escape,
+  outside click, and its close control close locally and restore trigger focus.
+  Do not implement the scrim or close control as a Next `Link` merely to change
+  a search parameter. `make admin-web-local-overlay-guard` rejects new instances
+  of that route-driven pattern and requires its adversarial self-test;
+
 - compare rendered desktop and narrow screenshots to
   `mock/goatos-dashboard-mock.html`; verify alignment, spacing, card/table
   anatomy, wrapping, overflow, focus, hover, active, empty, loading, and error

@@ -1,6 +1,6 @@
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
-import { Ban, GitBranch, Info, ShieldCheck, Syringe, Video, X } from "lucide-react";
+import { Info, Video } from "lucide-react";
 import { getVaccinationActionCenter, getVaccinationVerificationQueue } from "@/lib/api/server";
 import { actionFeedbackCopy, copy, optionGroup, tableLabels, tablePageSizes, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
@@ -14,11 +14,8 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import {
   SEVERITY_ORDER,
   WORK_STATE_ORDER,
-  type Tone,
 } from "./process-integrity";
-import { SopChecklist } from "./sop-checklist";
 import {
-  VACCINATION_DRIVE_SOP_STEPS,
   VaccinationFilterButton,
   VisibleTableSearch,
   VaccinationTablePager,
@@ -27,48 +24,17 @@ import {
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { ActionCenterFiltersButton } from "./action-center-filters";
 import { actionCenterRequestPlan } from "./action-center-request-plan";
-import { WorkBoard, actionWorkTitle } from "./work-board";
+import { ActionCenterLocalDrawer } from "./action-center-local-drawer";
+import { WorkBoard } from "./work-board";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 
 const PATH = "/action-center";
 
-// Backend has no manual priority field — it is derived from computed severity.
-const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {
-  broken: "high",
-  at_risk: "med",
-  watch: "low",
-  ok: "low",
-};
 function optionLabel(options: AdminUiOption[], key: string): string {
   const option = options.find((item) => item.key === key);
   if (!option) throw new Error(`Admin-web contract missing option ${key}`);
   return option.label;
-}
-
-function optionTone(options: AdminUiOption[], key: string): Tone {
-  const option = options.find((item) => item.key === key);
-  if (!option) throw new Error(`Admin-web contract missing option ${key}`);
-  return (option.tone || "mut") as Tone;
-}
-
-// How far the vaccination drive SOP has progressed for this obligation, derived (read-only) from the
-// computed lifecycle states — steps below the index are done, the step at it is current. Honest mapping:
-// the obligation existing = "Drive scheduled" done; SOP/proof activity advances administration; an
-// accepted+verified proof advances the ledger consume; a completed obligation finishes the flow.
-function sopDoneThrough(row: ActionCenterObligation): number {
-  let n = 1; // obligation generated → "Drive scheduled" done
-  if (
-    row.sop_task_state === "submitted" ||
-    row.sop_task_state === "accepted" ||
-    row.proof_state === "uploaded" ||
-    row.proof_state === "accepted"
-  ) {
-    n = 2;
-  }
-  if (row.proof_state === "accepted" && row.verification_state === "accepted") n = 3;
-  if (row.completion_state === "completed") n = 4;
-  return n;
 }
 
 function shortId(id: string): string {
@@ -212,7 +178,6 @@ export async function VaccinationActionCenterPage({
     redirect(hrefWith({ bucket: "verify", verify_page: "1", verify_limit: String(requestedQueuePageSize), verify_cursor: undefined, verify_cursor_stack: undefined }));
   }
   const selectedActionRowId = one(sp, "ac_row");
-  const selectedActionRow = selectedActionRowId ? boardRows.find((row) => row.row_id === selectedActionRowId) : undefined;
 
   // Filter chips use server totals; WorkBoard lane headers stay derived from visible rows.
   const stateCounts = new Map<WorkState, number>();
@@ -511,7 +476,32 @@ export async function VaccinationActionCenterPage({
 	            </div>
 	          ) : null}
 
-          <WorkBoard pageContract={pageContract} rows={boardRows} drawerHrefForRow={(row) => hrefWith({ ac_row: row.row_id })} />
+          <WorkBoard
+            pageContract={pageContract}
+            rows={boardRows}
+            drawerHrefForRow={(row) => `${hrefWith({ ac_row: undefined })}#ac_row=${encodeURIComponent(row.row_id)}`}
+          />
+          <ActionCenterLocalDrawer
+            rows={boardRows}
+            pageContract={pageContract}
+            initialSelectedRowId={selectedActionRowId}
+            drawerHrefs={Object.fromEntries(
+              boardRows.map((row) => [
+                row.row_id,
+                `${hrefWith({ ac_row: undefined })}#ac_row=${encodeURIComponent(row.row_id)}`,
+              ]),
+            )}
+            closeHref={hrefWith({ ac_row: undefined })}
+            workflowHrefs={Object.fromEntries(
+              boardRows.map((row) => [
+                row.row_id,
+                scopeHref(`/workflows/${encodeURIComponent(row.row_id)}`, scope, {}, { from: "action-center" }),
+              ]),
+            )}
+            passportHrefs={Object.fromEntries(
+              boardRows.flatMap((row) => (row.goat_id ? [[row.row_id, `/goats/${encodeURIComponent(row.goat_id)}`]] : [])),
+            )}
+          />
           <VaccinationTablePager
             pageContract={pageContract}
             pageSizeOptions={boardPageSizeOptions}
@@ -524,198 +514,8 @@ export async function VaccinationActionCenterPage({
             hrefForPage={boardPagerHref}
             hrefForPageSize={boardPageSizeHref}
           />
-          {selectedActionRow ? (
-            <ActionCenterRowDrawer
-              row={selectedActionRow}
-              closeHref={hrefWith({ ac_row: undefined })}
-              returnTo={hrefWith({ ac_row: selectedActionRow.row_id })}
-              workflowHref={scopeHref(`/workflows/${encodeURIComponent(selectedActionRow.row_id)}`, scope, {}, { from: "action-center" })}
-	              passportHref={selectedActionRow.goat_id ? `/goats/${encodeURIComponent(selectedActionRow.goat_id)}` : undefined}
-	              pageContract={pageContract}
-	            />
-          ) : null}
         </div>
       )}
     </div>
-  );
-}
-
-function ActionCenterRowDrawer({
-  row,
-  closeHref,
-  returnTo,
-  workflowHref,
-  passportHref,
-  pageContract,
-}: {
-  row: ActionCenterObligation;
-  closeHref: string;
-  returnTo: string;
-  workflowHref: string;
-  passportHref?: string;
-  pageContract: AdminUiPageContract;
-}) {
-  const blocker = row.blocker_reason;
-  const operatorMissing = row.owner_state === "missing" || !row.owner?.operator_name;
-  const ownerName = row.owner?.operator_name ?? row.owner?.park_head_name ?? copy(pageContract, "label.unassigned");
-  const title = actionWorkTitle(pageContract, row);
-  const priority = PRIORITY_BY_SEVERITY[row.severity];
-  const priorityOptions = optionGroup(pageContract, "priority_chips");
-  const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
-  const severityOptions = optionGroup(pageContract, "severity_chips");
-  const sopStateOptions = optionGroup(pageContract, "sop_state_chips");
-  const proofStateOptions = optionGroup(pageContract, "proof_state_chips");
-  const verificationStateOptions = optionGroup(pageContract, "verification_state_chips");
-  const sopProgress = sopDoneThrough(row);
-  const hasCompletion = !!row.completion_id;
-  const completionId = row.completion_id ?? "";
-  const taskId = row.sop_task_id;
-  const taskRowVersion = row.sop_task_row_version;
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.work_item.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.work_item.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <Syringe className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "drawer.work_item.eyebrow")}</div>
-            <h2>{title}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.work_item.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          {/* Computed adherence status — never a manual label (mock). */}
-          <div className="fld">
-            <label>{copy(pageContract, "drawer.adherence_status_label")}</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Tag tone={optionTone(workStateOptions, row.work_state)}>{optionLabel(workStateOptions, row.work_state)}</Tag>
-              <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
-              <span className="muted small">{copy(pageContract, "drawer.adherence_status_help")}</span>
-            </div>
-          </div>
-
-          <div className="metagrid" style={{ marginBottom: 14 }}>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.owner_chain_label")}</div>
-              <div className="v">
-                {operatorMissing ? <Tag tone="dng">{copy(pageContract, "label.owner_chain_assign")}</Tag> : ownerName}
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.due_label")}</div>
-              <div className="v">{fmtDate(row.due_at)}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.priority_label")}</div>
-              <div className="v">
-                <Tag tone={optionTone(priorityOptions, priority)}>{optionLabel(priorityOptions, priority)}</Tag>
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.next_action")}</div>
-              <div className="v">{row.next_action}</div>
-            </div>
-          </div>
-
-          {/* Obligation facts — compact metagrid (mock density), not a flat full-record dump. */}
-          <div className="metagrid">
-            <div>
-              <div className="k">{copy(pageContract, "drawer.protocol_label")}</div>
-              <div className="v">{row.protocol_name}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.dose_label")}</div>
-              <div className="v">{row.dose_code}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.park_shed_label")}</div>
-              <div className="v">
-                {row.park_name} · {row.shed_name}
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.cohort_progress_label")}</div>
-              <div className="v">
-                {row.animal_stage} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}
-              </div>
-            </div>
-          </div>
-
-          {blocker ? (
-            <div className="alert" style={{ marginTop: 14, marginBottom: 0 }}>
-              <Ban className="ic" aria-hidden="true" />
-              <span>{blocker}</span>
-            </div>
-          ) : null}
-
-          {/* SOP checklist — the vaccination drive SOP's procedure STEPS with per-step video-proof pills
-              (mock #taskDrawer checklist anatomy), NOT the obligation lifecycle chain (that is the Workflow
-              record). Step done/current is derived read-only from the computed obligation states. */}
-          <div style={{ marginTop: 16 }}>
-            <div className="b700" style={{ margin: "4px 0 10px" }}>
-              {copy(pageContract, "drawer.sop_checklist.title")}
-            </div>
-            <SopChecklist steps={VACCINATION_DRIVE_SOP_STEPS} doneThrough={sopProgress} />
-          </div>
-
-          {/* Computed SOP / proof / verification state chips. */}
-          <div className="chipset" style={{ marginTop: 14 }}>
-            <Tag tone={optionTone(sopStateOptions, row.sop_task_state)}>{optionLabel(sopStateOptions, row.sop_task_state)}</Tag>
-            <Tag tone={optionTone(proofStateOptions, row.proof_state)}>{optionLabel(proofStateOptions, row.proof_state)}</Tag>
-            <Tag tone={optionTone(verificationStateOptions, row.verification_state)}>{optionLabel(verificationStateOptions, row.verification_state)}</Tag>
-          </div>
-
-          {/* Linked surfaces (mock "Linked"). lucide icons — never emoji. */}
-          <div style={{ marginTop: 16 }}>
-            <div className="b700" style={{ margin: "2px 0 8px" }}>
-              {copy(pageContract, "drawer.linked_title")}
-            </div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-              <Link href={workflowHref} className="tag t-info" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <GitBranch className="ic" style={{ width: 12 }} aria-hidden="true" />
-                {copy(pageContract, "drawer.link.workflow_record")}
-              </Link>
-              <Link href="/protocol-adherence" className="tag t-warn" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <ShieldCheck className="ic" style={{ width: 12 }} aria-hidden="true" />
-                {copy(pageContract, "drawer.link.adherence")}
-              </Link>
-              <Link href="/vaccination" className="tag t-teal" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Syringe className="ic" style={{ width: 12 }} aria-hidden="true" />
-                {copy(pageContract, "drawer.link.vaccination")}
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="df">
-          {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? (
-            <ActionForm action={verifyCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo}>
-              {copy(pageContract, "action.verify")}
-            </ActionForm>
-          ) : null}
-          {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? (
-            <ActionForm action={rejectCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} reason="rework_requested">
-              {copy(pageContract, "action.request_rework")}
-            </ActionForm>
-          ) : null}
-          <Link href={workflowHref} className="btn">
-            {copy(pageContract, "action.workflow_record")}
-          </Link>
-          {passportHref ? (
-            <Link href={passportHref} className="btn">
-              {copy(pageContract, "action.goat_passport")}
-            </Link>
-          ) : null}
-          <Link href={closeHref} replace className="btn" scroll={false}>
-            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
   );
 }

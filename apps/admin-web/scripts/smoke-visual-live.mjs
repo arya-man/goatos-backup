@@ -807,14 +807,18 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName, inspec
       );
     }
   }
+  await page.waitForFunction(() => {
+    const openDrawer = document.querySelector(".drawer.on");
+    return openDrawer instanceof HTMLElement && getComputedStyle(openDrawer).transform === "none";
+  });
   await drawer.getByText(expectedText, { exact: false }).first().waitFor({ state: "visible", timeout: 5_000 });
   if (inspectDrawer) {
     await inspectDrawer(drawer, routeName, expectedText);
   }
-  const close = drawer.locator('a[aria-label^="Close"]').first();
+  const close = drawer.locator('a[aria-label^="Close"], button[aria-label^="Close"]').first();
   const closeCount = await close.count();
   if (closeCount !== 1) {
-    throw new Error(`${routeName} close link for drawer "${expectedText}" resolved to ${closeCount} elements`);
+    throw new Error(`${routeName} close control for drawer "${expectedText}" resolved to ${closeCount} elements`);
   }
   const topmost = await close.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -822,7 +826,7 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName, inspec
     return top === element || element.contains(top);
   });
   if (!topmost) {
-    throw new Error(`${routeName} close link for drawer "${expectedText}" is covered by another layer`);
+    throw new Error(`${routeName} close control for drawer "${expectedText}" is covered by another layer`);
   }
   await close.click();
   await drawer.waitFor({ state: "hidden", timeout: 5_000 });

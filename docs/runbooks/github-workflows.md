@@ -727,6 +727,14 @@ backend-owned contracts.
 This is a static guard, not full visual proof. Frontend code changes still need
 the local screenshot/layout/a11y smoke plus human screenshot review before push.
 
+The same admin-web runner also executes
+`make admin-web-local-overlay-guard`. It self-tests adversarial fixtures, scans
+all admin-web feature TSX, blocks any new Link-driven same-page drawer overlay,
+and verifies the shared local-overlay link, shell bypass, and Action Center
+production wiring remain connected. The explicit legacy baseline is fail-closed:
+new occurrences fail, and removing an old occurrence requires shrinking the
+baseline in the same change.
+
 ### Step 7: Admin-Web Build And Token Leak Guard
 
 Command:

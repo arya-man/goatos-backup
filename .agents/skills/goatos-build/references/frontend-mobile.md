@@ -123,6 +123,12 @@ Calendar or dashboard label.
   open/closed or selected-row state. For admin-web, load
   `context/frontend/admin-web-backend-ui-contract.md` before changing shell,
   route bodies, tables, filters, chips, or drawers.
+- Same-page overlays backed by data already present in the rendered list are
+  transient client UI, not a Server Component navigation. Use the shared
+  `LocalOverlayLink`, preserve a hash deep link and browser history, and prove
+  one-click open plus Back/Escape/outside/X close with zero route/RSC requests.
+  Never use a query-only Next `Link` to open or close that class of drawer. Run
+  `make admin-web-local-overlay-guard` for every admin-web change.
 - Backend-driven does not permit backend-code live-data constants. Tenant,
   location/park, person, goat, shed, vendor/operator IDs, CBE/CPT-style codes,
   capacities, role scope, permissions, and governed dropdown vocabularies must

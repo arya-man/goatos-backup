@@ -14,6 +14,7 @@
     "start:local": "node scripts/run-local-next.mjs start",
     "auth:seed-password-users": "node scripts/seed-firebase-password-users.mjs",
     "smoke:visual:live": "node scripts/smoke-visual-live.mjs",
+    "smoke:action-center-drawer:live": "node scripts/smoke-action-center-local-drawer-live.mjs",
     "smoke:vaccination-click-matrix:live": "node scripts/smoke-vaccination-click-matrix-live.mjs",
     "smoke:vaccination-authoring:live": "node scripts/smoke-vaccination-authoring-live.mjs",
     "smoke:calendar-identity:live": "GOATOS_SMOKE_ONLY_ROUTES=calendar GOATOS_SMOKE_STRICT_CALENDAR_IDENTITY=1 node scripts/smoke-visual-live.mjs",
