@@ -428,21 +428,28 @@ class DefaultProofCaptureRepository(
 
         val outboxItemId = entity.outboxItemId?.takeIf { it.isNotBlank() }
         if (!outboxItemId.isNullOrBlank()) {
-            // R50-028: check if upload is IN_FLIGHT — don't pull the file from under an active upload
-            val outboxItem = syncRepository.observeItem(outboxItemId).first()
-            if (outboxItem?.status == SyncItemStatus.IN_FLIGHT) {
-                return@withContext AppResult.Err(
-                    "Cannot delete proof while upload is in progress. Wait for upload to complete or fail."
-                )
-            }
-            // BUG#8: delete outbox item FIRST, surface the error if it fails
-            val deleteResult = syncRepository.deleteOutboxItem(outboxItemId)
-            if (deleteResult is AppResult.Err) {
-                return@withContext deleteResult
+            // R50-028 (TOCTOU fix): atomically cancel the outbox upload — a single status-guarded
+            // DELETE that only removes the item if it is still QUEUED/FAILED. There is NO separate
+            // "check IN_FLIGHT then delete" window for the dispatcher to claim the upload in between.
+            when (val cancel = syncRepository.cancelOutboxItemIfPending(outboxItemId)) {
+                is AppResult.Err -> return@withContext cancel
+                is AppResult.Ok -> if (!cancel.value) {
+                    // The guarded delete removed 0 rows: either the dispatcher already claimed it
+                    // (IN_FLIGHT) or it is gone/synced. Refuse only if it is genuinely in-flight, so
+                    // we never pull the file out from under a live upload (orphan on the server).
+                    val current = syncRepository.observeItem(outboxItemId).first()
+                    if (current != null && current.status == SyncItemStatus.IN_FLIGHT) {
+                        return@withContext AppResult.Err(
+                            "Cannot delete proof while upload is in progress. Wait for upload to complete or fail.",
+                        )
+                    }
+                    // else: already synced/gone — the server has the proof (or the item vanished),
+                    // so deleting the local row + file leaves no orphan.
+                }
             }
         }
 
-        // Only delete row + file after outbox is successfully cancelled
+        // Row + file are removed only after the outbox item is cancelled or proven terminal.
         dao.delete(id, taskId)
         deleteLocalFile(entity.localUri)
         AppResult.Ok(Unit)

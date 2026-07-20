@@ -57,6 +57,14 @@ interface OutboxStore {
     /** Deletes an outbox item by id (R50-028: cancelling unsynced operations). Safe to call on
      *  any status, but IN_FLIGHT deletions should be rare (a race with in-flight dispatch). */
     suspend fun delete(id: String)
+
+    /** Atomic status-guarded cancel: deletes the item only if still QUEUED/FAILED (not IN_FLIGHT).
+     *  Returns true if it was cancelled, false if the dispatcher already claimed it or it is gone.
+     *  Default (for lightweight fakes) is unconditional; RoomOutboxStore overrides with the guard. */
+    suspend fun deleteIfCancellable(id: String): Boolean {
+        delete(id)
+        return true
+    }
 }
 
 class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
@@ -89,6 +97,7 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun reclaimInFlight(now: Long): Int = dao.reclaimInFlight(now)
 
     override suspend fun delete(id: String) = dao.delete(id)
+    override suspend fun deleteIfCancellable(id: String): Boolean = dao.deleteIfCancellable(id) > 0
 }
 
 /** Room row -> UI/ViewModel-facing model (see [SyncQueueItem]). */

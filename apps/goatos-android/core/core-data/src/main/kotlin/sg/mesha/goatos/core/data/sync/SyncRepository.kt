@@ -171,6 +171,17 @@ interface SyncRepository {
      *  a proof that was never uploaded should clean up its queued outbox entry). */
     suspend fun deleteOutboxItem(itemId: String): AppResult<Unit>
 
+    /** Atomically cancels (deletes) an outbox item ONLY if it is still QUEUED/FAILED — NOT if the
+     *  dispatcher has already claimed it (IN_FLIGHT). Returns Ok(true) if cancelled, Ok(false) if the
+     *  dispatcher won the race / it is gone. Closes the R50-028 check-then-delete TOCTOU: the caller
+     *  no longer reads the status and then deletes unconditionally. Default delegates to
+     *  [deleteOutboxItem] for lightweight fakes; the production impl overrides with a guarded delete. */
+    suspend fun cancelOutboxItemIfPending(itemId: String): AppResult<Boolean> =
+        when (val r = deleteOutboxItem(itemId)) {
+            is AppResult.Ok -> AppResult.Ok(true)
+            is AppResult.Err -> r
+        }
+
     /** Deletes a terminal FAILED row by idempotency key so a corrected payload can be rebuilt
      *  after process recreation. Never removes QUEUED, IN_FLIGHT, or SUCCEEDED writes. */
     suspend fun deleteFailedOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<Unit> =
@@ -518,6 +529,16 @@ class DefaultSyncRepository(
             throw cancellation
         } catch (e: Throwable) {
             AppResult.Err("Couldn't delete outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun cancelOutboxItemIfPending(itemId: String): AppResult<Boolean> = withContext(dispatchers.io) {
+        try {
+            AppResult.Ok(store.deleteIfCancellable(itemId))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't cancel outbox item: ${e.message}", e)
         }
     }
 

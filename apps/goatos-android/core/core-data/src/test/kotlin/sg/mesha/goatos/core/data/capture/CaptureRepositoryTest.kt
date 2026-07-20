@@ -615,9 +615,11 @@ class CaptureRepositoryTest {
             val rowAfter = db.proofCaptureDao().findById(captured.id)
             assertEquals("proof row must be deleted", null, rowAfter)
 
-            // Verify: sync called deleteOutboxItem (order matters — must be BEFORE row delete)
-            assertEquals("outbox item must be deleted", 1, sync.deleteOutboxCalls.size)
-            assertEquals(outboxItemId, sync.deleteOutboxCalls[0])
+            // Verify: sync used the ATOMIC guarded cancel (not the unconditional deleteOutboxItem),
+            // and the item was actually cancelled before the row/file were removed.
+            assertEquals("outbox item must be cancelled via the guarded path", 1, sync.cancelCalls.size)
+            assertEquals(outboxItemId, sync.cancelCalls[0])
+            assertEquals("must NOT use the unconditional deleteOutboxItem", 0, sync.deleteOutboxCalls.size)
         } finally {
             db.close()
         }
@@ -678,7 +680,7 @@ class CaptureRepositoryTest {
     fun `remove surfaces deleteOutboxItem failure and preserves row and file (BUG 8)`() = runTest {
         val db = newDb()
         try {
-            val syncWithFailure = FakeSyncRepository(deleteOutboxItemFailure = "network error")
+            val syncWithFailure = FakeSyncRepository(cancelOutboxItemFailure = "network error")
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = syncWithFailure,
@@ -950,6 +952,7 @@ private fun proofEntity(
  *  [emit], mirroring how [sg.mesha.goatos.core.data.sync.SyncEngine] would really transition it. */
 private class FakeSyncRepository(
     private val deleteOutboxItemFailure: String? = null,
+    private val cancelOutboxItemFailure: String? = null,
 ) : SyncRepository {
     data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
     data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
@@ -960,6 +963,7 @@ private class FakeSyncRepository(
     val attemptCalls = mutableListOf<AttemptCall>()
     val retryCalls = mutableListOf<String>()
     val deleteOutboxCalls = mutableListOf<String>()
+    val cancelCalls = mutableListOf<String>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -1049,6 +1053,20 @@ private class FakeSyncRepository(
         } else {
             AppResult.Ok(Unit)
         }
+    }
+
+    // Status-guarded cancel mirroring the real DAO's `DELETE ... WHERE status IN ('QUEUED','FAILED')`:
+    // an IN_FLIGHT item is NOT cancellable (returns false), a QUEUED/FAILED one is removed and true.
+    override suspend fun cancelOutboxItemIfPending(itemId: String): AppResult<Boolean> {
+        cancelCalls += itemId
+        cancelOutboxItemFailure?.let { return AppResult.Err(it) }
+        val item = status.value.items.firstOrNull { it.id == itemId }
+        val cancellable = item != null &&
+            (item.status == SyncItemStatus.QUEUED || item.status == SyncItemStatus.FAILED)
+        if (cancellable) {
+            status.value = status.value.copy(items = status.value.items.filterNot { it.id == itemId })
+        }
+        return AppResult.Ok(cancellable)
     }
 
     override suspend fun triggerDrain() = Unit

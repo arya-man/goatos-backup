@@ -134,6 +134,14 @@ interface OutboxDao {
     @Query("DELETE FROM outbox WHERE id = :id")
     suspend fun delete(id: String)
 
+    /** Deletes the item ONLY if it is still cancellable (QUEUED or terminal/backoff FAILED — NOT
+     *  IN_FLIGHT). Returns rows affected: 1 = cancelled, 0 = the dispatcher already claimed it
+     *  (IN_FLIGHT/SUCCEEDED) or it is gone. This single guarded statement is atomic against the
+     *  dispatcher's status-guarded markInFlight, so there is no check-then-delete race where a proof
+     *  file is pulled out from under an in-flight upload (R50-028 TOCTOU). */
+    @Query("DELETE FROM outbox WHERE id = :id AND status IN ('QUEUED', 'FAILED')")
+    suspend fun deleteIfCancellable(id: String): Int
+
     /** Wipes the entire outbox. Used ONLY by the logout full clean-slate wipe (C35-001): any
      *  operator-authored write not yet synced belongs to the departing user's session and must
      *  never survive to the next principal on this device (regardless of QUEUED/FAILED/
