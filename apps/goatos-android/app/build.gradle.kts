@@ -116,14 +116,19 @@ android {
     }
 
     buildTypes {
+        debug {
+            manifestPlaceholders["appLabel"] = "Mesha Debug"
+        }
         release {
             isMinifyEnabled = false
+            manifestPlaceholders["appLabel"] = "Mesha"
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         create("benchmark") {
             initWith(getByName("release"))
             isDebuggable = false
             isProfileable = true
+            manifestPlaceholders["appLabel"] = "Mesha"
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
         }
