@@ -107,6 +107,29 @@ writes are allowed only through registered canonical producers or approved seed
 closeout paths. Future shifting, dead-birth, feed-direction, procurement, and
 vaccination changes must plug into this same event spine.
 
+## Root-Cause Fixes Only — No Partial / Surface Fixes (Mandatory, Claude AND Codex)
+
+When fixing ANY reported bug (review finding, audit item, regression):
+
+1. **Reproduce the EXACT failure FIRST.** Write a failing test that reproduces the
+   precise scenario described (the retry path, the race, the production caller, the
+   >cap input), and confirm it FAILS on current code. No fix without a red test that
+   models the real failure — not the cited line in isolation.
+2. **Fix the ROOT CAUSE, not the symptom.** Trace the actual PRODUCTION path. Do NOT
+   patch a sibling method, an adjacent symptom, or the one line quoted and declare
+   done. If the production caller invokes a different method than the one you changed,
+   you have not fixed it.
+3. **A green narrow unit test is NOT proof** if it does not exercise the production
+   caller, the retry/partial-failure/edge path, or the concurrency race. Prove the fix
+   on the real path.
+4. **Never report "fixed" / "already fixed"** without pasting failing-then-passing
+   evidence on the real path. "Looks fixed", "compiles + tests pass", and "the guard is
+   green" are NOT closure. Verify against the exact failure condition the reviewer gave.
+5. Applies to sub-agents too: an orchestrator MUST independently re-verify each
+   sub-agent's claim (run the failing test on old code, confirm it fails; on new,
+   confirm it passes) before landing — sub-agents have repeatedly done shallow
+   "already fixed" passes.
+
 ## Consolidated Defect-Ledger Closure (Mandatory)
 
 When asked to fix/continue/close the consolidated audit ledger or its bugs, read
