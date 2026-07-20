@@ -473,17 +473,42 @@ export async function VaccinationFullSchedule({
                           </span>
                         </LocalOverlayLink>
                       </td>
-                      <td>
-                        <div className="celllink schedule-wrap-link" title={vaccineTitle}>
-                          <span className="schedule-chip-list vaccine-chip-list schedule-chip-list-compact">
-                            {vaccines.length > 0 ? previewVaccines.map((vaccine) => (
-                              <span key={vaccine} className="schedule-mini-chip vaccine-chip">{vaccine}</span>
-                            )) : <span className="schedule-mini-chip">{copy(pageContract, "label.placeholder")}</span>}
-                            {hiddenVaccineCount > 0 ? (
-                              <span className="schedule-mini-chip schedule-more-chip">+{hiddenVaccineCount} {copy(pageContract, "schedule.drawer.more")}</span>
-                            ) : null}
-                          </span>
-                        </div>
+                      <td className="schedule-vaccine-cell">
+                        {hiddenVaccineCount > 0 ? (
+                          <details className="schedule-vaccine-overflow">
+                            <summary
+                              className="celllink schedule-wrap-link"
+                              title={vaccineTitle}
+                              aria-label={`${copy(pageContract, "schedule.column.vaccines")}: ${vaccineTitle}`}
+                            >
+                              <span className="schedule-chip-list vaccine-chip-list schedule-chip-list-compact">
+                                {previewVaccines.map((vaccine) => (
+                                  <span key={vaccine} className="schedule-mini-chip vaccine-chip">{vaccine}</span>
+                                ))}
+                                <span className="schedule-mini-chip schedule-more-chip">
+                                  +{hiddenVaccineCount} {copy(pageContract, "schedule.drawer.more")}
+                                </span>
+                              </span>
+                            </summary>
+                            <div
+                              className="schedule-vaccine-overflow-list"
+                              role="list"
+                              aria-label={copy(pageContract, "schedule.column.vaccines")}
+                            >
+                              {vaccines.slice(VACCINE_CHIP_PREVIEW_LIMIT).map((vaccine) => (
+                                <span key={vaccine} className="schedule-mini-chip vaccine-chip" role="listitem">{vaccine}</span>
+                              ))}
+                            </div>
+                          </details>
+                        ) : (
+                          <div className="celllink schedule-wrap-link" title={vaccineTitle}>
+                            <span className="schedule-chip-list vaccine-chip-list schedule-chip-list-compact">
+                              {vaccines.length > 0 ? previewVaccines.map((vaccine) => (
+                                <span key={vaccine} className="schedule-mini-chip vaccine-chip">{vaccine}</span>
+                              )) : <span className="schedule-mini-chip">{copy(pageContract, "label.placeholder")}</span>}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className={`schedule-status-cell state-${view.state}`} title={view.title}>
                         <LocalOverlayLink href={shedDrawerHref(row)} className="celllink schedule-status-link">

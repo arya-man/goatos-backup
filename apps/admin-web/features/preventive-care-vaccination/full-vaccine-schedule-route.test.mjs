@@ -22,7 +22,7 @@ test("vaccination full schedule interactions stay inside the vaccination IA", ()
   assert.match(source, /href=\{shedDrawerHref\(row\)\}/);
 });
 
-test("vaccination schedule opens its shed drawer locally and keeps vaccine overflow informational", () => {
+test("vaccination schedule opens its shed drawer locally and toggles vaccine overflow locally", () => {
   assert.match(source, /LocalOverlayLink/);
   assert.match(source, /#schedule_event=/);
   assert.equal(
@@ -35,7 +35,11 @@ test("vaccination schedule opens its shed drawer locally and keeps vaccine overf
     false,
     "Vaccine overflow must not open the unrelated shed drawer.",
   );
-  assert.match(source, /<div className="celllink schedule-wrap-link" title=\{vaccineTitle\}>/);
+  assert.match(source, /<details className="schedule-vaccine-overflow">/);
+  assert.match(source, /<summary[\s\S]*?title=\{vaccineTitle\}[\s\S]*?schedule-more-chip/);
+  assert.match(source, /vaccines\.slice\(VACCINE_CHIP_PREVIEW_LIMIT\)\.map/);
+  assert.match(source, /className="schedule-vaccine-overflow-list"/);
+  assert.match(css, /\.schedule-vaccine-overflow>summary\{[^}]*cursor:pointer/);
 });
 
 test("vaccination schedule drawer supports real close and roster drilldown", () => {
