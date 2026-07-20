@@ -29,6 +29,23 @@ type RelocateGoatsCommand struct {
 	ToParkID string
 	ToShedID string
 
+	// DestinationTag is the management_stage the moved animals ADOPT at the destination shed:
+	// shifting a goat into a shed makes it JOIN that shed's operational cohort (a pregnant shed ⇒
+	// pregnant; K0 → K1 ⇒ it grew up). The adapter resolves the EFFECTIVE tag as follows
+	// (maintainer decision 2026-07-19, homogeneous sheds):
+	//
+	//   - OCCUPIED destination shed: the tag is DERIVED from the single distinct management_stage its
+	//     existing live animals already carry. DestinationTag is then optional; if supplied it must
+	//     AGREE with the derived tag (a disagreement is ErrDestinationTagConflict — a shed cannot
+	//     hold two cohorts).
+	//   - EMPTY destination shed: there is nothing to derive from, so DestinationTag is REQUIRED
+	//     (absent ⇒ ErrDestinationTagRequired) and is validated against the tenant's active
+	//     management-stage vocabulary.
+	//
+	// Never silently keeps the old tag, and never leaves management_stage stale. Empty string means
+	// "not supplied".
+	DestinationTag string
+
 	// Reason is recorded on every goat_location_history row written by this command.
 	Reason string
 

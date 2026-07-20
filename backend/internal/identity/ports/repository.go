@@ -25,6 +25,20 @@ var (
 	// exit (transferred/sold), never a move. Initial placement (a goat with no prior
 	// park) is not a move and is never blocked by this rule.
 	ErrCrossParkMove = errors.New("identity cross-park goat movement does not exist")
+	// ErrDestinationTagRequired: shifting into an EMPTY destination shed (no live animals to
+	// derive an operational cohort from) requires the caller to supply the destination
+	// management_stage explicitly. Silently keeping the moved animal's old tag would leave it
+	// classified and fed under its previous cohort in the new shed (maintainer decision
+	// 2026-07-19: a shed is homogeneous — every animal in it shares one management_stage).
+	ErrDestinationTagRequired = errors.New("identity relocate: destination shed is empty and requires an explicit destination management_stage")
+	// ErrDestinationTagConflict: the caller supplied a destination management_stage that disagrees
+	// with the tag the OCCUPIED destination shed's existing animals already carry. A shed cannot
+	// hold two cohorts, so the move is rejected rather than corrupting the shed's homogeneity.
+	ErrDestinationTagConflict = errors.New("identity relocate: supplied destination management_stage disagrees with the occupied destination shed's cohort")
+	// ErrDestinationStageAmbiguous: the destination shed's existing live animals carry more than one
+	// distinct management_stage, so no single cohort tag can be derived. This is a data-integrity
+	// violation of the homogeneous-shed invariant and must be reconciled before a move can adopt a tag.
+	ErrDestinationStageAmbiguous = errors.New("identity relocate: destination shed holds more than one management_stage and is not homogeneous")
 )
 
 type SearchGoatsParams struct {

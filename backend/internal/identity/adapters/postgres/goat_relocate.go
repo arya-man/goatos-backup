@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -83,6 +84,16 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 		return ports.RelocateGoatsResult{}, err
 	}
 
+	// Resolve the DESTINATION TAG the moved animals adopt (maintainer decision 2026-07-19): a shed is
+	// homogeneous, so shifting into it makes the animal JOIN that shed's operational cohort. This is
+	// the single, set-based place the tag is decided for the whole group — occupied sheds DERIVE it,
+	// empty sheds REQUIRE it from the command — so relocating N animals to one shed reads the tag
+	// once, never per-goat.
+	effectiveStage, err := r.resolveDestinationTag(ctx, tx, cmd)
+	if err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
+
 	reason := cmd.Reason
 	if reason == "" {
 		reason = goatLocationHistoryReasonShiftingApproved
@@ -110,12 +121,97 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 		return ports.RelocateGoatsResult{}, err
 	}
 
-	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, assignedGoatIDs, assignedEventIDs)
+	// RECLASSIFICATION events. A goat that adopts a NEW cohort tag at the destination shed is
+	// reclassified, so it must emit goat.stage_changed alongside goat.location.changed — feed and the
+	// vaccination generator both key on management_stage, and without this a K1→K2 shift would leave
+	// the animal fed and scheduled as K1 in a K2 shed. Only animals whose tag actually CHANGES get a
+	// stage event (idempotent no-op for a within-cohort move). The identity events are inserted here,
+	// in their own statement BEFORE applyRelocation enqueues the matching outbox rows, for exactly the
+	// reason insertRelocationIdentityEvents documents: outbox_messages_validate_event_tenant_trg
+	// requires the goat_identity_events row to already exist.
+	stageGoatIDs, stageEventIDs, err := r.insertStageChangeIdentityEvents(ctx, tx, cmd, effectiveStage, reason, occurredAt, assignedGoatIDs)
+	if err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
+
+	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, effectiveStage, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs)
 	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
 	sort.Strings(moved)
 	return ports.RelocateGoatsResult{MovedGoatIDs: moved}, nil
+}
+
+// resolveDestinationTag decides the single management_stage the moved animals adopt at the
+// destination shed (maintainer decision 2026-07-19). It is set-based: ONE read of the destination
+// shed's cohort for the whole group, never per-goat.
+//
+//   - OCCUPIED shed: the tag is DERIVED from the single distinct management_stage its existing live
+//     animals carry (the moving set is excluded so a partial re-move of animals already there cannot
+//     make the shed look homogeneous with themselves). A supplied DestinationTag that disagrees is
+//     rejected; more than one distinct existing stage is a homogeneity violation and is rejected.
+//   - EMPTY shed (or one whose animals carry no stage): nothing to derive, so DestinationTag is
+//     REQUIRED and is validated against the tenant's active management-stage vocabulary — the same
+//     validate-or-reject discipline StageGoat applies, so a caller cannot invent an arbitrary cohort.
+//
+// The destination shed's OTHER animals are not part of the locked moving set, so this read carries a
+// small TOCTOU window against a concurrent move into the same shed; the homogeneous-shed invariant is
+// upheld by every writer resolving the tag this way, which is acceptable at the current release
+// envelope.
+func (r *Repository) resolveDestinationTag(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) (string, error) {
+	rows, err := tx.Query(ctx, `
+SELECT DISTINCT management_stage
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND merged_into_goat_id IS NULL
+  AND exited_at IS NULL
+  AND NOT (goat_id = ANY($3::uuid[]))
+  AND management_stage IS NOT NULL
+  AND btrim(management_stage) <> ''`,
+		cmd.TenantID, cmd.ToShedID, cmd.GoatIDs)
+	if err != nil {
+		return "", fmt.Errorf("identity: relocate goats: read destination shed cohort: %w", err)
+	}
+	defer rows.Close()
+
+	var occupiedStages []string
+	for rows.Next() {
+		var stage string
+		if err := rows.Scan(&stage); err != nil {
+			return "", fmt.Errorf("identity: relocate goats: scan destination cohort stage: %w", err)
+		}
+		occupiedStages = append(occupiedStages, stage)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("identity: relocate goats: read destination shed cohort: %w", err)
+	}
+
+	supplied := strings.TrimSpace(cmd.DestinationTag)
+	switch len(occupiedStages) {
+	case 0:
+		// EMPTY destination shed: the caller MUST name the cohort, and it must be a real active stage.
+		if supplied == "" {
+			return "", ports.ErrDestinationTagRequired
+		}
+		ok, err := activeManagementStageExists(ctx, tx, cmd.TenantID, supplied)
+		if err != nil {
+			return "", fmt.Errorf("identity: relocate goats: validate supplied destination tag: %w", err)
+		}
+		if !ok {
+			return "", ports.ErrInvalidReference
+		}
+		return supplied, nil
+	case 1:
+		// OCCUPIED, homogeneous shed: the existing cohort is ground truth.
+		occupied := occupiedStages[0]
+		if supplied != "" && supplied != occupied {
+			return "", ports.ErrDestinationTagConflict
+		}
+		return occupied, nil
+	default:
+		return "", ports.ErrDestinationStageAmbiguous
+	}
 }
 
 // insertRelocationIdentityEvents takes the row locks and writes the canonical per-animal
@@ -201,6 +297,92 @@ RETURNING goat_id::text, identity_event_id::text`
 	return goatIDs, eventIDs, nil
 }
 
+// insertStageChangeIdentityEvents writes the canonical per-animal goat.stage_changed identity event
+// for exactly the animals whose management_stage CHANGES to the destination cohort tag, returning the
+// (goat_id, event_id) pairs it minted. Animals already carrying the destination tag (a within-cohort
+// move) are not reclassified and get no stage event.
+//
+// The animals are already locked FOR UPDATE by insertRelocationIdentityEvents, so the read of the OLD
+// management_stage here is stable, and this runs BEFORE applyRelocation enqueues the matching outbox
+// rows so outbox_messages_validate_event_tenant_trg finds the identity event it requires. The
+// idempotency key namespaces the stage event under the SAME per-completion prefix
+// ("<prefix>:stage:<goat_id>") so it can never collide with the location event's key.
+func (r *Repository) insertStageChangeIdentityEvents(
+	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, effectiveStage, reason string, occurredAt time.Time,
+	assignedGoatIDs []string,
+) ([]string, []string, error) {
+	const stageEventsSQL = `
+WITH targets AS (
+    SELECT goat_id, COALESCE(management_stage, '') AS from_stage,
+           current_location_id AS from_location_id, park_id AS from_park_id, shed_id AS from_shed_id
+    FROM goats
+    WHERE tenant_id = $1::uuid
+      AND goat_id = ANY($2::uuid[])
+      AND merged_into_goat_id IS NULL
+      AND exited_at IS NULL
+      AND COALESCE(management_stage, '') IS DISTINCT FROM $3::text
+)
+INSERT INTO goat_identity_events (
+    identity_event_id, tenant_id, goat_id, event_type, event_version,
+    occurred_at, recorded_at, actor_id, payload, idempotency_key, source_record_id
+)
+SELECT
+    gen_random_uuid(),
+    $1::uuid,
+    t.goat_id,
+    $4,
+    1,
+    $5::timestamptz,
+    $5::timestamptz,
+    $6::uuid,
+    jsonb_build_object(
+        'goat_id', t.goat_id::text,
+        'previous_management_stage', t.from_stage::text,
+        'management_stage', $3::text,
+        'reason', $7::text,
+        'current_park_id', $8::text,
+        'current_shed_id', $9::text,
+        'scope_type', 'goat',
+        'scope_id', t.goat_id::text
+    ),
+    $10::text || ':stage:' || t.goat_id::text,
+    $10
+FROM targets t
+RETURNING goat_id::text, identity_event_id::text`
+
+	rows, err := tx.Query(ctx, stageEventsSQL,
+		cmd.TenantID,                // $1
+		assignedGoatIDs,             // $2 (only the locked, movable set)
+		effectiveStage,              // $3
+		goatStageChangedEventType,   // $4
+		occurredAt,                  // $5
+		cmd.ActorID,                 // $6
+		reason,                      // $7
+		cmd.ToParkID,                // $8
+		cmd.ToShedID,                // $9
+		cmd.OutboxIdempotencyPrefix, // $10
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("identity: relocate goats: record stage-change events: %w", err)
+	}
+	defer rows.Close()
+
+	goatIDs := make([]string, 0, len(assignedGoatIDs))
+	eventIDs := make([]string, 0, len(assignedGoatIDs))
+	for rows.Next() {
+		var goatID, eventID string
+		if err := rows.Scan(&goatID, &eventID); err != nil {
+			return nil, nil, fmt.Errorf("identity: relocate goats: scan stage-change event: %w", err)
+		}
+		goatIDs = append(goatIDs, goatID)
+		eventIDs = append(eventIDs, eventID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("identity: relocate goats: record stage-change events: %w", err)
+	}
+	return goatIDs, eventIDs, nil
+}
+
 // applyRelocation moves the already-locked animals, records their location history, and enqueues
 // the outbox row for each identity event minted by insertRelocationIdentityEvents.
 //
@@ -211,18 +393,33 @@ RETURNING goat_id::text, identity_event_id::text`
 // Every data-modifying CTE reads from `identified`, so the UPDATE, the history rows, and the events
 // cover exactly the same animals by construction -- they cannot drift apart. The rows are already
 // locked FOR UPDATE by the first statement, so re-deriving them here is stable.
+// It also, in the SAME statement, writes the destination cohort tag onto every moved animal
+// (management_stage = $16) and enqueues the goat.stage_changed outbox row for the reclassified subset
+// (the (goat_id, stage_event_id) pairs from insertStageChangeIdentityEvents). Shed and tag move
+// together atomically: a goat can never land in the destination shed still carrying its old cohort.
 func (r *Repository) applyRelocation(
 	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, reason string, occurredAt time.Time,
-	assignedGoatIDs, assignedEventIDs []string,
+	effectiveStage string, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs []string,
 ) ([]string, error) {
+	// NOT compute-on-read. This is a single set-based WRITE for one bounded shifting completion
+	// (<= MaxRelocateGoatsPerCommand animals): the CTEs are data-modifying (bulk UPDATE of
+	// already-locked rows + INSERT of location history and the location/stage outbox rows), each
+	// executed exactly once, so the whole group moves in ONE round trip rather than N. It
+	// reconstructs no derived state from event tables; adding the stage-reclassification sibling CTEs
+	// to the pre-existing 6-CTE relocation only preserves that one-statement shape.
+	// scale-guard:ignore: bounded set-based transactional write, not a compute-on-read god-CTE.
 	const relocateSQL = `
 WITH assigned AS (
     SELECT goat_id, event_id
     FROM unnest($12::uuid[], $13::uuid[]) AS a(goat_id, event_id)
 ),
+stage_assigned AS (
+    SELECT goat_id, event_id
+    FROM unnest($17::uuid[], $18::uuid[]) AS a(goat_id, event_id)
+),
 targets AS (
     SELECT g.goat_id, g.current_location_id AS from_location_id, g.park_id AS from_park_id,
-           g.shed_id AS from_shed_id, g.farm_id
+           g.shed_id AS from_shed_id, g.farm_id, COALESCE(g.management_stage, '') AS from_stage
     FROM goats g
     WHERE g.tenant_id = $1::uuid
       AND g.goat_id = ANY($12::uuid[])
@@ -234,11 +431,17 @@ identified AS (
     FROM targets t
     JOIN assigned a ON a.goat_id = t.goat_id
 ),
+identified_stage AS (
+    SELECT t.goat_id, t.from_park_id, t.from_shed_id, t.from_stage, t.farm_id, sa.event_id
+    FROM targets t
+    JOIN stage_assigned sa ON sa.goat_id = t.goat_id
+),
 moved AS (
     UPDATE goats g
     SET current_location_id = $2::uuid,
         park_id             = $3::uuid,
         shed_id             = $2::uuid,
+        management_stage    = $16::text,
         updated_at          = $4::timestamptz,
         row_version         = row_version + 1
     FROM identified i
@@ -306,6 +509,60 @@ events AS (
         nullif($15::text, ''),
         'pending'
     FROM identified i
+),
+events_stage AS (
+    INSERT INTO outbox_messages (
+        tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+        topic, payload, headers, idempotency_key, trace_id, status
+    )
+    SELECT
+        $1::uuid,
+        s.event_id,
+        $19,
+        $8,
+        'goat',
+        s.goat_id,
+        $9,
+        jsonb_build_object(
+            'event_id', s.event_id::text,
+            'event_type', $19::text,
+            'schema_version', $8::text,
+            'schema_ref', $10::text,
+            'aggregate_type', 'goat',
+            'aggregate_id', s.goat_id::text,
+            'occurred_at', to_char($4::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+            'recorded_at', to_char($4::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+            'producer', jsonb_build_object('service', 'goatos-api', 'module', 'identity', 'version', NULL),
+            'idempotency_key', $11::text || ':stage:' || s.goat_id::text,
+            'actor', jsonb_build_object('actor_type', 'human', 'actor_id', $6::text),
+            'subject_type', 'goat',
+            'subject_id', s.goat_id::text,
+            'visibility_scope', jsonb_strip_nulls(jsonb_build_object(
+                'tenant_id', $1::text,
+                'farm_id', s.farm_id::text,
+                'park_id', $3::text,
+                'shed_id', $2::text
+            )),
+            'evidence_refs', '[]'::jsonb,
+            'trace_id', $15::text,
+            -- Reclassification payload. The vaccination generator re-reads the goat by id, but the
+            -- previous/new cohort make the event self-describing for feed and audit consumers.
+            'payload', jsonb_build_object(
+                'goat_id', s.goat_id::text,
+                'previous_management_stage', s.from_stage::text,
+                'management_stage', $16::text,
+                'reason', $5::text,
+                'current_park_id', $3::text,
+                'current_shed_id', $2::text,
+                'scope_type', 'goat',
+                'scope_id', s.goat_id::text
+            )
+        ),
+        jsonb_build_object('actor_id', $6::text, 'trace_id', $15::text, 'source', 'counts.shifting_completion'),
+        $11::text || ':stage:' || s.goat_id::text,
+        nullif($15::text, ''),
+        'pending'
+    FROM identified_stage s
 )
 SELECT goat_id::text FROM moved`
 
@@ -325,6 +582,10 @@ SELECT goat_id::text FROM moved`
 		assignedEventIDs,            // $13
 		goatMovedEventType,          // $14
 		cmd.TraceID,                 // $15
+		effectiveStage,              // $16 (destination cohort tag written onto every moved animal)
+		stageGoatIDs,                // $17 (reclassified subset only)
+		stageEventIDs,               // $18
+		goatStageChangedEventType,   // $19
 	)
 	if err != nil {
 		return nil, fmt.Errorf("identity: relocate goats: %w", err)

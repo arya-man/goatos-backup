@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -109,22 +110,31 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Completion has no body: the movement's animals, destination, and authorization are all
-	// already recorded. Accepting an animal set here would let the operator's phone relocate a
-	// herd the approver never signed off on.
+	// The completion body carries at most an OPTIONAL destination_tag: the movement's animals,
+	// destination shed, and authorization are all already recorded, so no animal set is accepted here
+	// (that would let the operator's phone relocate a herd the approver never signed off on). The
+	// destination_tag is only consulted when the destination shed is empty; for an occupied shed the
+	// server derives the cohort and a supplied value must agree with it.
+	var destinationTag string
 	if raw, bodyOK := h.readBody(w, r); !bodyOK {
 		return
 	} else if len(strings.TrimSpace(string(raw))) > 0 {
-		var body struct{}
+		var body struct {
+			DestinationTag string `json:"destination_tag"`
+		}
 		if err := decodeStrictJSON(raw, &body, "ShiftingCompleteRequest"); err != nil {
 			h.writeAppError(w, r, err)
 			return
 		}
+		destinationTag = strings.TrimSpace(body.DestinationTag)
 	}
 
+	// The fingerprint covers the completion's MEANING, which now includes the destination cohort tag,
+	// so a same-key replay carrying a different tag is a conflict rather than a silent override.
 	canonical, err := canonicalRequestBytes(tenantID, appShiftingCompleteCommand, appShiftingCompleteRoute, struct {
 		ShiftingEventID string `json:"shifting_event_id"`
-	}{ShiftingEventID: eventID})
+		DestinationTag  string `json:"destination_tag,omitempty"`
+	}{ShiftingEventID: eventID, DestinationTag: destinationTag})
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
@@ -135,6 +145,7 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		ShiftingEventID:    eventID,
 		CompletedByUserID:  actorID,
 		TraceID:            appTraceID(r),
+		DestinationTag:     destinationTag,
 		IdempotencyKey:     "counts-shifting-completion:" + clientKey,
 		RequestFingerprint: stableHash("counts-app-shifting-completion", canonical),
 	})
@@ -407,6 +418,17 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusBadRequest, "shifting_not_authorized", err.Error(), err)
 	case errors.Is(err, ports.ErrShiftingExecutionIncomplete):
 		h.writeError(w, r, http.StatusConflict, "shifting_execution_incomplete", err.Error(), err)
+	case errors.Is(err, identityports.ErrDestinationTagRequired):
+		// 422: the movement is executable, but completing it into an EMPTY destination shed needs the
+		// operator to name the cohort the animals join. Actionable input error, not a server fault.
+		h.writeError(w, r, http.StatusUnprocessableEntity, "destination_tag_required", err.Error(), err)
+	case errors.Is(err, identityports.ErrDestinationTagConflict):
+		h.writeError(w, r, http.StatusConflict, "destination_tag_conflict", err.Error(), err)
+	case errors.Is(err, identityports.ErrDestinationStageAmbiguous):
+		h.writeError(w, r, http.StatusConflict, "destination_stage_ambiguous", err.Error(), err)
+	case errors.Is(err, identityports.ErrInvalidReference):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "invalid_destination_tag",
+			"destination_tag is not an active management stage", err)
 	case errors.Is(err, countsapp.ErrShiftingCancelReasonRequired):
 		h.writeError(w, r, http.StatusBadRequest, "missing_reason",
 			"reason is required to cancel a shifting", err)

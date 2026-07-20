@@ -158,7 +158,10 @@ func (r *Repository) CompleteShiftingEvent(
 		FromShedID: sourceShedID,
 		ToParkID:   destParkID,
 		ToShedID:   destShedID,
-		Reason:     "counts shifting completion " + in.ShiftingEventID,
+		// The destination cohort tag the animals adopt. Occupied destination sheds derive it inside
+		// the relocation; an empty destination shed requires this to be supplied by the operator.
+		DestinationTag: in.DestinationTag,
+		Reason:         "counts shifting completion " + in.ShiftingEventID,
 		// The relocation is stamped with the moment of COMPLETION, not of approval: the animals'
 		// location history must read when they moved, not when someone permitted it.
 		OccurredAt: in.CompletedAt,

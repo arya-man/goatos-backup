@@ -106,14 +106,59 @@ func approveShifting(
 func completeShifting(
 	repo *Repository, ctx context.Context, key, shiftingEventID string,
 ) (domain.ShiftingExecutionResult, bool, error) {
+	return completeShiftingWithTag(repo, ctx, key, shiftingEventID, "")
+}
+
+// completeShiftingWithTag drives completion carrying an explicit destination cohort tag, as an
+// operator does when shifting animals into an empty shed.
+func completeShiftingWithTag(
+	repo *Repository, ctx context.Context, key, shiftingEventID, destinationTag string,
+) (domain.ShiftingExecutionResult, bool, error) {
 	return repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
 		TenantID:           countsTenant,
 		ShiftingEventID:    shiftingEventID,
 		CompletedByUserID:  countsOperator,
 		CompletedAt:        time.Now().In(biztime.DefaultLocation()),
+		DestinationTag:     destinationTag,
 		IdempotencyKey:     "complete-" + key,
-		RequestFingerprint: "complete-fp-" + key,
+		RequestFingerprint: "complete-fp-" + key + ":" + destinationTag,
 	})
+}
+
+// seedApprovalGoatWithStage seeds a goat carrying an explicit management_stage (operational cohort),
+// so a shift can prove reclassification into the destination shed's cohort.
+func seedApprovalGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, shedID, stage string) {
+	t.Helper()
+	seedApprovalGoat(t, ctx, pool, goatID, shedID)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET management_stage = $3 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		countsTenant, goatID, stage); err != nil {
+		t.Fatalf("seed goat stage: %v", err)
+	}
+}
+
+// goatStage reads a goat's current management_stage — the operational cohort feed and counts key on.
+func goatStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) string {
+	t.Helper()
+	var stage string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(management_stage, '') FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		countsTenant, goatID).Scan(&stage); err != nil {
+		t.Fatalf("read goat stage: %v", err)
+	}
+	return stage
+}
+
+// seedActiveStage registers a management-stage code in the tenant's vocabulary so a supplied
+// destination tag validates.
+func seedActiveStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, stage string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order, status)
+VALUES ($1::uuid, $2, $2, 1, 'active')
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant, stage); err != nil {
+		t.Fatalf("seed active stage %q: %v", stage, err)
+	}
 }
 
 func shiftingEventStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shiftingEventID string) string {
@@ -221,6 +266,9 @@ func TestCompleteShiftingThroughRealIdentityRepositoryMovesAnimalsAndEmitsEvents
 	goatIDs := []string{goatA, goatB}
 	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
 	seedApprovalGoat(t, ctx, pool, goatB, countsShedA)
+	// The destination shed already holds a cohort, so the completion derives the tag (this test is
+	// about the location relocation, not reclassification).
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000c009", countsShedB, "adult")
 
 	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "real-shift-1", goatIDs)
 	if _, _, err := approveShifting(repo, ctx, "real-shift-1", approvalRequestID, shiftingEventID, goatIDs); err != nil {
@@ -329,6 +377,8 @@ func TestCompleteShiftingIsIdempotentOnReplay(t *testing.T) {
 	goatA := "00000000-0000-4000-8000-00000000c021"
 	goatIDs := []string{goatA}
 	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	// Occupied destination so the completion derives its tag; this test is about idempotency.
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000c029", countsShedB, "adult")
 
 	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "real-shift-idem", goatIDs)
 	if _, _, err := approveShifting(repo, ctx, "real-shift-idem", approvalRequestID, shiftingEventID, goatIDs); err != nil {
@@ -402,6 +452,9 @@ func TestCompleteShiftingRollsBackOnUnmovableAnimal(t *testing.T) {
 	goatIDs := []string{movable, exited}
 	seedApprovalGoat(t, ctx, pool, movable, countsShedA)
 	seedApprovalGoat(t, ctx, pool, exited, countsShedA)
+	// Occupied destination so tag resolution succeeds and the completion fails on the unmovable
+	// animal (the behaviour under test), not on a missing destination tag.
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000c019", countsShedB, "adult")
 
 	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "real-shift-2", goatIDs)
 	if _, _, err := approveShifting(repo, ctx, "real-shift-2", approvalRequestID, shiftingEventID, goatIDs); err != nil {
@@ -471,6 +524,9 @@ func TestCompleteShiftingFailsClosedWhenSourcePlacementIsStale(t *testing.T) {
 	goatIDs := []string{goatA}
 	// Starts in shed A -- the source the approval will capture.
 	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	// Occupied destination so tag resolution succeeds and the completion fails on the stale source
+	// placement (the behaviour under test), not on a missing destination tag.
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000c039", countsShedB, "adult")
 
 	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "stale-src-1", goatIDs)
 	if _, _, err := approveShifting(repo, ctx, "stale-src-1", approvalRequestID, shiftingEventID, goatIDs); err != nil {
@@ -515,5 +571,246 @@ SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type =
 	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
 		t.Fatalf("event_status=%q after failed stale completion, want it still %q for reconciliation",
 			got, domain.ShiftingEventStatusAuthorized)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Shifting RECLASSIFIES the animal into the destination shed's cohort
+// ---------------------------------------------------------------------------
+
+// TestCompleteShiftingAdoptsOccupiedDestinationCohort is the core bug fix. A K1 goat shifted into an
+// OCCUPIED K2 shed must JOIN that shed's cohort: its management_stage becomes K2 in the same
+// transaction as the shed move (never stale K1 in a K2 shed), and it emits goat.stage_changed so feed
+// and the vaccination generator reclassify it. Before the fix the relocation wrote only shed_id, so
+// the goat sat in the K2 shed but was still classified — and fed — as K1.
+func TestCompleteShiftingAdoptsOccupiedDestinationCohort(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000c101"
+	resident := "00000000-0000-4000-8000-00000000c102"
+	// The mover starts in shed A tagged K1; shed B (the destination) already holds a K2 resident, so
+	// the destination cohort is K2 and is DERIVED, not supplied.
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K1")
+	seedApprovalGoatWithStage(t, ctx, pool, resident, countsShedB, "K2")
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "reclass-1", []string{mover})
+	if _, _, err := approveShifting(repo, ctx, "reclass-1", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	if _, _, err := completeShifting(repo, ctx, "reclass-1", shiftingEventID); err != nil {
+		t.Fatalf("complete shifting: %v", err)
+	}
+
+	// Shed AND tag moved together.
+	if got := goatShed(t, ctx, pool, mover); got != countsShedB {
+		t.Fatalf("mover shed=%s after completion, want destination shed %s", got, countsShedB)
+	}
+	if got := goatStage(t, ctx, pool, mover); got != "K2" {
+		t.Fatalf("mover management_stage=%q after completion, want the destination cohort K2 -- "+
+			"a goat shifted into a K2 shed must be classified and fed as K2, not left stale as K1", got)
+	}
+	// The resident is untouched — the shed stays homogeneous at K2.
+	if got := goatStage(t, ctx, pool, resident); got != "K2" {
+		t.Fatalf("resident management_stage=%q, want it unchanged at K2", got)
+	}
+
+	// The reclassification event pair landed for the mover: canonical identity event + matching outbox.
+	var identityEventID string
+	if err := pool.QueryRow(ctx, `
+SELECT identity_event_id::text FROM goat_identity_events
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND event_type = 'goat.stage_changed'`,
+		countsTenant, mover).Scan(&identityEventID); err != nil {
+		t.Fatalf("mover: expected exactly one goat.stage_changed identity event: %v", err)
+	}
+	var outboxEventID, prevStage, newStage string
+	if err := pool.QueryRow(ctx, `
+SELECT event_id::text,
+       payload->'payload'->>'previous_management_stage',
+       payload->'payload'->>'management_stage'
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.stage_changed'`,
+		countsTenant, mover).Scan(&outboxEventID, &prevStage, &newStage); err != nil {
+		t.Fatalf("mover: expected exactly one goat.stage_changed outbox message: %v", err)
+	}
+	if outboxEventID != identityEventID {
+		t.Fatalf("stage outbox event_id=%s but identity event id=%s -- the outbox row must reuse the "+
+			"identity event it derives from", outboxEventID, identityEventID)
+	}
+	if prevStage != "K1" || newStage != "K2" {
+		t.Fatalf("stage event payload previous=%q new=%q, want K1->K2", prevStage, newStage)
+	}
+
+	// The resident (unmoved, unchanged) gets NO stage event: reclassification is only for animals
+	// whose tag actually changes.
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM goat_identity_events
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND event_type = 'goat.stage_changed'`,
+		countsTenant, resident); got != 0 {
+		t.Fatalf("resident stage events=%d, want 0 -- an unchanged animal is not reclassified", got)
+	}
+
+	// GRAIN PROOF: the counts/feed read path keys on goats.management_stage
+	// (feed_projected_counts.go and the counts breakdown both COALESCE it), so the mover now groups
+	// under K2. Assert it is counted under the new cohort and no longer under K1.
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM goats
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND management_stage = 'K2'
+  AND merged_into_goat_id IS NULL AND exited_at IS NULL`, countsTenant, countsShedB); got != 2 {
+		t.Fatalf("live K2 animals in destination shed=%d, want 2 (resident + reclassified mover)", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM goats
+WHERE tenant_id = $1::uuid AND management_stage = 'K1'
+  AND merged_into_goat_id IS NULL AND exited_at IS NULL`, countsTenant); got != 0 {
+		t.Fatalf("live K1 animals after the shift=%d, want 0 -- the mover must no longer be fed as K1", got)
+	}
+}
+
+// TestCompleteShiftingIntoEmptyShedAdoptsSuppliedTag proves the empty-destination path: with no
+// existing animals to derive a cohort from, the operator-supplied destination_tag is adopted.
+func TestCompleteShiftingIntoEmptyShedAdoptsSuppliedTag(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000c111"
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K0")
+	seedActiveStage(t, ctx, pool, "Pregnant") // supplied tag must be a real active stage
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "empty-shed-1", []string{mover})
+	if _, _, err := approveShifting(repo, ctx, "empty-shed-1", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	// Destination shed B is empty, so the tag must be supplied by the operator.
+	if _, _, err := completeShiftingWithTag(repo, ctx, "empty-shed-1", shiftingEventID, "Pregnant"); err != nil {
+		t.Fatalf("complete shifting into empty shed with supplied tag: %v", err)
+	}
+
+	if got := goatShed(t, ctx, pool, mover); got != countsShedB {
+		t.Fatalf("mover shed=%s, want destination shed %s", got, countsShedB)
+	}
+	if got := goatStage(t, ctx, pool, mover); got != "Pregnant" {
+		t.Fatalf("mover management_stage=%q, want the supplied destination tag Pregnant", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.stage_changed'`,
+		countsTenant, mover); got != 1 {
+		t.Fatalf("stage_changed outbox messages=%d, want 1 (K0->Pregnant)", got)
+	}
+}
+
+// TestCompleteShiftingIntoEmptyShedWithoutTagFailsClosed proves the empty-destination path REJECTS a
+// completion that names no cohort rather than silently keeping the old tag.
+func TestCompleteShiftingIntoEmptyShedWithoutTagFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000c121"
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K0")
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "empty-shed-2", []string{mover})
+	if _, _, err := approveShifting(repo, ctx, "empty-shed-2", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	_, _, err := completeShifting(repo, ctx, "empty-shed-2", shiftingEventID)
+	if err == nil {
+		t.Fatalf("completion into an empty shed with no tag succeeded, want a fail-closed error")
+	}
+	if !errors.Is(err, identityports.ErrDestinationTagRequired) {
+		t.Fatalf("err=%v, want ErrDestinationTagRequired", err)
+	}
+
+	// Nothing moved, the old tag is intact, and the movement stays authorized for retry.
+	if got := goatShed(t, ctx, pool, mover); got != countsShedA {
+		t.Fatalf("mover shed=%s after rejected completion, want it still at source %s", got, countsShedA)
+	}
+	if got := goatStage(t, ctx, pool, mover); got != "K0" {
+		t.Fatalf("mover management_stage=%q after rejected completion, want it unchanged at K0", got)
+	}
+	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
+		t.Fatalf("event_status=%q after rejected completion, want it still %q", got, domain.ShiftingEventStatusAuthorized)
+	}
+}
+
+// TestCompleteShiftingRejectsTagDisagreeingWithOccupiedShed proves a supplied tag that disagrees with
+// an OCCUPIED shed's actual cohort is rejected — a shed cannot hold two cohorts.
+func TestCompleteShiftingRejectsTagDisagreeingWithOccupiedShed(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000c131"
+	resident := "00000000-0000-4000-8000-00000000c132"
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K1")
+	seedApprovalGoatWithStage(t, ctx, pool, resident, countsShedB, "K2") // destination cohort is K2
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "disagree-1", []string{mover})
+	if _, _, err := approveShifting(repo, ctx, "disagree-1", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+
+	// The operator supplies "Pregnant", which disagrees with the shed's actual K2 cohort.
+	_, _, err := completeShiftingWithTag(repo, ctx, "disagree-1", shiftingEventID, "Pregnant")
+	if err == nil {
+		t.Fatalf("completion with a disagreeing tag succeeded, want a fail-closed conflict")
+	}
+	if !errors.Is(err, identityports.ErrDestinationTagConflict) {
+		t.Fatalf("err=%v, want ErrDestinationTagConflict", err)
+	}
+	if got := goatShed(t, ctx, pool, mover); got != countsShedA {
+		t.Fatalf("mover shed=%s after rejected completion, want it still at source %s", got, countsShedA)
+	}
+	if got := goatStage(t, ctx, pool, mover); got != "K1" {
+		t.Fatalf("mover management_stage=%q after rejected completion, want it unchanged at K1", got)
+	}
+}
+
+// TestCompleteShiftingReclassificationIsIdempotent proves a retried completion does not double-emit
+// goat.stage_changed or thrash the tag.
+func TestCompleteShiftingReclassificationIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000c141"
+	resident := "00000000-0000-4000-8000-00000000c142"
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K1")
+	seedApprovalGoatWithStage(t, ctx, pool, resident, countsShedB, "K2")
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "reclass-idem", []string{mover})
+	if _, _, err := approveShifting(repo, ctx, "reclass-idem", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+	if _, _, err := completeShifting(repo, ctx, "reclass-idem", shiftingEventID); err != nil {
+		t.Fatalf("complete shifting: %v", err)
+	}
+	// Exact replay of the same completion.
+	if _, replayed, err := completeShifting(repo, ctx, "reclass-idem", shiftingEventID); err != nil {
+		t.Fatalf("replay completion: %v", err)
+	} else if !replayed {
+		t.Fatalf("replay reported replayed=false, want the original result")
+	}
+
+	if got := goatStage(t, ctx, pool, mover); got != "K2" {
+		t.Fatalf("mover management_stage=%q after replays, want it at K2 once (no thrash)", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM goat_identity_events
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND event_type = 'goat.stage_changed'`,
+		countsTenant, mover); got != 1 {
+		t.Fatalf("stage_changed identity events after replays=%d, want 1 -- replay must not re-emit", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.stage_changed'`,
+		countsTenant, mover); got != 1 {
+		t.Fatalf("stage_changed outbox messages after replays=%d, want 1 -- replay must not re-enqueue", got)
 	}
 }

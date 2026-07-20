@@ -82,6 +82,13 @@ type ShiftingCompletionCommand struct {
 	CompletedAt       time.Time
 	TraceID           string
 
+	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
+	// animals adopt. It is only needed when the destination shed is EMPTY (no existing animals to
+	// derive the cohort from); for an occupied shed the tag is derived server-side and a supplied
+	// value must agree with it. Empty string means "not supplied" — existing callers omit it and the
+	// server derives the tag from the occupied destination shed.
+	DestinationTag string
+
 	IdempotencyKey     string
 	RequestFingerprint string
 }

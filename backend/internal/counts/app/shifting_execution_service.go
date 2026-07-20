@@ -52,6 +52,10 @@ type CompleteShiftingInput struct {
 	CompletedByUserID string
 	TraceID           string
 
+	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
+	// animals adopt. Required only when the destination shed is empty; derived server-side otherwise.
+	DestinationTag string
+
 	IdempotencyKey     string
 	RequestFingerprint string
 }
@@ -71,6 +75,7 @@ func (s *ShiftingExecutionService) Complete(
 		CompletedByUserID:  in.CompletedByUserID,
 		CompletedAt:        s.now().UTC(),
 		TraceID:            in.TraceID,
+		DestinationTag:     strings.TrimSpace(in.DestinationTag),
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
 	})

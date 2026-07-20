@@ -231,6 +231,8 @@ func TestCancelRejectsNonAuthorizedStates(t *testing.T) {
 	// would claim a movement that demonstrably happened did not.
 	goatB := "00000000-0000-4000-8000-00000000d032"
 	appliedEventID := authorizedShifting(t, ctx, pool, repo, "cancel-gate-applied", []string{goatB})
+	// Occupied destination so the completion derives its cohort tag (this test is about the cancel gate).
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000d039", countsShedB, "adult")
 	if _, _, err := completeShifting(repo, ctx, "cancel-gate-applied", appliedEventID); err != nil {
 		t.Fatalf("complete shifting: %v", err)
 	}
@@ -264,6 +266,8 @@ func TestListPendingExecutionReturnsOnlyAuthorizedRows(t *testing.T) {
 
 	appliedEventID := authorizedShifting(t, ctx, pool, repo, "queue-applied",
 		[]string{"00000000-0000-4000-8000-00000000e003"})
+	// Occupied destination so the completion derives its cohort tag (this test is about the queue filter).
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000e009", countsShedB, "adult")
 	if _, _, err := completeShifting(repo, ctx, "queue-applied", appliedEventID); err != nil {
 		t.Fatalf("complete shifting: %v", err)
 	}

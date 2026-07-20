@@ -1896,10 +1896,10 @@ export interface components {
         };
         FeedDirectionLifecycle: {
             /**
-             * @description The aggregate lifecycle of the served park-day, the LEAST-ADVANCED state among its workflows (issued < amended < locked): a park-day is never "locked" while a workflow is still merely issued. `pending` = nothing issued yet and every workflow is still before its issue instant; `not_issued` = the issue instant passed with nothing issued; `draft` = a live what-if (draft=true), never a frozen sheet.
+             * @description The aggregate lifecycle of the served park-day, the LEAST-ADVANCED state among its workflows (issued < amended < locked): a park-day is never "locked" while a workflow is still merely issued. `preview` = NO sheet is issued for this day, so the rows were GENERATED on demand and are shown as a not-yet-issued preview (the per-workflow detail still carries pending/not_issued and `expected_issue_at`). `pending`/`not_issued` remain as PER-WORKFLOW states inside a preview; the aggregate serve path no longer returns them as an empty wall. `beyond_horizon` = the day has no issued sheet AND falls outside the [today, tomorrow] projection window, so NO rows were generated (generating would fabricate a sheet from today's herd); the `message` names the horizon. An already-issued sheet for any date still serves its frozen rows regardless of the window. `draft` = a live what-if (draft=true), never a frozen sheet.
              * @enum {string}
              */
-            state: "issued" | "amended" | "locked" | "pending" | "not_issued" | "draft";
+            state: "issued" | "amended" | "locked" | "pending" | "not_issued" | "preview" | "beyond_horizon" | "draft";
             /** Format: date-time */
             issued_at?: string;
             /** Format: date-time */
