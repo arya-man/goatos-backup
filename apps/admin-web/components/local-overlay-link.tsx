@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
-import type { ComponentProps, MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type RefObject } from "react";
 
 export const LOCAL_OVERLAY_URL_CHANGE_EVENT = "mesha:local-overlay-url-change";
 const LOCAL_OVERLAY_HISTORY_KEY = "__meshaLocalOverlay";
@@ -49,4 +49,112 @@ export function LocalOverlayLink({ onClick, ...props }: LocalOverlayLinkProps) {
   }
 
   return <Link {...props} data-local-overlay-navigation="true" onClick={openLocally} />;
+}
+
+/**
+ * Owns the lifecycle for a local drawer whose selected record is mirrored in
+ * the current URL. This deliberately listens to history/hash changes instead
+ * of Next's router so ordinary open/close clicks never request an RSC payload.
+ */
+export function useLocalOverlaySelection<T>({
+  items,
+  itemId,
+  selectionKey,
+  initialSelectedId,
+  closeHref,
+  transitionMs = 280,
+}: {
+  items: readonly T[];
+  itemId: (item: T) => string;
+  selectionKey: string;
+  initialSelectedId?: string;
+  closeHref: string;
+  transitionMs?: number;
+}): {
+  displayedItem: T | undefined;
+  drawerOpen: boolean;
+  closeDrawer: () => void;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
+} {
+  const initialItem = items.find((item) => itemId(item) === initialSelectedId);
+  const [displayedItem, setDisplayedItem] = useState<T | undefined>(initialItem);
+  const [drawerOpen, setDrawerOpen] = useState(Boolean(initialItem));
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const openFrameRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const showDrawer = useCallback((item: T): void => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setDisplayedItem(item);
+    openFrameRef.current = window.requestAnimationFrame(() => {
+      setDrawerOpen(true);
+      openFrameRef.current = null;
+    });
+  }, []);
+
+  const hideDrawer = useCallback((): void => {
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    setDrawerOpen(false);
+    closeTimerRef.current = window.setTimeout(() => {
+      setDisplayedItem(undefined);
+      closeTimerRef.current = null;
+    }, transitionMs);
+  }, [transitionMs]);
+
+  useEffect(() => {
+    function syncSelectionFromUrl(): void {
+      const url = new URL(window.location.href);
+      const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+      const selectedId = hashParams.get(selectionKey) ?? url.searchParams.get(selectionKey) ?? undefined;
+      const item = items.find((candidate) => itemId(candidate) === selectedId);
+      if (item) showDrawer(item);
+      else hideDrawer();
+    }
+    window.addEventListener("popstate", syncSelectionFromUrl);
+    window.addEventListener("hashchange", syncSelectionFromUrl);
+    window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncSelectionFromUrl);
+    const initialFrame = window.requestAnimationFrame(syncSelectionFromUrl);
+    return () => {
+      window.cancelAnimationFrame(initialFrame);
+      window.removeEventListener("popstate", syncSelectionFromUrl);
+      window.removeEventListener("hashchange", syncSelectionFromUrl);
+      window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncSelectionFromUrl);
+      if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    };
+  }, [hideDrawer, itemId, items, selectionKey, showDrawer]);
+
+  useEffect(() => {
+    if (drawerOpen) {
+      const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+      return () => window.cancelAnimationFrame(frame);
+    }
+    previousFocusRef.current?.focus();
+  }, [drawerOpen]);
+
+  const closeDrawer = useCallback((): void => {
+    hideDrawer();
+    if (currentHistoryEntryIsLocalOverlay()) {
+      window.history.back();
+      return;
+    }
+    replaceLocalOverlayUrl(closeHref);
+  }, [closeHref, hideDrawer]);
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeDrawer();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeDrawer, drawerOpen]);
+
+  return { displayedItem, drawerOpen, closeDrawer, closeButtonRef };
 }

@@ -234,7 +234,7 @@ function adminFiles() {
   })
     .split("\n")
     .map((file) => file.trim())
-    .filter(Boolean);
+    .filter((file) => file && existsSync(resolve(repo, file)));
 }
 
 function run() {

@@ -1,6 +1,7 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, CheckCircle2, MapPin, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, MapPin, ShieldCheck } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getVaccinationControlTower } from "@/lib/api/server";
 import type { ControlTowerAlert, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
@@ -10,6 +11,7 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity";
+import { ControlTowerLocalDrawer, type ControlTowerDrawerRecord } from "./control-tower-local-drawer";
 
 // Severity tint for the alert-band icon chip.
 const SEVERITY_FILL: Record<ProcessIntegritySeverity, { bg: string; fg: string }> = {
@@ -117,8 +119,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
     }));
   }
   const ownerUnassignedLabel = copy(pageContract, "label.owner_unassigned");
-  const selectedAlertId = one(sp, "ct_alert");
-  const selectedAlert = selectedAlertId ? alerts.find((alert) => alert.row_id === selectedAlertId) : undefined;
+  const initialSelectedAlertId = one(sp, "ct_alert");
 
   // Filter/page-size changes reset to page 1 and drop the cursor stack (keyset restart).
   function hrefWith(overrides: Record<string, string | undefined>): string {
@@ -141,11 +142,18 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
     return hrefWith({ ct_page: "1", ct_limit: String(pageSize), ct_cursor: undefined, ct_cursor_stack: undefined });
   }
 
-  const alertDrawerHref = (alert: ControlTowerAlert) => hrefWith({ ct_alert: alert.row_id });
   const closeDrawerHref = hrefWith({ ct_alert: undefined });
+  const alertDrawerHref = (alert: ControlTowerAlert) => `${closeDrawerHref}#ct_alert=${encodeURIComponent(alert.row_id)}`;
   const workflowRecordHref = (alert: ControlTowerAlert) =>
     scopeHref(`/workflows/${encodeURIComponent(alert.row_id)}`, scope, {}, { from: "control-tower" });
   const actionCenterHref = (alert: ControlTowerAlert) => scopeHref("/action-center", scope, {}, { ac_row: alert.row_id });
+  const drawerRecords: ControlTowerDrawerRecord[] = alerts.map((alert) => ({
+    alert,
+    actionCenterHref: actionCenterHref(alert),
+    workflowHref: workflowRecordHref(alert),
+    adherenceHref: scopeHref("/protocol-adherence", scope),
+    vaccinationHref: scopeHref("/vaccination", scope),
+  }));
 
   return (
     <div className="screen on">
@@ -274,7 +282,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             band.map((alert) => {
               const fill = SEVERITY_FILL[alert.severity];
               return (
-                <Link
+                <LocalOverlayLink
                   key={alert.row_id}
                   href={alertDrawerHref(alert)}
                   className="fitem"
@@ -291,7 +299,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                     </div>
                   </div>
                   <Tag tone={contractTone(pageContract, "severity_chips", alert.severity)}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag>
-                </Link>
+                </LocalOverlayLink>
               );
             })
           )}
@@ -341,29 +349,29 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
                 {paged.items.map((alert) => (
                   <tr key={alert.row_id} data-filter-row>
                     <td>
-                      <Link href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         <Tag tone={contractTone(pageContract, "work_state_filter_chips", alert.work_state)}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag>
-                      </Link>
+                      </LocalOverlayLink>
                     </td>
                     <td>
-                      <Link href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         <Tag tone={contractTone(pageContract, "severity_chips", alert.severity)}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag>
-                      </Link>
+                      </LocalOverlayLink>
                     </td>
                     <td className="muted">
-                      <Link href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         {alert.detail}
-                      </Link>
+                      </LocalOverlayLink>
                     </td>
                     <td className="muted">
-                      <Link href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         {ownerOf(alert, ownerUnassignedLabel)}
-                      </Link>
+                      </LocalOverlayLink>
                     </td>
                     <td>
-                      <Link href={alertDrawerHref(alert)} className="celllink" scroll={false}>
+                      <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         <span className="lk small">{alert.next_action} →</span>
-                      </Link>
+                      </LocalOverlayLink>
                     </td>
                   </tr>
                 ))}
@@ -401,106 +409,12 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           </Link>
         </div>
       </section>
-      {selectedAlert ? (
-        <ControlTowerAlertDrawer
-          alert={selectedAlert}
-          pageContract={pageContract}
-          closeHref={closeDrawerHref}
-          actionCenterHref={actionCenterHref(selectedAlert)}
-          workflowHref={workflowRecordHref(selectedAlert)}
-          adherenceHref={scopeHref("/protocol-adherence", scope)}
-          vaccinationHref={scopeHref("/vaccination", scope)}
-        />
-      ) : null}
+      <ControlTowerLocalDrawer
+        records={drawerRecords}
+        pageContract={pageContract}
+        initialSelectedAlertId={initialSelectedAlertId}
+        closeHref={closeDrawerHref}
+      />
     </div>
-  );
-}
-
-function ControlTowerAlertDrawer({
-  alert,
-  pageContract,
-  closeHref,
-  actionCenterHref,
-  workflowHref,
-  adherenceHref,
-  vaccinationHref,
-}: {
-  alert: ControlTowerAlert;
-  pageContract: AdminUiPageContract;
-  closeHref: string;
-  actionCenterHref: string;
-  workflowHref: string;
-  adherenceHref: string;
-  vaccinationHref: string;
-}) {
-  const fill = SEVERITY_FILL[alert.severity];
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.alert.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.alert.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: fill.bg, color: fill.fg }}>
-            <AlertTriangle className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{pageContract.title}</div>
-            <h2>{alert.title}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.alert.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          <div className="metagrid">
-            <div>
-              <div className="k">{copy(pageContract, "label.gap")}</div>
-              <div className="v">
-                <Tag tone={contractTone(pageContract, "work_state_filter_chips", alert.work_state)}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag>
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.severity")}</div>
-              <div className="v">
-                <Tag tone={contractTone(pageContract, "severity_chips", alert.severity)}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag>
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.detail")}</div>
-              <div className="v">{alert.detail}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.owner")}</div>
-              <div className="v">{ownerOf(alert, copy(pageContract, "label.owner_unassigned"))}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.next_action")}</div>
-              <div className="v">{alert.next_action}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.evidence")}</div>
-              <div className="v">{alert.evidence_link || copy(pageContract, "label.not_ready")}</div>
-            </div>
-          </div>
-          <div className="note" style={{ marginTop: 14 }}>
-            {copy(pageContract, "drawer.alert.guidance")}
-          </div>
-        </div>
-        <div className="df">
-          <Link href={actionCenterHref} className="btn p">
-            {copy(pageContract, "action.open_action_center")}
-          </Link>
-          <Link href={workflowHref} className="btn">
-            {copy(pageContract, "action.open_workflow")}
-          </Link>
-          <Link href={adherenceHref} className="btn">
-            {copy(pageContract, "action.open_adherence")}
-          </Link>
-          <Link href={vaccinationHref} className="btn">
-            {copy(pageContract, "action.open_vaccination")}
-          </Link>
-        </div>
-      </aside>
-    </>
   );
 }

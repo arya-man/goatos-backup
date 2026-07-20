@@ -1,4 +1,4 @@
-import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Syringe } from "lucide-react";
 import type { VaccinationOperationsResponse } from "@/lib/api/server";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -6,7 +6,7 @@ import { fmtDate } from "@/lib/format";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { scopeHref, type Scope } from "@/lib/scope";
 import { VaccinationFilterButton, VisibleTableSearch } from "./vaccination-filter-modal";
-import { VaccinationRecordVerifyDrawer } from "./record-verify-drawer";
+import { VaccinationRecordVerifyLocalDrawer } from "./record-verify-drawer";
 import { paginateRows, VaccinationTablePager, type VaccinationPageSize } from "./table-pager";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
@@ -35,7 +35,6 @@ export function VaccinationCohortDetail({
   const labels = tableLabels(pageContract, "cohort-detail");
   const paged = paginateRows(cohorts, searchParams, "cohort", 10, pageSizeOptions);
   const selectedId = one(searchParams ?? {}, "cohort_record");
-  const selected = selectedId ? cohorts.find((cohort) => cohortRecordId(cohort) === selectedId) : undefined;
   function pagerHref(page: number): string {
     return scopeHref("/vaccination", scope, {}, { cohort_page: String(page), cohort_limit: String(paged.pageSize) });
   }
@@ -91,35 +90,35 @@ export function VaccinationCohortDetail({
                   return (
                     <tr key={`${c.parkId}|${c.shedId}|${c.stage}`}>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <b>{`${c.stage} · ${c.shedName}`}</b>
                           <div className="muted small">{c.parkName}</div>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {c.animals || "—"}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone="info">{c.ageBand ?? c.stage}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {c.lastDose ? fmtDate(c.lastDose) : "—"}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {c.nextDue ? fmtDate(c.nextDue) : "—"}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {statusTag(pageContract, c.workState)}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                     </tr>
                   );
@@ -144,7 +143,13 @@ export function VaccinationCohortDetail({
           />
         </div>
       )}
-      {selected ? <VaccinationRecordVerifyDrawer context={{ cohort: selected }} scope={scope} pageContract={pageContract} /> : null}
+      <VaccinationRecordVerifyLocalDrawer
+        records={cohorts.map((cohort) => ({ id: cohortRecordId(cohort), context: { cohort } }))}
+        selectionKey="cohort_record"
+        initialSelectedId={selectedId}
+        scope={scope}
+        pageContract={pageContract}
+      />
     </section>
   );
 }

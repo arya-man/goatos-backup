@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { Filter, ShieldCheck } from "lucide-react";
 
@@ -26,7 +27,10 @@ export async function VerificationReviewPage({ searchParams }: { searchParams?: 
   const scope = parseScope(sp);
   const { parkId } = backendScope(scope);
 
-  const queue = await listVerificationQueue({ status, category, limit: 20, cursor: one(sp, "vi_cursor") });
+  const [queue, positions] = await Promise.all([
+    listVerificationQueue({ status, category, limit: 20, cursor: one(sp, "vi_cursor") }),
+    listStaffPositions({ scope_type: "center", status: "active", limit: 500 }),
+  ]);
   const authError = firstAuthRequiredError(queue);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
@@ -37,17 +41,6 @@ export async function VerificationReviewPage({ searchParams }: { searchParams?: 
   const items = parkId ? allItems.filter((item) => !item.park_id || item.park_id === parkId) : allItems;
 
   const selectedId = one(sp, "vi_row");
-  const selected = items.find((item) => item.item_id === selectedId);
-
-  // One bounded roster read per drawer open (not per row) so "Re-assign" offers real staff
-  // positions scoped to the selected item's park. See features/verification-review/copy.ts for why
-  // names are not resolved (would require a getStaffPositionProfile call per row — N+1).
-  const positions =
-    selected?.park_id
-      ? await listStaffPositions({ scope_type: "center", scope_id: selected.park_id, status: "active", limit: 50 })
-      : null;
-
-  const returnTo = hrefWith(sp, {});
   const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code") };
 
   const categories = Array.from(new Set(allItems.map((item) => item.category))).sort();
@@ -147,9 +140,13 @@ export async function VerificationReviewPage({ searchParams }: { searchParams?: 
         </div>
       </section>
 
-      {selected ? (
-        <VerificationReviewDrawer item={selected} positions={positions?.ok ? positions.data : null} searchParams={sp} returnTo={returnTo} feedback={feedback} />
-      ) : null}
+      <VerificationReviewDrawer
+        items={items}
+        initialSelectedId={selectedId}
+        positions={positions.ok ? positions.data : null}
+        searchParams={sp}
+        feedback={feedback}
+      />
     </div>
   );
 }
@@ -175,9 +172,9 @@ function QueueRow({ item, searchParams }: { item: VerificationQueueItem; searchP
         <span className="muted small">{item.verdict_reason || "—"}</span>
       </td>
       <td>
-        <Link href={href} className="btn sm" scroll={false}>
+        <LocalOverlayLink href={href} className="btn sm" scroll={false}>
           Review
-        </Link>
+        </LocalOverlayLink>
       </td>
     </tr>
   );

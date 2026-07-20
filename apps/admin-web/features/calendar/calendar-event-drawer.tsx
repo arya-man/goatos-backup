@@ -1,6 +1,12 @@
-import { randomUUID } from "node:crypto";
+"use client";
+
 import Link from "@/components/no-prefetch-link";
-import { Bell, X } from "lucide-react";
+import {
+  LOCAL_OVERLAY_URL_CHANGE_EVENT,
+  currentHistoryEntryIsLocalOverlay,
+  replaceLocalOverlayUrl,
+} from "@/components/local-overlay-link";
+import { ArrowLeft, ArrowRight, Bell, X } from "lucide-react";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";
 import { scopeHref, type Scope } from "@/lib/scope";
@@ -12,6 +18,7 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { sendNudgeAction, snoozeAction } from "./calendar-actions";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   blockEntries,
   contractStateLabel,
@@ -27,7 +34,19 @@ import {
   type CalendarPresentation,
   type OwnerPresentationMap,
 } from "./calendar-contract";
-import { ProcurementPager } from "@/features/procurement";
+
+export type CalendarDrawerLoadResult = {
+  eventId: string;
+  detail: CalendarEventDetail | null;
+  detailError: string | null;
+  targets: CalendarDriveTarget[] | null;
+  targetsError: string | null;
+  targetsNextCursor: string | null;
+};
+
+type CalendarDrawerLoader = {
+  (eventId: string, includeTargets: boolean, targetsCursor?: string): Promise<CalendarDrawerLoadResult>;
+};
 
 function MetaCell({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -116,13 +135,10 @@ function driveTargetReason(target: CalendarDriveTarget): string {
 }
 
 export function CalendarEventDrawer({
-  detail,
-  targets,
-  targetsError,
-  targetsNextHref,
-  targetsPrevHref,
-  targetsPage,
-  targetsOnPage,
+  initialData,
+  initialSelectedEventId,
+  loadDrawer,
+  includeTargets,
   closeHref,
   returnTo,
   scope,
@@ -130,13 +146,10 @@ export function CalendarEventDrawer({
   ownerMeta,
   pageContract,
 }: {
-  detail: CalendarEventDetail;
-  targets: CalendarDriveTarget[] | null;
-  targetsError: string | null;
-  targetsNextHref: string | null;
-  targetsPrevHref: string | null;
-  targetsPage: number;
-  targetsOnPage: number;
+  initialData: CalendarDrawerLoadResult | null;
+  initialSelectedEventId?: string;
+  loadDrawer: CalendarDrawerLoader;
+  includeTargets: boolean;
   closeHref: string;
   returnTo: string;
   scope: Scope;
@@ -144,6 +157,214 @@ export function CalendarEventDrawer({
   ownerMeta: OwnerPresentationMap;
   pageContract: AdminUiPageContract;
 }) {
+  const [displayedData, setDisplayedData] = useState<CalendarDrawerLoadResult | null>(initialData);
+  const [drawerOpen, setDrawerOpen] = useState(Boolean(initialData));
+  const [targetsPage, setTargetsPage] = useState(1);
+  const [targetsCursor, setTargetsCursor] = useState<string | undefined>(undefined);
+  const [targetsCursorStack, setTargetsCursorStack] = useState<Array<string | undefined>>([]);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const selectedIdRef = useRef(initialSelectedEventId ?? initialData?.eventId);
+  const requestSequenceRef = useRef(0);
+  const openFrameRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const showDrawer = useCallback((result: CalendarDrawerLoadResult) => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    setDisplayedData(result);
+    openFrameRef.current = window.requestAnimationFrame(() => {
+      setDrawerOpen(true);
+      openFrameRef.current = null;
+    });
+  }, []);
+
+  const hideDrawer = useCallback(() => {
+    requestSequenceRef.current += 1;
+    selectedIdRef.current = undefined;
+    setTargetsLoading(false);
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    setDrawerOpen(false);
+    closeTimerRef.current = window.setTimeout(() => {
+      setDisplayedData(null);
+      closeTimerRef.current = null;
+    }, 280);
+  }, []);
+
+  useEffect(() => () => {
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    async function syncSelectionFromUrl(): Promise<void> {
+      const url = new URL(window.location.href);
+      const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+      const eventId = hash.get("calendar_event") ?? url.searchParams.get("event") ?? undefined;
+      if (!eventId) {
+        hideDrawer();
+        return;
+      }
+      if (selectedIdRef.current === eventId) return;
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      selectedIdRef.current = eventId;
+      setTargetsPage(1);
+      setTargetsCursor(undefined);
+      setTargetsCursorStack([]);
+      setTargetsLoading(false);
+      const sequence = ++requestSequenceRef.current;
+      const result = await loadDrawer(eventId, includeTargets);
+      if (requestSequenceRef.current !== sequence || selectedIdRef.current !== eventId) return;
+      showDrawer(result);
+    }
+    function sync(): void {
+      void syncSelectionFromUrl();
+    }
+    window.addEventListener("popstate", sync);
+    window.addEventListener("hashchange", sync);
+    window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, sync);
+    const initialFrame = window.requestAnimationFrame(sync);
+    return () => {
+      window.cancelAnimationFrame(initialFrame);
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, sync);
+    };
+  }, [displayedData, hideDrawer, includeTargets, loadDrawer, showDrawer]);
+
+  useEffect(() => {
+    if (drawerOpen) {
+      const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+      return () => window.cancelAnimationFrame(frame);
+    }
+    previousFocusRef.current?.focus();
+  }, [drawerOpen]);
+
+  const closeDrawer = useCallback(() => {
+    hideDrawer();
+    if (currentHistoryEntryIsLocalOverlay()) {
+      window.history.back();
+      return;
+    }
+    replaceLocalOverlayUrl(closeHref);
+  }, [closeHref, hideDrawer]);
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeDrawer();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeDrawer, drawerOpen]);
+
+  const loadTargetsPage = useCallback(async (cursor: string | undefined, page: number, stack: Array<string | undefined>) => {
+    const eventId = selectedIdRef.current;
+    if (!eventId) return;
+    const sequence = ++requestSequenceRef.current;
+    setTargetsLoading(true);
+    const result = await loadDrawer(eventId, includeTargets, cursor);
+    if (requestSequenceRef.current !== sequence || selectedIdRef.current !== eventId) return;
+    setDisplayedData(result);
+    setTargetsCursor(cursor);
+    setTargetsPage(page);
+    setTargetsCursorStack(stack);
+    setTargetsLoading(false);
+  }, [includeTargets, loadDrawer]);
+
+  function nextTargetsPage(): void {
+    if (!displayedData?.targetsNextCursor || targetsLoading) return;
+    void loadTargetsPage(
+      displayedData.targetsNextCursor,
+      targetsPage + 1,
+      [...targetsCursorStack, targetsCursor],
+    );
+  }
+
+  function previousTargetsPage(): void {
+    if (targetsPage <= 1 || targetsLoading) return;
+    const stack = [...targetsCursorStack];
+    const cursor = stack.pop();
+    void loadTargetsPage(cursor, targetsPage - 1, stack);
+  }
+
+  if (!displayedData) return null;
+
+  return (
+    <CalendarEventDrawerPanel
+      key={displayedData.eventId}
+      data={displayedData}
+      open={drawerOpen}
+      closeDrawer={closeDrawer}
+      closeButtonRef={closeButtonRef}
+      targetsPage={targetsPage}
+      targetsLoading={targetsLoading}
+      onPreviousTargets={previousTargetsPage}
+      onNextTargets={nextTargetsPage}
+      returnTo={returnTo}
+      scope={scope}
+      presentation={presentation}
+      ownerMeta={ownerMeta}
+      pageContract={pageContract}
+    />
+  );
+}
+
+function CalendarEventDrawerPanel({
+  data,
+  open,
+  closeDrawer,
+  closeButtonRef,
+  targetsPage,
+  targetsLoading,
+  onPreviousTargets,
+  onNextTargets,
+  returnTo,
+  scope,
+  presentation,
+  ownerMeta,
+  pageContract,
+}: {
+  data: CalendarDrawerLoadResult;
+  open: boolean;
+  closeDrawer: () => void;
+  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
+  targetsPage: number;
+  targetsLoading: boolean;
+  onPreviousTargets: () => void;
+  onNextTargets: () => void;
+  returnTo: string;
+  scope: Scope;
+  presentation: CalendarPresentation;
+  ownerMeta: OwnerPresentationMap;
+  pageContract: AdminUiPageContract;
+}) {
+  const { detail, targets, targetsError } = data;
+  const idSeed = useId();
+
+  if (!detail) {
+    return (
+      <>
+        <button type="button" className="veil" hidden={!open} aria-label={copy(pageContract, "drawer.event.close_label")} onClick={closeDrawer} />
+        <aside className={`drawer${open ? " on" : ""}`} role="dialog" aria-hidden={!open} inert={!open} aria-label={copy(pageContract, "drawer.event.aria")}>
+          <div className="dh">
+            <div>
+              <div className="mt">{copy(pageContract, "drawer.event.eyebrow")}</div>
+              <h2>{copy(pageContract, "drawer.event.aria")}</h2>
+            </div>
+            <span className="sp" style={{ flex: 1 }} />
+            <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.event.close_label")} onClick={closeDrawer}><X className="ic" /></button>
+          </div>
+          <div className="dc"><div className="alert">{data.detailError}</div></div>
+        </aside>
+      </>
+    );
+  }
+
   const event = detail.event;
   const typeMeta = eventTypeMeta(event.event_type, presentation);
   const TypeIcon = typeMeta.icon;
@@ -190,9 +411,9 @@ export function CalendarEventDrawer({
       : null;
   const linkRow = parseLinks(event, pageContract);
 
-  // Per-render idempotency keys: a double-submit of the SAME rendered form replays (no duplicate action).
-  const nudgeKey = randomUUID();
-  const snoozeKey = randomUUID();
+  // Stable for this mounted event drawer, so an accidental double-submit replays.
+  const nudgeKey = `calendar-nudge-${event.event_id}-${idSeed}`;
+  const snoozeKey = `calendar-snooze-${event.event_id}-${idSeed}`;
   const isClosedHistory = event.status === "completed" || event.status === "canceled";
   const isCatchupSummary = event.event_id.startsWith("catchup:");
   // snooze_until (default +24h) is computed in the snooze server action — Date.now() is an impure call and
@@ -200,16 +421,19 @@ export function CalendarEventDrawer({
 
   return (
     <>
-      <Link
-        href={closeHref}
-        replace
+      <button
+        type="button"
         className="veil"
+        hidden={!open}
         aria-label={copy(pageContract, "drawer.event.close_label")}
-        scroll={false}
+        onClick={closeDrawer}
       />
       <aside
-        className="drawer on"
+        className={`drawer${open ? " on" : ""}`}
+        role="dialog"
         aria-label={copy(pageContract, "drawer.event.aria")}
+        aria-hidden={!open}
+        inert={!open}
       >
         <div className="dh">
           <span
@@ -228,15 +452,15 @@ export function CalendarEventDrawer({
             <h2>{event.title}</h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link
-            href={closeHref}
-            replace
+          <button
+            ref={closeButtonRef}
+            type="button"
             className="iconbtn"
             aria-label={copy(pageContract, "drawer.event.close_label")}
-            scroll={false}
+            onClick={closeDrawer}
           >
             <X className="ic" />
-          </Link>
+          </button>
         </div>
 
         <div className="dc">
@@ -460,13 +684,20 @@ export function CalendarEventDrawer({
                       ))}
                     </tbody>
                   </table>
-                  <ProcurementPager
-                    prevHref={targetsPrevHref}
-                    nextHref={targetsNextHref}
-                    page={targetsPage}
-                    count={targetsOnPage}
-                    noun="animal"
-                  />
+                  {(targetsPage > 1 || data.targetsNextCursor) ? (
+                    <div className="pager2">
+                      <span className="muted small">
+                        {copy(pageContract, "schedule.drawer.page_label")} {targetsPage} · {targets.length} {copy(pageContract, "schedule.unit.animals")}
+                      </span>
+                      <span className="sp" style={{ flex: 1 }} />
+                      <button type="button" className="btn sm" disabled={targetsPage <= 1 || targetsLoading} onClick={onPreviousTargets}>
+                        <ArrowLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
+                      </button>
+                      <button type="button" className="btn sm" disabled={!data.targetsNextCursor || targetsLoading} onClick={onNextTargets}>
+                        {copy(pageContract, "action.next")} <ArrowRight className="ic" style={{ width: 13 }} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <p className="muted small" style={{ margin: 0 }}>
@@ -569,9 +800,9 @@ export function CalendarEventDrawer({
               {primaryOpen.label}
             </Link>
           ) : null}
-          <Link href={closeHref} replace className="btn" scroll={false}>
+          <button type="button" className="btn" onClick={closeDrawer}>
             {copy(pageContract, "action.close")}
-          </Link>
+          </button>
         </div>
       </aside>
     </>

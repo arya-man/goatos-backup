@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import {
   AlertTriangle,
@@ -13,7 +14,6 @@ import {
   Truck,
   Upload,
   UserRound,
-  X,
   Zap,
 } from "lucide-react";
 
@@ -30,6 +30,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { copy, optionLabel, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { dash, fmtDateTime, joinParts, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
+import { AuditLogLocalDrawer, type AuditDrawerRecord } from "./audit-log-local-drawer";
 
 const PATHNAME = "/operations/audit";
 const PAGE_SIZE = 25;
@@ -81,8 +82,23 @@ export async function OperationsAuditPage({
   const prevHref = hrefPreviousCursor(PATHNAME, sp);
   const clearedHref = clearHref(sp);
   const activeStatusTab = STATUS_TABS.find((tab) => statusTabActive(tab, filters)) ?? STATUS_TABS[0];
-  const selectedRow = rows.find((row) => row.audit_id === one(sp, "audit_id"));
+  const initialSelectedAuditId = one(sp, "audit_id");
   const cols = tableLabels(pageContract, "activity-trail");
+  const closeDrawerHref = hrefWithUpdates(sp, { audit_id: null });
+  const drawerRecords: AuditDrawerRecord[] = rows.map((row) => {
+    const operation = operationLabel(row, pageContract);
+    return {
+      id: row.audit_id,
+      anomaly: row.anomaly,
+      actionLabel: humanAction(row.action),
+      recordedAt: fmtDateTime(row.recorded_at),
+      result: metaString(row, "status") ?? metaString(row, "result") ?? (row.anomaly ? "flagged" : "recorded"),
+      proof: metaString(row, "proof_id") ?? metaString(row, "proof_ref_id") ?? metaString(row, "media_proof_id"),
+      operation: { key: operation.key, label: operation.label, detail: operation.detail },
+      operator: operatorLabel(row),
+      target: targetLabel(row),
+    };
+  });
 
   return (
     <div className="screen on">
@@ -281,7 +297,12 @@ export async function OperationsAuditPage({
           </Link>
         </form>
       </details>
-	      {selectedRow ? <AuditDetailDrawer row={selectedRow} searchParams={sp} pageContract={pageContract} /> : null}
+	      <AuditLogLocalDrawer
+          records={drawerRecords}
+          initialSelectedAuditId={initialSelectedAuditId}
+          closeHref={closeDrawerHref}
+          pageContract={pageContract}
+        />
     </div>
   );
 }
@@ -292,14 +313,14 @@ function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAud
   const operation = operationLabel(row, pageContract);
   const operator = operatorLabel(row);
   const target = targetLabel(row);
-  const detailHref = hrefWithUpdates(searchParams, { audit_id: row.audit_id });
+  const detailHref = `${hrefWithUpdates(searchParams, { audit_id: null })}#audit_id=${encodeURIComponent(row.audit_id)}`;
   const OperationIcon = operation.icon;
   return (
     <tr className={row.anomaly ? "audit-anomaly" : undefined}>
       <td className="muted" style={{ whiteSpace: "nowrap" }}>
-        <Link href={detailHref} className="lk small" scroll={false}>
+        <LocalOverlayLink href={detailHref} className="lk small" scroll={false}>
           {fmtDateTime(row.recorded_at)}
-        </Link>
+        </LocalOverlayLink>
       </td>
       <td>
         <span className="opcell">
@@ -315,9 +336,9 @@ function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAud
         <div className="mt trc opn">{operator.secondary}</div>
       </td>
       <td>
-        <Link href={detailHref} className="lk" scroll={false}>
+        <LocalOverlayLink href={detailHref} className="lk" scroll={false}>
           {humanAction(row.action)}
-        </Link>
+        </LocalOverlayLink>
       </td>
       <td>{target.href ? <Link href={target.href} className="gid">{target.label}</Link> : target.label}</td>
       <td>
@@ -327,78 +348,6 @@ function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAud
       </td>
       <td>{dash(proof)}</td>
     </tr>
-  );
-}
-
-function AuditDetailDrawer({ row, searchParams, pageContract }: { row: OperationsAuditRow; searchParams: RouteSearchParams; pageContract: AdminUiPageContract }) {
-  const result = metaString(row, "status") ?? metaString(row, "result") ?? (row.anomaly ? "flagged" : "recorded");
-  const proof = metaString(row, "proof_id") ?? metaString(row, "proof_ref_id") ?? metaString(row, "media_proof_id");
-  const operation = operationLabel(row, pageContract);
-  const target = targetLabel(row);
-  const operator = operatorLabel(row);
-  const closeHref = hrefWithUpdates(searchParams, { audit_id: null });
-  const OperationIcon = operation.icon;
-  return (
-	    <>
-	      <Link
-	        href={closeHref}
-        replace
-        className="veil"
-	        aria-label={copy(pageContract, "drawer.record.close_label")}
-        scroll={false}
-        style={{ opacity: 1, pointerEvents: "auto" }}
-      />
-	      <aside className="drawer on" aria-label={copy(pageContract, "drawer.record.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <OperationIcon className="ic" aria-hidden="true" />
-          </span>
-          <div>
-	            <div className="mt">{copy(pageContract, "drawer.record.eyebrow")}</div>
-            <h2>{humanAction(row.action)}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-	          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          <div className="helpgrid">
-	            <div className="hk">{tableLabels(pageContract, "activity-trail")[0]}</div>
-            <div>{fmtDateTime(row.recorded_at)}</div>
-	            <div className="hk">{tableLabels(pageContract, "activity-trail")[1]}</div>
-            <div>
-              <b>{operation.label}</b>
-              {operation.detail ? <div className="mt">{operation.detail}</div> : null}
-            </div>
-	            <div className="hk">{tableLabels(pageContract, "activity-trail")[2]}</div>
-            <div>
-              <b>{operator.primary}</b>
-              <div className="mt">{operator.secondary}</div>
-            </div>
-	            <div className="hk">{tableLabels(pageContract, "activity-trail")[4]}</div>
-            <div>{target.href ? <Link href={target.href} className="gid">{target.label}</Link> : target.label}</div>
-	            <div className="hk">{tableLabels(pageContract, "activity-trail")[5]}</div>
-            <div>
-              <Tag tone={row.anomaly ? "dng" : toneForResult(result)}>{result}</Tag>
-            </div>
-	            <div className="hk">{tableLabels(pageContract, "activity-trail")[6]}</div>
-            <div>{dash(proof)}</div>
-          </div>
-          <div className="note" style={{ marginTop: 14 }}>
-	            {copy(pageContract, "drawer.record.note")}
-          </div>
-        </div>
-        <div className="df">
-          <Link href={target.href ?? closeHref} className={`btn p${target.href ? "" : " disabled"}`} aria-disabled={!target.href} scroll={false}>
-	            {copy(pageContract, "drawer.open_target")}
-          </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
-	            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
   );
 }
 
@@ -593,12 +542,12 @@ function countByOperation(rows: OperationsAuditRow[], activeCount: number, activ
   return counts;
 }
 
-function operationLabel(row: OperationsAuditRow, pageContract: AdminUiPageContract): { label: string; detail?: string; icon: typeof Zap } {
+function operationLabel(row: OperationsAuditRow, pageContract: AdminUiPageContract): { key: string; label: string; detail?: string; icon: typeof Zap } {
   const domain = metaString(row, "domain") ?? "admin";
   const family = familyForDomain(domain);
   const rawDetail = joinParts([metaString(row, "module"), metaString(row, "category")]);
   const detail = rawDetail === "—" ? undefined : rawDetail;
-  return { label: optionLabel(pageContract, "audit_operation_families", family.key), detail, icon: family.icon };
+  return { key: family.key, label: optionLabel(pageContract, "audit_operation_families", family.key), detail, icon: family.icon };
 }
 
 function operatorLabel(row: OperationsAuditRow): { primary: string; secondary: string } {

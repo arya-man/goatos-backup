@@ -1,8 +1,14 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
+import {
+  currentHistoryEntryIsLocalOverlay,
+  LocalOverlayLink,
+  LOCAL_OVERLAY_URL_CHANGE_EVENT,
+  replaceLocalOverlayUrl,
+} from "@/components/local-overlay-link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Calculator, ChevronLeft, ChevronRight, Database, Pencil, Plus, Search, X } from "lucide-react";
 import type { AppApiComponents } from "@goatos/api-client";
 import { RuleEditorModal } from "./rule-editor-modal";
@@ -54,20 +60,33 @@ function ProtocolRuleDrawer({
   row,
   detail,
   detailError,
-  closeHref,
+  detailHref,
+  open,
+  onClose,
+  closeButtonRef,
   pageContract,
 }: {
   row?: ConfigRuleRow;
   detail: ProtocolVersionDetail | null;
   detailError?: string | null;
-  closeHref: string;
+  detailHref: string;
+  open: boolean;
+  onClose: () => void;
+  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
   pageContract: AdminUiPageContract;
 }) {
   if (!row && !detailError) return null;
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.record.aria")}>
+      <button
+        type="button"
+        className={`scrim${open ? " on" : ""}`}
+        aria-label={copy(pageContract, "drawer.record.close_label")}
+        aria-hidden={!open}
+        tabIndex={open ? 0 : -1}
+        onClick={onClose}
+      />
+      <aside className={`drawer${open ? " on" : ""}`} aria-label={copy(pageContract, "drawer.record.aria")} aria-hidden={!open} inert={!open}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
             <Pencil className="ic" aria-hidden="true" />
@@ -77,9 +96,9 @@ function ProtocolRuleDrawer({
             <h2>{row?.categoryLabel ?? copy(pageContract, "drawer.record.detail_unavailable")}</h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false}>
+          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} onClick={onClose}>
             <X className="ic" />
-          </Link>
+          </button>
         </div>
         <div className="dc">
           {detailError ? (
@@ -139,9 +158,14 @@ function ProtocolRuleDrawer({
           ) : null}
         </div>
         <div className="df">
-          <Link href={closeHref} replace className="btn" scroll={false}>
+          {!detail && row ? (
+            <Link href={detailHref} className="btn p" scroll={false}>
+              {copy(pageContract, "action.open_protocol_record")}
+            </Link>
+          ) : null}
+          <button type="button" className="btn" onClick={onClose}>
             {copy(pageContract, "action.cancel")}
-          </Link>
+          </button>
         </div>
       </aside>
     </>
@@ -267,6 +291,13 @@ export function ConfigConsole({
   pageContract: AdminUiPageContract;
 }) {
   const router = useRouter();
+  const initialRule = selectedRuleId ? rules.find((rule) => rule.id === selectedRuleId) : undefined;
+  const [activeRuleId, setActiveRuleId] = useState(initialRule?.id);
+  const [displayedRuleId, setDisplayedRuleId] = useState(initialRule?.id);
+  const triggerRef = useRef<HTMLAnchorElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const openFrameRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
   const [query, setQuery] = useState("");
   const [requestedPage, setRequestedPage] = useState(1);
   const pageSizeOptions = tablePageSizes(pageContract, "protocol-rules");
@@ -298,10 +329,72 @@ export function ConfigConsole({
   const end = filteredRules.length === 0 ? 0 : Math.min(filteredRules.length, page * pageSize);
   const pagedRules = filteredRules.slice((page - 1) * pageSize, page * pageSize);
   const showPager = shouldShowConfigRulePager(filteredRules.length, pageSize);
-  const selectedRule = selectedRuleId ? rules.find((rule) => rule.id === selectedRuleId) : undefined;
+  const selectedRule = displayedRuleId ? rules.find((rule) => rule.id === displayedRuleId) : undefined;
+  const drawerOpen = Boolean(activeRuleId && selectedRule);
   const closeRecordHref = configHref(searchParams, initialCategory);
   const newRule = searchParams ? one(searchParams, "new_rule") === "1" : false;
   const newRuleHref = configHref(searchParams, initialCategory, undefined, true);
+
+  const syncDrawerFromUrl = useCallback((): void => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    const ruleId = new URL(window.location.href).searchParams.get("config_rule") ?? undefined;
+    const rule = rules.find((item) => item.id === ruleId);
+    if (rule) {
+      triggerRef.current = document.activeElement instanceof HTMLAnchorElement ? document.activeElement : triggerRef.current;
+      setActiveRuleId(undefined);
+      setDisplayedRuleId(rule.id);
+      openFrameRef.current = window.requestAnimationFrame(() => {
+        setActiveRuleId(rule.id);
+        openFrameRef.current = null;
+      });
+      return;
+    }
+    setActiveRuleId(undefined);
+    closeTimerRef.current = window.setTimeout(() => {
+      setDisplayedRuleId(undefined);
+      closeTimerRef.current = null;
+      triggerRef.current?.focus();
+    }, 280);
+  }, [rules]);
+
+  useEffect(() => {
+    window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncDrawerFromUrl);
+    window.addEventListener("popstate", syncDrawerFromUrl);
+    return () => {
+      window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncDrawerFromUrl);
+      window.removeEventListener("popstate", syncDrawerFromUrl);
+      if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    };
+  }, [syncDrawerFromUrl]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [drawerOpen]);
+
+  const closeRecordDrawer = useCallback((): void => {
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    setActiveRuleId(undefined);
+    if (currentHistoryEntryIsLocalOverlay()) {
+      window.history.back();
+      return;
+    }
+    replaceLocalOverlayUrl(closeRecordHref);
+  }, [closeRecordHref]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeRecordDrawer();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeRecordDrawer, drawerOpen]);
 
   if (newRule) {
     return (
@@ -459,44 +552,35 @@ export function ConfigConsole({
               ) : (
                 pagedRules.map((r) => {
                   const recordHref = configHref(searchParams, initialCategory, r.id);
-                  const selected = selectedRuleId === r.id;
+                  const selected = activeRuleId === r.id;
                   return (
                   <tr
                     key={r.id}
-                    role="link"
-                    tabIndex={0}
-                    aria-label={`${copy(pageContract, "action.open_protocol_record")} ${r.categoryLabel}`}
-                    onClick={() => router.push(recordHref, { scroll: false })}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        router.push(recordHref, { scroll: false });
-                      }
-                    }}
                     style={{
-                      cursor: "pointer",
                       ...(r.statusTone !== "ok" ? { boxShadow: "inset 2px 0 0 var(--amber)" } : {}),
                       ...(selected ? { background: "color-mix(in srgb,var(--brand-soft) 55%,transparent)" } : {}),
                     }}
                   >
                     <td>
-                      <b>{r.categoryLabel}</b>{" "}
-                      <span className="muted small">
-                        {r.ruleRows} {r.ruleRowLabel}
-                      </span>
+                      <LocalOverlayLink href={recordHref} className="celllink" scroll={false} onClick={(event) => { triggerRef.current = event.currentTarget; }}>
+                        <b>{r.categoryLabel}</b>{" "}
+                        <span className="muted small">
+                          {r.ruleRows} {r.ruleRowLabel}
+                        </span>
+                      </LocalOverlayLink>
                     </td>
-                    <td className="mono">{r.version}</td>
-                    <td>{r.scope}</td>
+                    <td className="mono"><LocalOverlayLink href={recordHref} className="celllink" scroll={false}>{r.version}</LocalOverlayLink></td>
+                    <td><LocalOverlayLink href={recordHref} className="celllink" scroll={false}>{r.scope}</LocalOverlayLink></td>
                     <td>
-                      <span className={`tag ${TONE_CLASS[r.statusTone]}`}>{r.statusText}</span>
+                      <LocalOverlayLink href={recordHref} className="celllink" scroll={false}><span className={`tag ${TONE_CLASS[r.statusTone]}`}>{r.statusText}</span></LocalOverlayLink>
                     </td>
-                    <td className="muted">{r.effective}</td>
-                    <td className="mono">{r.linkedSop}</td>
-                    <td className="muted">{r.lastPublisher}</td>
+                    <td className="muted"><LocalOverlayLink href={recordHref} className="celllink" scroll={false}>{r.effective}</LocalOverlayLink></td>
+                    <td className="mono"><LocalOverlayLink href={recordHref} className="celllink" scroll={false}>{r.linkedSop}</LocalOverlayLink></td>
+                    <td className="muted"><LocalOverlayLink href={recordHref} className="celllink" scroll={false}>{r.lastPublisher}</LocalOverlayLink></td>
                     <td style={{ whiteSpace: "nowrap" }}>
-                      <Link href={recordHref} className="lk small" scroll={false} onClick={(event) => event.stopPropagation()}>
+                      <LocalOverlayLink href={recordHref} className="lk small" scroll={false} onClick={(event) => { triggerRef.current = event.currentTarget; }}>
                         {copy(pageContract, "drawer.record.eyebrow")}
-                      </Link>
+                      </LocalOverlayLink>
                     </td>
                   </tr>
                   );
@@ -552,12 +636,15 @@ export function ConfigConsole({
         ) : null}
       </section>
 
-      {selectedRuleId ? (
+      {selectedRule ? (
         <ProtocolRuleDrawer
           row={selectedRule}
-          detail={selectedRuleDetail ?? null}
-          detailError={selectedRuleError}
-          closeHref={closeRecordHref}
+          detail={selectedRule.id === selectedRuleId ? selectedRuleDetail ?? null : null}
+          detailError={selectedRule.id === selectedRuleId ? selectedRuleError : null}
+          detailHref={configHref(searchParams, initialCategory, selectedRule.id)}
+          open={drawerOpen}
+          onClose={closeRecordDrawer}
+          closeButtonRef={closeButtonRef}
           pageContract={pageContract}
         />
       ) : null}

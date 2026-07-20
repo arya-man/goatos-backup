@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Syringe } from "lucide-react";
 import type { VaccinationOperationsResponse, VaccinationOperationsCell } from "@/lib/api/server";
 import type { Tone } from "@/features/process-integrity";
@@ -7,7 +8,7 @@ import { fmtDate } from "@/lib/format";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { scopeHref, type Scope } from "@/lib/scope";
 import { VaccinationFilterButton, VisibleTableSearch } from "./vaccination-filter-modal";
-import { VaccinationRecordVerifyDrawer } from "./record-verify-drawer";
+import { VaccinationRecordVerifyLocalDrawer, type VaccinationRecordSelection } from "./record-verify-drawer";
 import { paginateRows, VaccinationTablePager, type VaccinationPageSize } from "./table-pager";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { sortVaccinationProtocols, vaccinationProtocolDisplayName } from "./vaccine-display";
@@ -63,13 +64,12 @@ export function VaccinationStatusMatrix({
   const paged = paginateRows(cohorts, searchParams, "matrix", 10, pageSizeOptions);
   const empty = protocols.length === 0 || cohorts.length === 0;
   const selectedId = one(searchParams ?? {}, "vacc_record");
-  let selected: { id: string; cohort: (typeof cohorts)[number]; protocol: (typeof protocols)[number]; cell: VaccinationOperationsCell } | null = null;
-  if (selectedId) {
-    for (const cohort of cohorts) {
-      for (const protocol of protocols) {
-        const cell = cohort.cells.find((candidate) => candidate.protocolId === protocol.protocolId);
-        const id = matrixRecordId(cohort, protocol.protocolId);
-        if (cell && id === selectedId) selected = { id, cohort, protocol, cell };
+  const records: VaccinationRecordSelection[] = [];
+  for (const cohort of cohorts) {
+    for (const protocol of protocols) {
+      const cell = cohort.cells.find((candidate) => candidate.protocolId === protocol.protocolId);
+      if (cell) {
+        records.push({ id: matrixRecordId(cohort, protocol.protocolId), context: { cohort, protocol, cell } });
       }
     }
   }
@@ -153,10 +153,10 @@ export function VaccinationStatusMatrix({
                     <tr key={`${c.parkId}|${c.shedId}|${c.stage}`}>
                       <td>
                         {cohortHref ? (
-                          <Link href={cohortHref} className="celllink" scroll={false} title={copy(pageContract, "section.status_matrix.row_hint")}>
+                          <LocalOverlayLink href={cohortHref} className="celllink" scroll={false} title={copy(pageContract, "section.status_matrix.row_hint")}>
                             <b>{`${c.stage} · ${c.shedName}`}</b>
                             <div className="muted small">{c.parkName}</div>
-                          </Link>
+                          </LocalOverlayLink>
                         ) : (
                           <>
                             <b>{`${c.stage} · ${c.shedName}`}</b>
@@ -178,14 +178,14 @@ export function VaccinationStatusMatrix({
                         const title = cell.lastDose ? `${protocolLabel} — ${meta.label} · ${copy(pageContract, "label.last_dose")} ${fmtDate(cell.lastDose)}` : `${protocolLabel} — ${meta.label}`;
                         return (
                           <td key={p.protocolId}>
-                            <Link
+                            <LocalOverlayLink
                               href={scopeHref("/vaccination", scope, {}, { vacc_record: matrixRecordId(c, p.protocolId) })}
                               className="celllink"
                               title={title}
                               scroll={false}
                             >
                               <Tag tone={meta.tone}>{meta.label}</Tag>
-                            </Link>
+                            </LocalOverlayLink>
                           </td>
                         );
                       })}
@@ -218,13 +218,13 @@ export function VaccinationStatusMatrix({
           />
         </div>
       )}
-      {selected ? (
-        <VaccinationRecordVerifyDrawer
-          context={{ cohort: selected.cohort, protocol: selected.protocol, cell: selected.cell }}
-          scope={scope}
-          pageContract={pageContract}
-        />
-      ) : null}
+      <VaccinationRecordVerifyLocalDrawer
+        records={records}
+        selectionKey="vacc_record"
+        initialSelectedId={selectedId}
+        scope={scope}
+        pageContract={pageContract}
+      />
     </section>
   );
 }

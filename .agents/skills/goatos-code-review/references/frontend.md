@@ -211,6 +211,16 @@ Review checkpoints:
 ## State
 
 - [ ] TanStack Query for server state; React local state for UI-only (open drawer, selected row)
+- [ ] Same-page drawer/modal/popover open and close are owned by a narrow client
+      boundary (`LocalOverlayLink`/local history), never a Next `Link`, native
+      anchor/form submission, or router push that re-runs the page's Server
+      Components. Back, Escape, outside click, X, close-button animation, and
+      trigger-focus restoration all work without a document/RSC request
+- [ ] A detail-only overlay opens immediately from its list summary and loads
+      only the missing detail through an authenticated Server Action/Route
+      Handler inside the open shell; it does not refetch or skeletonize the page
+- [ ] `make admin-web-local-overlay-guard` passes with a zero legacy baseline;
+      new bypass patterns extend the adversarial self-test, never an allowlist
 - [ ] No cross-feature deep imports (`features/x/...` imported inside `features/y/`) — share via `components/`, `lib/`, `packages/`
 - [ ] Server Components remain the default; `'use client'` appears only at the
       smallest interactive boundary and does not pull privileged adapters,

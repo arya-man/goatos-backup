@@ -1,5 +1,7 @@
 import Link from "@/components/no-prefetch-link";
-import { Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse, X } from "lucide-react";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
+import { Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse } from "lucide-react";
 import { getVaccinationExecution, type ApiResult } from "@/lib/api/server";
 import type {
   VaccinationExecutionResponse,
@@ -120,7 +122,7 @@ function executionActionTitle(pageContract: AdminUiPageContract, row: Vaccinatio
 function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract; labels: string[] }) {
   const driveLabel = executionDriveLabel(row);
   return (
-    <Link
+    <LocalOverlayLink
       href={drawerHref}
       scroll={false}
       className="pexr"
@@ -182,7 +184,7 @@ function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: Vaccinat
           {row.nextAction}
         </ClipText>
       </div>
-    </Link>
+    </LocalOverlayLink>
   );
 }
 
@@ -239,7 +241,6 @@ export async function VaccinationExecutionBoard({
   const paged = paginateRows(rows, sp, "exec", 10, pageSizeOptions);
   const parks = groupByPark(paged.items);
   const selectedEventId = one(sp, "shed_event");
-  const selectedEvent = selectedEventId ? rows.find((row) => shedEventId(row) === selectedEventId) : undefined;
 
   // work_state is applied SERVER-SIDE and the result is capped (limit), so per-state counts are only
   // meaningful when no state filter is active. Park scope belongs to the shell top bar / Filters.
@@ -436,7 +437,14 @@ export async function VaccinationExecutionBoard({
         ) : null}
         </>
       )}
-      {selectedEvent ? <ShedEventDrawer row={selectedEvent} scope={scope} closeHref={hrefWith({ shed_event: undefined })} pageContract={pageContract} /> : null}
+      <LocalOverlayDrawer
+        items={rows.map((row) => shedEventDrawerItem(row, scope, pageContract))}
+        selectionKey="shed_event"
+        initialSelectedId={selectedEventId}
+        closeHref={hrefWith({ shed_event: undefined })}
+        ariaLabel={copy(pageContract, "drawer.shed_event.aria")}
+        closeLabel={copy(pageContract, "drawer.shed_event.close_label")}
+      />
     </div>
     </>
   );
@@ -446,28 +454,17 @@ function shedEventId(row: VaccinationExecutionRow): string {
   return `${row.shedId}|${row.driveId ?? "drive"}|${row.animalStage}`;
 }
 
-function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: VaccinationExecutionRow; scope: ReturnType<typeof parseScope>; closeHref: string; pageContract: AdminUiPageContract }) {
+function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typeof parseScope>, pageContract: AdminUiPageContract): LocalOverlayDrawerItem {
   const driveLabel = executionDriveLabel(row);
   const detailHref = scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`, scope, { mode: "park", park: row.parkId });
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.shed_event.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.shed_event.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <Syringe className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "drawer.shed_event.eyebrow")}</div>
-            <h2>{executionActionTitle(pageContract, row)}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.shed_event.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
+  return {
+    id: shedEventId(row),
+    eyebrow: copy(pageContract, "drawer.shed_event.eyebrow"),
+    title: executionActionTitle(pageContract, row),
+    icon: <Syringe className="ic" aria-hidden="true" />,
+    body: (
+      <>
           <div className="metagrid">
             <div>
               <div className="k">{copy(pageContract, "drawer.shed_event.shed_event")}</div>
@@ -496,19 +493,17 @@ function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: Vaccina
           <div style={{ marginTop: 16 }}>
             <ShedEventActions pageContract={pageContract} />
           </div>
-        </div>
-        <div className="df">
+      </>
+    ),
+    footer: (
+      <>
           <Link href={actionCenterHref} className="btn" scroll={false}>
             {copy(pageContract, "action.open_action_center")}
           </Link>
           <Link href={detailHref} className="btn">
             {copy(pageContract, "action.shed_detail")}
           </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
-            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
-  );
+      </>
+    ),
+  };
 }

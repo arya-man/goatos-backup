@@ -9,69 +9,48 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const legacyBaseline = new Map([
-  ["apps/admin-web/features/calendar/calendar-event-drawer.tsx", 1],
-  ["apps/admin-web/features/config/config-console.tsx", 1],
-  ["apps/admin-web/features/control-tower/index.tsx", 1],
-  ["apps/admin-web/features/counts/herd-register.tsx", 1],
-  ["apps/admin-web/features/operations-audit/audit-log.tsx", 1],
-  ["apps/admin-web/features/operations-dlq/index.tsx", 1],
-  ["apps/admin-web/features/preventive-care-vaccination/record-verify-drawer.tsx", 1],
-  ["apps/admin-web/features/preventive-care-vaccination/supplier-warmup-context.tsx", 1],
-  ["apps/admin-web/features/process-integrity/protocol-adherence.tsx", 1],
-  ["apps/admin-web/features/procurement/source-entry-board.tsx", 1],
-  ["apps/admin-web/features/vaccination-execution/execution-board.tsx", 1],
-  ["apps/admin-web/features/vaccination-sheds/shed-detail.tsx", 1],
-  ["apps/admin-web/features/verification-review/verification-review-drawer.tsx", 1],
-]);
-
 const routeDrivenVeilLink = /<Link\b(?:(?!\/>)[\s\S]){0,800}?className\s*=\s*["']veil["'](?:(?!\/>)[\s\S]){0,800}?\/>/g;
+const routeDrivenNamedOverlayLink = /<(?:Link|a)\b(?:(?!>)[\s\S]){0,500}?href\s*=\s*\{[^}\n]*(?:drawer|overlay)[^}\n]*\}(?:(?!>)[\s\S]){0,500}?>/gi;
+const routeDrivenScheduleOpen = /<a\b(?:(?!>)[\s\S]){0,500}?href\s*=\s*\{(?:shedDrawerHref|drawerPageHref)\([^}]*\}\s*(?:(?!>)[\s\S]){0,500}?>/g;
+const routeDrivenScheduleClose = /<ScheduleDrawerCloseForm\b(?:(?!>)[\s\S]){0,500}?href\s*=/g;
 
-function routeDrivenOverlayCounts(files, readText) {
-  const counts = new Map();
-  for (const file of files) {
-    const matches = readText(file).match(routeDrivenVeilLink) ?? [];
-    if (matches.length > 0) counts.set(file, matches.length);
-  }
-  return counts;
-}
-
-function compareWithBaseline(actual, baseline) {
+function routeDrivenOverlayFindings(files, readText) {
   const findings = [];
-  for (const [file, count] of actual) {
-    const allowed = baseline.get(file) ?? 0;
-    if (count > allowed) findings.push(`${file}: adds ${count - allowed} Link-driven drawer overlay(s); use LocalOverlayLink plus client-local drawer state`);
-  }
-  for (const [file, allowed] of baseline) {
-    const count = actual.get(file) ?? 0;
-    if (count < allowed) findings.push(`${file}: legacy overlay count fell from ${allowed} to ${count}; reduce the baseline in this guard`);
+  for (const file of files) {
+    const source = readText(file);
+    const checks = [
+      [routeDrivenVeilLink, "uses a Next Link as a drawer veil/close control"],
+      [routeDrivenNamedOverlayLink, "uses a Next/native link whose target is named as a drawer/overlay route"],
+      [routeDrivenScheduleOpen, "uses a native route navigation to open or paginate a schedule drawer"],
+      [routeDrivenScheduleClose, "uses route navigation to close a schedule drawer"],
+    ];
+    for (const [pattern, message] of checks) {
+      pattern.lastIndex = 0;
+      const count = source.match(pattern)?.length ?? 0;
+      if (count > 0) {
+        findings.push(`${file}: ${message} (${count}); same-page overlays must use client-local state plus history/hash synchronization`);
+      }
+    }
   }
   return findings;
 }
 
 function selfTest() {
-  const badNew = "apps/admin-web/features/new-page.tsx";
-  const old = "apps/admin-web/features/old-page.tsx";
+  const badVeil = "apps/admin-web/features/bad-veil.tsx";
+  const badSchedule = "apps/admin-web/features/bad-schedule.tsx";
   const fixtures = new Map([
-    [badNew, '<Link\n href={closeHref}\n replace\n className="veil"\n aria-label="Close"\n />\n<aside className="drawer on" />'],
-    [old, '<Link href={closeHref} className="veil" />'],
+    [badVeil, '<Link\n href={closeHref}\n replace\n className="veil"\n aria-label="Close"\n />\n<aside className="drawer on" />'],
+    [badSchedule, '<a href={shedDrawerHref(row)} className="celllink">Open</a>\n<ScheduleDrawerCloseForm href={closeHref} />'],
     ["apps/admin-web/features/good.tsx", '<LocalOverlayLink href={href}>Open</LocalOverlayLink>\n<button className={`scrim${open ? " on" : ""}`} />'],
   ]);
-  const actual = routeDrivenOverlayCounts([...fixtures.keys()], (file) => fixtures.get(file) ?? "");
-  const findings = compareWithBaseline(actual, new Map([[old, 1]]));
-  if (findings.length !== 1 || !findings[0].includes(badNew)) {
-    throw new Error(`self-test: expected one new-overlay finding, got ${JSON.stringify(findings)}`);
-  }
-
-  fixtures.set(old, `${fixtures.get(old)}\n<Link href={closeHref} className="veil" />`);
-  const increased = compareWithBaseline(routeDrivenOverlayCounts([...fixtures.keys()], (file) => fixtures.get(file) ?? ""), new Map([[old, 1], [badNew, 1]]));
-  if (increased.length !== 1 || !increased[0].includes(old)) {
-    throw new Error(`self-test: expected an increased-baseline finding, got ${JSON.stringify(increased)}`);
-  }
-
-  const stale = compareWithBaseline(new Map(), new Map([[old, 1]]));
-  if (stale.length !== 1 || !stale[0].includes("reduce the baseline")) {
-    throw new Error(`self-test: expected stale-baseline finding, got ${JSON.stringify(stale)}`);
+  const findings = routeDrivenOverlayFindings([...fixtures.keys()], (file) => fixtures.get(file) ?? "");
+  if (
+    findings.length !== 4
+    || !findings.some((finding) => finding.includes(badVeil))
+    || findings.filter((finding) => finding.includes(badSchedule)).length !== 3
+    || findings.some((finding) => finding.includes("good.tsx"))
+  ) {
+    throw new Error(`self-test: expected all route-driven overlay variants and no local-overlay finding, got ${JSON.stringify(findings)}`);
   }
   console.log("admin-web local-overlay guard: self-test passed");
 }
@@ -85,11 +64,11 @@ const files = execFileSync("rg", ["--files", "apps/admin-web/features", "-g", "*
   .split("\n")
   .map((file) => file.trim())
   .filter(Boolean);
-const actual = routeDrivenOverlayCounts(files, (file) => readFileSync(resolve(repo, file), "utf8"));
-const findings = compareWithBaseline(actual, legacyBaseline);
+const findings = routeDrivenOverlayFindings(files, (file) => readFileSync(resolve(repo, file), "utf8"));
 
 const requiredWiring = [
-  ["apps/admin-web/components/local-overlay-link.tsx", ["data-local-overlay-navigation", "window.history.pushState", "nextUrl.href === window.location.href", "LOCAL_OVERLAY_URL_CHANGE_EVENT"]],
+  ["apps/admin-web/components/local-overlay-link.tsx", ["data-local-overlay-navigation", "window.history.pushState", "nextUrl.href === window.location.href", "LOCAL_OVERLAY_URL_CHANGE_EVENT", "useLocalOverlaySelection", "popstate", "Escape"]],
+  ["apps/admin-web/components/local-overlay-drawer.tsx", ["useLocalOverlaySelection", "className={`scrim", "inert={!drawerOpen}"]],
   ["apps/admin-web/components/mesha-shell.tsx", ["anchor.dataset.localOverlayNavigation"]],
   ["apps/admin-web/features/process-integrity/work-board.tsx", ["LocalOverlayLink", "localOverlay"]],
   ["apps/admin-web/features/process-integrity/action-center-local-drawer.tsx", ["ActionCenterLocalDrawer", "currentHistoryEntryIsLocalOverlay"]],
@@ -113,4 +92,4 @@ if (findings.length > 0) {
   process.exit(1);
 }
 
-console.log(`admin-web local-overlay guard: ok (${files.length} feature files scanned; no new route-driven overlays)`);
+console.log(`admin-web local-overlay guard: ok (${files.length} feature files scanned; zero route-driven overlays)`);

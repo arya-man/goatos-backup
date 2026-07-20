@@ -1,11 +1,10 @@
 import Link from "@/components/no-prefetch-link";
-import { ArrowLeft, CalendarClock, Syringe, UserRound, Warehouse, X } from "lucide-react";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { ArrowLeft, CalendarClock, Syringe, UserRound, Warehouse } from "lucide-react";
 import {
-  getGoatPassport,
   getVaccinationShedAnimals,
   getVaccinationShedDetail,
 } from "@/lib/api/server";
-import type { GoatPassportResponse } from "@/lib/api/server";
 import type {
   VaccinationCapacityStatus,
   VaccinationOperationsCounts,
@@ -15,14 +14,13 @@ import type {
   VaccinationShedVaccineRow,
 } from "@/lib/api/vaccination-sheds";
 import { Tag, InfoTooltip, ClipText, type Tone } from "@/components/ui-primitives";
-import { dash, fmtDate } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { HerdPassportVaccinationBlock } from "@/features/counts";
+import { ShedPassportLocalDrawer } from "./shed-passport-local-drawer";
 
 const ANIMAL_PAGE_SIZE = 100;
-type GoatPassport = GoatPassportResponse["goat"];
 type ShedStatus = VaccinationShedDetail["status"];
 
 // Nonzero obligation counts to surface in the vaccine-breakdown Counts cell. Labels come from the
@@ -298,67 +296,67 @@ function AnimalRosterCard({
                   return (
                     <tr key={a.goatId} className="schedule-click-row">
                       <td>
-                        <Link href={href} replace scroll={false} prefetch={false} className="gid">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="gid">
                           {a.displayId}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.tag1 ?? copy(pageContract, "label.placeholder")}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.tag2 ?? copy(pageContract, "label.placeholder")}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.breed ?? copy(pageContract, "label.placeholder")}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.sex}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.age ?? copy(pageContract, "label.placeholder")}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.lifecycleStatus ? (
                             <Tag tone={passportStatusTone(a.lifecycleStatus, "lifecycle")}>{humanStatus(a.lifecycleStatus)}</Tag>
                           ) : (
                             <span className="muted">{copy(pageContract, "label.placeholder")}</span>
                           )}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.healthStatus ? (
                             <Tag tone={passportStatusTone(a.healthStatus, "health")}>{humanStatus(a.healthStatus)}</Tag>
                           ) : (
                             <span className="muted">{copy(pageContract, "label.placeholder")}</span>
                           )}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.lastDose ? fmtDate(a.lastDose) : copy(pageContract, "label.placeholder")}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           {a.nextDue ? fmtDate(a.nextDue) : copy(pageContract, "label.placeholder")}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                        <LocalOverlayLink href={href} replace scroll={false} prefetch={false} className="celllink">
                           <Tag tone={animalVaccinationWorkTone(a.status)}>{animalVaccinationWorkLabel(pageContract, a.status)}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                     </tr>
                   );
@@ -376,88 +374,6 @@ function AnimalRosterCard({
         </>
       )}
     </section>
-  );
-}
-
-function ShedAnimalPassportDrawer({
-  goat,
-  goatId,
-  error,
-  closeHref,
-  fullPassportHref,
-  pageContract,
-}: {
-  goat: GoatPassport | null;
-  goatId: string;
-  error: string | null;
-  closeHref: string;
-  fullPassportHref: string;
-  pageContract: AdminUiPageContract;
-}) {
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.passport.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)", fontWeight: 800 }}>
-            G
-          </span>
-          <div>
-            <div className="mt">{goat?.display_id ?? goatId.slice(0, 8)}</div>
-            <h2>{copy(pageContract, "drawer.passport.aria")}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          {goat ? (
-            <>
-              <div className="helpgrid" style={{ marginBottom: 12 }}>
-                <div className="hk">{copy(pageContract, "label.display_id")}</div>
-                <div><span className="gid">{goat.display_id}</span></div>
-                <div className="hk">{copy(pageContract, "label.tag_1")}</div>
-                <div className="mono">{dash(goat.summary.animal_identifier_1)}</div>
-                <div className="hk">{copy(pageContract, "label.tag_2")}</div>
-                <div className="mono">{dash(goat.summary.animal_identifier_2)}</div>
-              </div>
-              <div className="helpgrid">
-                <div className="hk">{copy(pageContract, "label.location")}</div>
-                <div>{dash(goat.summary.location_path.display)}</div>
-                <div className="hk">{copy(pageContract, "label.breed_sex")}</div>
-                <div>{dash([goat.summary.breed, goat.summary.sex].filter(Boolean).join(" / "))}</div>
-                <div className="hk">{copy(pageContract, "label.lifecycle")}</div>
-                <div>
-                  <Tag tone={passportStatusTone(goat.summary.lifecycle_status, "lifecycle")}>{dash(goat.summary.lifecycle_status)}</Tag>
-                </div>
-                <div className="hk">{copy(pageContract, "label.health")}</div>
-                <div>
-                  <Tag tone={passportStatusTone(goat.summary.health_status, "health")}>{dash(goat.summary.health_status)}</Tag>
-                </div>
-                <div className="hk">{copy(pageContract, "label.reproductive")}</div>
-                <div>
-                  <Tag tone={passportStatusTone(goat.summary.reproductive_status, "breeding")}>{dash(goat.summary.reproductive_status)}</Tag>
-                </div>
-              </div>
-              <HerdPassportVaccinationBlock goatId={goat.goat_id} />
-            </>
-          ) : (
-            <div className="alert">
-              <b>{copy(pageContract, "fallback.title")}</b>&nbsp;{error ?? copy(pageContract, "fallback.body")}
-            </div>
-          )}
-        </div>
-        <div className="df">
-          <Link href={fullPassportHref} className="btn p">
-            {copy(pageContract, "action.full_change_history")}
-          </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
-            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
   );
 }
 
@@ -483,10 +399,9 @@ export async function VaccinationShedDetailPage({
   const selectedGoatId = one(sp, "goat_passport");
   const { asOf } = backendScope(scope);
 
-  const [detailResult, animalsResult, passportResult] = await Promise.all([
+  const [detailResult, animalsResult] = await Promise.all([
     getVaccinationShedDetail(shedId, { asOf }),
     getVaccinationShedAnimals(shedId, { cursor: animalsCursor, limit: ANIMAL_PAGE_SIZE, asOf, driveDueDate }),
-    selectedGoatId ? getGoatPassport(selectedGoatId) : Promise.resolve(null),
   ]);
 
   const fallbackBack = ret && ret.startsWith("/vaccination") ? ret : `${scopeHref("/vaccination", scope)}#sheds`;
@@ -506,8 +421,6 @@ export async function VaccinationShedDetailPage({
   const loadMoreHref = nextCursor ? `${detailHref({ ret, animals_cursor: nextCursor })}#animals` : null;
   const passportHref = (goatId: string) => withHash(detailHref({ ret, animals_cursor: animalsCursor, goat_passport: goatId }), "animals");
   const closePassportHref = withHash(detailHref({ ret, animals_cursor: animalsCursor }), "animals");
-  const selectedGoat = passportResult && passportResult.ok ? passportResult.data.goat : null;
-  const selectedGoatError = passportResult && !passportResult.ok ? passportResult.error.message : null;
 
   const statusTone = optionTone(pageContract, "shed_status_chips", detail.status) as Tone;
   const capacityTone = optionTone(pageContract, "capacity_chips", detail.capacity as VaccinationCapacityStatus) as Tone;
@@ -570,16 +483,12 @@ export async function VaccinationShedDetailPage({
       <PlannedSessionsCard detail={detail} pageContract={pageContract} />
       <VaccineBreakdownCard detail={detail} pageContract={pageContract} />
       <AnimalRosterCard rows={animals} nextCursor={nextCursor} loadMoreHref={loadMoreHref} passportHref={passportHref} pageContract={pageContract} />
-      {selectedGoatId ? (
-        <ShedAnimalPassportDrawer
-          goat={selectedGoat}
-          goatId={selectedGoatId}
-          error={selectedGoatError}
-          closeHref={closePassportHref}
-          fullPassportHref={`/goats/${encodeURIComponent(selectedGoatId)}`}
-          pageContract={passportPageContract}
-        />
-      ) : null}
+      <ShedPassportLocalDrawer
+        rows={animals}
+        initialSelectedGoatId={selectedGoatId}
+        closeHref={closePassportHref}
+        pageContract={passportPageContract}
+      />
     </div>
   );
 }

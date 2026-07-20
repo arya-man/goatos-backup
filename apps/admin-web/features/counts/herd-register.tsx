@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
 import { dash } from "@/lib/format";
@@ -25,9 +26,9 @@ import {
   one,
   type RouteSearchParams,
 } from "@/lib/search-params";
-import { HerdActions, HerdReproductiveEdit, type HerdAnimalStageOption } from "./herd-actions-ui";
+import { HerdActions, type HerdAnimalStageOption } from "./herd-actions-ui";
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
-import { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";
+import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-passport-local-drawer";
 
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
@@ -188,8 +189,21 @@ export async function HerdRegisterPage({
   const scopedPark = parkId ? locations.parks.find((p) => p.id === parkId) : null;
   const herdContext = scopedPark ? `${scopedPark.code ?? scopedPark.name} · ${copy(pageContract, "label.all_sheds")}` : copy(pageContract, "label.all_parks");
   const cols = tableLabels(pageContract, "herd-register");
-  const selectedGoat = selectedGoatId ? goats.find((g) => g.goat_id === selectedGoatId) : undefined;
   const closePassportHref = hrefWithDrawerParam(pathname, sp, "goat_passport", null);
+  const drawerItems: HerdPassportDrawerItem[] = goats.map((goat) => ({
+    goatId: goat.goat_id,
+    displayId: goat.display_id,
+    tag1: goat.animal_identifier_1,
+    tag2: goat.animal_identifier_2,
+    park: locationLabel(goat, "park"),
+    shed: locationLabel(goat, "shed"),
+    breed: goat.breed,
+    sex: goat.sex,
+    weightKg: goat.weight_kg,
+    lifecycleStatus: goat.lifecycle_status,
+    healthStatus: goat.health_status,
+    reproductiveStatus: goat.reproductive_status,
+  }));
 
   return (
     <div className="screen on">
@@ -294,47 +308,47 @@ export async function HerdRegisterPage({
                   return (
                     <tr key={g.goat_id}>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <span className="gid">{g.display_id}</span>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_1)}</Link>
+                        <LocalOverlayLink href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_1)}</LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_2)}</Link>
+                        <LocalOverlayLink href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_2)}</LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} className="celllink" scroll={false}>{locationLabel(g, "park")}</Link>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{locationLabel(g, "park")}</LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} className="celllink" scroll={false}>{locationLabel(g, "shed")}</Link>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{locationLabel(g, "shed")}</LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>{dash(g.breed)}</Link>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{dash(g.breed)}</LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>{dash(g.sex)}</Link>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{dash(g.sex)}</LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {weightLabel(g.weight_kg)}{g.weight_kg ? <span className="muted small"> kg</span> : null}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={statusTone(g.lifecycle_status, "lifecycle")}>{dash(g.lifecycle_status)}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={statusTone(g.health_status, "health")}>{dash(g.health_status)}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={statusTone(g.reproductive_status, "breeding")}>{dash(g.reproductive_status)}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                     </tr>
                   );
@@ -370,107 +384,14 @@ export async function HerdRegisterPage({
           </div>
         ) : null}
       </section>
-      {selectedGoat ? (
-        <HerdPassportDrawer
-          goat={selectedGoat}
-          closeHref={closePassportHref}
-	          fullPassportHref={`/goats/${encodeURIComponent(selectedGoat.goat_id)}`}
-	          reproductiveIdempotencyKey={reproductiveIdempotencyKey}
-	          returnTo={returnTo}
-	          pageContract={pageContract}
-	        />
-      ) : null}
+      <HerdPassportLocalDrawer
+        items={drawerItems}
+        initialSelectedId={selectedGoatId}
+        closeHref={closePassportHref}
+        reproductiveIdempotencyKey={reproductiveIdempotencyKey}
+        returnTo={returnTo}
+        pageContract={pageContract}
+      />
     </div>
-  );
-}
-
-async function HerdPassportDrawer({
-  goat,
-  closeHref,
-  fullPassportHref,
-  reproductiveIdempotencyKey,
-  returnTo,
-  pageContract,
-}: {
-  goat: GoatRow;
-  closeHref: string;
-  fullPassportHref: string;
-  reproductiveIdempotencyKey: string;
-  returnTo: string;
-  pageContract: AdminUiPageContract;
-}) {
-  const cols = tableLabels(pageContract, "herd-register");
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.passport.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)", fontWeight: 800 }}>
-            G
-          </span>
-          <div>
-            <div className="mt">{goat.display_id}</div>
-            <h2>{copy(pageContract, "drawer.passport.aria")}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          {/* Identity block — Display ID / Tag 1 / Tag 2, shown clearly at the top. The raw goat UUID is
-              intentionally NOT in the primary identity block (it lives in the full change history). */}
-          <div className="helpgrid" style={{ marginBottom: 12 }}>
-            <div className="hk">{cols[0]}</div>
-            <div><span className="gid">{goat.display_id}</span></div>
-            <div className="hk">{cols[1]}</div>
-            <div className="mono">{dash(goat.animal_identifier_1)}</div>
-            <div className="hk">{cols[2]}</div>
-            <div className="mono">{dash(goat.animal_identifier_2)}</div>
-          </div>
-          <div className="helpgrid">
-            <div className="hk">{cols[3]}</div>
-            <div>{locationLabel(goat, "park")}</div>
-            <div className="hk">{cols[4]}</div>
-            <div>{locationLabel(goat, "shed")}</div>
-            <div className="hk">{cols[5]}</div>
-            <div>{dash(goat.breed)}</div>
-            <div className="hk">{cols[6]}</div>
-            <div>{dash(goat.sex)}</div>
-            <div className="hk">{cols[7]}</div>
-            <div>{weightLabel(goat.weight_kg)}{goat.weight_kg ? " kg" : ""}</div>
-            <div className="hk">{cols[8]}</div>
-            <div>
-              <Tag tone={statusTone(goat.lifecycle_status, "lifecycle")}>{dash(goat.lifecycle_status)}</Tag>
-            </div>
-            <div className="hk">{cols[9]}</div>
-            <div>
-              <Tag tone={statusTone(goat.health_status, "health")}>{dash(goat.health_status)}</Tag>
-            </div>
-            <div className="hk">{cols[10]}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Tag tone={statusTone(goat.reproductive_status, "breeding")}>{dash(goat.reproductive_status)}</Tag>
-              <HerdReproductiveEdit
-                goatId={goat.goat_id}
-                displayId={goat.display_id}
-                currentStatus={goat.reproductive_status}
-                idempotencyKey={reproductiveIdempotencyKey}
-                returnTo={returnTo}
-                pageContract={pageContract}
-              />
-            </div>
-          </div>
-          <HerdPassportVaccinationBlock goatId={goat.goat_id} />
-        </div>
-        <div className="df">
-          <Link href={fullPassportHref} className="btn p">
-            {copy(pageContract, "action.full_change_history")}
-          </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
-            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
   );
 }

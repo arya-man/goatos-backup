@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-react";
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
@@ -23,7 +24,7 @@ import {
   type OwnerPresentationMap,
 } from "./calendar-contract";
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
-import { CalendarEventDrawer } from "./calendar-event-drawer";
+import { CalendarEventDrawer, type CalendarDrawerLoadResult } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
 import { calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedMonthStartKey, weekWindow } from "./calendar-window";
 import {
@@ -36,6 +37,40 @@ import { DriveProgressCard } from "./calendar-drive-card";
 import { OwnerLegend, RhythmCard } from "./calendar-week-panels";
 
 const PATH = "/calendar";
+
+async function loadCalendarDrawer(
+  eventId: string,
+  includeTargets: boolean,
+  targetsCursor?: string,
+): Promise<CalendarDrawerLoadResult> {
+  "use server";
+  const normalizedId = eventId.trim();
+  if (!normalizedId || normalizedId.length > 256) {
+    return {
+      eventId: normalizedId,
+      detail: null,
+      detailError: "calendar_event_id_invalid",
+      targets: null,
+      targetsError: null,
+      targetsNextCursor: null,
+    };
+  }
+  const cursor = targetsCursor && targetsCursor.length <= 512 ? targetsCursor : undefined;
+  const [detail, targets] = await Promise.all([
+    getCalendarVaccinationEventDetail(normalizedId),
+    includeTargets
+      ? getCalendarDriveTargets(normalizedId, { cursor, limit: 10 })
+      : Promise.resolve(null),
+  ]);
+  return {
+    eventId: normalizedId,
+    detail: detail.ok ? detail.data : null,
+    detailError: detail.ok ? null : detail.error.message,
+    targets: targets?.ok ? targets.data.items : null,
+    targetsError: targets && !targets.ok ? targets.error.message : null,
+    targetsNextCursor: targets?.ok ? targets.data.next_cursor ?? null : null,
+  };
+}
 
 function weekdayOf(iso: string): string {
   return calendarEventWeekday(iso);
@@ -114,14 +149,14 @@ function EventRow({
   }
 
   return (
-    <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
+    <LocalOverlayLink href={href} scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
       <div className="et">{event.all_day ? copy(pageContract, "calendar.drive.all_day") : timeOf(event.due_at)}</div>
       <div className="eb">
         <b>{event.title}</b>
         <div className="em">{meta}</div>
         {showTertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
       </div>
-    </Link>
+    </LocalOverlayLink>
   );
 }
 
@@ -144,7 +179,6 @@ export async function VaccinationCalendarPage({
   const listCursor = one(sp, "cursor");
   const listPage = boundedInt(one(sp, "page"), 1, 1, 1000);
   const targetsCursor = one(sp, "targets_cursor");
-  const targetsPage = boundedInt(one(sp, "targets_page"), 1, 1, 1000);
   const today = istToday();
   const dayFilter = normalizeCalendarDayFilter(one(sp, "day") || undefined);
   const actionStatus = one(sp, "action_status");
@@ -242,9 +276,9 @@ export async function VaccinationCalendarPage({
       targets_page: undefined,
       targets_cursor_stack: undefined,
     });
-  const eventHref = (id: string) => hrefWith({ event: id, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
   const driveHref = (id: string) => scopeHref(`/calendar/drive/${encodeURIComponent(id)}`, scope);
   const closeHref = hrefWith({ event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
+  const eventHref = (id: string) => `${closeHref}#calendar_event=${encodeURIComponent(id)}`;
   const weekHref = hrefWith({
     status: undefined,
     view: undefined,
@@ -333,7 +367,6 @@ export async function VaccinationCalendarPage({
     });
 
   const sel = detail && detail.ok ? detail.data : null;
-  const spForTargets: RouteSearchParams = { ...sp, event: selectedEventId };
   const spForList: RouteSearchParams = {
     ...sp,
     event: undefined,
@@ -355,12 +388,16 @@ export async function VaccinationCalendarPage({
       : null;
   const listPrevHref = scopedHref(hrefPreviousPagedCursor(PATH, spForList, "cursor", "page", "cursor_stack"));
   const listOnPage = list.ok ? list.data.items.length : 0;
-  const targetsNextHref =
-    targets && targets.ok && targets.data.next_cursor
-      ? scopedHref(hrefWithPagedCursor(PATH, spForTargets, "targets_cursor", targets.data.next_cursor, "targets_page", "targets_cursor_stack"))
-      : null;
-  const targetsPrevHref = scopedHref(hrefPreviousPagedCursor(PATH, spForTargets, "targets_cursor", "targets_page", "targets_cursor_stack"));
-  const targetsOnPage = targets && targets.ok ? targets.data.items.length : 0;
+  const initialDrawerData: CalendarDrawerLoadResult | null = sel
+    ? {
+        eventId: sel.event.event_id,
+        detail: sel,
+        detailError: null,
+        targets: targets?.ok ? targets.data.items : null,
+        targetsError: targets && !targets.ok ? targets.error.message : null,
+        targetsNextCursor: targets?.ok ? targets.data.next_cursor ?? null : null,
+      }
+    : null;
 
   return (
     <div className="screen on">
@@ -492,23 +529,18 @@ export async function VaccinationCalendarPage({
       {historyMode && events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode="history" pageContract={pageContract} /> : null}
       {list.ok ? <EventPager nextHref={listNextHref} prevHref={listPrevHref} page={listPage} rowsOnPage={listOnPage} pageContract={pageContract} /> : null}
 
-      {sel ? (
-        <CalendarEventDrawer
-          detail={sel}
-          targets={targets && targets.ok ? targets.data.items : null}
-          targetsError={targets && !targets.ok ? targets.error.message : null}
-          targetsNextHref={targetsNextHref}
-          targetsPrevHref={targetsPrevHref}
-          targetsPage={targetsPage}
-          targetsOnPage={targetsOnPage}
-          closeHref={closeHref}
-          returnTo={hrefWithoutAction(PATH, sp)}
-          scope={scope}
-          presentation={presentation}
-          ownerMeta={ownerMeta}
-          pageContract={pageContract}
-        />
-      ) : null}
+      <CalendarEventDrawer
+        initialData={initialDrawerData}
+        initialSelectedEventId={selectedEventId}
+        loadDrawer={loadCalendarDrawer}
+        includeTargets={!historyMode}
+        closeHref={closeHref}
+        returnTo={hrefWithoutAction(PATH, sp)}
+        scope={scope}
+        presentation={presentation}
+        ownerMeta={ownerMeta}
+        pageContract={pageContract}
+      />
     </div>
   );
 }

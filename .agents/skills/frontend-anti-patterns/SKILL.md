@@ -2,13 +2,14 @@
 name: frontend-anti-patterns
 description: >-
   Use when writing OR reviewing admin-web (apps/admin-web/**) — pages, SSR data
-  reads, nav, labels, dashboards. Covers the backend-owns-the-contract golden
+  reads, nav, labels, dashboards, same-page drawers, sidebars, modals, and
+  popovers. Covers the backend-owns-the-contract golden
   rule, Next.js/React/TypeScript engineering quality, no SSR full-table request
   reads, selected-window fetch=render, mock fidelity, and projection-backed
   dashboards. Thin entrypoint: detailed rules live in the canonical chapters
   linked below. Invoke before touching an admin-web page/route/data-read and
   before pushing. Machine gates: npm run check:mock-fidelity + make
-  admin-web-request-reads-guard.
+  admin-web-request-reads-guard + admin-web-local-overlay-guard.
 ---
 
 # Frontend (admin-web) anti-patterns — lens entrypoint
@@ -38,6 +39,8 @@ chapters below; do not review from the summary.
 - `npm --prefix apps/admin-web run check:mock-fidelity` — mandatory before any
   frontend push (IA guard, UI-contract literals, serial-await, request-plan, mock).
 - `make admin-web-request-reads-guard` — no SSR full-table request read.
+- `make admin-web-local-overlay-guard` — zero route-driven same-page overlays;
+  no Next/native open, close, veil, or schedule-drawer navigation baseline.
 - `node tools/agent-hooks/check-refresh-binding.mjs` — selected-window binding.
   All registered in `tools/ci/guardrail-manifest.json`.
 - `npm --prefix apps/admin-web run lint && npm --prefix apps/admin-web run typecheck && npm --prefix apps/admin-web run test` — framework and unit baseline.
@@ -61,6 +64,12 @@ chapters below; do not review from the summary.
 - **Server-first App Router:** pages/layouts stay Server Components; place
   `'use client'` on the smallest interactive leaf and keep tokens/adapters in
   `server-only` modules.
+- **Same-page overlays are local:** ordinary open/close must not navigate or
+  request an RSC payload. Use `LocalOverlayLink` plus a narrow local controller;
+  preserve Back/Escape/outside/X and trigger-focus restoration. If detail was
+  not in the list response, open from the summary immediately and fetch only
+  the detail inside the drawer. A query-only Next `Link`, native anchor/form, or
+  router push used to toggle an overlay is a merge-blocking anti-pattern.
 - **Public write surfaces:** re-authenticate, authorize, validate, and preserve a
   stable idempotency key inside every Server Action/Route Handler; page auth and
   a disabled button are not security boundaries.

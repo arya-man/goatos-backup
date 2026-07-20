@@ -506,9 +506,9 @@ admin-web-prefetch-guard:
 	node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test
 	node tools/agent-hooks/check-admin-web-prefetch.mjs
 
-# admin-web-local-overlay-guard: prevent same-page drawers backed by already-loaded
-# rows from navigating through Next Server Components. New Link-driven veil/drawer
-# pairs are forbidden; the explicit legacy baseline can only shrink.
+# admin-web-local-overlay-guard: prevent same-page drawers from navigating through
+# Next Server Components. The whole feature tree has a zero-tolerance baseline:
+# route-driven open, close, veil, and schedule-drawer controls are forbidden.
 .PHONY: admin-web-local-overlay-guard
 admin-web-local-overlay-guard:
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test

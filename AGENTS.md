@@ -511,6 +511,15 @@ Do:
   Backend code may hold only product contract shape, compile mapping, and
   intentional default skeletons for missing optional UI config rows; live/domain
   values stay in canonical module tables.
+- Same-page drawers, sidebars, modals, and popovers are client-local UI state.
+  Ordinary open/close clicks must not navigate, issue a document/RSC request,
+  or trigger page-level loading UI. Use `LocalOverlayLink` and a narrow local
+  controller with Back/Escape/outside/X/focus restoration. When detail is not
+  present in the list response, open immediately from list summary data and
+  fetch only the missing detail inside the drawer through an authenticated
+  Server Action/Route Handler. Query-only Next links, native anchor/forms, or
+  router pushes used to toggle an overlay are banned. Keep
+  `make admin-web-local-overlay-guard` at a zero legacy baseline.
 - When the user asks to fix a frontend/UI issue, rendered browser review is part
   of the requested fix for Codex, Claude, and every developer. Do not treat it
   as optional judgment or defer it to the user. Reproduce the user’s route,

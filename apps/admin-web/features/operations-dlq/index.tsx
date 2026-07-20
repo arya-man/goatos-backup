@@ -1,15 +1,15 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, CheckCircle2, DatabaseZap, Filter, RotateCcw, Search, ShieldAlert, Trash2, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { AlertTriangle, DatabaseZap, Filter, Search, ShieldAlert, Trash2 } from "lucide-react";
 
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
-import { copy, optionGroup, optionLabel, optionTone, tableLabels, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listOutboxDLQ, type OutboxDLQMessage, type OutboxDLQStatus } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dash, fmtDateTime, shortId } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { discardDLQAction, replayDLQAction } from "./actions";
+import { DLQLocalDrawer, type DLQDrawerRecord } from "./dlq-local-drawer";
 
 const PATHNAME = "/operations/dlq";
 const STATUS_KEYS = ["dead_letter", "failed", "discarded"] as const;
@@ -32,9 +32,26 @@ export async function OperationsDLQPage({
 
   const allRows = result.ok ? (result.data.items ?? []) : [];
   const rows = q ? allRows.filter((row) => matchesSearch(row, q)) : allRows;
-  const selected = rows.find((row) => row.outbox_id === one(sp, "dlq_id")) ?? allRows.find((row) => row.outbox_id === one(sp, "dlq_id"));
+  const initialSelectedOutboxId = one(sp, "dlq_id");
   const cols = tableLabels(pageContract, "dlq-events");
-  const returnTo = hrefWithUpdates(sp, {});
+  const closeDrawerHref = hrefWithUpdates(sp, { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null });
+  const drawerRows: DLQDrawerRecord[] = allRows.map((row) => ({
+    outbox_id: row.outbox_id,
+    event_type: row.event_type,
+    status: row.status,
+    event_id: row.event_id,
+    aggregate_type: row.aggregate_type,
+    aggregate_id: row.aggregate_id,
+    idempotency_key: row.idempotency_key,
+    trace_id: row.trace_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    attempt_count: row.attempt_count,
+    replay_count: row.replay_count,
+    last_error: row.last_error,
+    headers: row.headers,
+    payload: row.payload,
+  }));
   const actionKey = one(sp, "action_key");
   const actionStatus = one(sp, "action_status");
 
@@ -145,22 +162,28 @@ export async function OperationsDLQPage({
         </div>
       </section>
 
-      {selected ? <DLQDrawer row={selected} searchParams={sp} pageContract={pageContract} returnTo={returnTo} /> : null}
+      <DLQLocalDrawer
+        rows={drawerRows}
+        pageContract={pageContract}
+        initialSelectedOutboxId={initialSelectedOutboxId}
+        closeHref={closeDrawerHref}
+      />
     </div>
   );
 }
 
 function DLQTableRow({ row, searchParams, pageContract }: { row: OutboxDLQMessage; searchParams: RouteSearchParams; pageContract: AdminUiPageContract }) {
-  const href = hrefWithUpdates(searchParams, { dlq_id: row.outbox_id, action_status: null, action_key: null, action_code: null, updated: null });
+  const closeHref = hrefWithUpdates(searchParams, { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null });
+  const href = `${closeHref}#dlq_id=${encodeURIComponent(row.outbox_id)}`;
   return (
     <tr>
       <td>
-        <Link href={href} className="celllink" scroll={false}>
+        <LocalOverlayLink href={href} className="celllink" scroll={false}>
           <ClipText title={row.event_type} className="strong">
             {row.event_type}
           </ClipText>
           <span className="mt">{shortId(row.event_id)}</span>
-        </Link>
+        </LocalOverlayLink>
       </td>
       <td>
         <ClipText title={row.topic}>{row.topic}</ClipText>
@@ -180,122 +203,6 @@ function DLQTableRow({ row, searchParams, pageContract }: { row: OutboxDLQMessag
   );
 }
 
-function DLQDrawer({
-  row,
-  searchParams,
-  pageContract,
-  returnTo,
-}: {
-  row: OutboxDLQMessage;
-  searchParams: RouteSearchParams;
-  pageContract: AdminUiPageContract;
-  returnTo: string;
-}) {
-  const closeHref = hrefWithUpdates(searchParams, { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null });
-  const statusTone = toneForStatus(row.status, pageContract);
-  const replayAction = repairAction(pageContract, "replay");
-  const discardAction = repairAction(pageContract, "discard");
-  const replayDisabledReason = row.status === "discarded" ? copy(pageContract, "reason.repair_discarded") : replayAction.disabled_reason;
-  const discardDisabledReason = row.status === "discarded" ? copy(pageContract, "reason.repair_discarded") : discardAction.disabled_reason;
-  const replayDisabled = row.status === "discarded" || !replayAction.enabled;
-  const discardDisabled = row.status === "discarded" || !discardAction.enabled;
-  const repairDisabledReason = replayDisabledReason || discardDisabledReason;
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false} style={{ opacity: 1, pointerEvents: "auto" }} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.record.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <DatabaseZap className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "drawer.record.eyebrow")}</div>
-            <h2>{row.event_type}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          <div className="metagrid">
-            <Meta label={copy(pageContract, "label.status")}>
-              <Tag tone={statusTone}>{optionLabel(pageContract, "dlq_status_tabs", row.status)}</Tag>
-            </Meta>
-            <Meta label={copy(pageContract, "label.event_id")}>{row.event_id}</Meta>
-            <Meta label={copy(pageContract, "label.aggregate")}>{row.aggregate_type} · {shortId(row.aggregate_id)}</Meta>
-            <Meta label={copy(pageContract, "label.idempotency_key")}>{row.idempotency_key}</Meta>
-            <Meta label={copy(pageContract, "label.trace")}>{dash(row.trace_id)}</Meta>
-            <Meta label={copy(pageContract, "label.created")}>{fmtDateTime(row.created_at)}</Meta>
-            <Meta label={copy(pageContract, "label.updated")}>{fmtDateTime(row.updated_at)}</Meta>
-            <Meta label={copy(pageContract, "label.attempts")}>{row.attempt_count}</Meta>
-            <Meta label={copy(pageContract, "label.replays")}>{row.replay_count}</Meta>
-          </div>
-          <div className="note" style={{ marginTop: 14 }}>
-            {copy(pageContract, "drawer.record.note")}
-          </div>
-          <div className="helpgrid" style={{ marginTop: 14 }}>
-            <div className="hk">{copy(pageContract, "label.last_error")}</div>
-            <div>{dash(row.last_error)}</div>
-            <div className="hk">{copy(pageContract, "label.headers")}</div>
-            <pre style={preStyle}>{pretty(row.headers)}</pre>
-            <div className="hk">{copy(pageContract, "label.payload")}</div>
-            <pre style={preStyle}>{pretty(row.payload)}</pre>
-          </div>
-          <section className="card" style={{ marginTop: 14 }}>
-            <div className="hd">
-              <RotateCcw className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <h3>{copy(pageContract, "section.repair.title")}</h3>
-            </div>
-            <div className="bd">
-              <form action={replayDLQAction} style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-                <input type="hidden" name="outbox_id" value={row.outbox_id} />
-                <input type="hidden" name="return_to" value={returnTo} />
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{copy(pageContract, "form.reason_label")}</span>
-                  <textarea name="reason" rows={2} placeholder={copy(pageContract, "form.reason_placeholder")} disabled={replayDisabled} />
-                </label>
-                <div className="note">{replayDisabledReason || copy(pageContract, "reason.replay")}</div>
-                <button type="submit" className="btn p" disabled={replayDisabled} aria-disabled={replayDisabled} title={replayDisabledReason}>
-                  <CheckCircle2 className="ic" aria-hidden="true" />
-                  {replayAction.label}
-                </button>
-              </form>
-              <form action={discardDLQAction} style={{ display: "grid", gap: 8 }}>
-                <input type="hidden" name="outbox_id" value={row.outbox_id} />
-                <input type="hidden" name="return_to" value={returnTo} />
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{copy(pageContract, "form.reason_label")}</span>
-                  <textarea name="reason" rows={2} placeholder={copy(pageContract, "form.reason_placeholder")} disabled={discardDisabled} />
-                </label>
-                <div className="note">{discardDisabledReason || copy(pageContract, "reason.discard")}</div>
-                <button type="submit" className="btn" disabled={discardDisabled} aria-disabled={discardDisabled} title={discardDisabledReason}>
-                  <Trash2 className="ic" aria-hidden="true" />
-                  {discardAction.label}
-                </button>
-              </form>
-              {repairDisabledReason ? <div className="note" style={{ marginTop: 10 }}>{repairDisabledReason}</div> : null}
-            </div>
-          </section>
-        </div>
-        <div className="df">
-          <Link href={closeHref} replace className="btn" scroll={false}>
-            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
-  );
-}
-
-function repairAction(pageContract: AdminUiPageContract, key: string): AdminUiOption {
-  const action = optionGroup(pageContract, "dlq_repair_actions").find((item) => item.key === key);
-  if (!action) {
-    throw new Error(`Admin-web page contract ${pageContract.route_id} missing option dlq_repair_actions.${key}`);
-  }
-  return action;
-}
-
 function KPI({ label, value, tone, icon: Icon }: { label: string; value: string; tone: Tone; icon: typeof DatabaseZap }) {
   return (
     <div className="kpi">
@@ -305,15 +212,6 @@ function KPI({ label, value, tone, icon: Icon }: { label: string; value: string;
         {label}
       </div>
       <div className="val">{value}</div>
-    </div>
-  );
-}
-
-function Meta({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <span className="muted small">{label}</span>
-      <b style={{ display: "block", marginTop: 3, overflowWrap: "anywhere" }}>{children}</b>
     </div>
   );
 }
@@ -368,10 +266,6 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
   });
 }
 
-function pretty(value: unknown) {
-  return JSON.stringify(value ?? {}, null, 2);
-}
-
 function accentForTone(toneValue: Tone) {
   switch (toneValue) {
     case "ok":
@@ -390,11 +284,3 @@ function accentForTone(toneValue: Tone) {
       return "#7a8b78";
   }
 }
-
-const preStyle = {
-  margin: 0,
-  whiteSpace: "pre-wrap",
-  overflowWrap: "anywhere",
-  fontSize: 11,
-  lineHeight: 1.5,
-} as const;

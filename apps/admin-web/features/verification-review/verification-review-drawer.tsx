@@ -1,6 +1,13 @@
+"use client";
+
 import Link from "@/components/no-prefetch-link";
+import {
+  currentHistoryEntryIsLocalOverlay,
+  LOCAL_OVERLAY_URL_CHANGE_EVENT,
+  replaceLocalOverlayUrl,
+} from "@/components/local-overlay-link";
 import { ShieldCheck, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
@@ -19,28 +26,143 @@ function statusTone(status: VerificationQueueItem["status"]): Tone {
 }
 
 export function VerificationReviewDrawer({
-  item,
+  items,
+  initialSelectedId,
   positions,
   searchParams,
+  feedback,
+}: {
+  items: VerificationQueueItem[];
+  initialSelectedId?: string;
+  positions: PositionListResponse | null;
+  searchParams: RouteSearchParams;
+  feedback: { status?: string; code?: string };
+}) {
+  const initialItem = items.find((item) => item.item_id === initialSelectedId);
+  const [activeId, setActiveId] = useState(initialItem?.item_id);
+  const [displayedId, setDisplayedId] = useState(initialItem?.item_id);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const openFrameRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const item = items.find((candidate) => candidate.item_id === displayedId);
+  const drawerOpen = Boolean(activeId && item);
+  const closeHref = hrefWithout(searchParams, ["vi_row"]);
+
+  const syncFromUrl = useCallback((): void => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    const id = new URL(window.location.href).searchParams.get("vi_row") ?? undefined;
+    const selected = items.find((candidate) => candidate.item_id === id);
+    if (selected) {
+      triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setActiveId(undefined);
+      setDisplayedId(selected.item_id);
+      openFrameRef.current = window.requestAnimationFrame(() => {
+        setActiveId(selected.item_id);
+        openFrameRef.current = null;
+      });
+      return;
+    }
+    setActiveId(undefined);
+    closeTimerRef.current = window.setTimeout(() => {
+      setDisplayedId(undefined);
+      closeTimerRef.current = null;
+      triggerRef.current?.focus();
+    }, 280);
+  }, [items]);
+
+  useEffect(() => {
+    window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncFromUrl);
+    window.addEventListener("popstate", syncFromUrl);
+    return () => {
+      window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncFromUrl);
+      window.removeEventListener("popstate", syncFromUrl);
+      if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    };
+  }, [syncFromUrl]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [drawerOpen]);
+
+  const closeDrawer = useCallback((): void => {
+    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    setActiveId(undefined);
+    if (currentHistoryEntryIsLocalOverlay()) {
+      window.history.back();
+      return;
+    }
+    replaceLocalOverlayUrl(closeHref);
+  }, [closeHref]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeDrawer();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeDrawer, drawerOpen]);
+
+  if (!item) return null;
+  const scopedPositions: PositionListResponse | null = positions
+    ? { ...positions, items: positions.items.filter((position) => position.scope_type === "center" && position.scope_id === item.park_id) }
+    : null;
+  const returnTo = hrefWithRow(searchParams, item.item_id);
+
+  return (
+    <>
+      <button
+        type="button"
+        className={`scrim${drawerOpen ? " on" : ""}`}
+        aria-label={COPY.drawer.closeLabel}
+        aria-hidden={!drawerOpen}
+        tabIndex={drawerOpen ? 0 : -1}
+        onClick={closeDrawer}
+      />
+      <VerificationReviewDrawerPanel
+        item={item}
+        positions={scopedPositions}
+        returnTo={returnTo}
+        feedback={feedback}
+        open={drawerOpen}
+        onClose={closeDrawer}
+        closeButtonRef={closeButtonRef}
+      />
+    </>
+  );
+}
+
+function VerificationReviewDrawerPanel({
+  item,
+  positions,
   returnTo,
   feedback,
+  open,
+  onClose,
+  closeButtonRef,
 }: {
   item: VerificationQueueItem;
   positions: PositionListResponse | null;
-  searchParams: RouteSearchParams;
   returnTo: string;
   feedback: { status?: string; code?: string };
+  open: boolean;
+  onClose: () => void;
+  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
-  const closeHref = hrefWithout(searchParams, ["vi_row"]);
   const hasTask = Boolean(item.source.task_id);
   const isFlagged = item.status === "rejected";
   const reworkDisabled = !hasTask;
   const reassignDisabled = !hasTask || !positions || positions.items.length === 0;
 
   return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={COPY.drawer.closeLabel} scroll={false} style={{ opacity: 1, pointerEvents: "auto" }} />
-      <aside className="drawer on" aria-label={COPY.drawer.aria}>
+      <aside className={`drawer${open ? " on" : ""}`} aria-label={COPY.drawer.aria} aria-hidden={!open} inert={!open}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
             <ShieldCheck className="ic" aria-hidden="true" />
@@ -52,9 +174,9 @@ export function VerificationReviewDrawer({
             </h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={COPY.drawer.closeLabel} scroll={false}>
+          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={COPY.drawer.closeLabel} onClick={onClose}>
             <X className="ic" />
-          </Link>
+          </button>
         </div>
 
         <div className="dc">
@@ -198,12 +320,11 @@ export function VerificationReviewDrawer({
           <Link href={`/operations/audit?domain=preventive_care&module=${encodeURIComponent(item.module)}`} className="btn" scroll={false}>
             {COPY.action.openAuditLog}
           </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
+          <button type="button" className="btn" onClick={onClose}>
             {COPY.action.close}
-          </Link>
+          </button>
         </div>
       </aside>
-    </>
   );
 }
 
@@ -228,4 +349,18 @@ function hrefWithout(params: RouteSearchParams, exclude: string[]): string {
   }
   const qs = next.toString();
   return qs ? `${PATHNAME}?${qs}` : PATHNAME;
+}
+
+function hrefWithRow(params: RouteSearchParams, itemId: string): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "vi_row" || key === "va_status" || key === "va_code") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) if (item) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  next.set("vi_row", itemId);
+  return `${PATHNAME}?${next.toString()}`;
 }

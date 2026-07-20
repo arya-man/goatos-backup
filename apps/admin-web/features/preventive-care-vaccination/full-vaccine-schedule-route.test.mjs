@@ -6,6 +6,10 @@ const source = readFileSync(
   new URL("./full-vaccine-schedule.tsx", import.meta.url),
   "utf8",
 );
+const drawerSource = readFileSync(
+  new URL("./full-vaccine-schedule-drawer.tsx", import.meta.url),
+  "utf8",
+);
 const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
 const adminUiContractSource = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
 
@@ -18,8 +22,30 @@ test("vaccination full schedule interactions stay inside the vaccination IA", ()
   assert.match(source, /href=\{shedDrawerHref\(row\)\}/);
 });
 
+test("vaccination schedule opens its shed drawer locally and keeps vaccine overflow informational", () => {
+  assert.match(source, /LocalOverlayLink/);
+  assert.match(source, /#schedule_event=/);
+  assert.equal(
+    source.includes('name="schedule_event"'),
+    false,
+    "Opening/searching the shed drawer must not submit route query state.",
+  );
+  assert.equal(
+    /<LocalOverlayLink[^>]*title=\{vaccineTitle\}/.test(source),
+    false,
+    "Vaccine overflow must not open the unrelated shed drawer.",
+  );
+  assert.match(source, /<div className="celllink schedule-wrap-link" title=\{vaccineTitle\}>/);
+});
+
 test("vaccination schedule drawer supports real close and roster drilldown", () => {
-  assert.match(source, /schedule-drawer-close-layer/);
+  assert.match(drawerSource, /schedule-drawer-close-layer/);
+  assert.match(drawerSource, /currentHistoryEntryIsLocalOverlay/);
+  assert.match(drawerSource, /replaceLocalOverlayUrl/);
+  assert.match(drawerSource, /setDrawerOpen\(false\)/);
+  assert.match(drawerSource, /setDisplayedRow\(undefined\)/);
+  assert.match(drawerSource, /}, 280\)/);
+  assert.match(drawerSource, /translateX\(100%\)/);
   assert.match(source, /\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(group\.shedId\)\}/);
   assert.match(source, /drive_due_date/);
   assert.match(source, /shed\.shed_id\s*\?\?\s*shed\.shedId/);

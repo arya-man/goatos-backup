@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "@/components/no-prefetch-link";
+import { useLocalOverlaySelection } from "@/components/local-overlay-link";
+import type { RefObject } from "react";
 import { Syringe, X } from "lucide-react";
 import type {
   VaccinationOperationsCell,
@@ -52,16 +56,66 @@ export type VaccinationRecordContext = {
   cell?: VaccinationOperationsCell | null;
 };
 
-export function VaccinationRecordVerifyDrawer({
-  context,
+export type VaccinationRecordSelection = {
+  id: string;
+  context: VaccinationRecordContext;
+};
+
+function selectionId(selection: VaccinationRecordSelection): string {
+  return selection.id;
+}
+
+export function VaccinationRecordVerifyLocalDrawer({
+  records,
+  selectionKey,
+  initialSelectedId,
   scope,
   closePath = "/vaccination",
   pageContract,
 }: {
-  context: VaccinationRecordContext;
+  records: VaccinationRecordSelection[];
+  selectionKey: string;
+  initialSelectedId?: string;
   scope: Scope;
   closePath?: string;
   pageContract: AdminUiPageContract;
+}) {
+  const closeHref = scopeHref(closePath, scope);
+  const { displayedItem, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+    items: records,
+    itemId: selectionId,
+    selectionKey,
+    initialSelectedId,
+    closeHref,
+  });
+  if (!displayedItem) return null;
+
+  return (
+    <VaccinationRecordVerifyDrawer
+      context={displayedItem.context}
+      scope={scope}
+      pageContract={pageContract}
+      drawerOpen={drawerOpen}
+      closeDrawer={closeDrawer}
+      closeButtonRef={closeButtonRef}
+    />
+  );
+}
+
+function VaccinationRecordVerifyDrawer({
+  context,
+  scope,
+  pageContract,
+  drawerOpen,
+  closeDrawer,
+  closeButtonRef,
+}: {
+  context: VaccinationRecordContext;
+  scope: Scope;
+  pageContract: AdminUiPageContract;
+  drawerOpen: boolean;
+  closeDrawer: () => void;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
 }) {
   const { cohort, protocol, cell } = context;
   const counts = (cell?.counts ?? cohort.counts ?? {}) as Partial<VaccinationOperationsCounts>;
@@ -73,15 +127,21 @@ export function VaccinationRecordVerifyDrawer({
   const cohortLabels = tableLabels(pageContract, "cohort-detail");
   const countChips = optionGroup(pageContract, "obligation_count_chips") as Array<AdminUiOption & { key: CountKey }>;
 
-  const closeHref = scopeHref(closePath, scope);
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: workState });
   const adherenceHref = scopeHref("/protocol-adherence", scope);
   const countFor = (key: CountKey): number => Number(counts[key] ?? 0);
 
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.record_verify.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.record_verify.aria")}>
+      <button
+        type="button"
+        className={`scrim${drawerOpen ? " on" : ""}`}
+        aria-label={copy(pageContract, "drawer.record_verify.close_label")}
+        aria-hidden={!drawerOpen}
+        tabIndex={drawerOpen ? 0 : -1}
+        onClick={closeDrawer}
+      />
+      <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label={copy(pageContract, "drawer.record_verify.aria")} aria-hidden={!drawerOpen} inert={!drawerOpen}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
             <Syringe className="ic" aria-hidden="true" />
@@ -91,9 +151,9 @@ export function VaccinationRecordVerifyDrawer({
             <h2>{copy(pageContract, "drawer.record_verify.title")}</h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.record_verify.close_label")} scroll={false}>
+          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.record_verify.close_label")} onClick={closeDrawer}>
             <X className="ic" />
-          </Link>
+          </button>
         </div>
 
         <div className="dc">
@@ -167,9 +227,9 @@ export function VaccinationRecordVerifyDrawer({
           <Link href={adherenceHref} className="btn" scroll={false}>
             {copy(pageContract, "action.open_protocol_adherence")}
           </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
+          <button type="button" className="btn" onClick={closeDrawer}>
             {copy(pageContract, "action.cancel")}
-          </Link>
+          </button>
         </div>
       </aside>
     </>

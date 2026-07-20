@@ -1,6 +1,7 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { ArrowRight, PackageSearch, Truck, X } from "lucide-react";
+import { ArrowRight, PackageSearch, Truck } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getProcurementLoad, listProcurementLoads } from "@/lib/api/procurement-server";
@@ -12,6 +13,7 @@ import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTitle, option
 import { warmupMeta } from "./work-state";
 import { NewLoadForm } from "./load-forms";
 import { ProcurementPager } from "./pager";
+import { SourceEntryLocalDrawer, type SourceEntryDrawerItem } from "./source-entry-local-drawer";
 import { VaccinationFilterButton, VisibleTableSearch } from "@/features/preventive-care-vaccination";
 
 function daysSince(date: string | null | undefined): number | null {
@@ -174,10 +176,34 @@ export async function SourceEntryBoardPage({
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
   const prevHref = hrefPreviousCursor(pathname, sp);
-  const selectedLoad = selectedLoadId ? loads.find((load) => load.load_id === selectedLoadId) : undefined;
-  const selectedDetail = selectedLoad ? detailByLoad.get(selectedLoad.load_id) : undefined;
   const loadLabels = tableLabels(pageContract, "source-loads");
   const journeyStages = optionGroup(pageContract, "journey_stages");
+  const closeDrawerHref = hrefWithQuery(pathname, sp, { source_load: null });
+  const drawerItems: SourceEntryDrawerItem[] = loads.map((load) => {
+    const detail = detailByLoad.get(load.load_id);
+    return {
+      id: load.load_id,
+      sourceLocation: sourceLocationLabel(load, pageContract),
+      sourceParty: sourcePartyLabel(load),
+      purpose: purposeLabel(detail, pageContract),
+      expectedCount: load.expected_count,
+      goatsInLoad: detail?.goats?.length ?? 0,
+      warmup: warmupCell(load, detail, pageContract),
+      tagging: taggingLabel(detail, load.expected_count),
+      hfVaccination: hfVaccinationLabel(detail, pageContract),
+      healthSelection: healthSelectionLabel(load.status, pageContract),
+      status: {
+        label: optionLabel(pageContract, "source_load_status", load.status),
+        tone: contractTone(pageContract, "source_load_status", load.status),
+      },
+      detailHref: hrefWithQuery(`/procurement/source-entry/loads/${encodeURIComponent(load.load_id)}`, sp, {
+        source_load: null,
+        cursor: null,
+        cursor_stack: null,
+        page: null,
+      }),
+    };
+  });
 
   // Status filter resets the cursor/page (a new filter starts a fresh first page).
   function statusHref(status: ProcurementLoadStatus | "all"): string {
@@ -300,54 +326,54 @@ export async function SourceEntryBoardPage({
                   return (
                     <tr key={load.load_id}>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <span className="gid">{shortId(load.load_id)}</span>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <b>{sourceLocationLabel(load, pageContract)}</b>
                           <div className="muted small">{copy(pageContract, "label.supplier_prefix")} {sourcePartyLabel(load)}</div>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={purpose === copy(pageContract, "label.placeholder") || purpose === optionLabel(pageContract, "proc_purpose", "fattening") ? "mut" : "ok"}>{purpose}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           {load.expected_count}
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={warmup.tone}>{warmup.label}</Tag>
                           <div className="muted small" title={warmup.note}>
                             {load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}
                           </div>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone="mut">{taggingLabel(detail, load.expected_count)}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={healthSelection.tone}>{healthSelection.label}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={drawerHref} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
                           <ArrowRight className="ic" style={{ width: 13, flexShrink: 0, marginLeft: 6 }} aria-hidden="true" />
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                     </tr>
                   );
@@ -360,110 +386,13 @@ export async function SourceEntryBoardPage({
 	          <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun={loadLabels[0].toLowerCase()} />
         ) : null}
       </section>
-      {selectedLoad ? (
-        <SourceLoadDrawer
-          load={selectedLoad}
-          detail={selectedDetail}
-          closeHref={hrefWithQuery(pathname, sp, { source_load: null })}
-	          detailHref={hrefWithQuery(`/procurement/source-entry/loads/${encodeURIComponent(selectedLoad.load_id)}`, sp, {
-            source_load: null,
-            cursor: null,
-            cursor_stack: null,
-            page: null,
-	          })}
-	          pageContract={pageContract}
-	        />
-      ) : null}
+      <SourceEntryLocalDrawer
+        items={drawerItems}
+        initialSelectedId={selectedLoadId}
+        closeHref={closeDrawerHref}
+        loadLabels={loadLabels}
+        pageContract={pageContract}
+      />
     </div>
-  );
-}
-
-function SourceLoadDrawer({
-  load,
-  detail,
-  closeHref,
-  detailHref,
-  pageContract,
-}: {
-  load: ProcurementLoad;
-  detail: ProcurementLoadDetail | undefined;
-  closeHref: string;
-  detailHref: string;
-  pageContract: AdminUiPageContract;
-}) {
-  const healthSelection = healthSelectionLabel(load.status, pageContract);
-  const hfVaccination = hfVaccinationLabel(detail, pageContract);
-  const warmup = warmupCell(load, detail, pageContract);
-  const purpose = purposeLabel(detail, pageContract);
-  const goatsInLoad = detail?.goats?.length ?? 0;
-  const loadLabels = tableLabels(pageContract, "source-loads");
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.load.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.load.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
-            <PackageSearch className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "drawer.load.eyebrow")}</div>
-            <h2>{copy(pageContract, "drawer.load.title_prefix")} — {sourceLocationLabel(load, pageContract)}</h2>
-            <div className="muted small" style={{ marginTop: 3 }}>
-              {sourcePartyLabel(load)} · {purpose}
-            </div>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.load.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          <div className="helpgrid">
-            <div className="hk">{loadLabels[0]}</div>
-            <div>{shortId(load.load_id)}</div>
-            <div className="hk">{copy(pageContract, "drawer.load.supplier")}</div>
-            <div>{sourcePartyLabel(load)}</div>
-            <div className="hk">{copy(pageContract, "drawer.load.holding_farm")}</div>
-            <div>{sourceLocationLabel(load, pageContract)}</div>
-            <div className="hk">{copy(pageContract, "drawer.load.expected_animals")}</div>
-            <div>{load.expected_count}</div>
-            <div className="hk">{copy(pageContract, "drawer.load.goats_in_load")}</div>
-            <div>{goatsInLoad}</div>
-            <div className="hk">{loadLabels[4]}</div>
-            <div>
-              <Tag tone={warmup.tone}>{warmup.label}</Tag>
-            </div>
-            <div className="hk">{loadLabels[5]}</div>
-            <div>
-              <Tag tone="mut">{taggingLabel(detail, load.expected_count)}</Tag>
-            </div>
-            <div className="hk">{loadLabels[6]}</div>
-            <div>
-              <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>
-            </div>
-            <div className="hk">{loadLabels[7]}</div>
-            <div>
-              <Tag tone={healthSelection.tone}>{healthSelection.label}</Tag>
-            </div>
-            <div className="hk">{loadLabels[8]}</div>
-            <div>
-              <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
-            </div>
-          </div>
-	          <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.load.note")}</div>
-        </div>
-        <div className="df">
-          <Link href={detailHref} className="btn p">
-	            {copy(pageContract, "action.open_load_actions")}
-          </Link>
-          <Link href={`${detailHref}#hf-evidence`} className="btn">
-	            {copy(pageContract, "action.record_hf_evidence")}
-          </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
-	            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
   );
 }

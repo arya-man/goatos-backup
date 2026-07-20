@@ -1,6 +1,7 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { Syringe, X } from "lucide-react";
+import { Syringe } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
 import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -9,6 +10,7 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
 import { ClipText, Tag } from "@/components/ui-primitives";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { ProtocolAdherenceLocalDrawer, type ProtocolAdherenceDrawerRecord } from "./protocol-adherence-local-drawer";
 
 type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
 const accentVar: Record<Tone4, string> = {
@@ -193,8 +195,7 @@ export async function ProtocolAdherencePage({
     }));
   }
   const ledgerLabels = adherenceLedgerLabels(pageContract);
-  const selectedRowId = one(sp, "adh_row");
-  const selectedRow = selectedRowId ? rows.find((row) => row.row_id === selectedRowId) : undefined;
+  const initialSelectedRowId = one(sp, "adh_row");
 
   // Filter links preserve the full top-bar scope (scopeHref) + the page severity filter.
   // Filter/page-size changes reset to page 1 and drop the cursor stack (keyset restart).
@@ -218,9 +219,22 @@ export async function ProtocolAdherencePage({
     return hrefWith({ adh_page: "1", adh_limit: String(pageSize), adh_cursor: undefined, adh_cursor_stack: undefined });
   }
   const closeDrawerHref = hrefWith({ adh_row: undefined });
-  const rowDrawerHref = (row: AdherenceRow) => hrefWith({ adh_row: row.row_id });
+  const rowDrawerHref = (row: AdherenceRow) => `${closeDrawerHref}#adh_row=${encodeURIComponent(row.row_id)}`;
   const workflowHref = (row: AdherenceRow) =>
     scopeHref(`/workflows/${encodeURIComponent(row.row_id)}`, scope, {}, { from: "protocol-adherence" });
+  const drawerRecords: ProtocolAdherenceDrawerRecord[] = rows.map((row) => {
+    const expected = readableAdherenceExpected(pageContract, row.expected);
+    return {
+      row,
+      expectedTitle: expected.title,
+      expectedDetail: expected.detail,
+      actual: readableAdherenceActual(pageContract, row.actual),
+      gap: gapLabel(pageContract, row),
+      owner: ownerOf(pageContract, row),
+      workflowHref: workflowHref(row),
+      actionCenterHref: scopeHref("/action-center", scope, {}, { ac_row: row.row_id }),
+    };
+  });
 
   return (
     <div className="screen on">
@@ -336,44 +350,44 @@ export async function ProtocolAdherencePage({
                   return (
                     <tr key={row.row_id}>
                       <td>
-                        <Link href={href} className="celllink" scroll={false} title={row.expected}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false} title={row.expected}>
                           <ClipText title={expected.title} className="strong">
                             {expected.title}
                           </ClipText>
                           <span className="mt">{expected.detail}</span>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-                        <Link href={href} className="celllink" scroll={false} title={row.actual}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false} title={row.actual}>
                           <ClipText title={actual}>{actual}</ClipText>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
 	                          <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
 	                          <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td className="muted">
-	                        <Link href={href} className="celllink" scroll={false} title={ownerOf(pageContract, row)}>
+	                        <LocalOverlayLink href={href} className="celllink" scroll={false} title={ownerOf(pageContract, row)}>
 	                          <ClipText title={ownerOf(pageContract, row)}>{ownerOf(pageContract, row)}</ClipText>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false} title={row.next_action}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false} title={row.next_action}>
                           <ClipText title={row.next_action} className="lk small">
                             {row.next_action} →
                           </ClipText>
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                       <td>
-                        <Link href={href} className="celllink" scroll={false}>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
 	                          <EvidenceCell evidence={row.evidence} pageContract={pageContract} />
-                        </Link>
+                        </LocalOverlayLink>
                       </td>
                     </tr>
                   );
@@ -408,111 +422,13 @@ export async function ProtocolAdherencePage({
 	        {copy(pageContract, "note.computation.tail")}
       </div>
 
-      {selectedRow ? (
-        <AdherenceRecordDrawer
-          row={selectedRow}
-          closeHref={closeDrawerHref}
-          workflowHref={workflowHref(selectedRow)}
-	          actionCenterHref={scopeHref("/action-center", scope, {}, { ac_row: selectedRow.row_id })}
-	          pageContract={pageContract}
-	        />
-      ) : null}
+      <ProtocolAdherenceLocalDrawer
+        records={drawerRecords}
+        ledgerLabels={ledgerLabels}
+        closeHref={closeDrawerHref}
+        initialSelectedRowId={initialSelectedRowId}
+        pageContract={pageContract}
+      />
     </div>
-  );
-}
-
-// Row-click RECORD drawer (mock #recordDrawer anatomy): the adherence row's Expected → Actual → Gap →
-// Severity → Owner → Next action → Evidence as a 2-col metagrid, with links out to the act surfaces.
-// Adherence is a computed read projection — there is no Edit/Status/Void here; the real actions live in
-// the Workflow record and Action Center, which this drawer links to.
-function AdherenceRecordDrawer({
-  row,
-  closeHref,
-  workflowHref,
-  actionCenterHref,
-  pageContract,
-}: {
-  row: AdherenceRow;
-  closeHref: string;
-  workflowHref: string;
-  actionCenterHref: string;
-  pageContract: AdminUiPageContract;
-}) {
-  const expected = readableAdherenceExpected(pageContract, row.expected);
-  const actual = readableAdherenceActual(pageContract, row.actual);
-  return (
-    <>
-      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false} />
-      <aside className="drawer on" aria-label={copy(pageContract, "drawer.record.aria")}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <Syringe className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "drawer.record.eyebrow")}</div>
-            <h2>{expected.title}</h2>
-            <div className="mt">{expected.detail}</div>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false}>
-            <X className="ic" />
-          </Link>
-        </div>
-        <div className="dc">
-          <div className="metagrid">
-            <div>
-              <div className="k">{adherenceLedgerLabels(pageContract)[0]}</div>
-              <div className="v">{expected.title}</div>
-              <div className="mt">{row.expected}</div>
-            </div>
-            <div>
-              <div className="k">{adherenceLedgerLabels(pageContract)[1]}</div>
-              <div className="v">{actual}</div>
-            </div>
-            <div>
-              <div className="k">{adherenceLedgerLabels(pageContract)[2]}</div>
-              <div className="v">
-                <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
-              </div>
-            </div>
-            <div>
-              <div className="k">{adherenceLedgerLabels(pageContract)[3]}</div>
-              <div className="v">
-                <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>
-              </div>
-            </div>
-            <div>
-              <div className="k">{adherenceLedgerLabels(pageContract)[4]}</div>
-              <div className="v">{ownerOf(pageContract, row)}</div>
-            </div>
-            <div>
-              <div className="k">{adherenceLedgerLabels(pageContract)[5]}</div>
-              <div className="v">{row.next_action}</div>
-            </div>
-            <div>
-              <div className="k">{adherenceLedgerLabels(pageContract)[6]}</div>
-              <div className="v">
-                <EvidenceCell evidence={row.evidence} pageContract={pageContract} />
-              </div>
-            </div>
-          </div>
-          <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.record.note")}</div>
-        </div>
-        <div className="df">
-          <Link href={workflowHref} className="btn p">
-            {row.next_action}
-          </Link>
-          <Link href={actionCenterHref} className="btn">
-            {copy(pageContract, "action.open_action_center")}
-          </Link>
-          <Link href={workflowHref} className="btn">
-            {copy(pageContract, "action.workflow_record")}
-          </Link>
-          <Link href={closeHref} replace className="btn" scroll={false}>
-            {copy(pageContract, "action.close")}
-          </Link>
-        </div>
-      </aside>
-    </>
   );
 }
