@@ -53,6 +53,15 @@ WITH duplicate_rows AS (
 DELETE FROM public.outbox_messages
 WHERE outbox_id IN (SELECT outbox_id FROM duplicate_rows);
 
+-- ROOT-CAUSE FIX for R50-015 P0: Before attempting CREATE, drop any leftover INVALID index from
+-- a prior failed attempt. If a prior CREATE INDEX CONCURRENTLY failed partway, Postgres leaves an
+-- INVALID index. On retry, CREATE ... IF NOT EXISTS sees the invalid index "exists" and skips
+-- rebuilding, then DROP removes the working OLD index, leaving the table with ONLY an invalid
+-- unique index that breaks all writes. Dropping the invalid _v2 first ensures it will be properly
+-- rebuilt, and ensures a valid target exists before we drop the old index. Idempotent: noop if _v2
+-- doesn't exist.
+DROP INDEX CONCURRENTLY IF EXISTS outbox_messages_verification_idempotency_idx_v2;
+
 -- Create the NEW unique index CONCURRENTLY with the widened predicate. Using a distinct name (_v2)
 -- to avoid naming conflict with the old index during the transition. ON CONFLICT (tenant_id, idempotency_key)
 -- will find either index on these columns; once the new one is live, writers are safe.
@@ -109,6 +118,15 @@ WITH duplicate_rows AS (
 )
 DELETE FROM public.obligation_status_events
 WHERE obligation_event_id IN (SELECT obligation_event_id FROM duplicate_rows);
+
+-- ROOT-CAUSE FIX for R50-015 P0: Before attempting CREATE, drop any leftover INVALID index from
+-- a prior failed attempt. If a prior CREATE INDEX CONCURRENTLY failed partway, Postgres leaves an
+-- INVALID index. On retry, CREATE ... IF NOT EXISTS sees the invalid index "exists" and skips
+-- rebuilding, then DROP removes the working OLD index, leaving the table with ONLY an invalid
+-- unique index that breaks all writes. Dropping the invalid _v2 first ensures it will be properly
+-- rebuilt, and ensures a valid target exists before we drop the old index. Idempotent: noop if _v2
+-- doesn't exist.
+DROP INDEX CONCURRENTLY IF EXISTS obligation_status_events_idempotency_idx_v2;
 
 -- Create the new UNIQUE index CONCURRENTLY using a distinct name (_v2) to avoid naming conflict
 -- with the old (non-unique) index. ON CONFLICT (tenant_id, idempotency_key) will find the unique
