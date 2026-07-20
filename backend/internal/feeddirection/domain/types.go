@@ -132,6 +132,13 @@ type PreviewQuery struct {
 	ShedID string
 	// SessionNo optionally narrows to a single feeding session. Zero means every session.
 	SessionNo int32
+	// Workflow optionally narrows the served issue to one dispatch workflow (normal | experiment).
+	// Empty means both -- the read path unions the park-day's issues.
+	Workflow string
+	// Draft, when true, LIVE-COMPUTES a what-if sheet WITHOUT reading or writing any issue. It is the
+	// only path that may live-compute, and the response is stamped Draft so it is never mistaken for
+	// an issued sheet. It exists so someone tuning ration rates can preview the effect before issue.
+	Draft bool
 	// Limit and Offset page the SHED set, never the grain set -- see the paging note on
 	// PreviewPage.
 	Limit  int32
@@ -143,8 +150,12 @@ type PackingQuery struct {
 	TenantID   string
 	ParkID     string
 	TargetDate time.Time
-	Limit      int32
-	Offset     int32
+	// Workflow optionally narrows the served issue to one dispatch workflow. Empty means both.
+	Workflow string
+	// Draft live-computes the worklist without touching any issue. See PreviewQuery.Draft.
+	Draft  bool
+	Limit  int32
+	Offset int32
 }
 
 // ---------------------------------------------------------------------------
@@ -263,12 +274,19 @@ type DirectionRow struct {
 // the reader pages sheds first and then fetches every grain for exactly those sheds in one batched
 // read.
 type PreviewPage struct {
-	Items      []DirectionRow `json:"items"`
-	Summary    PreviewSummary `json:"summary"`
-	TargetDate string         `json:"target_date"`
-	Limit      int32          `json:"limit"`
-	Offset     int32          `json:"offset"`
-	HasMore    bool           `json:"has_more"`
+	Items   []DirectionRow `json:"items"`
+	Summary PreviewSummary `json:"summary"`
+	// Lifecycle reports whether the served sheet was issued/amended/locked, or is pending/not_issued
+	// (nothing frozen yet), or draft (live what-if). It is what tells a client this is a FROZEN
+	// artifact rather than a live computation. Always present.
+	Lifecycle Lifecycle `json:"lifecycle"`
+	// Draft is true only for the deliberate live-compute escape hatch (draft=true). An issued,
+	// amended, locked, pending or not_issued response is never draft.
+	Draft      bool   `json:"draft"`
+	TargetDate string `json:"target_date"`
+	Limit      int32  `json:"limit"`
+	Offset     int32  `json:"offset"`
+	HasMore    bool   `json:"has_more"`
 }
 
 // SummaryScopeFiltered is the only scope this module reports.
@@ -414,10 +432,13 @@ const (
 // operator uses to know how much of each feed to draw from the store before walking the park, so a
 // page-scoped figure here would send them out with a fraction of the load.
 type PackingPage struct {
-	Items      []PackingRow   `json:"items"`
-	Summary    PackingSummary `json:"summary"`
-	TargetDate string         `json:"target_date"`
-	Limit      int32          `json:"limit"`
-	Offset     int32          `json:"offset"`
-	HasMore    bool           `json:"has_more"`
+	Items   []PackingRow   `json:"items"`
+	Summary PackingSummary `json:"summary"`
+	// Lifecycle and Draft carry the same issue-state metadata as PreviewPage.
+	Lifecycle  Lifecycle `json:"lifecycle"`
+	Draft      bool      `json:"draft"`
+	TargetDate string    `json:"target_date"`
+	Limit      int32     `json:"limit"`
+	Offset     int32     `json:"offset"`
+	HasMore    bool      `json:"has_more"`
 }

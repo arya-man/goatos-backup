@@ -1870,9 +1870,54 @@ export interface components {
             /** @description Distinct sheds carrying at least one blocked cell, i.e. sheds at risk of going unfed. */
             blocked_shed_count: number;
         };
+        FeedDirectionWorkflowLifecycle: {
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /**
+             * @description This workflow's issue state. issued/amended/locked describe a FROZEN sheet; pending/not_issued mean nothing was issued for this workflow (see `expected_issue_at`).
+             * @enum {string}
+             */
+            state: "issued" | "amended" | "locked" | "pending" | "not_issued";
+            /**
+             * Format: date-time
+             * @description When the sheet was issued (Asia/Kolkata). Absent until issued.
+             */
+            issued_at?: string;
+            /** Format: date-time */
+            amended_at?: string;
+            /** Format: date-time */
+            locked_at?: string;
+            amendment_count: number;
+            /**
+             * Format: date-time
+             * @description Set on pending/not_issued: the instant this workflow's sheet is (or was) due to be issued -- the direction_time on the day before the feed day. Lets the UI say "issued <D-1> at <time> IST" instead of showing a speculative number.
+             */
+            expected_issue_at?: string;
+        };
+        FeedDirectionLifecycle: {
+            /**
+             * @description The aggregate lifecycle of the served park-day, the LEAST-ADVANCED state among its workflows (issued < amended < locked): a park-day is never "locked" while a workflow is still merely issued. `pending` = nothing issued yet and every workflow is still before its issue instant; `not_issued` = the issue instant passed with nothing issued; `draft` = a live what-if (draft=true), never a frozen sheet.
+             * @enum {string}
+             */
+            state: "issued" | "amended" | "locked" | "pending" | "not_issued" | "draft";
+            /** Format: date-time */
+            issued_at?: string;
+            /** Format: date-time */
+            amended_at?: string;
+            /** Format: date-time */
+            locked_at?: string;
+            /** @description Total amendments across the park-day's workflows. */
+            amendment_count: number;
+            /** @description Operator sentence, most useful for pending/not_issued. */
+            message?: string;
+            workflows: components["schemas"]["FeedDirectionWorkflowLifecycle"][];
+        };
         FeedDirectionPreviewPage: {
             items: components["schemas"]["FeedDirectionRow"][];
             summary: components["schemas"]["FeedDirectionPreviewSummary"];
+            lifecycle: components["schemas"]["FeedDirectionLifecycle"];
+            /** @description True only for the deliberate live-compute escape hatch (draft=true). An issued, amended, locked, pending or not_issued response is never draft. */
+            draft: boolean;
             /** Format: date */
             target_date: string;
             /** @description Page size in SHEDS. */
@@ -1931,6 +1976,9 @@ export interface components {
         FeedPackingWorklistPage: {
             items: components["schemas"]["FeedPackingRow"][];
             summary: components["schemas"]["FeedPackingWorklistSummary"];
+            lifecycle: components["schemas"]["FeedDirectionLifecycle"];
+            /** @description True only for the deliberate live-compute escape hatch (draft=true). */
+            draft: boolean;
             /** Format: date */
             target_date: string;
             limit: number;
@@ -6377,6 +6425,10 @@ export interface operations {
                 shed_id?: string;
                 /** @description Narrow to one feeding session number. Absent means every session. Narrowing does NOT rescale: the morning batch stays the morning batch. */
                 session?: number;
+                /** @description Narrow the served issue to one dispatch workflow. Absent unions both (normal packing + hand-entered experiment sheds), which is the whole park-day's sheet. An unrecognised value is rejected rather than silently widened. */
+                workflow?: "normal" | "experiment";
+                /** @description The ONLY live-compute path. `draft=true` returns a live what-if sheet computed from the CURRENT herd + config WITHOUT reading or writing any issue, for tuning ration rates before the sheet is issued. The response carries `draft: true` and `lifecycle.state: draft` so a what-if can never be mistaken for a frozen issued sheet. Absent/false serves the frozen issued sheet (or its pending/never-issued state). */
+                draft?: boolean;
                 /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
                 limit?: components["parameters"]["FeedDirectionLimit"];
                 /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
@@ -6388,7 +6440,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One page of generated direction rows plus the page-scoped summary. */
+            /** @description One page of the FROZEN issued sheet plus its lifecycle, OR (when nothing is issued yet) an explicit pending/never-issued state, OR (draft=true) a live what-if. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6410,6 +6462,10 @@ export interface operations {
                 park_id: string;
                 /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
                 target_date: string;
+                /** @description Narrow the served issue to one dispatch workflow. Absent unions both. See the preview. */
+                workflow?: "normal" | "experiment";
+                /** @description The only live-compute path; see the preview's `draft`. Absent/false serves the frozen issued worklist (or its pending/never-issued state). */
+                draft?: boolean;
                 /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
                 limit?: components["parameters"]["FeedDirectionLimit"];
                 /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
@@ -6421,7 +6477,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One page of packing lines. */
+            /** @description One page of the FROZEN issued worklist plus its lifecycle, its pending/never-issued state, or (draft=true) a live what-if. */
             200: {
                 headers: {
                     [name: string]: unknown;

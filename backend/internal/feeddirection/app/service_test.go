@@ -162,7 +162,7 @@ func TestPreviewIssuesAConstantNumberOfReadsRegardlessOfPageSize(t *testing.T) {
 	t.Parallel()
 	service, config, counts := newTestService()
 
-	page, err := service.Preview(context.Background(), domain.PreviewQuery{
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID:   testTenant,
 		ParkID:     testPark,
 		TargetDate: targetDate(),
@@ -197,7 +197,7 @@ func TestPagingBySheDKeepsEachShedsGrainsWhole(t *testing.T) {
 	service, _, _ := newTestService()
 	ctx := context.Background()
 
-	first, err := service.Preview(ctx, domain.PreviewQuery{
+	first, err := service.Preview(ctx, domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 1,
 	})
 	if err != nil {
@@ -220,7 +220,7 @@ func TestPagingBySheDKeepsEachShedsGrainsWhole(t *testing.T) {
 		t.Fatal("page 1 first row total is zero; a split shed would look like this")
 	}
 
-	second, err := service.Preview(ctx, domain.PreviewQuery{
+	second, err := service.Preview(ctx, domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 1, Offset: 1,
 	})
 	if err != nil {
@@ -251,7 +251,7 @@ func TestPreviewSummaryIsInvariantToPageSize(t *testing.T) {
 
 	summaries := make([]domain.PreviewSummary, 0, 3)
 	for _, limit := range []int32{1, 2, 50} {
-		page, err := service.Preview(context.Background(), domain.PreviewQuery{
+		page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 			TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: limit,
 		})
 		if err != nil {
@@ -317,7 +317,7 @@ func TestPackingSummaryIsInvariantToPageSize(t *testing.T) {
 
 	summaries := make([]domain.PackingSummary, 0, 3)
 	for _, limit := range []int32{1, 2, 50} {
-		page, err := service.PackingWorklist(context.Background(), domain.PackingQuery{
+		page, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
 			TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: limit,
 		})
 		if err != nil {
@@ -361,7 +361,7 @@ func TestSummaryTotalsEqualTheSumOfEveryPagedRow(t *testing.T) {
 	t.Parallel()
 	service, _, _ := newTestService()
 
-	unpaged, err := service.Preview(context.Background(), domain.PreviewQuery{
+	unpaged, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	})
 	if err != nil {
@@ -372,7 +372,7 @@ func TestSummaryTotalsEqualTheSumOfEveryPagedRow(t *testing.T) {
 	byItem := map[string]int64{}
 	rows := 0
 	for offset := int32(0); ; offset++ {
-		page, err := service.Preview(context.Background(), domain.PreviewQuery{
+		page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 			TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 1, Offset: offset,
 		})
 		if err != nil {
@@ -412,7 +412,7 @@ func TestShedFilterNarrowsToOneShed(t *testing.T) {
 	t.Parallel()
 	service, config, _ := newTestService()
 
-	page, err := service.Preview(context.Background(), domain.PreviewQuery{
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), ShedID: shedB,
 	})
 	if err != nil {
@@ -441,7 +441,7 @@ func TestTargetDateIsResolvedInAsiaKolkataNotUTC(t *testing.T) {
 
 	// 2026-07-19T20:00:00Z is 2026-07-20 01:30 IST.
 	instant := time.Date(2026, 7, 19, 20, 0, 0, 0, time.UTC)
-	page, err := service.Preview(context.Background(), domain.PreviewQuery{
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: instant,
 	})
 	if err != nil {
@@ -476,36 +476,36 @@ func TestQueryValidationFailsClosed(t *testing.T) {
 	}{
 		{
 			name:  "missing tenant",
-			query: domain.PreviewQuery{ParkID: testPark, TargetDate: targetDate()},
+			query: domain.PreviewQuery{Draft: true, ParkID: testPark, TargetDate: targetDate()},
 			want:  ports.ErrParkRequired,
 		},
 		{
 			// The ration grid, the session split and the dispatch clock are ALL park-scoped, so a
 			// tenant-wide generation would mix two parks' rations into one document.
 			name:  "missing park",
-			query: domain.PreviewQuery{TenantID: testTenant, TargetDate: targetDate()},
+			query: domain.PreviewQuery{Draft: true, TenantID: testTenant, TargetDate: targetDate()},
 			want:  ports.ErrParkRequired,
 		},
 		{
 			name:  "missing target date",
-			query: domain.PreviewQuery{TenantID: testTenant, ParkID: testPark},
+			query: domain.PreviewQuery{Draft: true, TenantID: testTenant, ParkID: testPark},
 			want:  ports.ErrInvalidTargetDate,
 		},
 		{
 			// A present-but-invalid paging value is REJECTED, never clamped to a default the caller
 			// never asked for.
 			name:  "limit above the bound",
-			query: domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: MaxShedPageLimit + 1},
+			query: domain.PreviewQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: MaxShedPageLimit + 1},
 			want:  ports.ErrInvalidPaging,
 		},
 		{
 			name:  "negative limit",
-			query: domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: -1},
+			query: domain.PreviewQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: -1},
 			want:  ports.ErrInvalidPaging,
 		},
 		{
 			name:  "offset above the bound",
-			query: domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Offset: MaxShedPageOffset + 1},
+			query: domain.PreviewQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Offset: MaxShedPageOffset + 1},
 			want:  ports.ErrInvalidPaging,
 		},
 	}
@@ -528,7 +528,7 @@ func TestQueryValidationFailsClosed(t *testing.T) {
 func TestAbsentLimitTakesTheDeclaredDefault(t *testing.T) {
 	t.Parallel()
 	service, _, _ := newTestService()
-	page, err := service.Preview(context.Background(), domain.PreviewQuery{
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	})
 	if err != nil {
@@ -548,7 +548,7 @@ func TestRepositoryErrorsPropagateRatherThanReturningAnEmptyPage(t *testing.T) {
 	sentinel := errors.New("boom")
 	config := &fakeConfigRepo{err: sentinel}
 	service := NewService(config, &fakeCountsReader{}).WithNowFunc(func() time.Time { return targetDate() })
-	if _, err := service.Preview(context.Background(), domain.PreviewQuery{
+	if _, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	}); !errors.Is(err, sentinel) {
 		t.Fatalf("err = %v, want the repository error to propagate", err)
@@ -559,7 +559,7 @@ func TestParkNotFoundPropagates(t *testing.T) {
 	t.Parallel()
 	config := &fakeConfigRepo{err: ports.ErrParkNotFound}
 	service := NewService(config, &fakeCountsReader{}).WithNowFunc(func() time.Time { return targetDate() })
-	if _, err := service.Preview(context.Background(), domain.PreviewQuery{
+	if _, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	}); !errors.Is(err, ports.ErrParkNotFound) {
 		t.Fatalf("err = %v, want ErrParkNotFound", err)
@@ -578,13 +578,13 @@ func TestPackingWorklistAgreesWithThePreviewExactly(t *testing.T) {
 	service, _, _ := newTestService()
 	ctx := context.Background()
 
-	preview, err := service.Preview(ctx, domain.PreviewQuery{
+	preview, err := service.Preview(ctx, domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	})
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	packing, err := service.PackingWorklist(ctx, domain.PackingQuery{
+	packing, err := service.PackingWorklist(ctx, domain.PackingQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	})
 	if err != nil {
@@ -625,7 +625,7 @@ func TestPackingWorklistAgreesWithThePreviewExactly(t *testing.T) {
 func TestPackingWorklistPagesByShedToo(t *testing.T) {
 	t.Parallel()
 	service, _, _ := newTestService()
-	page, err := service.PackingWorklist(context.Background(), domain.PackingQuery{
+	page, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 1,
 	})
 	if err != nil {
@@ -658,16 +658,18 @@ func kgToGrams(t *testing.T, kg string) int64 {
 }
 
 // TestPreviewRejectsPastBusinessDate is the P1 follow-up interim safety test: until an immutable
-// per-park/date config+count snapshot exists (see ports.ErrPastDateRegenerationBlocked), Preview
-// and PackingWorklist must REJECT a target date before "today" rather than silently recomputing
-// that historical day's direction from today's live herd/experiment/shed-scope state.
+// per-park/date config+count snapshot exists (see ports.ErrPastDateRegenerationBlocked), the
+// LIVE-COMPUTE (Draft) path of Preview and PackingWorklist must REJECT a target date before "today"
+// rather than silently recomputing that historical day's direction from today's live
+// herd/experiment/shed-scope state. The serve path (Draft=false) is unaffected: it reads the frozen
+// issued sheet, so a past feed day is served, not regenerated.
 func TestPreviewRejectsPastBusinessDate(t *testing.T) {
 	t.Parallel()
 	service, _, _ := newTestService()
 	// "Today" is pinned to targetDate() by newTestService; a day before it must be rejected.
 	pastDate := targetDate().AddDate(0, 0, -1)
 
-	_, err := service.Preview(context.Background(), domain.PreviewQuery{
+	_, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: pastDate,
 	})
 	if !errors.Is(err, ports.ErrPastDateRegenerationBlocked) {
@@ -676,13 +678,14 @@ func TestPreviewRejectsPastBusinessDate(t *testing.T) {
 }
 
 // TestPackingWorklistRejectsPastBusinessDate is the PackingWorklist twin of the Preview guard
-// above -- both surfaces recompute from the same live state, so both must reject the same way.
+// above -- both live-compute (Draft) surfaces recompute from the same live state, so both must
+// reject the same way.
 func TestPackingWorklistRejectsPastBusinessDate(t *testing.T) {
 	t.Parallel()
 	service, _, _ := newTestService()
 	pastDate := targetDate().AddDate(0, 0, -1)
 
-	_, err := service.PackingWorklist(context.Background(), domain.PackingQuery{
+	_, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
 		TenantID: testTenant, ParkID: testPark, TargetDate: pastDate,
 	})
 	if !errors.Is(err, ports.ErrPastDateRegenerationBlocked) {
@@ -691,7 +694,7 @@ func TestPackingWorklistRejectsPastBusinessDate(t *testing.T) {
 }
 
 // TestPreviewAllowsTodayAndFutureBusinessDate proves the guard is scoped to STRICTLY-past dates:
-// generating today's or a future day's direction is the normal, allowed operation.
+// live-computing (Draft) today's or a future day's direction is the normal, allowed operation.
 func TestPreviewAllowsTodayAndFutureBusinessDate(t *testing.T) {
 	t.Parallel()
 	service, _, _ := newTestService()
@@ -703,7 +706,7 @@ func TestPreviewAllowsTodayAndFutureBusinessDate(t *testing.T) {
 		{"today", targetDate()},
 		{"future", targetDate().AddDate(0, 0, 3)},
 	} {
-		if _, err := service.Preview(context.Background(), domain.PreviewQuery{
+		if _, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
 			TenantID: testTenant, ParkID: testPark, TargetDate: tc.date,
 		}); err != nil {
 			t.Fatalf("Preview(%s) unexpected error: %v", tc.name, err)

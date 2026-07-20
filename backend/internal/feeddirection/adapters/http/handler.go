@@ -83,6 +83,8 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		TargetDate: targetDate,
 		ShedID:     strings.TrimSpace(query.Get("shed_id")),
 		SessionNo:  sessionNo,
+		Workflow:   strings.TrimSpace(query.Get("workflow")),
+		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
 	})
@@ -122,6 +124,8 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		TenantID:   tenantID,
 		ParkID:     strings.TrimSpace(query.Get("park_id")),
 		TargetDate: targetDate,
+		Workflow:   strings.TrimSpace(query.Get("workflow")),
+		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
 	})
@@ -140,6 +144,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, "park not found", nil)
 	case errors.Is(err, ports.ErrParkRequired),
 		errors.Is(err, ports.ErrInvalidTargetDate),
+		errors.Is(err, ports.ErrInvalidWorkflow),
 		errors.Is(err, ports.ErrInvalidPaging):
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 	default:
@@ -162,6 +167,15 @@ func requiredBusinessDate(query url.Values, name string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("%s must be a business date in YYYY-MM-DD form", name)
 	}
 	return biztime.BusinessDayStart(parsed), nil
+}
+
+// parseDraft reads the deliberate live-compute escape hatch. draft=true (or 1) live-computes a
+// what-if sheet WITHOUT reading or writing any issue; anything else serves the frozen issued sheet.
+// It is the only param that switches on live computation, and the response is stamped draft so a
+// what-if can never be mistaken for an issued document.
+func parseDraft(query url.Values) bool {
+	raw := strings.ToLower(strings.TrimSpace(query.Get("draft")))
+	return raw == "true" || raw == "1"
 }
 
 // boundedIntParam parses an optional integer query param. Absent or empty means the declared

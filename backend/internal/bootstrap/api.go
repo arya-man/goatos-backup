@@ -405,10 +405,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The counts dependency is wired through feeddirectioncounts.NewReader rather than passing
 	// countsService straight in, so counts keeps sole ownership of the census SQL and the generator
 	// stays testable against a fake reader.
+	// One repository instance owns the config/scope reads AND the frozen-issue tables plus the
+	// feed_schedule_config clock, so the generator, the serve path and the lifecycle all share it.
+	feedDirectionRepo := feeddirectionpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	feedDirectionService := feeddirectionapp.NewService(
-		feeddirectionpg.NewRepository(pool, cfg.Postgres.QueryTimeout),
+		feedDirectionRepo,
 		feeddirectioncounts.NewReader(countsService),
-	)
+	).
+		WithIssueStore(feedDirectionRepo).
+		WithScheduleReader(feedDirectionRepo).
+		WithGeneratedBy("goatos-api")
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)

@@ -2077,11 +2077,34 @@ paths:
             type: integer
             minimum: 1
             maximum: 99
+        - name: workflow
+          in: query
+          required: false
+          description: >-
+            Narrow the served issue to one dispatch workflow. Absent unions both (normal packing +
+            hand-entered experiment sheds), which is the whole park-day's sheet. An unrecognised
+            value is rejected rather than silently widened.
+          schema:
+            type: string
+            enum: [normal, experiment]
+        - name: draft
+          in: query
+          required: false
+          description: >-
+            The ONLY live-compute path. `draft=true` returns a live what-if sheet computed from the
+            CURRENT herd + config WITHOUT reading or writing any issue, for tuning ration rates
+            before the sheet is issued. The response carries `draft: true` and `lifecycle.state:
+            draft` so a what-if can never be mistaken for a frozen issued sheet. Absent/false serves
+            the frozen issued sheet (or its pending/never-issued state).
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/FeedDirectionLimit"
         - $ref: "#/components/parameters/FeedDirectionOffset"
       responses:
         "200":
-          description: One page of generated direction rows plus the page-scoped summary.
+          description: >-
+            One page of the FROZEN issued sheet plus its lifecycle, OR (when nothing is issued yet)
+            an explicit pending/never-issued state, OR (draft=true) a live what-if.
           content:
             application/json:
               schema:
@@ -2133,11 +2156,29 @@ paths:
           schema:
             type: string
             format: date
+        - name: workflow
+          in: query
+          required: false
+          description: >-
+            Narrow the served issue to one dispatch workflow. Absent unions both. See the preview.
+          schema:
+            type: string
+            enum: [normal, experiment]
+        - name: draft
+          in: query
+          required: false
+          description: >-
+            The only live-compute path; see the preview's `draft`. Absent/false serves the frozen
+            issued worklist (or its pending/never-issued state).
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/FeedDirectionLimit"
         - $ref: "#/components/parameters/FeedDirectionOffset"
       responses:
         "200":
-          description: One page of packing lines.
+          description: >-
+            One page of the FROZEN issued worklist plus its lifecycle, its pending/never-issued
+            state, or (draft=true) a live what-if.
           content:
             application/json:
               schema:
@@ -4982,12 +5023,86 @@ components:
         blocked_shed_count:
           type: integer
           description: Distinct sheds carrying at least one blocked cell, i.e. sheds at risk of going unfed.
+    FeedDirectionWorkflowLifecycle:
+      type: object
+      additionalProperties: false
+      required:
+        - workflow
+        - state
+        - amendment_count
+      properties:
+        workflow:
+          type: string
+          enum: [normal, experiment]
+        state:
+          type: string
+          enum: [issued, amended, locked, pending, not_issued]
+          description: >-
+            This workflow's issue state. issued/amended/locked describe a FROZEN sheet;
+            pending/not_issued mean nothing was issued for this workflow (see `expected_issue_at`).
+        issued_at:
+          type: string
+          format: date-time
+          description: When the sheet was issued (Asia/Kolkata). Absent until issued.
+        amended_at:
+          type: string
+          format: date-time
+        locked_at:
+          type: string
+          format: date-time
+        amendment_count:
+          type: integer
+        expected_issue_at:
+          type: string
+          format: date-time
+          description: >-
+            Set on pending/not_issued: the instant this workflow's sheet is (or was) due to be
+            issued -- the direction_time on the day before the feed day. Lets the UI say "issued
+            <D-1> at <time> IST" instead of showing a speculative number.
+    FeedDirectionLifecycle:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - amendment_count
+        - workflows
+      properties:
+        state:
+          type: string
+          enum: [issued, amended, locked, pending, not_issued, draft]
+          description: >-
+            The aggregate lifecycle of the served park-day, the LEAST-ADVANCED state among its
+            workflows (issued < amended < locked): a park-day is never "locked" while a workflow is
+            still merely issued. `pending` = nothing issued yet and every workflow is still before
+            its issue instant; `not_issued` = the issue instant passed with nothing issued;
+            `draft` = a live what-if (draft=true), never a frozen sheet.
+        issued_at:
+          type: string
+          format: date-time
+        amended_at:
+          type: string
+          format: date-time
+        locked_at:
+          type: string
+          format: date-time
+        amendment_count:
+          type: integer
+          description: Total amendments across the park-day's workflows.
+        message:
+          type: string
+          description: Operator sentence, most useful for pending/not_issued.
+        workflows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionWorkflowLifecycle"
     FeedDirectionPreviewPage:
       type: object
       additionalProperties: false
       required:
         - items
         - summary
+        - lifecycle
+        - draft
         - target_date
         - limit
         - offset
@@ -4999,6 +5114,13 @@ components:
             $ref: "#/components/schemas/FeedDirectionRow"
         summary:
           $ref: "#/components/schemas/FeedDirectionPreviewSummary"
+        lifecycle:
+          $ref: "#/components/schemas/FeedDirectionLifecycle"
+        draft:
+          type: boolean
+          description: >-
+            True only for the deliberate live-compute escape hatch (draft=true). An issued, amended,
+            locked, pending or not_issued response is never draft.
         target_date:
           type: string
           format: date
@@ -5126,6 +5248,8 @@ components:
       required:
         - items
         - summary
+        - lifecycle
+        - draft
         - target_date
         - limit
         - offset
@@ -5137,6 +5261,11 @@ components:
             $ref: "#/components/schemas/FeedPackingRow"
         summary:
           $ref: "#/components/schemas/FeedPackingWorklistSummary"
+        lifecycle:
+          $ref: "#/components/schemas/FeedDirectionLifecycle"
+        draft:
+          type: boolean
+          description: True only for the deliberate live-compute escape hatch (draft=true).
         target_date:
           type: string
           format: date

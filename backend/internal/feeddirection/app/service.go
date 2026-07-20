@@ -42,26 +42,39 @@ const (
 	MaxShedPageOffset = int32(5000)
 )
 
-// Service generates feed direction and the packing worklist.
+// Clock lets tests pin the business instant the lifecycle stamps and the read path compares
+// against. Production passes nil and gets the real clock.
+type Clock func() time.Time
+
+// Service generates feed direction and OWNS the issued-sheet lifecycle.
+//
+// The generation dependencies (config, counts) are always present. The issue/schedule dependencies
+// are optional at construction: a pure-generation unit test wires only config+counts and drives the
+// live compute through Draft, while production wires the whole set so Preview/PackingWorklist serve
+// FROZEN issued rows and the worker can issue/amend/lock.
 type Service struct {
 	config   ports.ConfigRepository
 	counts   ports.ShedCountsReader
 	rounding domain.RoundingPolicy
 	planners domain.PlannerSet
+	issues   ports.IssueStore
+	schedule ports.ScheduleReader
 	// now resolves "today" for the past-business-date regeneration guard (see
-	// ports.ErrPastDateRegenerationBlocked). Injectable so a test can pin a fixed clock rather than
-	// racing the real wall clock -- a pinned-date fixture must never depend on when the test suite
-	// happens to run.
-	now func() time.Time
+	// ports.ErrPastDateRegenerationBlocked) and stamps the lifecycle issue/amend/lock instants.
+	// Injectable so a test can pin a fixed clock rather than racing the real wall clock -- a
+	// pinned-date fixture must never depend on when the test suite happens to run.
+	now         Clock
+	generatedBy string
 }
 
 func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *Service {
 	return &Service{
-		config:   config,
-		counts:   counts,
-		rounding: domain.StandardRoundingPolicy(),
-		planners: domain.NewPlannerSet(),
-		now:      time.Now,
+		config:      config,
+		counts:      counts,
+		rounding:    domain.StandardRoundingPolicy(),
+		planners:    domain.NewPlannerSet(),
+		now:         time.Now,
+		generatedBy: "feed-direction-service",
 	}
 }
 
@@ -73,20 +86,65 @@ func (s *Service) WithRoundingPolicy(policy domain.RoundingPolicy) *Service {
 	return s
 }
 
-// WithNowFunc overrides the clock the past-date regeneration guard uses. Test-only seam; production
-// always uses time.Now.
-func (s *Service) WithNowFunc(now func() time.Time) *Service {
-	s.now = now
+// WithIssueStore wires the frozen-sheet persistence. Without it, only Draft reads and pure
+// generation work; the issued/pending serve path and the lifecycle ops require it.
+func (s *Service) WithIssueStore(issues ports.IssueStore) *Service {
+	s.issues = issues
 	return s
 }
 
-// Preview generates one page of feed direction rows.
+// WithScheduleReader wires the feed_schedule_config dispatch clock read.
+func (s *Service) WithScheduleReader(schedule ports.ScheduleReader) *Service {
+	s.schedule = schedule
+	return s
+}
+
+// WithClock pins the business clock. Test-only seam: the issue/amend/lock instants, the past-date
+// regeneration guard, and the pending-vs-issued read decision all depend on "now".
+func (s *Service) WithClock(now Clock) *Service {
+	if now != nil {
+		s.now = now
+	}
+	return s
+}
+
+// WithNowFunc overrides the clock the past-date regeneration guard uses. Test-only seam; production
+// always uses time.Now. Retained as an alias of WithClock because existing tests call it by this
+// name; there is a single notion of "now" in the service.
+func (s *Service) WithNowFunc(now func() time.Time) *Service {
+	return s.WithClock(now)
+}
+
+// WithGeneratedBy stamps the generated_by provenance on issued sheets.
+func (s *Service) WithGeneratedBy(by string) *Service {
+	if strings.TrimSpace(by) != "" {
+		s.generatedBy = strings.TrimSpace(by)
+	}
+	return s
+}
+
+// Preview serves one page of feed direction rows for a feed day.
+//
+// THIS IS NOW A SERVE PATH, NOT A LIVE CALCULATOR. For a real target date it reads the FROZEN issued
+// sheet: an issued/amended/locked sheet returns its STORED rows plus lifecycle metadata; a future
+// date with no issue returns an explicit pending state naming when it will be issued; a past/current
+// date with no issue returns an honest never-issued state. None of those live-computes. The ONLY
+// path that live-computes is Draft=true, the deliberate config-authoring what-if escape hatch, and
+// that path alone carries the past-date regeneration guard.
 func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error) {
 	normalized, err := s.normalizePreviewQuery(q)
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
+	if normalized.Draft {
+		return s.previewDraft(ctx, normalized)
+	}
+	return s.servePreview(ctx, normalized)
+}
 
+// previewDraft LIVE-COMPUTES a what-if sheet without touching any issue. It is stamped Draft so a
+// client can never mistake it for a frozen, issued document.
+func (s *Service) previewDraft(ctx context.Context, normalized domain.PreviewQuery) (domain.PreviewPage, error) {
 	result, err := s.generate(ctx, generateRequest{
 		tenantID:   normalized.TenantID,
 		parkID:     normalized.ParkID,
@@ -99,17 +157,11 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
-
 	return domain.PreviewPage{
-		Items: result.pageRows,
-		// Summarized over scopeRows -- every row matching the filters -- NOT over pageRows. The two
-		// come from the same generation, so the totals and the visible rows cannot disagree.
-		//
-		// Column order follows the park's authored packing SLOTS, not the tenant catalog, so the
-		// summary's columns read in the order a packer fills bags. Items seen in the rows but not
-		// declared (an experiment shed's hand-entered feeds) are still appended by SummarizeScope
-		// rather than dropped.
+		Items:      result.pageRows,
 		Summary:    domain.SummarizeScope(result.scopeRows, result.config.PlannedFeedItems()),
+		Lifecycle:  domain.Lifecycle{State: domain.LifecycleStateDraft, Workflows: []domain.WorkflowLifecycle{}},
+		Draft:      true,
 		TargetDate: biztime.BusinessDate(normalized.TargetDate),
 		Limit:      result.limit,
 		Offset:     result.offset,
@@ -128,7 +180,14 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
+	if normalized.Draft {
+		return s.packingDraft(ctx, normalized)
+	}
+	return s.servePacking(ctx, normalized)
+}
 
+// packingDraft LIVE-COMPUTES the worklist without touching any issue. See previewDraft.
+func (s *Service) packingDraft(ctx context.Context, normalized domain.PackingQuery) (domain.PackingPage, error) {
 	result, err := s.generate(ctx, generateRequest{
 		tenantID:   normalized.TenantID,
 		parkID:     normalized.ParkID,
@@ -139,16 +198,12 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
-
 	items := result.config.PlannedFeedItems()
 	return domain.PackingPage{
-		Items: domain.BuildPackingRows(result.pageRows, items),
-		// Built from scopeRows, so the store draw covers the whole worklist rather than the visible
-		// page. BuildPackingRows is deliberately run twice over two different row sets rather than
-		// once and then filtered: a shed's grains must be collapsed into its bag using only that
-		// shed's rows, which both calls satisfy, and a line's total is identical in both because the
-		// page rows for a shed are exactly that shed's scope rows -- paging is by shed.
+		Items:      domain.BuildPackingRows(result.pageRows, items),
 		Summary:    domain.SummarizePacking(domain.BuildPackingRows(result.scopeRows, items), items),
+		Lifecycle:  domain.Lifecycle{State: domain.LifecycleStateDraft, Workflows: []domain.WorkflowLifecycle{}},
+		Draft:      true,
 		TargetDate: biztime.BusinessDate(normalized.TargetDate),
 		Limit:      result.limit,
 		Offset:     result.offset,
@@ -328,19 +383,41 @@ func (s *Service) normalizePreviewQuery(q domain.PreviewQuery) (domain.PreviewQu
 	// late-evening UTC instant cannot push the whole generation onto the wrong feed day. Per
 	// AGENTS.md, UTC never defines a Goat OS business day.
 	q.TargetDate = biztime.BusinessDayStart(q.TargetDate)
-	if s.isPastBusinessDate(q.TargetDate) {
+	// The past-date regeneration guard applies ONLY to the live-compute (Draft) path. The serve path
+	// never recomputes -- it reads the frozen issued sheet or returns an honest never-issued state --
+	// so serving a historical feed day is safe and must NOT be rejected. See
+	// ports.ErrPastDateRegenerationBlocked and Preview's doc comment.
+	if q.Draft && s.isPastBusinessDate(q.TargetDate) {
 		return domain.PreviewQuery{}, ports.ErrPastDateRegenerationBlocked
 	}
 
 	if q.SessionNo < 0 {
 		return domain.PreviewQuery{}, ports.ErrInvalidPaging
 	}
+	workflow, err := normalizeWorkflowFilter(q.Workflow)
+	if err != nil {
+		return domain.PreviewQuery{}, err
+	}
+	q.Workflow = workflow
 	limit, offset, err := normalizePaging(q.Limit, q.Offset)
 	if err != nil {
 		return domain.PreviewQuery{}, err
 	}
 	q.Limit, q.Offset = limit, offset
 	return q, nil
+}
+
+// normalizeWorkflowFilter accepts an empty filter (both workflows) or one of the two authored
+// workflows. An unrecognised value is REJECTED rather than ignored: silently widening a "normal
+// only" request to both workflows would merge the experiment sheet into it.
+func normalizeWorkflowFilter(workflow string) (string, error) {
+	workflow = strings.TrimSpace(workflow)
+	switch workflow {
+	case "", domain.WorkflowNormal, domain.WorkflowExperiment:
+		return workflow, nil
+	default:
+		return "", ports.ErrInvalidWorkflow
+	}
 }
 
 func (s *Service) normalizePackingQuery(q domain.PackingQuery) (domain.PackingQuery, error) {
@@ -353,10 +430,17 @@ func (s *Service) normalizePackingQuery(q domain.PackingQuery) (domain.PackingQu
 		return domain.PackingQuery{}, ports.ErrInvalidTargetDate
 	}
 	q.TargetDate = biztime.BusinessDayStart(q.TargetDate)
-	if s.isPastBusinessDate(q.TargetDate) {
+	// Draft-only guard, same reasoning as normalizePreviewQuery: the serve path reads frozen rows and
+	// must be allowed to serve a past feed day.
+	if q.Draft && s.isPastBusinessDate(q.TargetDate) {
 		return domain.PackingQuery{}, ports.ErrPastDateRegenerationBlocked
 	}
 
+	workflow, err := normalizeWorkflowFilter(q.Workflow)
+	if err != nil {
+		return domain.PackingQuery{}, err
+	}
+	q.Workflow = workflow
 	limit, offset, err := normalizePaging(q.Limit, q.Offset)
 	if err != nil {
 		return domain.PackingQuery{}, err
