@@ -890,6 +890,14 @@ func (h *Handler) GetShedAnimals(w http.ResponseWriter, r *http.Request) {
 		asOf = parsed
 		q.AsOf = parsed
 	}
+	if driveDueRaw := query.Get("drive_due_date"); driveDueRaw != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", driveDueRaw, biztime.DefaultLocation())
+		if err != nil {
+			h.badRequest(w, r, "invalid_drive_due_date", "drive_due_date must be YYYY-MM-DD")
+			return
+		}
+		q.DriveDueDate = &parsed
+	}
 	if cursor := query.Get("cursor"); cursor != "" {
 		if !uuidutil.IsUUIDString(cursor) {
 			h.badRequest(w, r, "invalid_cursor", "cursor must be a goat UUID")

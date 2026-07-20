@@ -393,10 +393,14 @@ type HerdRegisterSummaryCounts struct {
 	Breed             *string   `json:"breed"`
 	Sex               string    `json:"sex"`
 	LifecycleStatus   string    `json:"lifecycleStatus"`
+	TotalCount        int64     `json:"totalCount"`
 	ActiveCount       int64     `json:"activeCount"`
 	AdultCount        int64     `json:"adultCount"`
 	KidCount          int64     `json:"kidCount"`
 	UntaggedKidCount  int64     `json:"untaggedKidCount"`
+	DeadCount         int64     `json:"deadCount"`
+	SoldCount         int64     `json:"soldCount"`
+	CulledCount       int64     `json:"culledCount"`
 	ProjectedAt       time.Time `json:"projectedAt"`
 }
 

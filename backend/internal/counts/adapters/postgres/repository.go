@@ -2488,6 +2488,7 @@ SELECT
   NULLIF($4, '') AS breed,
   COALESCE(NULLIF($5, ''), 'all') AS sex,
   COALESCE(NULLIF($2, ''), 'all') AS lifecycle_status,
+  count(*) AS total_count,
   count(*) FILTER (WHERE g.lifecycle_status = 'alive') AS active_count,
   count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND NOT herd_register_is_kid(g.age_band, g.management_stage)) AS adult_count,
   count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)) AS kid_count,
@@ -2503,6 +2504,9 @@ SELECT
           AND gi.status = 'active'
       )
   ) AS untagged_kid_count,
+  count(*) FILTER (WHERE g.lifecycle_status = 'dead') AS dead_count,
+  count(*) FILTER (WHERE g.lifecycle_status = 'sold') AS sold_count,
+  count(*) FILTER (WHERE g.lifecycle_status = 'culled') AS culled_count,
   now() AS projected_at
 FROM goats g
 WHERE g.tenant_id = $1
@@ -2534,10 +2538,14 @@ WHERE g.tenant_id = $1
 			&counts.Breed,
 			&counts.Sex,
 			&counts.LifecycleStatus,
+			&counts.TotalCount,
 			&counts.ActiveCount,
 			&counts.AdultCount,
 			&counts.KidCount,
 			&counts.UntaggedKidCount,
+			&counts.DeadCount,
+			&counts.SoldCount,
+			&counts.CulledCount,
 			&counts.ProjectedAt,
 		); err != nil {
 			return domain.HerdRegisterSummary{}, fmt.Errorf("herd register summary: scan: %w", err)

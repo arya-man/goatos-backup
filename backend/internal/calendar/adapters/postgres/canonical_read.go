@@ -815,6 +815,34 @@ obligation_drive_animal_coverage AS (
   ) per_animal
   GROUP BY park_id, due_date
 ),
+obligation_drive_shed_animals AS (
+  SELECT
+    per_shed.park_id,
+    per_shed.due_date,
+    jsonb_agg(
+      jsonb_build_object(
+        'shed_id', per_shed.shed_id::text,
+        'shed_name', per_shed.shed_name,
+        'total_animals', per_shed.total_animals
+      )
+      ORDER BY per_shed.shed_name, per_shed.shed_id::text
+    ) AS sheds
+  FROM (
+    SELECT
+      m.park_id,
+      m.due_date,
+      m.shed_id,
+      COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text) AS shed_name,
+      count(DISTINCT m.animal_id) FILTER (WHERE m.animal_id IS NOT NULL)::int AS total_animals
+    FROM obligation_drive_membership m
+    LEFT JOIN locations l
+      ON l.tenant_id = $1::uuid
+     AND l.location_id = m.shed_id
+    WHERE m.shed_id IS NOT NULL
+    GROUP BY m.park_id, m.due_date, m.shed_id, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
+  ) per_shed
+  GROUP BY per_shed.park_id, per_shed.due_date
+),
 -- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date), with a separate animal_coverage subquery (separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out); pagination=computed inline per ListEvents request as a bounded, keyset-paginated canonical read (5k-50k envelope, no projector, no materialized temp table); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
 obligation_drive_summary AS (
   -- Bucket precedence is mutually exclusive and total_count-complete. Invariant:
@@ -848,6 +876,7 @@ obligation_drive_summary AS (
     COALESCE(ac.total_animals, 0)::int AS total_animals,
     COALESCE(ac.completed_animals, 0)::int AS completed_animals,
     COALESCE(vl.vaccine_labels, ARRAY[]::text[]) AS vaccine_labels,
+    COALESCE(sa.sheds, '[]'::jsonb) AS sheds,
     g.park_code
   FROM (
     SELECT
@@ -880,6 +909,8 @@ obligation_drive_summary AS (
     ON ac.park_id IS NOT DISTINCT FROM g.park_id AND ac.due_date = g.due_date
   LEFT JOIN obligation_drive_vaccine_labels vl
     ON vl.park_id IS NOT DISTINCT FROM g.park_id AND vl.due_date = g.due_date
+  LEFT JOIN obligation_drive_shed_animals sa
+    ON sa.park_id IS NOT DISTINCT FROM g.park_id AND sa.due_date = g.due_date
 ),
 park_drive_events AS (
   -- CR-002/CR-003 (calendar-canonical-5k50k review): the event_id is the STABLE park+business-date
@@ -1018,6 +1049,7 @@ park_drive_events AS (
         'due_date', grouped.due_day,
         'shed_count', obl_summary.shed_count,
         'sheds_completed', obl_summary.sheds_completed,
+        'sheds', obl_summary.sheds,
         'vaccine_labels', to_jsonb(obl_summary.vaccine_labels),
         'total_count', obl_summary.total_count,
         'completed_count', obl_summary.completed_count,

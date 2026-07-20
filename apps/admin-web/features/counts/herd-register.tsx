@@ -93,22 +93,30 @@ function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegist
   const totals = summary
     ? summary.items.reduce(
         (acc, row) => ({
-          active: acc.active + row.activeCount,
-          adult: acc.adult + row.adultCount,
-          kid: acc.kid + row.kidCount,
-          untaggedKid: acc.untaggedKid + row.untaggedKidCount,
+          total: acc.total + (row.totalCount ?? row.activeCount ?? 0),
+          active: acc.active + (row.activeCount ?? 0),
+          adult: acc.adult + (row.adultCount ?? 0),
+          kid: acc.kid + (row.kidCount ?? 0),
+          untaggedKid: acc.untaggedKid + (row.untaggedKidCount ?? 0),
+          dead: acc.dead + (row.deadCount ?? 0),
+          sold: acc.sold + (row.soldCount ?? 0),
+          culled: acc.culled + (row.culledCount ?? 0),
         }),
-        { active: 0, adult: 0, kid: 0, untaggedKid: 0 },
+        { total: 0, active: 0, adult: 0, kid: 0, untaggedKid: 0, dead: 0, sold: 0, culled: 0 },
       )
     : null;
   const fmt = (value: number | undefined) => (totals ? `${value}` : dash(null));
   const unavailable = copy(pageContract, "section.summary.unavailable");
   const activeSub = totals ? `${totals.active} ${copy(pageContract, "label.live_rows")}` : unavailable;
   return [
+    { label: copy(pageContract, "label.total_records"), value: fmt(totals?.total), sub: totals ? copy(pageContract, "label.seeded_goat_rows") : unavailable },
     { label: copy(pageContract, "label.active"), value: fmt(totals?.active), sub: activeSub },
     { label: copy(pageContract, "label.adults"), value: fmt(totals?.adult), sub: totals ? copy(pageContract, "label.live_scoped_register") : unavailable },
     { label: copy(pageContract, "label.kids"), value: fmt(totals?.kid), sub: totals ? copy(pageContract, "label.stage_shed_inferred") : unavailable },
     { label: copy(pageContract, "label.untagged_kids"), value: fmt(totals?.untaggedKid), sub: totals ? copy(pageContract, "label.identity") : unavailable },
+    { label: copy(pageContract, "label.dead"), value: fmt(totals?.dead), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable },
+    { label: copy(pageContract, "label.sold"), value: fmt(totals?.sold), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable },
+    { label: copy(pageContract, "label.culled"), value: fmt(totals?.culled), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable },
   ];
 }
 
@@ -146,7 +154,7 @@ export async function HerdRegisterPage({
   // Real goats + real location options for the write drawers, in parallel.
   const [result, summaryResult, locations, stagesResult] = await Promise.all([
     searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId, status }),
-    getHerdRegisterSummary({ lifecycle_status: status, park_id: parkId, breed, sex }),
+    getHerdRegisterSummary({ park_id: parkId, breed, sex }),
     getHerdRegisterLocations(),
     listAnimalStages(),
   ]);
@@ -223,7 +231,7 @@ export async function HerdRegisterPage({
         )
       ) : null}
 
-      <div className="grid g4" style={{ marginBottom: 8 }}>
+      <div className="grid herd-kpi-grid" style={{ marginBottom: 8 }}>
         {summaryCards.map((card) => (
           <div key={card.label} className="kpi" title={copy(pageContract, "section.summary.tooltip")}>
             <div className="lab">{card.label}</div>

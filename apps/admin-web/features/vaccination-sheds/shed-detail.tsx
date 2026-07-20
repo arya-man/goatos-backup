@@ -479,12 +479,13 @@ export async function VaccinationShedDetailPage({
   const scope = parseScope(sp);
   const ret = one(sp, "ret");
   const animalsCursor = one(sp, "animals_cursor");
+  const driveDueDate = one(sp, "drive_due_date");
   const selectedGoatId = one(sp, "goat_passport");
   const { asOf } = backendScope(scope);
 
   const [detailResult, animalsResult, passportResult] = await Promise.all([
     getVaccinationShedDetail(shedId, { asOf }),
-    getVaccinationShedAnimals(shedId, { cursor: animalsCursor, limit: ANIMAL_PAGE_SIZE, asOf }),
+    getVaccinationShedAnimals(shedId, { cursor: animalsCursor, limit: ANIMAL_PAGE_SIZE, asOf, driveDueDate }),
     selectedGoatId ? getGoatPassport(selectedGoatId) : Promise.resolve(null),
   ]);
 
@@ -497,7 +498,7 @@ export async function VaccinationShedDetailPage({
   // In dev/prod RSC streaming, NEXT_REDIRECT from this path is surfaced by the app error boundary.
   const currentPath = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
   const detailScope = detail.parkId ? ({ mode: "park" as const, park: detail.parkId }) : {};
-  const detailHref = (extra: Record<string, string | undefined> = {}) => scopeHref(currentPath, scope, detailScope, extra);
+  const detailHref = (extra: Record<string, string | undefined> = {}) => scopeHref(currentPath, scope, detailScope, { drive_due_date: driveDueDate, ...extra });
   const backHref = ret && ret.startsWith("/vaccination") ? ret : `${scopeHref("/vaccination", scope, { mode: "park", park: detail.parkId })}#sheds`;
 
   const animals: VaccinationShedAnimalRow[] = animalsResult.ok ? animalsResult.data.rows : [];

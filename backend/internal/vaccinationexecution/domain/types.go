@@ -670,9 +670,10 @@ type ShedDetailResponse struct {
 // ShedAnimalQuery is the keyset-paginated per-shed animal list query (separate endpoint so the large
 // per-shed animal axis never rides on the shed-detail header/vaccine payload).
 type ShedAnimalQuery struct {
-	TenantID string
-	ShedID   string
-	AsOf     time.Time
-	Cursor   *string // last goat_id seen (exclusive)
-	Limit    int
+	TenantID     string
+	ShedID       string
+	AsOf         time.Time
+	DriveDueDate *time.Time
+	Cursor       *string // last goat_id seen (exclusive)
+	Limit        int
 }

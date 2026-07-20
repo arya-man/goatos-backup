@@ -480,7 +480,7 @@ func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50&as_of=2026-07-21T23:59:59%2B05:30", nil)
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50&as_of=2026-07-21T23:59:59%2B05:30&drive_due_date=2026-07-22", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -498,6 +498,9 @@ func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	}
 	if !reader.lastShedAnim.AsOf.Equal(asOf) {
 		t.Errorf("animal as_of = %s, want %s", reader.lastShedAnim.AsOf, asOf)
+	}
+	if reader.lastShedAnim.DriveDueDate == nil || reader.lastShedAnim.DriveDueDate.Format("2006-01-02") != "2026-07-22" {
+		t.Errorf("drive_due_date = %v, want 2026-07-22", reader.lastShedAnim.DriveDueDate)
 	}
 	if !reader.lastOps.AsOf.Equal(asOf) {
 		t.Errorf("shed validation as_of = %s, want %s", reader.lastOps.AsOf, asOf)

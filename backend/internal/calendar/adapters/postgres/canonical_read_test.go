@@ -155,6 +155,23 @@ func TestCalendarParkDriveScheduledCountIgnoresCompletedBatchSourcesStatusBucket
 	}
 }
 
+func TestCalendarDriveShedSummaryScheduledDateParkScopeOneToManyMultiPageStatusBuckets(t *testing.T) {
+	checks := map[string]string{
+		"shed animal cte":      "obligation_drive_shed_animals AS",
+		"one-to-many safe":     "count(DISTINCT m.animal_id)",
+		"shed json output":     "'sheds', obl_summary.sheds",
+		"date grouped":         "per_shed.due_date",
+		"park scope grouped":   "per_shed.park_id",
+		"status summary stays": "count(DISTINCT m.obligation_id) FILTER",
+		"page-safe join":       "LEFT JOIN obligation_drive_shed_animals sa",
+	}
+	for name, fragment := range checks {
+		if !strings.Contains(calendarCanonicalListSQL, fragment) {
+			t.Fatalf("calendar drive shed summary lost %s invariant %q", name, fragment)
+		}
+	}
+}
+
 func TestCalendarVaccineFilterOneToManyMultiPageDateShiftParkScopeStatusBuckets(t *testing.T) {
 	vaccinePredicate := "AND (\n      $14::text = ''"
 	keysetPredicate := "AND ($8::timestamptz IS NULL"

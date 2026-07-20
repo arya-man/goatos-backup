@@ -2188,6 +2188,8 @@ export interface components {
             shed_count: number;
             /** @description Number of sheds where all obligations are completed */
             sheds_completed: number;
+            /** @description Per-shed animal counts for this drive. */
+            sheds?: components["schemas"]["DriveShedSummary"][];
             /** @description List of vaccine names involved in the drive */
             vaccine_labels: string[];
             /** @description Total obligations in the drive (completed + due + overdue + deferred) */
@@ -2208,6 +2210,12 @@ export interface components {
             completed_animals: number;
             /** @description Owner/team label */
             owner_label: string;
+        };
+        DriveShedSummary: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            total_animals: number;
         };
         CalendarPresentationQuery: {
             [key: string]: string;
@@ -3568,10 +3576,14 @@ export interface components {
             breed?: string | null;
             sex: string;
             lifecycleStatus: string;
+            totalCount: number;
             activeCount: number;
             adultCount: number;
             kidCount: number;
             untaggedKidCount: number;
+            deadCount: number;
+            soldCount: number;
+            culledCount: number;
             /** Format: date-time */
             projectedAt: string;
         };

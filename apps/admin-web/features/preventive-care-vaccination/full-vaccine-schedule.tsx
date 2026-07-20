@@ -11,7 +11,7 @@ import { getCalendarVaccinationEvents, type CalendarEvent, type CalendarEventLis
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
 const PAGE_LIMIT = 100;
-const SHED_CHIP_PREVIEW_LIMIT = 3;
+const SHED_CHIP_PREVIEW_LIMIT = 2;
 const VACCINE_CHIP_PREVIEW_LIMIT = 2;
 const SHED_DRAWER_PAGE_SIZE = 12;
 
@@ -29,6 +29,12 @@ type ScheduleCellView = {
   state: ScheduleState;
   label: string;
   title: string;
+};
+
+type ScheduleShedGroup = {
+  shed: string;
+  shedId?: string;
+  count: number;
 };
 
 function selectedScheduleYear(searchParams: RouteSearchParams | undefined): number {
@@ -111,12 +117,12 @@ function scheduleLoadLines(event: CalendarEvent, animals: number, pageContract: 
     lines.push(`${totalDoses} ${copy(pageContract, totalDoses === 1 ? "schedule.unit.dose" : "schedule.unit.doses")}`);
   }
   if (driveCount > 1) {
-    lines.push(`${driveCount} ${copy(pageContract, "schedule.unit.drives")}`);
+    lines.push(`${driveCount} ${copy(pageContract, "schedule.load.batches")}`);
   }
   if (deferred > 0) {
-    lines.push(`${deferred} ${copy(pageContract, "schedule.unit.deferred")}`);
+    lines.push(`${deferred} ${copy(pageContract, "schedule.load.deferred_short")}`);
   } else if (scheduled > 0) {
-    lines.push(`${scheduled} ${copy(pageContract, "schedule.unit.scheduled")}`);
+    lines.push(`${scheduled} ${copy(pageContract, "schedule.load.scheduled_short")}`);
   }
   return lines;
 }
@@ -254,10 +260,6 @@ export async function VaccinationFullSchedule({
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(nextMonth) });
   }
 
-  function driveHref(row: CalendarEvent): string {
-    return scopeHref(`/calendar/drive/${encodeURIComponent(row.event_id)}`, scope, {}, { ret: currentScheduleHref });
-  }
-
   function shedDrawerHref(row: CalendarEvent, extra?: Record<string, string | undefined>): string {
     return scopeHref("/vaccination", scope, {}, {
       view: "schedule",
@@ -265,6 +267,8 @@ export async function VaccinationFullSchedule({
       schedule_month: String(month),
       schedule_event: row.event_id,
       schedule_sheds_page: "1",
+      schedule_shed: undefined,
+      goat_passport: undefined,
       ...extra,
     });
   }
@@ -402,20 +406,20 @@ export async function VaccinationFullSchedule({
                   return (
                     <tr key={row.event_id} className="schedule-click-row">
                       <td className={`schedule-date-cell state-${view.state}`} title={view.title}>
-                        <Link href={driveHref(row)} className="celllink schedule-date-link" scroll={false} prefetch={false}>
+                        <a href={shedDrawerHref(row)} className="celllink schedule-date-link">
                           <span className="schedule-date-stack">
                             <span className="schedule-date-main">{view.label}</span>
                             <span className="schedule-date-sub">{dateEyebrow(date)}</span>
                           </span>
-                        </Link>
+                        </a>
                       </td>
                       <td>
-                        <Link href={driveHref(row)} className="celllink" scroll={false} prefetch={false}>
+                        <a href={shedDrawerHref(row)} className="celllink">
                           <ClipText title={summary?.park_name ?? row.park_code ?? ""}>{summary?.park_name ?? row.park_code ?? copy(pageContract, "label.placeholder")}</ClipText>
-                        </Link>
+                        </a>
                       </td>
                       <td>
-                        <Link href={shedDrawerHref(row)} className="celllink schedule-wrap-link schedule-shed-cell" scroll={false} prefetch={false} title={shedTitle || copy(pageContract, "schedule.drawer.open_sheds")}>
+                        <a href={shedDrawerHref(row)} className="celllink schedule-wrap-link schedule-shed-cell" title={shedTitle || copy(pageContract, "schedule.drawer.open_sheds")}>
                           <span className="schedule-chip-list schedule-chip-list-compact">
                             <span className="schedule-mini-chip schedule-count-chip">{countUnit(pageContract, shedCount, "schedule.unit.shed", "schedule.unit.sheds")}</span>
                             {previewSheds.map((shed) => (
@@ -425,18 +429,18 @@ export async function VaccinationFullSchedule({
                               <span className="schedule-mini-chip schedule-more-chip">+{hiddenShedCount} {copy(pageContract, "schedule.drawer.more")}</span>
                             ) : null}
                           </span>
-                        </Link>
+                        </a>
                       </td>
                       <td className="muted num">
-                        <Link href={driveHref(row)} className="celllink num schedule-animals-link" scroll={false} prefetch={false} title={loadLines.join(" · ")}>
+                        <a href={shedDrawerHref(row)} className="celllink num schedule-animals-link" title={loadLines.join(" · ")}>
                           <span className="schedule-load-stack">
                             <b>{animals}</b>
                             <span>{loadLines.slice(1).join(" · ") || copy(pageContract, "schedule.load.single_drive")}</span>
                           </span>
-                        </Link>
+                        </a>
                       </td>
                       <td>
-                        <Link href={driveHref(row)} className="celllink schedule-wrap-link" scroll={false} prefetch={false} title={vaccineTitle}>
+                        <a href={shedDrawerHref(row)} className="celllink schedule-wrap-link" title={vaccineTitle}>
                           <span className="schedule-chip-list vaccine-chip-list schedule-chip-list-compact">
                             {vaccines.length > 0 ? previewVaccines.map((vaccine) => (
                               <span key={vaccine} className="schedule-mini-chip vaccine-chip">{vaccine}</span>
@@ -445,12 +449,12 @@ export async function VaccinationFullSchedule({
                               <span className="schedule-mini-chip schedule-more-chip">+{hiddenVaccineCount} {copy(pageContract, "schedule.drawer.more")}</span>
                             ) : null}
                           </span>
-                        </Link>
+                        </a>
                       </td>
                       <td className={`schedule-status-cell state-${view.state}`} title={view.title}>
-                        <Link href={driveHref(row)} className="celllink schedule-status-link" scroll={false} prefetch={false}>
+                        <a href={shedDrawerHref(row)} className="celllink schedule-status-link">
                           <Tag tone={STATE_TONE[view.state]}>{statusLabel}</Tag>
-                        </Link>
+                        </a>
                       </td>
                     </tr>
                   );
@@ -484,7 +488,7 @@ export async function VaccinationFullSchedule({
   );
 }
 
-function ScheduleShedDrawer({
+async function ScheduleShedDrawer({
   pageContract,
   row,
   currentScheduleHref,
@@ -505,26 +509,59 @@ function ScheduleShedDrawer({
   scope: Scope;
   drawerPageHref: (page: number) => string;
 }) {
-  const allSheds = uniqueSorted(row.shed_labels ?? []);
-  const filteredSheds = shedQuery
-    ? allSheds.filter((shed) => shed.toLowerCase().includes(shedQuery.toLowerCase()))
-    : allSheds;
-  const totalPages = Math.max(1, Math.ceil(filteredSheds.length / SHED_DRAWER_PAGE_SIZE));
+  const summaryShedGroups: ScheduleShedGroup[] = (row.drive_summary?.sheds ?? []).map((shed) => ({
+    shed: shed.shed_name,
+    shedId: shed.shed_id,
+    count: shed.total_animals,
+  }));
+  const fallbackSheds = uniqueSorted(row.shed_labels ?? []).map((shed) => ({ shed, count: 0 }));
+  const shedGroups = summaryShedGroups.length > 0 ? summaryShedGroups : fallbackSheds;
+  const filteredShedGroups = shedQuery
+    ? shedGroups.filter((group) => group.shed.toLowerCase().includes(shedQuery.toLowerCase()))
+    : shedGroups;
+  const totalPages = Math.max(1, Math.ceil(filteredShedGroups.length / SHED_DRAWER_PAGE_SIZE));
   const page = Math.min(shedPage, totalPages);
   const start = (page - 1) * SHED_DRAWER_PAGE_SIZE;
-  const pageSheds = filteredSheds.slice(start, start + SHED_DRAWER_PAGE_SIZE);
+  const pageShedGroups = filteredShedGroups.slice(start, start + SHED_DRAWER_PAGE_SIZE);
   const summary = row.drive_summary;
   const date = eventDate(row);
   const vaccines = uniqueSorted([...(summary?.vaccine_labels ?? []), ...(row.vaccine_labels ?? [])]);
+  const drawerBaseHref = scopeHref("/vaccination", scope, {}, {
+      view: "schedule",
+      schedule_year: String(year),
+      schedule_month: String(month),
+      schedule_event: row.event_id,
+      schedule_sheds_q: shedQuery || undefined,
+      schedule_sheds_page: String(page),
+    });
+  const selectedShedHref = (group: ScheduleShedGroup) => {
+    if (group.shedId) {
+      return scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(group.shedId)}`, scope, { mode: "park", park: row.park_id ?? scope.parkId }, {
+        drive_due_date: (summary?.due_date ?? date) || undefined,
+        ret: drawerBaseHref,
+      }) + "#animals";
+    }
+    return scopeHref("/vaccination", scope, {}, {
+      view: "schedule",
+      schedule_year: String(year),
+      schedule_month: String(month),
+      schedule_event: row.event_id,
+      schedule_sheds_q: shedQuery || undefined,
+      schedule_sheds_page: String(page),
+    });
+  };
 
   return (
     <div className="schedule-drawer-backdrop" role="presentation">
+      <Link href={currentScheduleHref} className="schedule-drawer-close-layer" aria-label={copy(pageContract, "schedule.drawer.close")} scroll={false} prefetch={false} />
       <aside className="schedule-side-drawer" role="dialog" aria-modal="false" aria-labelledby="schedule-shed-drawer-title">
         <div className="schedule-drawer-head">
           <div style={{ minWidth: 0 }}>
             <span className="eyebrow">{date ? `${fmtDate(date)} · ${summary?.park_name ?? row.park_code ?? copy(pageContract, "label.placeholder")}` : copy(pageContract, "label.placeholder")}</span>
             <h3 id="schedule-shed-drawer-title">{copy(pageContract, "schedule.drawer.title")}</h3>
-            <p className="muted small">{allSheds.length} {copy(pageContract, "schedule.unit.sheds")} · {vaccines.join(", ") || copy(pageContract, "label.placeholder")}</p>
+            <p className="muted small">
+              {shedGroups.length || row.shed_count || 0} {copy(pageContract, "schedule.unit.sheds")} · {summary?.total_animals ?? row.target_count ?? 0} {copy(pageContract, "schedule.unit.animals")} · {vaccines.join(", ") || copy(pageContract, "label.placeholder")}
+            </p>
           </div>
           <Link href={currentScheduleHref} className="iconbtn" scroll={false} prefetch={false} aria-label={copy(pageContract, "schedule.drawer.close")}>
             <X className="ic" aria-hidden="true" />
@@ -550,11 +587,12 @@ function ScheduleShedDrawer({
         </form>
 
         <div className="schedule-drawer-list" role="list" aria-label={copy(pageContract, "schedule.drawer.title")}>
-          {pageSheds.length > 0 ? pageSheds.map((shed) => (
-            <div key={shed} className="schedule-drawer-shed-row" role="listitem">
+          {pageShedGroups.length > 0 ? pageShedGroups.map((group) => (
+            <Link key={group.shed} href={selectedShedHref(group)} className="schedule-drawer-shed-row" role="listitem" scroll={false} prefetch={false}>
               <Warehouse className="ic" aria-hidden="true" />
-              <span>{shed}</span>
-            </div>
+              <span>{group.shed}</span>
+              <Tag tone="info">{group.count > 0 ? `${group.count} ${copy(pageContract, "schedule.unit.animals")}` : copy(pageContract, "schedule.drawer.open_roster")}</Tag>
+            </Link>
           )) : (
             <div className="empty">{copy(pageContract, "schedule.drawer.empty")}</div>
           )}
@@ -562,7 +600,7 @@ function ScheduleShedDrawer({
 
         <div className="schedule-drawer-foot">
           <span className="muted small">
-            {copy(pageContract, "schedule.drawer.page_label")} {page} / {totalPages} · {filteredSheds.length} {copy(pageContract, "schedule.drawer.rows_label")}
+            {copy(pageContract, "schedule.drawer.page_label")} {page} / {totalPages} · {filteredShedGroups.length} {copy(pageContract, "schedule.drawer.rows_label")}
           </span>
           <div className="chips">
             <Link href={drawerPageHref(Math.max(1, page - 1))} className={`chip${page <= 1 ? " disabled" : ""}`} scroll={false} prefetch={false} aria-disabled={page <= 1}>

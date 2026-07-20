@@ -6052,6 +6052,11 @@ components:
           type: integer
           minimum: 0
           description: Number of sheds where all obligations are completed
+        sheds:
+          type: array
+          description: Per-shed animal counts for this drive.
+          items:
+            $ref: "#/components/schemas/DriveShedSummary"
         vaccine_labels:
           type: array
           items:
@@ -6092,6 +6097,22 @@ components:
         owner_label:
           type: string
           description: Owner/team label
+    DriveShedSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - total_animals
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        total_animals:
+          type: integer
+          minimum: 0
     CalendarPresentationQuery:
       type: object
       additionalProperties:
@@ -9665,10 +9686,14 @@ components:
       required:
         - sex
         - lifecycleStatus
+        - totalCount
         - activeCount
         - adultCount
         - kidCount
         - untaggedKidCount
+        - deadCount
+        - soldCount
+        - culledCount
         - projectedAt
       properties:
         parkId:
@@ -9690,6 +9715,9 @@ components:
           type: string
         lifecycleStatus:
           type: string
+        totalCount:
+          type: integer
+          minimum: 0
         activeCount:
           type: integer
           minimum: 0
@@ -9700,6 +9728,15 @@ components:
           type: integer
           minimum: 0
         untaggedKidCount:
+          type: integer
+          minimum: 0
+        deadCount:
+          type: integer
+          minimum: 0
+        soldCount:
+          type: integer
+          minimum: 0
+        culledCount:
           type: integer
           minimum: 0
         projectedAt:

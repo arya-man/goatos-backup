@@ -171,6 +171,8 @@ export async function VaccinationShedBoard({
     );
   }
   const resetHref = scopeHref("/vaccination", scope, {}, { sheds_limit: String(pageSize) }) + "#sheds";
+  const allStatusHref = hrefWith({ sheds_status: undefined, sheds_page: "1" });
+  const allCapacityHref = hrefWith({ sheds_capacity: undefined, sheds_page: "1" });
   function pagerHref(p: number): string {
     return hrefWith({ sheds_page: String(p) });
   }
@@ -205,7 +207,7 @@ export async function VaccinationShedBoard({
 
       {/* Status filter (merged CEO headline). Server-side via ?sheds_status. */}
       <div className="chipset" style={{ padding: "0 14px 8px" }}>
-        <Link href={hrefWith({ sheds_status: "all", sheds_page: "1" })} replace scroll={false} className={`chip${!statusFilter ? " on" : ""}`}>
+        <Link href={allStatusHref} replace scroll={false} className={`chip${!statusFilter ? " on" : ""}`}>
           {copy(pageContract, "label.all_status")}
         </Link>
         {SHED_STATUS_ORDER.map((s) => (
@@ -217,7 +219,7 @@ export async function VaccinationShedBoard({
 
       {/* Capacity filter (All / Within cap / Split / Needs review). Server-side via ?sheds_capacity. */}
       <div className="chipset" style={{ padding: "0 14px 10px" }}>
-        <Link href={hrefWith({ sheds_capacity: "all", sheds_page: "1" })} replace scroll={false} className={`chip${!capacityFilter ? " on" : ""}`}>
+        <Link href={allCapacityHref} replace scroll={false} className={`chip${!capacityFilter ? " on" : ""}`}>
           {copy(pageContract, "label.all_capacity")}
         </Link>
         {CAPACITY_ORDER.map((c) => (

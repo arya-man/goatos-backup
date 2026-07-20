@@ -2166,7 +2166,11 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 	if asOf.IsZero() {
 		asOf = time.Now().In(biztime.DefaultLocation())
 	}
-	rows, err := r.pool.Query(ctx, shedAnimalListSQL, q.TenantID, q.ShedID, cursor, limit, asOf)
+	driveDueDate := pgtype.Date{}
+	if q.DriveDueDate != nil {
+		driveDueDate = pgtype.Date{Time: *q.DriveDueDate, Valid: true}
+	}
+	rows, err := r.pool.Query(ctx, shedAnimalListSQL, q.TenantID, q.ShedID, cursor, limit, asOf, driveDueDate)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: shed animals: %w", err)
 	}
@@ -2265,6 +2269,32 @@ WHERE g.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
   AND g.merged_into_goat_id IS NULL
   AND g.goat_id > $3::uuid
+  AND (
+    $6::date IS NULL OR EXISTS (
+      SELECT 1
+      FROM obligation_instances doi
+      JOIN protocol_versions dpv
+        ON dpv.tenant_id = doi.tenant_id
+       AND dpv.protocol_version_id = doi.protocol_version_id
+      JOIN protocol_definitions dpd
+        ON dpd.tenant_id = dpv.tenant_id
+       AND dpd.protocol_id = dpv.protocol_id
+       AND dpd.category = 'vaccination'
+      LEFT JOIN obligation_batches dob
+        ON dob.tenant_id = doi.tenant_id
+       AND dob.batch_id = doi.batch_id
+      WHERE doi.tenant_id = g.tenant_id
+        AND doi.target_type = 'goat'
+        AND doi.target_id = g.goat_id
+        AND doi.status NOT IN ('superseded', 'canceled', 'waived')
+        AND (
+          CASE
+            WHEN doi.batch_id IS NOT NULL THEN COALESCE(dob.planned_date, (dob.window_start AT TIME ZONE 'Asia/Kolkata')::date, (dob.window_end AT TIME ZONE 'Asia/Kolkata')::date)
+            ELSE (doi.due_at AT TIME ZONE 'Asia/Kolkata')::date
+          END
+        ) = $6::date
+    )
+  )
 ORDER BY g.goat_id ASC
 LIMIT $4;
 `

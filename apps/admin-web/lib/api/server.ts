@@ -381,10 +381,14 @@ export type HerdRegisterSummaryCounts = {
   breed: string | null;
   sex: string;
   lifecycleStatus: string;
+  totalCount: number;
   activeCount: number;
   adultCount: number;
   kidCount: number;
   untaggedKidCount: number;
+  deadCount: number;
+  soldCount: number;
+  culledCount: number;
   projectedAt: string;
 };
 
@@ -744,7 +748,7 @@ export async function getVaccinationShedDetail(
 
 export async function getVaccinationShedAnimals(
   shedId: string,
-  params: { cursor?: string; limit?: number; asOf?: string } = {},
+  params: { cursor?: string; limit?: number; asOf?: string; driveDueDate?: string } = {},
 ): Promise<ApiResult<VaccinationShedAnimalPage>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -753,7 +757,7 @@ export async function getVaccinationShedAnimals(
   return request(() =>
     client.request<VaccinationShedAnimalPage>(path, {
       cache: "no-store",
-      query: compactQuery({ cursor: params.cursor, limit: params.limit, as_of: params.asOf }),
+      query: compactQuery({ cursor: params.cursor, limit: params.limit, as_of: params.asOf, drive_due_date: params.driveDueDate }),
     }),
   );
 }
