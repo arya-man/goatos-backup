@@ -25,11 +25,15 @@ const defaultQueryTimeout = 3 * time.Second
 // Max seam"). The notification producer session consumes these to fan out pushes; this module only
 // publishes.
 const (
-	EventItemPending     = "verification.item.pending"
-	EventVerdictApproved = "verification.verdict.approved"
-	EventVerdictRework   = "verification.verdict.rework"
-	EventItemClosed      = "verification.item.closed"
-	verificationTopic    = "verification"
+	EventItemPending                  = "verification.item.pending"
+	EventVerdictApproved              = "verification.verdict.approved"
+	EventVerdictRework                = "verification.verdict.rework"
+	EventItemClosed                   = "verification.item.closed"
+	verificationTopic                 = "verification"
+	vaccinationCompletedEventType     = "vaccination.completed"
+	vaccinationCompletedSchemaVersion = "1.0.0"
+	vaccinationCompletedSchemaRef     = "domain-event-envelope.v1"
+	vaccinationCompletedTopic         = "vaccination.events"
 	// verificationSchemaVer must be semver to satisfy the domain-event-envelope schema
 	// (schema_version pattern ^[0-9]+\.[0-9]+\.[0-9]+$) enforced by the outbox relay's
 	// EnvelopeValidator before publish. A non-semver value (was "1") fails validation, so the
@@ -396,7 +400,42 @@ WHERE oi.tenant_id = $1::uuid
   )`, in.TenantID, in.SubmissionID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `
+		rows, err := tx.Query(ctx, `
+SELECT DISTINCT vc.obligation_id::text
+FROM vaccination_completions vc
+JOIN obligation_instances oi
+  ON oi.tenant_id = vc.tenant_id
+ AND oi.obligation_id = vc.obligation_id
+JOIN sop_submission_items si
+  ON si.tenant_id = vc.tenant_id
+ AND si.item_id = vc.sop_submission_item_id
+WHERE vc.tenant_id = $1::uuid
+  AND si.submission_id = $2::uuid
+  AND vc.status = 'accepted'
+  AND oi.status = 'completed'`, in.TenantID, in.SubmissionID)
+		if err != nil {
+			return err
+		}
+		obligationIDs := make([]string, 0, len(items))
+		for rows.Next() {
+			var obligationID string
+			if err := rows.Scan(&obligationID); err != nil {
+				rows.Close()
+				return err
+			}
+			obligationIDs = append(obligationIDs, obligationID)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, obligationID := range obligationIDs {
+			if _, err := insertVaccinationCompletedOutbox(ctx, tx, in.TenantID, obligationID); err != nil {
+				return err
+			}
+		}
+		_, err = tx.Exec(ctx, `
 UPDATE obligation_batches ob
 SET status = 'completed',
     updated_at = now()
@@ -704,6 +743,76 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type IN (
 		return fmt.Errorf("verification: outbox insert: %w", err)
 	}
 	return nil
+}
+
+func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) (bool, error) {
+	eventID := platformoutbox.DeterministicUUID("vaccination.completed:" + tenantID + ":" + obligationID)
+	idempotencyKey := "vaccination.completed:" + obligationID
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	payload := map[string]any{
+		"tenant_id":     tenantID,
+		"obligation_id": obligationID,
+		"status":        "completed",
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     vaccinationCompletedEventType,
+		"schema_version": vaccinationCompletedSchemaVersion,
+		"schema_ref":     vaccinationCompletedSchemaRef,
+		"aggregate_type": "obligation_instance",
+		"aggregate_id":   obligationID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "vaccination",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "obligation_instance",
+		"subject_id":   obligationID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "obligation_status_event",
+			"evidence_id":   obligationID + ":completed",
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return false, fmt.Errorf("vaccination completed envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        "verification.CloseSubmission",
+		"schema_version":  vaccinationCompletedSchemaVersion,
+		"obligation_id":   obligationID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return false, fmt.Errorf("vaccination completed headers: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'obligation_instance', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.completed' DO NOTHING`,
+		tenantID, eventID, vaccinationCompletedEventType, vaccinationCompletedSchemaVersion,
+		obligationID, vaccinationCompletedTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return false, fmt.Errorf("vaccination completed outbox: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 type rowScanner interface {

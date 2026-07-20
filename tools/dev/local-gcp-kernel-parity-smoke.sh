@@ -99,7 +99,7 @@ if compose logs --no-color kernel-workers | grep -Fq 'local kernel worker failed
   compose logs --no-color kernel-workers >&2
   fail "a required local kernel worker exited nonzero"
 fi
-for worker in domain-event-processed-sweeper idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry partition-maintainer; do
+for worker in domain-event-processed-sweeper idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry; do
   wait_for "$worker completed without exit" \
     "compose logs --no-color kernel-maintenance | grep -F 'local kernel worker complete: $worker'"
 done

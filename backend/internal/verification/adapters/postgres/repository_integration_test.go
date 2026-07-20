@@ -292,36 +292,32 @@ func TestCloseSubmissionAcceptsVaccinationCompletions_RealPostgres(t *testing.T)
 	itemID := "00000000-0000-4000-8000-000000000211"
 	completionID := "00000000-0000-4000-8000-000000000212"
 
-	if _, err := pool.Exec(ctx, `
-INSERT INTO parties (party_id, party_type, display_name, status)
-VALUES ($1::uuid, 'person', 'Verifier', 'active');
-INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
-VALUES ($2::uuid, $3::uuid, 'vaccination.close-submission', 'Vaccination close submission', 'vaccination', 'published');
-INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
-VALUES ($4::uuid, $3::uuid, $2::uuid, 'tenant', 1, 'published', now(), '{}'::jsonb, '{}'::jsonb);
-INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
-VALUES ($5::uuid, $3::uuid, $4::uuid, 'primary', 1, 'manual', '{}'::jsonb, '{}'::jsonb);
-INSERT INTO sops (sop_id, tenant_id, code, name, category, status)
-VALUES ($6::uuid, $3::uuid, 'vaccination.close-submission', 'Vaccination close submission', 'vaccination', 'published');
-INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
-VALUES ($7::uuid, $3::uuid, $6::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb);
-INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id)
-VALUES ($8::uuid, $3::uuid, $6::uuid, $7::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'tenant', $3::uuid);
-INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex)
-VALUES ($9::uuid, $3::uuid, 'alive', 'goat', $1::uuid, 'female');
-INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id)
-VALUES ($10::uuid, $3::uuid, $4::uuid, 'tenant', $3::uuid, 'in_progress', 1, $8::uuid);
-INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key)
-VALUES ($11::uuid, $3::uuid, $4::uuid, $5::uuid, $10::uuid, 'goat', $9::uuid, 'tenant', $3::uuid, now(), 'in_progress', $8::uuid, 'verify-close-obligation');
-INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state)
-VALUES ($12::uuid, $3::uuid, $8::uuid, $7::uuid, $1::uuid, 'verify-close-submission', '{}'::jsonb, 'submitted');
-INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state)
-VALUES ($13::uuid, $3::uuid, $12::uuid, $8::uuid, $9::uuid, 'dose', 'needs_review');
-INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, idempotency_key, recorded_by)
-VALUES ($14::uuid, $3::uuid, $11::uuid, $10::uuid, $9::uuid, $13::uuid, now(), 'recorded', 'verify-close-completion', $1::uuid);`,
-		actorID, protocolID, tenantID, versionID, ruleID, sopID, sopVersionID, taskID,
-		goatID, batchID, obligationID, submissionID, itemID, completionID); err != nil {
-		t.Fatalf("seed vaccination close submission: %v", err)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed vaccination close submission: %v", err)
+	}
+	seedExec := func(label, sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed vaccination close submission %s: %v", label, err)
+		}
+	}
+	seedExec("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
+	seedExec("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vaccination_close_submission', 'Vaccination close submission', 'vaccination', 'active')`, protocolID, tenantID)
+	seedExec("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
+	seedExec("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'primary', 1, 'manual_campaign', '{}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seedExec("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vaccination_close_submission', 'Vaccination close submission', 'active')`, sopID, tenantID)
+	seedExec("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	seedExec("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'tenant', $2::uuid)`, taskID, tenantID, sopID, sopVersionID)
+	seedExec("goat", `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female')`, goatID, tenantID, actorID)
+	seedExec("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', $2::uuid, 'in_progress', 1, $4::uuid)`, batchID, tenantID, versionID, taskID)
+	seedExec("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'tenant', $2::uuid, now(), 'in_progress', $7::uuid, 'verify-close-obligation')`, obligationID, tenantID, versionID, ruleID, batchID, goatID, taskID)
+	seedExec("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'verify-close-submission', '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID)
+	seedExec("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'dose', 'needs_review')`, itemID, tenantID, submissionID, taskID, goatID)
+	seedExec("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, now(), 'recorded', 'verify-close-completion', $7::uuid)`, completionID, tenantID, obligationID, batchID, goatID, itemID, actorID)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed vaccination close submission: %v", err)
 	}
 
 	created, err := repo.CreateItem(ctx, domain.CreateItem{
@@ -363,6 +359,18 @@ WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
 	if completionStatus != "accepted" || obligationStatus != "completed" || batchStatus != "completed" {
 		t.Fatalf("states completion/obligation/batch = %s/%s/%s, want accepted/completed/completed",
 			completionStatus, obligationStatus, batchStatus)
+	}
+	var outboxCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND event_type='vaccination.completed'
+  AND aggregate_id=$2::uuid`, tenantID, obligationID).Scan(&outboxCount); err != nil {
+		t.Fatalf("count vaccination.completed outbox: %v", err)
+	}
+	if outboxCount != 1 {
+		t.Fatalf("vaccination.completed outbox count = %d, want 1", outboxCount)
 	}
 }
 

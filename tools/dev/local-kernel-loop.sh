@@ -41,7 +41,6 @@ case "$mode" in
       run_worker idempotency-key-sweeper /app/bin/idempotency-key-sweeper -timeout=30s -limit=1000
       run_worker inventory-batch-reconciler /app/bin/inventory-batch-reconciler -timeout=60s -limit=1000
       run_worker sop-review-fanout-retry /app/bin/sop-review-fanout-retry -timeout=60s -limit=100
-      run_worker partition-maintainer /app/bin/partition-maintainer -timeout=60s -months-ahead=12
       sleep "$maintenance_interval"
     done
     ;;

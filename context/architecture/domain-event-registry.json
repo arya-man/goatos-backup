@@ -91,7 +91,7 @@
     {
       "eventType": "vaccination.completed",
       "producer": "vaccination completion accept",
-      "producerFiles": ["backend/internal/vaccination/adapters/postgres/repository.go", "backend/internal/obligation/adapters/postgres/repository.go"],
+      "producerFiles": ["backend/internal/vaccination/adapters/postgres/repository.go", "backend/internal/obligation/adapters/postgres/repository.go", "backend/internal/verification/adapters/postgres/repository.go"],
       "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/completed_handler.go"}],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": ["backend/internal/vaccination/adapters/postgres/booster_integration_test.go", "backend/tests/e2e/story_ag_recurring_calendar_lifecycle_test.go"],
