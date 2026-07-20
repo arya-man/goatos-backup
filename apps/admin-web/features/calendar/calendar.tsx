@@ -25,7 +25,6 @@ import {
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
-import { markerTonesForDate } from "./calendar-marker-tones";
 import { calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedMonthStartKey, weekWindow } from "./calendar-window";
 import {
   calendarEventDateKey,
@@ -840,7 +839,6 @@ function CalendarDatePicker({
           const hasDrive = (marker?.drive_count ?? 0) > 0 || dayEvents.some((event) => event.event_type === "vaccination_drive" || (event.drive_summary?.total_count ?? 0) > 0);
           const hasHistory = (marker?.completed_count ?? 0) > 0;
           const hasOpenWork = (marker?.open_count ?? 0) > 0;
-          const tones = markerTonesForDate(marker, dayEvents).slice(0, 3);
           const eventCount = marker?.event_count ?? dayEvents.length;
           return (
             <Link
@@ -859,13 +857,6 @@ function CalendarDatePicker({
               }
             >
               <span>{cell.day}</span>
-              {tones.length ? (
-                <i className="calmarker-dots" aria-hidden="true">
-                  {tones.map((tone) => (
-                    <em key={tone} className={`tone-${tone}`} />
-                  ))}
-                </i>
-              ) : null}
             </Link>
           );
         })}
