@@ -202,7 +202,7 @@ run_android() {
   step "android :app compile" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin --no-daemon --console=plain'
   step "android :app unit"    bash -c 'cd apps/goatos-android && ./gradlew :app:testStgReleaseUnitTest --no-daemon --console=plain'
   step "android :app lint"    bash -c 'cd apps/goatos-android && ./gradlew :app:lintStgRelease --no-daemon --console=plain'
-  step "android screenshots"  bash -c 'cd apps/goatos-android && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain'
+  step "android screenshots"  bash -c 'cd apps/goatos-android && ./gradlew --stop >/dev/null 2>&1 || true && rm -rf app/build core/*/build feature/*/build && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=2 -Dkotlin.compiler.execution.strategy=in-process'
   step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
 }
 
