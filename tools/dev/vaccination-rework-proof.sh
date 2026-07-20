@@ -105,10 +105,10 @@ PASSPORT_WORKFLOW_ROW=$(echo "$PP_OPEN" | python3 -c "import sys,json; d=json.lo
 [ "$PASSPORT_WORKFLOW_ROW" = "$EXPECTED_WORKFLOW_ROW" ] || fail "passport workflow row mismatch got=$PASSPORT_WORKFLOW_ROW want=$EXPECTED_WORKFLOW_ROW passport=$PP_OPEN"
 echo "Passport open obligation workflow row: $PASSPORT_WORKFLOW_ROW"
 
-mkproof(){ local phase=$1 subj=$2
+mkproof(){ local phase=$1 subj=$2 subject_id=$3
   local r pid url full
   r=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/app/proofs/uploads" \
-    -d "{\"proof_type\":\"video\",\"mime_type\":\"video/mp4\",\"scope_type\":\"task\",\"scope_id\":\"$TASK\",\"subject_type\":\"$subj\"}")
+    -d "{\"proof_type\":\"video\",\"mime_type\":\"video/mp4\",\"scope_type\":\"task\",\"scope_id\":\"$TASK\",\"subject_type\":\"$subj\",\"subject_id\":\"$subject_id\"}")
   pid=$(echo "$r" | jqp 'd["proof"]["proof_id"]'); url=$(echo "$r" | jqp 'd["upload_url"]')
   [ -n "$pid" ] || fail "proof upload failed phase=$phase subject=$subj response=$r"
   case "$url" in http*) full=$url;; /*) full="$API$url";; *) full="$API/$url";; esac
@@ -118,12 +118,10 @@ mkproof(){ local phase=$1 subj=$2
 }
 
 submit_task(){ local phase=$1
-  local p_shed p_vial p_admin sub subid comp
-  p_shed=$(mkproof "$phase" shed)
-  p_vial=$(mkproof "$phase" vial_lot)
-  p_admin=$(mkproof "$phase" administration)
+  local p_goat sub subid comp
+  p_goat=$(mkproof "$phase" goat "$GOAT")
   sub=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/app/tasks/$TASK/submissions" -d @- <<JSON
-{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP-$phase","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$p_shed","vial_lot_video":"$p_vial","administration_video":"$p_admin","goat_ids":["$GOAT"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$ADMINISTERED_AT","adverse_reaction":false},"proof_refs":[{"proof_id":"$p_shed","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$p_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$p_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP-$phase","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"goat_video":"$p_goat","goat_ids":["$GOAT"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$ADMINISTERED_AT","adverse_reaction":false},"proof_refs":[{"proof_id":"$p_goat","proof_type":"video","subject_type":"goat","subject_id":"$GOAT","upload_state":"completed"}]}
 JSON
 )
   subid=$(echo "$sub" | jqp 'd.get("submission",{}).get("submission_id","")')

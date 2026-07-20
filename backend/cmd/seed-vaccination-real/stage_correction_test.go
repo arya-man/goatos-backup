@@ -1,16 +1,114 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
 
+func TestVaccinationMatrixAuthorsAllSafetyAndDrivePolicies(t *testing.T) {
+	raw, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build matrix: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("decode matrix: %v", err)
+	}
+	want := map[string]map[string]any{
+		"pregnancy_policy": {
+			"allow_until_pregnancy_month": float64(3), "skip_from_pregnancy_month": float64(4),
+			"skip_through_pregnancy_month": float64(5), "post_delivery_catch_up_days": float64(14),
+		},
+		"recovery_policy": {"max_nearby_drive_align_days": float64(7)},
+		"drive_policy": {
+			"enabled": true, "combo_align_window_days": float64(7), "max_batching_hold_days": float64(7),
+			"max_batching_hold_count": float64(1), "species_grouping_policy": "kid_mixed",
+			"max_shots_per_animal_per_drive": float64(2),
+		},
+	}
+	for policy, fields := range want {
+		actual, ok := got[policy].(map[string]any)
+		if !ok {
+			t.Fatalf("matrix missing %s", policy)
+		}
+		for key, expected := range fields {
+			if actual[key] != expected {
+				t.Fatalf("%s.%s=%v want %v", policy, key, actual[key], expected)
+			}
+		}
+	}
+}
+
+func TestValidateVaccinationSOPContractRejectsBatchProofAndManualFields(t *testing.T) {
+	goodForm := `{"fields":[{"key":"goat_ids","type":"goat_scan","required":true,"repeat":true}],"repeat_for_each_goat":{"item_key":"goat_id","source_field":"goat_ids"}}`
+	if err := validateVaccinationSOPContract(goodForm, vaccinationMatrixProofPolicy); err != nil {
+		t.Fatalf("valid per-goat SOP rejected: %v", err)
+	}
+	bannedManualField := "cold_chain" + "_verified"
+	badForm := `{"fields":[{"key":"` + bannedManualField + `","type":"boolean","required":true}]}`
+	if err := validateVaccinationSOPContract(badForm, vaccinationMatrixProofPolicy); err == nil {
+		t.Fatal("manual medical form field was accepted")
+	}
+	badProof := `{"types":["video"],"required":true,"subject_scope":"batch","expected_subjects":["shed"],"minimum_count":1}`
+	if err := validateVaccinationSOPContract(goodForm, badProof); err == nil {
+		t.Fatal("batch/shed proof policy was accepted")
+	}
+}
+
+func TestCorrectedStageIsPersistedByGoatUpsert(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read source seeder: %v", err)
+	}
+	if !strings.Contains(string(source), "stage:             goatStageByAnimalKey[animalKey]") {
+		t.Fatal("goat upsert must persist the corrected age-derived stage, not normalize the stale source stage again")
+	}
+}
+
+func TestSourceSeederRejectsVaccinationBeforeDOB(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read source seeder: %v", err)
+	}
+	for _, want := range []string{
+		"sourceVaccinationDateBeforeDOB",
+		"vaccination date %s before DOB %s",
+	} {
+		if !strings.Contains(string(source), want) {
+			t.Fatalf("source seeder must fail before writing impossible pre-birth vaccination history; missing %q", want)
+		}
+	}
+}
+
+func TestSeededMatrixUsesPerGoatInAppCameraProofPolicy(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read source seeder: %v", err)
+	}
+	text := string(source)
+	if strings.Contains(text, `"required_proofs":["shed","vial_lot","administration"]`) {
+		t.Fatal("vaccination seed must not write the retired shed/vial/administration proof policy")
+	}
+	for _, want := range []string{
+		`"subject_scope":"goat"`,
+		`"capture_source":"in_app_camera"`,
+		`"minimum_count_per_subject":1`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("seeded vaccination matrix proof policy missing %s", want)
+		}
+	}
+}
+
 func TestStagesMatch(t *testing.T) {
 	tests := []struct {
-		name          string
-		sourceStage   string
-		derivedStage  string
-		wantMatch     bool
+		name         string
+		sourceStage  string
+		derivedStage string
+		wantMatch    bool
 	}{
 		// Kid stages match each other
 		{name: "K1 vs K1", sourceStage: "K1", derivedStage: "K1", wantMatch: true},
@@ -76,10 +174,10 @@ func TestStageCorrectionDetection(t *testing.T) {
 	// with realistic source/derived stage combinations.
 
 	tests := []struct {
-		name           string
-		sourceStage    string
-		derivedStage   string
-		shouldCorrect  bool
+		name          string
+		sourceStage   string
+		derivedStage  string
+		shouldCorrect bool
 	}{
 		// Cases that need correction
 		{name: "kid tag on adult goat", sourceStage: "K2", derivedStage: "Adult", shouldCorrect: true},
@@ -108,11 +206,11 @@ func TestDerivedStageFromDOB(t *testing.T) {
 	refTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	tests := []struct {
-		name         string
-		dob          *time.Time
-		asOf         time.Time
-		wantStage    string
-		description  string
+		name        string
+		dob         *time.Time
+		asOf        time.Time
+		wantStage   string
+		description string
 	}{
 		{
 			name:        "nil DOB",

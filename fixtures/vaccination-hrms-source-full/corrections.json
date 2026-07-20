@@ -1,0 +1,28 @@
+{
+  "counts": {
+    "stage_age_corrected": 292,
+    "dob_shifted_earlier": 386,
+    "dob_shifted_for_adult_truth": 145,
+    "dob_shifted_for_vaccination_schedule": 134,
+    "dob_shifted_for_other_event": 259,
+    "death_dates_removed": 38,
+    "sale_dates_removed": 78,
+    "terminal_animals_restored_to_alive": 116,
+    "species_reclassified_from_vaccination": 48,
+    "anantapur_renamed_to_anantapur_sheep": 48,
+    "unresolved_mother_references_blanked": 299,
+    "retained_mother_metadata_synchronized": 7,
+    "vaccination_metadata_cells_synchronized": 2845,
+    "source_vaccination_cells_changed": 0,
+    "unresolved_roster_seats_filled": 1,
+    "synthetic_park_heads_added": 2
+  },
+  "policy": {
+    "vaccination_cells_are_authoritative_and_immutable": true,
+    "metadata_is_repaired_around_vaccination_truth": true,
+    "no_new_na_or_pending_corrections": true,
+    "terminal_dates_conflicting_with_vaccination_or_dob": "remove_terminal_fact_and_restore_alive",
+    "anantapur_species_rule": "plain_anantapur_goat; anantapur_sheep_sheep; species_specific_vaccination_overrides_and_renames_breed",
+    "stage_is_derived_from_dob_as_of": "2026-07-20"
+  }
+}

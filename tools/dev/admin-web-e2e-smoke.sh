@@ -231,13 +231,14 @@ JSON
   administered_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   mkproof() {
     local subject="$1"
+    local subject_id="$2"
     local response proof_id upload_url full_url
     response="$(
       curl -sS \
         -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
         -H "Content-Type: application/json" \
         -X POST "$GOATOS_API_BASE_URL/app/proofs/uploads" \
-        -d "{\"proof_type\":\"video\",\"mime_type\":\"video/mp4\",\"scope_type\":\"task\",\"scope_id\":\"$task_id\",\"subject_type\":\"$subject\"}"
+        -d "{\"proof_type\":\"video\",\"mime_type\":\"video/mp4\",\"scope_type\":\"task\",\"scope_id\":\"$task_id\",\"subject_type\":\"$subject\",\"subject_id\":\"$subject_id\"}"
     )"
     proof_id="$(echo "$response" | jq_py 'd["proof"]["proof_id"]')"
     upload_url="$(echo "$response" | jq_py 'd["upload_url"]')"
@@ -258,17 +259,15 @@ JSON
       "$full_url" >/dev/null
     echo "$proof_id"
   }
-  local proof_shed_id proof_vial proof_admin submission completion_id
-  proof_shed_id="$(mkproof shed)"
-  proof_vial="$(mkproof vial_lot)"
-  proof_admin="$(mkproof administration)"
+  local proof_goat_id submission completion_id
+  proof_goat_id="$(mkproof goat "$goat_id")"
   submission="$(
     curl -sS \
       -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/app/tasks/$task_id/submissions" \
       -d @- <<JSON
-{"sop_version_id":"$SOPVER","idempotency_key":"smoke-submit-$stamp","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$proof_shed_id","vial_lot_video":"$proof_vial","administration_video":"$proof_admin","goat_ids":["$goat_id"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$administered_at","adverse_reaction":false},"proof_refs":[{"proof_id":"$proof_shed_id","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$proof_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$proof_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"smoke-submit-$stamp","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"goat_video":"$proof_goat_id","goat_ids":["$goat_id"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$administered_at","adverse_reaction":false},"proof_refs":[{"proof_id":"$proof_goat_id","proof_type":"video","subject_type":"goat","subject_id":"$goat_id","upload_state":"completed"}]}
 JSON
   )"
   if [ -z "$(echo "$submission" | jq_py 'd.get("submission",{}).get("submission_id","")')" ]; then

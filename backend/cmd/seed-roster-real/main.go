@@ -2,7 +2,8 @@
 // Jun-26 attendance sheet into the Goat OS HRMS roster/coverage tables so the
 // real website shows real people instead of demo names.
 //
-// Source data (gitignored, read at runtime, NEVER committed):
+// Source data is read from the committed, synthetic, PII-safe fixture by default.
+// A maintainer may point -source at a private reviewed export, which must never be committed:
 //   - <source>/attendance-jun-26.json   Sheets API Jun-26 tab (live source)
 //     columns: Name, Basic Salary, Incentive, Type, Designation Type, Designation,
 //     Location, DOJ, <day columns 1..30>. Designation Type values (CXO / Director /
@@ -177,9 +178,11 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("seed-roster-real", flag.ContinueOnError)
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 120*time.Second, "seed timeout")
-	sourcePath := fs.String("source", "/Users/ravi/mesha/source-material/vgoats-seed", "path to source data directory")
+	sourcePath := fs.String("source", "../fixtures/vaccination-hrms-source-full", "path to source data directory")
 	attendanceYear := fs.Int("attendance-year", 2026, "calendar year of attendance sheet")
 	attendanceMonth := fs.Int("attendance-month", 6, "calendar month (1-12) of attendance sheet")
+	strict := fs.Bool("strict", false, "fail before connecting or writing when any roster slot is unresolved/unknown/duplicated or required PC/Backup/Park Head coverage is absent")
+	validateOnly := fs.Bool("validate-only", false, "normalize and validate the source without connecting to Postgres or writing rows")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -230,6 +233,15 @@ func run(args []string) error {
 	if st.AssignmentsUnresolved > 0 {
 		fmt.Printf("WARNING: %d unresolved assignment(s) -- slots seeded with position but null member/grade\n", st.AssignmentsUnresolved)
 	}
+	if *strict {
+		if err := validateStrictRoster(rosterMappings, assignments, st); err != nil {
+			return err
+		}
+	}
+	if *validateOnly {
+		fmt.Println("strict roster source validation complete; no database connection or writes")
+		return nil
+	}
 
 	// ---- Step 2/3: import (requires the HRMS migration to be live) ----
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -250,6 +262,9 @@ func run(args []string) error {
 		return fmt.Errorf("check schema: %w", err)
 	}
 	if !ready {
+		if *strict {
+			return fmt.Errorf("strict roster seed requires the HRMS schema (missing: %s); no database writes were made", missing)
+		}
 		fmt.Printf("importer built, waiting on HRMS migration to land (missing: %s) -- normalizer counts above are the full dry-run result; no database writes were made.\n", missing)
 		return nil
 	}
@@ -266,6 +281,45 @@ func run(args []string) error {
 	fmt.Printf("seeded real roster:\n"+
 		"  members_inserted=%d positions_inserted=%d leaves_inserted=%d department_matches=%d\n",
 		st.MembersInserted, st.PositionsInserted, st.LeavesInserted, st.DepartmentMatches)
+	return nil
+}
+
+func validateStrictRoster(mappings []rosterMappingRow, assignments []rosterAssignment, st stats) error {
+	problems := make([]string, 0)
+	if st.AssignmentsUnresolved != 0 {
+		problems = append(problems, fmt.Sprintf("unresolved assignments=%d", st.AssignmentsUnresolved))
+	}
+	if st.PositionSlotsDefined != st.MappingRows {
+		problems = append(problems, fmt.Sprintf("unknown/ignored position labels=%d", st.MappingRows-st.PositionSlotsDefined))
+	}
+	seen := make(map[string]struct{}, len(assignments))
+	required := map[string]map[string]bool{
+		"CBE": {"preventive_care_manager": false, "backup_manager": false, "park_head": false},
+		"CPT": {"preventive_care_manager": false, "backup_manager": false, "park_head": false},
+	}
+	for _, assignment := range assignments {
+		key := assignment.center + "\x00" + assignment.position.code
+		if _, exists := seen[key]; exists {
+			problems = append(problems, "duplicate center/position="+assignment.center+"/"+assignment.position.code)
+		}
+		seen[key] = struct{}{}
+		if byPosition, ok := required[assignment.center]; ok {
+			if _, tracked := byPosition[assignment.position.code]; tracked && assignment.isResolved {
+				byPosition[assignment.position.code] = true
+			}
+		}
+	}
+	for center, byPosition := range required {
+		for position, present := range byPosition {
+			if !present {
+				problems = append(problems, "missing resolved "+center+"/"+position)
+			}
+		}
+	}
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return fmt.Errorf("strict roster preflight failed before database connection: %s", strings.Join(problems, "; "))
+	}
 	return nil
 }
 

@@ -208,6 +208,16 @@
       "ciStep": "seed-migration-guard"
     },
     {
+      "id": "vaccination-hrms-seed-fixture",
+      "script": "tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs",
+      "makeTarget": "vaccination-hrms-seed-fixture-guard",
+      "realCheck": "node tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs",
+      "selfTest": "node tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs --self-test",
+      "owningDoc": "docs/runbooks/source-seed-data-validation.md",
+      "requiredInCI": true,
+      "ciStep": "vaccination-hrms-seed-fixture-guard"
+    },
+    {
       "id": "vaccination-schedule-canonical",
       "script": "tools/agent-hooks/check-vaccination-schedule-canonical.mjs",
       "makeTarget": "vaccination-schedule-canonical-guard",

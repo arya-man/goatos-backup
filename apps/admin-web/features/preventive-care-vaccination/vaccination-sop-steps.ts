@@ -10,7 +10,7 @@ export interface SopStep {
 
 export const VACCINATION_DRIVE_SOP_STEPS: SopStep[] = [
   { title: "Drive scheduled", detail: "Cohort + vaccine; FEFO stock reserved." },
-  { title: "Per-shed administration", detail: "Dose per animal; video proof per shed event.", videoProof: true },
+  { title: "Per-goat administration", detail: "Dose per animal; in-app camera proof for each goat.", videoProof: true },
   { title: "Consume posted (ledger)", detail: "Verified completion posts a consume movement for doses (FEFO)." },
   { title: "Coverage + booster", detail: "Coverage % computed; next booster scheduled." },
 ];

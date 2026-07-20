@@ -1,0 +1,37 @@
+center,timetable_position,timetable_name,jun26_candidate,designation_type,designation,location,confidence,notes
+CBE,Feeding AM1,Fixture Slot 001,Fixture Staff 027,Assistant Manager,Cleaning Assistant Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Feeding AM1,Fixture Slot 002,Fixture Staff 032,Assistant Manager,Feeding Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Feeding AM2,Fixture Slot 003,Fixture Staff 017,Assistant Manager,Health Assistant Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Feeding AM2,Fixture Slot 004,Fixture Staff 043,Assistant Manager,Crops Watering Assistant Manager,CPT,REVIEW,Synthetic sanitized fixture assignment.
+CBE,Feeding AM3,Fixture Slot 005,Fixture Staff 019,Assistant Manager,Feeding Assistant Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Feeding AM3,Fixture Slot 006,Fixture Staff 042,Assistant Manager,Cleaning Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Cleaning AM1,Fixture Slot 007,Fixture Staff 020,Assistant Manager,Backup Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Cleaning AM1,Fixture Slot 008,Fixture Staff 036,Assistant Manager,Backup Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Cleaning AM2,Fixture Slot 009,Fixture Staff 023,Assistant Manager,Backup Assistant Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Cleaning AM2,Fixture Slot 010,Fixture Staff 038,Assistant Manager,Health Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Milk AM1,Fixture Slot 011,Fixture Staff 028,Assistant Manager,Backup Assistant Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Milk AM1,Fixture Slot 012,Fixture Staff 031,Assistant Manager,Cleaning Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Milk AM2,Fixture Slot 013,Fixture Staff 026,Assistant Manager,Cleaning Assistant Manager,CBE,REVIEW,Synthetic sanitized fixture assignment.
+CPT,Milk AM2,Fixture Slot 014,Fixture Staff 033,Assistant Manager,Backup Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Health/Kidding AM1,Fixture Slot 015,Fixture Staff 029,Assistant Manager,Feeding Assistant Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Health/Kidding AM1,Fixture Slot 016,Fixture Staff 041,Assistant Manager,Crops Assistant Manager,CPT,REVIEW,Synthetic sanitized fixture assignment.
+CBE,Health/Kidding AM2,Fixture Slot 017,Fixture Staff 018,Assistant Manager,Packing Assistant Manager,CBE,HIGH,Synthetic sanitized fixture assignment.
+CPT,Health/Kidding AM2,Fixture Slot 018,Fixture Staff 035,Assistant Manager,Crops Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Packaging AM1,Fixture Slot 019,Fixture Staff 022,Assistant Manager,Cleaning Assistant Manager,CBE,REVIEW,Synthetic sanitized fixture assignment.
+CPT,Packaging AM1,Fixture Slot 020,Fixture Staff 030,Assistant Manager,Cleaning Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CPT,Packaging AM2,Fixture Slot 021,Fixture Staff 034,Assistant Manager,Backup Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Backup AM1,Fixture Slot 022,Fixture Staff 025,Assistant Manager,Crops Assistant Manager,CBE,REVIEW,Synthetic sanitized fixture assignment.
+CPT,Backup AM1,Fixture Slot 023,Fixture Staff 040,Assistant Manager,Crops Watering Assistant Manager,CPT,REVIEW,Synthetic sanitized fixture assignment.
+CBE,Backup AM2,Fixture Slot 024,Fixture Staff 021,Assistant Manager,Milking Assistant Manager,CBE,REVIEW,Synthetic sanitized fixture assignment.
+CPT,Backup AM2,Fixture Slot 025,Fixture Staff 037,Assistant Manager,Cleaning Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CPT,Health/Kidding  Manager1,Fixture Slot 026,Fixture Staff 014,Manager,Feeding Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Health/Kidding  Manager2,Fixture Slot 027,Fixture Staff Manual 028,Manager,,CBE,MANUAL_SEED,Synthetic sanitized fixture assignment.
+CPT,Health/Kidding  Manager2,Fixture Slot 028,Fixture Staff 013,Manager,Feeding Assistant Manager,CPT,HIGH,Synthetic sanitized fixture assignment.
+CBE,Preventive Care Manager,Fixture Slot 029,Fixture Staff Manual 030,Manager,Health Manager,CBE,MANUAL_SEED,Synthetic sanitized fixture assignment.
+CPT,Preventive Care Manager,Fixture Slot 030,Fixture Staff 013,Manager,Feeding Assistant Manager,CPT,REVIEW,Synthetic sanitized fixture assignment.
+CBE,Backup Manager,Fixture Slot 031,Fixture Staff 020,Assistant Manager,Backup Manager,CBE,REVIEW,Synthetic sanitized fixture assignment.
+CPT,Backup Manager,Fixture Slot 032,Fixture Staff 016,Assistant Manager,Milking Assistant Manager,CPT,REVIEW,Synthetic sanitized fixture assignment.
+CBE,Feeding Manager,Fixture Slot 033,Fixture Staff 012,Assistant Manager,Feeding Assistant Manager,CBE,REVIEW,Synthetic sanitized fixture assignment.
+CBE,Farming AM,Fixture Slot 034,Fixture Staff 024,Assistant Manager,Milking Assistant Manager,CBE,REVIEW,Synthetic sanitized fixture assignment.
+CBE,Park Head,Fixture Park Head CBE,Fixture Staff Manual 036,Manager,Park Head,CBE,MANUAL_SEED,Synthetic sanitized fixture owner required for escalation coverage.
+CPT,Park Head,Fixture Park Head CPT,Fixture Staff Manual 037,Manager,Park Head,CPT,MANUAL_SEED,Synthetic sanitized fixture owner required for escalation coverage.

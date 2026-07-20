@@ -1,0 +1,170 @@
+# Source Seed Data Validation
+
+Status: mandatory for every vaccination + HRMS source import.
+
+This runbook is the machine-independent intake contract for a spreadsheet or
+export supplied for seeding. It applies on every developer machine and whether
+the operator is a human, Claude, or Codex. No importer may begin a database
+transaction until the normalized source bundle has passed this preflight and
+the committed sanitized fixture has passed the CI guard.
+
+## Plain-language rule
+
+An incoming sheet is evidence, not automatically clean database truth. First
+inspect it without touching Postgres. The report must identify every broken
+relationship and state the approved treatment. Then build a sanitized,
+deterministic fixture, run the same checks again, review its correction ledger,
+and commit the fixture, validator, tests, and documentation together. Only that
+exact committed version may be seeded.
+
+The required sequence is:
+
+```text
+incoming private sheet/export
+        |
+        v
+DB-free source audit (detailed report; no writes)
+        |
+        v
+reviewed deterministic transform + PII removal
+        |
+        v
+committed fixture + manifest hashes + corrections ledger
+        |
+        v
+adversarial guard self-test + strict fixture validation + local CI
+        |
+        v
+land exact green commit on main
+        |
+        v
+reset/reseed from that exact main commit
+```
+
+## Commands
+
+Normalize spreadsheet tabs into the six canonical files, then run:
+
+```bash
+make vaccination-hrms-source-audit \
+  SOURCE=/absolute/path/to/private/source \
+  AS_OF=2026-07-20
+```
+
+For an automation-readable report:
+
+```bash
+node tools/dev/validate-vaccination-hrms-source.mjs \
+  --source /absolute/path/to/private/source \
+  --as-of 2026-07-20 \
+  --json --strict
+```
+
+The command is read-only. `--strict` exits non-zero if the source is unsafe for
+direct seed. A warning such as a genuinely unknown DOB remains visible but is
+not converted into invented data.
+
+Build the reviewed sanitized fixture only after reading the complete report:
+
+```bash
+node tools/dev/build-vaccination-hrms-fixture.mjs \
+  --source /absolute/path/to/private/source \
+  --out fixtures/vaccination-hrms-source-full
+
+make vaccination-hrms-source-audit \
+  SOURCE=fixtures/vaccination-hrms-source-full
+make vaccination-hrms-seed-fixture-guard
+```
+
+The raw private files are never committed. The committed fixture uses
+synthetic animal and staff identities, strips out-of-scope HRMS fields, and
+contains `manifest.json` hashes plus `corrections.json` counts and policy.
+
+## What the report must cover
+
+The validator reports every category below, with a count, required treatment,
+and bounded row-number examples that do not print staff PII:
+
+- all required files and headers;
+- unique animal identities and exact one-animal/one-vaccination-row coverage;
+- allowed vaccination cell formats and dates after the reviewed business date;
+- goat-only versus sheep-only vaccine conflicts;
+- vaccine-proven species/breed repairs, including plain `Anantapur` as goat and
+  `Anantapur Sheep` as sheep;
+- invalid or missing DOB;
+- DOB after/equal purchase or after the animal's own entry;
+- stale K1/K2 versus trusted age, using the kernel's configured 20-completed-week
+  finish cutoff;
+- vaccination before DOB or before the published minimum age;
+- delivery, abortion, health, weight, or lifecycle events before DOB;
+- death/sale before DOB and vaccination after death/sale;
+- mother references that are unresolved, self-referential, not an older female,
+  or only ambiguous legacy identifiers;
+- duplicated animal metadata in vaccination rows that disagrees with canonical
+  animal metadata;
+- payroll, salary, bank, IFSC, tax, payment, advance, or DOJ columns;
+- unresolved or duplicate roster seats;
+- CBE and CPT Preventive Care Manager, Backup Manager, and Park Head coverage;
+- one reviewed manager and backup for every source shed and every animal.
+
+## Current mock-fixture correction authority
+
+For this synthetic test fixture, vaccination cells are immutable truth. The
+transform may repair surrounding mock metadata but must never change a dated,
+`Pending`, `NA`, blank, or `-` vaccination cell.
+
+- A goat-only or sheep-only vaccination selects species. Repair breed/species;
+  stop if the same animal contains both species-specific histories.
+- A trusted DOB determines kid/adult. Preserve a valid K1 or K2 distinction;
+  only age a K-tagged animal into Adult after the configured finish cutoff.
+- When an existing DOB contradicts purchase, vaccination, delivery, abortion,
+  health, or lifecycle history, move that mock DOB earlier to the earliest
+  allowed bound. If there is no defensible DOB, keep it null. Never create a
+  birthday merely to make a check green.
+- A missing DOB retains the reviewed source kid/adult stage fallback. Runtime
+  uses accepted same-vaccine history, entry date, or adult catch-up as designed.
+- If vaccination occurs after a mock death/sale, keep the vaccination and remove
+  the contradictory terminal fact, restoring the animal to Alive.
+- Synchronize vaccination-row location/demographic copies from the corrected
+  animal row; do not touch vaccination cells.
+- Keep only reviewed, resolvable maternal links. Blank ambiguous mock links.
+- Strip payroll/bank data completely. Goat OS imports only fields its workforce
+  model uses. The committed fixture uses synthetic names.
+
+These repairs are fixture-specific and recorded in `corrections.json`. They do
+not authorize production ingestion to rewrite business history. Production
+contradictions fail and return to the data owner.
+
+## Adding a new source column, rule, or feature
+
+A new seed-relevant migration, config field, vaccination/SOP rule, HRMS owner
+role, spreadsheet tab, or importer branch is incomplete until the same patch:
+
+1. adds the invariant to the source audit;
+2. adds it to strict fixture validation;
+3. adds a deliberately bad self-test proving the guard fails;
+4. updates the deterministic transform and correction ledger if an approved
+   mock-only repair exists;
+5. regenerates the fixture and manifest hashes;
+6. updates this runbook, the vaccination source-date contract, the seed fixture
+   README, and the `goatos-build` skill;
+7. keeps `make vaccination-hrms-seed-fixture-guard` and full `make ci-local`
+   green on the exact commit.
+
+The change-coupling guard watches the seed commands, schedule-policy runtime,
+generation runtime, and relevant migrations. It fails if those companion files
+are absent from the same diff. Open feature PRs must rebase onto the main commit
+that contains this contract before they can satisfy the gate.
+
+## Database boundary
+
+`make seed-vaccination-source-full` depends on the strict committed-fixture
+guard. The order inside the target is HRMS roster, animals/vaccination/config,
+strict shed owners, position duties, then deterministic closeout. A validation
+failure exits before the first command can write data. Never run an individual
+seed binary as a workaround for a red preflight.
+
+After the seed, database proofs remain mandatory: owner coverage, goat/shed
+scope, generated vaccination work, drive batching, zero in-window unbatched
+work, and the live canonical-read APIs. Source validation prevents bad input;
+post-seed proofs confirm the importer and runtime produced the intended result.

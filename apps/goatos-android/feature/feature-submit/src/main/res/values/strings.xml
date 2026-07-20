@@ -34,7 +34,7 @@
     <string name="submit_sync_loading">Loading…</string>
     <string name="submit_sync_ready">Ready to submit</string>
     <string name="submit_sync_queued">Queued — will sync…</string>
-    <string name="submit_sync_syncing">Submitting shed record…</string>
+    <string name="submit_sync_syncing">Submitting goat proof…</string>
     <string name="submit_sync_retrying">Retrying… (attempt %1$d/%2$d)</string>
     <string name="submit_sync_acked">Synced · record on file</string>
     <string name="submit_sync_conflict">Server rejected the submission.</string>

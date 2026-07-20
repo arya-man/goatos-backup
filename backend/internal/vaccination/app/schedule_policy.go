@@ -248,7 +248,6 @@ func kidFinishWeeks(proc genProcurementPolicy) int {
 	return int(kidWeeks) + 4
 }
 
-
 func isKidManagementStage(stage string) bool {
 	stage = strings.ToUpper(strings.TrimSpace(stage))
 	if len(stage) >= 2 && strings.HasPrefix(stage, "K") {
@@ -361,9 +360,6 @@ func pregnancyDeferReason(g domain.EligibleGoat, preg genPregnancyPolicy, asOf t
 			if preg.SkipThroughPregnancyMonth <= 0 || month <= int(preg.SkipThroughPregnancyMonth) {
 				return "late_pregnancy_hold"
 			}
-		}
-		if preg.AllowUntilPregnancyMonth > 0 && month > int(preg.AllowUntilPregnancyMonth) {
-			return "late_pregnancy_hold"
 		}
 	case "lactating", "mother", "milking":
 		// Outside the post-delivery catch-up window, normal scheduling resumes.

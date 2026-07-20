@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "fixture_kind": "synthetic_sanitized",
+  "data_as_of": "2026-07-20",
+  "minimum_migration": "000008",
+  "generated_by": "tools/dev/build-vaccination-hrms-fixture.mjs",
+  "contracts": {
+    "vaccination_protocol_code": "vaccination.matrix",
+    "vaccination_sop_code": "vaccination.drive",
+    "video_proof_subject_scope": "goat",
+    "video_capture_source": "in_app_camera",
+    "minimum_video_count_per_goat": 1,
+    "maximum_video_count_per_goat": 5,
+    "verifier_approval_required": true,
+    "shed_completion": "acknowledgement_only",
+    "source_dates_are_never_invented": true,
+    "source_policy_sha256": "07d0b8098ec3c8d9eaaf74e8044255798f3b6b7426a14ef5781c2e2934c6eb1d"
+  },
+  "counts": {
+    "animals": 1311,
+    "species": {
+      "goat": 975,
+      "sheep": 336
+    },
+    "sheds": 116,
+    "vaccination_cells": {
+      "dated": 3836,
+      "pending": 6383,
+      "na": 2891,
+      "malformed": 0
+    },
+    "roster_positions": 36,
+    "corrections": {
+      "stage_age_corrected": 292,
+      "dob_shifted_earlier": 386,
+      "dob_shifted_for_adult_truth": 145,
+      "dob_shifted_for_vaccination_schedule": 134,
+      "dob_shifted_for_other_event": 259,
+      "death_dates_removed": 38,
+      "sale_dates_removed": 78,
+      "terminal_animals_restored_to_alive": 116,
+      "species_reclassified_from_vaccination": 48,
+      "anantapur_renamed_to_anantapur_sheep": 48,
+      "unresolved_mother_references_blanked": 299,
+      "retained_mother_metadata_synchronized": 7,
+      "vaccination_metadata_cells_synchronized": 2845,
+      "source_vaccination_cells_changed": 0,
+      "unresolved_roster_seats_filled": 1,
+      "synthetic_park_heads_added": 2
+    }
+  },
+  "files": {
+    "goats.json": {
+      "bytes": 1068299,
+      "sha256": "5423481c18abf5845c6af4e946434766fd30ade2caf5a1e6bd5a261f1183f7e9"
+    },
+    "vaccination.json": {
+      "bytes": 452568,
+      "sha256": "43df5416c727f282e6fe7c2787b9788aa36dbcc67d6686828a0dd0ceb7613c0b"
+    },
+    "attendance-jun-26.json": {
+      "bytes": 73247,
+      "sha256": "e648f292579af52c78d0f30ef29d937a3dddf02bda211c67ca8e3e50c1f2adb1"
+    },
+    "timetable-goats-team-v1.json": {
+      "bytes": 4738,
+      "sha256": "8b31ac2e9212e78a8dd48443a4bcb1c866aaea8ac86011662924756bd5bd43f7"
+    },
+    "roster-name-mapping.jun26-review.csv": {
+      "bytes": 5370,
+      "sha256": "d5fb8faf2d561d4d20900975c35c20a7821ea7f9a088d989150b1cabd01252ee"
+    },
+    "shed-manager-mapping.jul11-vaccination.csv": {
+      "bytes": 40905,
+      "sha256": "f72fc770751c0b6e8fa1d97ef6458ad0eae2e048833c35a1fd9f3e68dd154d50"
+    },
+    "corrections.json": {
+      "bytes": 1164,
+      "sha256": "b7733eaab25f4f752696672d1c5d72dadbc8d027d14efa78aba81338042be3fd"
+    }
+  }
+}

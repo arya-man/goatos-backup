@@ -1,13 +1,13 @@
 SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
 GOATOS_LOCAL_TENANT_ID ?= 00000000-0000-4000-8000-000000000001
-GOATOS_VACCINATION_SOURCE_DIR ?= $(abspath $(REPO_ROOT)/../source-material/vgoats-seed)
+GOATOS_VACCINATION_SOURCE_DIR ?= $(REPO_ROOT)/fixtures/vaccination-hrms-source-full
 GOATOS_SHED_MANAGER_MAPPING ?= $(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv
 GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= abhishek@mesha.sg aryaman@mesha.sg manju@mesha.sg manohark@mesha.sg ravi@mesha.sg
 GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails guardrail-registration-guard backend-foundations-guard frontend-foundations-guard domain-event-architecture-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard
+.PHONY: seed-state-guard check guardrails guardrail-registration-guard backend-foundations-guard frontend-foundations-guard domain-event-architecture-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -126,6 +126,7 @@ guardrails:
 	$(MAKE) no-mismatch-review-queue-guard
 	$(MAKE) review-lens-ledger-guard
 	$(MAKE) seed-migration-guard
+	$(MAKE) vaccination-hrms-seed-fixture-guard
 	$(MAKE) india-date-guard
 	$(MAKE) offline-first-guard
 	$(MAKE) local-single-db-guard
@@ -196,6 +197,15 @@ scale-certification-docs-guard:
 seed-migration-guard:
 	node tools/agent-hooks/check-seed-migration-coupling.mjs --self-test
 	node tools/agent-hooks/check-seed-migration-coupling.mjs
+
+vaccination-hrms-seed-fixture-guard:
+	node tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs --self-test
+	node tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs
+
+# Validate any normalized vaccination + HRMS source bundle without touching a DB.
+# Override SOURCE=/absolute/path and AS_OF=YYYY-MM-DD for a newly supplied sheet export.
+vaccination-hrms-source-audit:
+	node tools/dev/validate-vaccination-hrms-source.mjs --source "$${SOURCE:-$(GOATOS_VACCINATION_SOURCE_DIR)}" --as-of "$${AS_OF:-2026-07-20}" --strict
 
 # telemetry-guard: block the TELEMETRY GUARDRAIL anti-pattern — a new/changed
 # Android screen/viewmodel (or admin-web route) shipped with no Firebase
@@ -605,11 +615,16 @@ seed-stg-email-grants:
 # vaccination source/config seed (which creates canonical shed locations), strict
 # shed ownership, position duties, then every vaccination read model needed by
 # live pages.
-seed-vaccination-source-full: seed-dev-email-grants
-	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)"
-	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -null-false-dob -expect-null-false-dob=42
-	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_SHED_MANAGER_MAPPING)" -strict
-	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}"
+# Keep every DB-mutating command in the recipe, after the exact selected source
+# has passed the read-only preflight. Do not move grants/roster into prerequisites:
+# Make may execute prerequisites before a custom SOURCE has been rejected.
+seed-vaccination-source-full: vaccination-hrms-seed-fixture-guard
+	node tools/dev/validate-vaccination-hrms-source.mjs --source "$(GOATOS_VACCINATION_SOURCE_DIR)" --as-of "$${AS_OF:-2026-07-20}" --strict
+	$(MAKE) seed-dev-email-grants
+	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -strict
+	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -expect-null-false-dob=0
+	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict
+	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	$(MAKE) seed-closeout
 
 # Deterministic post-seed/post-migration closeout. Runs only projectors/backfills

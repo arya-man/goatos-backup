@@ -138,6 +138,31 @@ kid dose 2 stays 28 days after Blue Tongue kid dose 1. Single-dose vaccines
 such as FMD, HS, PPR, Goat Pox, and Sheep Pox repeat from their accepted
 same-vaccine administration because they have no second course dose.
 
+### Sanitized mock-fixture exception
+
+The runtime/kernel rule above remains strict: it never derives DOB from a
+vaccination and production ingestion returns contradictions to the data owner.
+The committed synthetic local/dev fixture has a narrower, reviewed repair rule
+because its vaccination dates are the test truth the fixture exists to exercise.
+During `tools/dev/build-vaccination-hrms-fixture.mjs` only:
+
+- every vaccination cell is immutable, including dated, `Pending`, `NA`, blank,
+  and `-` values;
+- vaccine-specific species evidence repairs mock breed/species metadata, while
+  an animal with both goat-only and sheep-only vaccine history is rejected;
+- an existing mock DOB that makes purchase, vaccination minimum age, delivery,
+  abortion, health, weight, or lifecycle history impossible is moved earlier to
+  the earliest required bound; a missing DOB remains null;
+- valid K1/K2 distinctions remain, but a trusted DOB past the configured
+  20-completed-week finish cutoff persists as Adult;
+- a mock death/sale contradicted by later vaccination is removed and the animal
+  is restored to Alive; the vaccination date is never changed.
+
+Every repair is counted in the committed `corrections.json`. This deterministic
+fixture preparation is not a kernel scheduling anchor and is not an authority
+to rewrite production identity or lifecycle history. The complete source-intake
+workflow is `docs/runbooks/source-seed-data-validation.md`.
+
 Identity corrections are recomputation signals, not authority to overwrite
 completion history. When DOB or entry date is added or corrected:
 
@@ -229,8 +254,6 @@ For local/dev rehearsals, the one-command source path is:
 DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
 GOATOS_ENV=local \
 GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
-GOATOS_VACCINATION_SOURCE_DIR='/Users/ravi/mesha/source-material/vgoats-seed' \
-GOATOS_SHED_MANAGER_MAPPING='/Users/ravi/mesha/source-material/vgoats-seed/shed-manager-mapping.jul11-vaccination.csv' \
 make seed-vaccination-source-full
 ```
 
@@ -250,10 +273,12 @@ facts, notifications, audit rows, or derived statuses.
 
 That target uses the source bundle at `GOATOS_VACCINATION_SOURCE_DIR` and the
 strict shed-manager mapping at `GOATOS_SHED_MANAGER_MAPPING`. The `Makefile`
-defaults to `../source-material/vgoats-seed` from the repo root, but shared
-runbooks and handoffs should still show the explicit source paths so Claude,
-Codex, or a human operator cannot accidentally seed from a different local
-folder.
+defaults both to the committed `fixtures/vaccination-hrms-source-full` bundle.
+The selected directory itself is audited as the first recipe step, before email
+grants, HRMS, or vaccination can write. A private `GOATOS_VACCINATION_SOURCE_DIR`
+override is therefore expected to fail until it has been reviewed and converted
+to the sanitized fixture; never bypass that failure by invoking a seed binary
+directly.
 
 The current reviewed bundle must include:
 

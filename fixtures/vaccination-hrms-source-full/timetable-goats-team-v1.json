@@ -1,0 +1,274 @@
+{
+  "values": [
+    [
+      "",
+      "Shift",
+      "CBE",
+      "CPT",
+      "Week OFFs",
+      "Backup"
+    ],
+    [
+      "Feeding AM1",
+      "08:30",
+      "Fixture Slot 001",
+      "Fixture Slot 002",
+      "Monday",
+      "Fixture Backup 001"
+    ],
+    [
+      "Feeding AM2",
+      "08:30",
+      "Fixture Slot 003",
+      "Fixture Slot 004",
+      "Tuesday",
+      "Fixture Backup 002"
+    ],
+    [
+      "Feeding AM3",
+      "08:30",
+      "Fixture Slot 005",
+      "Fixture Slot 006",
+      "Wednesday",
+      "Fixture Backup 003"
+    ],
+    [
+      "Cleaning AM1",
+      "08:30",
+      "Fixture Slot 007",
+      "Fixture Slot 008",
+      "Thursday",
+      "Fixture Backup 004"
+    ],
+    [
+      "Cleaning AM2",
+      "06:00",
+      "Fixture Slot 009",
+      "Fixture Slot 010",
+      "Friday",
+      "Fixture Backup 005"
+    ],
+    [
+      "Milk AM1",
+      "5 am/pm to 9 am/pm",
+      "Fixture Slot 011",
+      "Fixture Slot 012",
+      "Saturday",
+      "Fixture Backup 006"
+    ],
+    [
+      "Milk AM2",
+      "6 am/pm to 9 am/pm",
+      "Fixture Slot 013",
+      "Fixture Slot 014",
+      "Monday",
+      "Fixture Backup 007"
+    ],
+    [
+      "Breeding AM",
+      "08:30",
+      "--",
+      "--",
+      "Tuesday",
+      "Fixture Backup 008"
+    ],
+    [
+      "Health/Kidding AM1",
+      "06:00",
+      "Fixture Slot 015",
+      "Fixture Slot 016",
+      "Wednesday",
+      "Fixture Backup 009"
+    ],
+    [
+      "Health/Kidding AM2",
+      "15:00",
+      "Fixture Slot 017",
+      "Fixture Slot 018",
+      "Thursday",
+      "Fixture Backup 010"
+    ],
+    [
+      "Packaging AM1",
+      "08:30",
+      "Fixture Slot 019",
+      "Fixture Slot 020",
+      "Friday",
+      "Fixture Backup 011"
+    ],
+    [
+      "Packaging AM2",
+      "08:30",
+      "",
+      "Fixture Slot 021"
+    ],
+    [
+      "Backup AM1 ",
+      "All shifts",
+      "Fixture Slot 022",
+      "Fixture Slot 023",
+      "Sunday",
+      "--"
+    ],
+    [
+      "Backup AM2",
+      "All shifts",
+      "Fixture Slot 024",
+      "Fixture Slot 025",
+      "Sunday",
+      "--"
+    ],
+    [
+      "Health/Kidding  Manager1",
+      "06:00",
+      "",
+      "Fixture Slot 026",
+      "Monday",
+      "Fixture Backup 015"
+    ],
+    [
+      "Health/Kidding  Manager2",
+      "15:00",
+      "Fixture Slot 027",
+      "Fixture Slot 028",
+      "Tuesday",
+      "Fixture Backup 016"
+    ],
+    [
+      "Breeding Manager",
+      "08:30",
+      "--",
+      "--",
+      "Wednesday",
+      "Fixture Backup 017"
+    ],
+    [
+      "Preventive Care Manager",
+      "08:30",
+      "--",
+      "--",
+      "Thursday",
+      "Fixture Backup 018"
+    ],
+    [
+      "Backup Manager",
+      "08:30",
+      "--",
+      "Fixture Slot 032",
+      "Friday",
+      "--"
+    ],
+    [
+      "Feeding Manager",
+      "08:30",
+      "Fixture Slot 033",
+      "",
+      "Saturday",
+      "Fixture Backup 020"
+    ],
+    [
+      "Goats Head",
+      "08:30",
+      "",
+      "",
+      "Monday",
+      "Fixture Backup 021"
+    ],
+    [
+      "Park Head",
+      "08:30",
+      "--",
+      "--",
+      "Tuesday",
+      "--"
+    ],
+    [
+      "Health Trainer AM1 ",
+      "08:30",
+      "--",
+      "--",
+      "Monday",
+      "--"
+    ],
+    [
+      "Backup Trainer AM2",
+      "08:30",
+      "--",
+      "--",
+      "Tuesday",
+      "--"
+    ],
+    [
+      "Trainer AM3",
+      "08:30",
+      "--",
+      "--",
+      "Wednesday",
+      "--"
+    ],
+    [
+      "Farming AM",
+      "",
+      "Fixture Slot 034"
+    ],
+    [],
+    [
+      "Breeding Director",
+      "Pregnant goats management",
+      "Fixture Staff",
+      "Fixture Staff",
+      "weaning milk consumption "
+    ],
+    [
+      "Health Director - Avishek",
+      "Day to day health",
+      "Fixture Staff",
+      "Fixture Staff",
+      "Shiftin:gs"
+    ],
+    [
+      "Goats Regular Tasks Director\n(E.g., vaccinations, deworming, ticks removal, shiftings, etc.)",
+      "Streamline vaccinie procurment",
+      "Fixture Staff",
+      "Fixture Staff"
+    ],
+    [
+      "Infrastructure Director - Dinakar",
+      "\nVentillation Tracking",
+      "Fixture Staff",
+      "Fixture Staff",
+      "Water Tanks\nElectric connections",
+      "Fixture Backup 031"
+    ],
+    [
+      "Procurement Director ",
+      "Backup"
+    ],
+    [
+      "Sales Director",
+      "Build Festive sales network",
+      "Fixture Staff"
+    ],
+    [
+      "Feeding Director ",
+      "Nutrition ",
+      "Fixture Staff",
+      "Fixture Staff",
+      "Feed Testing"
+    ],
+    [
+      "Farming Director - Shanakram"
+    ],
+    [
+      "HR Director - Chandrakanth"
+    ],
+    [
+      "Common Work",
+      "Meeting with the video verifiers",
+      "Fixture Staff",
+      "Fixture Staff",
+      "SOP setting",
+      "Fixture Backup 037"
+    ]
+  ]
+}

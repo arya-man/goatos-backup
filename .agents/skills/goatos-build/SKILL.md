@@ -231,6 +231,17 @@ one product; this skill is the navigation layer.
   until vaccination generation and the drive-batching sweeper have also run
   through the visible schedule horizon and the closeout check proves zero
   in-window `scheduled`/`due` vaccination obligations remain unbatched.
+- **Any new vaccination/HRMS sheet is validated before DB access.** Normalize it
+  to the canonical six-file bundle and run `make vaccination-hrms-source-audit
+  SOURCE=/absolute/path AS_OF=YYYY-MM-DD`. Read every failure category, apply
+  only reviewed deterministic fixture repairs, sanitize PII, regenerate the
+  committed fixture/manifest/correction ledger, and run
+  `make vaccination-hrms-seed-fixture-guard`. Never invoke an individual seed
+  binary to bypass a red preflight. A new source column, migration, config/SOP
+  rule, owner role, or importer branch must update the source audit, strict
+  validator, adversarial self-test, transform, fixture hashes,
+  `docs/runbooks/source-seed-data-validation.md`, source-date contract, and
+  anti-pattern docs in the same patch; the coupling guard must fail otherwise.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the

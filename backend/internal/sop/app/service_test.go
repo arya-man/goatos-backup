@@ -244,6 +244,38 @@ func TestCreateVersionRejectsOldProofPolicyShape(t *testing.T) {
 	}
 }
 
+func TestCreateVersionRejectsVaccinationDriveShedProofPolicy(t *testing.T) {
+	repo := newFakeRepo()
+	repo.sop.Code = "vaccination.drive"
+	service := NewService(repo)
+	dsl := vaccinationDSL()
+	dsl["goat_row_proof"] = map[string]any{
+		"subject_scope": "goat", "capture_source": "in_app_camera",
+		"minimum_clips": float64(1), "maximum_clips": float64(5),
+	}
+	_, err := service.CreateVersion(context.Background(), ports.CreateVersionCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		SOPID:    testSOPID,
+		Body: domain.CreateSOPVersionRequest{
+			VersionLabel: "bad-vaccination-proof",
+			FormDSL:      dsl,
+			ProofPolicy: map[string]any{
+				"required":      true,
+				"subject_scope": "shed",
+				"types":         []any{"video"},
+				"minimum_count": float64(1),
+			},
+		},
+	}, "trace")
+	if err == nil {
+		t.Fatal("expected vaccination.drive shed proof policy to be rejected")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "invalid_sop_dsl" {
+		t.Fatalf("err = %#v", err)
+	}
+}
+
 func TestValidateRejectsUnsupportedRuleKinds(t *testing.T) {
 	for _, ruleType := range []string{"validation_rule", "calculated_value", "branch_to"} {
 		t.Run(ruleType, func(t *testing.T) {
@@ -1179,6 +1211,7 @@ func TestListSOPsNormalizesFiltersAndReturnsOpaqueNextCursor(t *testing.T) {
 }
 
 type fakeRepo struct {
+	sop                         domain.SOPDefinition
 	task                        domain.TaskSummary
 	version                     domain.SOPVersion
 	submissions                 []domain.SubmissionSummary
@@ -1208,6 +1241,13 @@ type fakeRepo struct {
 func newFakeRepo() *fakeRepo {
 	assigned := testActorID
 	return &fakeRepo{
+		sop: domain.SOPDefinition{
+			SOPID:    testSOPID,
+			TenantID: testTenantID,
+			Code:     "shifting",
+			Name:     "Shifting",
+			Status:   "active",
+		},
 		task: domain.TaskSummary{
 			TaskID:       testTaskID,
 			TenantID:     testTenantID,
@@ -1254,7 +1294,7 @@ func (f *fakeRepo) CreateSOP(context.Context, ports.CreateSOPCommand) (domain.SO
 	return domain.SOPDefinition{}, nil
 }
 func (f *fakeRepo) GetSOP(context.Context, string, string) (domain.SOPDefinition, *domain.SOPVersion, error) {
-	return domain.SOPDefinition{}, &f.version, nil
+	return f.sop, &f.version, nil
 }
 func (f *fakeRepo) CreateVersion(context.Context, ports.CreateVersionCommand) (domain.SOPVersion, error) {
 	return f.version, nil

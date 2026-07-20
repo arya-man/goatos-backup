@@ -174,6 +174,11 @@ func (s *Service) CreateVersion(ctx context.Context, cmd ports.CreateVersionComm
 		return nil, BadRequest("invalid_version_label", "version_label is required")
 	}
 	cmd.Report = ValidateFormDSL(cmd.Body.FormDSL, cmd.Body.ProofPolicy)
+	sop, _, err := s.repo.GetSOP(ctx, cmd.TenantID, cmd.SOPID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	validateVaccinationDriveSOPContract(&cmd.Report, sop.Code, cmd.Body.FormDSL, cmd.Body.ProofPolicy)
 	if !cmd.Report.Valid {
 		return nil, BadRequest("invalid_sop_dsl", cmd.Report.Errors[0].Message)
 	}
@@ -1672,6 +1677,34 @@ func validateProofPolicy(report *domain.ValidationReport, policy, formDSL map[st
 	}
 	if retention := stringValue(policy, "retention_policy"); retention != "" && !validProofRetentionPolicy(retention) {
 		addError(report, "proof_policy.retention_policy", "unsupported", "retention_policy must be operational_90d, standard_1y, critical_7y, or legal_hold")
+	}
+}
+
+func validateVaccinationDriveSOPContract(report *domain.ValidationReport, sopCode string, formDSL, proofPolicy map[string]any) {
+	switch strings.TrimSpace(sopCode) {
+	case "vaccination.drive", "vaccination.session":
+	default:
+		return
+	}
+	if stringValue(proofPolicy, "subject_scope") != "goat" {
+		addError(report, "proof_policy.subject_scope", "invalid", "vaccination SOP proof must be captured per goat")
+	}
+	types, ok := proofPolicyTypes(proofPolicy)
+	if !ok || len(types) != 1 || types[0] != "video" {
+		addError(report, "proof_policy.types", "invalid", "vaccination SOP proof must be video")
+	}
+	if minimum, ok := proofPolicyInteger(proofPolicy, "minimum_count_per_subject"); !ok || minimum < 1 {
+		addError(report, "proof_policy.minimum_count_per_subject", "invalid", "vaccination SOP requires at least one completed proof per goat")
+	}
+	if maximum, ok := proofPolicyInteger(proofPolicy, "maximum_count_per_subject"); !ok || maximum < 1 || maximum > 5 {
+		addError(report, "proof_policy.maximum_count_per_subject", "invalid", "vaccination SOP allows at most five completed proofs per goat")
+	}
+	if !boolValue(proofPolicy, "verify_before_apply") {
+		addError(report, "proof_policy.verify_before_apply", "invalid", "vaccination SOP proof must be verified before completion")
+	}
+	config, ok := formDSL["goat_row_proof"].(map[string]any)
+	if !ok || stringValue(config, "subject_scope") != "goat" || stringValue(config, "capture_source") != "in_app_camera" {
+		addError(report, "form_dsl.goat_row_proof", "required", "vaccination SOP requires in-app camera proof for each goat")
 	}
 }
 

@@ -136,6 +136,7 @@ run_backend() {
   step "no-mismatch-review-queue-guard" make no-mismatch-review-queue-guard
   step "review-lens-ledger-guard" make review-lens-ledger-guard
   step "seed-migration-guard"     make seed-migration-guard
+  step "vaccination-hrms-seed-fixture-guard" make vaccination-hrms-seed-fixture-guard
   step "vaccination-schedule-canonical-guard" make vaccination-schedule-canonical-guard
   step "india-date-guard"         make india-date-guard
   step "local-single-db-guard"    make local-single-db-guard

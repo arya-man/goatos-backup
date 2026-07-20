@@ -171,6 +171,12 @@ type stats struct {
 const (
 	seedFallbackFarm = "SEED_INTAKE"
 	seedFallbackShed = "Seed Intake Shed"
+
+	// vaccinationMatrixProofPolicy is the same proof grain enforced by the bound
+	// vaccination SOP and Android runner: one live in-app-camera clip per goat.
+	// Shed completion is only an acknowledgement; there is no shed-, vial-, or
+	// administration-level summary video.
+	vaccinationMatrixProofPolicy = `{"types":["video"],"required":true,"subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count_per_subject":5,"capture_source":"in_app_camera","one_clip_covers_same_handling_vaccines":true,"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}`
 )
 
 type oblIns struct {
@@ -1051,7 +1057,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			sex:               normalizeSex(g.Gender),
 			lifecycle:         normalizeLifecycle(g.Status),
 			originType:        normalizeOriginType(g.OriginType),
-			stage:             normalizeStage(g.Stage, g.Age),
+			stage:             goatStageByAnimalKey[animalKey],
 			age:               g.Age,
 			// health precedence: shed_tag reflects where the goat is housed RIGHT NOW
 			// (e.g. still in the ICU/quarantine shed), a stronger and more current
@@ -1192,6 +1198,10 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			st.UnresolvedDatedFacts++
 			addFact(c, val, dispositionUnresolved, "", "")
 			continue
+		}
+		if dob := goatDOBByAnimalKey[c.AnimalKey]; sourceVaccinationDateBeforeDOB(d, dob) {
+			return st, fmt.Errorf("source animal %q has vaccination date %s before DOB %s for %s %s",
+				c.AnimalKey, d.Format("2006-01-02"), dob.Format("2006-01-02"), c.Vaccine, c.DoseType)
 		}
 
 		// Resolve goat's schedule path (kid vs adult), then map the sheet dose to the
@@ -3046,9 +3056,9 @@ func nullString(s string) *string {
 }
 
 func resolveVaccinationSOPVersion(ctx context.Context, tx pgx.Tx, tenantID string) (string, error) {
-	var sopVersionID string
+	var sopVersionID, formDSL, proofPolicy string
 	err := tx.QueryRow(ctx, `
-		SELECT sv.sop_version_id::text
+		SELECT sv.sop_version_id::text, sv.form_dsl::text, sv.proof_policy::text
 		FROM sop_versions sv
 		JOIN sop_definitions sd
 		  ON sd.tenant_id = sv.tenant_id
@@ -3057,11 +3067,63 @@ func resolveVaccinationSOPVersion(ctx context.Context, tx pgx.Tx, tenantID strin
 		  AND sd.code = 'vaccination.drive'
 		  AND sv.status = 'published'
 		ORDER BY sv.version DESC, sv.updated_at DESC
-		LIMIT 1`, tenantID).Scan(&sopVersionID)
+		LIMIT 1`, tenantID).Scan(&sopVersionID, &formDSL, &proofPolicy)
 	if err != nil {
 		return "", fmt.Errorf("resolve published vaccination.drive SOP version: %w", err)
 	}
+	if err := validateVaccinationSOPContract(formDSL, proofPolicy); err != nil {
+		return "", fmt.Errorf("published vaccination.drive SOP %s violates the Android per-goat execution contract: %w", sopVersionID, err)
+	}
 	return sopVersionID, nil
+}
+
+func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
+	var form struct {
+		Fields []struct {
+			Key      string `json:"key"`
+			Type     string `json:"type"`
+			Required bool   `json:"required"`
+			Repeat   bool   `json:"repeat"`
+		} `json:"fields"`
+		RepeatForEachGoat struct {
+			ItemKey     string `json:"item_key"`
+			SourceField string `json:"source_field"`
+		} `json:"repeat_for_each_goat"`
+	}
+	if err := json.Unmarshal([]byte(formDSLJSON), &form); err != nil {
+		return fmt.Errorf("invalid form_dsl JSON: %w", err)
+	}
+	if len(form.Fields) != 1 || form.Fields[0].Key != "goat_ids" || form.Fields[0].Type != "goat_scan" || !form.Fields[0].Required || !form.Fields[0].Repeat {
+		return fmt.Errorf("form_dsl must contain exactly one required repeat goat_ids/goat_scan field")
+	}
+	if form.RepeatForEachGoat.ItemKey != "goat_id" || form.RepeatForEachGoat.SourceField != "goat_ids" {
+		return fmt.Errorf("form_dsl repeat_for_each_goat must bind goat_id to goat_ids")
+	}
+	var proof struct {
+		Types                   []string `json:"types"`
+		Required                bool     `json:"required"`
+		SubjectScope            string   `json:"subject_scope"`
+		ExpectedSubjects        []string `json:"expected_subjects"`
+		MinimumCount            int      `json:"minimum_count"`
+		MinimumCountPerSubject  int      `json:"minimum_count_per_subject"`
+		MaximumCountPerSubject  int      `json:"maximum_count_per_subject"`
+		CaptureSource           string   `json:"capture_source"`
+		OneClipSameHandlingGoat bool     `json:"one_clip_covers_same_handling_vaccines"`
+		VerifyCapability        string   `json:"verify_capability"`
+		VerifyBeforeApply       bool     `json:"verify_before_apply"`
+		RetentionPolicy         string   `json:"retention_policy"`
+	}
+	if err := json.Unmarshal([]byte(proofPolicyJSON), &proof); err != nil {
+		return fmt.Errorf("invalid proof_policy JSON: %w", err)
+	}
+	if len(proof.Types) != 1 || proof.Types[0] != "video" || !proof.Required || proof.SubjectScope != "goat" ||
+		len(proof.ExpectedSubjects) != 1 || proof.ExpectedSubjects[0] != "goat" || proof.MinimumCount != 1 ||
+		proof.MinimumCountPerSubject != 1 || proof.MaximumCountPerSubject != 5 || proof.CaptureSource != "in_app_camera" ||
+		!proof.OneClipSameHandlingGoat || proof.VerifyCapability != "proof.verify" || !proof.VerifyBeforeApply ||
+		proof.RetentionPolicy != "operational_90d" {
+		return fmt.Errorf("proof_policy must require 1..5 live in-app-camera video clips for each goat and verifier approval before apply")
+	}
+	return nil
 }
 
 func nextProtocolVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID string) (int, error) {
@@ -3108,14 +3170,14 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 	}
 
 	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
-	var status, existingRuleDSL, existingSOPVersionID string
+	var status, existingRuleDSL, existingProofPolicy, existingSOPVersionID string
 	var existingVersion int
 	// Only ever adopt/refresh versions positively identified as seed-owned (drafted_by = seed actor);
 	// after the draft back-stamp above this includes legacy seed drafts. A user-authored version that
 	// shares the seed label (drafted_by = a real user) and any unidentifiable NULL row are never
 	// adopted here; the publish guard refuses to retire them.
 	qerr := tx.QueryRow(ctx, `
-		SELECT protocol_version_id, status, version, rule_dsl::text, COALESCE(sop_version_id::text, '')
+		SELECT protocol_version_id, status, version, rule_dsl::text, proof_policy::text, COALESCE(sop_version_id::text, '')
 		FROM protocol_versions
 		WHERE tenant_id=$1
 		  AND protocol_id=$2
@@ -3126,8 +3188,10 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 		  AND drafted_by=$4::uuid
 		ORDER BY version DESC
 		LIMIT 1`,
-		tenantID, protocolID, matrixVersionLabel, seedActorID).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
-	if qerr == nil && status == "published" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
+		tenantID, protocolID, matrixVersionLabel, seedActorID).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingProofPolicy, &existingSOPVersionID)
+	matrixChanged := qerr == nil && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) ||
+		!jsonSemanticallyEqual(existingProofPolicy, vaccinationMatrixProofPolicy) || existingSOPVersionID != sopVersionID)
+	if qerr == nil && status == "published" && matrixChanged {
 		qerr = pgx.ErrNoRows
 	}
 	if qerr == pgx.ErrNoRows {
@@ -3139,25 +3203,25 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
 				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, drafted_by)
-			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid,$8::uuid)`,
-			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID, seedActorID); err != nil {
+			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,$7::jsonb,$8::uuid,$9::uuid)`,
+			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, vaccinationMatrixProofPolicy, sopVersionID, seedActorID); err != nil {
 			return "", fmt.Errorf("protocol version vaccination matrix: %w", err)
 		}
 	} else if qerr != nil {
 		return "", fmt.Errorf("lookup vaccination matrix version: %w", qerr)
-	} else if status == "draft" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
+	} else if status == "draft" && matrixChanged {
 		if _, err := tx.Exec(ctx, `
 			UPDATE protocol_versions
 			SET rule_dsl=$1::jsonb,
-			    proof_policy='{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,
-			    sop_version_id=$2::uuid,
-			    drafted_by=$5::uuid,
+			    proof_policy=$2::jsonb,
+			    sop_version_id=$3::uuid,
+			    drafted_by=$6::uuid,
 			    updated_at=now(),
 			    row_version=row_version+1
-			WHERE tenant_id=$3::uuid
-			  AND protocol_version_id=$4::uuid
+			WHERE tenant_id=$4::uuid
+			  AND protocol_version_id=$5::uuid
 			  AND status='draft'`,
-			ruleDSL, sopVersionID, tenantID, versionID, seedActorID); err != nil {
+			ruleDSL, vaccinationMatrixProofPolicy, sopVersionID, tenantID, versionID, seedActorID); err != nil {
 			return "", fmt.Errorf("refresh vaccination matrix draft: %w", err)
 		}
 	} else {
@@ -3425,6 +3489,23 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"goat_second_wave":                 []string{"Goat Pox"},
 			"sheep_second_wave":                []string{"Sheep Pox"},
 		},
+		"pregnancy_policy": map[string]any{
+			"allow_until_pregnancy_month":  3,
+			"skip_from_pregnancy_month":    4,
+			"skip_through_pregnancy_month": 5,
+			"post_delivery_catch_up_days":  14,
+		},
+		"recovery_policy": map[string]any{
+			"max_nearby_drive_align_days": 7,
+		},
+		"drive_policy": map[string]any{
+			"enabled":                        true,
+			"combo_align_window_days":        7,
+			"max_batching_hold_days":         7,
+			"max_batching_hold_count":        1,
+			"species_grouping_policy":        "kid_mixed",
+			"max_shots_per_animal_per_drive": 2,
+		},
 		"capacity": map[string]any{
 			"max_per_day":     100,
 			"max_buffer_days": 7,
@@ -3616,6 +3697,13 @@ func sourceDoseCode(c vaccCell) string {
 
 func sourceVaccinationDateTime(d time.Time, loc *time.Location) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 9, 0, 0, 0, loc)
+}
+
+func sourceVaccinationDateBeforeDOB(d time.Time, dob *time.Time) bool {
+	if dob == nil {
+		return false
+	}
+	return startOfDay(d).Before(startOfDay(*dob))
 }
 
 func sourceVaccinationDateOnOrBeforeBusinessDate(d time.Time, asOf time.Time, loc *time.Location) bool {

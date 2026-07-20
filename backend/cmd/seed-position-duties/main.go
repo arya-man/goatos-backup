@@ -116,6 +116,7 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("seed-position-duties", flag.ContinueOnError)
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 120*time.Second, "seed timeout")
+	strict := fs.Bool("strict", false, "fail if any active position cannot be mapped to a built module duty")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -154,6 +155,9 @@ func run(args []string) error {
 	if len(st.UnmappedPrefixes) > 0 {
 		fmt.Printf("WARNING: %d position code(s) had no module mapping and were skipped (never guessed): %v\n",
 			st.UnmappedSkipped, st.UnmappedPrefixes)
+		if *strict {
+			return fmt.Errorf("strict position duty seed rejected %d unmapped position code(s): %v", st.UnmappedSkipped, st.UnmappedPrefixes)
+		}
 	}
 
 	inserted, err := insertDuties(ctx, pool, *tenantID, duties)

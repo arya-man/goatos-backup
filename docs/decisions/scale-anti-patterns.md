@@ -72,6 +72,35 @@ baseline count for new work. Fix the query, batch the writes, add a real
 projection/read model, use keyset cursors, prove loop progress, or add a narrow
 inline `scale-guard:ignore` with a concrete boundedness reason.
 
+## Source-seed validation anti-patterns
+
+Source ingestion is also a scale and correctness boundary. One bad spreadsheet
+row can fan out into obligations, drives, owners, calendars, alerts, and mobile
+proof work. The following are banned:
+
+- connecting to the database or writing grants/roster/config before the exact
+  selected source directory passes a DB-free preflight;
+- seeding a private/raw sheet directly instead of a sanitized committed fixture
+  with manifest hashes and a correction ledger;
+- changing vaccination dates or converting them to `NA`/`Pending` merely to
+  make contradictory mock DOB, species, or terminal metadata look valid;
+- silently inventing DOBs, staff owners, backups, Park Heads, shed mappings, or
+  maternal relationships;
+- committing payroll, salary, bank, IFSC, tax, payment, advance, DOJ, real staff
+  names, or other out-of-scope HRMS data;
+- adding a source column, migration, config/SOP rule, owner role, or importer
+  branch without adding the corresponding validator rule, failing fixture,
+  deterministic transform decision, manifest refresh, and documentation;
+- a guard with no adversarial self-test, or a guard not run by full local CI;
+- validating only the default fixture while a source-path override can be
+  written before that exact override is checked.
+
+The recurrence protection is `make vaccination-hrms-source-audit`,
+`make vaccination-hrms-seed-fixture-guard`, the guardrail registration
+manifest, and the exact-source first step in `make
+seed-vaccination-source-full`. The complete contract is
+`docs/runbooks/source-seed-data-validation.md`.
+
 Calendar/Action Center/operator worklists need an extra explicit warning here:
 if the product wants one park-drive row instead of hundreds of goat/protocol
 rows, that grouped row must come from a projector/read model. It is not

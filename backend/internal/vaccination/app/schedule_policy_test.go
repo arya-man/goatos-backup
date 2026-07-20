@@ -205,6 +205,11 @@ func TestPregnancyDeferReason(t *testing.T) {
 	if got := pregnancyDeferReason(late, preg, breeding.AddDate(0, 4, 0)); got != "late_pregnancy_hold" {
 		t.Fatalf("month 5 = %q, want late_pregnancy_hold", got)
 	}
+
+	afterWindow := domain.EligibleGoat{ReproductiveStatus: "pregnant", BreedingDate: &breeding}
+	if got := pregnancyDeferReason(afterWindow, preg, breeding.AddDate(0, 5, 20)); got != "" {
+		t.Fatalf("month 6 = %q, want scheduling resumed", got)
+	}
 }
 
 func TestPolicyDeferReasonPostBreedingHold(t *testing.T) {
