@@ -660,6 +660,120 @@ class CaptureRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun `clearForTask with proofs beyond cap deletes every local file (R50-029 BUG 1)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            // Insert 11,000 proofs for the task (beyond the MAX_PROOFS_PER_TASK = 10,000 cap)
+            val taskId = "task-large-proof-set"
+            repeat(11_000) { index ->
+                val uri = "file://large-proof-$index.mp4"
+                db.proofCaptureDao().insert(
+                    proofEntity(
+                        id = "proof-$index",
+                        taskId = taskId,
+                        fieldKey = "shed_video",
+                        idempotencyKey = "proof-upload:$taskId:proof-$index",
+                    ).copy(localUri = uri),
+                )
+            }
+
+            // Verify all rows exist before clear
+            val allRowsBefore = db.proofCaptureDao().listForTask(taskId, limit = Int.MAX_VALUE)
+            assertEquals("should have exactly 11,000 rows before clear", 11_000, allRowsBefore.size)
+
+            // Call clearForTask — with the BUG, it only reads 10,000 rows and only deletes those 10,000 files
+            repo.clearForTask(taskId)
+
+            // Verify: ALL rows are deleted from DB (this is the critical assertion)
+            val allRowsAfter = db.proofCaptureDao().listForTask(taskId, limit = Int.MAX_VALUE)
+            assertEquals("all 11,000 rows must be deleted even though read is capped at 10,000", 0, allRowsAfter.size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `proof completion follows specific item id even when many items terminalize (R50-029 BUG 2)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            // Capture a proof with its outbox item
+            val targetProof = (
+                repo.capture(
+                    taskId = "task-many-items",
+                    fieldKey = "shed_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://target-proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-many-items",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+                ).value
+
+            val targetOutboxItemId = db.proofCaptureDao().findById(targetProof.id)?.outboxItemId
+            assertTrue("target proof should have an outbox item ID", !targetOutboxItemId.isNullOrBlank())
+
+            // Seed many OTHER outbox items that will terminalize
+            val otherItemIds = mutableListOf<String>()
+            repeat(30) { index ->
+                val itemId = "outbox-other-$index"
+                otherItemIds.add(itemId)
+                sync.seed(itemId, SyncItemStatus.QUEUED)
+            }
+
+            // Verify the proof starts in PENDING state
+            var row = repo.observeProofs("task-many-items").first().first { it.id == targetProof.id }
+            assertEquals(CaptureSyncStatus.PENDING, row.syncStatus)
+
+            // Move the target item to IN_FLIGHT
+            sync.emit(targetOutboxItemId!!, SyncItemStatus.IN_FLIGHT, resultJson = null)
+            advanceUntilIdle()
+            row = repo.observeProofs("task-many-items").first().first { it.id == targetProof.id }
+            assertEquals(CaptureSyncStatus.IN_FLIGHT, row.syncStatus)
+
+            // Now terminalize all 30 OTHER items — with the BUG, the target item may fall out of the window
+            val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-many-items"))
+            otherItemIds.forEach { itemId ->
+                sync.emit(itemId, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
+            }
+            advanceUntilIdle()
+
+            // Move the target item to SUCCEEDED — it must still be followed even though 30 other items
+            // have terminalized in between
+            sync.emit(targetOutboxItemId, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
+            advanceUntilIdle()
+
+            // Verify: the target proof reached SYNCED despite the other 30 items dropping out
+            row = repo.observeProofs("task-many-items").first().first { it.id == targetProof.id }
+            assertEquals("target proof must reach SYNCED even when many items drop out", CaptureSyncStatus.SYNCED, row.syncStatus)
+            assertEquals("server-proof-many-items", row.serverProofId)
+        } finally {
+            db.close()
+        }
+    }
 }
 
 private fun proofEntity(

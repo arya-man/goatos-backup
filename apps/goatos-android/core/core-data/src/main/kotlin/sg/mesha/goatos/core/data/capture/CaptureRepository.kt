@@ -464,10 +464,27 @@ class DefaultProofCaptureRepository(
     }
 
     override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
-        // R50-028: reclaim every row's local video file before the rows themselves are deleted.
-        val entities = dao.listForTask(taskId)
+        // R50-029: reclaim EVERY row's local video file using keyset pagination (matching the
+        // row-delete set) — no read/delete-count mismatch even if task has >MAX_PROOFS_PER_TASK proofs.
+        var afterCapturedAtMs = 0L
+        var afterId = ""
+        while (true) {
+            val page = dao.listRecoverableUploadsPage(
+                capturedBeforeMs = Long.MAX_VALUE,
+                afterCapturedAtMs = afterCapturedAtMs,
+                afterId = afterId,
+            )
+                .filter { it.taskId == taskId }
+            if (page.isEmpty()) break
+            page.forEach { entity ->
+                deleteLocalFile(entity.localUri)
+            }
+            val last = page.last()
+            afterCapturedAtMs = last.capturedAtMs
+            afterId = last.id
+            if (page.size < ProofCaptureDao.RECOVERABLE_UPLOADS_PAGE_SIZE) break
+        }
         dao.clearForTask(taskId)
-        entities.forEach { deleteLocalFile(it.localUri) }
     }
 
     /** Startup/process-recreation recovery for the two proof/outbox crash gaps:
@@ -568,15 +585,15 @@ class DefaultProofCaptureRepository(
         }
     }
 
-    /** R50-028: follows one outbox item to ITS terminal state, then stops — [transformWhile]
-     *  ends the collection right after the terminal emission, so this coroutine (and its
-     *  subscription to the shared [SyncRepository.observeStatus] flow) does not outlive the
-     *  proof it was tracking. Before this fix, every proof left a collector running for the rest
-     *  of the app process, growing without bound across a long shift's captures. */
+    /** R50-029: follows one outbox item to ITS terminal state via observeItem (by-id, window-independent),
+     *  then stops — [transformWhile] ends the collection right after the terminal emission, so this
+     *  coroutine (and its subscription to the per-item [SyncRepository.observeItem] flow) does not
+     *  outlive the proof it was tracking. Before the fix (using observeStatus().map{}), high-volume
+     *  terminal updates could drop the item from the bounded global window, leaving a proof stuck
+     *  before reaching its terminal state. */
     private fun followOutboxItem(rowId: String, outboxItemId: String) {
         appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
-            syncRepository.observeStatus()
-                .map { status -> status.items.firstOrNull { it.id == outboxItemId } }
+            syncRepository.observeItem(outboxItemId)
                 .filterNotNull()
                 .distinctUntilChanged()
                 .transformWhile { item ->
