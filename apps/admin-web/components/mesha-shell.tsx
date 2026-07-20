@@ -26,7 +26,6 @@ import {
   Zap,
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { todayIso } from "@/lib/format";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
@@ -63,15 +62,6 @@ function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
     throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);
   }
   return value;
-}
-
-function dateFreshnessLabel(asOf: string | undefined, today: string, contract: AdminWebBootstrapResponse): string {
-  if (!asOf || asOf === today) return shellCopy(contract, "state.fresh");
-  const asOfTime = Date.parse(`${asOf}T00:00:00+05:30`);
-  const todayTime = Date.parse(`${today}T00:00:00+05:30`);
-  if (!Number.isFinite(asOfTime) || !Number.isFinite(todayTime)) return shellCopy(contract, "state.freshness_pending");
-  const days = Math.max(0, Math.round((todayTime - asOfTime) / 86_400_000));
-  return days === 0 ? shellCopy(contract, "state.fresh") : `${days}${shellCopy(contract, "state.days_old_suffix")}`;
 }
 
 function parkScopeLabel(parks: Park[], parkId: string | undefined, contract: AdminWebBootstrapResponse): string {
@@ -161,14 +151,11 @@ export function MeshaShell({
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
   const searchKey = searchParams?.toString() ?? "";
-  const isCalendarPage = pathname === "/calendar" || pathname.startsWith("/calendar/");
   const isVaccinationFullSchedule = pathname === "/vaccination" && searchParams?.get("view") === "schedule";
-  const hideCalendarTopbarScope = isCalendarPage || isVaccinationFullSchedule;
   const preserveVaccinationSchedule =
     isVaccinationFullSchedule
       ? { view: "schedule", schedule_year: searchParams.get("schedule_year") ?? undefined }
       : {};
-  const defaultPark = parks[0] ?? null;
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
   const activeParkLabel = parkScopeLabel(parks, activeParkId, contract);
@@ -190,15 +177,10 @@ export function MeshaShell({
     }
     return init;
   });
-  const today = todayIso();
-  const freshness = dateFreshnessLabel(scope.asOf, today, contract);
-  const scopedDate = scope.asOf ?? today;
-  const isHistoricalDate = Boolean(scope.asOf && scope.asOf !== today);
   const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
   const actionCenterBadge = visibleBadge(navCounts.actionCenter);
   const pcBadge = visibleBadge(navCounts.pc);
   const currentPageLabel = labelForPath(pathname, contract);
-  const companyScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "company");
   const parkScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "park");
   const actor = contract.top_bar.role_preview;
   const alertDisplayRules = contract.display_rules.filter((rule) => rule.id.includes("error"));
@@ -391,34 +373,6 @@ export function MeshaShell({
           <b style={{ fontSize: 16, letterSpacing: "-.3px" }}>{contract.top_bar.product_name}</b>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        {/* Topbar owns park/date scope only. The active module (Preventive Care (PC) › Vaccination) is shown by the sidebar
-            nav + the page crumb, so no module badge belongs here. Vaccination is a module under Preventive Care (PC), not
-            an app-wide scope. */}
-        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Park-wise does
-            not force a park filter; users choose a concrete park separately from the park picker. */}
-        {hideCalendarTopbarScope ? null : (
-          <div className="parkpick" style={{ marginRight: 6 }}>
-            <Link
-              href={currentScopeHref({ park: null, mode: "company" })}
-              replace
-              scroll={false}
-              className={renderedScope.mode === "company" ? "on" : ""}
-              title={companyScopeOption?.title ?? ""}
-            >
-              {companyScopeOption?.label}
-            </Link>
-            <Link
-              href={defaultPark ? currentScopeHref({ park: activeParkId ?? null, mode: "park" }) : currentScopeHref()}
-              replace
-              scroll={false}
-              className={renderedScope.mode === "park" ? "on" : ""}
-              title={defaultPark ? (parkScopeOption?.title ?? "") : shellCopy(contract, "scope.no_parks_for_park_scope")}
-              aria-disabled={!defaultPark}
-            >
-              {parkScopeOption?.label}
-            </Link>
-          </div>
-        )}
         {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
             this slice, so the label reads "· all sheds" and the menu disables shed selection with a reason —
             never a faked shed filter. The UI shows the human label; links write the backend-safe ?park=uuid. */}
@@ -479,28 +433,6 @@ export function MeshaShell({
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
         </div>
-        {/* Point-in-time date scope only. This is deliberately visible: process-integrity screens honor
-            `as_of`, so carrying a bookmarked historical date must never look like today's live queue. */}
-        {hideCalendarTopbarScope ? null : (
-          <div
-            className={`pscope date-scope ${isHistoricalDate ? "stale" : ""}`}
-            style={{ marginRight: 4 }}
-            title={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
-            aria-label={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
-          >
-            <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
-            <span>{shellCopy(contract, "date.data_prefix")}</span>
-            <b>{scopedDate}</b>
-            <span className="muted small" style={{ marginLeft: 2 }}>
-              · {freshness}
-            </span>
-            {isHistoricalDate ? (
-              <Link href={currentScopeHref({ asOf: null })} replace scroll={false} className="scope-reset" title="Reset date scope to today">
-                Today
-              </Link>
-            ) : null}
-          </div>
-        )}
         <button
           type="button"
           className="iconbtn"
