@@ -156,14 +156,15 @@ object Routes {
         sopVersionId: String?,
         taskRowVersion: Int?,
     ): String {
-        val args = listOf(
-            SCAN_SHED_ARG to shedId.orEmpty(),
-            EXECUTION_DRIVE_ARG to driveId.orEmpty(),
-            EXECUTION_BATCH_ARG to batchId.orEmpty(),
-            EXECUTION_TASK_ARG to taskId.orEmpty(),
-            EXECUTION_SOP_VERSION_ARG to sopVersionId.orEmpty(),
-            EXECUTION_TASK_ROW_VERSION_ARG to (taskRowVersion?.takeIf { it > 0 }?.toString() ?: "0"),
-        )
+        val args = buildList {
+            shedId?.takeIf { it.isNotBlank() }?.let { add(SCAN_SHED_ARG to it) }
+            driveId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_DRIVE_ARG to it) }
+            batchId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_BATCH_ARG to it) }
+            taskId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_TASK_ARG to it) }
+            sopVersionId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SOP_VERSION_ARG to it) }
+            taskRowVersion?.takeIf { it > 0 }?.let { add(EXECUTION_TASK_ROW_VERSION_ARG to it.toString()) }
+        }
+        if (args.isEmpty()) return base
         return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
     }
 
