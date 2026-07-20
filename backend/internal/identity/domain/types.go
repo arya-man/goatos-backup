@@ -76,8 +76,12 @@ type GoatSummary struct {
 	HealthStatus       *string      `json:"health_status"`
 	LocationPath       LocationPath `json:"location_path"`
 	WeightKg           *float64     `json:"weight_kg,omitempty"`
-	Warnings           []Warning    `json:"warnings"`
-	MergedIntoGoatID   *string      `json:"-"`
+	// RowVersion is the animal's current optimistic-concurrency token. It travels on the summary so
+	// an operator flow that mutates the goat from a scan/search (recording a death) can send it back
+	// verbatim -- the token is resolved server-side, never typed by the operator.
+	RowVersion       int32     `json:"row_version"`
+	Warnings         []Warning `json:"warnings"`
+	MergedIntoGoatID *string   `json:"-"`
 }
 
 type GoatIdentifier struct {

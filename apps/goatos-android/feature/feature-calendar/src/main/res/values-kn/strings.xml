@@ -19,7 +19,6 @@
     <string name="calendar_month_hint">ಆ ದಿನದ ಬಾಕಿ ಕೆಲಸ ಅಥವಾ ಪೂರ್ಣಗೊಳிப்பு ಇತಿಹಾಸಕ್ಕಾಗಿ ಟ್ಯಾಪ್ ಮಾಡಿ · ಚುಕ್ಕೆಗಳು = ತೆರೆದ ಕೆಲಸ, ಮಂಕಾದ ಚುಕ್ಕೆಗಳು = ಪೂರ್ಣಗೊಂಡ ಇತಿಹಾಸ</string>
 
     <!-- Accessibility descriptions -->
-    <string name="calendar_button_menu">ಮೆನು</string>
     <string name="calendar_day_back">ಹಿಂದೆ</string>
     <string name="calendar_button_refresh">ರಿಫ್ರೆಶ್</string>
 

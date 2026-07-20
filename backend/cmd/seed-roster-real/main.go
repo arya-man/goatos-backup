@@ -165,6 +165,7 @@ type stats struct {
 	PositionsInserted      int
 	LeavesInserted         int
 	DepartmentMatches      int
+	ModuleGrantsInserted   int
 }
 
 func main() {
@@ -277,10 +278,11 @@ func run(args []string) error {
 	st.PositionsInserted = ist.PositionsInserted
 	st.LeavesInserted = ist.LeavesInserted
 	st.DepartmentMatches = ist.DepartmentMatches
+	st.ModuleGrantsInserted = ist.ModuleGrantsInserted
 
 	fmt.Printf("seeded real roster:\n"+
-		"  members_inserted=%d positions_inserted=%d leaves_inserted=%d department_matches=%d\n",
-		st.MembersInserted, st.PositionsInserted, st.LeavesInserted, st.DepartmentMatches)
+		"  members_inserted=%d positions_inserted=%d leaves_inserted=%d department_matches=%d module_grants_inserted=%d\n",
+		st.MembersInserted, st.PositionsInserted, st.LeavesInserted, st.DepartmentMatches, st.ModuleGrantsInserted)
 	return nil
 }
 
@@ -344,6 +346,18 @@ func checkSchemaReady(ctx context.Context, pool *pgxpool.Pool) (bool, string, er
 	}
 	if gradeCol == 0 {
 		missing = append(missing, "workforce_members.hr_designation_grade column")
+	}
+
+	// mig 000002. The roster import now writes department_module_grants in the same
+	// transaction, so a database behind that migration must be reported as not-ready here
+	// rather than failing mid-import (or, worse, committing members with no module grants
+	// and yielding an empty bottom bar).
+	var moduleGrantsTable *string
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.department_module_grants')::text`).Scan(&moduleGrantsTable); err != nil {
+		return false, "", fmt.Errorf("check department_module_grants: %w", err)
+	}
+	if moduleGrantsTable == nil {
+		missing = append(missing, "department_module_grants table")
 	}
 
 	if len(missing) > 0 {
@@ -781,10 +795,47 @@ func normalizeLeaveWindows(grid []attendanceRow, members map[string]*memberRec, 
 // ---- import ----
 
 type importStats struct {
-	MembersInserted   int
-	PositionsInserted int
-	LeavesInserted    int
-	DepartmentMatches int
+	MembersInserted      int
+	PositionsInserted    int
+	LeavesInserted       int
+	DepartmentMatches    int
+	ModuleGrantsInserted int
+}
+
+// ---- department -> module grants (seed coupling for mig 000002) ----
+
+// defaultDepartmentModules is the default department -> module_key grant set applied by
+// this importer. It exists because of the seed-coupling rule in
+// docs/runbooks/initial-seed-migration-coupling.md: /app/bootstrap composes navigation from
+// department_module_grants (see docs/decisions/role-module-nav-composition.md), so a roster
+// import that attaches members to departments but grants no modules produces a technically
+// correct HRMS and a completely empty bottom bar on the phone.
+//
+// These are SEED defaults for local/dev, not business authority. Departments are canonical
+// (baseline migration data); who may run which module is an operational decision that
+// belongs in the admin Config surface once module administration exists. Keep this map
+// minimal and justified rather than granting everything to everyone:
+//
+//   - preventive_care -> vaccination: the PC seats run the vaccination drives. This is the
+//     grant that keeps the existing vaccination operator working after mig 000002 removed
+//     the hardcoded grantedModules = ["vaccination"].
+//   - preventive_care, health -> counts: Counts carries birth/death capture, and the
+//     maintainer-approved rule is that field operators record birth and death from the app
+//     (docs/runbooks/android-dev-device.md). Health/Kidding seats are the ones present at a
+//     kidding or a death, and PC seats are in the sheds daily.
+//   - feed -> feed_direction and breeding -> breeding are registry-declared "soon" modules.
+//     Granting them now is harmless (a soon module contributes no nav and does not count
+//     toward the drawer threshold) and means those departments light up automatically when
+//     the module ships instead of needing a seed change then.
+//
+// Departments with no operational module today (procurement, growth, infrastructure, milk,
+// sales) are deliberately absent. A department key that does not exist in this tenant is
+// skipped by the INSERT ... SELECT below, never an error.
+var defaultDepartmentModules = map[string][]string{
+	"preventive_care": {"vaccination", "counts"},
+	"health":          {"counts"},
+	"feed":            {"feed_direction"},
+	"breeding":        {"breeding"},
 }
 
 func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, members map[string]*memberRec, assignments []rosterAssignment, leaves []leaveWindow) (importStats, error) {
@@ -1051,10 +1102,73 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	ist.LeavesInserted = len(leaves)
 
+	// Same transaction as the member/department attachment above: a roster that commits
+	// with departments but without module grants is a half-seeded state whose only symptom
+	// is an empty bottom bar at sign-in.
+	granted, err := grantDefaultDepartmentModules(ctx, tx, tenantID)
+	if err != nil {
+		return ist, fmt.Errorf("grant department modules: %w", err)
+	}
+	ist.ModuleGrantsInserted = granted
+
 	if err := tx.Commit(ctx); err != nil {
 		return ist, fmt.Errorf("commit: %w", err)
 	}
 	return ist, nil
+}
+
+// grantDefaultDepartmentModules upserts defaultDepartmentModules into
+// department_module_grants for the tenant's existing departments, returning the number of
+// rows newly inserted or reactivated.
+//
+// Idempotent (ON CONFLICT on the table's (tenant_id, department_id, module_key) unique
+// constraint) and set-based: two flattened arrays joined against departments in ONE
+// statement, not a query per department. A department code absent from this tenant simply
+// does not join, so the seed never invents a department. An existing 'active' row is left
+// untouched so the count reports real change rather than the whole map every run.
+func grantDefaultDepartmentModules(ctx context.Context, tx pgx.Tx, tenantID string) (int, error) {
+	// Flatten to (code, module_key) pairs, sorted for a deterministic statement.
+	codes := make([]string, 0, len(defaultDepartmentModules))
+	for code := range defaultDepartmentModules {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+
+	pairCodes := make([]string, 0, len(codes)*2)
+	pairModules := make([]string, 0, len(codes)*2)
+	for _, code := range codes {
+		modules := append([]string(nil), defaultDepartmentModules[code]...)
+		sort.Strings(modules)
+		for _, module := range modules {
+			pairCodes = append(pairCodes, code)
+			pairModules = append(pairModules, module)
+		}
+	}
+	if len(pairCodes) == 0 {
+		return 0, nil
+	}
+
+	tag, err := tx.Exec(ctx, `
+INSERT INTO department_module_grants (tenant_id, department_id, module_key, status)
+SELECT d.tenant_id, d.department_id, g.module_key, 'active'
+FROM unnest($2::text[], $3::text[]) AS g(department_code, module_key)
+JOIN departments d
+  ON d.tenant_id = $1::uuid
+ AND d.code = g.department_code
+ AND d.status = 'active'
+ON CONFLICT (tenant_id, department_id, module_key) DO UPDATE
+SET status = 'active', updated_at = now()
+WHERE department_module_grants.status <> 'active'`, tenantID, pairCodes, pairModules)
+	if err != nil {
+		return 0, err
+	}
+	// NOTE (P1-NAV): only departments with a genuine operational module are granted one. A department
+	// with no module in defaultDepartmentModules (e.g. procurement, growth, infra, milk, sales)
+	// intentionally receives NO grant and its members compose an EMPTY bottom bar -- that is correct,
+	// not a bug: nav is earned by holding a module, and inventing a phantom "baseline" module for a
+	// department that does no operational work would fabricate access. The blank-nav CRASH (a missing
+	// department_module_grants table) is fixed by migration 000008, not by over-granting here.
+	return int(tag.RowsAffected()), nil
 }
 
 func deriveRoleHint(m *memberRec, grade *string) string {

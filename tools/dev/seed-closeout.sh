@@ -170,6 +170,10 @@ if [ "$dry_run" -eq 0 ] && [ -d "$repo/backend/cmd/seed-state-check" ]; then
   echo "==> seed-closeout: seed-state-check (mode=closeout)"
   (cd "$repo/backend" && go run ./cmd/seed-state-check -tenant-id "$tenant_id" -mode closeout)
 fi
+# shed_profiles is the authoritative destination-cohort config the shifting completion path reads
+# (identity.resolveDestinationTag). Derive it from canonical goats/locations BEFORE the shifting and
+# vaccination proofs, so a shed a movement targets already has an active configured profile.
+run_go_cmd seed-shed-profiles -tenant-id "$tenant_id"
 run_goat_shed_integrity_proof
 run_required_projectors
 run_vaccination_drive_batching

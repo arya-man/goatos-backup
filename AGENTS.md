@@ -251,6 +251,18 @@ Purpose:
   `/procurement/source-entry/action-center`, `/procurement/source-entry/control-tower`,
   or any `/parks/vaccination` nested command paths. Vaccination execution
   renders INSIDE /vaccination, never as a separate Parks route.
+  **Ratified exception (maintainer decision 2026-07-19): `/feed/config`.** Feed
+  authors a ration grid (ration group x shed tag x feed item -> grams per head),
+  per-shed factors, the session template, and the per-workflow dispatch clock.
+  That is a Feed-owned data model served by `/feed-config/*`, not protocol
+  `rule_dsl`, and `/config?category=feed_direction` cannot render it. `/config`
+  remains the single generic protocol-rule authority screen; `/feed/config` is
+  classified `module-surface`, not `authority-screen`. This exception covers
+  Config for Feed ONLY. No command lens (Control Tower, Action Center, Calendar,
+  Protocol Adherence, Workflows) is exempt for any vertical, and none may be.
+  The machine guard carries the same single-entry allowlist in
+  `apps/admin-web/scripts/check-ia-guard.mjs`; widening it needs a new recorded
+  maintainer decision here first.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen
   (`/config`) for CEO/COO/superadmin users. It is not owned by Preventive Care (PC) / Vaccination.
   Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`, but the Config UI

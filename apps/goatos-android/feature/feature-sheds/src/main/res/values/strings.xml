@@ -7,7 +7,6 @@
 -->
 <resources>
     <!-- Header and navigation chrome -->
-    <string name="sheds_back_description">Back</string>
     <string name="sheds_refresh_description">Refresh</string>
     <string name="sheds_title">Vaccination drives</string>
 

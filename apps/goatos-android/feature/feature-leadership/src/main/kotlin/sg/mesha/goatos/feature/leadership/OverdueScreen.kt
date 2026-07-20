@@ -1,5 +1,10 @@
 package sg.mesha.goatos.feature.leadership
 
+// telemetry:exempt pure stateless renderer, and this change is only the call-site update forced by
+// the shared-header fix (LeadTopBar no longer takes a `leading` choice). No analytics are claimed
+// here: the leadership surface has none wired anywhere, including OverdueViewModel. That is a
+// pre-existing gap, not one this change introduces, and it is tracked as its own task.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -92,8 +97,7 @@ fun OverdueScreen(
             // Title is fixed chrome + a live count — localize here (the VM's English
             // "Overdue · N" title is ignored so it follows the app locale).
             title = stringResource(R.string.overdue_title_fmt, state.rows.size),
-            leading = TopBarLeading.BACK,
-            onLeading = { onEvent(LeadershipEvent.Back) },
+            onBack = { onEvent(LeadershipEvent.Back) },
             onRefresh = { onEvent(LeadershipEvent.Refresh) },
         )
         SyncStatusIndicator(

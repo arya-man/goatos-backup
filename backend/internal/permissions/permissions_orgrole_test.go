@@ -202,6 +202,7 @@ func TestOrgTierPermissionsDoNotLeakBeyondKnownPermissions(t *testing.T) {
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		VerificationReview: {}, VerificationAct: {},
+		CountsWrite: {},
 	}
 	for tier, perms := range tierPermissions {
 		for permission := range perms {

@@ -14,8 +14,8 @@ var protectedRoutes = []Route{
 	{OperationID: "searchGoats", Method: "GET", Pattern: "/goats/search", Permissions: []string{GoatRead}},
 	{OperationID: "getGoatPassport", Method: "GET", Pattern: "/goats/{goat_id}", Permissions: []string{GoatRead}},
 	{OperationID: "getGoatTimeline", Method: "GET", Pattern: "/goats/{goat_id}/timeline", Permissions: []string{GoatRead}},
-	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{GoatRead}},
-	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{GoatRead}},
+	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{CountsRead}},
+	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{CountsRead}},
 	{OperationID: "resolveIdentifier", Method: "GET", Pattern: "/identifiers/{type}/{value}/resolve", Permissions: []string{GoatRead}},
 	{OperationID: "addGoatIdentifier", Method: "POST", Pattern: "/admin/goats/{goat_id}/identifiers", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "retireGoatIdentifier", Method: "POST", Pattern: "/admin/goats/{goat_id}/identifiers/{identifier_id}/retire", Permissions: []string{GoatWriteIdentity}},
@@ -171,11 +171,67 @@ var protectedRoutes = []Route{
 	// given overlays, Overlays.kt DataGapsSheet/DosesGivenSheet).
 	{OperationID: "appVaccinationGaps", Method: "GET", Pattern: "/app/vaccination/gaps", Permissions: []string{AppBootstrap}},
 	{OperationID: "appVaccinationCoverage", Method: "GET", Pattern: "/app/vaccination/coverage", Permissions: []string{AppBootstrap}},
-	{OperationID: "getFeedDirectionReadiness", Method: "GET", Pattern: "/feed-direction/readiness", Permissions: []string{ProtocolRead}},
 	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{ProtocolRead}},
 	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{ProtocolRead}},
 	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{ProtocolWrite}},
 	{OperationID: "dismissFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss", Permissions: []string{ProtocolWrite}},
+	// Feed-direction GENERATION (backend/internal/feeddirection): projected shed counts + the
+	// authored ration grid -> per-session feed quantities.
+	//
+	// The preview reuses ProtocolRead because it IS the feed-direction read surface, which is the
+	// authority ProtocolRead already gates for the sibling /feed-direction/* routes above. Adding a
+	// parallel permission for the same surface would give two answers to one question.
+	//
+	// The packing worklist gets its OWN permission instead. It is a different top-level surface read
+	// by a different audience -- the store team that physically weighs and bags -- and it is the
+	// natural candidate for widening to RoleOperator once capture is built on it. Folding it into
+	// ProtocolRead would make that widening impossible without also handing the packing team the
+	// vaccination protocol surface. See FeedPackingRead.
+	//
+	// Both are GET-only. This module has no write path: it generates what SHOULD be fed, while
+	// recording what WAS fed belongs to backend/internal/feed. No route here needs an
+	// Idempotency-Key because no route here has a side effect to replay.
+	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
+
+	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
+	//
+	// Kept separate from the /feed-direction/* routes directly above, and gated on its own
+	// permissions rather than on ProtocolRead/ProtocolWrite. Direction is today's operational output;
+	// this is the standing rule that produced it. A principal who may look at this morning's feed
+	// sheet is not thereby entitled to read -- let alone rewrite -- the tenant-wide ration grid the
+	// whole farm is fed from.
+	//
+	// The three POSTs are the editable half the maintainer asked for. Each requires an
+	// Idempotency-Key, is effective-dated (an edit closes the current row and opens a new one rather
+	// than overwriting), and is recorded in feed_config_write_log. FeedConfigWrite does NOT imply
+	// FeedConfigRead and vice versa: Route.Permissions is ANDed, so each route names exactly what it
+	// needs and a read-only auditor stays read-only.
+	{OperationID: "listFeedConfigRationRates", Method: "GET", Pattern: "/feed-config/ration-rates", Permissions: []string{FeedConfigRead}},
+	{OperationID: "listFeedConfigRationGroups", Method: "GET", Pattern: "/feed-config/ration-groups", Permissions: []string{FeedConfigRead}},
+	{OperationID: "listFeedConfigShedTags", Method: "GET", Pattern: "/feed-config/shed-tags", Permissions: []string{FeedConfigRead}},
+	{OperationID: "listFeedConfigFeedItems", Method: "GET", Pattern: "/feed-config/feed-items", Permissions: []string{FeedConfigRead}},
+	{OperationID: "listFeedConfigSessionTemplates", Method: "GET", Pattern: "/feed-config/session-templates", Permissions: []string{FeedConfigRead}},
+	{OperationID: "listFeedConfigSchedule", Method: "GET", Pattern: "/feed-config/schedule", Permissions: []string{FeedConfigRead}},
+	{OperationID: "listFeedConfigShedFactors", Method: "GET", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigRead}},
+	{OperationID: "upsertFeedConfigRationRate", Method: "POST", Pattern: "/feed-config/ration-rates", Permissions: []string{FeedConfigWrite}},
+	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
+	{OperationID: "upsertFeedConfigSchedule", Method: "POST", Pattern: "/feed-config/schedule", Permissions: []string{FeedConfigWrite}},
+
+	// The EXPERIMENT half of the same authored surface, on the same two permissions.
+	//
+	// It reuses FeedConfigRead/FeedConfigWrite rather than earning its own pair because it is the same
+	// authority: whoever may rewrite the ration grid the whole farm is fed from may also decide which
+	// sheds are fed absolute hand-entered kg instead. Splitting them would let a principal change what
+	// a shed eats by moving it between the two workflows while nominally lacking grid-write authority
+	// -- the same outcome through a different door.
+	//
+	// experiment/shed-status is a distinct write route, not a field on the cell write, so that the
+	// workflow switch is an explicit act in both the API surface and the audit trail.
+	{OperationID: "listFeedConfigExperiment", Method: "GET", Pattern: "/feed-config/experiment", Permissions: []string{FeedConfigRead}},
+	{OperationID: "upsertFeedConfigExperiment", Method: "POST", Pattern: "/feed-config/experiment", Permissions: []string{FeedConfigWrite}},
+	{OperationID: "setFeedConfigExperimentShedStatus", Method: "POST", Pattern: "/feed-config/experiment/shed-status", Permissions: []string{FeedConfigWrite}},
+
 	{OperationID: "listCalendarVaccinationEvents", Method: "GET", Pattern: "/calendar/vaccination/events", Permissions: []string{CalendarRead}},
 	{OperationID: "getCalendarVaccinationEvent", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}", Permissions: []string{CalendarRead}},
 	{OperationID: "listCalendarVaccinationDriveTargets", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/targets", Permissions: []string{CalendarRead}},
@@ -219,6 +275,48 @@ var protectedRoutes = []Route{
 	// permission every app principal has — AppBootstrap is exactly that.
 	{OperationID: "getOperatorTimetable", Method: "GET", Pattern: "/app/roster/timetable", Permissions: []string{AppBootstrap}},
 	{OperationID: "getMyCoverage", Method: "GET", Pattern: "/app/roster/my-coverage", Permissions: []string{AppBootstrap}},
+
+	// App-tier Counts write surface: the three count-moving events a field operator records from
+	// the phone. Gated on the dedicated CountsWrite permission (see permissions.go) rather than on
+	// the admin-tier goat.write_identity/goat.write_health, which RoleOperator deliberately lacks —
+	// operators must be able to record births and deaths without also gaining every /admin/goats/*
+	// route. Birth and death delegate to the identity module's existing CreateAdminGoat /
+	// CriticalDeathExit services, so the guardrailed death semantics are unchanged.
+	// The destination catalog is a READ that belongs to the write surface. It is gated on
+	// CountsWrite, NOT on the admin-tier LocationsRead: the operator who must choose a destination
+	// shed is exactly the operator who may record the movement, and RolesAuthorize ANDs a route's
+	// permissions, so naming LocationsRead here would deny every operator who holds CountsWrite
+	// alone -- leaving them able to submit a movement but unable to see where they may move it to.
+	{OperationID: "listAppCountsShiftingDestinations", Method: "GET", Pattern: "/app/counts/shifting/destinations", Permissions: []string{CountsWrite}},
+	{OperationID: "recordAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events", Permissions: []string{CountsWrite}},
+	{OperationID: "recordAppCountsBirthEvent", Method: "POST", Pattern: "/app/counts/birth-events", Permissions: []string{CountsWrite}},
+	{OperationID: "recordAppCountsDeathEvent", Method: "POST", Pattern: "/app/counts/death-events", Permissions: []string{CountsWrite}},
+
+	// Counts lifecycle approval surface. The three routes above now RECORD a pending request; these
+	// decide it.
+	//
+	// The route gate is the coarse CountsApproveAccess (see permissions.go): a decision addresses a
+	// request by ID, so the middleware cannot know whether that ID is a birth or a shifting, and
+	// Route.Permissions is ANDed, so naming both fine-grained permissions here would deny a
+	// park_head who holds exactly one. The binding check is therefore made in the handler against
+	// the request's STORED TYPE via DecidableApprovalRequestTypes -- a park_head reaching a birth's
+	// id gets 403 there, and the pending list returns only the types the caller may decide.
+	// Shifting EXECUTION surface (maintainer decision, 2026-07-19). Approving a shifting now
+	// AUTHORIZES it and moves nothing; these three routes are the operator's half.
+	//
+	// Gated on CountsWrite, deliberately NOT on the approval permissions. Executing a movement is
+	// ground work: the operator who walks the animals is the operator who records births, deaths,
+	// and shiftings from the same phone, and is usually NOT the approver who authorized it. Any
+	// operator holding CountsWrite may complete or cancel any authorized movement in their tenant
+	// -- there is no "only the raiser" restriction, because the person who witnesses the animals
+	// move is not reliably the person who typed the request.
+	{OperationID: "listAppCountsShiftingPendingExecution", Method: "GET", Pattern: "/app/counts/shifting-events/pending-execution", Permissions: []string{CountsWrite}},
+	{OperationID: "completeAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/complete", Permissions: []string{CountsWrite}},
+	{OperationID: "cancelAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/cancel", Permissions: []string{CountsWrite}},
+
+	{OperationID: "listAppCountsApprovals", Method: "GET", Pattern: "/app/counts/approvals", Permissions: []string{CountsApproveAccess}},
+	{OperationID: "approveAppCountsApproval", Method: "POST", Pattern: "/app/counts/approvals/{request_id}/approve", Permissions: []string{CountsApproveAccess}},
+	{OperationID: "rejectAppCountsApproval", Method: "POST", Pattern: "/app/counts/approvals/{request_id}/reject", Permissions: []string{CountsApproveAccess}},
 }
 
 func ProtectedRoutes() []Route {

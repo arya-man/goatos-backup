@@ -281,9 +281,10 @@ milestones and must not be smuggled back into the Counts boundary.
    quantity/weight thresholds, validation checks, calculation outputs, source
    hashes, row validation, calculation preview, dry-run parity preview,
    repair/DLQ, review, approval, publish, and audit.
-4. `G5` Eligibility, custom composition, and stage-tag/session policy: Warmup,
+4. `G5` Eligibility, experiment absolute-kg allocation, and stage-tag/session policy: Warmup,
    K0/K1, ICU, Quarantine, Flushing, Breeding, pregnancy, F2/Fattening, breed
-   aliases, native exact-shed custom-composition assignments, and
+   aliases, native exact-shed absolute-kg allocations (hand-entered kg per feed
+   item, split across sessions, head count informational), and
    versioned session-slot/feed-set policy are approved. The docx default is two
    slots with 50/50 split, but admins may add, disable, reorder, or reweight
    slots only through approved effective-dated Feed Direction protocol config

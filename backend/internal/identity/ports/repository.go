@@ -25,6 +25,37 @@ var (
 	// exit (transferred/sold), never a move. Initial placement (a goat with no prior
 	// park) is not a move and is never blocked by this rule.
 	ErrCrossParkMove = errors.New("identity cross-park goat movement does not exist")
+	// ErrDestinationTagRequired: shifting into an EMPTY destination shed (no live animals to
+	// derive an operational cohort from) requires the caller to supply the destination
+	// management_stage explicitly. Silently keeping the moved animal's old tag would leave it
+	// classified and fed under its previous cohort in the new shed (maintainer decision
+	// 2026-07-19: a shed is homogeneous — every animal in it shares one management_stage).
+	ErrDestinationTagRequired = errors.New("identity relocate: destination shed is empty and requires an explicit destination management_stage")
+	// ErrDestinationTagConflict: the caller supplied a destination management_stage that disagrees
+	// with the tag the OCCUPIED destination shed's existing animals already carry. A shed cannot
+	// hold two cohorts, so the move is rejected rather than corrupting the shed's homogeneity.
+	ErrDestinationTagConflict = errors.New("identity relocate: supplied destination management_stage disagrees with the occupied destination shed's cohort")
+	// ErrDestinationStageAmbiguous: the destination shed's existing live animals carry more than one
+	// distinct management_stage, so no single cohort tag can be derived. This is a data-integrity
+	// violation of the homogeneous-shed invariant and must be reconciled before a move can adopt a tag.
+	ErrDestinationStageAmbiguous = errors.New("identity relocate: destination shed holds more than one management_stage and is not homogeneous")
+	// ErrClinicalDestinationTag: the resolved destination cohort is a CLINICAL state (sick,
+	// under_treatment, recovering, quarantine, icu -- protocol/domain.MandatoryClinicalDeferStates).
+	// A shed move must not FABRICATE a clinical fact: being sick/under treatment/in quarantine/in ICU
+	// is established by a health event, never by walking an animal into a shed. Adopting a clinical
+	// destination tag from a move would silently mark a healthy animal as clinical (and, via the
+	// clinical defer rule, suppress its vaccination work). Fail closed: the animal's clinical state
+	// must be set by the owning clinical flow first; the move then follows an already-diagnosed
+	// animal. (Reproductive cohorts like Pregnant/Lactating are intentionally NOT rejected here — see
+	// resolveDestinationTag's scope note; that distinction is part of the shed_profiles work.)
+	ErrClinicalDestinationTag = errors.New("identity relocate: destination cohort is a clinical state that a shed move must not fabricate")
+	// ErrDestinationProfileMissing: the destination shed has no ACTIVE configured operational profile
+	// (an active shed_profiles row joined through animal_stage_lookup). The destination cohort is
+	// authoritative CONFIGURATION -- read from shed_profiles, never inferred from resident goats
+	// (domain-event-architecture shifting_completion_to_vaccination contract) -- so a shed that is not
+	// configured has no authority to assign a cohort and the move FAILS CLOSED. This is exactly the
+	// empty/spare-shed case: configure the shed's profile first, then move animals into it.
+	ErrDestinationProfileMissing = errors.New("identity relocate: destination shed has no active configured operational profile")
 )
 
 type SearchGoatsParams struct {

@@ -218,6 +218,9 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		ObligationRead: {}, VaccinationRead: {},
 		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementWrite: {},
+		// Ground capture includes recording the three count-moving events from the phone
+		// (shifting/birth/death) -- see CountsWrite's doc comment in permissions.go.
+		CountsWrite: {},
 	},
 	// Manager tier -- run the vertical's daily ops at a park, supervise AMs,
 	// manages the local roster without capturing.
@@ -229,6 +232,7 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		OperatorsRead: {}, OperatorsManageRoster: {},
 		RosterRead: {}, RosterManage: {},
 		ProcurementRead: {}, ProcurementWrite: {},
+		CountsWrite: {},
 	},
 	// Head (Ops-Head) tier -- park/vertical oversight + standards; act on
 	// verified items. No capture, no verify.

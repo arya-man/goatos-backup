@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-counts Kotlin sources -->
+    <!-- Shared chrome -->
+    <string name="counts_refresh_description">ताज़ा करें</string>
+    <string name="counts_offline_note">ऑफ़लाइन काम करता है। आपकी प्रविष्टि फ़ोन पर सहेजी जाती है और कनेक्शन मिलते ही अपने आप सिंक हो जाती है।</string>
+
+    <!-- Read screen -->
+    <string name="counts_totals_title">झुंड के कुल</string>
+    <string name="counts_stat_total">कुल</string>
+    <string name="counts_stat_adults">वयस्क</string>
+    <string name="counts_stat_kids">बच्चे</string>
+    <string name="counts_grain_fmt">पूरे फ़िल्टर किए गए झुंड में %1$d समूहित पंक्तियाँ</string>
+    <string name="counts_breakdown_caption">विवरण · फ़ार्म · चरण · नस्ल · लिंग · शेड</string>
+    <string name="counts_stage_unknown">अनिर्दिष्ट चरण</string>
+
+    <!-- Census filter bar -->
+    <string name="counts_filters_title">फ़िल्टर</string>
+    <string name="counts_filters_clear">साफ़ करें</string>
+    <string name="counts_filter_park">पार्क</string>
+    <string name="counts_filter_shed">शेड</string>
+    <string name="counts_filter_breed">नस्ल</string>
+    <string name="counts_filter_all_parks">सभी पार्क</string>
+    <string name="counts_filter_all_sheds">सभी शेड</string>
+    <string name="counts_filter_all_breeds">सभी नस्लें</string>
+    <string name="counts_filter_park_first">पहले एक पार्क चुनें</string>
+    <string name="counts_filter_shed_unavailable">उपलब्ध नहीं</string>
+    <string name="counts_empty_message">इस दायरे से मेल खाने वाला कोई पशु नहीं</string>
+    <string name="counts_error_message">गणना लोड नहीं हो सकी। पुनः प्रयास के लिए ताज़ा करें टैप करें।</string>
+
+    <!-- Birth / death screen -->
+    <string name="counts_birth_death_title">जन्म या मृत्यु दर्ज करें</string>
+    <string name="counts_birth_death_subtitle">प्रति प्रविष्टि एक पशु</string>
+    <string name="counts_mode_birth">जन्म</string>
+    <string name="counts_mode_death">मृत्यु</string>
+    <string name="counts_submit_birth">जन्म दर्ज करें</string>
+    <string name="counts_submit_death">मृत्यु दर्ज करें</string>
+    <string name="counts_death_guardrail_note">मृत्यु को सुरक्षित मृत्यु पथ के माध्यम से दर्ज किया जाता है और यह पशु के खुले टीकाकरण कार्य को अपने आप रद्द कर देता है।</string>
+
+    <!-- Shifting screen -->
+    <string name="counts_shifting_title">स्थानांतरण दर्ज करें</string>
+    <string name="counts_shifting_subtitle">एक पशु को दूसरे शेड में ले जाएँ</string>
+    <string name="counts_submit_shifting">स्थानांतरण बनाएँ</string>
+    <string name="counts_shifting_pending_note">आपके द्वारा दर्ज किए गए स्थानांतरण समीक्षा के लिए भेजे जाते हैं — इन्हें फ़ोन पर अधिकृत नहीं किया जाता।</string>
+    <string name="counts_priority_high">उच्च</string>
+    <string name="counts_priority_low">निम्न</string>
+    <string name="counts_category_growth">वृद्धि</string>
+    <string name="counts_category_health">स्वास्थ्य</string>
+    <string name="counts_category_breeding">प्रजनन</string>
+    <string name="counts_category_delivery">प्रसव</string>
+
+    <!-- Approval queue -->
+    <string name="counts_approval_title">स्वीकृतियाँ</string>
+    <string name="counts_approval_subtitle">आप पर लंबित निर्णय</string>
+    <string name="counts_approval_approve">स्वीकृत करें</string>
+    <string name="counts_approval_reject">अस्वीकार करें</string>
+    <string name="counts_approval_confirm_reject">अस्वीकार की पुष्टि करें</string>
+    <string name="counts_approval_cancel">रद्द करें</string>
+    <string name="counts_approval_reject_reason">अस्वीकार करने का कारण</string>
+    <string name="counts_approval_reject_reason_hint">इसे उठाने वाले ऑपरेटर को आपका कारण दिखता है, इसलिए बताएँ कि क्या ठीक करना है।</string>
+    <string name="counts_approval_raised_by">%1$s द्वारा उठाया गया</string>
+    <string name="counts_approval_empty">अभी आप पर कुछ भी लंबित नहीं है।</string>
+    <string name="counts_approval_error">स्वीकृतियाँ लोड नहीं हो सकीं। अपना कनेक्शन जाँचें और पुनः प्रयास करें।</string>
+    <string name="counts_approval_retry">पुनः प्रयास करें</string>
+    <string name="counts_approval_check_again">फिर से जाँचें</string>
+    <string name="counts_approval_stale">आपकी अंतिम सिंक की गई सूची दिखाई जा रही है — अभी ताज़ा नहीं हो सका।</string>
+    <string name="counts_approval_loading_more">और लोड हो रहा है…</string>
+    <string name="counts_approval_offline_note">निर्णय इस फ़ोन पर सहेजे जाते हैं और कनेक्शन मिलने पर लागू किए जाते हैं।</string>
+    <string name="counts_approval_queued">निर्णय इस फ़ोन पर सहेजा गया। यह अपने आप लागू हो जाएगा।</string>
+    <string name="counts_approval_failed">वह निर्णय सहेजा नहीं जा सका। पुनः प्रयास करें।</string>
+
+    <!-- Field group headings -->
+    <string name="counts_group_identity">पहचान</string>
+    <string name="counts_group_dates">तिथियाँ</string>
+    <string name="counts_group_placement">स्थान-निर्धारण</string>
+    <string name="counts_group_animal">पशु</string>
+    <string name="counts_group_account_of_death">मृत्यु का विवरण</string>
+    <string name="counts_group_recording_death_for">इस पशु की मृत्यु दर्ज कर रहे हैं</string>
+    <string name="counts_group_to">यहाँ ले जाएँ</string>
+    <string name="counts_group_current_location">वर्तमान स्थान</string>
+    <string name="counts_group_priority">प्राथमिकता</string>
+    <string name="counts_group_category">श्रेणी</string>
+
+    <!-- Field labels -->
+    <string name="counts_field_tag1">पशु पहचानकर्ता 1</string>
+    <string name="counts_field_tag2">पशु पहचानकर्ता 2</string>
+    <string name="counts_field_breed">नस्ल</string>
+    <string name="counts_field_dob">जन्म तिथि (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">प्रवेश तिथि (YYYY-MM-DD)</string>
+    <string name="counts_field_park">पार्क</string>
+    <string name="counts_field_farm">फ़ार्म</string>
+    <string name="counts_field_current_location">वर्तमान स्थान</string>
+    <string name="counts_field_shed">शेड</string>
+    <string name="counts_field_dam">माता</string>
+    <string name="counts_field_dam_optional">माता (वैकल्पिक)</string>
+    <string name="counts_field_sex">लिंग</string>
+    <string name="counts_field_status">स्थिति</string>
+    <string name="counts_field_goat">बकरी</string>
+    <string name="counts_field_row_version">रिकॉर्ड संस्करण</string>
+    <string name="counts_field_reason">कारण</string>
+    <string name="counts_field_animal_lookup">RFID से खोजें</string>
+    <string name="counts_select_farm">एक फ़ार्म चुनें</string>
+    <string name="counts_select_farm_first">पहले एक फ़ार्म चुनें</string>
+    <string name="counts_select_shed">एक शेड चुनें</string>
+    <string name="counts_location_unknown">दर्ज नहीं</string>
+
+    <!-- Animal picker (shifting) -->
+    <string name="counts_animal_search">पशु खोजें</string>
+    <string name="counts_animal_searching">खोजा जा रहा है…</string>
+    <string name="counts_animal_lookup_failed">पशुओं की खोज नहीं हो सकी। अपना कनेक्शन जाँचें और पुनः प्रयास करें।</string>
+
+    <!-- Species / sex option labels -->
+    <string name="counts_species_goat">बकरी</string>
+    <string name="counts_species_sheep">भेड़</string>
+    <string name="counts_sex_female">मादा</string>
+    <string name="counts_sex_male">नर</string>
+
+    <!-- Hints -->
+    <string name="counts_hint_dob">प्रवेश तिथि के बाद की नहीं होनी चाहिए।</string>
+    <string name="counts_hint_row_version">पशु का वर्तमान रिकॉर्ड संस्करण।</string>
+    <string name="counts_hint_reason">3 से 500 वर्णों के बीच।</string>
+    <string name="counts_hint_animal_lookup">इस स्थानांतरण को स्वीकृत करने पर ठीक वही पशु स्थानांतरित होता है जिसे आप यहाँ चुनते हैं।</string>
+    <string name="counts_hint_death_lookup">मृत्यु दर्ज करने पर ठीक वही पशु बाहर होता है जिसे आप यहाँ चुनते हैं।</string>
+</resources>

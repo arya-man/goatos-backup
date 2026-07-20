@@ -37,19 +37,19 @@
     {
       "eventType": "goat.location.changed",
       "producer": "identity goat move/shifting",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go"],
+      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go", "backend/internal/identity/adapters/postgres/goat_relocate.go"],
       "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}, {"module": "obligation", "file": "backend/internal/obligation/app/shift.go"}],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/internal/obligation/adapters/postgres/shift_integration_test.go"],
+      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/internal/obligation/adapters/postgres/shift_integration_test.go", "backend/tests/e2e/story_shifting_vaccination_handoff_test.go", "backend/tests/e2e/story_shifting_vaccination_matrix_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
     },
     {
       "eventType": "goat.stage_changed",
-      "producer": "identity goat stage update",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go"],
+      "producer": "identity goat stage update / shifting reclassification",
+      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go", "backend/internal/identity/adapters/postgres/goat_relocate.go"],
       "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/tests/e2e/story_vaccrev_identity_recompute_test.go"],
+      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/tests/e2e/story_vaccrev_identity_recompute_test.go", "backend/internal/counts/adapters/postgres/approval_relocate_integration_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
     },
     {
@@ -182,6 +182,7 @@
   "allowedHerdMutationWriters": [
     {"path": "backend/internal/identity/adapters/postgres/admin_goat_create.go", "owner": "identity", "reason": "canonical goat create producer"},
     {"path": "backend/internal/identity/adapters/postgres/goat_lifecycle.go", "owner": "identity", "reason": "canonical goat lifecycle/location/stage/health/reproductive/identity producer"},
+    {"path": "backend/internal/identity/adapters/postgres/goat_relocate.go", "owner": "identity", "reason": "canonical bulk shifting-execution relocation producer; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and the matching outbox_messages rows in the same transaction (enforced by outbox_messages_validate_event_tenant_trg), consumed by obligation/app/shift.go to re-scope shed-scoped vaccination obligations and by vaccination generation to recompute on the new management_stage"},
     {"path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql", "owner": "identity", "reason": "sqlc source for identity lifecycle commands"},
     {"path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql.go", "owner": "identity", "reason": "generated sqlc identity lifecycle commands"},
     {"path": "backend/internal/procurement/adapters/postgres/repository.go", "owner": "procurement", "reason": "registered existing procurement intake/exit writer; future expansion must emit/bridge domain events"},

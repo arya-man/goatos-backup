@@ -78,6 +78,30 @@ class SyncWorkScheduler @Inject constructor(
     /** [SyncJobsScheduler] port — see its KDoc for why a fresh sign-in must call this. */
     override fun scheduleAll() = schedule()
 
+    /**
+     * One-shot, connectivity-gated drain — the **fallback for a foreground-service start the OS
+     * refuses** (`AndroidForegroundSyncController.ensureRunning`, and the in-service
+     * `ForegroundServiceStartNotAllowedException` handler in [UploadForegroundService]).
+     *
+     * Android 14+ forbids starting a `dataSync` foreground service from a BOOT_COMPLETED
+     * context, so after a device reboot the FGS path is simply unavailable. The operator's
+     * queued writes (births, deaths, shifting) are already DURABLE in the Room outbox — this
+     * makes them drain PROMPTLY rather than waiting up to [PERIOD_MINUTES] for the periodic
+     * worker's next tick. Without it the fallback would be silent and slow, which is how a
+     * recorded birth appears "lost" after a reboot.
+     *
+     * [ExistingWorkPolicy.KEEP] so repeated `ensureRunning()` calls (every enqueue) collapse
+     * onto one pending drain instead of stacking duplicates; the drain re-reads the outbox
+     * fresh, so a row queued after this was enqueued is still picked up by the same pass.
+     */
+    fun syncNow() {
+        val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(syncConstraints())
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(UNIQUE_SYNC_NOW_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+    }
+
     override fun scheduleAt(epochMillis: Long) {
         synchronized(retryScheduleLock) {
             val existingRetryAt = retryPrefs().getLong(KEY_NEXT_RETRY_AT, NO_RETRY_SCHEDULED)
@@ -102,13 +126,15 @@ class SyncWorkScheduler @Inject constructor(
         }
     }
 
-    /** Logout clean-slate (C35-001): cancels BOTH the periodic drain and any pending one-time
-     *  retry work, then clears the persisted retry-schedule marker — so nothing tries to drain
-     *  (or re-arm a retry for) an outbox that the logout wipe just deleted. */
+    /** Logout clean-slate (C35-001): cancels the periodic drain, any pending one-time retry
+     *  work, AND any pending [syncNow] foreground-service-fallback drain, then clears the
+     *  persisted retry-schedule marker — so nothing tries to drain (or re-arm a retry for) an
+     *  outbox that the logout wipe just deleted. */
     override fun cancelAll() {
         val workManager = WorkManager.getInstance(context)
         workManager.cancelUniqueWork(UNIQUE_WORK_NAME)
         workManager.cancelUniqueWork(UNIQUE_RETRY_WORK_NAME)
+        workManager.cancelUniqueWork(UNIQUE_SYNC_NOW_WORK_NAME)
         clearScheduledRetry()
     }
 
@@ -120,6 +146,7 @@ class SyncWorkScheduler @Inject constructor(
 
 private const val UNIQUE_WORK_NAME = "goatos-outbox-sync"
 private const val UNIQUE_RETRY_WORK_NAME = "goatos-outbox-retry"
+private const val UNIQUE_SYNC_NOW_WORK_NAME = "goatos-outbox-sync-now"
 private const val PERIOD_MINUTES = 15L // WorkManager's minimum periodic interval.
 private const val RETRY_PREFS_NAME = "goatos-outbox-retry-schedule"
 private const val KEY_NEXT_RETRY_AT = "next_retry_at"

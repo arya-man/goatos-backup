@@ -27,6 +27,15 @@ var (
 	ErrInvalidResolutionAction = errors.New("counts: invalid projection exception resolution action")
 	ErrInvalidExceptionFilter  = errors.New("counts: invalid projection exception filter")
 	ErrInvalidScanWindow       = errors.New("counts: invalid mismatch scan window")
+	ErrInvalidOffset           = errors.New("counts: invalid offset")
+	ErrInvalidTargetDate       = errors.New("counts: invalid feed target date")
+
+	// ErrImpactNotDerivable is returned when a shifting request omits impacts but does not name
+	// EXACTLY ONE animal. Impacts describe a cohort at breed grain ("12 head of Boer"); the server
+	// can only derive that description from the animals themselves when there is exactly one animal
+	// to describe. For two or more, guessing how the operator wanted the cohort split would invent
+	// business data, so the caller must state the impacts.
+	ErrImpactNotDerivable = errors.New("counts: impacts can only be derived for exactly one goat")
 )
 
 const (
@@ -36,6 +45,17 @@ const (
 	maxProjectionExceptionLimit     = int32(200)
 	defaultCountMismatchScanLimit   = int32(100)
 	maxCountMismatchScanLimit       = int32(500)
+	defaultFeedProjectedCountLimit  = int32(50)
+	maxFeedProjectedCountLimit      = int32(200)
+	// maxFeedProjectedCountOffset bounds the OFFSET walk over the pre-aggregated grain set. A
+	// caller paging past this is not reading a screen, and an unbounded offset is the growable
+	// offset the scale rules ban.
+	maxFeedProjectedCountOffset = int32(5000)
+	// maxFeedProjectedCountShedIDs caps the shed-SET batch filter. It is sized well
+	// above any real shed page (the feed-direction generator pages sheds in tens)
+	// so a legitimate batch never trips it, while still refusing an unbounded
+	// IN-list that would smuggle a whole-tenant scan past the paging limits.
+	maxFeedProjectedCountShedIDs = 500
 )
 
 type Service struct {
@@ -63,8 +83,10 @@ func (s *Service) RecordBaseCountAnchor(ctx context.Context, in domain.BaseCount
 }
 
 func (s *Service) RecordShiftingEvent(ctx context.Context, in domain.ShiftingEvent) (string, bool, error) {
-	in.Priority = defaultString(in.Priority, "normal")
-	in.Category = defaultString(in.Category, "routine")
+	// Governing-doc taxonomy defaults (migration 000016): Priority Low is the standard lane,
+	// Category Growth is the general movement default.
+	in.Priority = defaultString(in.Priority, "low")
+	in.Category = defaultString(in.Category, "growth")
 	in.AuthorizationState = defaultString(in.AuthorizationState, "pending")
 	in.VerificationState = defaultString(in.VerificationState, "unverified")
 	in.EventStatus = defaultString(in.EventStatus, "pending")
@@ -712,6 +734,66 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// ProjectedShedCountsForFeed returns the live-herd feed projection: what each shed grain will
+// hold on the requested feed day, once the movements that are approved but not yet executed are
+// applied.
+//
+// See Repository.ProjectedShedCountsForFeed for why this is a parallel path to ProjectedCountFor
+// rather than a replacement for it.
+func (s *Service) ProjectedShedCountsForFeed(ctx context.Context, req domain.FeedProjectedCountQuery) (domain.FeedProjectedCounts, error) {
+	req, err := normalizeFeedProjectedCountQuery(req)
+	if err != nil {
+		return domain.FeedProjectedCounts{}, err
+	}
+	return s.repo.ProjectedShedCountsForFeed(ctx, req)
+}
+
+func normalizeFeedProjectedCountQuery(req domain.FeedProjectedCountQuery) (domain.FeedProjectedCountQuery, error) {
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	if req.TenantID == "" {
+		return domain.FeedProjectedCountQuery{}, ErrMissingRequiredField
+	}
+	if req.TargetDate.IsZero() {
+		return domain.FeedProjectedCountQuery{}, ErrInvalidTargetDate
+	}
+	// Normalize to a business-day start in Asia/Kolkata here, at the boundary, so a caller that
+	// passed a UTC instant late in the day cannot push the projection onto the wrong feed day.
+	req.TargetDate = biztime.BusinessDayStart(req.TargetDate)
+
+	req.LifecycleStatus = trimOptionalLower(req.LifecycleStatus)
+	req.ParkID = trimOptional(req.ParkID)
+	req.ShedID = trimOptional(req.ShedID)
+	req.Breed = trimOptional(req.Breed)
+
+	// The shed-SET filter is a batch read for a caller that already holds a bounded
+	// page of shed ids. Blanks are dropped rather than passed through as empty
+	// strings (which would fail the uuid cast), and the set is capped so this can
+	// never become an unbounded IN-list smuggled past the paging limits.
+	if len(req.ShedIDs) > 0 {
+		shedIDs := make([]string, 0, len(req.ShedIDs))
+		for _, id := range req.ShedIDs {
+			if trimmed := strings.TrimSpace(id); trimmed != "" {
+				shedIDs = append(shedIDs, trimmed)
+			}
+		}
+		if len(shedIDs) > maxFeedProjectedCountShedIDs {
+			return domain.FeedProjectedCountQuery{}, ErrInvalidLimit
+		}
+		req.ShedIDs = shedIDs
+	}
+
+	if req.Limit == 0 {
+		req.Limit = defaultFeedProjectedCountLimit
+	}
+	if req.Limit < 0 || req.Limit > maxFeedProjectedCountLimit {
+		return domain.FeedProjectedCountQuery{}, ErrInvalidLimit
+	}
+	if req.Offset < 0 || req.Offset > maxFeedProjectedCountOffset {
+		return domain.FeedProjectedCountQuery{}, ErrInvalidOffset
+	}
+	return req, nil
 }
 
 func isJSONObject(raw []byte) bool {

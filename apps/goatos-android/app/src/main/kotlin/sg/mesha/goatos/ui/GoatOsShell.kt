@@ -38,6 +38,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.StateFlow
+import javax.inject.Inject
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
@@ -52,6 +57,8 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
@@ -59,7 +66,11 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
+import sg.mesha.goatos.core.model.nav.NavModule
+import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.model.nav.barItems
+import sg.mesha.goatos.core.model.nav.resolveModule
 import sg.mesha.goatos.push.PushNavigationViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
@@ -68,12 +79,49 @@ import sg.mesha.goatos.viewmodel.SyncStatusViewModel
 data class DrawerProfile(val name: String, val role: String, val initials: String)
 
 /**
+ * Holds WHICH backend module the drawer currently has open.
+ *
+ * This is the one piece of nav state the client legitimately owns (the golden frontend rule
+ * gives the frontend local selected state; the backend still owns the module list, labels,
+ * routes, and each module's bar). It lives in [SavedStateHandle] rather than `rememberSaveable`
+ * so the open module survives BOTH a configuration change and process death — an operator who
+ * gets a call mid-drive returns to the module they were working in, not the default one.
+ *
+ * A null key means "not yet chosen"; [NavState.resolveModule] then falls back to the route's
+ * owning module, then to the backend's default module.
+ */
+@HiltViewModel
+class ShellModuleViewModel @Inject constructor(
+    private val savedState: SavedStateHandle,
+    private val analytics: AnalyticsPort,
+) : ViewModel() {
+
+    val selectedModuleKey: StateFlow<String?> = savedState.getStateFlow(KEY_SELECTED_MODULE, null)
+
+    /** Records the operator switching modules. No-ops when the module is already open. */
+    fun select(module: NavModule) {
+        if (savedState.get<String?>(KEY_SELECTED_MODULE) == module.key) return
+        savedState[KEY_SELECTED_MODULE] = module.key
+        analytics.track(
+            AnalyticsEvents.MODULE_SWITCHED,
+            mapOf(AnalyticsEvents.Params.MODULE_KEY to module.key),
+        )
+    }
+
+    private companion object {
+        const val KEY_SELECTED_MODULE = "shell_selected_module_key"
+    }
+}
+
+/**
  * The role-aware app shell — Material 3 (Expressive) chrome on the mock's dark palette.
  * TRD §14 dumb-renderer: renders the backend-computed [NavState] and never counts
  * modules or checks role.
- *  - EXPANDED chrome → a module-switcher drawer; MINIMAL → bottom bar only.
- *  - [NavState.items] → M3 [NavigationBar] destinations, each with its mock icon and the
- *    M3 active-indicator pill; a trailing "You" tab is always present.
+ *  - EXPANDED chrome → a module-switcher drawer listing [NavState.modules] (backend-composed
+ *    from the person's module grants); MINIMAL → bottom bar only.
+ *  - The OPEN module's [NavModule.navItems] → M3 [NavigationBar] destinations, each with its
+ *    mock icon and the M3 active-indicator pill; a trailing global "You" tab is always present.
+ *    Switching modules in the drawer swaps the bar.
  */
 @Composable
 fun GoatOsShell(navState: NavState) {
@@ -121,6 +169,11 @@ fun GoatOsShell(navState: NavState) {
         }
     }
 
+    // Which module the drawer has open — local UI selection, persisted across config change
+    // and process death (see ShellModuleViewModel).
+    val moduleVm: ShellModuleViewModel = hiltViewModel()
+    val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
+
     GoatOsShellChrome(
         navState = navState,
         currentRoute = backStackEntry?.destination?.route,
@@ -129,6 +182,8 @@ fun GoatOsShell(navState: NavState) {
         languageLabel = languageLabel(AppLocaleState.tag),
         onOpenLanguage = { showLanguage = true },
         onSignOut = profileVm::signOut,
+        selectedModuleKey = selectedModuleKey,
+        onSelectModule = moduleVm::select,
     ) {
         // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
         OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
@@ -176,14 +231,32 @@ fun GoatOsShellChrome(
     languageLabel: String = "English",
     onOpenLanguage: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    selectedModuleKey: String? = null,
+    onSelectModule: (NavModule) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val hasDrawer = navState.chrome == NavChrome.EXPANDED
     val drawerState = rememberDrawerState(initialDrawerValue)
     val scope = rememberCoroutineScope()
 
-    // Top-level routes: backend nav items + Routes.YOU. Detail screens (with args) won't match.
-    val topLevelRoutes = navState.items.map { it.href } + Routes.YOU
+    // The bottom bar is MODULE-SCOPED: it shows the OPEN module's own destinations, so
+    // switching modules in the drawer swaps the bar. Resolution lives in the shared nav
+    // contract (NavState.resolveModule) — the shell holds no module list of its own and
+    // falls back to visible_navigation when the payload carries no modules.
+    val activeModule = navState.resolveModule(selectedModuleKey, currentRoute)
+    val barItems = navState.barItems(selectedModuleKey, currentRoute)
+
+    // L0 roots: exactly the OPEN module's backend-composed destinations, and nothing else.
+    //
+    // The You tab used to be appended here as client-static chrome. It is now a nav
+    // contribution like any other (`bootstrap_copy.go` -> vaccination/leadership contribute
+    // `you`; Counts contributes `approval` in that trailing slot instead), so the L0 set is
+    // whatever the backend composed — no client-side addition. That is what let the Counts
+    // module replace the trailing tab without a client release.
+    //
+    // Exact membership only — a drill (L1+) must never inherit root chrome, so no
+    // prefix/substring matching here. See docs/decisions/android-navigation-stack.md.
+    val topLevelRoutes = barItems.map { it.href }
     val isTopLevel = isTopLevelRoute(currentRoute, topLevelRoutes)
 
     ModalNavigationDrawer(
@@ -192,11 +265,14 @@ fun GoatOsShellChrome(
         drawerContent = {
             if (hasDrawer) {
                 ModuleDrawer(
-                    currentRoute = currentRoute,
+                    modules = navState.modules,
+                    selectedModuleKey = activeModule?.key,
                     profile = drawerProfile,
-                    onSelect = { href ->
+                    onSelectModule = { module ->
                         scope.launch { drawerState.close() }
-                        onNavigate(href)
+                        onSelectModule(module)
+                        // Selecting a module opens its landing route; the bar swaps with it.
+                        module.href.takeIf { it.isNotBlank() }?.let(onNavigate)
                     },
                     onOpenLanguage = {
                         scope.launch { drawerState.close() }
@@ -215,16 +291,31 @@ fun GoatOsShellChrome(
             bottomBar = {
                 if (isTopLevel) {
                     MeshaNavBar(
-                        items = navState.items,
+                        items = barItems,
                         currentRoute = currentRoute,
                         onSelect = onNavigate,
-                        onYou = { onNavigate(Routes.YOU) },
                     )
                 }
             },
         ) { padding ->
+            // THE drawer-access decision, made once for the whole app.
+            //
+            // Every destination's header (MeshaScreenHeader) derives its leading affordance
+            // from this one value, so drawer access is a property of the backend-composed nav
+            // — NOT something each screen opts into. It used to be opt-in, and every module
+            // that forgot to read this local shipped with no way back to another module.
+            //
+            // Non-null on exactly the L0 roots of the open module (+ the global You tab) when
+            // the person has more than one module; null on every L1+ drill, so a hosted child
+            // can never grow root chrome. Same exact-membership test the bottom bar uses.
+            val drawerOpener: (() -> Unit)? =
+                if (hasDrawer && isTopLevel) { // == drawerAvailable(navState.chrome, currentRoute, topLevelRoutes)
+                    { scope.launch { drawerState.open() } }
+                } else {
+                    null
+                }
             CompositionLocalProvider(
-                LocalDrawerOpener provides { scope.launch { drawerState.open() } }
+                LocalDrawerOpener provides drawerOpener
             ) {
                 Column(
                     modifier = Modifier
@@ -249,17 +340,41 @@ fun GoatOsShellChrome(
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
     currentRoute != null && currentRoute in topLevelRoutes
 
+/**
+ * Whether the destination on screen offers the module drawer — the single rule behind every
+ * screen's leading header affordance ([MeshaScreenHeader] renders a hamburger exactly when this
+ * is true, and Up otherwise).
+ *
+ * True only for an exact L0 root of the open module while the person holds more than one module
+ * (EXPANDED chrome). Deliberately derived, never authored: drawer access follows the
+ * backend-composed nav, so a new module gets it with no client change and no screen can opt out.
+ */
+internal fun drawerAvailable(
+    chrome: NavChrome,
+    currentRoute: String?,
+    topLevelRoutes: Collection<String>,
+): Boolean = chrome == NavChrome.EXPANDED && isTopLevelRoute(currentRoute, topLevelRoutes)
+
 // ---------------------------------------------------------------------------
 // Bottom navigation — M3 NavigationBar with the active-indicator pill. Icons are
 // the mock's stroked set; colours come from the themed (mock-palette) scheme.
 // ---------------------------------------------------------------------------
 
+/**
+ * The bottom bar is the backend-composed item list, rendered VERBATIM.
+ *
+ * There is deliberately no client-appended tab. A hardcoded trailing "You" item used to be
+ * added here unconditionally, which violated the golden frontend rule (backend owns visible
+ * navigation) and made the bar unchangeable from the backend: the Counts module could not put
+ * its Approval queue in that slot without an app release. "You" is now a nav contribution the
+ * vaccination and leadership modules declare, and Counts contributes Approval in its place —
+ * so which tabs exist, in which order, is entirely a `bootstrap_copy.go` decision.
+ */
 @Composable
 private fun MeshaNavBar(
     items: List<NavItem>,
     currentRoute: String?,
     onSelect: (String) -> Unit,
-    onYou: () -> Unit,
 ) {
     val itemColors = NavigationBarItemDefaults.colors(
         selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -272,70 +387,48 @@ private fun MeshaNavBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
     ) {
+        // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
+        // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
+        // the golden frontend rule and actively mislabel items (the backend calls the vaccination
+        // module's own tab "Drives", not "Vaccination").
         items.forEach { item ->
-            val label = navItemLabel(item.key, item.label)
             NavigationBarItem(
                 selected = currentRoute == item.href,
                 onClick = { onSelect(item.href) },
                 icon = {
                     Icon(
                         imageVector = MeshaIcons.forNavKey(item.key),
-                        contentDescription = label,
+                        contentDescription = item.label,
                         modifier = Modifier.size(24.dp),
                     )
                 },
-                label = { Text(label, fontWeight = FontWeight.SemiBold) },
+                label = { Text(item.label, fontWeight = FontWeight.SemiBold) },
                 colors = itemColors,
             )
         }
-        NavigationBarItem(
-            selected = currentRoute == Routes.YOU,
-            onClick = onYou,
-            icon = { Icon(MeshaIcons.User, contentDescription = stringResource(DesignSystemR.string.nav_you), modifier = Modifier.size(24.dp)) },
-            label = { Text(stringResource(DesignSystemR.string.nav_you), fontWeight = FontWeight.SemiBold) },
-            colors = itemColors,
-        )
     }
-}
-
-/**
- * Localized label for a backend nav destination, keyed by [NavItem.key] (the stable
- * backend key, same set [MeshaIcons.forNavKey] maps). Known keys resolve to client
- * string resources so the bottom bar follows the app locale; any unmapped key falls
- * back to the backend-sent [fallback] label (which still needs backend i18n).
- */
-@Composable
-private fun navItemLabel(key: String, fallback: String): String = when (key.lowercase()) {
-    "overview", "leadership", "home", "dhome" -> stringResource(DesignSystemR.string.nav_overview)
-    "calendar" -> stringResource(DesignSystemR.string.nav_calendar)
-    "alerts", "notifications" -> stringResource(DesignSystemR.string.nav_alerts)
-    "vaccination", "sheds", "pc.vaccination", "execution" -> stringResource(DesignSystemR.string.nav_vaccination)
-    "you", "profile", "settings" -> stringResource(DesignSystemR.string.nav_you)
-    // Standalone Verifier section (context/architecture/verifier-app-and-flow.md).
-    "verify", "verification", "video_verification" -> stringResource(DesignSystemR.string.nav_verify)
-    else -> fallback
 }
 
 // ---------------------------------------------------------------------------
 // Module-switcher drawer — ports the mock's `ovl-drawer` (`mock/vaccination-mobile-
-// mock.html`): a profile header, a scrollable MODULES group (active route with a
-// check + green rail, not-yet-built = a "Soon" badge) and SETTINGS group, then a
-// Sign-out footer. Backend-driven: live rows come from [NavState.items]; only the
-// coming-soon rows are fixed product roadmap.
+// mock.html`): a profile header, a scrollable MODULES group (the open module carries a
+// check + green rail, not-yet-built = a "Soon" badge), then a Sign-out footer.
+//
+// Fully backend-composed: EVERY row comes from [NavState.modules] (the bootstrap's
+// `modules` array, built from the person's department_module_grants via
+// bootstrap_copy.go's moduleNavRegistry). There is no client-side module list, no
+// role check, and no per-module template — adding a module is a backend registry
+// entry, not an app release. Labels are already localized backend-side and are
+// rendered verbatim. The client owns only layout: group header, "Soon" badge, and
+// icon token, none of which name a specific vertical.
 // ---------------------------------------------------------------------------
-
-/** Not-yet-built verticals the mock lists as "Soon" (honest: they are NOT shipped). */
-private data class SoonModule(val key: String, val label: String, val icon: ImageVector)
-private val SOON_MODULES = listOf(
-    SoonModule("feed_direction", "Feed direction", MeshaIcons.Feed),
-    SoonModule("breeding", "Breeding", MeshaIcons.Goat),
-)
 
 @Composable
 private fun ModuleDrawer(
-    currentRoute: String?,
+    modules: List<NavModule>,
+    selectedModuleKey: String?,
     profile: DrawerProfile?,
-    onSelect: (String) -> Unit,
+    onSelectModule: (NavModule) -> Unit,
     onOpenLanguage: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -353,16 +446,22 @@ private fun ModuleDrawer(
                     .verticalScroll(rememberScrollState()),
             ) {
                 DrawerGroupLabel(stringResource(DesignSystemR.string.nav_modules))
-                // Single-module app: always show Vaccination as the active module.
-                val vaccinationActive = currentRoute == Routes.VACCINATION
-                DrawerRow(
-                    icon = MeshaIcons.forNavKey("vaccination"),
-                    label = stringResource(DesignSystemR.string.nav_vaccination),
-                    active = vaccinationActive,
-                    trailing = if (vaccinationActive) ({ DrawerCheck() }) else null,
-                    onClick = { onSelect(Routes.VACCINATION) },
-                )
-                SOON_MODULES.forEach { soon -> DrawerSoonRow(soon) }
+                modules.forEach { module ->
+                    if (module.status == NavModuleStatus.AVAILABLE) {
+                        val active = module.key == selectedModuleKey
+                        DrawerRow(
+                            icon = MeshaIcons.forNavKey(module.key),
+                            label = module.label,
+                            active = active,
+                            trailing = if (active) ({ DrawerCheck() }) else null,
+                            onClick = { onSelectModule(module) },
+                        )
+                    } else {
+                        // Declared roadmap: rendered, but not clickable — no onClick at all,
+                        // so there is nothing to tap into an unbuilt vertical.
+                        DrawerSoonRow(module)
+                    }
+                }
             }
             DrawerFooter(onSignOut)
         }
@@ -447,20 +546,21 @@ private fun DrawerRow(
     }
 }
 
+/** A declared-but-unbuilt module: disabled row + "Soon" badge. Label is backend copy. */
 @Composable
-private fun DrawerSoonRow(soon: SoonModule) {
-    val label = when (soon.key) {
-        "feed_direction" -> stringResource(DesignSystemR.string.nav_feed_direction)
-        "breeding" -> stringResource(DesignSystemR.string.nav_breeding)
-        else -> soon.label
-    }
+private fun DrawerSoonRow(module: NavModule) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        Icon(soon.icon, contentDescription = label, tint = MeshaColors.Faint, modifier = Modifier.size(20.dp))
-        Text(label, color = MeshaColors.Faint, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
+        Icon(
+            MeshaIcons.forNavKey(module.key),
+            contentDescription = module.label,
+            tint = MeshaColors.Faint,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(module.label, color = MeshaColors.Faint, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
         DrawerBadge(stringResource(DesignSystemR.string.nav_soon), brand = false)
     }
 }

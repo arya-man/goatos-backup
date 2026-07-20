@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.res.stringResource
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -288,52 +289,29 @@ fun ShedsScreen(
 // Header
 // ---------------------------------------------------------------------------
 
+/**
+ * Sheds header — the clearest case for letting the SHELL own the leading affordance.
+ *
+ * This one composable is hosted at two routes on purpose (see [AppNavHost]): `/vaccination`, a
+ * backend nav_item and therefore an L0 root, and `/calendar/drive`, a hosted L1 child pushed from
+ * Calendar. It used to render an unconditional Back chevron, which meant the Vaccination module's
+ * own root tab showed Up instead of the module drawer.
+ *
+ * [MeshaScreenHeader] resolves it from the shell's exact L0 membership instead: drawer at
+ * `/vaccination`, Up at `/calendar/drive` — with no route check anywhere in this feature module.
+ */
 @Composable
 private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // GoatOsShell already applies and consumes the status-bar inset. Keep
-            // only compact content spacing here; adding a second toolbar-sized top
-            // gap makes the header look double-inset on physical devices.
-            .padding(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Surf2)
-                .border(1.dp, Hair, RoundedCornerShape(12.dp))
-                .clickable(onClick = onBack),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MeshaIcons.ChevronLeft,
-                contentDescription = stringResource(R.string.sheds_back_description),
-                tint = Muted,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = listOf(state.moduleLabel, state.scopeLabel)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · "),
-                color = BrandD,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                // Static screen title — localized client-side (the VM always bakes the
-                // English "Today's sheds" chrome string; ignore it, render the screen's own).
-                text = stringResource(R.string.sheds_title),
-                color = Ink,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-            )
+    MeshaScreenHeader(
+        // Static screen title — localized client-side (the VM always bakes the
+        // English "Today's sheds" chrome string; ignore it, render the screen's own).
+        title = stringResource(R.string.sheds_title),
+        eyebrow = listOf(state.moduleLabel, state.scopeLabel)
+            .filter { it.isNotBlank() }
+            .joinToString(" · "),
+        eyebrowColor = BrandD,
+        onBack = onBack,
+        below = {
             // Offline-first sync/stale affordance (docs/decisions/android-offline-first.md):
             // renders nothing while there is no cache yet — a cold-start/error placeholder
             // above already covers that moment — otherwise "Syncing…" / "Updated Xm ago" /
@@ -348,24 +326,26 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
                 isOffline = state.isOffline,
                 modifier = Modifier.padding(top = 4.dp),
             )
-        }
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Surf2)
-                .border(1.dp, Hair, RoundedCornerShape(12.dp))
-                .clickable(onClick = onRefresh),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MeshaIcons.Refresh,
-                contentDescription = stringResource(R.string.sheds_refresh_description),
-                tint = Muted,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
+        },
+        actions = {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Surf2)
+                    .border(1.dp, Hair, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onRefresh),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Refresh,
+                    contentDescription = stringResource(R.string.sheds_refresh_description),
+                    tint = Muted,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        },
+    )
 }
 
 @Composable

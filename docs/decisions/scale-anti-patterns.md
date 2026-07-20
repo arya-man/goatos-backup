@@ -492,3 +492,5 @@ metadata for publishability, but route/site must not reappear as an operator SOP
 form field. The seed fixture guard must fail a seeder-only route/site change
 until the fixture manifest, source policy, validator, and docs describe the same
 rule.
+
+<!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->

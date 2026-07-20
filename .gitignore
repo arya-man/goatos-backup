@@ -122,3 +122,4 @@ __pycache__/
 /.e2e-smoke-last-logs.txt
 # make e2e-business-chain's saved compose logs (regenerated every run, local diagnostics only)
 /.e2e-business-chain-last-logs.txt
+backend/seed-shed-profiles

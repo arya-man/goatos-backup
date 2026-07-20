@@ -122,26 +122,32 @@ planning and execution, not a clean domain model:
 
 The separate experiment workbook is a workaround for a limitation in the normal
 Sheet/App Script allocation model, not evidence for a separate GoatOS product
-module. The normal workbook tends to apply one shared composition by
-breed/shed-tag/category. The experiment config instead records quantities at
-farm + shed + category + feed-item grain, allowing same-tag sheds to receive
-different composition permutations. A sanitized structural check found three
-CBE Castro sheds with the same `Sheep M NEW` category and three distinct
-concentrate/bhusa quantity pairs; raw rows and workbook identifiers are not
-committed.
+module. The normal workbook applies a per-head ration by breed/shed-tag/category.
+The experiment config instead records an absolute per-shed daily quantity (kg per
+feed item) at farm + shed + category + feed-item grain, hand-entered rather than
+derived from head count, allowing same-tag sheds to receive different absolute kg
+totals. A sanitized structural check found three CBE Castro sheds with the same
+`Sheep M NEW` category and three distinct concentrate/bhusa quantity pairs whose
+implied per-head rates differ — Castro 1 = 0.969 kg/head concentrate (62 kg / 64
+head), Castro 2 = 0.667 (50 / 75), Castro 3 = 0.667 (44 / 66). The config cells
+are plain typed kg numbers, not `count x rate` formulas; a genuine per-head
+composition would give all same-tag sheds one shared rate, so the differing rates
+prove the allocation is a hand-tuned absolute per-shed total, not a per-head
+composition. Raw rows and workbook identifiers are not committed.
 
 The live Slack workflow has six private operational channels: packing,
 distribution, and wastage for each of CBE and CPT. Threads prompt for packing,
 distribution/water, and wastage media and then record completion. Combined with
 the Apps Script afternoon packing trigger, this supports the operational loop:
-observe distribution/wastage during the day, review or revise the composition,
-and publish the next-day packing direction. Slack is proof of collection and
-delivery; it is not approval authority. GoatOS audit/version history must record
-who approved the next composition and why.
+observe distribution/wastage during the day, review or revise the absolute
+per-shed kg, and issue the next-day packing direction. Slack is proof of
+collection and delivery; it is not approval authority. GoatOS audit/version
+history must record who set the next-day absolute kg and why.
 
-Target implication: versioned per-shed/per-cohort composition assignment belongs
-inside normal Feed Direction. An optional comparison label/group may organise
-alternatives, but ordinary same-tag variation must not require a formal
+Target implication: an absolute per-shed daily quantity (kg per feed item),
+hand-authored and split across the day's sessions with head count informational,
+belongs inside normal Feed Direction. An optional comparison label/group may
+organise alternatives, but ordinary same-tag variation must not require a formal
 experiment, control/treatment record, or duplicate packing/wastage backend.
 
 ## Legacy Automation Findings

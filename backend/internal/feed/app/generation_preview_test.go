@@ -125,7 +125,7 @@ func TestGenerationPreviewFailsClosedWithoutProjectionProvider(t *testing.T) {
 	}
 }
 
-func TestGenerationPreviewCleanProjectionStillDoesNotAllowGeneration(t *testing.T) {
+func TestGenerationPreviewCleanProjectionAllowsGeneration(t *testing.T) {
 	parkID := "10000000-0000-4000-8000-000000000001"
 	shedID := "20000000-0000-4000-8000-000000000001"
 	provider := &fakeCountsProjectionProvider{out: countsdomain.CountProjection{
@@ -151,14 +151,14 @@ func TestGenerationPreviewCleanProjectionStillDoesNotAllowGeneration(t *testing.
 	if err != nil {
 		t.Fatalf("GenerationPreview err=%v", err)
 	}
-	if out.Status != domain.ReadinessPending || out.GenerationAllowed {
-		t.Fatalf("preview status=%q allowed=%t, want pending/false", out.Status, out.GenerationAllowed)
+	if out.Status != domain.ReadinessReady || !out.GenerationAllowed {
+		t.Fatalf("preview status=%q allowed=%t, want ready/true", out.Status, out.GenerationAllowed)
 	}
 	if len(out.Blockers) != 0 {
 		t.Fatalf("blockers=%+v, want none", out.Blockers)
 	}
-	if !strings.Contains(out.BlockerReason, "G3-G17") {
-		t.Fatalf("blocker reason=%q", out.BlockerReason)
+	if out.BlockerReason != "" {
+		t.Fatalf("blocker reason=%q, want empty on a clean projection page", out.BlockerReason)
 	}
 }
 
@@ -169,4 +169,8 @@ func hasGenerationBlocker(blockers []domain.GenerationPreviewBlocker, blockerTyp
 		}
 	}
 	return false
+}
+
+func strPtr(v string) *string {
+	return &v
 }

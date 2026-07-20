@@ -3,6 +3,10 @@ package sg.mesha.goatos.core.data.sync
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
@@ -95,4 +99,45 @@ data class VerificationClosePayload(
 @Serializable
 data class VerificationCloseSubmissionPayload(
     @SerialName("submission_id") val submissionId: String,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_SHIFTING].
+ *  An operator-reported movement between sheds. The destination shed is the outbox GROUP KEY, so
+ *  two movements into the same shed drain strictly in the order they were recorded. */
+@Serializable
+data class CountsShiftingPayload(
+    @SerialName("request") val request: CountsShiftingEventRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_BIRTH].
+ *  A birth is goat creation; the backend pins `origin_type` to `birth`. */
+@Serializable
+data class CountsBirthPayload(
+    @SerialName("request") val request: CountsBirthEventRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_DEATH].
+ *  A death recorded through identity's guardrailed critical-death exit; the animal is the outbox
+ *  GROUP KEY so two writes about the same goat can never drain out of order. */
+@Serializable
+data class CountsDeathPayload(
+    @SerialName("request") val request: CountsDeathEventRequestDto,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_APPROVAL_APPROVE]
+ * and [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_APPROVAL_REJECT].
+ *
+ * The APPROVAL REQUEST ID is the outbox group key, so two decisions addressing the same request can
+ * never drain concurrently or out of order — the second would otherwise race the first and hit a
+ * 409 for a request the approver believes they only decided once.
+ *
+ * One payload type serves both decisions because the bodies are identical; the op type is what
+ * selects the endpoint, which keeps an approve and a reject on the same request from ever sharing
+ * a request fingerprint.
+ */
+@Serializable
+data class CountsApprovalDecisionPayload(
+    @SerialName("request_id") val requestId: String,
+    @SerialName("request") val request: CountsApprovalDecisionRequestDto,
 )

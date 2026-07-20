@@ -121,12 +121,12 @@ type CreateCapabilityRequest struct {
 }
 
 type DeviceSummary struct {
-	DeviceID            string         `json:"device_id"`
-	OperatorID          string         `json:"operator_id"`
-	Platform            string         `json:"platform"`
-	AppInstallID        string         `json:"app_install_id"`
-	DevicePublicKeyHash *string        `json:"device_public_key_hash"`
-	PushTokenHash       *string        `json:"push_token_hash"`
+	DeviceID            string  `json:"device_id"`
+	OperatorID          string  `json:"operator_id"`
+	Platform            string  `json:"platform"`
+	AppInstallID        string  `json:"app_install_id"`
+	DevicePublicKeyHash *string `json:"device_public_key_hash"`
+	PushTokenHash       *string `json:"push_token_hash"`
 	// FCMToken is the raw FCM registration token the push gateway needs (message.token).
 	// PushTokenHash stays the identity/dedup hash; FCMToken is the delivery address (migration 000171).
 	FCMToken     *string        `json:"fcm_token,omitempty"`
@@ -151,9 +151,9 @@ type DeviceResponse struct {
 }
 
 type RegisterDeviceRequest struct {
-	AppInstallID        string         `json:"app_install_id"`
-	DevicePublicKeyHash *string        `json:"device_public_key_hash"`
-	PushTokenHash       *string        `json:"push_token_hash"`
+	AppInstallID        string  `json:"app_install_id"`
+	DevicePublicKeyHash *string `json:"device_public_key_hash"`
+	PushTokenHash       *string `json:"push_token_hash"`
 	// FcmToken is the raw FCM registration token (optional -- backward compatible with clients that
 	// have not yet upgraded to send it; push_token_hash keeps working as the identity/dedup hash).
 	FcmToken   *string        `json:"fcm_token"`
@@ -231,6 +231,7 @@ type BootstrapResponse struct {
 	AppMinSupportedVersion  string                    `json:"app_min_supported_version"`
 	FeatureFlags            map[string]bool           `json:"feature_flags"`
 	VisibleNavigation       []BootstrapNavigationItem `json:"visible_navigation"`
+	Modules                 []BootstrapModule         `json:"modules"`
 	NavChrome               string                    `json:"nav_chrome"`
 	TaskQueueDescriptors    []BootstrapTaskQueue      `json:"task_queue_descriptors"`
 	PinnedSOPVersions       []BootstrapSOPVersion     `json:"pinned_sop_versions"`
@@ -253,6 +254,18 @@ type BootstrapDeviceState struct {
 	Device   *DeviceSummary `json:"device"`
 	Status   string         `json:"status"`
 	Reason   *string        `json:"reason"`
+}
+
+// BootstrapModule is a drawer entry: the module's identity plus the bottom-bar items
+// it contributes. NavItems is MODULE-SCOPED — selecting this module in the drawer
+// swaps the bottom bar to these items. "soon" modules render disabled with no items.
+// See docs/decisions/role-module-nav-composition.md.
+type BootstrapModule struct {
+	Key      string                    `json:"key"`
+	Label    string                    `json:"label"`
+	Href     string                    `json:"href"`
+	Status   string                    `json:"status"`
+	NavItems []BootstrapNavigationItem `json:"nav_items"`
 }
 
 type BootstrapNavigationItem struct {

@@ -1,0 +1,705 @@
+// Package domain holds the authored feed-configuration vocabulary, its read shapes, and the
+// pure validation rules for editing it.
+//
+// SCOPE BOUNDARY -- this package owns AUTHORED CONFIGURATION, not execution.
+//
+// backend/internal/feed owns feed DIRECTION: taking today's herd, resolving each shed's ration,
+// and issuing/packing the direction. This package owns the tables that direction READS FROM --
+// the ration grid (migration 000003) and the dispatch clock (000004) -- and the surface an
+// operator edits them through. Keeping them apart is the module-table ownership rule from
+// backend/AGENTS.md: feed_* config tables have exactly one writer, and it is this module.
+//
+// # THE SAFETY RULE THIS PACKAGE INHERITS FROM MIGRATION 000003
+//
+// A rate of 0 is a REAL authored value (milk-fed K0/K1 kids are correctly fed 0 g of solids). A
+// rate that was never authored is a DIFFERENT state, and the consequences are opposite: 0 means
+// "feed nothing, proceed", absent means "we do not know what to feed this group, BLOCK". Nothing
+// in this package may collapse the two. Concretely:
+//
+//   - a write path never invents rows to fill gaps in the grid;
+//   - an absent grams_per_head in a request is REJECTED, never defaulted to 0;
+//   - a read never COALESCEs a missing rate to 0.
+//
+// # EFFECTIVE DATING
+//
+// Rates, shed factors, and schedule clocks are effective-dated. An edit is never destructive: it
+// closes the currently-open row (valid_to = the business date the change takes effect) and opens a
+// new one, so "what were we feeding Osmanabadi/Pregnant at CBE last March" stays answerable. The
+// one exception is a SAME-BUSINESS-DAY re-edit, which corrects the open row in place because a
+// zero-length window cannot satisfy the schema's valid_to > valid_from. That three-way behaviour is
+// exactly what seed-feed-ration's seedRates does, and the two must not diverge -- if they did, the
+// UI and the seed would disagree about what an edit means.
+package domain
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// Validation errors. These are all "the author sent something we will not silently repair"
+// conditions -- per AGENTS.md, a PRESENT but out-of-range authored value fails the write; it is
+// never rewritten to a default the author never entered.
+var (
+	ErrMissingField     = errors.New("feedconfig: missing required field")
+	ErrInvalidDecimal   = errors.New("feedconfig: value is not a valid decimal")
+	ErrNegativeValue    = errors.New("feedconfig: value must not be negative")
+	ErrInvalidTime      = errors.New("feedconfig: value is not a valid local time (HH:MM or HH:MM:SS)")
+	ErrTimeOrder        = errors.New("feedconfig: schedule times are out of order")
+	ErrInvalidWorkflow  = errors.New("feedconfig: workflow must be 'normal' or 'experiment'")
+	ErrInvalidDate      = errors.New("feedconfig: value is not a valid business date (YYYY-MM-DD)")
+	ErrInvalidAppliesTo = errors.New("feedconfig: applies_to must be 'adult' or 'kid'")
+	// ErrInvalidExperimentStatus guards the one field that decides WHICH WORKFLOW feeds a shed.
+	// An unrecognised value is rejected rather than coerced: 'active' enrols the shed onto authored
+	// absolute kg and 'retired' returns it to the per-head ration grid, so there is no safe default
+	// to fall back to.
+	ErrInvalidExperimentStatus = errors.New("feedconfig: status must be 'active' or 'retired'")
+)
+
+// Workflows recognised by feed_schedule_config. Mirrors the migration's CHECK constraint; a value
+// outside it is rejected before it reaches SQL so the caller gets a field error rather than a
+// constraint violation.
+const (
+	WorkflowNormal     = "normal"
+	WorkflowExperiment = "experiment"
+)
+
+// Write outcomes. Same vocabulary as the migration's CHECK and as seed-feed-ration's counters.
+const (
+	OutcomeInserted   = "inserted"
+	OutcomeSuperseded = "superseded"
+	OutcomeCorrected  = "corrected"
+	OutcomeUnchanged  = "unchanged"
+)
+
+// Write kinds, matching feed_config_write_log.write_kind.
+const (
+	WriteKindRationRate     = "ration_rate"
+	WriteKindShedFactor     = "shed_factor"
+	WriteKindScheduleConfig = "schedule_config"
+	// WriteKindExperimentConfig covers BOTH experiment writes -- authoring one shed's absolute-kg
+	// cell and switching a shed between the experiment workflow and the normal ration grid. They
+	// are one authoring surface with one identity space; the ledger's outcome and result_row_id
+	// already distinguish what an individual edit did. Added to the schema by migration 000006.
+	WriteKindExperimentConfig = "experiment_config"
+)
+
+// Experiment row statuses, mirroring feed_experiment_config.status.
+//
+// STATUS IS THE WORKFLOW SWITCH, and this is the single most consequential fact about this table.
+// Membership in feed_experiment_config with status='active' IS what makes a shed an experiment shed
+// -- domain.ExperimentPlanner.Applies has no separate flag to consult, and the direction path reads
+// only active rows. So retiring a shed's rows does not merely hide them: it moves that shed back
+// onto the per-head ration grid and changes what its animals are fed. Conversely a shed that should
+// be on absolute kg but has no active row here is fed head_count x grams_per_head, which for the 34
+// live experiment sheds was measured at roughly 2.2x the authored quantity.
+//
+// Withdrawal is therefore a STATUS FLIP rather than a DELETE, so the authored quantities survive a
+// withdraw-and-restore instead of having to be re-keyed from the workbook.
+const (
+	ExperimentStatusActive  = "active"
+	ExperimentStatusRetired = "retired"
+)
+
+// ---------------------------------------------------------------------------
+// Read shapes
+// ---------------------------------------------------------------------------
+
+// Page is the bounded paging window every list read accepts.
+//
+// Bounded limit+offset rather than keyset, deliberately. These are AUTHORED CONFIG tables, not
+// growing event streams: the whole live grid is 1442 rates, 31 tags, 10 items, 7 groups, and a
+// handful of session/schedule rows. The set is small, stable, and the operator pages a grid rather
+// than draining a queue, so an offset walk is bounded by construction -- and the service rejects an
+// offset past MaxOffset outright rather than letting it grow.
+type Page struct {
+	Limit  int32
+	Offset int32
+}
+
+// RationRate is one authored cell of the editable grid.
+//
+// GramsPerHead is a DECIMAL STRING, never a float64. numeric(12,3) is exact and a float round-trip
+// is not; a rate that reads back as 149.99999999 after an edit is a real, visible defect on a
+// screen whose whole purpose is authoring exact numbers.
+type RationRate struct {
+	RationRateID     string  `json:"ration_rate_id"`
+	ParkID           string  `json:"park_id"`
+	RationGroupLabel string  `json:"ration_group"`
+	ShedTagLabel     string  `json:"shed_tag"`
+	FeedItemLabel    string  `json:"feed_item"`
+	GramsPerHead     string  `json:"grams_per_head"`
+	ValidFrom        string  `json:"valid_from"`
+	ValidTo          *string `json:"valid_to,omitempty"`
+	SourceSystem     string  `json:"source_system"`
+}
+
+type RationRateQuery struct {
+	TenantID string
+	ParkID   string
+	// Optional narrowing filters. Empty means "no filter" -- never "match empty".
+	RationGroup string
+	ShedTag     string
+	FeedItem    string
+	Page        Page
+}
+
+type RationRatePage struct {
+	Items  []RationRate `json:"items"`
+	Limit  int32        `json:"limit"`
+	Offset int32        `json:"offset"`
+	// HasMore is derived by fetching Limit+1 rows and reporting whether the extra one existed. It is
+	// NOT a total count: counting the whole filtered set on every page is the compute-on-read shape
+	// the scale rules ban, and the grid UI needs "is there another page", not a total.
+	HasMore bool `json:"has_more"`
+}
+
+// RationGroup is one breed -> ration-group mapping. Adult breeds only: kids resolve to the fixed
+// 'Kid' group by age band and never consult this table (see migration 000003).
+type RationGroup struct {
+	RationGroupID    string `json:"ration_group_id"`
+	BreedLabel       string `json:"breed"`
+	RationGroupLabel string `json:"ration_group"`
+}
+
+type RationGroupPage struct {
+	Items   []RationGroup `json:"items"`
+	Limit   int32         `json:"limit"`
+	Offset  int32         `json:"offset"`
+	HasMore bool          `json:"has_more"`
+}
+
+// ShedTag is one entry of the authored tag vocabulary the grid is indexed by.
+type ShedTag struct {
+	ShedTagID    string `json:"shed_tag_id"`
+	ShedTagLabel string `json:"shed_tag"`
+	// AppliesTo splits the kid course from the adult course. The two sets are disjoint in the source
+	// grid, which is why this is single-valued.
+	AppliesTo    string `json:"applies_to"`
+	DisplayOrder int32  `json:"display_order"`
+	Status       string `json:"status"`
+}
+
+type ShedTagQuery struct {
+	TenantID string
+	// AppliesTo optionally narrows to 'adult' or 'kid'. Empty means both.
+	AppliesTo string
+	Page      Page
+}
+
+type ShedTagPage struct {
+	Items   []ShedTag `json:"items"`
+	Limit   int32     `json:"limit"`
+	Offset  int32     `json:"offset"`
+	HasMore bool      `json:"has_more"`
+}
+
+// FeedItem is one catalog entry. The nutritional attributes are pointers because they are genuinely
+// nullable in the schema: a missing energy value blocks a rollup, never a feeding decision, so it
+// is an honest gap rather than a value to invent.
+type FeedItem struct {
+	FeedItemID      string  `json:"feed_item_id"`
+	FeedItemLabel   string  `json:"feed_item"`
+	EnergyKcalPerKg *string `json:"energy_kcal_per_kg,omitempty"`
+	DryMatterFactor *string `json:"dry_matter_factor,omitempty"`
+	WastageFactor   *string `json:"wastage_factor,omitempty"`
+	DisplayOrder    int32   `json:"display_order"`
+	Status          string  `json:"status"`
+}
+
+type FeedItemPage struct {
+	Items   []FeedItem `json:"items"`
+	Limit   int32      `json:"limit"`
+	Offset  int32      `json:"offset"`
+	HasMore bool       `json:"has_more"`
+}
+
+// SessionTemplate is one feeding session and the fraction of the day's quantity it carries.
+type SessionTemplate struct {
+	SessionTemplateID string `json:"session_template_id"`
+	ParkID            string `json:"park_id"`
+	SessionNo         int32  `json:"session_no"`
+	SessionLabel      string `json:"session_label"`
+	SplitFraction     string `json:"split_fraction"`
+	DisplayOrder      int32  `json:"display_order"`
+	Status            string `json:"status"`
+}
+
+type SessionTemplateQuery struct {
+	TenantID string
+	ParkID   string
+	Page     Page
+}
+
+type SessionTemplatePage struct {
+	Items   []SessionTemplate `json:"items"`
+	Limit   int32             `json:"limit"`
+	Offset  int32             `json:"offset"`
+	HasMore bool              `json:"has_more"`
+}
+
+// ScheduleConfig is one park/workflow dispatch clock.
+//
+// The three times are LOCAL Asia/Kolkata wall-clock strings ("07:00:00"), carrying no offset, and
+// are rendered/edited as such. They are recurring business-calendar rules, not instants: the
+// consumer combines (business date, this local time, Asia/Kolkata) to schedule. See migration
+// 000004.
+//
+// TransportTime is a pointer because NULL is meaningful: the park has not declared a cutoff. It
+// reads as UNKNOWN, never as "no deadline".
+type ScheduleConfig struct {
+	ScheduleConfigID string  `json:"schedule_config_id"`
+	ParkID           string  `json:"park_id"`
+	Workflow         string  `json:"workflow"`
+	DirectionTime    string  `json:"direction_time"`
+	CorrectionTime   string  `json:"correction_time"`
+	TransportTime    *string `json:"transport_time,omitempty"`
+	ValidFrom        string  `json:"valid_from"`
+	ValidTo          *string `json:"valid_to,omitempty"`
+}
+
+type ScheduleConfigQuery struct {
+	TenantID string
+	ParkID   string
+	// Workflow optionally narrows to one workflow. Empty means both.
+	Workflow string
+	Page     Page
+}
+
+type ScheduleConfigPage struct {
+	Items   []ScheduleConfig `json:"items"`
+	Limit   int32            `json:"limit"`
+	Offset  int32            `json:"offset"`
+	HasMore bool             `json:"has_more"`
+}
+
+// ShedFactor is one per-shed, per-item multiplier -- the third term of
+// head_count x grams_per_head x shed_factor.
+type ShedFactor struct {
+	ShedFactorID  string  `json:"shed_factor_id"`
+	ParkID        string  `json:"park_id"`
+	ShedID        string  `json:"shed_id"`
+	FeedItemLabel string  `json:"feed_item"`
+	Multiplier    string  `json:"multiplier"`
+	ValidFrom     string  `json:"valid_from"`
+	ValidTo       *string `json:"valid_to,omitempty"`
+}
+
+type ShedFactorQuery struct {
+	TenantID string
+	ParkID   string
+	// ShedID optionally narrows to one shed. Empty means every shed in the park.
+	ShedID   string
+	FeedItem string
+	Page     Page
+}
+
+type ShedFactorPage struct {
+	Items   []ShedFactor `json:"items"`
+	Limit   int32        `json:"limit"`
+	Offset  int32        `json:"offset"`
+	HasMore bool         `json:"has_more"`
+}
+
+// ExperimentConfig is one authored cell of an EXPERIMENT shed: the absolute kg of one feed item that
+// the whole shed is fed.
+//
+// ABSOLUTE KG IS A SHED TOTAL, NOT A PER-HEAD RATE. That is the one distinction between this type
+// and RationRate that must never blur. HeadCount travels with it as INFORMATIONAL context -- the
+// population the operator authored the figure against -- and multiplying the two would overfeed the
+// shed by a factor of its entire population. Nothing in this module, the generator, or the UI may
+// treat HeadCount as a multiplier; ExperimentPlanner ignores the projected count for quantity
+// purposes entirely and flags the row so nothing downstream can scale by it.
+//
+// HeadCount is a POINTER because the column is nullable: a shed whose population was not recorded
+// alongside the quantity is an honest gap, and rendering it as 0 would state that the shed is empty.
+type ExperimentConfig struct {
+	ExperimentConfigID string `json:"experiment_config_id"`
+	ParkID             string `json:"park_id"`
+	ShedID             string `json:"shed_id"`
+	FeedItemLabel      string `json:"feed_item"`
+	// AbsoluteKg is an exact decimal string for the same reason GramsPerHead is: numeric(12,3) is
+	// exact and a float round-trip is not.
+	AbsoluteKg string `json:"absolute_kg"`
+	HeadCount  *int32 `json:"head_count,omitempty"`
+	// ExperimentCategory is the experiment ARM. It stands in for the shed tag on the direction sheet,
+	// because an experiment shed has no ration grain and therefore no authored tag to report.
+	ExperimentCategory string `json:"experiment_category"`
+	Status             string `json:"status"`
+}
+
+type ExperimentConfigQuery struct {
+	TenantID string
+	ParkID   string
+	// ShedID optionally narrows to one shed. Empty means every experiment shed in the park.
+	ShedID string
+	// Status optionally narrows to 'active' or 'retired'. Empty means BOTH, which is what the config
+	// screen wants: a withdrawn shed's authored quantities must stay visible so it can be restored
+	// without re-keying them from the workbook.
+	Status string
+	Page   Page
+}
+
+type ExperimentConfigPage struct {
+	Items   []ExperimentConfig `json:"items"`
+	Limit   int32              `json:"limit"`
+	Offset  int32              `json:"offset"`
+	HasMore bool               `json:"has_more"`
+}
+
+// ---------------------------------------------------------------------------
+// Write shapes
+// ---------------------------------------------------------------------------
+
+// WriteResult describes what an authored edit actually did.
+//
+// It is deliberately explicit about the effective-dating outcome rather than returning a bare
+// "ok": the operator who just changed a rate needs to know whether they opened a new window
+// (superseded), corrected today's authoring (corrected), created the first value (inserted), or
+// changed nothing (unchanged). Those are four different states of the audit trail.
+type WriteResult struct {
+	WriteID string `json:"write_id"`
+	Kind    string `json:"kind"`
+	Outcome string `json:"outcome"`
+	// ResultRowID is the row now in force. Empty only for an 'unchanged' write.
+	ResultRowID string `json:"result_row_id,omitempty"`
+	// SupersededRowID is the row this write closed. Set only for 'superseded'.
+	SupersededRowID string `json:"superseded_row_id,omitempty"`
+	EffectiveFrom   string `json:"effective_from"`
+	// Replayed reports that this response is the ORIGINAL result of an earlier identical request,
+	// replayed without re-running any side effect.
+	Replayed bool `json:"idempotent_replay"`
+}
+
+// WriteIdentity is the idempotency envelope every authored write carries. Embedded rather than
+// repeated so a new write kind cannot accidentally ship without it.
+type WriteIdentity struct {
+	TenantID string
+	// ActorRef identifies who authored the change, for the ledger's audit trail.
+	ActorRef string
+	// EffectiveFrom is the Asia/Kolkata business date the change takes effect. Server-derived from
+	// the business calendar, never from the client and never from SQL now() -- a late-evening IST
+	// write must not be dated to the previous UTC day.
+	EffectiveFrom string
+	// IdempotencyKey is the client's key. RequestFingerprint is a stable hash of the canonical
+	// client request; the pair is what makes an exact replay return the original result and a
+	// same-key/different-payload replay a conflict.
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// UpsertRationRateCommand authors one cell of the grid.
+//
+// GramsPerHead is a canonical decimal STRING and is REQUIRED. It is not a float64 and not a
+// pointer-with-default: "absent" is not representable here on purpose, because the HTTP layer must
+// have already rejected an absent value rather than defaulting it to 0. See the package comment.
+type UpsertRationRateCommand struct {
+	WriteIdentity
+	ParkID           string
+	RationGroupLabel string
+	ShedTagLabel     string
+	FeedItemLabel    string
+	GramsPerHead     string
+}
+
+// UpsertShedFactorCommand authors one shed multiplier.
+type UpsertShedFactorCommand struct {
+	WriteIdentity
+	ParkID        string
+	ShedID        string
+	FeedItemLabel string
+	Multiplier    string
+}
+
+// UpsertScheduleConfigCommand authors one park/workflow dispatch clock. Times are local
+// Asia/Kolkata wall-clock strings; TransportTime is optional and stays NULL when absent.
+type UpsertScheduleConfigCommand struct {
+	WriteIdentity
+	ParkID         string
+	Workflow       string
+	DirectionTime  string
+	CorrectionTime string
+	TransportTime  *string
+}
+
+// UpsertExperimentConfigCommand authors one experiment shed's absolute kg of one feed item.
+//
+// AbsoluteKg is a canonical decimal STRING and is REQUIRED, exactly like GramsPerHead: "absent" is
+// not representable, because the HTTP layer must already have rejected a cleared field rather than
+// filling it with 0. An authored 0 IS legal (an arm that deliberately gets none of an item).
+//
+// HeadCount is a pointer so "not recorded" (NULL) stays distinct from an authored 0, which would
+// state the shed is empty.
+type UpsertExperimentConfigCommand struct {
+	WriteIdentity
+	ParkID             string
+	ShedID             string
+	FeedItemLabel      string
+	AbsoluteKg         string
+	HeadCount          *int32
+	ExperimentCategory string
+}
+
+// SetExperimentShedStatusCommand switches a WHOLE SHED between the experiment workflow and the
+// normal per-head ration grid.
+//
+// This is a business-meaningful action, not a visibility toggle -- see the ExperimentStatus
+// constants. It is deliberately whole-shed rather than per-cell: a shed half on absolute kg and half
+// on the ration grid is not a state the generator can represent (a planner owns the shed, not the
+// cell), so allowing a per-cell status edit would let an author create a shed whose feed is
+// undefined.
+type SetExperimentShedStatusCommand struct {
+	WriteIdentity
+	ParkID string
+	ShedID string
+	Status string
+}
+
+// ---------------------------------------------------------------------------
+// Pure validation
+// ---------------------------------------------------------------------------
+
+// FieldError names the offending field alongside the rule it broke, so the UI can attach the
+// message to the right input instead of showing a generic failure.
+type FieldError struct {
+	Field  string
+	Reason error
+	Detail string
+}
+
+func (e *FieldError) Error() string {
+	if e.Detail != "" {
+		return fmt.Sprintf("%s: %s (%s)", e.Field, e.Reason.Error(), e.Detail)
+	}
+	return fmt.Sprintf("%s: %s", e.Field, e.Reason.Error())
+}
+
+func (e *FieldError) Unwrap() error { return e.Reason }
+
+func fieldErr(field string, reason error, detail string) error {
+	return &FieldError{Field: field, Reason: reason, Detail: detail}
+}
+
+// NormalizeDecimal validates an authored decimal and returns it in a canonical fixed-scale form
+// suitable for binding as ::numeric.
+//
+// It REJECTS rather than repairs. A present-but-negative rate is a business error the author must
+// see, not something to clamp to 0 -- clamping would write a real "feed nothing" instruction the
+// author never gave. Scale beyond the column's is likewise rejected instead of rounded: silently
+// turning 12.3456 into 12.346 changes the authored number.
+//
+// An empty string is a MISSING field, not a zero. The distinction is the whole safety rule of this
+// module.
+func NormalizeDecimal(field, raw string, scale int, allowZero bool) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fieldErr(field, ErrMissingField, "")
+	}
+	neg := false
+	body := raw
+	switch {
+	case strings.HasPrefix(body, "-"):
+		neg = true
+		body = body[1:]
+	case strings.HasPrefix(body, "+"):
+		body = body[1:]
+	}
+	intPart, fracPart, hasFrac := strings.Cut(body, ".")
+	if intPart == "" && fracPart == "" {
+		return "", fieldErr(field, ErrInvalidDecimal, raw)
+	}
+	if !allDigits(intPart) || (hasFrac && !allDigits(fracPart)) {
+		return "", fieldErr(field, ErrInvalidDecimal, raw)
+	}
+	if hasFrac && fracPart == "" {
+		return "", fieldErr(field, ErrInvalidDecimal, raw)
+	}
+	if len(fracPart) > scale {
+		return "", fieldErr(field, ErrInvalidDecimal,
+			fmt.Sprintf("%s has more than %d decimal places", raw, scale))
+	}
+	// Reject before checking zero-ness so "-0.000" is treated as the zero it is rather than as a
+	// negative value.
+	zero := isAllZero(intPart) && isAllZero(fracPart)
+	if neg && !zero {
+		return "", fieldErr(field, ErrNegativeValue, raw)
+	}
+	if zero && !allowZero {
+		return "", fieldErr(field, ErrNegativeValue, raw+" must be greater than zero")
+	}
+	if intPart == "" {
+		intPart = "0"
+	}
+	intPart = strings.TrimLeft(intPart, "0")
+	if intPart == "" {
+		intPart = "0"
+	}
+	frac := fracPart + strings.Repeat("0", scale-len(fracPart))
+	if scale == 0 {
+		return intPart, nil
+	}
+	return intPart + "." + frac, nil
+}
+
+func allDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isAllZero(s string) bool {
+	for _, r := range s {
+		if r != '0' {
+			return false
+		}
+	}
+	return true
+}
+
+// NormalizeLocalTime validates an authored Asia/Kolkata wall-clock time and canonicalizes it to
+// HH:MM:SS.
+//
+// It accepts HH:MM and HH:MM:SS and rejects anything else -- including an offset suffix. An offset
+// is not merely unsupported here, it is WRONG: these values are recurring business-calendar rules,
+// and accepting "07:00+05:30" would imply the stored value is tied to an instant. See migration
+// 000004's time-semantics note.
+func NormalizeLocalTime(field, raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fieldErr(field, ErrMissingField, "")
+	}
+	parts := strings.Split(raw, ":")
+	if len(parts) != 2 && len(parts) != 3 {
+		return "", fieldErr(field, ErrInvalidTime, raw)
+	}
+	bounds := []int{23, 59, 59}
+	vals := make([]int, 3)
+	for i, p := range parts {
+		if len(p) != 2 || !allDigits(p) {
+			return "", fieldErr(field, ErrInvalidTime, raw)
+		}
+		v := int(p[0]-'0')*10 + int(p[1]-'0')
+		if v > bounds[i] {
+			return "", fieldErr(field, ErrInvalidTime, raw)
+		}
+		vals[i] = v
+	}
+	return fmt.Sprintf("%02d:%02d:%02d", vals[0], vals[1], vals[2]), nil
+}
+
+// ValidateWorkflow rejects anything outside the migration's CHECK vocabulary, before SQL sees it.
+func ValidateWorkflow(field, raw string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if v == "" {
+		return "", fieldErr(field, ErrMissingField, "")
+	}
+	if v != WorkflowNormal && v != WorkflowExperiment {
+		return "", fieldErr(field, ErrInvalidWorkflow, raw)
+	}
+	return v, nil
+}
+
+// ValidateExperimentStatus rejects anything outside feed_experiment_config's status vocabulary.
+//
+// `required=false` allows the empty string as "no filter" for reads. On a WRITE the status is the
+// whole point of the request, so an absent one is a missing field rather than a default: guessing
+// 'active' would enrol a shed onto absolute kg, and guessing 'retired' would move it back onto the
+// per-head grid. Both are changes to what animals are fed, and neither is a safe default.
+func ValidateExperimentStatus(field, raw string, required bool) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if v == "" {
+		if required {
+			return "", fieldErr(field, ErrMissingField, "")
+		}
+		return "", nil
+	}
+	if v != ExperimentStatusActive && v != ExperimentStatusRetired {
+		return "", fieldErr(field, ErrInvalidExperimentStatus, raw)
+	}
+	return v, nil
+}
+
+// ValidateHeadCount checks the INFORMATIONAL population figure carried alongside an absolute
+// quantity.
+//
+// It is validate-or-reject like every other authored value: a present-but-negative count fails
+// rather than being clamped. nil is legal and means "not recorded" -- which is NOT the same as 0,
+// and is why this returns the pointer through unchanged rather than defaulting it.
+//
+// Note what this function does NOT do: it never influences a quantity. head_count is not a
+// multiplier here (see ExperimentConfig), so an out-of-range value cannot under- or over-feed a
+// shed; it is rejected because a wrong number printed next to a feeding instruction misleads the
+// operator reading it.
+func ValidateHeadCount(field string, raw *int32) (*int32, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if *raw < 0 {
+		return nil, fieldErr(field, ErrNegativeValue, fmt.Sprintf("%d", *raw))
+	}
+	return raw, nil
+}
+
+// ValidateAppliesTo rejects a shed-tag course filter outside the schema vocabulary.
+func ValidateAppliesTo(field, raw string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if v == "" {
+		return "", nil
+	}
+	if v != "adult" && v != "kid" {
+		return "", fieldErr(field, ErrInvalidAppliesTo, raw)
+	}
+	return v, nil
+}
+
+// ValidateScheduleOrder enforces the same ordering the schema CHECKs, one layer earlier so the
+// author gets a field-level message instead of a constraint violation.
+//
+// A correction amends a direction that was already issued, so it cannot precede it (equality is
+// legal -- that is the live experiment case). A transport cutoff before the correction batch would
+// make every correction dead on arrival.
+func ValidateScheduleOrder(direction, correction string, transport *string) error {
+	if correction < direction {
+		return fieldErr("correction_time", ErrTimeOrder,
+			fmt.Sprintf("correction_time %s is before direction_time %s", correction, direction))
+	}
+	if transport != nil && *transport < correction {
+		return fieldErr("transport_time", ErrTimeOrder,
+			fmt.Sprintf("transport_time %s is before correction_time %s", *transport, correction))
+	}
+	return nil
+}
+
+// RequireNonBlank is the guard for authored labels and identifiers. A blank label is missing, not
+// empty-valued: the schema's *_not_blank CHECKs say the same thing, and catching it here gives the
+// author the field name.
+func RequireNonBlank(field, raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", fieldErr(field, ErrMissingField, "")
+	}
+	return v, nil
+}
+
+// ValidateBusinessDate checks a YYYY-MM-DD business date. It does not accept a timestamp: an
+// effective date is a business-calendar day, and letting an instant through would reintroduce the
+// UTC-vs-Asia/Kolkata day-boundary bug the date form exists to avoid.
+func ValidateBusinessDate(field, raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", fieldErr(field, ErrMissingField, "")
+	}
+	if len(v) != 10 || v[4] != '-' || v[7] != '-' ||
+		!allDigits(v[0:4]) || !allDigits(v[5:7]) || !allDigits(v[8:10]) {
+		return "", fieldErr(field, ErrInvalidDate, raw)
+	}
+	month := int(v[5]-'0')*10 + int(v[6]-'0')
+	day := int(v[8]-'0')*10 + int(v[9]-'0')
+	if month < 1 || month > 12 || day < 1 || day > 31 {
+		return "", fieldErr(field, ErrInvalidDate, raw)
+	}
+	return v, nil
+}

@@ -57,6 +57,5 @@
     <!-- Content descriptions and accessibility -->
     <string name="overview_back_content_description">వెనుకకు</string>
     <string name="overview_refresh_content_description">రిఫ్రెష్</string>
-    <string name="overview_menu_content_description">మెనూ</string>
     <string name="overdue_title_fmt">గడువు మీరిన · %1$d</string>
 </resources>

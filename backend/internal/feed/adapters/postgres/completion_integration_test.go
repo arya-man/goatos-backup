@@ -134,7 +134,7 @@ func TestFeedDirectionCompletionFlow(t *testing.T) {
 	}
 }
 
-func TestReadinessConsumesSeededCountsProjectionAndBlocksPregnantDestinationShortage(t *testing.T) {
+func TestFeedConsumesSeededCountsProjectionAndSurfacesPregnantDestinationShortage(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -144,7 +144,6 @@ func TestReadinessConsumesSeededCountsProjectionAndBlocksPregnantDestinationShor
 	countsRepo := countspg.NewRepository(pool, 5*time.Second)
 	countsService := countsapp.NewService(countsRepo)
 	feedService := feedapp.NewService(NewRepository(pool, 5*time.Second)).
-		WithCountsReadiness(countsRepo).
 		WithCountsProjectionExceptionLister(countsRepo)
 
 	if _, replay, err := countsRepo.RecordBaseCountAnchor(ctx, feedReadinessBaseAnchor(feedCountsSourceShed, "feed-readiness-source-anchor", "feed-readiness-source-fp", 20)); err != nil || replay {
@@ -169,37 +168,27 @@ func TestReadinessConsumesSeededCountsProjectionAndBlocksPregnantDestinationShor
 		t.Fatalf("publish shifting event to projection handler: %v", err)
 	}
 
-	readiness, err := feedService.Readiness(ctx, feedTenant)
+	readiness, err := countsRepo.Readiness(ctx, feedTenant)
 	if err != nil {
-		t.Fatalf("feed readiness: %v", err)
+		t.Fatalf("counts readiness: %v", err)
 	}
-	if readiness.Status != feeddomain.ReadinessBlocked || readiness.GenerationAllowed {
-		t.Fatalf("feed readiness=%+v, want blocked/no-generation", readiness)
+	if readiness.Status == countsdomain.ReadinessReady || readiness.OpenExceptionCount == 0 {
+		t.Fatalf("counts readiness=%+v, want not-ready with open projection exceptions", readiness)
 	}
-	g2 := readinessGate(t, readiness.Gates, "G2")
-	if g2.Status != feeddomain.ReadinessBlocked || g2.AllowsGenerate {
-		t.Fatalf("G2=%+v, want open-exception blocker", g2)
-	}
-	for _, want := range []string{
-		"Counts/Shifting has open projection exceptions",
-		"CSG6=blocked",
-		"CSG7=blocked",
-		"alias_conflict",
-		"CSG8=blocked",
-		"CSG10=pending",
+	for _, want := range []struct {
+		id     string
+		status countsdomain.ReadinessStatus
+	}{
+		{"CSG6", countsdomain.ReadinessBlocked},
+		{"CSG7", countsdomain.ReadinessBlocked},
+		{"CSG8", countsdomain.ReadinessBlocked},
+		{"CSG4", countsdomain.ReadinessReady},
+		{"CSG9", countsdomain.ReadinessReady},
+		{"CSG10", countsdomain.ReadinessPending},
 	} {
-		if !strings.Contains(g2.BlockerReason, want) {
-			t.Fatalf("G2 blocker=%q, want %q", g2.BlockerReason, want)
+		if csg := feedSubgate(t, readiness.Subgates, want.id); csg.Status != want.status {
+			t.Fatalf("%s=%+v, want status %q", want.id, csg, want.status)
 		}
-	}
-	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG4"); csg.Status != feeddomain.ReadinessReady {
-		t.Fatalf("CSG4=%+v, want ready after dual-horizon recompute", csg)
-	}
-	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG9"); csg.Status != feeddomain.ReadinessReady {
-		t.Fatalf("CSG9=%+v, want ready projection API evidence", csg)
-	}
-	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG10"); csg.Status != feeddomain.ReadinessPending {
-		t.Fatalf("CSG10=%+v, want pending observability/source/E2E evidence", csg)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)
@@ -228,7 +217,7 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
-func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t *testing.T) {
+func TestFeedConsumesReviewedCountsAliasesAndStillSurfacesPregnantShortage(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -240,7 +229,6 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	countsRepo := countspg.NewRepository(pool, 5*time.Second)
 	countsService := countsapp.NewService(countsRepo)
 	feedService := feedapp.NewService(NewRepository(pool, 5*time.Second)).
-		WithCountsReadiness(countsRepo).
 		WithCountsProjectionExceptionLister(countsRepo)
 
 	sourceAnchor := feedReadinessBaseAnchor(feedCountsSourceShed, "feed-reviewed-source-anchor", "feed-reviewed-source-fp", 20)
@@ -299,43 +287,24 @@ func TestReadinessConsumesReviewedCountsAliasesAndStillBlocksPregnantShortage(t 
 	}
 	seedFeedCSG7CoverageEvidence(t, ctx, pool)
 
-	readiness, err := feedService.Readiness(ctx, feedTenant)
+	readiness, err := countsRepo.Readiness(ctx, feedTenant)
 	if err != nil {
-		t.Fatalf("feed readiness with reviewed aliases: %v", err)
+		t.Fatalf("counts readiness with reviewed aliases: %v", err)
 	}
-	if readiness.Status != feeddomain.ReadinessBlocked || readiness.GenerationAllowed {
-		t.Fatalf("feed readiness=%+v, want pregnant-shortage blocker", readiness)
+	if readiness.Status == countsdomain.ReadinessReady || readiness.OpenExceptionCount == 0 {
+		t.Fatalf("counts readiness=%+v, want pregnant-shortage exception to keep it not-ready", readiness)
 	}
-	g2 := readinessGate(t, readiness.Gates, "G2")
-	if g2.Status != feeddomain.ReadinessBlocked || g2.AllowsGenerate {
-		t.Fatalf("G2=%+v, want blocked/no-generation", g2)
-	}
-	for _, want := range []string{
-		"Counts/Shifting has open projection exceptions",
-		"CSG7=pending",
-		"CSG8=pending",
-		"CSG10=pending",
-	} {
-		if !strings.Contains(g2.BlockerReason, want) {
-			t.Fatalf("G2 blocker=%q, want %q", g2.BlockerReason, want)
-		}
-	}
-	for _, forbidden := range []string{"CSG6=blocked", "CSG7=blocked", "CSG8=blocked", "Projection snapshot contains alias_conflict"} {
-		if strings.Contains(g2.BlockerReason, forbidden) {
-			t.Fatalf("G2 blocker=%q, must not contain %q after approved aliases", g2.BlockerReason, forbidden)
-		}
-	}
-	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG6"); csg.Status != feeddomain.ReadinessReady || csg.EvidenceRef != "count_mismatch_scan_runs:"+scan.RunID {
+	if csg := feedSubgate(t, readiness.Subgates, "CSG6"); csg.Status != countsdomain.ReadinessReady || csg.EvidenceRef != "count_mismatch_scan_runs:"+scan.RunID {
 		t.Fatalf("CSG6=%+v, want ready scan evidence", csg)
 	}
-	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG7"); csg.Status != feeddomain.ReadinessPending ||
+	if csg := feedSubgate(t, readiness.Subgates, "CSG7"); csg.Status != countsdomain.ReadinessPending ||
 		!strings.Contains(csg.BlockerReason, "owner-approved review") {
 		t.Fatalf("CSG7=%+v, want pending after alias and location-profile coverage evidence", csg)
 	}
-	if csg := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG8"); csg.Status != feeddomain.ReadinessPending || csg.EvidenceRef != "count_base_anchors:"+sourceAnchorID {
+	if csg := feedSubgate(t, readiness.Subgates, "CSG8"); csg.Status != countsdomain.ReadinessPending || csg.EvidenceRef != "count_base_anchors:"+sourceAnchorID {
 		t.Fatalf("CSG8=%+v, want pending replay evidence", csg)
 	}
-	csg10 := feedSubgate(t, readiness.CountsShiftingSubgates, "CSG10")
+	csg10 := feedSubgate(t, readiness.Subgates, "CSG10")
 	if !feedRecentEvidenceHasPrefix(csg10.RecentEvidence, "count_mismatch_scan_runs:") ||
 		!feedRecentEvidenceHasPrefix(csg10.RecentEvidence, "count_projection_recompute_runs:") {
 		t.Fatalf("CSG10 recent evidence=%+v, want scan and recompute evidence", csg10.RecentEvidence)
@@ -434,7 +403,7 @@ func feedStringValue(v *string) string {
 	return *v
 }
 
-func feedRecentEvidenceHasPrefix(items []feeddomain.ReadinessEvidence, prefix string) bool {
+func feedRecentEvidenceHasPrefix(items []countsdomain.ReadinessEvidence, prefix string) bool {
 	for _, item := range items {
 		if strings.HasPrefix(item.EvidenceRef, prefix) {
 			return true
@@ -525,26 +494,15 @@ func feedReadinessPregnantShift() countsdomain.ShiftingEvent {
 	}
 }
 
-func readinessGate(t *testing.T, gates []feeddomain.ReadinessGate, id string) feeddomain.ReadinessGate {
-	t.Helper()
-	for _, gate := range gates {
-		if gate.ID == id {
-			return gate
-		}
-	}
-	t.Fatalf("missing readiness gate %s in %+v", id, gates)
-	return feeddomain.ReadinessGate{}
-}
-
-func feedSubgate(t *testing.T, subgates []feeddomain.CountsShiftingSubgate, id string) feeddomain.CountsShiftingSubgate {
+func feedSubgate(t *testing.T, subgates []countsdomain.ReadinessSubgate, id string) countsdomain.ReadinessSubgate {
 	t.Helper()
 	for _, subgate := range subgates {
 		if subgate.ID == id {
 			return subgate
 		}
 	}
-	t.Fatalf("missing feed subgate %s in %+v", id, subgates)
-	return feeddomain.CountsShiftingSubgate{}
+	t.Fatalf("missing counts subgate %s in %+v", id, subgates)
+	return countsdomain.ReadinessSubgate{}
 }
 
 func stringPtr(s string) *string { return &s }

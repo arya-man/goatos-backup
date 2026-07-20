@@ -30,6 +30,13 @@ import (
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
 	feedpg "github.com/vgoats/goatos/backend/internal/feed/adapters/postgres"
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
+	feedconfighttp "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/http"
+	feedconfigpg "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/postgres"
+	feedconfigapp "github.com/vgoats/goatos/backend/internal/feedconfig/app"
+	feeddirectioncounts "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/counts"
+	feeddirectionhttp "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/http"
+	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
@@ -356,12 +363,59 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsService := countsapp.NewService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	herdRegisterService := countsapp.NewHerdRegisterService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	herdRegisterHandler := countshttp.NewHandler(herdRegisterService, log)
+	// App-tier Counts writes (shifting/birth/death) + the lifecycle approval workflow.
+	//
+	// Per the maintainer decision (2026-07-19) the three submit routes RECORD a pending request
+	// rather than applying it; approving one applies the effect through the identity module's
+	// transaction-scoped seam, in the SAME transaction as the approval's status flip.
+	//
+	// countsApprovalRepo therefore carries the identity write seam (goat create / guarded critical-
+	// death exit / bulk relocate). identityService supplies the Prepare* validators, which validate
+	// a payload at submit time without applying it.
+	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
+		WithIdentityTxWriter(identityRepo)
+	countsApprovalService := countsapp.NewApprovalService(countsApprovalRepo, identityService, nil)
+	// Shifting execution shares countsApprovalRepo because that repository already carries the
+	// identity transaction seam the relocation runs through -- and the relocation now happens HERE,
+	// at completion, rather than at approval.
+	countsShiftingExecutionService := countsapp.NewShiftingExecutionService(countsApprovalRepo, nil)
+	countsAppWriteHandler := countshttp.NewAppWriteHandler(countsService, log).
+		WithApprovalWorkflow(countsApprovalService, identityService).
+		WithShiftingExecutionWorkflow(countsShiftingExecutionService)
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
-		WithCountsReadiness(countsService).
 		WithCountsProjectionProvider(countsService).
 		WithCountsProjectionExceptionResolver(countsService).
-		WithCountsProjectionExceptionLister(countsService)
+		WithCountsProjectionExceptionLister(countsService).
+		// Live-herd feed projection (maintainer decision 2026-07-19): this farm runs no physical
+		// counting workflow, so the live goats table is the count and approved-but-unexecuted
+		// shiftings are the only pending change. Parallel to the anchor-replay provider above,
+		// which stays wired for the counts-source import and parity tooling.
+		WithFeedProjectedCounts(countsService)
 	feedHandler := feedhttp.NewHandler(feedService, log)
+	// Authored feed CONFIGURATION is its own module, wired alongside feed direction rather than into
+	// it. feedapp owns execution (what goes to each shed today); feedconfig owns the ration grid and
+	// dispatch clock that execution reads from, and is the only writer of those tables.
+	feedConfigService := feedconfigapp.NewService(feedconfigpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	feedConfigHandler := feedconfighttp.NewHandler(feedConfigService, log)
+	// Feed-direction GENERATION is a third, separate module, and the split is the point: it OWNS NO
+	// TABLES and writes nothing. It is a pure read-only generator over the other two -- projected
+	// shed counts from counts, the authored ration grid from feedconfig -- so it depends on both
+	// through narrow ports and neither of them depends on it.
+	//
+	// The counts dependency is wired through feeddirectioncounts.NewReader rather than passing
+	// countsService straight in, so counts keeps sole ownership of the census SQL and the generator
+	// stays testable against a fake reader.
+	// One repository instance owns the config/scope reads AND the frozen-issue tables plus the
+	// feed_schedule_config clock, so the generator, the serve path and the lifecycle all share it.
+	feedDirectionRepo := feeddirectionpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	feedDirectionService := feeddirectionapp.NewService(
+		feedDirectionRepo,
+		feeddirectioncounts.NewReader(countsService),
+	).
+		WithIssueStore(feedDirectionRepo).
+		WithScheduleReader(feedDirectionRepo).
+		WithGeneratedBy("goatos-api")
+	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -508,7 +562,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	adminuihttp.Register(protectedMux, adminUIHandler)
 	appconfighttp.Register(protectedMux, appConfigHandler)
 	countshttp.Register(protectedMux, herdRegisterHandler)
+	countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
 	feedhttp.Register(protectedMux, feedHandler)
+	feedconfighttp.Register(protectedMux, feedConfigHandler)
+	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 	verificationhttp.Register(protectedMux, verificationHandler)
 

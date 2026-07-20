@@ -24,6 +24,18 @@ returns to L0, the root chrome is restored with its saved state.
 
 - Root ownership is exact set membership against backend-composed bootstrap
   routes. Prefix, substring, and ancestor matching are forbidden.
+- **Global chrome is shell-derived, never screen-authored.** The shell computes
+  drawer availability once (`drawerAvailable` = EXPANDED chrome AND exact L0
+  membership) and publishes it as `LocalDrawerOpener`, which is `null` on every
+  L1+ drill. Screens render `MeshaScreenHeader`, whose leading slot resolves to
+  the module drawer when an opener is present and to Up/Back otherwise. A screen
+  must not read `LocalDrawerOpener` or draw its own `MeshaIcons.Menu` button.
+  This was originally opt-in per screen, and the predictable happened: only two
+  of eight L0 roots drew a hamburger, so the Counts module shipped with no way
+  back to another module and Vaccination's own root tab showed a Back arrow. A
+  screen hosted at both an L0 route and a drill route (Sheds at `/vaccination`
+  and `/calendar/drive`) passes `onBack` and gets the right affordance at each
+  without a route check.
 - A drill target must have a distinct child route even when it renders the same
   feature content as a root module. Reusing an L0 route for a drill is forbidden.
 - Structural detail screens fill the `NavHost`; they must not be styled as
@@ -39,9 +51,12 @@ returns to L0, the root chrome is restored with its saved state.
 ## Regression gate
 
 `make android-navigation-stack-guard` fails unless the shell uses exact L0
-membership, Calendar uses a dedicated hosted drive route for blank/generic
-targets, and `TopLevelChromeTest` covers roots, hosted children, prefix
-collisions, and route fallbacks.
+membership, the drawer opener is gated on `hasDrawer && isTopLevel`, no feature
+module hand-rolls a drawer affordance (`MeshaIcons.Menu` or a direct
+`LocalDrawerOpener` read), Calendar uses a dedicated hosted drive route for
+blank/generic targets, and `TopLevelChromeTest` covers roots, hosted children,
+prefix collisions, route fallbacks, and drawer availability across every
+module's roots.
 
 The Android CI job also runs the compiled JVM unit suite, so the same regression
 test must compile and pass on every Android or shared-contract change. Device

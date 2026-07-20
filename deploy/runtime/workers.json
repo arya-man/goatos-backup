@@ -108,5 +108,25 @@
     "image_tag": "goatos-backend:e2e",
     "worker_service_entry": "kernel_worker",
     "notes": "The compose stack runs the api service entry and the kernel_worker service entry from THIS manifest's services[] list, off the real built image — no `go run`, no mounted shell script. Phase-2 adds business-chain assertions (obligation -> batch -> SOP -> notification) on top of this skeleton; see the seam comment in the compose file."
+  },
+
+  "future_jobs": {
+    "_readme": [
+      "Documented NOT-YET-DEPLOYED future targets (the third process category named in the top _readme).",
+      "The binary is built by backend/Dockerfile and is production-ready, but it is not yet wired into",
+      "infra/envs/{dev,stg}/cloud_run_jobs.tf, so it deliberately does NOT live under environments.*.jobs:",
+      "check-deployed-job-flags.mjs asserts bidirectional TF<->manifest parity for env jobs, and claiming a",
+      "job is deployed while no Terraform creates it would be a false-green. When Feed Direction issuance is",
+      "promoted to a scheduled deployment, move these entries verbatim into environments.dev.jobs /",
+      "environments.stg.jobs and add the matching google_cloud_run_v2_job + Cloud Scheduler blocks in the",
+      "same change; the args below are already the exact flags backend/cmd/feed-direction-issue defines.",
+      "Cadence is per (park, workflow) from feed_schedule_config: normal direction 07:00, experiment 14:00,",
+      "correction 14:00, transport 15:45 (Asia/Kolkata). Each invocation acts on feed_day = as-of + 1."
+    ],
+    "jobs": [
+      { "name": "feed_direction_issue", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=issue", "-workflow=both", "-timeout=120s"], "schedule": "0 7 * * * (normal) + 0 14 * * * (experiment), per feed_schedule_config direction_time", "health_signal": "exit code 0; feed_direction_issues row in state 'issued' for feed_day = as-of + 1" },
+      { "name": "feed_direction_amend", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=amend", "-workflow=both", "-timeout=120s"], "schedule": "0 14 * * *, per feed_schedule_config correction_time", "health_signal": "exit code 0; issue in state 'amended' (or an unchanged no-op that still stamped amended_at)" },
+      { "name": "feed_direction_lock", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=lock", "-workflow=both", "-timeout=120s"], "schedule": "45 15 * * *, per feed_schedule_config transport_time", "health_signal": "exit code 0; issue in state 'locked'" }
+    ]
   }
 }

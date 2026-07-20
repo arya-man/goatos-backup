@@ -31,6 +31,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -48,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
-import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
@@ -256,7 +256,6 @@ fun LeadershipScreen(
     onEvent: (LeadershipEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val openDrawer = LocalDrawerOpener.current
     Column(
         modifier
             .fillMaxSize()
@@ -267,10 +266,9 @@ fun LeadershipScreen(
             // Static screen title — localized client-side (the VM value is fixed
             // English chrome; the visible title must follow the app locale).
             title = stringResource(R.string.overview_title),
-            leading = TopBarLeading.MENU,
-            onLeading = { openDrawer() },
+            // No leading argument: `/leadership` is a backend nav_item, so the shared header
+            // renders the module drawer here and this screen never asks about it.
             onRefresh = { onEvent(LeadershipEvent.Refresh) },
-            leadingContentDescription = stringResource(R.string.overview_menu_content_description),
             refreshContentDescription = stringResource(R.string.overview_refresh_content_description),
         )
         SyncStatusIndicator(
@@ -669,42 +667,38 @@ private fun ParkCoverageRowView(park: ParkCoverageRow, onEvent: (LeadershipEvent
 
 // region ── shared composables (used by all three screens) ──
 
-internal enum class TopBarLeading { MENU, BACK }
-
+/**
+ * Leadership top bar for all three screens in this module.
+ *
+ * There is deliberately no `leading` parameter any more. It used to be a `TopBarLeading.MENU |
+ * BACK` choice each screen made for itself, which is a decision a screen cannot actually get
+ * right: the same composable can be hosted at an L0 root and at a drill, and a new screen that
+ * picked MENU would render an inert hamburger while one that picked BACK would hide the drawer on
+ * a root. [MeshaScreenHeader] resolves it from the shell's exact L0 membership instead — Overview
+ * (`/leadership`, a backend nav_item) gets the drawer; Overdue and Reschedule, pushed as hosted
+ * children, get Up. Both just pass [onBack].
+ */
 @Composable
 internal fun LeadTopBar(
     eyebrow: String,
     title: String,
-    leading: TopBarLeading,
-    onLeading: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
-    // Optional a11y labels for the leading/refresh icons. Default null preserves the prior
-    // (unlabeled) behavior for callers that don't supply one — Overdue/Reschedule still pass
-    // none; Overview supplies localized labels for its Menu + Refresh buttons.
-    leadingContentDescription: String? = null,
     refreshContentDescription: String? = null,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(LeadTokens.pageBg)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        IconButton(
-            icon = if (leading == TopBarLeading.MENU) MeshaIcons.Menu else MeshaIcons.ChevronLeft,
-            contentDescription = leadingContentDescription,
-            onClick = onLeading,
-        )
-        Column(Modifier.weight(1f)) {
-            Text(eyebrow, color = LeadTokens.brandD, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Text(title, color = LeadTokens.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        }
-        if (onRefresh != null) {
-            IconButton(icon = MeshaIcons.Refresh, contentDescription = refreshContentDescription, onClick = onRefresh)
-        }
-    }
+    MeshaScreenHeader(
+        title = title,
+        eyebrow = eyebrow,
+        eyebrowColor = LeadTokens.brandD,
+        onBack = onBack,
+        modifier = Modifier.background(LeadTokens.pageBg),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+        actions = {
+            if (onRefresh != null) {
+                IconButton(icon = MeshaIcons.Refresh, contentDescription = refreshContentDescription, onClick = onRefresh)
+            }
+        },
+    )
 }
 
 @Composable

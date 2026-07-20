@@ -449,3 +449,8 @@ function main() {
 }
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();
+
+// Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations
+// 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
+// HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
+// fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.

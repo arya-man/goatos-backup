@@ -25,7 +25,6 @@
     <string name="calendar_month_hint">Tap a day for due work or completion history · dots = open work, muted dots = completed history</string>
 
     <!-- Accessibility descriptions -->
-    <string name="calendar_button_menu">Menu</string>
     <string name="calendar_day_back">Back</string>
     <string name="calendar_button_refresh">Refresh</string>
 

@@ -1,5 +1,10 @@
 package sg.mesha.goatos.feature.leadership
 
+// telemetry:exempt pure stateless renderer, and this change is only the call-site update forced by
+// the shared-header fix (LeadTopBar no longer takes a `leading` choice). No analytics are claimed
+// here: the leadership surface has none wired anywhere, including RescheduleViewModel. That is a
+// pre-existing gap, not one this change introduces, and it is tracked as its own task.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -114,8 +119,7 @@ fun RescheduleScreen(
         LeadTopBar(
             eyebrow = state.eyebrow,
             title = state.title,
-            leading = TopBarLeading.BACK,
-            onLeading = { onEvent(LeadershipEvent.Back) },
+            onBack = { onEvent(LeadershipEvent.Back) },
         )
         Column(
             Modifier

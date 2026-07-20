@@ -63,8 +63,27 @@ function hasCommandSegment(route) {
     .some((segment) => COMMAND_SEGMENTS.has(segment));
 }
 
+// Narrow, deliberate exceptions: module surfaces whose PATH happens to contain a command/authority
+// segment but which are not a duplicate of that top-level lens.
+//
+// `/feed/config` is the only entry, approved by explicit maintainer decision recorded in
+// backend/internal/adminui/app/service.go (see the comment above the "feed" nav group). It is NOT a
+// second Config authority screen: `/config` remains the single generic protocol-rule authority
+// surface, and `/feed/config` authors the ration grid, per-shed factors, session template and
+// dispatch clock that ONLY Feed consumes — a different data model, different endpoints
+// (/feed-config/*), and something `/config?category=feed_direction` cannot render, since that shows
+// protocol rules rather than the ration grid. The backend contract classifies it "module-surface",
+// not "authority-screen", and ships it as a Feed nav leaf.
+//
+// Widening this set is a deliberate scope decision (same standing as SUPPORTED_COUNTS_HREFS below),
+// not a routine edit: it must be backed by a maintainer decision recorded in the backend contract.
+// No command lens (Control Tower, Action Center, Calendar, Protocol Adherence, Workflows) is
+// exempted for any vertical, and none may be.
+const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set(["/feed/config"]);
+
 function isAllowedRoute(route) {
   if (TOP_LEVEL_COMMAND_ROUTES.has(route)) return true;
+  if (MODULE_SURFACE_ROUTE_EXCEPTIONS.has(route)) return true;
   return false;
 }
 
@@ -197,6 +216,7 @@ for (const file of sourceFiles) {
     if (!route || !hasCommandSegment(route)) continue;
     if (route.startsWith("/admin/")) continue; // backend API contract path, not an admin-web route.
     if (TOP_LEVEL_COMMAND_ROUTES.has(route)) continue;
+    if (MODULE_SURFACE_ROUTE_EXCEPTIONS.has(route)) continue;
 
     const segments = route.split("/").filter(Boolean);
     const firstCommandIndex = segments.findIndex((segment) => COMMAND_SEGMENTS.has(segment));

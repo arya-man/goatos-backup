@@ -488,6 +488,7 @@
   .alert.ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 32%,transparent);border-left-color:var(--ok)}
   .alert.ok .ic{color:var(--ok)} .alert.ok b{color:var(--brand-d)}
   .alert.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--amber) 32%,transparent);border-left-color:var(--amber)} .alert.warn .ic{color:var(--amber)} .alert.warn b{color:var(--amber)}
+  .alert.info{background:var(--infox);border-color:color-mix(in srgb,var(--info) 32%,transparent);border-left-color:var(--info)} .alert.info .ic{color:var(--info)} .alert.info b{color:var(--info)}
   .screen table{width:100%;border-collapse:collapse}
   .table-fixed{table-layout:fixed}
   .table-fixed th,.table-fixed td{min-width:0}
@@ -521,6 +522,66 @@
   .main table.counts-breakdown-table th:nth-child(6),.main table.counts-breakdown-table td:nth-child(6){min-width:80px}
   /* Total row reads as a summary band, not another data row. */
   .main table.counts-breakdown-table tfoot th{border-top:1px solid var(--line);background:var(--panel-2);font-weight:700}
+  /* Feed Direction / Packing / Config tables. Same nowrap contract as the breakdown table above
+     (failure mode 4b): the table owns horizontal scrolling, so short business values such as
+     "F2-Male", "0.000", "Dry Masoor Bhusa" or a wall-clock time never wrap mid-value. */
+  .main table.feed-table{min-width:900px}
+  .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
+  .main table.feed-table td{padding-top:10px;padding-bottom:10px}
+  /* A shed's item lines are one visual block: the shed-level cells span them, so the group needs a
+     boundary rule rather than a rule between every item line. */
+  .main table.feed-table td[rowspan]{border-right:1px solid var(--line2)}
+  .main table.feed-table .tag{margin:0}
+  /* An editor opens inline in its cell; keep the row from collapsing the form to one line. */
+  .main table.feed-table form{white-space:normal}
+  /* Nowrap protects SHORT values from being shredded mid-value (failure mode 4b). It was never
+     meant to apply to long multi-word LABELS: on Feed Direction holding "Mesha Concentrate Sheep"
+     on one line inflated the table's min-content past the 1130px card, which pushed
+     "Session total (kg)" — the row's whole output — off the right edge where it rendered as a
+     cut-off "16.". `.feed-wrap` opts a long-label cell back into ordinary WORD wrap (never
+     `anywhere`, so a value is still never broken mid-token). Short/numeric/tag columns keep nowrap.
+
+     THE MIN-WIDTH IS THE OTHER HALF OF THAT FIX, AND IT IS NOT COSMETIC. `white-space:normal` made
+     this the only shrinkable column in an auto-layout table, so the browser dumped the table's
+     whole width deficit onto it and squeezed it to near min-content (142px) — "Mesha Concentrate
+     Sheep" broke into THREE lines and the page grew 4125px -> 6022px (+46%). A floor of 150px
+     holds every current feed-item label to at most TWO lines while the table still measures exactly
+     1130px at a 1440px viewport, so nothing scrolls sideways and nothing is clipped.
+
+     Measured, not guessed (1440px viewport, seeded Channapatna day):
+       floor  table   feed-item col   max lines   page height
+        none  1130px      142px           3         6022px
+        140   1130px      153px           2         5238px
+        150   1130px      158px           2         5238px   <- chosen: clear of both thresholds
+        170   1132px      170px           2         5238px   (starts overflowing the card)
+        200   1162px      200px           1         5238px   (scrolls sideways, NO height gain)
+
+     Note the last row: forcing the label onto ONE line buys nothing. Once the feed item fits in two
+     lines the remaining tall rows are set by the QUANTITY cell, where an authored-zero renders
+     "0.000 kg" plus its "Configured zero" tag — and that pairing is safety copy that must stay
+     exactly as it is (a blocked cell shows a danger tag and NO number; an authored zero shows the
+     number and an info tag). So do not chase the last line by widening this column further: it costs
+     a sideways scroll and returns zero density. 150px is the floor, not a fixed width — the column
+     still grows if a longer feed item is authored. */
+  .main table.feed-table th.feed-wrap,.main table.feed-table td.feed-wrap{white-space:normal;overflow-wrap:normal;word-break:normal;min-width:150px}
+  /* The EXPERIMENT ARM column, for the same reason as `.feed-wrap` and with a cap on top of it.
+     An arm is a free-text trial name and the live data already contains a 55-character one
+     ("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80"). Under the table's default nowrap
+     that single value set the whole column's width and pushed "Session total (kg)" off the card —
+     the exact failure `.feed-wrap` was introduced to fix, arriving through a new column. It wraps
+     on WORD boundaries only (never `anywhere`, so a trial name is not broken mid-token), and unlike
+     `.feed-wrap` it also takes a max-width: a feed item must stay readable at any length because it
+     names what to weigh out, whereas an arm is context and may safely run to a few lines. The floor
+     keeps the two-word common case ("Sheep M NEW") on one line. */
+  /* The session total is the number the operator came for; it never shrinks below its own value. */
+  .main table.feed-table th.feed-total,.main table.feed-table td.feed-total{min-width:132px}
+  /* Below the widest layouts the table still scrolls, and on macOS the overlay scrollbar is
+     invisible until touched — so a clipped column read as missing rather than as scrollable.
+     A thin always-drawn scrollbar makes the affordance visible without stealing row height. */
+  .main .feed-scroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .main .feed-scroll::-webkit-scrollbar{height:10px}
+  .main .feed-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+  .main .feed-scroll::-webkit-scrollbar-track{background:transparent}
   /* Headline KPIs sit inside the table card, between the filter bar and the header row, so they
      read as totals FOR the current filter rather than as a separate page-level summary. */
   .main .counts-breakdown-kpis{padding:0 14px 14px;gap:14px}

@@ -1,0 +1,2404 @@
+{
+ "CBE": {
+  "headers": [
+   "Breed",
+   "Tag",
+   "Concentrate Per Goat",
+   "Mesha Concentrate Goat",
+   "Mesha Concentrate Sheep",
+   "Dry Masoor Bhusa Per Goat",
+   "Toor Dal Bhusa Pellet",
+   "Hybrid Per Goat",
+   "COFS Per Goat",
+   "Hedge Lucerne Per Goat",
+   "Dry Maize Per Goat",
+   "Baking Soda Per Goat"
+  ],
+  "rows": [
+   {
+    "group": "Osmanabadi",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 574.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1382,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1368,
+     "COFS Per Goat": 2124,
+     "Hedge Lucerne Per Goat": 3641,
+     "Dry Maize Per Goat": 1347,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 574.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1382,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1539,
+     "COFS Per Goat": 2390,
+     "Hedge Lucerne Per Goat": 4097,
+     "Dry Maize Per Goat": 1515,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 220.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1140,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1400,
+     "COFS Per Goat": 2173,
+     "Hedge Lucerne Per Goat": 3725,
+     "Dry Maize Per Goat": 1378,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 150.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1000.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1253,
+     "COFS Per Goat": 1944,
+     "Hedge Lucerne Per Goat": 3333,
+     "Dry Maize Per Goat": 1233,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 542.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1111,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1364,
+     "COFS Per Goat": 2118,
+     "Hedge Lucerne Per Goat": 3630,
+     "Dry Maize Per Goat": 1343,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 268.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1387,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1702,
+     "COFS Per Goat": 2642,
+     "Hedge Lucerne Per Goat": 4529,
+     "Dry Maize Per Goat": 1675,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Milking",
+    "rates": {
+     "Concentrate Per Goat": 197.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1020,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1253,
+     "COFS Per Goat": 1944,
+     "Hedge Lucerne Per Goat": 3333,
+     "Dry Maize Per Goat": 1233,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 197.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1020,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1253,
+     "COFS Per Goat": 1944,
+     "Hedge Lucerne Per Goat": 3333,
+     "Dry Maize Per Goat": 1233,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 542.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1111,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1364,
+     "COFS Per Goat": 2118,
+     "Hedge Lucerne Per Goat": 3630,
+     "Dry Maize Per Goat": 1343,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 574.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1382,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1368,
+     "COFS Per Goat": 2124,
+     "Hedge Lucerne Per Goat": 3641,
+     "Dry Maize Per Goat": 1347,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063.0,
+     "COFS Per Goat": 3203.0,
+     "Hedge Lucerne Per Goat": 5490.0,
+     "Dry Maize Per Goat": 2031.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1338,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1326,
+     "COFS Per Goat": 2059,
+     "Hedge Lucerne Per Goat": 3529,
+     "Dry Maize Per Goat": 1305,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1338,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1492,
+     "COFS Per Goat": 2316,
+     "Hedge Lucerne Per Goat": 3971,
+     "Dry Maize Per Goat": 1469,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 254.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1320,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1621,
+     "COFS Per Goat": 2516,
+     "Hedge Lucerne Per Goat": 4314,
+     "Dry Maize Per Goat": 1595,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 250.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 900.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1600.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1389,
+     "COFS Per Goat": 2157,
+     "Hedge Lucerne Per Goat": 3697,
+     "Dry Maize Per Goat": 1368,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 268.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1387,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1702,
+     "COFS Per Goat": 2642,
+     "Hedge Lucerne Per Goat": 4529,
+     "Dry Maize Per Goat": 1675,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Warmup",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 231.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1200,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 552.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1132,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1389,
+     "COFS Per Goat": 2157,
+     "Hedge Lucerne Per Goat": 3697,
+     "Dry Maize Per Goat": 1368,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1338,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1326,
+     "COFS Per Goat": 2059,
+     "Hedge Lucerne Per Goat": 3529,
+     "Dry Maize Per Goat": 1305,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 231.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1200,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 590.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1603,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1495,
+     "COFS Per Goat": 2320,
+     "Hedge Lucerne Per Goat": 3978,
+     "Dry Maize Per Goat": 1471,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 590.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1603,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1831,
+     "COFS Per Goat": 2842,
+     "Hedge Lucerne Per Goat": 4873,
+     "Dry Maize Per Goat": 1802,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 278.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1440,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 150.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1000.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1547,
+     "COFS Per Goat": 2402,
+     "Hedge Lucerne Per Goat": 4118,
+     "Dry Maize Per Goat": 1523,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 321.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1662,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2041,
+     "COFS Per Goat": 3168,
+     "Hedge Lucerne Per Goat": 5431,
+     "Dry Maize Per Goat": 2009,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Mixed",
+    "rates": {
+     "Concentrate Per Goat": 243.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1260,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1547,
+     "COFS Per Goat": 2402,
+     "Hedge Lucerne Per Goat": 4118,
+     "Dry Maize Per Goat": 1523,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 243.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1260,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1547,
+     "COFS Per Goat": 2402,
+     "Hedge Lucerne Per Goat": 4118,
+     "Dry Maize Per Goat": 1523,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 590.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1603,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1495,
+     "COFS Per Goat": 2320,
+     "Hedge Lucerne Per Goat": 3978,
+     "Dry Maize Per Goat": 1471,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063.0,
+     "COFS Per Goat": 3203.0,
+     "Hedge Lucerne Per Goat": 5490.0,
+     "Dry Maize Per Goat": 2031.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1969,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1726,
+     "COFS Per Goat": 2680,
+     "Hedge Lucerne Per Goat": 4594,
+     "Dry Maize Per Goat": 1699,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1969,
+     "Toor Dal Bhusa Pellet": 0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 359.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1860,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 350.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1300.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Milking Warmup",
+    "rates": {
+     "Concentrate Per Goat": 509.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 2641,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2365,
+     "COFS Per Goat": 3672,
+     "Hedge Lucerne Per Goat": 6294,
+     "Dry Maize Per Goat": 2328,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Milking",
+    "rates": {
+     "Concentrate Per Goat": 509.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 2641,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 3242,
+     "COFS Per Goat": 5033,
+     "Hedge Lucerne Per Goat": 8627,
+     "Dry Maize Per Goat": 3191,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1600.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 371.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1927,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2365,
+     "COFS Per Goat": 3672,
+     "Hedge Lucerne Per Goat": 6294,
+     "Dry Maize Per Goat": 2328,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Warmup",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1969,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1726,
+     "COFS Per Goat": 2680,
+     "Hedge Lucerne Per Goat": 4594,
+     "Dry Maize Per Goat": 1699,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1744,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1621,
+     "COFS Per Goat": 2516,
+     "Hedge Lucerne Per Goat": 4314,
+     "Dry Maize Per Goat": 1595,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1744,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2026,
+     "COFS Per Goat": 3145,
+     "Hedge Lucerne Per Goat": 5392,
+     "Dry Maize Per Goat": 1994,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 350.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1300.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Milking Warmup",
+    "rates": {
+     "Concentrate Per Goat": 440.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 2280,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2365,
+     "COFS Per Goat": 3672,
+     "Hedge Lucerne Per Goat": 6294,
+     "Dry Maize Per Goat": 2328,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Milking",
+    "rates": {
+     "Concentrate Per Goat": 440.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 2280,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2800,
+     "COFS Per Goat": 4346,
+     "Hedge Lucerne Per Goat": 7451,
+     "Dry Maize Per Goat": 2756,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1600.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 464.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 2407,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2955,
+     "COFS Per Goat": 4587,
+     "Hedge Lucerne Per Goat": 7863,
+     "Dry Maize Per Goat": 2908,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Mixed",
+    "rates": {
+     "Concentrate Per Goat": 278.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1440,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1744,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1621,
+     "COFS Per Goat": 2516,
+     "Hedge Lucerne Per Goat": 4314,
+     "Dry Maize Per Goat": 1595,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063.0,
+     "COFS Per Goat": 3203.0,
+     "Hedge Lucerne Per Goat": 5490.0,
+     "Dry Maize Per Goat": 2031.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 278.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1440,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K0",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 0,
+     "COFS Per Goat": 0,
+     "Hedge Lucerne Per Goat": 0,
+     "Dry Maize Per Goat": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K1",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 0,
+     "COFS Per Goat": 0,
+     "Hedge Lucerne Per Goat": 0,
+     "Dry Maize Per Goat": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K2",
+    "rates": {
+     "Concentrate Per Goat": 200.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 100.0,
+     "COFS Per Goat": 100.0,
+     "Hedge Lucerne Per Goat": 100.0,
+     "Dry Maize Per Goat": 100.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K3",
+    "rates": {
+     "Concentrate Per Goat": 300.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 100.0,
+     "COFS Per Goat": 100.0,
+     "Hedge Lucerne Per Goat": 100.0,
+     "Dry Maize Per Goat": 100.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K4",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 250,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 125.0,
+     "COFS Per Goat": 125.0,
+     "Hedge Lucerne Per Goat": 125.0,
+     "Dry Maize Per Goat": 125.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "ICU-Kid",
+    "rates": {
+     "Concentrate Per Goat": 200.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 0,
+     "COFS Per Goat": 0,
+     "Hedge Lucerne Per Goat": 0,
+     "Dry Maize Per Goat": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "Fattening",
+    "rates": {
+     "Concentrate Per Goat": 800.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 350,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 150.0,
+     "COFS Per Goat": 150.0,
+     "Hedge Lucerne Per Goat": 150.0,
+     "Dry Maize Per Goat": 150.0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Boer",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1700,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2-Female",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F1-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F1",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "ICU-F2-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "ICU-F1-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2-ICU",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "Quarantine kids",
+    "rates": {
+     "Concentrate Per Goat": 200.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 100.0,
+     "COFS Per Goat": 100.0,
+     "Hedge Lucerne Per Goat": 100.0,
+     "Dry Maize Per Goat": 100.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F1-Female",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   }
+  ]
+ },
+ "CPT": {
+  "headers": [
+   "Breed",
+   "Tag",
+   "Concentrate Per Goat",
+   "Mesha Concentrate Goat",
+   "Mesha Concentrate Sheep",
+   "Dry Masoor Bhusa Per Goat",
+   "Toor Dal Bhusa Pellet",
+   "Hybrid Per Goat",
+   "COFS Per Goat",
+   "Hedge Lucerne Per Goat",
+   "Dry Maize Per Goat",
+   "Baking Soda Per Goat"
+  ],
+  "rows": [
+   {
+    "group": "Osmanabadi",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 574.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1382,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1368,
+     "COFS Per Goat": 2124,
+     "Hedge Lucerne Per Goat": 3641,
+     "Dry Maize Per Goat": 1347,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 574.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1382,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1539,
+     "COFS Per Goat": 2390,
+     "Hedge Lucerne Per Goat": 4097,
+     "Dry Maize Per Goat": 1515,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 220.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1140,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1400,
+     "COFS Per Goat": 2173,
+     "Hedge Lucerne Per Goat": 3725,
+     "Dry Maize Per Goat": 1378,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 197.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1020,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1253,
+     "COFS Per Goat": 1944,
+     "Hedge Lucerne Per Goat": 3333,
+     "Dry Maize Per Goat": 1233,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 542.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1111,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1364,
+     "COFS Per Goat": 2118,
+     "Hedge Lucerne Per Goat": 3630,
+     "Dry Maize Per Goat": 1343,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 268.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1387,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1702,
+     "COFS Per Goat": 2642,
+     "Hedge Lucerne Per Goat": 4529,
+     "Dry Maize Per Goat": 1675,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "Milking",
+    "rates": {
+     "Concentrate Per Goat": 197.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1020,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1253,
+     "COFS Per Goat": 1944,
+     "Hedge Lucerne Per Goat": 3333,
+     "Dry Maize Per Goat": 1233,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 197.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1020,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1253,
+     "COFS Per Goat": 1944,
+     "Hedge Lucerne Per Goat": 3333,
+     "Dry Maize Per Goat": 1233,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 542.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1111,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1364,
+     "COFS Per Goat": 2118,
+     "Hedge Lucerne Per Goat": 3630,
+     "Dry Maize Per Goat": 1343,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 574.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1382,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1368,
+     "COFS Per Goat": 2124,
+     "Hedge Lucerne Per Goat": 3641,
+     "Dry Maize Per Goat": 1347,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Osmanabadi",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063.0,
+     "COFS Per Goat": 3203.0,
+     "Hedge Lucerne Per Goat": 5490.0,
+     "Dry Maize Per Goat": 2031.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1338,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1326,
+     "COFS Per Goat": 2059,
+     "Hedge Lucerne Per Goat": 3529,
+     "Dry Maize Per Goat": 1305,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1338,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1492,
+     "COFS Per Goat": 2316,
+     "Hedge Lucerne Per Goat": 3971,
+     "Dry Maize Per Goat": 1469,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 254.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1320,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1621,
+     "COFS Per Goat": 2516,
+     "Hedge Lucerne Per Goat": 4314,
+     "Dry Maize Per Goat": 1595,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 250.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 900.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1600.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1389,
+     "COFS Per Goat": 2157,
+     "Hedge Lucerne Per Goat": 3697,
+     "Dry Maize Per Goat": 1368,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 268.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1387,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1702,
+     "COFS Per Goat": 2642,
+     "Hedge Lucerne Per Goat": 4529,
+     "Dry Maize Per Goat": 1675,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "Warmup",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 231.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1200,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 552.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1132,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1389,
+     "COFS Per Goat": 2157,
+     "Hedge Lucerne Per Goat": 3697,
+     "Dry Maize Per Goat": 1368,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1338,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1326,
+     "COFS Per Goat": 2059,
+     "Hedge Lucerne Per Goat": 3529,
+     "Dry Maize Per Goat": 1305,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Anantapur Sheep",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 231.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1200,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1474,
+     "COFS Per Goat": 2288,
+     "Hedge Lucerne Per Goat": 3922,
+     "Dry Maize Per Goat": 1450,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 590.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1603,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1495,
+     "COFS Per Goat": 2320,
+     "Hedge Lucerne Per Goat": 3978,
+     "Dry Maize Per Goat": 1471,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 590.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1603,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1831,
+     "COFS Per Goat": 2842,
+     "Hedge Lucerne Per Goat": 4873,
+     "Dry Maize Per Goat": 1802,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 278.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1440,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 243.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1260,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1547,
+     "COFS Per Goat": 2402,
+     "Hedge Lucerne Per Goat": 4118,
+     "Dry Maize Per Goat": 1523,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 321.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1662,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2041,
+     "COFS Per Goat": 3168,
+     "Hedge Lucerne Per Goat": 5431,
+     "Dry Maize Per Goat": 2009,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "Mixed",
+    "rates": {
+     "Concentrate Per Goat": 243.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1260,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1547,
+     "COFS Per Goat": 2402,
+     "Hedge Lucerne Per Goat": 4118,
+     "Dry Maize Per Goat": 1523,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 243.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1260,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1547,
+     "COFS Per Goat": 2402,
+     "Hedge Lucerne Per Goat": 4118,
+     "Dry Maize Per Goat": 1523,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 590.0,
+     "Mesha Concentrate Goat": 0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1603,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1495,
+     "COFS Per Goat": 2320,
+     "Hedge Lucerne Per Goat": 3978,
+     "Dry Maize Per Goat": 1471,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Malai",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063.0,
+     "COFS Per Goat": 3203.0,
+     "Hedge Lucerne Per Goat": 5490.0,
+     "Dry Maize Per Goat": 2031.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1969,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1726,
+     "COFS Per Goat": 2680,
+     "Hedge Lucerne Per Goat": 4594,
+     "Dry Maize Per Goat": 1699,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1969,
+     "Toor Dal Bhusa Pellet": 0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 359.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1860,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 350.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1300.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Milking Warmup",
+    "rates": {
+     "Concentrate Per Goat": 509.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 2641,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2365,
+     "COFS Per Goat": 3672,
+     "Hedge Lucerne Per Goat": 6294,
+     "Dry Maize Per Goat": 2328,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Milking",
+    "rates": {
+     "Concentrate Per Goat": 509.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 2641,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 3242,
+     "COFS Per Goat": 5033,
+     "Hedge Lucerne Per Goat": 8627,
+     "Dry Maize Per Goat": 3191,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1600.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 371.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1927,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2365,
+     "COFS Per Goat": 3672,
+     "Hedge Lucerne Per Goat": 6294,
+     "Dry Maize Per Goat": 2328,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "Warmup",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1969,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1726,
+     "COFS Per Goat": 2680,
+     "Hedge Lucerne Per Goat": 4594,
+     "Dry Maize Per Goat": 1699,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Beetal/Sirohi",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1744,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1621,
+     "COFS Per Goat": 2516,
+     "Hedge Lucerne Per Goat": 4314,
+     "Dry Maize Per Goat": 1595,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "M0",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1744,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2026,
+     "COFS Per Goat": 3145,
+     "Hedge Lucerne Per Goat": 5392,
+     "Dry Maize Per Goat": 1994,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Mother",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063,
+     "COFS Per Goat": 3203,
+     "Hedge Lucerne Per Goat": 5490,
+     "Dry Maize Per Goat": 2031,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 350.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1300.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Milking Warmup",
+    "rates": {
+     "Concentrate Per Goat": 440.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 2280,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2365,
+     "COFS Per Goat": 3672,
+     "Hedge Lucerne Per Goat": 6294,
+     "Dry Maize Per Goat": 2328,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Milking",
+    "rates": {
+     "Concentrate Per Goat": 440.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 2280,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2800,
+     "COFS Per Goat": 4346,
+     "Hedge Lucerne Per Goat": 7451,
+     "Dry Maize Per Goat": 2756,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1600.0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Flushing",
+    "rates": {
+     "Concentrate Per Goat": 464.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 2407,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2955,
+     "COFS Per Goat": 4587,
+     "Hedge Lucerne Per Goat": 7863,
+     "Dry Maize Per Goat": 2908,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "Mixed",
+    "rates": {
+     "Concentrate Per Goat": 278.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1440,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU-Buck",
+    "rates": {
+     "Concentrate Per Goat": 556.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1637,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2010,
+     "COFS Per Goat": 3120,
+     "Hedge Lucerne Per Goat": 5349,
+     "Dry Maize Per Goat": 1978,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 642.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1744,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1621,
+     "COFS Per Goat": 2516,
+     "Hedge Lucerne Per Goat": 4314,
+     "Dry Maize Per Goat": 1595,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU-Non-Pregnant",
+    "rates": {
+     "Concentrate Per Goat": 324.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1680,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 2063.0,
+     "COFS Per Goat": 3203.0,
+     "Hedge Lucerne Per Goat": 5490.0,
+     "Dry Maize Per Goat": 2031.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Sojat",
+    "tag": "ICU",
+    "rates": {
+     "Concentrate Per Goat": 278.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0,
+     "Dry Masoor Bhusa Per Goat": 1440,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 1768,
+     "COFS Per Goat": 2745,
+     "Hedge Lucerne Per Goat": 4706,
+     "Dry Maize Per Goat": 1740,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K0",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 0,
+     "COFS Per Goat": 0,
+     "Hedge Lucerne Per Goat": 0,
+     "Dry Maize Per Goat": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K1",
+    "rates": {
+     "Concentrate Per Goat": 0.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 0,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 0,
+     "COFS Per Goat": 0,
+     "Hedge Lucerne Per Goat": 0,
+     "Dry Maize Per Goat": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K2",
+    "rates": {
+     "Concentrate Per Goat": 200.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 100.0,
+     "COFS Per Goat": 100.0,
+     "Hedge Lucerne Per Goat": 100.0,
+     "Dry Maize Per Goat": 100.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K3",
+    "rates": {
+     "Concentrate Per Goat": 300.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 100.0,
+     "COFS Per Goat": 100.0,
+     "Hedge Lucerne Per Goat": 100.0,
+     "Dry Maize Per Goat": 100.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "K4",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 250,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 125.0,
+     "COFS Per Goat": 125.0,
+     "Hedge Lucerne Per Goat": 125.0,
+     "Dry Maize Per Goat": 125.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "ICU-Kid",
+    "rates": {
+     "Concentrate Per Goat": 200.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 0,
+     "COFS Per Goat": 0,
+     "Hedge Lucerne Per Goat": 0,
+     "Dry Maize Per Goat": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "Fattening",
+    "rates": {
+     "Concentrate Per Goat": 800.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 350,
+     "Toor Dal Bhusa Pellet": 0,
+     "Hybrid Per Goat": 150.0,
+     "COFS Per Goat": 150.0,
+     "Hedge Lucerne Per Goat": 150.0,
+     "Dry Maize Per Goat": 150.0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Boer",
+    "tag": "Buck",
+    "rates": {
+     "Concentrate Per Goat": 500.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 1700,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2-Female",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F1-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F1",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "ICU-F2-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "ICU-F1-Male",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F2-ICU",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "Quarantine kids",
+    "rates": {
+     "Concentrate Per Goat": 200.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 200,
+     "Toor Dal Bhusa Pellet": 0.0,
+     "Hybrid Per Goat": 100.0,
+     "COFS Per Goat": 100.0,
+     "Hedge Lucerne Per Goat": 100.0,
+     "Dry Maize Per Goat": 100.0,
+     "Baking Soda Per Goat": 0.0
+    }
+   },
+   {
+    "group": "Kid",
+    "tag": "F1-Female",
+    "rates": {
+     "Concentrate Per Goat": 600.0,
+     "Mesha Concentrate Goat": 0.0,
+     "Mesha Concentrate Sheep": 0.0,
+     "Dry Masoor Bhusa Per Goat": 400,
+     "Toor Dal Bhusa Pellet": 0,
+     "Baking Soda Per Goat": 20.0
+    }
+   }
+  ]
+ }
+}

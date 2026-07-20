@@ -137,19 +137,10 @@ func (r *Repository) completedAdminGoatCreateReplayTarget(ctx context.Context, k
 	return idempotency.ResultID, true, nil
 }
 
+// CreateAdminGoat owns its transaction: it begins, performs the whole create, and commits.
 func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-
-	tenantUUID, err := uuidParam(cmd.TenantID)
-	if err != nil {
-		return nil, err
-	}
-	actorUUID, err := uuidParam(cmd.ActorID)
-	if err != nil {
-		return nil, err
-	}
-	farmUUID := nullableUUID(cmd.FarmID)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -161,6 +152,45 @@ func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminG
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	result, err := r.createAdminGoatInTx(ctx, tx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	committed = true
+	return result, nil
+}
+
+// CreateAdminGoatInTx performs the identical create inside a transaction the CALLER owns and
+// commits. It exists so another module can make a goat creation atomic with its own state change --
+// specifically, so approving a pending Counts birth request flips the request to 'approved' and
+// creates the kid in ONE transaction. Without this seam the two writes would be separate
+// transactions and a request could read 'approved' while its goat never committed, which is exactly
+// what the atomic transition rule in AGENTS.md forbids.
+//
+// This is a TRANSPORT seam only. Every rule -- idempotency claim/replay, identifier uniqueness, the
+// decision record, the audit row, and the goat.created outbox message that generates the kid's
+// vaccination obligations -- is the same code the pool-owned CreateAdminGoat runs. Note that the
+// caller is responsible for the surrounding timeout: the 3s r.withTimeout applied by
+// CreateAdminGoat is deliberately NOT applied here, because the caller's transaction sets the
+// budget for all the work in it.
+func (r *Repository) CreateAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	return r.createAdminGoatInTx(ctx, tx, cmd)
+}
+
+func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := uuidParam(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	farmUUID := nullableUUID(cmd.FarmID)
+
 	qtx := r.queries.WithTx(tx)
 
 	_, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
@@ -422,10 +452,6 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'created')`,
 	}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	committed = true
 	return response, nil
 }
 
@@ -753,6 +779,73 @@ LIMIT 1`, tenantID, locationType, idValue, codeValue).Scan(&locationID)
 		return "", ports.ErrNotFound
 	}
 	return locationID, err
+}
+
+// assertGoatsInPark fails closed unless EVERY movable animal in the command is currently in the
+// destination park (P0-3). This is the ground-truth cross-park guard: it reads the same rows the
+// relocation is about to lock and move, so it holds even when the command's optional FromParkID is
+// nil (a multi-animal / not-derivable submit stores a NULL source park). A move whose animals are
+// already in the destination park is a legal within-park shed move; any animal in a different park
+// makes it a forbidden cross-park move.
+func (r *Repository) assertGoatsInPark(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) error {
+	var offending int
+	err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])
+  AND merged_into_goat_id IS NULL
+  AND exited_at IS NULL
+  AND park_id IS DISTINCT FROM $3::uuid`,
+		cmd.TenantID, cmd.GoatIDs, cmd.ToParkID).Scan(&offending)
+	if err != nil {
+		return fmt.Errorf("identity: relocate goats: verify same-park: %w", err)
+	}
+	if offending > 0 {
+		return fmt.Errorf(
+			"identity: relocate goats: cross-park movement forbidden — %d animal(s) are not in destination park %s",
+			offending, cmd.ToParkID)
+	}
+	return nil
+}
+
+// assertGoatsAtExpectedSource enforces the approved per-goat source placement (CR-01). When the
+// relocation command carries an expected source shed and/or park (FromShedID/FromParkID, captured
+// on the shifting event at approval time), every named animal's CURRENT placement must still match
+// it. It must be called AFTER insertRelocationIdentityEvents has taken the FOR UPDATE lock on the
+// same rows, so the read here is stable for the rest of the transaction and a concurrent relocation
+// cannot slip a move in between this check and the apply.
+//
+// Ground-truth, not the command hint: a completion re-derives placement from goats, so a stale
+// approved source (A) that no longer matches the animal's current shed (C, after a newer A->C move)
+// fails closed here instead of being overwritten. An absent expectation (both nil) is a no-op --
+// the existing same-park guard still applies.
+func (r *Repository) assertGoatsAtExpectedSource(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) error {
+	if cmd.FromShedID == nil && cmd.FromParkID == nil {
+		return nil
+	}
+	var offending int
+	err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])
+  AND merged_into_goat_id IS NULL
+  AND exited_at IS NULL
+  AND (
+        (nullif($3::text, '') IS NOT NULL AND shed_id IS DISTINCT FROM nullif($3::text, '')::uuid)
+     OR (nullif($4::text, '') IS NOT NULL AND park_id IS DISTINCT FROM nullif($4::text, '')::uuid)
+      )`,
+		cmd.TenantID, cmd.GoatIDs, stringValue(cmd.FromShedID), stringValue(cmd.FromParkID)).Scan(&offending)
+	if err != nil {
+		return fmt.Errorf("identity: relocate goats: verify expected source placement: %w", err)
+	}
+	if offending > 0 {
+		return fmt.Errorf(
+			"%w: relocate goats: %d animal(s) are no longer at the approved source placement (expected shed %s, park %s) — a newer relocation moved them, so this stale movement must be reconciled rather than applied",
+			ports.ErrWriteConflict, offending, stringValue(cmd.FromShedID), stringValue(cmd.FromParkID))
+	}
+	return nil
 }
 
 func (r *Repository) ensureShedUnderPark(ctx context.Context, tenantID, shedID, parkID string) error {

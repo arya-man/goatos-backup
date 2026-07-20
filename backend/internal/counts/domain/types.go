@@ -451,6 +451,24 @@ type CountsBreakdownCharts struct {
 	Shed  []CountsBreakdownSeriesPoint `json:"shed"`
 }
 
+// CountsBreakdownShedFacet is one shed filter option: a CountsBreakdownSeriesPoint plus the park
+// that the counted animals sit in.
+//
+// The park identifier is NOT decoration. SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real seeded
+// data 66 of 154 shed names exist in BOTH parks (there is a "Castro 1" under Coimbatore and a
+// different "Castro 1" under Channapatna). A client that cascades Park -> Shed must therefore
+// filter this list by ParkID; matching on Label would silently merge two physically distinct
+// sheds into one option. Key stays the shed UUID so an entry is still unambiguous on its own,
+// and ParkID is carried as its own field rather than smuggled into Label, so the client never
+// has to parse a display string to recover an identifier.
+type CountsBreakdownShedFacet struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+	// ParkID is the park these animals are in, empty only for animals with no park assigned.
+	ParkID string `json:"park_id"`
+}
+
 // CountsBreakdownFacets reports the values actually present in the unfiltered tenant herd so a
 // filter dropdown can never offer an option that matches zero rows. This matters for stage:
 // animal_stage_lookup is joined to goats through shed_profiles, NOT through
@@ -460,6 +478,11 @@ type CountsBreakdownFacets struct {
 	Breeds []CountsBreakdownSeriesPoint `json:"breeds"`
 	// Parks keyed by park_id, labelled with the park code — the Farm filter's vocabulary.
 	Parks []CountsBreakdownSeriesPoint `json:"parks"`
+	// Sheds keyed by shed_id and carrying park_id — the Shed filter's vocabulary, cascaded from
+	// the selected park. Unlike Charts.Shed (display-capped to the top 12 bars) this list is
+	// COMPLETE: a filter dropdown that silently truncated would present a partial vocabulary as
+	// the whole one and hide sheds the operator can legitimately select.
+	Sheds []CountsBreakdownShedFacet `json:"sheds"`
 }
 
 // CountsBreakdown is the whole census breakdown payload: one page of grain rows plus
@@ -488,4 +511,69 @@ type CountsBreakdownQuery struct {
 	Sex             *string
 	Limit           int32
 	Offset          int32
+}
+
+// ---------------------------------------------------------------------------
+// Operator-facing shifting support types
+// ---------------------------------------------------------------------------
+
+// ShiftingDestinationCatalog is the bounded park -> shed option tree a field operator picks a
+// shifting destination from.
+//
+// It is a CASCADE, not a flat shed list, and that is load-bearing rather than cosmetic: shed names
+// REPEAT across parks (there is a "Castro 1" under both Coimbatore and Channapatna), so a flat list
+// of shed names is genuinely ambiguous -- two different sheds render as the same string. Grouping
+// under the park disambiguates them for a human, and every option still carries its own ShedID so
+// the write is addressed by id and never by the displayed name.
+//
+// This is a bounded CONFIG CATALOG (2 parks, ~154 sheds for the current tenant), not a feed: it is
+// fetched whole, cached on-device, and never paginated. See the guard annotations on the query.
+type ShiftingDestinationCatalog struct {
+	Parks []ShiftingDestinationPark
+}
+
+// ShiftingDestinationPark is one park and the sheds that belong to it.
+//
+// What the operator UI calls a "farm" IS this park: the location hierarchy has exactly two live
+// levels (park -> shed) and no farm level, so there is deliberately no third tier here.
+type ShiftingDestinationPark struct {
+	ParkID string
+	Name   string
+	Sheds  []ShiftingDestinationShed
+}
+
+// ShiftingDestinationShed is one selectable destination shed.
+type ShiftingDestinationShed struct {
+	ShedID string
+	Name   string
+}
+
+// GoatShiftingFact is the narrow set of canonical goat attributes needed to DERIVE a shifting
+// impact when an operator moves a single animal and therefore has no reason to describe a cohort.
+//
+// It is deliberately not a passport read: it carries only the fields that map onto
+// ShiftingEventImpact, so the single-animal path stays a cheap indexed lookup.
+type GoatShiftingFact struct {
+	GoatID string
+	// BreedID is the canonical breed FK when the animal has one; nil when the goat carries only a
+	// free-text breed or none at all.
+	BreedID *string
+	// BreedKey is the normalized grouping key, produced by the SAME normalization the counts alias
+	// resolver uses so a derived impact groups with an imported one instead of forking the grain.
+	BreedKey string
+	// BreedLabel is the human label: the canonical breed name when resolvable, else the goat's
+	// free-text breed, else the species. See the fallback note on GoatShiftingFacts.
+	BreedLabel string
+	StageTag   *string
+	AgeClass   *string
+	Sex        *string
+	// ParkID / ShedID are the animal's CURRENT placement, used to backfill a shifting event's
+	// source when the operator did not send one. The simplified Shifting screen deliberately stops
+	// asking the operator to retype a location the server already knows, so without this the stored
+	// event carried a blank source and the movement lost its "from" half.
+	//
+	// Nil when the animal has no placement recorded; the caller must treat that as "cannot derive"
+	// and leave the source absent rather than storing an empty string.
+	ParkID *string
+	ShedID *string
 }

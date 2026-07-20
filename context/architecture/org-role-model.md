@@ -105,6 +105,8 @@ Capability matrix (✅ yes · ❌ no · ~ partial/scoped):
 | --- | :--: | :--: | :--: | :--: | :--: | :--: |
 | Execute + capture proof (ground) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Verify media (approve/reject + reason) | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ override |
+| Record count events — birth / death / shifting (`counts.write`) | ✅ | ✅ | ❌ | ❌ † | ❌ | ✅ |
+| View tenant-wide census — herd register + counts breakdown (`counts.read`) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ ‡ |
 | Act on verdict (accept/escalate/penalise) | ❌ | ~ local | ❌ | ✅ | ✅ | ✅ |
 | Manage roster / operators | ❌ | ~ local | ❌ | ✅ | ✅ | ✅ |
 | Plan + own SOPs (weekly cadence) | ❌ | ❌ | ❌ | ~ park | ✅ | ✅ |
@@ -115,3 +117,34 @@ Capability matrix (✅ yes · ❌ no · ~ partial/scoped):
 Hard rules: capture = ground only (Operator + Manager); verify = Verifier only
 (human video team); act = Head/Director/CEO. Separation of duty — nobody both
 captures and verifies the same work.
+
+### Counts authority — capture ≠ census (maintainer decision 2026-07-18)
+
+Counts splits into **two different authorities**, and they are two different
+permissions:
+
+- **`counts.write`** — recording the count-moving field events (birth, death,
+  shifting) as ground truth. It follows the same capture-is-ground-only rule as
+  proof capture: held by the AM and Manager tiers, never by the Head or Director
+  tiers, and never by the Verifier (separation of duty).
+- **`counts.read`** — the tenant-wide census (herd-register summary + counts
+  breakdown). This is an **oversight** authority, not a capture one. A person who
+  records births and deaths for their own park does **not** thereby get a whole-herd
+  population view. It is deliberately split off `goat.read` and narrower than it:
+  `goat.read` is held by nearly every role, so reusing it would have made the census
+  effectively public. Enforced on the routes (`GET /counts/breakdown`,
+  `GET /herd-register/summary`), so a hidden census page is unreachable, not merely
+  invisible.
+
+† **Flat-role divergence (a known gap-table case, not a contradiction).** The flat
+`park_head` role *does* hold `counts.write`, while the target-model **Head tier does
+not** — the flat roles keep their broader vaccination-only-era sets per the gap table
+above. Treat the Head column as the target; `park_head` is the legacy flat role.
+
+‡ In today's flat RBAC, `counts.read` is held by exactly **`admin` + `ceo_internal`**.
+No composed tier role holds it. `pc_director` and `verifier` hold **neither** counts
+permission, so the Counts module is omitted from their nav entirely. `pc_director`
+previously held `counts.write` and lost it in this decision — which moves the flat
+Director role *into* alignment with the target `Director` column above (capture is not
+a Director affordance), closing part of gap item 3. The per-role page matrix and how
+nav composes from it: `docs/decisions/role-module-nav-composition.md`.

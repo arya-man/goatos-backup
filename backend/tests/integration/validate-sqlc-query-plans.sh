@@ -183,6 +183,32 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND goat_id = '10000000-0000-4000-8000-000000000001'::uuid
 ORDER BY occurred_at DESC, identity_event_id DESC
 LIMIT 50;"
+
+  # location_display is composed from the animal's OWN park/shed (COALESCE(shed.name, park.name,
+  # 'Unknown location')), never from the vestigial goats.current_location_id. Both joins must stay
+  # indexed lookups on locations_tenant_location_unique: this is the hot /goats/search page read,
+  # and a Seq Scan on locations here would be per-page work against every location row.
+  printf '%s\n' "
+INSERT INTO locations (location_id, tenant_id, location_type, name, status)
+VALUES
+  ('30000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'park', 'sqlc-plan-park', 'active'),
+  ('30000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'shed', 'sqlc-plan-shed', 'active')
+ON CONFLICT (location_id) DO NOTHING;
+UPDATE goats
+   SET park_id = '30000000-0000-4000-8000-000000000001'::uuid,
+       shed_id = '30000000-0000-4000-8000-000000000002'::uuid
+ WHERE goat_id = '10000000-0000-4000-8000-000000000001'::uuid;
+ANALYZE locations;
+" | run_psql
+
+  explain_must_use_index "GoatSearchLocationDisplayJoins" 'Seq Scan on locations' "EXPLAIN (COSTS OFF)
+SELECT g.goat_id, COALESCE(shed.name, park.name, 'Unknown location') AS location_display
+FROM goats g
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+ORDER BY g.display_id ASC
+LIMIT 50;"
 }
 
 validate_outbox_claim_plan() {
@@ -1456,6 +1482,44 @@ ORDER BY captured_at ASC, item_id ASC
 LIMIT 20;"
 }
 
+validate_feed_config_hot_path_plans() {
+  # Feed direction generation's daily feed-sheet resolve reads three authored config tables per
+  # park (LoadConfigSnapshot -- backend/internal/feeddirection/adapters/postgres/repository.go):
+  # the ration grid, the shed factors, and the dispatch clock, each keyed by
+  # (tenant, park, ...) with valid_to IS NULL for "currently in force". Prove all three stay on
+  # their covering partial index rather than a sequential scan of the whole authored table as the
+  # grid grows past its current ~770-row live size.
+  explain_must_use_index "FeedRationRatesCurrentLookup" 'Seq Scan on feed_ration_rates' "EXPLAIN (COSTS OFF)
+SELECT feed_item_key, grams_per_head
+FROM feed_ration_rates
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND park_id = '00000000-0000-4000-8000-000000003001'::uuid
+  AND ration_group_key = feed_config_norm('Beetal/Sirohi')
+  AND shed_tag_key = feed_config_norm('Non-Pregnant')
+  AND valid_to IS NULL;"
+
+  # As-of read: the same lookup for a historical business date (audit / back-dated recompute),
+  # which must ride feed_ration_rates_asof_lookup_idx rather than scan every historical row.
+  explain_must_use_index "FeedRationRatesAsOfLookup" 'Seq Scan on feed_ration_rates' "EXPLAIN (COSTS OFF)
+SELECT feed_item_key, grams_per_head, valid_from
+FROM feed_ration_rates
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND park_id = '00000000-0000-4000-8000-000000003001'::uuid
+  AND ration_group_key = feed_config_norm('Beetal/Sirohi')
+  AND shed_tag_key = feed_config_norm('Non-Pregnant')
+  AND valid_from <= '2026-07-20'::date
+ORDER BY valid_from DESC
+LIMIT 1;"
+
+  explain_must_use_index "FeedScheduleConfigCurrentLookup" 'Seq Scan on feed_schedule_config' "EXPLAIN (COSTS OFF)
+SELECT direction_time, correction_time, transport_time
+FROM feed_schedule_config
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND park_id = '00000000-0000-4000-8000-000000003001'::uuid
+  AND workflow = 'normal'
+  AND valid_to IS NULL;"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1498,5 +1562,6 @@ validate_calendar_vaccination_plans
 validate_calendar_canonical_read_plan
 validate_herd_register_summary_plan
 validate_verification_queue_plan
+validate_feed_config_hot_path_plans
 
 echo "Validated current hot-path query plans"

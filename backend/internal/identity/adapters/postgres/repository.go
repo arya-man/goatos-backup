@@ -243,7 +243,6 @@ SELECT
   ` + strings.TrimPrefix(goatSummaryColumns(), "  ") + `
 FROM goat_identifiers gi
 JOIN goats g ON g.tenant_id = gi.tenant_id AND g.goat_id = gi.goat_id
-LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
 LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
@@ -337,7 +336,6 @@ func (r *Repository) listIdentifiers(ctx context.Context, tenantID, goatID strin
 func goatSummarySelect() string {
 	return "SELECT " + goatSummaryColumns() + `
 FROM goats g
-LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
 LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
@@ -376,7 +374,12 @@ func goatSummaryColumns() string {
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  COALESCE(loc.name, 'Unknown location'),
+  -- location_display resolves from the animal's OWN park/shed, never goats.current_location_id.
+  -- current_location_id is vestigial: it is NULL for ~81% of the live herd and stale where it is
+  -- set (rows observed pointing at a shed the animal has since left), so joining it produced
+  -- "Unknown location" on animals whose park_name/shed_name resolved correctly in the SAME row.
+  -- Shed first, then park, matching the bare-shed-name shape already-populated rows return today.
+  COALESCE(shed.name, park.name, 'Unknown location'),
   g.farm_id::text,
   farm.location_code,
   farm.name,
@@ -511,6 +514,7 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 			CohortName: nonEmptyStringPtr(row.CohortName),
 		},
 		WeightKg:         row.WeightKg,
+		RowVersion:       int32(row.RowVersion),
 		Warnings:         []domain.Warning{},
 		MergedIntoGoatID: nonEmptyStringPtr(row.MergedIntoGoatID),
 	}
@@ -626,6 +630,7 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 	summary.LocationPath.CohortCode = stringPtr(cohortCode)
 	summary.LocationPath.CohortName = stringPtr(cohortName)
 	summary.WeightKg = floatPtr(weightKg)
+	summary.RowVersion = int32(rowVersion)
 	summary.Warnings = []domain.Warning{}
 	return summary, species, stringPtr(mergedInto), rowVersion, nil
 }

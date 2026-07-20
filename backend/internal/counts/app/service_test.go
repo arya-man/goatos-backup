@@ -28,6 +28,22 @@ type fakeRepo struct {
 	breakdown      domain.CountsBreakdown
 	breakdownQuery domain.CountsBreakdownQuery
 	breakdownErr   error
+
+	// Live-herd feed projection. feedProjectedQuery captures the NORMALIZED query the service
+	// passed down, so a test can assert the boundary normalization (business-day target date,
+	// trimmed filters, defaulted limit) rather than only the returned rows.
+	feedProjected      domain.FeedProjectedCounts
+	feedProjectedQuery domain.FeedProjectedCountQuery
+	feedProjectedErr   error
+
+	// Operator-facing shifting support. destinations/goatFacts are the canned reads; the *Req
+	// fields capture what the service asked for so a test can assert the service passed the tenant
+	// and the exact goat id set through unchanged.
+	destinations    domain.ShiftingDestinationCatalog
+	destinationsErr error
+	goatFacts       []domain.GoatShiftingFact
+	goatFactsErr    error
+	goatFactsReq    []string
 }
 
 func (f *fakeRepo) RecordBaseCountAnchor(_ context.Context, in domain.BaseCountAnchor) (string, bool, error) {
@@ -108,6 +124,11 @@ func (f *fakeRepo) GetHerdRegisterSummary(context.Context, domain.HerdRegisterSu
 func (f *fakeRepo) GetCountsBreakdown(_ context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
 	f.breakdownQuery = req
 	return f.breakdown, f.breakdownErr
+}
+
+func (f *fakeRepo) ProjectedShedCountsForFeed(_ context.Context, req domain.FeedProjectedCountQuery) (domain.FeedProjectedCounts, error) {
+	f.feedProjectedQuery = req
+	return f.feedProjected, f.feedProjectedErr
 }
 
 func TestRecordBaseCountAnchorDefaultsPhysicalSource(t *testing.T) {
@@ -558,3 +579,55 @@ func TestRecomputeProjectionSnapshotRecordsFailedRunEvidence(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func (f *fakeRepo) ShiftingDestinationCatalog(_ context.Context, _ string) (domain.ShiftingDestinationCatalog, error) {
+	if f.destinationsErr != nil {
+		return domain.ShiftingDestinationCatalog{}, f.destinationsErr
+	}
+	return f.destinations, nil
+}
+
+func (f *fakeRepo) GoatShiftingFacts(_ context.Context, _ string, goatIDs []string) ([]domain.GoatShiftingFact, error) {
+	f.goatFactsReq = goatIDs
+	if f.goatFactsErr != nil {
+		return nil, f.goatFactsErr
+	}
+	return f.goatFacts, nil
+}
+
+// The approval-workflow half of ports.Repository. These tests cover the projection/census
+// use-cases, so the approval methods are unimplemented stubs here; ApprovalService is exercised
+// against its own fake in approval_service_test.go.
+func (f *fakeRepo) CreateApprovalRequest(context.Context, domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error) {
+	return domain.ApprovalRequest{}, false, errors.New("not implemented")
+}
+
+func (f *fakeRepo) GetApprovalRequest(context.Context, string, string) (domain.ApprovalRequest, error) {
+	return domain.ApprovalRequest{}, errors.New("not implemented")
+}
+
+func (f *fakeRepo) ListApprovalRequests(context.Context, domain.ApprovalRequestQuery) (domain.ApprovalRequestPage, error) {
+	return domain.ApprovalRequestPage{}, errors.New("not implemented")
+}
+
+func (f *fakeRepo) DecideApprovalRequest(context.Context, domain.ApprovalDecision) (domain.ApprovalRequest, bool, error) {
+	return domain.ApprovalRequest{}, false, errors.New("not implemented")
+}
+
+// Shifting execution. These are stubs here on purpose: completion is the path that RELOCATES
+// ANIMALS, and a fake that "moves" them by returning a struct is exactly the blindness that let a
+// 500 ship on the approval relocate path. The real proofs live in
+// adapters/postgres/shifting_execution_integration_test.go, wired to identity's actual repository
+// so the schema's triggers and constraints are part of the assertion surface.
+
+func (f *fakeRepo) CompleteShiftingEvent(context.Context, domain.ShiftingCompletionCommand) (domain.ShiftingExecutionResult, bool, error) {
+	return domain.ShiftingExecutionResult{}, false, errors.New("not implemented")
+}
+
+func (f *fakeRepo) CancelShiftingEvent(context.Context, domain.ShiftingCancellationCommand) (domain.ShiftingExecutionResult, bool, error) {
+	return domain.ShiftingExecutionResult{}, false, errors.New("not implemented")
+}
+
+func (f *fakeRepo) ListShiftingEventsPendingExecution(context.Context, domain.ShiftingExecutionQuery) (domain.ShiftingExecutionPage, error) {
+	return domain.ShiftingExecutionPage{}, errors.New("not implemented")
+}

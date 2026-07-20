@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -56,7 +57,25 @@ func (h *Handler) GetGoatPassport(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, r, result, err)
 }
 
+// searchGoatsAllowedParams is the exact query-parameter vocabulary of GET /goats/search, and it
+// must stay in sync with both the params read below and contracts/openapi/app-api.yaml.
+//
+// Anything outside this set is REJECTED rather than ignored. Silently dropping an unknown parameter
+// is the dangerous failure here: a caller that sends ?query=... instead of ?q=... (or keeps sending
+// a filter that was later renamed) gets an unfiltered page of the herd returned to them as if it
+// were a search result. Failing loudly turns a silent wrong-data answer into an obvious 400.
+var searchGoatsAllowedParams = map[string]bool{
+	"limit": true, "cursor": true, "q": true, "goat_id": true,
+	"identifier_type": true, "scope_key": true, "breed": true, "sex": true,
+	"farm_id": true, "park_id": true, "location_id": true, "status": true,
+}
+
 func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
+	// Checked BEFORE parseLimit so a request carrying a typo'd filter reports that typo, rather
+	// than a missing_limit error that sends the caller looking in the wrong place.
+	if !rejectUnknownQueryParams(w, r, searchGoatsAllowedParams) {
+		return
+	}
 	limit, ok := parseLimit(w, r)
 	if !ok {
 		return
@@ -312,6 +331,42 @@ func readBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, b
 		return nil, false
 	}
 	return body, true
+}
+
+// rejectUnknownQueryParams fails the request with 400 unknown_query_parameter when the URL carries
+// any query parameter outside allowed. It reports false when it has already written the response.
+//
+// Unknown names are reported sorted so the error is deterministic for a caller sending several, and
+// every offending name is listed as its own field error rather than only the first: a client fixing
+// a hand-built query string should need one round trip, not one per typo.
+func rejectUnknownQueryParams(w http.ResponseWriter, r *http.Request, allowed map[string]bool) bool {
+	var unknown []string
+	for name := range r.URL.Query() {
+		if !allowed[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) == 0 {
+		return true
+	}
+	sort.Strings(unknown)
+
+	fieldErrors := make([]domain.FieldError, 0, len(unknown))
+	for _, name := range unknown {
+		fieldErrors = append(fieldErrors, domain.FieldError{
+			Field:   name,
+			Code:    "unknown",
+			Message: "unknown query parameter " + name,
+		})
+	}
+	writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+		Code:        "unknown_query_parameter",
+		Message:     "unknown query parameter(s): " + strings.Join(unknown, ", "),
+		FieldErrors: fieldErrors,
+		TraceID:     traceID(r),
+		Retryable:   false,
+	})
+	return false
 }
 
 func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {

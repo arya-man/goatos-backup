@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Header and navigation chrome -->
-    <string name="sheds_back_description">वापस जाएं</string>
     <string name="sheds_refresh_description">ताज़ा करें</string>
     <string name="sheds_title">टीकाकरण अभियान</string>
     <string name="sheds_count_fmt">%1$d शेड</string>

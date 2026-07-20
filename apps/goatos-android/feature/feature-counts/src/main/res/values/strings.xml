@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt static string resources, not a user-facing surface — a resource file has no
+  user action and no error path. The module's telemetry is wired in the @HiltViewModels in :app
+  (CountsViewModel / BirthDeathViewModel / ShiftingViewModel): AnalyticsEvents constants via
+  AnalyticsPort.track, plus CrashReporter.recordException on every refresh and enqueue failure.
+
+  Counts module chrome strings: the census read screen plus the two write forms
+  (birth/death, shifting).
+
+  Scope note (AGENTS.md golden frontend rule): these cover STATIC chrome only —
+  screen titles, field labels, group headings, and hint text. Every live value the
+  operator actually reads or writes (park/shed identities, breeds, management
+  stages, totals, rejection copy) is backend-owned and arrives through the app
+  contract, never from this file. The same split feature-sheds uses.
+-->
+<resources>
+    <!-- Shared chrome -->
+    <string name="counts_refresh_description">Refresh</string>
+    <string name="counts_offline_note">Works offline. Your entry is saved on the phone and syncs automatically when there is a connection.</string>
+
+    <!-- Read screen -->
+    <string name="counts_totals_title">HERD TOTALS</string>
+    <string name="counts_stat_total">Total</string>
+    <string name="counts_stat_adults">Adults</string>
+    <string name="counts_stat_kids">Kids</string>
+    <string name="counts_grain_fmt">%1$d grouped rows across the full filtered herd</string>
+    <string name="counts_breakdown_caption">BREAKDOWN · farm · stage · breed · sex · shed</string>
+    <string name="counts_stage_unknown">Unspecified stage</string>
+
+    <!-- Census filter bar. Only the CHROME lives here: every option vocabulary (park, shed, breed)
+         comes from the backend `facets` and is never hardcoded on device. -->
+    <string name="counts_filters_title">FILTERS</string>
+    <string name="counts_filters_clear">Clear</string>
+    <string name="counts_filter_park">Park</string>
+    <string name="counts_filter_shed">Shed</string>
+    <string name="counts_filter_breed">Breed</string>
+    <string name="counts_filter_all_parks">All parks</string>
+    <string name="counts_filter_all_sheds">All sheds</string>
+    <string name="counts_filter_all_breeds">All breeds</string>
+    <string name="counts_filter_park_first">Pick a park first</string>
+    <string name="counts_filter_shed_unavailable">Not available</string>
+    <string name="counts_empty_message">No animals match this scope</string>
+    <string name="counts_error_message">Couldn\'t load counts. Tap refresh to retry.</string>
+
+    <!-- Birth / death screen -->
+    <string name="counts_birth_death_title">Record birth or death</string>
+    <string name="counts_birth_death_subtitle">One animal per entry</string>
+    <string name="counts_mode_birth">Birth</string>
+    <string name="counts_mode_death">Death</string>
+    <string name="counts_submit_birth">Record birth</string>
+    <string name="counts_submit_death">Record death</string>
+    <string name="counts_death_guardrail_note">A death is recorded through the protected death path and cancels the animal\'s open vaccination work automatically.</string>
+
+    <!-- Shifting screen -->
+    <string name="counts_shifting_title">Record shifting</string>
+    <string name="counts_shifting_subtitle">Move one animal to another shed</string>
+    <string name="counts_submit_shifting">Create Shifting</string>
+    <string name="counts_shifting_pending_note">Movements you record are submitted for review — they are not authorised on the phone.</string>
+    <string name="counts_priority_high">High</string>
+    <string name="counts_priority_low">Low</string>
+    <string name="counts_category_growth">Growth</string>
+    <string name="counts_category_health">Health</string>
+    <string name="counts_category_breeding">Breeding</string>
+    <string name="counts_category_delivery">Delivery</string>
+
+    <!-- Approval queue -->
+    <string name="counts_approval_title">Approvals</string>
+    <string name="counts_approval_subtitle">Decisions waiting on you</string>
+    <string name="counts_approval_approve">Approve</string>
+    <string name="counts_approval_reject">Reject</string>
+    <string name="counts_approval_confirm_reject">Confirm reject</string>
+    <string name="counts_approval_cancel">Cancel</string>
+    <string name="counts_approval_reject_reason">Reason for rejecting</string>
+    <string name="counts_approval_reject_reason_hint">The operator who raised this sees your reason, so say what needs fixing.</string>
+    <string name="counts_approval_raised_by">Raised by %1$s</string>
+    <string name="counts_approval_empty">Nothing waiting on you right now.</string>
+    <string name="counts_approval_error">Couldn\'t load approvals. Check your connection and try again.</string>
+    <string name="counts_approval_retry">Try again</string>
+    <string name="counts_approval_check_again">Check again</string>
+    <string name="counts_approval_stale">Showing your last synced queue — couldn\'t refresh just now.</string>
+    <string name="counts_approval_loading_more">Loading more…</string>
+    <string name="counts_approval_offline_note">Decisions are saved on this phone and applied when there is a connection.</string>
+    <string name="counts_approval_queued">Decision saved on this phone. It will apply automatically.</string>
+    <string name="counts_approval_failed">Couldn\'t save that decision. Try again.</string>
+
+    <!-- Field group headings -->
+    <string name="counts_group_identity">IDENTITY</string>
+    <string name="counts_group_dates">DATES</string>
+    <string name="counts_group_placement">PLACEMENT</string>
+    <string name="counts_group_animal">ANIMAL</string>
+    <string name="counts_group_account_of_death">ACCOUNT OF DEATH</string>
+    <string name="counts_group_recording_death_for">RECORDING DEATH FOR</string>
+    <string name="counts_group_to">MOVE TO</string>
+    <string name="counts_group_current_location">CURRENT LOCATION</string>
+    <string name="counts_group_priority">PRIORITY</string>
+    <string name="counts_group_category">CATEGORY</string>
+
+    <!-- Field labels -->
+    <string name="counts_field_tag1">Animal identifier 1</string>
+    <string name="counts_field_tag2">Animal identifier 2</string>
+    <string name="counts_field_breed">Breed</string>
+    <string name="counts_field_dob">Date of birth (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">Entry date (YYYY-MM-DD)</string>
+    <string name="counts_field_park">Park</string>
+    <string name="counts_field_farm">Farm</string>
+    <string name="counts_field_current_location">Current location</string>
+    <string name="counts_field_shed">Shed</string>
+    <string name="counts_field_dam">Dam</string>
+    <string name="counts_field_dam_optional">Dam (optional)</string>
+    <string name="counts_field_sex">Sex</string>
+    <string name="counts_field_status">Status</string>
+    <string name="counts_field_goat">Goat</string>
+    <string name="counts_field_row_version">Record version</string>
+    <string name="counts_field_reason">Reason</string>
+    <string name="counts_field_animal_lookup">Search by RFID</string>
+    <string name="counts_select_farm">Select a farm</string>
+    <string name="counts_select_farm_first">Select a farm first</string>
+    <string name="counts_select_shed">Select a shed</string>
+    <string name="counts_location_unknown">Not recorded</string>
+
+    <!-- Animal picker (shifting) -->
+    <string name="counts_animal_search">Find animal</string>
+    <string name="counts_animal_searching">Searching…</string>
+    <string name="counts_animal_lookup_failed">Couldn\'t search for animals. Check your connection and try again.</string>
+
+    <!-- Species / sex option labels -->
+    <string name="counts_species_goat">Goat</string>
+    <string name="counts_species_sheep">Sheep</string>
+    <string name="counts_sex_female">Female</string>
+    <string name="counts_sex_male">Male</string>
+
+    <!-- Hints -->
+    <string name="counts_hint_dob">Must not be after the entry date.</string>
+    <string name="counts_hint_row_version">The animal\'s current record version.</string>
+    <string name="counts_hint_reason">Between 3 and 500 characters.</string>
+    <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animal you select here.</string>
+    <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>
+</resources>

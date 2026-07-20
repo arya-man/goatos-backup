@@ -431,3 +431,5 @@ one product; this skill is the navigation layer.
   visible local stack must serve a non-temporary checkout that can be reconciled
   to the pushed branch/main, otherwise fixes can look landed while the browser is
   exercising a disposable tree.
+
+<!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->

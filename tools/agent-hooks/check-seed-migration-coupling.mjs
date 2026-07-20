@@ -38,6 +38,8 @@ const SEED_SENSITIVE_TABLES = new Map([
   ["workforce_member_devices", "notification/device setup seed"],
   ["position_module_duties", "position duty seed"],
 
+  ["department_module_grants", "department module-grant seed (nav composition)"],
+
   ["user_scope_grants", "founder/admin grant seed"],
   ["auth_pending_email_grants", "founder/admin grant seed"],
   ["org_tiers", "role catalog seed"],

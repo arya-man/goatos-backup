@@ -761,6 +761,14 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// Source-backed reproductive vocabulary for the Herd Register reproductive edit drawer.
 			// Same status_definitions family the Config rule editor uses, minus the "any" sentinel.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_reproductive", optionsFromReferences(families.ReproductiveStates, ""))
+		case "feed-direction", "feed-packing", "feed-config":
+			// Live feed vocabulary. feedOptionGroups() declares only fixed schema constraints;
+			// the actual feed items are tenant data from feed_item_catalog and arrive here as
+			// ReferenceFamilies.FeedItems. This is the intended injection path — the alternative
+			// (a constant list of item labels in contract code) is the banned pattern.
+			out[i].OptionGroups = mergeOptionGroupReferences(out[i].OptionGroups, "feed_items", families.FeedItems, "")
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_parks", optionsFromReferences(families.Parks, "info"))
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_breeds", optionsFromReferences(families.Breeds, ""))
 		case "dlq-center":
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
 		}

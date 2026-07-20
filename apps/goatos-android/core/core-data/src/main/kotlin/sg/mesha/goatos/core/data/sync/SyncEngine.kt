@@ -212,6 +212,11 @@ class SyncEngine(
         OutboxOpType.VERIFICATION_VERDICT -> dispatchVerificationVerdict(item)
         OutboxOpType.VERIFICATION_CLOSE -> dispatchVerificationClose(item)
         OutboxOpType.VERIFICATION_CLOSE_SUBMISSION -> dispatchVerificationSubmissionClose(item)
+        OutboxOpType.COUNTS_SHIFTING -> dispatchCountsShifting(item)
+        OutboxOpType.COUNTS_BIRTH -> dispatchCountsBirth(item)
+        OutboxOpType.COUNTS_DEATH -> dispatchCountsDeath(item)
+        OutboxOpType.COUNTS_APPROVAL_APPROVE -> dispatchCountsApprovalApprove(item)
+        OutboxOpType.COUNTS_APPROVAL_REJECT -> dispatchCountsApprovalReject(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -339,6 +344,59 @@ class SyncEngine(
     private suspend fun dispatchVerificationSubmissionClose(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<VerificationCloseSubmissionPayload>(item.payloadJson)
         val response = api.closeVerificationSubmission(payload.submissionId, item.idempotencyKey)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The three Counts writes. Same idempotent-replay contract as every other `dispatch*` here:
+     * the row's STORED key is passed through verbatim as the `Idempotency-Key` header on every
+     * attempt, never regenerated. That is what makes a server-committed-but-client-unrecorded
+     * retry return the original result instead of recording a second movement / animal / death.
+     *
+     * A definitive server rejection (a 4xx validation failure — e.g. `dob` after `entry_date`, a
+     * non-`dead`/`died` pairing, a stale `row_version`) is classified terminal by
+     * [recordFailure]'s `isTerminalAppApiError` check, so it is surfaced to the operator for
+     * correction rather than silently retried against an unchanged payload.
+     */
+    private suspend fun dispatchCountsShifting(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<CountsShiftingPayload>(item.payloadJson)
+        val response = api.recordCountsShiftingEvent(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchCountsBirth(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<CountsBirthPayload>(item.payloadJson)
+        val response = api.recordCountsBirthEvent(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchCountsDeath(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<CountsDeathPayload>(item.payloadJson)
+        val response = api.recordCountsDeathEvent(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The two Counts APPROVAL decisions. Same idempotent-replay contract as every other
+     * `dispatch*` here — the row's STORED key is passed through verbatim on every attempt — and it
+     * matters more here than anywhere else: these calls APPLY the effect (a birth creates the kid,
+     * a death exits the animal, a shifting relocates the named animals), so a replay under a fresh
+     * key would apply it a second time. Under the stored key the backend returns the original
+     * decision with `idempotent_replay=true` and applies nothing.
+     *
+     * Deciding a request that was already decided the OTHER way is a 409 — terminal by
+     * [recordFailure]'s `isTerminalAppApiError` check, so it surfaces to the approver ("someone
+     * else already decided this") instead of being retried against a state that will never change.
+     */
+    private suspend fun dispatchCountsApprovalApprove(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<CountsApprovalDecisionPayload>(item.payloadJson)
+        val response = api.approveCountsApproval(payload.requestId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchCountsApprovalReject(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<CountsApprovalDecisionPayload>(item.payloadJson)
+        val response = api.rejectCountsApproval(payload.requestId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

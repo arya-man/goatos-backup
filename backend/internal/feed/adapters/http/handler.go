@@ -21,7 +21,6 @@ const maxActionBodyBytes = 16 * 1024
 
 // Service is the Feed Direction application surface required by this handler.
 type Service interface {
-	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
 	GenerationPreview(ctx context.Context, in domain.GenerationPreviewQuery) (domain.GenerationPreview, error)
 	ListCountsProjectionExceptions(ctx context.Context, in domain.CountsProjectionExceptionQuery) (domain.CountsProjectionExceptionList, error)
 	ResolveCountsProjectionException(ctx context.Context, in domain.CountsProjectionExceptionResolutionCommand) (domain.CountsProjectionExceptionResolution, error)
@@ -44,22 +43,10 @@ func NewHandler(service Service, log ...*slog.Logger) *Handler {
 
 // Register mounts the Feed Direction routes.
 func Register(mux *http.ServeMux, h *Handler) {
-	mux.HandleFunc("GET /feed-direction/readiness", h.GetReadiness)
 	mux.HandleFunc("GET /feed-direction/generation-preview", h.GetGenerationPreview)
 	mux.HandleFunc("GET /feed-direction/counts-projection/exceptions", h.ListCountsProjectionExceptions)
 	mux.HandleFunc("POST /feed-direction/counts-projection/exceptions/{exception_id}/resolve", h.ResolveCountsProjectionException)
 	mux.HandleFunc("POST /feed-direction/counts-projection/exceptions/{exception_id}/dismiss", h.DismissCountsProjectionException)
-}
-
-// GetReadiness serves a fail-closed Feed Direction readiness contract.
-func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
-	readiness, err := h.service.Readiness(r.Context(), tenantID(r))
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
-			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, readiness)
 }
 
 type generationPreviewResponse struct {

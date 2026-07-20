@@ -67,6 +67,5 @@
     <!-- Content descriptions and accessibility -->
     <string name="overview_back_content_description">Back</string>
     <string name="overview_refresh_content_description">Refresh</string>
-    <string name="overview_menu_content_description">Menu</string>
     <string name="overdue_title_fmt">Overdue · %1$d</string>
 </resources>

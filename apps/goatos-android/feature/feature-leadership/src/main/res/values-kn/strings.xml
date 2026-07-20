@@ -56,6 +56,5 @@
     <!-- Content descriptions and accessibility -->
     <string name="overview_back_content_description">ಹಿಂದಕ್ಕೆ</string>
     <string name="overview_refresh_content_description">ರಿಫ್ರೆಶ್</string>
-    <string name="overview_menu_content_description">ಮೆನು</string>
     <string name="overdue_title_fmt">ಅವಧಿ ಮೀರಿದ · %1$d</string>
 </resources>

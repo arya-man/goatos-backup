@@ -548,3 +548,5 @@ At minimum, this contract is guarded by:
 - Full kernel story suite: `go test ./backend/tests/e2e/... -run TestKernelStor -v`.
 
 Do not push a seed change that bypasses these gates.
+
+<!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->

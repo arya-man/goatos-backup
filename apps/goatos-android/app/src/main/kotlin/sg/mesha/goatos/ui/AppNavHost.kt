@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
 import androidx.navigation.NavHostController
@@ -27,6 +28,14 @@ import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
 import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
+import sg.mesha.goatos.feature.counts.ApprovalEvent
+import sg.mesha.goatos.feature.counts.ApprovalScreen
+import sg.mesha.goatos.feature.counts.BirthDeathEvent
+import sg.mesha.goatos.feature.counts.BirthDeathScreen
+import sg.mesha.goatos.feature.counts.CountsEvent
+import sg.mesha.goatos.feature.counts.CountsScreen
+import sg.mesha.goatos.feature.counts.ShiftingEvent
+import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.LeadershipScreen
 import sg.mesha.goatos.feature.leadership.OverdueScreen
@@ -53,8 +62,11 @@ import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.viewmodel.AlertsViewModel
+import sg.mesha.goatos.viewmodel.ApprovalViewModel
+import sg.mesha.goatos.viewmodel.BirthDeathViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
+import sg.mesha.goatos.viewmodel.CountsViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.LeadershipViewModel
 import sg.mesha.goatos.viewmodel.OverdueViewModel
@@ -64,6 +76,7 @@ import sg.mesha.goatos.viewmodel.RescheduleViewModel
 import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
 import sg.mesha.goatos.viewmodel.ShedsViewModel
+import sg.mesha.goatos.viewmodel.ShiftingViewModel
 import sg.mesha.goatos.viewmodel.SubmitViewModel
 import sg.mesha.goatos.viewmodel.TimetableViewModel
 import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
@@ -87,12 +100,37 @@ object Routes {
     const val RECORD = "/record"
     const val OVERDUE = "/overdue"
     const val RESCHEDULE = "/reschedule"
-    const val YOU = "you"
+    /**
+     * Profile/settings. Path-shaped like every other route because it is now a BACKEND-composed
+     * nav item (`bootstrap_copy.go` — the vaccination and leadership modules each contribute
+     * `you`), not client-static chrome the shell appends to the bar. The shell matches it by
+     * exact href, so this constant and the backend contribution must agree.
+     */
+    const val YOU = "/you"
     const val RFID = "/rfid"
     const val ALERTS = "/alerts"
     /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
      *  never writes positions/leave/backups, all CRUD stays web-only. */
     const val TIMETABLE = "/timetable"
+
+    /**
+     * Counts module. All three arrive as the counts module's backend-composed `nav_items`, so all
+     * three are L0 roots that own the bottom bar — chrome membership is decided by EXACT route
+     * equality against the backend's hrefs (`GoatOsShell.isTopLevelRoute`), never by prefix. That
+     * exactness is what keeps [COUNTS_BIRTH_DEATH] and [COUNTS_SHIFTING] from accidentally
+     * inheriting (or suppressing) chrome just because they share [COUNTS]'s path prefix.
+     */
+    const val COUNTS = "/counts"
+    const val COUNTS_BIRTH_DEATH = "/counts/birth-death"
+    const val COUNTS_SHIFTING = "/counts/shifting"
+
+    /**
+     * The approver's pending-decision queue. Contributed by the counts module in the TRAILING
+     * bar slot that other modules give to [YOU], and gated on the approval permissions — so an
+     * operator never receives it and this route is simply not an L0 root for them. Hiding it is
+     * not the access control: `/app/counts/approvals` requires the same permission server-side.
+     */
+    const val COUNTS_APPROVALS = "/counts/approvals"
 
     // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). A verifier's
     // bootstrap nav contains ONLY this — see MeshaIcons.forNavKey/GoatOsShell.navItemLabel's
@@ -648,6 +686,102 @@ fun AppNavHost(
             val vm: TimetableViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             TimetableScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        // --- Counts module -------------------------------------------------------------
+        // The census read screen plus its two write forms. All three are backend-composed root
+        // destinations; navigating between them is lateral (root -> root), which is why each
+        // write form still renders its own Up affordance rather than relying on root chrome.
+
+        composable(Routes.COUNTS) {
+            val vm: CountsViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // Room-backed Paging window: the screen renders one bounded page at a time and
+            // Paging prefetches the next as the operator scrolls. No manual load-more.
+            val rows = vm.rows.collectAsLazyPagingItems()
+            // A page-load failure is reported once per distinct error, next to the cached rows
+            // that stay on screen — never as a wipe or a blank wall.
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            CountsScreen(
+                state = state,
+                rows = rows,
+                // Birth/Death and Shifting are reached from the module-scoped bottom bar,
+                // so this screen owns no navigation of its own.
+                onEvent = { event ->
+                    when (event) {
+                        // Refresh re-runs the mediator against the backend; the VM clears
+                        // its summary banner state. The breakdown pages refresh in parallel.
+                        CountsEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(Routes.COUNTS_BIRTH_DEATH) {
+            val vm: BirthDeathViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            BirthDeathScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        BirthDeathEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(Routes.COUNTS_SHIFTING) {
+            val vm: ShiftingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ShiftingScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ShiftingEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // The approver's queue. An L0 root like the other counts destinations — the backend gates
+        // the nav item on the approval permissions, so an operator never receives it and never
+        // reaches this route (and `/app/counts/approvals` 403s them server-side regardless).
+        composable(Routes.COUNTS_APPROVALS) {
+            val vm: ApprovalViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // Room-backed Paging window: one bounded page at a time, next page prefetched on
+            // scroll. No manual load-more, and no whole-backlog pull.
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            ApprovalScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        // Refresh re-runs the mediator against the backend; the VM only clears
+                        // its banner state.
+                        ApprovalEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
         }
 
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md): a

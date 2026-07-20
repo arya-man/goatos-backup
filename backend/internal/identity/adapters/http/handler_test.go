@@ -14,6 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/app"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
@@ -79,6 +80,108 @@ func TestSearchGoatsForwardsTableFilters(t *testing.T) {
 	assertPtr("park_id", repo.searchParams.ParkID, "30000000-0000-4000-8000-000000000001")
 	assertPtr("location_id", repo.searchParams.LocationID, "40000000-0000-4000-8000-000000000001")
 	assertPtr("status", repo.searchParams.Status, "alive")
+}
+
+// TestSearchGoatsRejectsUnknownQueryParameters is the regression for the most dangerous shape of
+// this bug: ?query=... instead of ?q=... used to be silently DROPPED, so a search for a tag that
+// matches nothing returned the first N animals of the herd, unfiltered, presented as search results.
+// A caller cannot tell that answer apart from a real match. The repository must not be reached.
+func TestSearchGoatsRejectsUnknownQueryParameters(t *testing.T) {
+	repo := &handlerRepo{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=3&query=NONSENSE-NO-SUCH-TAG", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-search-unknown-param")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.searchParams != nil {
+		t.Fatal("repository must not be queried when an unknown parameter is present: that is exactly how unfiltered herd data was returned as a search result")
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if envelope.Code != "unknown_query_parameter" {
+		t.Fatalf("code = %q, want unknown_query_parameter", envelope.Code)
+	}
+	if len(envelope.FieldErrors) != 1 || envelope.FieldErrors[0].Field != "query" {
+		t.Fatalf("field errors = %#v, want a single error naming %q", envelope.FieldErrors, "query")
+	}
+}
+
+// TestSearchGoatsUnknownParameterIsReportedBeforeMissingLimit pins the ordering. A request with a
+// typo'd filter AND no limit must report the typo, not missing_limit, or the caller is sent looking
+// in the wrong place.
+func TestSearchGoatsUnknownParameterIsReportedBeforeMissingLimit(t *testing.T) {
+	repo := &handlerRepo{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?query=X", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-search-unknown-before-limit")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if envelope.Code != "unknown_query_parameter" {
+		t.Fatalf("code = %q, want unknown_query_parameter", envelope.Code)
+	}
+}
+
+// TestSearchGoatsReportsEveryUnknownParameterSorted keeps a hand-built query string to one
+// round trip of fixes instead of one round trip per typo.
+func TestSearchGoatsReportsEveryUnknownParameterSorted(t *testing.T) {
+	repo := &handlerRepo{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=5&zebra=1&alpha=2", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-search-unknown-many")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if len(envelope.FieldErrors) != 2 ||
+		envelope.FieldErrors[0].Field != "alpha" || envelope.FieldErrors[1].Field != "zebra" {
+		t.Fatalf("field errors = %#v, want alpha then zebra", envelope.FieldErrors)
+	}
+}
+
+// TestSearchGoatsAcceptsEveryContractParameter is the other half of the guard: the allow-list must
+// not drift narrower than the documented contract. TestSearchGoatsForwardsTableFilters already
+// sends all 12; this asserts none of them is rejected as unknown.
+func TestSearchGoatsAcceptsEveryContractParameter(t *testing.T) {
+	for _, name := range []string{
+		"limit", "cursor", "q", "goat_id", "identifier_type", "scope_key",
+		"breed", "sex", "farm_id", "park_id", "location_id", "status",
+	} {
+		if !searchGoatsAllowedParams[name] {
+			t.Errorf("contract parameter %q is missing from searchGoatsAllowedParams", name)
+		}
+	}
+	if len(searchGoatsAllowedParams) != 12 {
+		t.Errorf("allow-list has %d entries, want 12: add the new parameter to the OpenAPI contract too", len(searchGoatsAllowedParams))
+	}
 }
 
 func TestSearchGoatsRejectsInvalidUUIDFilters(t *testing.T) {
@@ -542,7 +645,7 @@ func identifierDecisionFixture(id, decisionType, result string) domain.DecisionR
 		DecisionResult: result,
 		DecisionState:  "approved",
 		PolicyVersion:  "phase1-identifier-v1",
-		CreatedAt:      time.Now().UTC(),
+		CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 	}
 }
 

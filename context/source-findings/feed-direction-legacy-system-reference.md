@@ -21,9 +21,10 @@ processed flags, channels, or separate normal/experiment backends into GoatOS.
 - A Sheet/App Script behavior is implementation evidence, not automatically a
   business rule. When timing or feed policy conflicts, the formal Feed source
   and an explicit Feed Director decision win.
-- "Experiment" in this reference means the legacy workaround. In GoatOS it is a
-  normal versioned per-shed composition assignment, optionally carrying a
-  comparison label. It is not a second Feed product or backend.
+- "Experiment" in this reference means the legacy workaround. In GoatOS it is an
+  absolute per-shed daily quantity (kg per feed item) that is hand-entered rather
+  than derived from head count, split across the day's sessions, optionally
+  carrying a comparison label. It is not a second Feed product or backend.
 
 ## 2. The whole legacy story in plain language
 
@@ -156,7 +157,7 @@ The live workbook is titled `Experiment Feed Directions Automation DB`.
 
 | Tab | Legacy role | Important stored fields |
 | --- | --- | --- |
-| `Experiment Feed Config` | Exact-shed composition assignment | Farm, shed, count, category, Mesha Concentrate Goat kg, Mesha Concentrate Sheep kg, RGS Concentrate kg, Vijay Concentrate kg, Dry Masoor Bhusa kg |
+| `Experiment Feed Config` | Absolute per-shed daily kg (hand-entered; count informational) | Farm, shed, count, category, Mesha Concentrate Goat kg, Mesha Concentrate Sheep kg, RGS Concentrate kg, Vijay Concentrate kg, Dry Masoor Bhusa kg |
 | `Feed Direction` | Materialized experiment direction | Same 22-column shape as the normal direction tab |
 | `Feed Packing Experiment Sheds` | Packing proof and verification | Date/time/farm/shed/session, up to five planned feed pairs, video, timestamps, message ref, actual quantities, correctness, remarks |
 | `Feed Distribution Experiment Sheds` | Distribution/consumption and water proof | Date/time/farm/shed/session, message ref, consumption quantity, water session, correctness, remarks, direction total, difference |
@@ -479,11 +480,13 @@ direction or invent a next-morning automatic Diff.
 | Experiment wastage channels | Separate proof collection | One wastage stage available to any direction policy |
 | "Experiment" label | Operational grouping | Optional comparison/cohort label; no mandatory scientific experiment object |
 
-An approved composition assignment may match tenant, park, shed, cohort, target
-date and session. More-specific assignments may override the published default
-only under deterministic precedence. Overlapping equally specific assignments
-fail closed. Every generated instruction pins the chosen composition version
-and assignment provenance so the next-day review can compare outcomes.
+An approved experiment allocation authors an absolute per-shed daily quantity
+(kg per feed item) for a specific shed on a target date. It overrides the
+shared per-head ration default for that shed only; head count is informational
+and is never multiplied in. Overlapping allocations for the same shed/date fail
+closed. Every generated instruction records whether it came from the per-head
+ration or an experiment absolute-kg allocation, with provenance, so the
+next-day review can compare outcomes.
 
 ## 13. Legacy cloud and analytics surfaces
 
@@ -550,7 +553,7 @@ and admin clients never query BigQuery directly.
 | Remarks/reviewer remark | Submission note or verdict reason | Typed submission/verification fields and audit |
 | Direction total/difference | Derived planned-vs-actual variance | Read model + exception trigger |
 | Wastage kg/% | Wastage result and derived metric | Consumption/wastage event + projection |
-| Experiment config row | Versioned exact-shed composition assignment | Feed protocol/config publication |
+| Experiment config row | Absolute per-shed daily kg allocation (hand-entered; count informational) | Feed protocol/config publication |
 | User/assignee | Assigned actor and actual submitter | Workforce/RBAC + audit actor |
 
 ## 15. Minimum parity floor for cutover

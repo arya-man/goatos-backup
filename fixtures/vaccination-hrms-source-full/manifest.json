@@ -81,5 +81,12 @@
       "bytes": 1164,
       "sha256": "b7733eaab25f4f752696672d1c5d72dadbc8d027d14efa78aba81338042be3fd"
     }
-  }
+  },
+  "seed_contract_coupling_reviews": [
+    {
+      "date": "2026-07-20",
+      "change": "counts approval + department_module_grants + feed_direction migrations (000009-000015) and the seed-roster-real department-module-grants write",
+      "vaccination_hrms_source_impact": "none: the counts and feed tables are orthogonal to the vaccination HRMS roster source. This fixture's data is unchanged, minimum_migration stays 000008, and validateFixture still passes. Recorded to satisfy the seed/config/SOP coupling review."
+    }
+  ]
 }

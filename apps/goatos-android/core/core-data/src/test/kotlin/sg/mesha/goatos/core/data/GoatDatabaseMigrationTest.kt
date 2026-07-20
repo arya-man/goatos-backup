@@ -48,7 +48,7 @@ class GoatDatabaseMigrationTest {
 
     @Test
     fun `current schema is loadable via MigrationTestHelper golden JSON`() {
-        // Creates the DB from the committed schemas/<db>/4.json and writes Room's identity hash.
+        // Creates the DB from the committed schemas/<db>/15.json and writes Room's identity hash.
         // Fails loudly if exportSchema/asset wiring regresses, so the future-migration guard stays live.
         helper.createDatabase(DB_NAME, CURRENT_VERSION).close()
     }
@@ -95,6 +95,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_11_12.migrate(db)
         MIGRATION_12_13.migrate(db)
         MIGRATION_13_14.migrate(db)
+        MIGRATION_14_15.migrate(db)
         return db
     }
 
@@ -113,7 +114,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 14
+        const val CURRENT_VERSION = 15
     }
 }
 

@@ -3,21 +3,21 @@
 <resources>
     <string name="ds_app_language">App language</string> <!-- mock: applang -->
 
-    <!-- Navigation shell chrome (bottom nav bar + module drawer). -->
+    <!-- Navigation shell chrome (bottom nav bar + module drawer). CLIENT-STATIC ONLY:
+         the group header, the "Soon" badge, the global You tab, and Sign out. Module and
+         destination LABELS are backend-owned (/app/bootstrap `modules` + `visible_navigation`,
+         localized in bootstrap_copy.go) and render verbatim — never mirror them here, or a
+         backend rename silently disagrees with the app. -->
     <string name="nav_you">You</string>
     <string name="nav_modules">Modules</string>
-    <string name="nav_vaccination">Vaccination</string>
-    <string name="nav_feed_direction">Feed direction</string>
-    <string name="nav_breeding">Breeding</string>
     <string name="nav_soon">Soon</string>
     <string name="nav_sign_out">Sign out</string>
-    <!-- Known bottom-nav destination labels, keyed by NavItem.key (backend sends the
-         English label; the client localizes known keys and falls back to the backend
-         label for any unmapped key — those still need backend i18n). -->
-    <string name="nav_overview">Overview</string>
-    <string name="nav_calendar">Calendar</string>
-    <string name="nav_alerts">Alerts</string>
-    <string name="nav_verify">Verify</string>
+
+    <!-- Screen-header leading affordance (MeshaScreenHeader). Accessibility labels only —
+         both buttons are icon-only. nav_open_modules names the drawer's own group header
+         (nav_modules) so the spoken label matches the surface it opens. -->
+    <string name="nav_open_modules">Open modules menu</string>
+    <string name="nav_back">Back</string>
 
     <!-- Language picker sheet (ovl-language) chrome. -->
     <string name="lang_sheet_title">Choose language</string>

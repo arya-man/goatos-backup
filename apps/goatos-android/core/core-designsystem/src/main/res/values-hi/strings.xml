@@ -5,15 +5,12 @@
     <!-- Navigation shell chrome (bottom nav bar + module drawer). -->
     <string name="nav_you">आप</string>
     <string name="nav_modules">मॉड्यूल</string>
-    <string name="nav_vaccination">टीकाकरण</string>
-    <string name="nav_feed_direction">फ़ीड दिशा</string>
-    <string name="nav_breeding">प्रजनन</string>
     <string name="nav_soon">जल्द</string>
     <string name="nav_sign_out">साइन आउट</string>
-    <string name="nav_overview">अवलोकन</string>
-    <string name="nav_calendar">कैलेंडर</string>
-    <string name="nav_alerts">अलर्ट</string>
-    <string name="nav_verify">सत्यापन</string>
+
+    <!-- Screen-header leading affordance (MeshaScreenHeader): accessibility labels. -->
+    <string name="nav_open_modules">मॉड्यूल मेनू खोलें</string>
+    <string name="nav_back">वापस</string>
     <string name="lang_sheet_title">भाषा चुनें</string>
     <string name="lang_sheet_subtitle">इस फ़ोन की हर स्क्रीन के लिए रखा गया</string>
     <string name="lang_sheet_footer">टीम बढ़ने पर और भाषाएँ जोड़ी जाएँगी</string>

@@ -31,7 +31,17 @@ var bulkHealthTargets = map[string]bool{
 }
 
 // exit lifecycle targets accepted on the mass path. "dead" is intentionally
-// absent: death exits must use the critical-action guardrail path.
+// absent: EVERY death exit must go through the critical-action guardrail path
+// (the dead+died pairing on /admin/goats/{goat_id}/critical-death-exit), which
+// carries the obligation-cancel effects a mass update would skip.
+//
+// This is a per-write guardrail, NOT an admin-only restriction. Death recording
+// is a field write — a maintainer-approved operator records a death from the
+// mobile Counts module — so the rule is "one animal, one guarded transition",
+// not "only an admin may kill a row". Excluding "dead" here keeps that true no
+// matter who is calling: the mass path can never become a back door around the
+// guardrail. Preview marks a "dead" target blocked; see criticalHealthTargets
+// above for the same treatment of quarantine/ICU.
 var bulkExitTargets = map[string]bool{
 	"sold":        true,
 	"culled":      true,

@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-counts Kotlin sources -->
+    <!-- Shared chrome -->
+    <string name="counts_refresh_description">రిఫ్రెష్</string>
+    <string name="counts_offline_note">ఆఫ్‌లైన్‌లో పనిచేస్తుంది. మీ నమోదు ఫోన్‌లో సేవ్ చేయబడుతుంది మరియు కనెక్షన్ ఉన్నప్పుడు స్వయంచాలకంగా సింక్ అవుతుంది.</string>
+
+    <!-- Read screen -->
+    <string name="counts_totals_title">మంద మొత్తాలు</string>
+    <string name="counts_stat_total">మొత్తం</string>
+    <string name="counts_stat_adults">పెద్దవి</string>
+    <string name="counts_stat_kids">పిల్లలు</string>
+    <string name="counts_grain_fmt">మొత్తం ఫిల్టర్ చేసిన మంద అంతటా %1$d సమూహ వరుసలు</string>
+    <string name="counts_breakdown_caption">విభజన · ఫారం · దశ · జాతి · లింగం · షెడ్</string>
+    <string name="counts_stage_unknown">పేర్కొనని దశ</string>
+
+    <!-- Census filter bar -->
+    <string name="counts_filters_title">ఫిల్టర్లు</string>
+    <string name="counts_filters_clear">క్లియర్ చేయండి</string>
+    <string name="counts_filter_park">పార్క్</string>
+    <string name="counts_filter_shed">షెడ్</string>
+    <string name="counts_filter_breed">జాతి</string>
+    <string name="counts_filter_all_parks">అన్ని పార్కులు</string>
+    <string name="counts_filter_all_sheds">అన్ని షెడ్‌లు</string>
+    <string name="counts_filter_all_breeds">అన్ని జాతులు</string>
+    <string name="counts_filter_park_first">ముందుగా ఒక పార్క్‌ను ఎంచుకోండి</string>
+    <string name="counts_filter_shed_unavailable">అందుబాటులో లేదు</string>
+    <string name="counts_empty_message">ఈ పరిధికి సరిపోలే జంతువులు లేవు</string>
+    <string name="counts_error_message">గణనలను లోడ్ చేయలేకపోయాము. మళ్లీ ప్రయత్నించడానికి రిఫ్రెష్ నొక్కండి.</string>
+
+    <!-- Birth / death screen -->
+    <string name="counts_birth_death_title">జననం లేదా మరణం నమోదు చేయండి</string>
+    <string name="counts_birth_death_subtitle">ప్రతి నమోదుకు ఒక జంతువు</string>
+    <string name="counts_mode_birth">జననం</string>
+    <string name="counts_mode_death">మరణం</string>
+    <string name="counts_submit_birth">జననం నమోదు చేయండి</string>
+    <string name="counts_submit_death">మరణం నమోదు చేయండి</string>
+    <string name="counts_death_guardrail_note">మరణాన్ని రక్షిత మరణ మార్గం ద్వారా నమోదు చేస్తారు మరియు ఇది జంతువు యొక్క ఓపెన్ టీకా పనిని స్వయంచాలకంగా రద్దు చేస్తుంది.</string>
+
+    <!-- Shifting screen -->
+    <string name="counts_shifting_title">తరలింపును నమోదు చేయండి</string>
+    <string name="counts_shifting_subtitle">ఒక జంతువును మరో షెడ్‌కు తరలించండి</string>
+    <string name="counts_submit_shifting">తరలింపును సృష్టించండి</string>
+    <string name="counts_shifting_pending_note">మీరు నమోదు చేసిన తరలింపులు సమీక్ష కోసం సమర్పించబడతాయి — వీటిని ఫోన్‌లో అధికారం ఇవ్వరు.</string>
+    <string name="counts_priority_high">అధిక</string>
+    <string name="counts_priority_low">తక్కువ</string>
+    <string name="counts_category_growth">పెరుగుదల</string>
+    <string name="counts_category_health">ఆరోగ్యం</string>
+    <string name="counts_category_breeding">సంతానోత్పత్తి</string>
+    <string name="counts_category_delivery">ప్రసవం</string>
+
+    <!-- Approval queue -->
+    <string name="counts_approval_title">ఆమోదాలు</string>
+    <string name="counts_approval_subtitle">మీపై పెండింగ్‌లో ఉన్న నిర్ణయాలు</string>
+    <string name="counts_approval_approve">ఆమోదించండి</string>
+    <string name="counts_approval_reject">తిరస్కరించండి</string>
+    <string name="counts_approval_confirm_reject">తిరస్కరణను నిర్ధారించండి</string>
+    <string name="counts_approval_cancel">రద్దు చేయండి</string>
+    <string name="counts_approval_reject_reason">తిరస్కరించడానికి కారణం</string>
+    <string name="counts_approval_reject_reason_hint">దీన్ని లేవనెత్తిన ఆపరేటర్‌కు మీ కారణం కనిపిస్తుంది, కాబట్టి ఏమి సరిచేయాలో చెప్పండి.</string>
+    <string name="counts_approval_raised_by">%1$s లేవనెత్తారు</string>
+    <string name="counts_approval_empty">ప్రస్తుతం మీపై పెండింగ్‌లో ఏమీ లేదు.</string>
+    <string name="counts_approval_error">ఆమోదాలను లోడ్ చేయలేకపోయాము. మీ కనెక్షన్‌ను తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="counts_approval_retry">మళ్లీ ప్రయత్నించండి</string>
+    <string name="counts_approval_check_again">మళ్లీ తనిఖీ చేయండి</string>
+    <string name="counts_approval_stale">మీ చివరి సింక్ చేసిన క్యూను చూపిస్తోంది — ప్రస్తుతం రిఫ్రెష్ చేయలేకపోయాము.</string>
+    <string name="counts_approval_loading_more">మరింత లోడ్ అవుతోంది…</string>
+    <string name="counts_approval_offline_note">నిర్ణయాలు ఈ ఫోన్‌లో సేవ్ చేయబడతాయి మరియు కనెక్షన్ ఉన్నప్పుడు వర్తింపజేయబడతాయి.</string>
+    <string name="counts_approval_queued">నిర్ణయం ఈ ఫోన్‌లో సేవ్ చేయబడింది. ఇది స్వయంచాలకంగా వర్తిస్తుంది.</string>
+    <string name="counts_approval_failed">ఆ నిర్ణయాన్ని సేవ్ చేయలేకపోయాము. మళ్లీ ప్రయత్నించండి.</string>
+
+    <!-- Field group headings -->
+    <string name="counts_group_identity">గుర్తింపు</string>
+    <string name="counts_group_dates">తేదీలు</string>
+    <string name="counts_group_placement">స్థల నియామకం</string>
+    <string name="counts_group_animal">జంతువు</string>
+    <string name="counts_group_account_of_death">మరణ వివరణ</string>
+    <string name="counts_group_recording_death_for">ఈ జంతువు మరణాన్ని నమోదు చేస్తున్నారు</string>
+    <string name="counts_group_to">దీనికి తరలించండి</string>
+    <string name="counts_group_current_location">ప్రస్తుత స్థానం</string>
+    <string name="counts_group_priority">ప్రాధాన్యత</string>
+    <string name="counts_group_category">వర్గం</string>
+
+    <!-- Field labels -->
+    <string name="counts_field_tag1">జంతువు గుర్తింపుదారు 1</string>
+    <string name="counts_field_tag2">జంతువు గుర్తింపుదారు 2</string>
+    <string name="counts_field_breed">జాతి</string>
+    <string name="counts_field_dob">పుట్టిన తేదీ (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">ప్రవేశ తేదీ (YYYY-MM-DD)</string>
+    <string name="counts_field_park">పార్క్</string>
+    <string name="counts_field_farm">ఫారం</string>
+    <string name="counts_field_current_location">ప్రస్తుత స్థానం</string>
+    <string name="counts_field_shed">షెడ్</string>
+    <string name="counts_field_dam">తల్లి</string>
+    <string name="counts_field_dam_optional">తల్లి (ఐచ్ఛికం)</string>
+    <string name="counts_field_sex">లింగం</string>
+    <string name="counts_field_status">స్థితి</string>
+    <string name="counts_field_goat">మేక</string>
+    <string name="counts_field_row_version">రికార్డ్ వెర్షన్</string>
+    <string name="counts_field_reason">కారణం</string>
+    <string name="counts_field_animal_lookup">RFID ద్వారా వెతకండి</string>
+    <string name="counts_select_farm">ఒక ఫారంను ఎంచుకోండి</string>
+    <string name="counts_select_farm_first">ముందుగా ఒక ఫారంను ఎంచుకోండి</string>
+    <string name="counts_select_shed">ఒక షెడ్‌ను ఎంచుకోండి</string>
+    <string name="counts_location_unknown">నమోదు చేయలేదు</string>
+
+    <!-- Animal picker (shifting) -->
+    <string name="counts_animal_search">జంతువును కనుగొనండి</string>
+    <string name="counts_animal_searching">వెతుకుతోంది…</string>
+    <string name="counts_animal_lookup_failed">జంతువుల కోసం వెతకలేకపోయాము. మీ కనెక్షన్‌ను తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.</string>
+
+    <!-- Species / sex option labels -->
+    <string name="counts_species_goat">మేక</string>
+    <string name="counts_species_sheep">గొర్రె</string>
+    <string name="counts_sex_female">ఆడ</string>
+    <string name="counts_sex_male">మగ</string>
+
+    <!-- Hints -->
+    <string name="counts_hint_dob">ప్రవేశ తేదీ తర్వాత ఉండకూడదు.</string>
+    <string name="counts_hint_row_version">జంతువు యొక్క ప్రస్తుత రికార్డ్ వెర్షన్.</string>
+    <string name="counts_hint_reason">3 మరియు 500 అక్షరాల మధ్య.</string>
+    <string name="counts_hint_animal_lookup">ఈ తరలింపును ఆమోదిస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే తరలిస్తారు.</string>
+    <string name="counts_hint_death_lookup">మరణాన్ని నమోదు చేస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే నిష్క్రమిస్తుంది.</string>
+</resources>

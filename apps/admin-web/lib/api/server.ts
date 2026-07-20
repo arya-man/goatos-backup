@@ -450,6 +450,343 @@ export async function getCountsBreakdown(
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Feed vertical — Direction, Packing and Config.
+//
+// Two facts drive every signature below and must survive any refactor:
+//
+//  1. BLOCKED IS NOT ZERO. `FeedDirectionItemQuantity.quantity_kg` is null IF AND ONLY IF
+//     `status === "blocked"`, meaning no ration was ever authored for that (ration group, shed tag,
+//     feed item). A blocked cell has NO number: it must never be defaulted, summed, or coerced to 0
+//     anywhere in this layer or above it — that is the difference between "this shed eats nothing of
+//     this item on purpose" and "this shed goes unfed and the sheet looked complete".
+//     An authored `"0.000"` with `status: "resolved"` is the opposite state and is fully numeric.
+//
+//  2. QUANTITIES ARE EXACT DECIMAL STRINGS, never JSON numbers, so an authored rate cannot drift
+//     through a float round trip. They stay strings all the way to the DOM; nothing here parses them.
+//
+// The read pages page by offset and get `has_more` rather than a total — counting the filtered set on
+// every request would be compute-on-read — so the pager is prev/next, not numbered.
+export type FeedDirectionPreviewPage = AppApiComponents["schemas"]["FeedDirectionPreviewPage"];
+export type FeedDirectionRow = AppApiComponents["schemas"]["FeedDirectionRow"];
+export type FeedDirectionItemQuantity = AppApiComponents["schemas"]["FeedDirectionItemQuantity"];
+export type FeedDirectionPreviewSummary = AppApiComponents["schemas"]["FeedDirectionPreviewSummary"];
+export type FeedDirectionLifecycle = AppApiComponents["schemas"]["FeedDirectionLifecycle"];
+export type FeedDirectionWorkflowLifecycle = AppApiComponents["schemas"]["FeedDirectionWorkflowLifecycle"];
+export type FeedPackingWorklistPage = AppApiComponents["schemas"]["FeedPackingWorklistPage"];
+export type FeedPackingRow = AppApiComponents["schemas"]["FeedPackingRow"];
+export type FeedConfigRationRatePage = AppApiComponents["schemas"]["FeedConfigRationRatePage"];
+export type FeedConfigRationRate = AppApiComponents["schemas"]["FeedConfigRationRate"];
+export type FeedConfigShedFactorPage = AppApiComponents["schemas"]["FeedConfigShedFactorPage"];
+export type FeedConfigShedFactor = AppApiComponents["schemas"]["FeedConfigShedFactor"];
+export type FeedConfigSessionTemplatePage = AppApiComponents["schemas"]["FeedConfigSessionTemplatePage"];
+export type FeedConfigSessionTemplate = AppApiComponents["schemas"]["FeedConfigSessionTemplate"];
+export type FeedConfigSchedulePage = AppApiComponents["schemas"]["FeedConfigSchedulePage"];
+export type FeedConfigSchedule = AppApiComponents["schemas"]["FeedConfigSchedule"];
+export type FeedConfigFeedItemPage = AppApiComponents["schemas"]["FeedConfigFeedItemPage"];
+export type FeedConfigFeedItem = AppApiComponents["schemas"]["FeedConfigFeedItem"];
+export type FeedConfigRationGroupPage = AppApiComponents["schemas"]["FeedConfigRationGroupPage"];
+export type FeedConfigShedTagPage = AppApiComponents["schemas"]["FeedConfigShedTagPage"];
+export type FeedConfigWriteResult = AppApiComponents["schemas"]["FeedConfigWriteResult"];
+export type UpsertFeedConfigRationRateRequest = AppApiComponents["schemas"]["UpsertFeedConfigRationRateRequest"];
+export type UpsertFeedConfigShedFactorRequest = AppApiComponents["schemas"]["UpsertFeedConfigShedFactorRequest"];
+export type UpsertFeedConfigScheduleRequest = AppApiComponents["schemas"]["UpsertFeedConfigScheduleRequest"];
+export type FeedConfigExperimentPage = AppApiComponents["schemas"]["FeedConfigExperimentPage"];
+export type FeedConfigExperiment = AppApiComponents["schemas"]["FeedConfigExperiment"];
+export type UpsertFeedConfigExperimentRequest = AppApiComponents["schemas"]["UpsertFeedConfigExperimentRequest"];
+export type SetFeedConfigExperimentShedStatusRequest =
+  AppApiComponents["schemas"]["SetFeedConfigExperimentShedStatusRequest"];
+
+export type FeedDirectionPreviewParams = {
+  /** Required: the ration grid, the session split and the dispatch clock are all park-scoped. */
+  park_id: string;
+  /** Required: the feed day as an Asia/Kolkata business date, never an instant. */
+  target_date: string;
+  shed_id?: string;
+  session?: number;
+  limit?: number;
+  offset?: number;
+};
+
+export async function getFeedDirectionPreview(
+  params: FeedDirectionPreviewParams,
+): Promise<ApiResult<FeedDirectionPreviewPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedDirectionPreviewPage>("/feed-direction/preview", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getFeedPackingWorklist(params: {
+  park_id: string;
+  target_date: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedPackingWorklistPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPackingWorklistPage>("/feed-packing/worklist", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function listFeedConfigRationRates(params: {
+  park_id: string;
+  ration_group?: string;
+  shed_tag?: string;
+  feed_item?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedConfigRationRatePage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigRationRatePage>("/feed-config/ration-rates", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function listFeedConfigShedFactors(params: {
+  park_id: string;
+  shed_id?: string;
+  feed_item?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedConfigShedFactorPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigShedFactorPage>("/feed-config/shed-factors", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function listFeedConfigSessionTemplates(params: {
+  park_id: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedConfigSessionTemplatePage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigSessionTemplatePage>("/feed-config/session-templates", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function listFeedConfigSchedule(params: {
+  park_id: string;
+  workflow?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedConfigSchedulePage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigSchedulePage>("/feed-config/schedule", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function listFeedConfigFeedItems(params: {
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ApiResult<FeedConfigFeedItemPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigFeedItemPage>("/feed-config/feed-items", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function listFeedConfigRationGroups(params: {
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ApiResult<FeedConfigRationGroupPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigRationGroupPage>("/feed-config/ration-groups", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function listFeedConfigShedTags(params: {
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ApiResult<FeedConfigShedTagPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigShedTagPage>("/feed-config/shed-tags", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// The three Feed Config writes. Each is effective-dated server-side (an earlier day's row is CLOSED
+// and a new one opened, so history survives) and each REQUIRES an Idempotency-Key: an exact replay
+// returns the original result with `idempotent_replay: true`, and the same key with a different
+// payload is a 409.
+//
+// `grams_per_head` / `multiplier` are REQUIRED numbers here on purpose — the caller must decide
+// between "author this value" and "leave it unconfigured" BEFORE reaching this layer. There is
+// deliberately no optional/undefined variant that this function could quietly turn into 0, because
+// absence of a rate means "not configured" (blocking) and 0 means "feed nothing" (correct for
+// milk-fed kids). Out-of-range values are forwarded verbatim so the backend rejects them; nothing
+// here clamps or rounds.
+export async function upsertFeedConfigRationRate(
+  body: UpsertFeedConfigRationRateRequest,
+  idempotencyKey = `feed-ration-rate-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/ration-rates", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/**
+ * One bounded page of a park's hand-authored experiment sheds.
+ *
+ * `status` is left off by default on purpose: a withdrawn shed's rows are retired rather than
+ * deleted, and the config screen must keep showing them. They are the authored quantities that come
+ * back if the shed is restored, and hiding them would make an accidental withdrawal invisible on the
+ * very screen that owns that decision.
+ */
+export async function listFeedConfigExperiment(params: {
+  park_id: string;
+  shed_id?: string;
+  status?: "active" | "retired";
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedConfigExperimentPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigExperimentPage>("/feed-config/experiment", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// `absolute_kg` is a REQUIRED number here for the same reason `grams_per_head` is above, and the
+// failure mode is quieter: a missing ration rate BLOCKS a shed visibly, while a missing experiment
+// row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with
+// roughly twice the authored quantity. There is deliberately no optional variant this function could
+// turn into 0. `head_count` may be null ("not recorded") but must never be invented.
+export async function upsertFeedConfigExperiment(
+  body: UpsertFeedConfigExperimentRequest,
+  idempotencyKey = `feed-experiment-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/experiment", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/**
+ * Switch a whole shed between the experiment workflow and the normal per-head ration grid.
+ *
+ * This changes WHAT THE ANIMALS ARE FED, not what is displayed: active feeds the shed its authored
+ * absolute kg, retired returns it to projected head count x grams per head x shed factor.
+ */
+export async function setFeedConfigExperimentShedStatus(
+  body: SetFeedConfigExperimentShedStatusRequest,
+  idempotencyKey = `feed-experiment-status-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/experiment/shed-status", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function upsertFeedConfigShedFactor(
+  body: UpsertFeedConfigShedFactorRequest,
+  idempotencyKey = `feed-shed-factor-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/shed-factors", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function upsertFeedConfigSchedule(
+  body: UpsertFeedConfigScheduleRequest,
+  idempotencyKey = `feed-schedule-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/schedule", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPassportResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

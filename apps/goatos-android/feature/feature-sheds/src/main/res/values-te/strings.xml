@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Header and navigation chrome -->
-    <string name="sheds_back_description">వెనుకకు వెళ్లండి</string>
     <string name="sheds_refresh_description">రిఫ్రెష్</string>
     <string name="sheds_title">టీకా కార్యక్రమాలు</string>
     <string name="sheds_count_fmt">%1$d షెడ్‌లు</string>

@@ -731,26 +731,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/feed-direction/readiness": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read the fail-closed Feed Direction gate and Counts/Shifting readiness state.
-         * @description Returns G1-G17, G2/CSG1-CSG10, source-priority, and safety invariants used to keep Feed generation disabled until Counts/Shifting projection, ration/context resolution, and high-risk shifted-cohort protections are source-backed and bounded.
-         */
-        get: operations["getFeedDirectionReadiness"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/feed-direction/generation-preview": {
         parameters: {
             query?: never;
@@ -760,7 +740,7 @@ export interface paths {
         };
         /**
          * Preview Feed Direction generation inputs from the bounded Counts/Shifting projection.
-         * @description Returns Feed Direction's read-only view of Counts/Shifting projected_count_for rows and aggregate shed+breed totals. The preview surfaces pregnant/lactating/warm-up shifted-cohort ration blockers, destination shortages, unsafe surplus, and unresolved ration context before generation. It never enables generation while G2-G17 remain open.
+         * @description Returns Feed Direction's read-only view of Counts/Shifting projected_count_for rows and aggregate shed+breed totals. The preview surfaces pregnant/lactating/warm-up shifted-cohort ration blockers, destination shortages, unsafe surplus, and unresolved ration context before generation. Generation is allowed only when the returned page carries no blockers.
          */
         get: operations["getFeedDirectionGenerationPreview"];
         put?: never;
@@ -825,6 +805,254 @@ export interface paths {
          * @description Dismisses an open Counts/Shifting projection exception with actor, reason, optional source reference, and idempotent replay protection. This path is for reviewed duplicates or explicitly accepted non-blocking findings; it must not be used as a hidden generation bypass.
          */
         post: operations["dismissFeedDirectionCountsProjectionException"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Generated feed direction for one park and one feed day.
+         * @description Turns the projected shed counts for `target_date` (live herd plus the movements that are approved but not yet executed) and the authored ration grid into per-session feed quantities.
+         *
+         *     Resolution rule: the ration group is `Kid` when the animals' management stage maps onto a shed tag whose `applies_to` is `kid`, otherwise the breed's authored ration group; the grid key is (park, ration_group, shed_tag, feed_item); the shed quantity is `projected_head_count x grams_per_head x shed_factor`, split across the park's sessions. The kid/adult branch comes from the SHED TAG, never from the animal's stored age band -- the two disagree on live data and the tag vocabulary is what the grid is indexed by.
+         *
+         *     `items` is a page of SHEDS (a shed's grains never straddle a page boundary). `summary` covers the WHOLE filtered result set and is invariant to `limit`/`offset` -- see `FeedDirectionPreviewSummary`.
+         *
+         *     CONFIGURED ZERO IS NOT MISSING CONFIGURATION. An authored rate of 0 is a real feeding instruction (milk-fed kids) and appears as `status: resolved` with `quantity_kg: "0.000"`. A cell with NO authored rate appears as `status: blocked` with `quantity_kg: null` and a reason. The two are never collapsed: a silently zeroed cell is a shed that goes unfed while the sheet looks complete. Clients MUST NOT treat a blocked quantity as zero, and `session_total_kg` deliberately sums resolved items only -- `blocked: true` on the row is what says the total is partial.
+         *
+         *     Paging is by SHED, so a shed's rows never straddle a page boundary and every `session_total_kg` is complete. `summary` is PAGE-SCOPED and declares so in `summary.scope`; it is not a park total.
+         */
+        get: operations["getFeedDirectionPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-packing/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-shed packing worklist for one park and one feed day.
+         * @description The same generated quantities as `/feed-direction/preview`, collapsed to the line a packer works from: one row per shed per session, with the shed's ration grains already summed, because a packer fills one bag per feed item per shed rather than one per grain. The totals are summed from the ALREADY-ROUNDED session quantities, so the worklist matches the direction sheet exactly rather than differing by a rounding step.
+         *
+         *     READ-ONLY. Nothing here is recorded: there is no proof capture, no video, and no stored packing state. `status` is DERIVED from the generation result -- `ready` when every item resolved, `blocked` when any item has no authored ration (the line must not be packed from the resolved remainder, which would send the shed short), and `empty` when the shed holds no projected animals, which is not a configuration gap.
+         *
+         *     `items` is a page of SHEDS; `summary` is the store draw for the WHOLE filtered worklist and is invariant to `limit`/`offset` -- see `FeedPackingWorklistSummary`.
+         */
+        get: operations["getFeedPackingWorklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/ration-rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the currently-in-force ration grid for a park.
+         * @description Returns one bounded page of the authored ration grid: (ration_group, shed_tag, feed_item) -> grams per head per day, for the park's rows that are currently in force (valid_to is null). Rates are PARK-SCOPED because parks genuinely differ, so park_id is required rather than optional -- a tenant-wide listing would interleave two parks' rows under identical labels. grams_per_head is returned as an exact decimal STRING, never a JSON number, so an authored rate cannot be altered by float round-tripping. A rate of 0 is a real authored value ("milk-fed kids get 0 g of solids"); the ABSENCE of a row means "not configured" and is a blocking gap the feed path must surface rather than read as 0.
+         */
+        get: operations["listFeedConfigRationRates"];
+        put?: never;
+        /**
+         * Author one cell of the ration grid, effective-dated and non-destructive.
+         * @description Authors grams_per_head for one (park, ration_group, shed_tag, feed_item) key. The write is NEVER destructive: if a row is already in force from an earlier business day it is CLOSED (valid_to set) and a new row is opened, so the previous rate survives as history. A re-edit on the SAME business day corrects the open row in place, because a window closed on the day it opened cannot satisfy valid_to > valid_from. Re-authoring the identical value writes nothing and reports outcome "unchanged". The response names which of the four happened. grams_per_head is REQUIRED and is validated, not defaulted: absent fails the request (absence of a rate means "not configured", a blocking state -- it must never be filled in as 0), an explicit 0 is accepted as a real authored value, and a negative or over-precise value is rejected with a field error rather than clamped or rounded. Requires an Idempotency-Key: an exact replay returns the original result with idempotent_replay=true and re-runs no side effect, and reusing the key with a different payload is a 409.
+         */
+        post: operations["upsertFeedConfigRationRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/ration-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the breed to ration-group mapping.
+         * @description Returns the authored map from a live breed label to its ration group. ADULT breeds only: kids resolve to the fixed "Kid" group by age band and never consult this map. The mapping is data rather than an identity function because it carries a real merge -- two live breeds can share one ration group.
+         */
+        get: operations["listFeedConfigRationGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/shed-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authored shed-tag vocabulary the ration grid is indexed by.
+         * @description Returns the tag vocabulary matched against a live animal's management stage. applies_to splits the kid course from the adult course; the two sets are disjoint, which is why the field is single-valued. A present but unrecognised applies_to filter is REJECTED rather than ignored -- silently dropping it would return the full vocabulary to a caller who asked for one course.
+         */
+        get: operations["listFeedConfigShedTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/feed-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the feed-item catalog.
+         * @description Returns the feed items and their nutritional/handling attributes. Those attributes are NULLABLE on purpose and are omitted when unset: unlike a ration rate, a missing energy value blocks only a rollup, never a feeding decision, so an honest gap is preferable to an invented number.
+         */
+        get: operations["listFeedConfigFeedItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/session-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a park's feeding-session split.
+         * @description Returns the park's feeding sessions and the fraction of the day's computed quantity each one carries. The fractions across a park's active sessions are expected to sum to 1.0 -- a cross-row invariant no column constraint can express, so it is enforced by whoever writes them.
+         */
+        get: operations["listFeedConfigSessionTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a park's currently-in-force feed dispatch clock.
+         * @description Returns the park's in-force dispatch clock per workflow. The times are LOCAL India business calendar (Asia/Kolkata) wall-clock values and carry NO UTC offset: they are recurring business-calendar rules, not instants, and a consumer combines them with a business date in Asia/Kolkata to schedule. transport_time is omitted when the park has not declared a cutoff; that absence means UNKNOWN and must never be read as "no deadline".
+         */
+        get: operations["listFeedConfigSchedule"];
+        put?: never;
+        /**
+         * Author a park's feed dispatch clock for one workflow, effective-dated.
+         * @description Authors the direction, correction, and transport times for one (park, workflow). The clock is per-workflow because the normal and experiment workflows genuinely run on different cutoffs; a single global time would issue one of them at the wrong hour every day. correction_time is when approved emergency-shifting corrections are BATCHED and the amended direction is reissued -- a fixed time rather than fire-on-approval, so a shed receives at most one amended direction per day instead of several racing ones. Times are LOCAL Asia/Kolkata wall-clock values ("07:00" or "07:00:00") with no offset; a value carrying an offset is rejected. Ordering is enforced (correction may equal but not precede direction; transport may not precede correction). transport_time may be sent as null to record "no declared cutoff", but a present-but-malformed value is REJECTED rather than dropped to null. Effective-dated and idempotent on the same terms as the ration-rate write.
+         */
+        post: operations["upsertFeedConfigSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/shed-factors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a park's authored per-shed feed multipliers.
+         * @description Returns the currently-in-force per-shed, per-feed-item multipliers -- the shed_factor term of head_count x grams_per_head x shed_factor. Only AUTHORED factors are returned: a shed with no row is treated as 1.0 by the read path, and materializing that default here would make an unauthored shed indistinguishable from one someone deliberately set to 1.0.
+         */
+        get: operations["listFeedConfigShedFactors"];
+        put?: never;
+        /**
+         * Author one per-shed feed multiplier, effective-dated.
+         * @description Authors the multiplier for one (park, shed, feed_item). multiplier is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted as a deliberate authored value, and a negative value is rejected with a field error. Effective-dated and idempotent on the same terms as the ration-rate write.
+         */
+        post: operations["upsertFeedConfigShedFactor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/experiment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a park's hand-authored experiment sheds.
+         * @description Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park. absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as informational context only -- multiplying the two would overfeed the shed by a factor of its entire population. Membership in this table with status='active' IS what makes a shed an experiment shed; a shed with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn shed's authored quantities stay visible and can be restored without re-keying them.
+         */
+        get: operations["listFeedConfigExperiment"];
+        put?: never;
+        /**
+         * Author one experiment shed's absolute kg of one feed item.
+         * @description Authors the absolute kg for one (park, shed, feed_item). absolute_kg is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm that deliberately gets none of an item), and a negative or over-precise value is rejected with a field error. Authoring a shed's FIRST cell is what enrols it onto the experiment workflow, and any write forces the row back to status='active' -- a quantity stored on a retired row is a number nothing reads. Unlike the ration-rate write this is NOT effective-dated: an existing row is corrected in place, so the outcome is never "superseded".
+         */
+        post: operations["upsertFeedConfigExperiment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/experiment/shed-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch a whole shed between the experiment workflow and the normal ration grid.
+         * @description Flips the status of EVERY one of the shed's authored experiment rows in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the shed the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). It is whole-shed because a planner owns a shed rather than a cell, so a half-enrolled shed has no representable feed. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a shed can be restored without re-keying them. A shed with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one authors its first quantity through POST /feed-config/experiment instead.
+         */
+        post: operations["setFeedConfigExperimentShedStatus"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1283,10 +1511,680 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/shifting/destinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the park -> shed destinations an operator may shift animals into.
+         * @description Returns the destination options for the shifting form as a CASCADE: every active park, each carrying its own active sheds. It is the backend-owned option vocabulary for the two destination dropdowns - the client renders what it is given and must not hold a hardcoded shed list, re-sort the options, or construct a destination from a typed name. The cascade is required for CORRECTNESS, not presentation: shed names REPEAT across parks (for example a 'Castro 1' exists under more than one park), so a flat shed list shows the operator two identical-looking options. Nesting each shed under its park disambiguates the choice for a human, and every option carries its own shed_id so the subsequent write is addressed by id and is never ambiguous to the server. What the UI labels a 'farm' IS the park: the location hierarchy has exactly two live levels and no farm tier. Ordering is settled server-side (park name, then shed name, with an id tiebreak) so the dropdown is stable between calls. A park with no active sheds is still returned, with an empty sheds array, so a newly-created park is not invisible. This is a BOUNDED CONFIGURATION CATALOG - on the order of a few parks and ~150 sheds, sized by how many sheds the business physically builds rather than by herd size - so it is returned whole, is meant to be fetched once and cached on-device, and is deliberately NOT paginated. It is gated on the same counts.write permission as the shifting submit route, not on the admin-tier locations.read: the operator who must choose a destination is exactly the operator who may record the movement.
+         */
+        get: operations["listAppCountsShiftingDestinations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an operator-reported shifting (movement) event for approval.
+         * @description Records a movement of a cohort into a destination shed, as reported by a field operator on the phone, and raises the approval request a park_head decides. The event is recorded for review: authorization_state is 'pending', verification_state is 'unverified' and event_status is 'pending' - an operator REPORTS a movement, they do not self-authorize it. NOTHING IS APPLIED until the request is approved via POST /app/counts/approvals/{request_id}/approve. Approving it authorizes the movement AND relocates the animals named in goat_ids to the destination shed. goat_ids is REQUIRED and must name at least one animal: a submit that names nobody is rejected here, at submit time, with 400 missing_goat_ids, so the reporting operator learns immediately rather than the approver discovering it later. Idempotent via the Idempotency-Key header: an exact replay returns the original shifting_event_id with idempotent_replay=true and records no second movement; a same-key/different-payload replay is rejected with 409.
+         */
+        post: operations["recordAppCountsShiftingEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/birth-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a birth from the operator app, for approval.
+         * @description Records a birth AS A PENDING REQUEST. It creates NO animal: no goats row is written and no goat.created event is emitted, so the kid's vaccination obligations are NOT generated until a ceo_internal approves the request via POST /app/counts/approvals/{request_id}/approve. The response therefore carries an approval_request_id and no goat_id. The payload is fully VALIDATED at submit time against the same goat-creation rules the admin POST /admin/goats route applies - origin_type pinned to 'birth' (it may be omitted, but if present it must be 'birth'), dob required and not after entry_date, identifier uniqueness - so an operator learns immediately that a payload is malformed instead of finding out days later from an approver. Approving the request replays this exact payload through that same goat-creation kernel. Idempotent via the Idempotency-Key header: an exact replay returns the original approval_request_id with idempotent_replay=true and raises no second request; a same-key/different-payload replay is rejected with 409.
+         */
+        post: operations["recordAppCountsBirthEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/death-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a death from the operator app for approval, through the critical-death guardrail.
+         * @description Records the death of an animal AS A PENDING REQUEST. The animal is NOT exited: no goats row changes and no goat.exited event is emitted, so its open obligations stay open until a ceo_internal approves the request via POST /app/counts/approvals/{request_id}/approve. GUARDRAIL (unchanged, and enforced HERE at submit as well as at approval): lifecycle_status must be 'dead' AND exit_reason must be 'died'. Any other pairing is rejected with 400, so a payload the guarded path would refuse can never be parked in an approver's queue. Approving the request replays this exact payload through the SAME dedicated critical-death exit the admin POST /admin/goats/{goat_id}/critical-death-exit route uses - the transport and the allowed role widen for field operators, the medical semantics do not. The goat.exited event emitted on approval auto-cancels the animal's open obligations. Idempotent via the Idempotency-Key header: an exact replay returns the original approval_request_id with idempotent_replay=true; a same-key/different-payload replay is rejected with 409.
+         */
+        post: operations["recordAppCountsDeathEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events/pending-execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List authorized shiftings waiting to be physically executed.
+         * @description The operator's execution queue: movements that have been APPROVED but whose animals have not moved yet (event_status='authorized'). Each row carries what an operator needs in order to act - where the animals are now, where they are going, the category and priority, who approved it and when - plus the movement's full animal_count and a bounded preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. PARK SCOPE: park_id is an OPTIONAL filter matching the movement's SOURCE park (where the animals currently are - an operator has to go there to collect them). Omitting it returns every park. It is a client filter today rather than a per-operator scope derived from the caller, because no per-operator park assignment data exists yet; deriving it now would return an empty queue for every operator.
+         */
+        get: operations["listAppCountsShiftingPendingExecution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events/{shifting_event_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm an authorized shifting physically happened. THIS moves the animals.
+         * @description Records that an operator has physically moved the animals to the destination shed. THIS is the call that relocates them in `goats` - approving the shifting only authorized it. ATOMIC: the relocation, the flip to event_status='applied', and the applied_at/applied_by stamp all commit in ONE transaction. If any named animal cannot be moved (it was exited or merged) the WHOLE completion is rolled back with 409 shifting_execution_incomplete and the movement stays 'authorized' - it never half-applies. Valid ONLY from event_status='authorized'. A movement that is still pending approval, or was rejected or canceled, is refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. No request body. The animals, destination, and authorization are already recorded - accepting an animal set here would let a phone relocate a herd the approver never signed off on. Requires the Idempotency-Key header. Completing an already-applied movement returns the ORIGINAL result with idempotent_replay=true and relocates nobody a second time.
+         */
+        post: operations["completeAppCountsShiftingEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/shifting-events/{shifting_event_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire an authorized shifting that will never be executed. NOTHING moves.
+         * @description Cancels an approved movement nobody is going to walk, so abandoned shiftings do not sit on the execution queue forever. NO animal moves and no location changes. A reason is REQUIRED - an abandoned movement that vanishes with no explanation is indistinguishable from one that was executed - and is enforced by the database as well as the API. Valid ONLY from event_status='authorized'. A movement still pending approval is NOT cancellable here: it is retired by its approver REJECTING the approval request instead, which keeps the decision with the person who holds the authority to make it. Any other state is refused with 400 shifting_not_authorized. ANY operator holding counts.write may cancel, on the same reasoning as complete. Requires the Idempotency-Key header; cancelling an already-cancelled movement returns the original result with idempotent_replay=true.
+         */
+        post: operations["cancelAppCountsShiftingEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List lifecycle approval requests the caller may decide.
+         * @description The approver's queue. Returns ONLY the request types the caller is authorised to decide - a park_head sees shifting requests, a ceo_internal sees birth and death requests - because the filter is derived from the caller's permissions, not from the query string. A caller with neither approval permission receives an empty list. Keyset-paginated with a maximum page size of 20: this queue is read from a phone, so a client asking for more receives one screen of work, not the whole backlog.
+         */
+        get: operations["listAppCountsApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/approvals/{request_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a pending lifecycle request.
+         * @description Applies the request. For a BIRTH this creates the kid (and generates its vaccination obligations); for a DEATH it exits the animal through the guarded critical-death path (and cancels its open obligations). Those two are unchanged: for them, the approval IS the record of the fact. A SHIFTING IS DIFFERENT (maintainer decision, 2026-07-19). Approving a shifting AUTHORIZES it and MOVES NOTHING - the animals stay in the source shed and the herd register keeps reading it, because approval is a manager's permission slip, not evidence that anybody walked the animals anywhere. The relocation happens later, when an operator confirms the movement physically happened via POST /app/counts/shifting-events/{shifting_event_id}/complete. ATOMIC: the effect and the status flip commit in ONE transaction, so a request can never be readable as 'approved' while its effect failed to save, and never applied while the request still reads 'pending'. AUTHORITY IS PER TYPE, checked against the stored request: a park_head may approve a shifting but NOT a birth or a death, and receives 403 if they address one. Requires the Idempotency-Key header. A second approve of an already-approved request applies nothing and returns the original decision with idempotent_replay=true; approving a request that was already rejected is a 409.
+         */
+        post: operations["approveAppCountsApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/counts/approvals/{request_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a pending lifecycle request, applying nothing.
+         * @description Rejects the request. NO effect is applied: no animal is created, exited, or moved, and no shifting event is authorized. A reason is REQUIRED - a rejection without one is not actionable by the operator who raised it - and is enforced by the database as well as the API. Authority is per type, checked against the stored request, exactly as for approve. Requires the Idempotency-Key header. A second reject of an already-rejected request returns the original decision with idempotent_replay=true; rejecting a request that was already approved is a 409.
+         */
+        post: operations["rejectAppCountsApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        FeedConfigRationRate: {
+            /** Format: uuid */
+            ration_rate_id: string;
+            /** Format: uuid */
+            park_id: string;
+            ration_group: string;
+            shed_tag: string;
+            feed_item: string;
+            /** @description Authored grams per head per day, as an EXACT DECIMAL STRING rather than a JSON number, so an authored rate cannot drift through float round-tripping. "0.000" is a real authored value meaning "feed nothing"; the absence of a row entirely is the different, blocking state "not configured". */
+            grams_per_head: string;
+            /** Format: date */
+            valid_from: string;
+            /**
+             * Format: date
+             * @description Absent while this row is the one in force.
+             */
+            valid_to?: string | null;
+            source_system: string;
+        };
+        FeedConfigRationRatePage: {
+            items: components["schemas"]["FeedConfigRationRate"][];
+            limit: number;
+            offset: number;
+            /** @description Whether another page exists. Deliberately NOT a total count: counting the filtered set on every page is compute-on-read, and the grid needs "is there more", not a total. */
+            has_more: boolean;
+        };
+        FeedConfigRationGroup: {
+            /** Format: uuid */
+            ration_group_id: string;
+            breed: string;
+            ration_group: string;
+        };
+        FeedConfigRationGroupPage: {
+            items: components["schemas"]["FeedConfigRationGroup"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigShedTag: {
+            /** Format: uuid */
+            shed_tag_id: string;
+            shed_tag: string;
+            /** @enum {string} */
+            applies_to: "adult" | "kid";
+            display_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        FeedConfigShedTagPage: {
+            items: components["schemas"]["FeedConfigShedTag"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigFeedItem: {
+            /** Format: uuid */
+            feed_item_id: string;
+            feed_item: string;
+            /** @description Exact decimal string. Omitted when unset -- an honest gap, not a zero. */
+            energy_kcal_per_kg?: string;
+            dry_matter_factor?: string;
+            wastage_factor?: string;
+            display_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        FeedConfigFeedItemPage: {
+            items: components["schemas"]["FeedConfigFeedItem"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigSessionTemplate: {
+            /** Format: uuid */
+            session_template_id: string;
+            /** Format: uuid */
+            park_id: string;
+            session_no: number;
+            session_label: string;
+            /** @description Exact decimal string. A park's active sessions are expected to sum to 1.0. */
+            split_fraction: string;
+            display_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        FeedDirectionItemQuantity: {
+            feed_item: string;
+            /**
+             * @description `resolved` means the quantity was DERIVED from authored configuration -- including an authored zero, which is a real "feed nothing" instruction. `blocked` means the configuration needed to derive it does not exist.
+             * @enum {string}
+             */
+            status: "resolved" | "blocked";
+            /**
+             * @description Rounded, packable quantity in kg as an exact decimal STRING (three decimals), never a float -- a float round trip is exactly how a column total ends up reading 12.299999999.
+             *
+             *     NULL IF AND ONLY IF `status` is `blocked`. This is the safety contract of this API: an unauthored ration has NO number, so it cannot be summed, rendered, or defaulted into a plausible-looking 0. An authored zero is the opposite state and is fully numeric ("0.000"). A client that coerces null to 0 reintroduces the starvation path this distinction exists to prevent.
+             */
+            quantity_kg: string | null;
+            /** @description The authored per-head rate this quantity came from, echoed so an operator can see the input without opening the config screen. Absent for blocked cells and for the `experiment` workflow, which authors absolute kg and has no per-head rate. */
+            grams_per_head?: string;
+            /** @description The per-shed multiplier applied. Absent for blocked and experiment cells. */
+            shed_factor?: string;
+            blocked_reason?: components["schemas"]["FeedDirectionBlockedReason"];
+        };
+        FeedDirectionBlockedReason: {
+            /**
+             * @description Machine-stable reason code, so a UI can group and count authored gaps.
+             * @enum {string}
+             */
+            code: "no_ration_rate" | "unknown_shed_tag" | "unknown_ration_group" | "no_session_template";
+            /** @description The exact missing coordinate in human-readable form. A gap an operator cannot locate is a gap they cannot close. */
+            detail: string;
+        };
+        FeedDirectionRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY workflow from the animals actually in the shed: an experiment row has no ration grain, but its animals still carry a management stage. It never carries the experiment arm, which has its own `experiment_arm` field. A shed holding two stages reports both, joined by ` + `. */
+            shed_tag: string;
+            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every workflow from the animals in the shed; a multi-breed shed reports every breed joined by ` + ` (`Beetal + Sojat`) rather than naming one and implying it is the only one. */
+            breed: string;
+            /** @description What the breed resolved to in the ration grid. EMPTY on an experiment row, correctly: an absolute hand-authored kg never consults the breed -> ration-group map, so there is no group to report. That is a real state, not missing data, and must render as a deliberate blank. */
+            ration_group: string;
+            /** @description The trial group a hand-authored experiment shed is enrolled in (`Sheep M NEW`); empty on every normal row. A SEPARATE field from `shed_tag` because the two are different facts: a tag is the animals' management stage and selects the ration course, an arm is which trial the shed is in and selects nothing, since the quantity is hand-entered. Mirrors the `Experiment arm` column Feed Config shows over the same authored value. */
+            experiment_arm: string;
+            session_no: number;
+            session_label: string;
+            /**
+             * Format: int64
+             * @description Projected head count for this grain on the target date -- live herd plus the approved but unexecuted movements. Sex is summed away because it is not part of the ration key.
+             */
+            head_count: number;
+            /** @description True when `head_count` did NOT drive the quantity, i.e. the `experiment` workflow, whose authored kg is already a shed total. Multiplying by head count there would overfeed the shed by a factor of its whole population, so this flag exists to stop exactly that. */
+            head_count_informational: boolean;
+            /**
+             * @description Which quantity strategy produced the row. `normal` resolves from the ration grid; `experiment` uses hand-authored absolute kg per shed.
+             * @enum {string}
+             */
+            workflow: "normal" | "experiment";
+            items: components["schemas"]["FeedDirectionItemQuantity"][];
+            /** @description Sum of the RESOLVED items only, as an exact decimal string. Blocked items contribute nothing because they have no number to contribute -- `blocked` is what tells the reader this total is partial. */
+            session_total_kg: string;
+            blocked: boolean;
+            /** @description A movement this row's projected head count already assumes came due before the target date and still has not been executed. */
+            overdue_pending: boolean;
+        };
+        FeedDirectionFeedItemTotal: {
+            feed_item: string;
+            quantity_kg: string;
+            /** @description Cells for this item that could not be resolved. A column total is never read as complete when part of it is missing. */
+            blocked_cells: number;
+        };
+        FeedDirectionPreviewSummary: {
+            /**
+             * @description Always `filtered`: every figure in this summary covers every row matching the request's park, target date, shed and session filters -- NOT the returned page -- and is invariant to `limit` and `offset`. An explicit field rather than documentation so a client can assert the coverage guarantee instead of trusting prose.
+             * @enum {string}
+             */
+            scope: "filtered";
+            /** @description Distinct sheds in the whole filtered scope. */
+            shed_count: number;
+            /** @description Generated rows in the whole filtered scope. This is NOT `items.length`, which is the page; comparing the two is how a client sees what fraction of the result is visible. */
+            row_count: number;
+            /** @description Per-item totals across the WHOLE filtered scope, in authored catalog order so a client's columns are stable across pages. A blocked cell is absent from the sum and counted in `blocked_cells` instead -- never added as zero. These are summed from the same rounded per-cell quantities the rows carry, so the total equals what a packer physically packs. */
+            total_kg_by_feed_item: components["schemas"]["FeedDirectionFeedItemTotal"][];
+            /** @description Blocked ITEM cells in the whole filtered scope -- the number of authored gaps to close. */
+            blocked_count: number;
+            /** @description Distinct sheds carrying at least one blocked cell, i.e. sheds at risk of going unfed. */
+            blocked_shed_count: number;
+        };
+        FeedDirectionWorkflowLifecycle: {
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /**
+             * @description This workflow's issue state. issued/amended/locked describe a FROZEN sheet; pending/not_issued mean nothing was issued for this workflow (see `expected_issue_at`).
+             * @enum {string}
+             */
+            state: "issued" | "amended" | "locked" | "pending" | "not_issued";
+            /**
+             * Format: date-time
+             * @description When the sheet was issued (Asia/Kolkata). Absent until issued.
+             */
+            issued_at?: string;
+            /** Format: date-time */
+            amended_at?: string;
+            /** Format: date-time */
+            locked_at?: string;
+            amendment_count: number;
+            /**
+             * Format: date-time
+             * @description Set on pending/not_issued: the instant this workflow's sheet is (or was) due to be issued -- the direction_time on the day before the feed day. Lets the UI say "issued <D-1> at <time> IST" instead of showing a speculative number.
+             */
+            expected_issue_at?: string;
+        };
+        FeedDirectionLifecycle: {
+            /**
+             * @description The aggregate lifecycle of the served park-day, the LEAST-ADVANCED state among its workflows (issued < amended < locked): a park-day is never "locked" while a workflow is still merely issued. `preview` = NO sheet is issued for this day, so the rows were GENERATED on demand and are shown as a not-yet-issued preview (the per-workflow detail still carries pending/not_issued and `expected_issue_at`). `pending`/`not_issued` remain as PER-WORKFLOW states inside a preview; the aggregate serve path no longer returns them as an empty wall. `beyond_horizon` = the day has no issued sheet AND falls outside the [today, tomorrow] projection window, so NO rows were generated (generating would fabricate a sheet from today's herd); the `message` names the horizon. An already-issued sheet for any date still serves its frozen rows regardless of the window. `draft` = a live what-if (draft=true), never a frozen sheet.
+             * @enum {string}
+             */
+            state: "issued" | "amended" | "locked" | "pending" | "not_issued" | "preview" | "beyond_horizon" | "draft";
+            /** Format: date-time */
+            issued_at?: string;
+            /** Format: date-time */
+            amended_at?: string;
+            /** Format: date-time */
+            locked_at?: string;
+            /** @description Total amendments across the park-day's workflows. */
+            amendment_count: number;
+            /** @description Operator sentence, most useful for pending/not_issued. */
+            message?: string;
+            workflows: components["schemas"]["FeedDirectionWorkflowLifecycle"][];
+        };
+        FeedDirectionPreviewPage: {
+            items: components["schemas"]["FeedDirectionRow"][];
+            summary: components["schemas"]["FeedDirectionPreviewSummary"];
+            lifecycle: components["schemas"]["FeedDirectionLifecycle"];
+            /** @description True only for the deliberate live-compute escape hatch (draft=true). An issued, amended, locked, pending or not_issued response is never draft. */
+            draft: boolean;
+            /** Format: date */
+            target_date: string;
+            /** @description Page size in SHEDS. */
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedPackingRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            session_no: number;
+            session_label: string;
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /** @description The trial group of a hand-authored experiment shed, empty on normal lines. Carried here as well as on the direction row so a packer knows which trial a bag belongs to without cross-referencing the direction sheet. Never a shed tag. */
+            experiment_arm: string;
+            /**
+             * Format: int64
+             * @description The shed's projected head count, summed across its ration grains.
+             */
+            head_count: number;
+            /** @description SHED-level expected quantity per feed item, with the ration grains already summed, because a packer fills one bag per item per shed. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. */
+            items: components["schemas"]["FeedDirectionItemQuantity"][];
+            /** @description Sum of the resolved items, as an exact decimal string. */
+            total_kg: string;
+            /**
+             * @description DERIVED from the generation result, not stored -- this surface records nothing. `ready`: every item resolved. `blocked`: at least one item has no authored ration, so the line must NOT be packed from the resolved remainder. `empty`: the shed holds no projected animals, which is not a configuration gap and must not be confused with one.
+             * @enum {string}
+             */
+            status: "ready" | "blocked" | "empty";
+            blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
+        };
+        FeedPackingWorklistSummary: {
+            /**
+             * @description Always `filtered`: covers every line matching the request's filters, not the returned page, and is invariant to `limit` and `offset`. This is the figure an operator draws from the store before walking the park, so a page-scoped total would send them out with a fraction of the load.
+             * @enum {string}
+             */
+            scope: "filtered";
+            /** @description Distinct sheds in the whole filtered scope. */
+            shed_count: number;
+            /** @description Shed x session packing LINES in the whole filtered scope. A packer's unit of work is the bag, so this counts lines rather than the preview's ration grains. */
+            line_count: number;
+            /** @description Per-item store draw across the WHOLE filtered scope, in authored catalog order. Blocked cells are counted, never summed as zero. */
+            total_kg_by_feed_item: components["schemas"]["FeedDirectionFeedItemTotal"][];
+            /** @description Blocked item cells in the whole filtered scope. */
+            blocked_count: number;
+            /** @description Distinct sheds carrying at least one blocked cell. */
+            blocked_shed_count: number;
+            /** @description Packing lines that cannot be packed as printed. */
+            blocked_line_count: number;
+        };
+        FeedPackingWorklistPage: {
+            items: components["schemas"]["FeedPackingRow"][];
+            summary: components["schemas"]["FeedPackingWorklistSummary"];
+            lifecycle: components["schemas"]["FeedDirectionLifecycle"];
+            /** @description True only for the deliberate live-compute escape hatch (draft=true). */
+            draft: boolean;
+            /** Format: date */
+            target_date: string;
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigSessionTemplatePage: {
+            items: components["schemas"]["FeedConfigSessionTemplate"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigSchedule: {
+            /** Format: uuid */
+            schedule_config_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /**
+             * @description Which dispatch workflow this clock governs. Part of the natural key: normal and experiment genuinely run on different cutoffs.
+             * @enum {string}
+             */
+            workflow: "normal" | "experiment";
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time (HH:MM:SS) the day's packing direction is issued. No UTC offset -- a recurring business-calendar rule, not an instant.
+             * @example 07:00:00
+             */
+            direction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time at which approved emergency-shifting corrections are BATCHED and the amended direction is reissued. Fixed rather than fire-on-approval, so a shed gets at most one amended direction per day.
+             * @example 14:00:00
+             */
+            correction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock deadline after which a correction can no longer reach the shed. OMITTED when the park has declared no cutoff -- read that as UNKNOWN, never as "no deadline".
+             * @example 15:45:00
+             */
+            transport_time?: string;
+            /** Format: date */
+            valid_from: string;
+            /** Format: date */
+            valid_to?: string | null;
+        };
+        FeedConfigSchedulePage: {
+            items: components["schemas"]["FeedConfigSchedule"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigShedFactor: {
+            /** Format: uuid */
+            shed_factor_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Exact decimal string. A shed with NO row is treated as 1.0 by the read path. */
+            multiplier: string;
+            /** Format: date */
+            valid_from: string;
+            /** Format: date */
+            valid_to?: string | null;
+        };
+        FeedConfigShedFactorPage: {
+            items: components["schemas"]["FeedConfigShedFactor"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedConfigExperiment: {
+            /** Format: uuid */
+            experiment_config_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Exact decimal string. A SHED TOTAL in kg, never a per-head rate -- it is already inclusive of however many animals are in the shed. Never multiply it by head_count. */
+            absolute_kg: string;
+            /** @description INFORMATIONAL only: the population the hand-entered quantity was authored against. It is never a multiplier. Null means the population was not recorded, which is NOT the same as 0 -- rendering null as 0 would state the shed is empty. */
+            head_count?: number | null;
+            /** @description The experiment ARM (e.g. "Sheep M NEW"). It stands in for the shed tag on the direction sheet, because an experiment shed has no ration grain and so no authored tag to report. */
+            experiment_category: string;
+            /**
+             * @description The workflow switch, not a visibility flag. "active" = this shed is fed the absolute kg authored here. "retired" = it is fed from the normal per-head ration grid instead.
+             * @enum {string}
+             */
+            status: "active" | "retired";
+        };
+        FeedConfigExperimentPage: {
+            items: components["schemas"]["FeedConfigExperiment"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        UpsertFeedConfigExperimentRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Authored ABSOLUTE kg for the whole shed. REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */
+            absolute_kg: number;
+            /** @description INFORMATIONAL population count. Never multiplied into absolute_kg. Optional: null records "not recorded", which stays distinct from an authored 0. */
+            head_count?: number | null;
+            /** @description The experiment arm. REQUIRED rather than defaulted because it is what the direction sheet prints in the shed-tag column for an experiment shed -- the operator's only cue that these numbers are hand-entered rather than computed. */
+            experiment_category: string;
+        };
+        SetFeedConfigExperimentShedStatusRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            /**
+             * @description REQUIRED with no default. This field decides which planner feeds the shed, so an absent value cannot be filled in: "active" enrols it onto authored absolute kg and "retired" returns it to head count x grams per head. Both are changes to what its animals eat.
+             * @enum {string}
+             */
+            status: "active" | "retired";
+        };
+        UpsertFeedConfigRationRateRequest: {
+            /** Format: uuid */
+            park_id: string;
+            ration_group: string;
+            shed_tag: string;
+            feed_item: string;
+            /** @description Authored grams per head per day. REQUIRED -- it must never be omitted and filled in as 0, because absence of a rate means "not configured" (blocking) while 0 means "feed nothing" (correct for milk-fed kids). An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped or rounded. A cleared input in the UI must NOT be sent as 0. */
+            grams_per_head: number;
+        };
+        UpsertFeedConfigShedFactorRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            feed_item: string;
+            /** @description Authored multiplier. REQUIRED: an absent row reads as the safe 1.0, so omitting the field and having the server invent one would author a value nobody entered. An explicit 0 is accepted; a negative value is rejected. */
+            multiplier: number;
+        };
+        UpsertFeedConfigScheduleRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time, "HH:MM" or "HH:MM:SS". No UTC offset.
+             * @example 07:00
+             */
+            direction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata wall-clock time corrections are batched and reissued at. May EQUAL direction_time (the live experiment case) but may not precede it.
+             * @example 14:00
+             */
+            correction_time: string;
+            /**
+             * @description LOCAL Asia/Kolkata transport cutoff. May be sent as null to record "no declared cutoff", but a present-but-malformed value is REJECTED rather than dropped to null -- turning a typo into null would tell the dispatcher this park has no transport deadline at all. May not precede correction_time.
+             * @example 15:45
+             */
+            transport_time?: string | null;
+        };
+        FeedConfigWriteResult: {
+            /**
+             * Format: uuid
+             * @description The ledger entry recording this edit.
+             */
+            write_id: string;
+            /** @enum {string} */
+            kind: "ration_rate" | "shed_factor" | "schedule_config" | "experiment_config";
+            /**
+             * @description What the edit actually did. "inserted" = first authored value for the key. "superseded" = an earlier day's row was CLOSED and a new one opened, preserving history. "corrected" = a row authored on the SAME business day was corrected in place, because a window closed on the day it opened cannot satisfy valid_to > valid_from. "unchanged" = the value already matched and no row was written. An experiment_config write never returns "superseded": feed_experiment_config is not effective-dated, so an existing row is always corrected in place.
+             * @enum {string}
+             */
+            outcome: "inserted" | "superseded" | "corrected" | "unchanged";
+            /**
+             * Format: uuid
+             * @description The configuration row now in force. Absent only for an "unchanged" write.
+             */
+            result_row_id?: string;
+            /**
+             * Format: uuid
+             * @description The row this edit closed. Present only for "superseded".
+             */
+            superseded_row_id?: string;
+            /**
+             * Format: date
+             * @description The Asia/Kolkata business date the edit takes effect on. Server-derived from the India business calendar, never from the client and never from the database clock.
+             */
+            effective_from: string;
+            /** @description True when this response is the ORIGINAL result of an earlier identical request, returned without re-running any side effect. */
+            idempotent_replay: boolean;
+        };
         ValidationIssue: {
             field: string;
             code: string;
@@ -2003,6 +2901,11 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             display_id: string;
+            /**
+             * Format: int32
+             * @description Current optimistic-concurrency token for this animal. An operator flow that mutates the goat (e.g. recording a death from a tag scan) sends this back verbatim so a stale in-hand record is rejected instead of clobbering a newer change. Resolved server-side from the scan/search; the operator never types it.
+             */
+            row_version: number;
             animal_identifier_1: string;
             animal_identifier_2?: string | null;
             breed: string | null;
@@ -3051,7 +3954,7 @@ export interface components {
             /** Format: date-time */
             target_date: string;
             status: components["schemas"]["FeedDirectionReadinessStatus"];
-            /** @description Always false until Feed Direction closure gates explicitly allow generation. */
+            /** @description True only when this projection preview page carries no blockers. */
             generation_allowed: boolean;
             blocker_reason: string;
             snapshot_id: string;
@@ -3194,67 +4097,6 @@ export interface components {
             /** Format: date-time */
             resolved_at: string;
             replayed: boolean;
-        };
-        FeedDirectionReadinessResponse: {
-            tenant_id: string;
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            /** @description Current blocking Feed Direction closure gate, e.g. G2. */
-            current_gate: string;
-            /** @description False until Feed Direction source, projection, safety, and read-model gates are closed. */
-            generation_allowed: boolean;
-            next_action: string;
-            source_priority: string;
-            gates: components["schemas"]["FeedDirectionGate"][];
-            counts_shifting_subgates: components["schemas"]["FeedDirectionCountsShiftingSubgate"][];
-            safety_invariants: components["schemas"]["FeedDirectionSafetyInvariant"][];
-            /** @description disabled_until_g2_ready while this fail-closed adapter is active. */
-            generated_directions_state: string;
-        };
-        FeedDirectionGate: {
-            id: string;
-            sequence: number;
-            name: string;
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            owner: string;
-            evidence_ref: string;
-            blocker_reason?: string;
-            /** Format: date-time */
-            last_checked_at: string;
-            allows_build: boolean;
-            allows_generate: boolean;
-        };
-        FeedDirectionCountsShiftingSubgate: {
-            id: string;
-            sequence: number;
-            name: string;
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            owner: string;
-            evidence_ref: string;
-            blocker_reason: string;
-            /** Format: date-time */
-            last_checked_at: string;
-            allows_generate: boolean;
-            /** @description Bounded latest evidence rows recorded for this Counts/Shifting readiness subgate. */
-            recent_evidence?: components["schemas"]["FeedDirectionReadinessEvidence"][];
-        };
-        FeedDirectionReadinessEvidence: {
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            evidence_ref: string;
-            blocker_reason: string;
-            implementation_ref?: string;
-            /** Format: date-time */
-            recorded_at: string;
-        };
-        FeedDirectionSafetyInvariant: {
-            /** @enum {string} */
-            key: "shifted_pregnant_destination_recompute" | "destination_shed_shortage_fail_closed" | "overfeed_wastage_moist_feed_exception" | "bounded_projection_no_full_herd_scan";
-            status: components["schemas"]["FeedDirectionReadinessStatus"];
-            owner: string;
-            evidence_ref: string;
-            blocker_reason: string;
-            /** Format: date-time */
-            last_checked_at: string;
-            allows_generate: boolean;
         };
         /**
          * @description Machine vocabulary for capacity/session-splitting state:
@@ -3617,12 +4459,23 @@ export interface components {
             /** @description Top sheds by head count; display-capped, never the source of totals. */
             shed: components["schemas"]["CountsBreakdownSeriesPoint"][];
         };
+        /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. */
+        CountsBreakdownShedFacet: {
+            /** @description Shed UUID; empty for the bucket of animals with no shed assigned. */
+            key: string;
+            label: string;
+            count: number;
+            /** @description Park UUID these animals sit in; empty only when the animals have no park assigned. Matches the park_id request filter, so count equals what ?park_id=<park_id>&shed_id=<key> returns. */
+            park_id: string;
+        };
         CountsBreakdownFacets: {
             /** @description Distinct management_stage values actually present, so a filter cannot offer a dead option. */
             stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
             breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
             /** @description Parks holding animals, keyed by park_id and labelled with the park code. Backs the Farm filter so its options are live data rather than a hardcoded park list. */
             parks: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description Sheds holding animals, keyed by shed_id and carrying park_id so a Park -> Shed cascade can filter them. Whole-result rollup, independent of limit/offset. UNCAPPED on purpose — unlike charts.shed, which is display-capped to the top 12 bars, this is a filter vocabulary and a silent truncation would present a partial shed list as the complete one. Bounded by the distinct shed vocabulary, not by herd size. */
+            sheds: components["schemas"]["CountsBreakdownShedFacet"][];
         };
         CountsBreakdownResponse: {
             items: components["schemas"]["CountsBreakdownRow"][];
@@ -3717,6 +4570,390 @@ export interface components {
             items: components["schemas"]["VerificationQueueItem"][];
             trace_id: string;
         };
+        ShiftingDestinationsResponse: {
+            /** @description Active parks, ordered by name. Always present; an empty array means the tenant has no active park configured, never null. */
+            parks: components["schemas"]["ShiftingDestinationPark"][];
+        };
+        ShiftingDestinationPark: {
+            /**
+             * Format: uuid
+             * @description The park's location id. This is what the UI labels a 'farm'.
+             */
+            park_id: string;
+            /** @description Display name for the park option. */
+            name: string;
+            /** @description The park's active sheds, ordered by name. Always present; a park with no active sheds returns an empty array rather than null, and is still listed. */
+            sheds: components["schemas"]["ShiftingDestinationShed"][];
+        };
+        ShiftingDestinationShed: {
+            /**
+             * Format: uuid
+             * @description The shed's location id, and the value that must be sent as destination_shed_id. Names repeat across parks, so this id - never the name - identifies the destination.
+             */
+            shed_id: string;
+            /** @description Display name for the shed option. NOT unique across parks; only meaningful within its parent park. */
+            name: string;
+        };
+        RecordShiftingEventRequest: {
+            /**
+             * Format: uuid
+             * @description Park the cohort moved out of. Omit for an intake with no tracked origin.
+             */
+            source_park_id?: string;
+            /**
+             * Format: uuid
+             * @description Shed the cohort moved out of. Omit for an intake with no tracked origin.
+             */
+            source_shed_id?: string;
+            /** Format: uuid */
+            destination_park_id: string;
+            /** Format: uuid */
+            destination_shed_id: string;
+            /**
+             * Format: date-time
+             * @description When the movement actually took effect. Defaults to the time the event is recorded. Normalized to UTC before the request is fingerprinted, so two representations of the same instant are the same request.
+             */
+            effective_at?: string;
+            /**
+             * @description Governing-doc taxonomy (High/Low). Omit to accept the declared default ('low'). A present but unrecognized value is rejected, never rewritten to a default the operator never chose.
+             * @enum {string}
+             */
+            priority?: "high" | "low";
+            /**
+             * @description Governing-doc taxonomy (Growth/Health/Breeding/Delivery). Omit to accept the declared default ('growth'). A present but unrecognized value is rejected.
+             * @enum {string}
+             */
+            category?: "growth" | "health" | "breeding" | "delivery";
+            /** @description Optional reference to captured proof media for this movement. */
+            proof_ref?: string;
+            /** @description The structured cohort effect of the movement, at breed grain. OPTIONAL when goat_ids names EXACTLY ONE animal: the server then derives a single impact from that animal's own canonical facts (breed key/label, stage tag, age class, sex, head_count 1), so an operator moving one animal via RFID search does not have to describe a cohort the system already knows. REQUIRED for two or more animals, because the server will not invent the cohort split or the pregnancy/lactation/warm-up distribution across cohorts - omitting it there is rejected with 400 missing_impacts. When supplied, it is stored verbatim and no derivation runs. A derived impact never leaves pregnant/lactating/warmup non-zero; record those by supplying impacts explicitly. */
+            impacts?: components["schemas"]["RecordShiftingEventImpact"][];
+            /** @description The individual animals this movement covers. REQUIRED, and load-bearing: approving the request relocates EXACTLY these animals to the destination shed and re-scopes their shed-scoped vaccination obligations. impacts remain an AGGREGATE model - they record head counts by breed grain, never which specific animals - so this list is the only per-animal linkage the movement has. It is required because an authorized movement that names nobody relocates nobody, leaving the herd register and the shed-scoped obligations disagreeing with the count just reported. The server will still never infer which animals a head count referred to, because guessing would relocate real animals that nobody selected - so the list is demanded at submit, while the reporting operator can still supply it. Duplicates are removed. */
+            goat_ids: string[];
+        };
+        RecordShiftingEventImpact: {
+            /** Format: uuid */
+            breed_id?: string;
+            breed_key: string;
+            /** @description Human-readable breed label. Defaults to breed_key when omitted. */
+            breed_label?: string;
+            stage_tag?: string;
+            age_class?: string;
+            sex?: string;
+            /** @description Total animals moved in this cohort. Must be greater than zero. */
+            head_count: number;
+            /** @description Must not exceed head_count. */
+            pregnant_count?: number;
+            /** @description Must not exceed head_count. */
+            lactating_count?: number;
+            /** @description Must not exceed head_count. */
+            warmup_count?: number;
+        };
+        RecordShiftingEventResponse: {
+            /** Format: uuid */
+            shifting_event_id: string;
+            /**
+             * Format: uuid
+             * @description The approval request a park_head decides. The movement is not applied, and no animal moves, until this request is approved.
+             */
+            approval_request_id: string;
+            /**
+             * @description Status of the approval request. Always 'pending' on a fresh submission.
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected";
+            /** @description True when this result was returned from a previous identical request rather than a new write. */
+            idempotent_replay: boolean;
+        };
+        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. */
+        RecordBirthEventRequest: {
+            animal_identifier_1: string;
+            /** @description Optional until double RFID tagging is live; that rollout must make this mandatory in both app validation and DB constraints. */
+            animal_identifier_2?: string | null;
+            /** @enum {string} */
+            species: "goat" | "sheep";
+            /** Format: uuid */
+            farm_id?: string;
+            farm_code?: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_code?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_code?: string;
+            breed?: string;
+            /** @enum {string} */
+            sex: "female" | "male";
+            /**
+             * Format: date
+             * @description Date of birth. Required, and must not be after entry_date.
+             */
+            dob: string;
+            dob_estimated?: boolean;
+            /**
+             * @description Optional. When present it must be 'birth'; any other value is rejected.
+             * @constant
+             */
+            origin_type?: "birth";
+            /** Format: date */
+            entry_date: string;
+            management_stage?: string;
+            health_status?: string;
+            weight_kg?: number;
+            /** @description Identifier of the dam, when recorded at birth. */
+            dam_id?: string;
+            sire_or_lot?: string;
+            photo_url?: string;
+            source_record_id?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            vaccination_history?: components["schemas"]["EvidenceRef"][];
+        };
+        /** @description The guardrailed critical-death exit. lifecycle_status and exit_reason are constants: the dead+died pairing is the guardrail, and any other combination is rejected. */
+        RecordDeathEventRequest: {
+            /**
+             * Format: uuid
+             * @description The animal that died. Carried in the body because this route is not addressed per-animal.
+             */
+            goat_id: string;
+            /** @constant */
+            lifecycle_status: "dead";
+            /** @constant */
+            exit_reason: "died";
+            /** @description The operator's account of the death. */
+            reason: string;
+            /**
+             * Format: date-time
+             * @description When the death occurred. Defaults to the time the event is recorded.
+             */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            /** @description Optimistic-concurrency guard against the animal's current row version. */
+            row_version: number;
+        };
+        /** @description The identity module's goat-write result, returned unchanged by the birth and death endpoints. */
+        CountsGoatWriteResponse: {
+            goat: components["schemas"]["GoatSummary"];
+            identifiers: components["schemas"]["GoatIdentifier"][];
+            decision: components["schemas"]["CountsDecisionRecordSummary"];
+            /** @description The domain events emitted by the write (goat.created for a birth, goat.exited for a death). */
+            events: components["schemas"]["CountsEventSummary"][];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            generation_status: components["schemas"]["CountsGenerationStatus"];
+            trace_id: string;
+        };
+        CountsDecisionRecordSummary: {
+            /** Format: uuid */
+            decision_id: string;
+            decision_type: string;
+            decision_result: string;
+            /** @enum {string} */
+            decision_state: "proposed" | "approved" | "rejected" | "needs_review";
+            policy_version: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CountsEventSummary: {
+            /** Format: uuid */
+            event_id: string;
+            event_type: string;
+        };
+        /**
+         * @description Whether the write queued downstream obligation generation. A birth queues the kid's vaccination obligations; a death cancels open obligations instead of generating any.
+         * @enum {string}
+         */
+        CountsGenerationStatus: "queued" | "skipped_needs_review" | "skipped_ineligible" | "not_applicable";
+        /** @description The result of RAISING a lifecycle request. It deliberately contains no goat: birth and death are pending until approved, so at this point no animal has been created or exited. */
+        CountsApprovalSubmitResponse: {
+            /** Format: uuid */
+            approval_request_id: string;
+            /** @enum {string} */
+            request_type: "birth" | "death" | "shifting";
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected";
+            /** Format: date-time */
+            raised_at: string;
+            /** @description True when this result was returned from a previous identical request rather than a new write. */
+            idempotent_replay: boolean;
+        };
+        /** @description One row of the approver's queue - who raised what, and when. */
+        CountsApprovalListItem: {
+            /** Format: uuid */
+            approval_request_id: string;
+            /** @enum {string} */
+            request_type: "birth" | "death" | "shifting";
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected";
+            /**
+             * Format: uuid
+             * @description The operator who reported the event.
+             */
+            raised_by_user_id: string;
+            /** Format: date-time */
+            raised_at: string;
+            /**
+             * Format: uuid
+             * @description Present only for a shifting request - the pending movement this authorizes.
+             */
+            shifting_event_id?: string;
+            /**
+             * Format: uuid
+             * @description Present only for a death request - the animal the request would exit.
+             */
+            subject_goat_id?: string;
+            /** @description The submitted payload, for rendering the row without a second fetch. */
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            decided_by_user_id?: string;
+            /** Format: date-time */
+            decided_at?: string;
+            decision_reason?: string;
+        };
+        CountsApprovalListResponse: {
+            items: components["schemas"]["CountsApprovalListItem"][];
+            /** @description Opaque keyset cursor for the next page. Absent when this is the last page. Keyset, not offset: the queue is appended to continuously, so an offset page would skip or repeat rows as new requests arrive while an approver pages. */
+            next_cursor?: string;
+        };
+        CountsApprovalDecisionRequest: {
+            /** @description Why the request was decided this way. REQUIRED when rejecting (a rejection without a reason is not actionable by the operator who raised it); optional when approving. */
+            reason?: string;
+        };
+        CountsApprovalDecisionResponse: {
+            /** Format: uuid */
+            approval_request_id: string;
+            /** @enum {string} */
+            request_type: "birth" | "death" | "shifting";
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected";
+            /** Format: uuid */
+            decided_by_user_id?: string;
+            /** Format: date-time */
+            decided_at?: string;
+            decision_reason?: string;
+            /**
+             * @description What the approval produced, recorded in the SAME transaction as the status flip: 'goat' for an approved birth or death, 'shifting_event' for an approved movement. Absent on a rejection, which applies nothing.
+             * @enum {string}
+             */
+            applied_result_type?: "goat" | "shifting_event";
+            /**
+             * Format: uuid
+             * @description The id of the created/exited animal, or of the authorized shifting event.
+             */
+            applied_result_id?: string;
+            /** @description True when the request was already decided this way and this call applied nothing. A second approve never double-applies. */
+            idempotent_replay: boolean;
+        };
+        CountsShiftingCancelRequest: {
+            /** @description Why this authorized movement will never be executed. REQUIRED and enforced by the database: an abandoned movement that disappears with no explanation is indistinguishable from one that was carried out. */
+            reason: string;
+        };
+        CountsShiftingExecutionResponse: {
+            /** Format: uuid */
+            shifting_event_id: string;
+            /**
+             * @description 'applied' after a completion (the animals moved); 'canceled' after a cancellation (nothing moved).
+             * @enum {string}
+             */
+            event_status: "applied" | "canceled";
+            /** Format: uuid */
+            destination_park_id: string;
+            /** Format: uuid */
+            destination_shed_id: string;
+            /** @description Exactly which animals were relocated. Empty for a cancellation, which moves nobody. */
+            moved_goat_ids: string[];
+            moved_count: number;
+            /**
+             * Format: date-time
+             * @description When the operator confirmed the movement, as an absolute instant (UTC).
+             */
+            applied_at?: string;
+            /**
+             * Format: date-time
+             * @description The same instant rendered in the Asia/Kolkata business calendar. Goat OS business meaning is always India business-calendar meaning - a movement completed at 02:00 IST belongs to that IST date, not the previous UTC one.
+             */
+            applied_at_ist?: string;
+            /** Format: uuid */
+            applied_by?: string;
+            /** Format: date-time */
+            canceled_at?: string;
+            /**
+             * Format: date-time
+             * @description The cancellation instant in the Asia/Kolkata business calendar.
+             */
+            canceled_at_ist?: string;
+            /** Format: uuid */
+            canceled_by?: string;
+            cancel_reason?: string;
+            /** @description True when the movement had already reached this state and this call changed nothing. A replayed completion relocates nobody a second time. */
+            idempotent_replay: boolean;
+        };
+        CountsShiftingPendingExecutionResponse: {
+            items: components["schemas"]["CountsShiftingPendingExecutionItem"][];
+            /** @description Present only when another page exists. Opaque; pass back as ?cursor=. */
+            next_cursor?: string;
+        };
+        CountsShiftingPendingExecutionItem: {
+            /** Format: uuid */
+            shifting_event_id: string;
+            /**
+             * @description Always 'authorized' on this queue - the read is filtered to it.
+             * @enum {string}
+             */
+            event_status: "authorized";
+            /** @enum {string} */
+            priority: "high" | "low";
+            /** @enum {string} */
+            category: "growth" | "health" | "breeding" | "delivery";
+            /**
+             * Format: uuid
+             * @description Where the animals are NOW. Null when the movement recorded no origin.
+             */
+            source_park_id?: string;
+            source_park_name?: string;
+            /** Format: uuid */
+            source_shed_id?: string;
+            source_shed_name?: string;
+            /** Format: uuid */
+            destination_park_id: string;
+            destination_park_name: string;
+            /** Format: uuid */
+            destination_shed_id: string;
+            destination_shed_name: string;
+            /**
+             * Format: uuid
+             * @description Who authorized this movement - the operator's basis for acting.
+             */
+            approved_by_user_id?: string;
+            /** Format: date-time */
+            approved_at?: string;
+            /**
+             * Format: date-time
+             * @description The approval instant in the Asia/Kolkata business calendar.
+             */
+            approved_at_ist?: string;
+            /** Format: uuid */
+            raised_by_user_id?: string;
+            /** Format: date-time */
+            raised_at: string;
+            /** Format: date-time */
+            raised_at_ist: string;
+            /** Format: date-time */
+            effective_at: string;
+            /** @description The FULL number of animals this movement covers - not the length of the animals preview below. This is what an operator needs in order to judge whether they can do the movement now. */
+            animal_count: number;
+            /** @description True when animal_count exceeds the number of animals returned in the preview. */
+            animals_truncated: boolean;
+            /** @description A bounded preview of at most 5 animals, for recognition. A movement may name up to 500 animals; embedding all of them in a 20-row page would be a 10,000-row read to draw one phone screen, so the full roster belongs to the drill-down rather than the list row. */
+            animals: components["schemas"]["CountsShiftingPendingExecutionAnimal"][];
+        };
+        CountsShiftingPendingExecutionAnimal: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id: string;
+            /** @description The animal's active primary ear-tag/RFID identifier, when it has one. This is the label physically attached to the animal, so it is what an operator actually reads in a shed. */
+            tag?: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -3799,6 +5036,14 @@ export interface components {
         SOPVersionId: string;
         Limit: number;
         Cursor: string;
+        /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+        FeedConfigLimit: number;
+        /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+        FeedConfigOffset: number;
+        /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+        FeedDirectionLimit: number;
+        /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+        FeedDirectionOffset: number;
         IdempotencyKey: string;
         /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
         AcceptLanguage: string;
@@ -5107,29 +6352,6 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
-    getFeedDirectionReadiness: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Feed Direction readiness. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeedDirectionReadinessResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
     getFeedDirectionGenerationPreview: {
         parameters: {
             query: {
@@ -5259,6 +6481,492 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedDirectionCountsProjectionExceptionActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedDirectionPreview: {
+        parameters: {
+            query: {
+                /** @description The park to generate for. REQUIRED: the ration grid, the session split and the dispatch clock are all park-scoped, so a tenant-wide generation would mix two parks' rations. */
+                park_id: string;
+                /** @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant: an instant would reintroduce the UTC-vs-IST day-boundary bug and generate the sheet for the wrong day. */
+                target_date: string;
+                /** @description Narrow to a single shed. */
+                shed_id?: string;
+                /** @description Narrow to one feeding session number. Absent means every session. Narrowing does NOT rescale: the morning batch stays the morning batch. */
+                session?: number;
+                /** @description Narrow the served issue to one dispatch workflow. Absent unions both (normal packing + hand-entered experiment sheds), which is the whole park-day's sheet. An unrecognised value is rejected rather than silently widened. */
+                workflow?: "normal" | "experiment";
+                /** @description The ONLY live-compute path. `draft=true` returns a live what-if sheet computed from the CURRENT herd + config WITHOUT reading or writing any issue, for tuning ration rates before the sheet is issued. The response carries `draft: true` and `lifecycle.state: draft` so a what-if can never be mistaken for a frozen issued sheet. Absent/false serves the frozen issued sheet (or its pending/never-issued state). */
+                draft?: boolean;
+                /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+                limit?: components["parameters"]["FeedDirectionLimit"];
+                /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedDirectionOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the FROZEN issued sheet plus its lifecycle, OR (when nothing is issued yet) an explicit pending/never-issued state, OR (draft=true) a live what-if. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionPreviewPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedPackingWorklist: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
+                target_date: string;
+                /** @description Narrow the served issue to one dispatch workflow. Absent unions both. See the preview. */
+                workflow?: "normal" | "experiment";
+                /** @description The only live-compute path; see the preview's `draft`. Absent/false serves the frozen issued worklist (or its pending/never-issued state). */
+                draft?: boolean;
+                /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+                limit?: components["parameters"]["FeedDirectionLimit"];
+                /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedDirectionOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the FROZEN issued worklist plus its lifecycle, its pending/never-issued state, or (draft=true) a live what-if. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPackingWorklistPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigRationRates: {
+        parameters: {
+            query: {
+                park_id: string;
+                ration_group?: string;
+                shed_tag?: string;
+                feed_item?: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of currently-in-force ration rates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigRationRatePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigRationRate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigRationRateRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigRationGroups: {
+        parameters: {
+            query?: {
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of breed to ration-group mappings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigRationGroupPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigShedTags: {
+        parameters: {
+            query?: {
+                applies_to?: "adult" | "kid";
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of shed tags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigShedTagPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigFeedItems: {
+        parameters: {
+            query?: {
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of feed items. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigFeedItemPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigSessionTemplates: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of session templates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigSessionTemplatePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigSchedule: {
+        parameters: {
+            query: {
+                park_id: string;
+                workflow?: "normal" | "experiment";
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of in-force dispatch clocks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigSchedulePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigSchedule: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigShedFactors: {
+        parameters: {
+            query: {
+                park_id: string;
+                shed_id?: string;
+                feed_item?: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of authored shed factors. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigShedFactorPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigShedFactor: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigShedFactorRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigExperiment: {
+        parameters: {
+            query: {
+                park_id: string;
+                shed_id?: string;
+                /** @description Narrow to one status. Absent returns BOTH active and retired rows. */
+                status?: "active" | "retired";
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of authored experiment cells. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigExperimentPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigExperiment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigExperimentRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setFeedConfigExperimentShedStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFeedConfigExperimentShedStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The switch's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6098,6 +7806,323 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VerificationCloseSubmissionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsShiftingDestinations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active park -> shed destination cascade for the caller's tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftingDestinationsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppCountsShiftingEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordShiftingEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Shifting event recorded (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordShiftingEventResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppCountsBirthEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordBirthEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Birth request raised (or replayed). Accepted, not applied - no animal exists yet. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppCountsDeathEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordDeathEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Death request raised (or replayed). Accepted, not applied - the animal is still alive and its obligations are still open. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsShiftingPendingExecution: {
+        parameters: {
+            query?: {
+                /** @description Optional. Filters to movements whose SOURCE park is this park. Omit for all parks. */
+                park_id?: string;
+                /** @description Server-capped at 20. */
+                page_size?: number;
+                /** @description Opaque keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of authorized movements awaiting execution. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsShiftingPendingExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeAppCountsShiftingEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                shifting_event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Movement executed - the animals relocated (or the original result replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsShiftingExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    cancelAppCountsShiftingEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                shifting_event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CountsShiftingCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Movement cancelled (or replayed). Nothing moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsShiftingExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsApprovals: {
+        parameters: {
+            query?: {
+                /** @description Defaults to 'pending'. */
+                status?: "pending" | "approved" | "rejected";
+                /** @description Server-capped at 20. */
+                page_size?: number;
+                /** @description Opaque keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of approval requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    approveAppCountsApproval: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CountsApprovalDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Request approved and its effect applied (or replayed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalDecisionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    rejectAppCountsApproval: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CountsApprovalDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Request rejected (or replayed). Nothing was applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalDecisionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

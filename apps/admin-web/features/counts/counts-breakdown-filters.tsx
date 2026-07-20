@@ -8,13 +8,20 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 // page size). Same idiom as the shed-wise board's filter bar — the filtering itself happens
 // server-side on the next render, not as client-side row hiding.
 //
-// Every option list is passed in from the server component. Farms and sheds come from
-// /locations; stage and breed come from the breakdown response's own `facets`, which reports
-// the values actually present, so a dropdown can never offer an option matching zero rows.
+// Every option list is passed in from the server component. Farm, stage, breed AND shed all come
+// from the breakdown response's own `facets`, which reports the values actually present, so a
+// dropdown can never offer an option matching zero rows. Sheds carry a composite `key`
+// (park_id + shed_id) because shed names repeat across parks.
 
 export type BreakdownFilterOption = {
   value: string;
   label: string;
+  /**
+   * Optional distinct React key. `value` is what the backend receives, but some vocabularies
+   * (sheds) share a value shape across scopes and need a composite key (park_id + shed_id) so
+   * two same-named entries never collapse. Falls back to `value` when absent.
+   */
+  key?: string;
 };
 
 export type BreakdownFilterField = {
@@ -84,7 +91,7 @@ export function CountsBreakdownFilters({
           >
             <option value="">{allLabel}</option>
             {field.options.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option key={option.key ?? option.value} value={option.value}>
                 {option.label}
               </option>
             ))}

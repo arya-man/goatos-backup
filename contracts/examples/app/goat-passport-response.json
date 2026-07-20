@@ -23,7 +23,8 @@
         "shed_id": "66666666-6666-4666-8666-666666666666",
         "cohort_id": null
       },
-      "warnings": []
+      "warnings": [],
+      "row_version": 3
     },
     "identifiers": [
       {

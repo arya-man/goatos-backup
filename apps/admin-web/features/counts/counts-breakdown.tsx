@@ -10,7 +10,6 @@ import {
   type CountsBreakdownResponse,
   type CountsBreakdownSeriesPoint,
 } from "@/lib/api/server";
-import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
@@ -20,6 +19,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
+import { buildShedFilterOptions } from "./counts-breakdown-sheds";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each
 // farm x stage x breed x gender x shed combination, plus the same numbers as distributions.
@@ -76,19 +76,17 @@ export async function CountsBreakdownPage({
   const requestedPage = Math.max(1, Number(one(sp, "bd_page")) || 1);
 
   // One round trip for the whole screen: rows, totals, all four chart series and the filter
-  // facets come back together, so there is no per-chart fan-out and no serial await.
-  const [breakdownResult, locations] = await Promise.all([
-    getCountsBreakdown({
-      park_id: parkId || farmParkId,
-      shed_id: shedId,
-      management_stage: stage,
-      breed,
-      sex,
-      limit: pageSize,
-      offset: (requestedPage - 1) * pageSize,
-    }),
-    getCensusLocations(),
-  ]);
+  // facets (including the park-scoped shed vocabulary) come back together, so there is no
+  // per-chart fan-out and no serial await.
+  const breakdownResult = await getCountsBreakdown({
+    park_id: parkId || farmParkId,
+    shed_id: shedId,
+    management_stage: stage,
+    breed,
+    sex,
+    limit: pageSize,
+    offset: (requestedPage - 1) * pageSize,
+  });
 
   const authError = firstAuthRequiredError(breakdownResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -111,8 +109,18 @@ export async function CountsBreakdownPage({
   const stageFacets = breakdown?.facets.stages ?? [];
   const stageUnrecorded = stageFacets.length > 0 && stageFacets.every((point) => point.key === "");
 
-  // Filter vocabularies: sheds from the locations master, stage/breed from the response's own
-  // facets so an option can never match zero rows.
+  // The shed dropdown cascades to the currently selected park: the top-bar park scope wins,
+  // otherwise the in-body Farm filter. When a park is selected only that park's sheds show,
+  // mirroring the park facet (and the Android CountsViewModel, which narrows sheds by parkId).
+  const selectedParkId = parkId || farmParkId || "";
+
+  // Filter vocabularies come from the response's own facets so an option can never match zero
+  // rows. Sheds specifically use `facets.sheds` (the backend's live-herd, park-scoped shed
+  // vocabulary), NOT the locations master: shed NAMES repeat across parks (two thirds of them in
+  // real data), so each option is KEYED BY park_id + shed_id to keep same-named sheds in
+  // different parks distinct, while the option `value` stays the bare shed UUID that round-trips
+  // to the backend as `shed_id`. Sourcing from the locations registry instead would hide
+  // live-herd sheds missing from the master and show master sheds that hold zero live animals.
   //
   // Blank-valued facets are dropped from the DROPDOWNS (not from the table or charts, where they
   // stay visible as "No stage"/"No breed"). A blank key would render as <option value="">, which
@@ -152,7 +160,7 @@ export async function CountsBreakdownPage({
       param: "bd_shed",
       label: copy(pageContract, "filter.shed_label"),
       value: shedId ?? "",
-      options: locations.sheds.map((shed) => ({ value: shed.id, label: shed.name })),
+      options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId),
     },
     {
       param: "bd_sex",

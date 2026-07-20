@@ -217,7 +217,6 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/vaccination/operations"},
 		{"GET", "/vaccination/execution"},
 		{"GET", "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001"},
-		{"GET", "/feed-direction/readiness"},
 		{"GET", "/feed-direction/generation-preview"},
 		{"GET", "/calendar/vaccination/events"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001"},
@@ -336,7 +335,6 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		path        string
 		operationID string
 	}{
-		{"/feed-direction/readiness", "getFeedDirectionReadiness"},
 		{"/feed-direction/generation-preview", "getFeedDirectionGenerationPreview"},
 	} {
 		route, ok := Match("GET", item.path)
@@ -480,5 +478,221 @@ func TestVerificationSeparationOfDuty(t *testing.T) {
 	}
 	if RoleHasPermission(RoleOperator, VerificationReview) {
 		t.Fatal("operator role must not hold verification.review")
+	}
+}
+
+// TestAppCountsWriteRoutesAllowOperatorsWithoutAdminGoatGrants pins the maintainer decision that
+// field operators may record shifting, birth, AND death from the mobile app, and pins the reason it
+// is a dedicated permission: the operator role must gain exactly that surface, not the admin
+// /admin/goats/* write surface.
+func TestAppCountsWriteRoutesAllowOperatorsWithoutAdminGoatGrants(t *testing.T) {
+	for _, pattern := range []string{
+		"/app/counts/shifting-events",
+		"/app/counts/birth-events",
+		"/app/counts/death-events",
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			route, ok := Match("POST", pattern)
+			if !ok {
+				t.Fatalf("%s is not registered", pattern)
+			}
+			if len(route.Permissions) != 1 || route.Permissions[0] != CountsWrite {
+				t.Fatalf("permissions=%v, want [%s]", route.Permissions, CountsWrite)
+			}
+			if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+				t.Fatalf("operator must authorize %s", pattern)
+			}
+			for _, role := range []string{RoleAdmin, RoleCEOInternal, RoleParkHead} {
+				if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+					t.Fatalf("%s must authorize %s", role, pattern)
+				}
+			}
+			// Maintainer decision 2026-07-18: the Counts module is scoped to ground
+			// capture (Operator, Park Head) plus full Admin/CEO oversight. PC Director
+			// and Verifier are excluded from Counts entirely — they do not see the
+			// module in nav, and must not reach its write routes either.
+			for _, role := range []string{RolePCDirector, RoleVerifier} {
+				if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+					t.Fatalf("%s must not authorize %s", role, pattern)
+				}
+			}
+		})
+	}
+
+	// The widened surface must not have leaked into the admin goat write grants.
+	if RoleHasPermission(RoleOperator, GoatWriteIdentity) || RoleHasPermission(RoleOperator, GoatWriteHealth) {
+		t.Fatal("operator must not gain admin goat write permissions from the Counts app write surface")
+	}
+	if RolesAuthorize([]string{RoleOperator}, []string{GoatWriteHealth}, false) {
+		t.Fatal("operator must still be denied the admin critical-death-exit route")
+	}
+}
+
+// TestAppCountsShiftingDestinationsIsReachableByOperators pins the gate on the shifting destination
+// catalog.
+//
+// The regression this guards is specific and would be invisible until a real operator tried to file
+// a movement: the catalog is a READ of locations rows, so the obvious instinct is to gate it on the
+// admin-tier LocationsRead. RolesAuthorize ANDs a route's permissions, and RoleOperator does not
+// hold LocationsRead -- so doing that would leave an operator able to SUBMIT a shifting event but
+// unable to load the list of destinations they are allowed to submit, which reads on the phone as
+// an empty dropdown rather than as a permission error.
+func TestAppCountsShiftingDestinationsIsReachableByOperators(t *testing.T) {
+	const pattern = "/app/counts/shifting/destinations"
+
+	route, ok := Match("GET", pattern)
+	if !ok {
+		t.Fatalf("%s is not registered", pattern)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != CountsWrite {
+		t.Fatalf("permissions=%v, want [%s]", route.Permissions, CountsWrite)
+	}
+	// The load-bearing assertion: an operator holding CountsWrite and NOT LocationsRead authorizes.
+	if RoleHasPermission(RoleOperator, LocationsRead) {
+		t.Fatal("test premise broken: RoleOperator now holds LocationsRead, so this no longer proves the gate is CountsWrite-only")
+	}
+	if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+		t.Fatalf("operator must authorize %s without LocationsRead", pattern)
+	}
+	for _, role := range []string{RoleAdmin, RoleCEOInternal, RoleParkHead} {
+		if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("%s must authorize %s", role, pattern)
+		}
+	}
+	// The catalog exposes the same surface the write routes do, so it inherits their exclusions:
+	// roles kept out of Counts entirely must not reach it either.
+	for _, role := range []string{RolePCDirector, RoleVerifier} {
+		if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("%s must not authorize %s", role, pattern)
+		}
+	}
+}
+
+// TestGroundCaptureTiersHoldCountsWrite pins CountsWrite onto the composite org roles that perform
+// ground capture, and off the tiers that act on verified work instead of capturing it.
+func TestGroundCaptureTiersHoldCountsWrite(t *testing.T) {
+	for _, tier := range []Tier{TierAssistantManager, TierManager} {
+		role := RoleKey(tier, VerticalHealth)
+		if !RoleHasPermission(role, CountsWrite) {
+			t.Fatalf("%q should hold CountsWrite (ground capture tier)", role)
+		}
+	}
+	for _, tier := range []Tier{TierHead, TierDirector} {
+		role := RoleKey(tier, VerticalHealth)
+		if RoleHasPermission(role, CountsWrite) {
+			t.Fatalf("%q must NOT hold CountsWrite (capture is ground-only)", role)
+		}
+	}
+}
+
+// TestFeedConfigRoutesAreRegisteredWithDedicatedPermissions pins the authored feed-configuration
+// surface onto its OWN permissions.
+//
+// The regression this blocks is reusing ProtocolRead/ProtocolWrite (the feed-DIRECTION gate) for
+// these routes. Direction is today's operational output; this is the standing rule that produced it.
+// A park head who may look at this morning's feed sheet must not thereby be able to read -- let
+// alone rewrite -- the tenant-wide ration grid the whole farm is fed from.
+func TestFeedConfigRoutesAreRegisteredWithDedicatedPermissions(t *testing.T) {
+	reads := []struct {
+		path        string
+		operationID string
+	}{
+		{"/feed-config/ration-rates", "listFeedConfigRationRates"},
+		{"/feed-config/ration-groups", "listFeedConfigRationGroups"},
+		{"/feed-config/shed-tags", "listFeedConfigShedTags"},
+		{"/feed-config/feed-items", "listFeedConfigFeedItems"},
+		{"/feed-config/session-templates", "listFeedConfigSessionTemplates"},
+		{"/feed-config/schedule", "listFeedConfigSchedule"},
+		{"/feed-config/shed-factors", "listFeedConfigShedFactors"},
+	}
+	for _, item := range reads {
+		route, ok := Match("GET", item.path)
+		if !ok {
+			t.Fatalf("feed config read route is not registered: %s", item.path)
+		}
+		if route.OperationID != item.operationID {
+			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedConfigRead {
+			t.Fatalf("%s permissions=%v, want [%s]", item.path, route.Permissions, FeedConfigRead)
+		}
+	}
+
+	writes := []struct {
+		path        string
+		operationID string
+	}{
+		{"/feed-config/ration-rates", "upsertFeedConfigRationRate"},
+		{"/feed-config/shed-factors", "upsertFeedConfigShedFactor"},
+		{"/feed-config/schedule", "upsertFeedConfigSchedule"},
+	}
+	for _, item := range writes {
+		route, ok := Match("POST", item.path)
+		if !ok {
+			t.Fatalf("feed config write route is not registered: POST %s", item.path)
+		}
+		if route.OperationID != item.operationID {
+			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedConfigWrite {
+			t.Fatalf("POST %s permissions=%v, want [%s]", item.path, route.Permissions, FeedConfigWrite)
+		}
+	}
+}
+
+// TestFeedConfigWriteIsAdminAndCEOOnly pins WHO may author the ration grid.
+//
+// A ration rate is a standing feeding instruction for every animal matching its key, and an
+// incorrect one produces no alert at all -- just thinner animals a month later. So authoring sits
+// with the tier that owns farm economics, never with the ground roles that execute feeding, and
+// never with the verifier (who must not rewrite the standard captured work is judged against).
+func TestFeedConfigWriteIsAdminAndCEOOnly(t *testing.T) {
+	writeRoute, ok := Match("POST", "/feed-config/ration-rates")
+	if !ok {
+		t.Fatal("feed config write route is not registered")
+	}
+	readRoute, ok := Match("GET", "/feed-config/ration-rates")
+	if !ok {
+		t.Fatal("feed config read route is not registered")
+	}
+
+	// The founder/builder visibility invariant: ceo_internal must never be locked out of a built
+	// visible module.
+	for _, role := range []string{RoleCEOInternal, RoleAdmin} {
+		if !RolesAuthorize([]string{role}, readRoute.Permissions, readRoute.AdminOnly) {
+			t.Fatalf("%s must authorize the feed config read route", role)
+		}
+		if !RolesAuthorize([]string{role}, writeRoute.Permissions, writeRoute.AdminOnly) {
+			t.Fatalf("%s must authorize the feed config write route", role)
+		}
+	}
+
+	for _, role := range []string{RoleOperator, RoleParkHead, RoleVerifier, RolePCDirector} {
+		if RolesAuthorize([]string{role}, writeRoute.Permissions, writeRoute.AdminOnly) {
+			t.Fatalf("%s must NOT be able to author feed configuration", role)
+		}
+		if RolesAuthorize([]string{role}, readRoute.Permissions, readRoute.AdminOnly) {
+			t.Fatalf("%s must NOT be able to read the authored feed configuration grid", role)
+		}
+	}
+}
+
+// TestFeedConfigPermissionsAreSeparateFromFeedDirection proves the two surfaces did not collapse
+// into one authority. Holding the feed-direction gate must not grant feed-config access.
+func TestFeedConfigPermissionsAreSeparateFromFeedDirection(t *testing.T) {
+	if FeedConfigRead == ProtocolRead || FeedConfigWrite == ProtocolWrite {
+		t.Fatal("feed config permissions must be distinct from the feed direction (protocol) permissions")
+	}
+	directionRoute, ok := Match("GET", "/feed-direction/generation-preview")
+	if !ok {
+		t.Fatal("feed direction route is not registered")
+	}
+	// RoleParkHead holds ProtocolRead and can therefore see today's direction preview...
+	if !RolesAuthorize([]string{RoleParkHead}, directionRoute.Permissions, directionRoute.AdminOnly) {
+		t.Fatal("park head should still authorize the feed direction preview")
+	}
+	// ...but must not thereby reach the authored grid behind it.
+	if RoleHasPermission(RoleParkHead, FeedConfigRead) || RoleHasPermission(RoleParkHead, FeedConfigWrite) {
+		t.Fatal("park head must not hold feed config permissions via the feed direction grant")
 	}
 }

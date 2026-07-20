@@ -17,6 +17,10 @@ import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
+import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
+import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -161,6 +165,68 @@ interface SyncRepository {
     suspend fun enqueueVerificationSubmissionClose(
         submissionId: String,
     ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
+    /**
+     * Enqueues an operator-reported shifting/movement write (`POST /app/counts/shifting-events`).
+     *
+     * [groupKey] is the DESTINATION SHED id: two movements into the same shed drain strictly
+     * oldest-first, while movements into different sheds drain concurrently.
+     *
+     * [idempotencyKey] must be a STABLE key the caller derived once and persisted (SavedStateHandle),
+     * never a timestamp-suffixed one — the backend derives the movement's logical key from it, so a
+     * fresh key on resend would record a SECOND movement instead of collapsing onto the first.
+     */
+    suspend fun enqueueCountsShifting(
+        groupKey: String,
+        idempotencyKey: String,
+        request: CountsShiftingEventRequestDto,
+    ): AppResult<String> = AppResult.Err("counts shifting sync is not configured")
+
+    /**
+     * Enqueues a birth write (`POST /app/counts/birth-events`). [groupKey] is the newborn's
+     * identity (its primary tag), so repeat writes about the same animal stay ordered.
+     * [idempotencyKey] carries the same stable-key requirement as [enqueueCountsShifting]: a
+     * duplicate here would invent a second animal.
+     */
+    suspend fun enqueueCountsBirth(
+        groupKey: String,
+        idempotencyKey: String,
+        request: CountsBirthEventRequestDto,
+    ): AppResult<String> = AppResult.Err("counts birth sync is not configured")
+
+    /**
+     * Enqueues a death write (`POST /app/counts/death-events`) through identity's guardrailed
+     * critical-death exit. [groupKey] is the goat id. Same stable-key requirement: the write also
+     * carries a `row_version` optimistic-concurrency guard, so a replay under a NEW key would be
+     * rejected as a stale-version conflict rather than deduplicated.
+     */
+    suspend fun enqueueCountsDeath(
+        groupKey: String,
+        idempotencyKey: String,
+        request: CountsDeathEventRequestDto,
+    ): AppResult<String> = AppResult.Err("counts death sync is not configured")
+
+    /**
+     * Enqueues a Counts lifecycle APPROVAL decision
+     * (`POST /app/counts/approvals/{request_id}/{approve,reject}`).
+     *
+     * [approve] selects the endpoint. [reason] is REQUIRED when rejecting (enforced by the caller
+     * before this is reached, and again server-side and in the database) and optional when
+     * approving.
+     *
+     * [groupKey] is the approval request id, so two decisions on the SAME request drain strictly
+     * oldest-first and never race; decisions on different requests drain concurrently.
+     *
+     * [idempotencyKey] must be a STABLE key the caller derived once and persisted
+     * (`SavedStateHandle`), never a timestamp-suffixed one. This is the write where that matters
+     * most: approving APPLIES the effect, so a fresh key on resend would create a second kid, exit
+     * an animal twice, or relocate a herd twice.
+     */
+    suspend fun enqueueCountsApprovalDecision(
+        requestId: String,
+        approve: Boolean,
+        reason: String?,
+        idempotencyKey: String,
+    ): AppResult<String> = AppResult.Err("counts approval sync is not configured")
 
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
      *  idempotency key and payload, a fresh attempt budget. Backs the sync-status sheet's
@@ -412,6 +478,57 @@ class DefaultSyncRepository(
             ),
         )
     }
+    override suspend fun enqueueCountsShifting(
+        groupKey: String,
+        idempotencyKey: String,
+        request: CountsShiftingEventRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.COUNTS_SHIFTING,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(CountsShiftingPayload(request = request)),
+    )
+
+    override suspend fun enqueueCountsBirth(
+        groupKey: String,
+        idempotencyKey: String,
+        request: CountsBirthEventRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.COUNTS_BIRTH,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(CountsBirthPayload(request = request)),
+    )
+
+    override suspend fun enqueueCountsDeath(
+        groupKey: String,
+        idempotencyKey: String,
+        request: CountsDeathEventRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.COUNTS_DEATH,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(CountsDeathPayload(request = request)),
+    )
+
+    override suspend fun enqueueCountsApprovalDecision(
+        requestId: String,
+        approve: Boolean,
+        reason: String?,
+        idempotencyKey: String,
+    ): AppResult<String> = enqueue(
+        // The op type selects the endpoint AND separates an approve from a reject in the request
+        // fingerprint, so the two can never be mistaken for a replay of each other.
+        opType = if (approve) OutboxOpType.COUNTS_APPROVAL_APPROVE else OutboxOpType.COUNTS_APPROVAL_REJECT,
+        groupKey = requestId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            CountsApprovalDecisionPayload(
+                requestId = requestId,
+                request = CountsApprovalDecisionRequestDto(reason = reason?.trim()?.ifBlank { null }),
+            ),
+        ),
+    )
 
     private suspend fun enqueue(
         opType: OutboxOpType,
