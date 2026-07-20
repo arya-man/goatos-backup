@@ -920,9 +920,13 @@ Do not:
   Start/recover it only through the persistent service wrapper;
   the supervisor owns both ports, discards ambient `DATABASE_URL` /
   `GOATOS_E2E_DATABASE_URL`, includes the `libpq` tools required by closeout,
-  and must stop/restart FE+BE together if either child fails or `origin/main`
+  pins local query headroom so the canonical Calendar read cannot false-fail at
+  the production-oriented 3-second deadline during local build load, and must
+  verify an authenticated Calendar data-plane read in addition to `/readyz`.
+  It must stop/restart FE+BE together if either child fails or `origin/main`
   advances. Never point the shared UI at a feature-worktree API or an alternate
-  database, and never start only half the shared pair.
+  database, accept `/readyz` alone as proof that page data works, or start only
+  half the shared pair.
 - An **isolated E2E** stack is a separate test appliance with its own non-shared
   FE/BE ports and explicit throwaway database. It is intentionally independent
   of the shared exact-main stack. Shared-stack recovery must never stop, reuse,

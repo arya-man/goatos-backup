@@ -39,6 +39,12 @@ if [ "$shared_stack" = "1" ]; then
   web_port="3300"
   api_base_url="http://127.0.0.1:8080"
   unset DATABASE_URL GOATOS_E2E_DATABASE_URL GOATOS_LOCAL_STACK_DATABASE_URL GOATOS_ALLOW_CUSTOM_LOCAL_STACK_DB
+  # The canonical vaccination calendar read is intentionally bounded but can
+  # cross the production-oriented 3s query deadline while a developer machine
+  # is compiling/tests are running. Pin shared-local headroom so valid rows do
+  # not become a misleading `calendar request failed` empty screen under load.
+  # Isolated E2E stacks keep their own explicit timeout contract.
+  export GOATOS_PG_QUERY_TIMEOUT="15s"
 else
   host="${GOATOS_LOCAL_HOST:-127.0.0.1}"
   api_port="${GOATOS_LOCAL_API_PORT:?isolated stack requires GOATOS_LOCAL_API_PORT}"
@@ -220,6 +226,28 @@ api_ready() {
   curl -fsS "$api_base_url/readyz" >/dev/null 2>&1
 }
 
+calendar_data_plane_ready() {
+  if [ "$shared_stack" != "1" ]; then
+    return 0
+  fi
+  local token today
+  token="$(
+    (
+      cd "$repo_root/backend"
+      go run ./cmd/mint-dev-token \
+        -tenant-id "$GOATOS_TENANT_ID" \
+        -user-id "$local_user_id" \
+        -ttl 10m
+    ) 2>>"$supervisor_log"
+  )"
+  today="$(date +%F)"
+  curl --max-time 15 -fsS \
+    -H "Authorization: Bearer $token" \
+    -H "X-Tenant-ID: $GOATOS_TENANT_ID" \
+    "$api_base_url/calendar/vaccination/events?date_from=$today&limit=1" \
+    >/dev/null 2>&1
+}
+
 web_ready() {
   curl -fsS "http://$host:$web_port/login" >/dev/null 2>&1
 }
@@ -365,7 +393,12 @@ start_api() {
     go run ./cmd/api
   ) >>"$api_log" 2>&1 &
   api_pid="$!"
-  wait_for_api
+  wait_for_api || return 1
+  if ! calendar_data_plane_ready; then
+    tail -n 120 "$api_log" >&2 || true
+    log "Goat OS API readiness passed but the authenticated vaccination calendar data plane failed."
+    return 1
+  fi
 }
 
 start_web() {

@@ -306,13 +306,17 @@ one product; this skill is the navigation layer.
   clean **exact origin/main** admin-web on `127.0.0.1:3300`, API on
   `127.0.0.1:8080`, and database `goatos` from `goatos-local-current`. Use the
   persistent service wrapper, never ambient `DATABASE_URL`, and verify both
-  listener CWDs plus `/readyz` before handoff. The supervisor must fast-forward
-  only a clean ancestor checkout, re-exec before DB preparation, and restart FE
-  and BE together when either fails or `origin/main` advances. An isolated E2E
-  stack is unrelated: it must have non-shared FE/BE ports and an explicit
-  throwaway DB; never stop, sync, seed, migrate, reuse, or delete it while fixing
-  the shared stack. Run `make local-stack-service-guard`; it is a registered,
-  required standard local-CI guard. Canonical operating details:
+  listener CWDs, `/readyz`, and an authenticated Calendar data-plane read before
+  handoff. Shared local API startup pins `GOATOS_PG_QUERY_TIMEOUT=15s`: the
+  production-oriented 3-second DB deadline must not turn valid Calendar rows
+  into a false empty/error screen while the developer machine is compiling or
+  running CI. The supervisor must fast-forward only a clean ancestor checkout,
+  re-exec before DB preparation, and restart FE and BE together when either
+  fails or `origin/main` advances. An isolated E2E stack is unrelated: it must
+  have non-shared FE/BE ports and an explicit throwaway DB; never stop, sync,
+  seed, migrate, reuse, or delete it while fixing the shared stack. Run `make
+  local-stack-service-guard`; it is a registered, required standard local-CI
+  guard. Canonical operating details:
   `docs/runbooks/local-full-stack-rehearsal.md`.
 - Staging deployment authority is Cloud Deploy. GitHub Actions, Cloud Build, or
   local operators may build images and create releases, but `goatos-stg` Cloud

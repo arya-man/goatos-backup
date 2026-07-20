@@ -66,6 +66,8 @@ self_test() {
     sed -i.bak 's#/opt/homebrew/opt/libpq/bin:##g' "$fixture/tools/dev/local-stack-service.sh"
   expect_rejected "shared stack inheriting ambient database" \
     sed -i.bak 's/unset DATABASE_URL GOATOS_E2E_DATABASE_URL/: ambient database leak/' "$fixture/tools/dev/run-local-stack-supervised.sh"
+  expect_rejected "shared calendar retaining the overload-prone 3s deadline" \
+    sed -i.bak 's/export GOATOS_PG_QUERY_TIMEOUT="15s"/: missing shared calendar headroom/' "$fixture/tools/dev/run-local-stack-supervised.sh"
   # shellcheck disable=SC2016
   expect_rejected "broad cleanup that can kill isolated E2E" \
     sed -i.bak 's/index(\$0, script)/index(\$0, "run-local-stack-supervised.sh")/' "$fixture/tools/dev/local-stack-service.sh"
@@ -139,6 +141,15 @@ grep -q 'GOATOS_ORIGIN_MAIN_PREVERIFIED' "$backend_main" \
 
 grep -q 'unset DATABASE_URL GOATOS_E2E_DATABASE_URL' "$supervisor_script" \
   || fail "shared supervisor must discard ambient/E2E database URLs before resolving goatos-local-current"
+
+grep -q 'export GOATOS_PG_QUERY_TIMEOUT="15s"' "$supervisor_script" \
+  || fail "shared supervisor must keep calendar reads from false-failing at the production 3s deadline under local load"
+
+grep -q 'calendar_data_plane_ready' "$supervisor_script" \
+  || fail "shared supervisor must verify the authenticated vaccination calendar data plane, not only /readyz"
+
+grep -q 'authenticated vaccination calendar data plane failed' "$supervisor_script" \
+  || fail "shared supervisor must fail closed when readiness is green but the calendar data plane is broken"
 
 grep -q 'kill_process_tree' "$supervisor_script" \
   || fail "supervisor cleanup must terminate go run/npm descendants so FE and BE restart atomically"

@@ -123,6 +123,16 @@ to a different backend/database. A failed frontend start reaps the API process
 tree and owned listeners before retrying, so a half-old/half-new pair cannot
 survive.
 
+`/readyz` proves that the API process and database connection exist; it does not
+prove that a real page query completes. The shared supervisor therefore pins
+`GOATOS_PG_QUERY_TIMEOUT=15s` for local development and performs an
+authenticated `/calendar/vaccination/events` read before declaring the stack
+ready. The normal production-oriented query budget remains 3 seconds outside
+this shared-local wrapper. This prevents CPU load from a compiler or local CI
+from canceling a valid canonical Calendar read and presenting it as missing
+data. An HTTP-204 readiness check without the authenticated data-plane check is
+not an acceptable handoff.
+
 ## Isolated E2E boundary
 
 An isolated E2E stack is a separate appliance. It must use non-shared FE/BE
