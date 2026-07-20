@@ -1725,6 +1725,32 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.generation_blocked":           "Feed direction could not be generated for this day: the underlying counts projection is carrying unresolved blockers. Resolve them, then regenerate — a partial feed sheet is not published.",
 			"state.generation_pending":           "The counts projection for this day is still being built. Feed rows appear once it settles.",
 			"state.projected_counts_unavailable": "Projected counts unavailable",
+			// Issue -> amend -> lock lifecycle banner. The default feed day is TOMORROW, which is
+			// `pending` until its scheduled issue time, so this banner is what stands in for the
+			// blank table on a not-yet-issued day. Aggregate state is the LEAST-ADVANCED workflow,
+			// so a mixed park-day (normal issued, experiment still pending) shows the per-workflow
+			// breakdown chips built from `lifecycle.state.*` and `lifecycle.workflow.*`.
+			"lifecycle.aria":                "Feed sheet status",
+			"lifecycle.issued.title":        "Issued",
+			"lifecycle.issued.body":         "This sheet is frozen and being packed.",
+			"lifecycle.amended.title":       "Amended",
+			"lifecycle.amended.body":        "Emergency shiftings have been folded into the frozen sheet.",
+			"lifecycle.corrections_noun":    "correction(s)",
+			"lifecycle.locked.title":        "Locked",
+			"lifecycle.locked.body":         "Transport has left; changes now roll to the next feed day.",
+			"lifecycle.pending.title":       "Not issued yet",
+			"lifecycle.pending.body":        "Nothing is frozen for this feed day yet — the sheet is issued at its scheduled time, shown per workflow below.",
+			"lifecycle.not_issued.title":    "No sheet issued",
+			"lifecycle.not_issued.body":     "The issue time passed with nothing issued for this feed day. This is a real gap — raise it rather than reading it as nothing to feed.",
+			"lifecycle.draft.title":         "Draft",
+			"lifecycle.draft.body":          "Live preview computed from the current herd and config — not an issued sheet.",
+			"lifecycle.workflow.normal":     "Normal",
+			"lifecycle.workflow.experiment": "Experiment",
+			"lifecycle.state.issued":        "issued",
+			"lifecycle.state.amended":       "amended",
+			"lifecycle.state.locked":        "locked",
+			"lifecycle.state.pending":       "pending",
+			"lifecycle.state.not_issued":    "not issued",
 		}
 	case "feed-packing":
 		return map[string]string{
@@ -1788,6 +1814,30 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.packing_unavailable":      "Packing worklist unavailable",
 			"state.generation_blocked":       "No packing worklist for this day: the underlying feed direction could not be generated because the counts projection is carrying unresolved blockers. Resolve them and regenerate — a partial pack list is not published.",
 			"state.generation_pending":       "The feed direction for this day is still being generated. Packing lines appear once it is ready.",
+			// Twin of the feed-direction lifecycle banner copy — the same shared FeedLifecycleBanner
+			// renders on both pages, so the keys and wording match. A not-yet-issued day shows this
+			// instead of an empty worklist bar.
+			"lifecycle.aria":                "Feed sheet status",
+			"lifecycle.issued.title":        "Issued",
+			"lifecycle.issued.body":         "This sheet is frozen and being packed.",
+			"lifecycle.amended.title":       "Amended",
+			"lifecycle.amended.body":        "Emergency shiftings have been folded into the frozen sheet.",
+			"lifecycle.corrections_noun":    "correction(s)",
+			"lifecycle.locked.title":        "Locked",
+			"lifecycle.locked.body":         "Transport has left; changes now roll to the next feed day.",
+			"lifecycle.pending.title":       "Not issued yet",
+			"lifecycle.pending.body":        "Nothing is frozen for this feed day yet — the sheet is issued at its scheduled time, shown per workflow below.",
+			"lifecycle.not_issued.title":    "No sheet issued",
+			"lifecycle.not_issued.body":     "The issue time passed with nothing issued for this feed day. This is a real gap — raise it rather than reading it as nothing to pack.",
+			"lifecycle.draft.title":         "Draft",
+			"lifecycle.draft.body":          "Live preview computed from the current herd and config — not an issued sheet.",
+			"lifecycle.workflow.normal":     "Normal",
+			"lifecycle.workflow.experiment": "Experiment",
+			"lifecycle.state.issued":        "issued",
+			"lifecycle.state.amended":       "amended",
+			"lifecycle.state.locked":        "locked",
+			"lifecycle.state.pending":       "pending",
+			"lifecycle.state.not_issued":    "not issued",
 		}
 	case "feed-config":
 		return map[string]string{

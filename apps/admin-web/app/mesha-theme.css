@@ -481,6 +481,7 @@
   .alert.ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 32%,transparent);border-left-color:var(--ok)}
   .alert.ok .ic{color:var(--ok)} .alert.ok b{color:var(--brand-d)}
   .alert.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--amber) 32%,transparent);border-left-color:var(--amber)} .alert.warn .ic{color:var(--amber)} .alert.warn b{color:var(--amber)}
+  .alert.info{background:var(--infox);border-color:color-mix(in srgb,var(--info) 32%,transparent);border-left-color:var(--info)} .alert.info .ic{color:var(--info)} .alert.info b{color:var(--info)}
   .screen table{width:100%;border-collapse:collapse}
   .table-fixed{table-layout:fixed}
   .table-fixed th,.table-fixed td{min-width:0}

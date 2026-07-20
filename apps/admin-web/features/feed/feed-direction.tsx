@@ -12,6 +12,7 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
+import { FeedLifecycleBanner, isLifecycleEmpty } from "./feed-lifecycle";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import {
@@ -106,7 +107,12 @@ export async function FeedDirectionPage({
     previewResult && previewResult.ok ? previewResult.data : null;
   const rows = preview?.items ?? [];
   const summary = preview?.summary;
+  const lifecycle = preview?.lifecycle;
   const hasFilter = Boolean(shedId || sessionRaw);
+  // A served day whose empty table is EXPLAINED by the lifecycle (nothing was issued) shows the
+  // banner AS the content instead of an empty grid. A filter that merely excludes rows from a sheet
+  // that DOES exist keeps the normal "no rows match these filters" state, so the filter guard stands.
+  const lifecycleEmpty = lifecycle ? isLifecycleEmpty(lifecycle, rows.length) && !hasFilter : false;
 
   const cols = tableLabels(pageContract, "direction-rows");
 
@@ -195,10 +201,17 @@ export async function FeedDirectionPage({
           pageContract={pageContract}
         />
 
+        {/* The issue -> amend -> lock status of the served park-day. For a not-yet-issued day this
+            banner IS the content: the summary/table below are suppressed so the operator sees the
+            explanation, not a blank grid that reads as "nothing to feed". */}
+        {lifecycle ? (
+          <FeedLifecycleBanner lifecycle={lifecycle} feedDay={scope.targetDate} pageContract={pageContract} />
+        ) : null}
+
         {/* Always rendered. The API summary is WHOLE-SCOPE (`summary.scope === "filtered"`) and
             invariant to limit/offset, so these figures are the day's real totals on every page —
             they no longer need the first-page-only guard that used to hide a page subtotal. */}
-        {summary ? (
+        {summary && !lifecycleEmpty ? (
           <div className="grid g2" aria-label={copy(pageContract, "section.summary.aria")}>
             <div className="kpi">
               <span className="acc" style={{ background: "var(--brand)" }} />
@@ -233,13 +246,13 @@ export async function FeedDirectionPage({
         {/* The coverage claim the backend copy makes. It is rendered next to the figures rather than
             buried in a tooltip because the whole point of the whole-scope rewrite is that an
             operator can trust these numbers as the day's totals on any page. */}
-        {summary ? (
+        {summary && !lifecycleEmpty ? (
           <div className="note" style={{ marginBottom: 16 }}>
             {copy(pageContract, "section.summary.note")}
           </div>
         ) : null}
 
-        {summary && summary.total_kg_by_feed_item.length > 0 ? (
+        {summary && !lifecycleEmpty && summary.total_kg_by_feed_item.length > 0 ? (
           <div className="bd" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {summary.total_kg_by_feed_item.map((total) => (
               <span
@@ -253,6 +266,8 @@ export async function FeedDirectionPage({
           </div>
         ) : null}
 
+        {!lifecycleEmpty ? (
+        <>
         <div
           className="bd feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
@@ -424,6 +439,8 @@ export async function FeedDirectionPage({
           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fd_offset", String(next))}
           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fd_limit", String(next))}
         />
+        </>
+        ) : null}
       </section>
 
       <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.direction.note")}</div>

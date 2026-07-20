@@ -11,6 +11,7 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
+import { FeedLifecycleBanner, isLifecycleEmpty } from "./feed-lifecycle";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import { FeedQuantityCell, FeedWorkflowTag, isBlockedItem } from "./feed-quantity";
@@ -88,6 +89,10 @@ export async function FeedPackingPage({
     worklistResult && worklistResult.ok ? worklistResult.data : null;
   const rows = worklist?.items ?? [];
   const summary = worklist?.summary;
+  const lifecycle = worklist?.lifecycle;
+  // The worklist takes no shed/session filter, so an empty result is never a filter exclusion — an
+  // empty page here is always the lifecycle's own "nothing was issued" state.
+  const lifecycleEmpty = lifecycle ? isLifecycleEmpty(lifecycle, rows.length) : false;
 
   const cols = tableLabels(pageContract, "packing-worklist");
 
@@ -159,7 +164,13 @@ export async function FeedPackingPage({
           pageContract={pageContract}
         />
 
-        {summary ? (
+        {/* Issue -> amend -> lock status of the served park-day. For a not-yet-issued day the banner
+            IS the content — the KPIs/worklist below are suppressed rather than showing an empty bar. */}
+        {lifecycle ? (
+          <FeedLifecycleBanner lifecycle={lifecycle} feedDay={scope.targetDate} pageContract={pageContract} />
+        ) : null}
+
+        {summary && !lifecycleEmpty ? (
           <div className="grid g2" aria-label={copy(pageContract, "section.summary.aria")}>
             <div className="kpi">
               <span className="acc" style={{ background: "var(--brand)" }} />
@@ -192,7 +203,7 @@ export async function FeedPackingPage({
           </div>
         ) : null}
 
-        {summary ? (
+        {summary && !lifecycleEmpty ? (
           <div className="note" style={{ marginBottom: 16 }}>
             {copy(pageContract, "section.summary.note")}
           </div>
@@ -200,7 +211,7 @@ export async function FeedPackingPage({
 
         {/* The store draw for the WHOLE filtered worklist. Each item carries its own blocked-cell
             count, so a column is never read as complete when part of it could not be resolved. */}
-        {summary && summary.total_kg_by_feed_item.length > 0 ? (
+        {summary && !lifecycleEmpty && summary.total_kg_by_feed_item.length > 0 ? (
           <div className="bd" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {summary.total_kg_by_feed_item.map((total) => (
               <span
@@ -214,6 +225,8 @@ export async function FeedPackingPage({
           </div>
         ) : null}
 
+        {!lifecycleEmpty ? (
+        <>
         <div
           className="bd feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
@@ -344,6 +357,8 @@ export async function FeedPackingPage({
           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fp_offset", String(next))}
           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fp_limit", String(next))}
         />
+        </>
+        ) : null}
       </section>
 
       <div className="note">{copy(pageContract, "section.packing.note")}</div>
