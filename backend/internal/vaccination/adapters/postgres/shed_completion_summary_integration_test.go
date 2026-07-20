@@ -199,7 +199,7 @@ func scsSeedGoatProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tas
 // TestShedCompletionSummaryOneToMany proves the aggregate does not double-count when a goat
 // carries MULTIPLE proof clips and its rule has MULTIPLE dimension rows. A naive COUNT(*) over a
 // JOIN to protocol_rule_dimensions (2 rows) or proof_artifacts (2 clips) would inflate the counts.
-func TestShedCompletionSummaryOneToMany(t *testing.T) {
+func TestShedCompletionSummaryOneToManyScanProofRegression(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -244,7 +244,7 @@ func TestShedCompletionSummaryOneToMany(t *testing.T) {
 // TestShedCompletionSummaryPageBoundary proves the counts are whole-shed totals: a drive with far
 // more animals than any UI page size (25 > the 20-row phone page) reports all 25, and there is no
 // LIMIT/OFFSET truncating the count.
-func TestShedCompletionSummaryPageBoundary(t *testing.T) {
+func TestShedCompletionSummaryPageBoundaryScanProofRegression(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -336,7 +336,7 @@ func TestShedCompletionSummaryParkScope(t *testing.T) {
 // and under-scan both block). The live obligation status set comes from the migration CHECK
 // constraint: scheduled/due/in_progress/deferred/missed live; completed/waived/canceled/superseded
 // terminal.
-func TestShedCompletionSummaryStatusBuckets(t *testing.T) {
+func TestShedCompletionSummaryStatusBucketsScanProofRegression(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
