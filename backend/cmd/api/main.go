@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -44,6 +46,11 @@ func run() error {
 	})
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if err := assertLocalOriginMainStack(); err != nil {
+		log.Error("local_stack_guard", slog.String("error", err.Error()))
+		return err
+	}
 
 	shutdownTelemetry, err := observability.SetupTelemetry(ctx, observability.Config{Service: "api", Version: buildinfo.Current()})
 	if err != nil {
@@ -88,4 +95,56 @@ func run() error {
 	}
 	log.Info("api_stopped")
 	return nil
+}
+
+func assertLocalOriginMainStack() error {
+	if os.Getenv("GOATOS_ENV") != "local" || os.Getenv("GOATOS_ALLOW_STALE_LOCAL_STACK") == "1" {
+		return nil
+	}
+	repoRoot, err := git("rev-parse", "--show-toplevel")
+	if err != nil {
+		return err
+	}
+	remote, err := git("remote", "get-url", "origin")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(remote, "github.com/vgoats/goatos") {
+		return errors.New("backend local stack origin is not github.com/vgoats/goatos")
+	}
+	_ = exec.Command("git", "-C", repoRoot, "fetch", "--quiet", "origin", "main").Run()
+	head, err := git("rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	originMain, err := git("rev-parse", "refs/remotes/origin/main")
+	if err != nil {
+		return err
+	}
+	if head != originMain {
+		return errors.New("backend local stack HEAD " + shortSHA(head) + " is not origin/main " + shortSHA(originMain))
+	}
+	status, err := git("status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return err
+	}
+	if status != "" {
+		return errors.New("backend local stack has modified tracked files; serve a clean origin/main checkout")
+	}
+	return nil
+}
+
+func git(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func shortSHA(sha string) string {
+	if len(sha) < 12 {
+		return sha
+	}
+	return sha[:12]
 }

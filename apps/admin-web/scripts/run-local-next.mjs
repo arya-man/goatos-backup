@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import net from "node:net";
 import path from "node:path";
 import { assertMutableLocalDb, classifyLocalDatabaseUrl } from "./lib/db-mutation-guard.mjs";
+import { assertOriginMainLocalStack } from "./lib/origin-main-local-stack-guard.mjs";
 
 const mode = process.argv[2];
 const host = "127.0.0.1";
@@ -17,7 +18,7 @@ const defaultApiBaseUrl = "http://127.0.0.1:8080";
 // DRV-R3a: classify the local DB target — only a recognized auto-detected docker container is trusted;
 // an inherited DATABASE_URL OR the no-docker 127.0.0.1:5433 fallback is untrusted (needs an opt-in).
 const databaseClassification = classifyLocalDatabaseUrl({
-  inheritedUrl: process.env.DATABASE_URL,
+  inheritedUrl: process.env.GOATOS_ALLOW_CUSTOM_LOCAL_STACK_DB === "1" ? process.env.DATABASE_URL : "",
   dockerDetectedUrl: detectDockerDatabaseUrl(),
   fallbackUrl: "postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable",
 });
@@ -29,6 +30,7 @@ if (mode !== "dev" && mode !== "start") {
   process.exit(2);
 }
 
+assertOriginMainLocalStack(repoRoot, "admin-web");
 assertNotTempCheckout();
 await assertPortFree(host, port);
 const childEnv = await prepareLocalEnvironment();
@@ -95,7 +97,7 @@ async function prepareLocalEnvironment() {
     GOATOS_AUTH_AUDIENCE: process.env.GOATOS_AUTH_AUDIENCE || "goatos-api",
     GOATOS_AUTH_HS256_SECRET: process.env.GOATOS_AUTH_HS256_SECRET || defaultHS256Secret,
     GOATOS_AUTH_MAX_TOKEN_TTL: process.env.GOATOS_AUTH_MAX_TOKEN_TTL || "24h",
-    DATABASE_URL: process.env.DATABASE_URL || defaultDatabaseUrl,
+    DATABASE_URL: localStackDatabaseUrl(),
     GOATOS_API_BASE_URL: process.env.GOATOS_API_BASE_URL || defaultApiBaseUrl,
     GOATOS_TENANT_ID: process.env.GOATOS_TENANT_ID || process.env.GOATOS_LOCAL_TENANT_ID || defaultTenantId,
   };
@@ -149,6 +151,19 @@ async function prepareLocalEnvironment() {
   await validateBackendAuth(envWithToken);
   console.log(`Local admin token refreshed. Open http://${host}:${port}/`);
   return envWithToken;
+}
+
+function localStackDatabaseUrl() {
+  const explicit = process.env.GOATOS_LOCAL_STACK_DATABASE_URL;
+  if (explicit) return explicit;
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL !== defaultDatabaseUrl && process.env.GOATOS_ALLOW_CUSTOM_LOCAL_STACK_DB !== "1") {
+    console.error("Refusing to inherit DATABASE_URL for the local admin-web stack.");
+    console.error(`Inherited: ${process.env.DATABASE_URL}`);
+    console.error(`Expected:  ${defaultDatabaseUrl}`);
+    console.error("Set GOATOS_LOCAL_STACK_DATABASE_URL for the local stack, or GOATOS_ALLOW_CUSTOM_LOCAL_STACK_DB=1 for an explicit experiment.");
+    process.exit(2);
+  }
+  return defaultDatabaseUrl;
 }
 
 function ensureLocalDevGrant(localEnv, tenantId, userId, role) {

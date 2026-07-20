@@ -7,10 +7,10 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/assert-origin-main-local-stack.mjs && next dev",
     "dev:local": "node scripts/run-local-next.mjs dev",
     "build": "next build && node scripts/check-token-leak.mjs",
-    "start": "next start",
+    "start": "node scripts/assert-origin-main-local-stack.mjs && next start",
     "start:local": "node scripts/run-local-next.mjs start",
     "auth:seed-password-users": "node scripts/seed-firebase-password-users.mjs",
     "smoke:visual:live": "node scripts/smoke-visual-live.mjs",
