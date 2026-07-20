@@ -85,6 +85,9 @@ Permanent scale and guard-authoring rules:
 - Configuration guards must parse/bound the resource and validate related
   fields inside the same block. Every guard needs an adversarial sibling-block
   self-test, and both its self-test and real check belong in `ci-local`.
+- Vaccination seed/config changes must keep the committed fixture contract in
+  sync. Matrix schedule rows require `route_site=subcutaneous` as protocol
+  metadata only; do not add route/site back to vaccination SOP/operator forms.
 - A green unit test or checker is not recurrence protection until the failing
   fixture is run by the local/hosted CI entrypoint and the shared anti-pattern
   is recorded in `AGENTS.md` and the relevant reference doc.

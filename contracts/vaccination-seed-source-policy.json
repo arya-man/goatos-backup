@@ -58,6 +58,11 @@
     "verifier_approval_required": true,
     "shed_completion": "acknowledgement_only"
   },
+  "protocol_schedule_policy": {
+    "route_site": "subcutaneous",
+    "route_site_is_protocol_metadata": true,
+    "route_site_is_not_operator_form_field": true
+  },
   "required_owner_positions_per_center": [
     "Preventive Care Manager",
     "Backup Manager",

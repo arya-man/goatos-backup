@@ -106,6 +106,8 @@ and bounded row-number examples that do not print staff PII:
 - unresolved or duplicate roster seats;
 - CBE and CPT Preventive Care Manager, Backup Manager, and Park Head coverage;
 - one reviewed manager and backup for every source shed and every animal.
+- vaccination matrix schedule metadata, including `route_site=subcutaneous`,
+  while keeping route/site out of operator SOP form fields.
 
 ## Current mock-fixture correction authority
 
@@ -130,6 +132,8 @@ transform may repair surrounding mock metadata but must never change a dated,
 - Keep only reviewed, resolvable maternal links. Blank ambiguous mock links.
 - Strip payroll/bank data completely. Goat OS imports only fields its workforce
   model uses. The committed fixture uses synthetic names.
+- Keep `route_site=subcutaneous` as vaccination matrix protocol metadata only.
+  Do not add it back to the vaccination SOP/operator form.
 
 These repairs are fixture-specific and recorded in `corrections.json`. They do
 not authorize production ingestion to rewrite business history. Production

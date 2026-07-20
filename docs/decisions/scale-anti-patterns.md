@@ -101,6 +101,13 @@ manifest, and the exact-source first step in `make
 seed-vaccination-source-full`. The complete contract is
 `docs/runbooks/source-seed-data-validation.md`.
 
+Vaccination matrix schedule metadata is part of that same contract.
+`route_site` must be authored as protocol metadata (`subcutaneous` for the
+current seed matrix), not as an operator/SOP form field and not as a
+frontend-only default. If a future PR changes route-site semantics, it must
+update the seed source policy, source validator, fixture manifest, docs, and
+self-test in the same patch or local CI must fail.
+
 Calendar/Action Center/operator worklists need an extra explicit warning here:
 if the product wants one park-drive row instead of hundreds of goat/protocol
 rows, that grouped row must come from a projector/read model. It is not
@@ -467,3 +474,16 @@ set `prefetch={true}`. `make admin-web-prefetch-guard`
 (`tools/agent-hooks/check-admin-web-prefetch.mjs`) enforces that globally for
 `apps/admin-web/**`, with `apps/admin-web/components/no-prefetch-link.tsx` as
 the only allowed direct `next/link` import.
+
+## Seeder-only contract drift
+
+A seed/importer patch that changes vaccination schedule, SOP proof, HRMS owner,
+or stage/DOB behavior without updating the committed fixture, validator, and
+runbooks is an anti-pattern. It creates a false-green local seed: the code may
+compile, but the next developer's source bundle still lacks the new invariant.
+
+Example: vaccination matrix `route_site=subcutaneous` is required protocol
+metadata for publishability, but route/site must not reappear as an operator SOP
+form field. The seed fixture guard must fail a seeder-only route/site change
+until the fixture manifest, source policy, validator, and docs describe the same
+rule.

@@ -363,6 +363,12 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck("hrms_roster_resolved", rosterProblems.length, "Every timetable/owner seat must resolve to a reviewed synthetic workforce member.", "Resolve the mapping; no round-robin or silent default owner is allowed.", rosterProblems));
   checks.push(makeCheck("hrms_roster_unique", rosterDuplicates.length, "A center/position seat must occur exactly once.", "Remove duplicate roster assignments.", rosterDuplicates));
   checks.push(makeCheck("required_vaccination_owners", missingOwnerSeats.length, "CBE and CPT each require Preventive Care Manager, Backup Manager, and Park Head.", "Add explicit reviewed synthetic fixture seats before seeding.", missingOwnerSeats));
+  const routeSiteProblems = [];
+  if (SEED_SOURCE_POLICY.protocol_schedule_policy?.route_site !== "subcutaneous" ||
+    SEED_SOURCE_POLICY.protocol_schedule_policy?.route_site_is_not_operator_form_field !== true) {
+    routeSiteProblems.push("vaccination matrix route_site must be subcutaneous protocol metadata, not an SOP/operator form field");
+  }
+  checks.push(makeCheck("protocol_route_site_contract", routeSiteProblems.length, "Published vaccination matrix schedule rows require route_site metadata.", "Set route_site to subcutaneous in the protocol schedule contract and keep it out of vaccination SOP form fields.", routeSiteProblems));
 
   const managerProblems = [];
   const managerSheds = new Set();

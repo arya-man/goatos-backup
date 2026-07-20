@@ -429,6 +429,13 @@ fail on `5433` with no override. The port must come from the chosen runtime:
 `55432` for mutating proof/load work against the explicit local GCP-kernel
 parity stack.
 
+## Protocol schedule metadata
+
+Every seeded vaccination matrix schedule row must publish
+`route_site=subcutaneous`. This is protocol/config metadata used by schedule and
+option read paths. It is not an operator-entered SOP answer, and it must not
+reintroduce the retired vaccination form field.
+
 ## False-DOB disposition (`-null-false-dob`)
 
 `cmd/seed-vaccination-real` validates `dob <= entry_date` for every source

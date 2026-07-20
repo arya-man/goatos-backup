@@ -65,6 +65,8 @@ type modulePrefix struct {
 // (e.g. "preventive_care") always wins over a shorter accidental match.
 var modulePrefixes = []modulePrefix{
 	{prefix: "preventive_care", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
+	{prefix: "shed_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
+	{prefix: "park_head", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "health_kidding", moduleCode: "health.kidding"},
 	{prefix: "feeding", moduleCode: "feed.direction"},
 	{prefix: "packaging", moduleCode: "packaging"},

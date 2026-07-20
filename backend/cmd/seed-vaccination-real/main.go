@@ -3307,6 +3307,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		DueWindowDays       int     `json:"due_window_days"`
 		DoseAmount          float64 `json:"dose_amount"`
 		DoseUnit            string  `json:"dose_unit"`
+		RouteSite           string  `json:"route_site"`
 		VialDoses           int     `json:"vial_doses"`
 		ScheduleNote        string  `json:"schedule_note,omitempty"`
 		MaxDelayDays        int     `json:"max_delay_days"`
@@ -3362,6 +3363,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				DueWindowDays:       7,
 				DoseAmount:          def.DoseML,
 				DoseUnit:            "ml",
+				RouteSite:           "subcutaneous",
 				VialDoses:           def.VialDoses,
 				ScheduleNote:        "real vaccination seed source matrix",
 				MaxDelayDays:        7,
@@ -3388,6 +3390,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				DueWindowDays:       7,
 				DoseAmount:          def.DoseML,
 				DoseUnit:            "ml",
+				RouteSite:           "subcutaneous",
 				VialDoses:           def.VialDoses,
 				ScheduleNote:        "real vaccination seed source matrix",
 				MaxDelayDays:        7,
@@ -3414,6 +3417,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				DueWindowDays:  30,
 				DoseAmount:     def.DoseML,
 				DoseUnit:       "ml",
+				RouteSite:      "subcutaneous",
 				VialDoses:      def.VialDoses,
 				ScheduleNote:   "real vaccination seed source matrix",
 				// Repeat rows expose a 30-day due window, so the protocol's

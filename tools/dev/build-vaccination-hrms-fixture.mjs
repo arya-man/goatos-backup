@@ -457,6 +457,8 @@ let manifest = {
     maximum_video_count_per_goat: 5,
     verifier_approval_required: true,
     shed_completion: "acknowledgement_only",
+    protocol_route_site: SEED_SOURCE_POLICY.protocol_schedule_policy.route_site,
+    protocol_route_site_is_not_operator_form_field: SEED_SOURCE_POLICY.protocol_schedule_policy.route_site_is_not_operator_form_field,
     source_dates_are_never_invented: true,
     source_policy_sha256: SEED_SOURCE_POLICY_SHA256,
   },

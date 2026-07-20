@@ -13,8 +13,10 @@
     "maximum_video_count_per_goat": 5,
     "verifier_approval_required": true,
     "shed_completion": "acknowledgement_only",
+    "protocol_route_site": "subcutaneous",
+    "protocol_route_site_is_not_operator_form_field": true,
     "source_dates_are_never_invented": true,
-    "source_policy_sha256": "07d0b8098ec3c8d9eaaf74e8044255798f3b6b7426a14ef5781c2e2934c6eb1d"
+    "source_policy_sha256": "f74ef1bd5b9f8723ca76b78382af9a13b5967c71fa0ce0627d749d5c3df49e91"
   },
   "counts": {
     "animals": 1311,
