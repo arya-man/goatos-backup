@@ -469,9 +469,13 @@ func TestFeedProjectionIncomingGrainWithNoLiveAnimalsStillAppears(t *testing.T) 
 	approvedAt := feedProjApproval(2026, time.July, 10, 9)
 	target := feedProjDay(2026, time.July, 20)
 
-	// The destination shed holds a DIFFERENT grain, so it exists in the census but not for Malai.
+	// The destination shed holds a DIFFERENT grain (Beetal/female vs the incoming Malai/male), so it
+	// exists in the census but not for Malai. Its residents are K2 -- the SAME stage the incoming
+	// animals adopt on arrival -- so this test stays focused on the FULL OUTER JOIN and the incoming
+	// grain's stage is not what is under test here (cohort adoption has its own test,
+	// TestFeedProjectionDestinationLegAdoptsDestinationCohort).
 	for i := 0; i < 2; i++ {
-		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedB)
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K2", feedProjShedB)
 	}
 	insertFeedProjShifting(t, ctx, pool, "incoming", "normal", approvedAt,
 		feedProjShedA, feedProjShedB, "authorized", "authorized",
@@ -693,5 +697,64 @@ func TestFeedProjectionBreedFilterScopesBothLiveAndDeltaSides(t *testing.T) {
 	if row.CurrentHeadCount != 3 || row.PendingDelta != 2 || row.ProjectedHeadCount != 5 {
 		t.Errorf("current=%d delta=%d projected=%d, want 3/2/5",
 			row.CurrentHeadCount, row.PendingDelta, row.ProjectedHeadCount)
+	}
+}
+
+// TestFeedProjectionDestinationLegAdoptsDestinationCohort is the cross-profile projection
+// regression (PR #12 review, 2026-07-20).
+//
+// The pending projection used ONE shared stage_tag for both legs of a movement, so an
+// approved-but-unexecuted K1 -> K2 move projected +N of the SOURCE cohort (K1) into the DESTINATION
+// (K2) shed. Feed Direction then fed those arriving animals the WRONG ration -- K1 food in the K2
+// shed -- before the goat rows were ever updated. The two legs are distinct: the source shed loses
+// N under the source tag, and the destination shed gains N under the tag its own residents carry
+// (the tag the animals ADOPT on arrival, matching identity.resolveDestinationTag at completion).
+func TestFeedProjectionDestinationLegAdoptsDestinationCohort(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	approvedAt := feedProjApproval(2026, time.July, 10, 9)
+	target := feedProjDay(2026, time.July, 20) // well past the lead, so timing is never the reason.
+
+	// Source shed A is a homogeneous K1 shed; destination shed B is a homogeneous K2 shed.
+	for i := 0; i < 8; i++ {
+		insertFeedProjGoat(t, ctx, pool, 10+i, "Beetal", "female", "K1", feedProjShedA)
+	}
+	for i := 0; i < 5; i++ {
+		insertFeedProjGoat(t, ctx, pool, 30+i, "Beetal", "female", "K2", feedProjShedB)
+	}
+
+	// Move 4 K1 animals A -> B. The impact carries the SOURCE stage (K1), exactly as it is recorded.
+	insertFeedProjShifting(t, ctx, pool, "cross-profile-k1-to-k2", "normal", approvedAt,
+		feedProjShedA, feedProjShedB, "authorized", "authorized",
+		[]feedProjImpact{{breedLabel: "Beetal", stageTag: "K1", sex: "female", headCount: 4}})
+
+	got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(target))
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+	}
+
+	// Source shed A, K1: loses the 4 animals under the source tag.
+	src := findFeedProjRow(t, got, feedProjShedA, "Beetal", "K1", "female")
+	if src.CurrentHeadCount != 8 || src.PendingDelta != -4 || src.ProjectedHeadCount != 4 {
+		t.Errorf("source K1: current=%d delta=%d projected=%d, want 8/-4/4",
+			src.CurrentHeadCount, src.PendingDelta, src.ProjectedHeadCount)
+	}
+
+	// Destination shed B, K2: gains the 4 animals under the DESTINATION cohort (K2), not K1.
+	dst := findFeedProjRow(t, got, feedProjShedB, "Beetal", "K2", "female")
+	if dst.CurrentHeadCount != 5 || dst.PendingDelta != 4 || dst.ProjectedHeadCount != 9 {
+		t.Errorf("destination K2: current=%d delta=%d projected=%d, want 5/4/9",
+			dst.CurrentHeadCount, dst.PendingDelta, dst.ProjectedHeadCount)
+	}
+
+	// The bug: NO K1 grain may appear in the destination (K2) shed. Before the fix this was a
+	// phantom +4 K1 row in shed B that fed K1 ration to K2 animals.
+	for _, row := range got.Items {
+		if row.ShedID != nil && *row.ShedID == feedProjShedB &&
+			row.ManagementStage == "K1" && row.PendingDelta != 0 {
+			t.Fatalf("destination shed B has a K1 grain with delta %d; the destination leg leaked the SOURCE tag: %+v",
+				row.PendingDelta, row)
+		}
 	}
 }

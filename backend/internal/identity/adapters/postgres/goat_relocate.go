@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 const goatLocationHistoryReasonShiftingApproved = "counts_shifting_approved"
@@ -188,6 +189,7 @@ WHERE tenant_id = $1::uuid
 	}
 
 	supplied := strings.TrimSpace(cmd.DestinationTag)
+	var tag string
 	switch len(occupiedStages) {
 	case 0:
 		// EMPTY destination shed: the caller MUST name the cohort, and it must be a real active stage.
@@ -201,17 +203,60 @@ WHERE tenant_id = $1::uuid
 		if !ok {
 			return "", ports.ErrInvalidReference
 		}
-		return supplied, nil
+		tag = supplied
 	case 1:
 		// OCCUPIED, homogeneous shed: the existing cohort is ground truth.
 		occupied := occupiedStages[0]
 		if supplied != "" && supplied != occupied {
 			return "", ports.ErrDestinationTagConflict
 		}
-		return occupied, nil
+		tag = occupied
 	default:
 		return "", ports.ErrDestinationStageAmbiguous
 	}
+
+	// Clinical fail-closed. A move must not FABRICATE a clinical fact: an animal does not become
+	// sick, under treatment, in recovery, in quarantine, or in ICU by being walked into a shed. Those
+	// states are established by the owning clinical flow; the move then follows an already-diagnosed
+	// animal. Adopting a clinical tag from the destination shed's residents (or a supplied value)
+	// would silently misclassify a healthy animal -- and, via the clinical defer rule
+	// (protocol/domain.MandatoryClinicalDeferStates, the same set used here), could suppress its
+	// vaccination work -- so it is rejected. See ports.ErrClinicalDestinationTag.
+	//
+	// SCOPE (bridge): only the canonical CLINICAL set is guarded here. Reproductive cohorts
+	// (Pregnant, Lactating) are deliberately NOT rejected: the codebase treats them as legitimate
+	// operational sheds a CONFIRMED-pregnant/lactating animal is moved into, and the bridge has no
+	// per-animal reproductive-confirmation signal to distinguish "already confirmed" from
+	// "fabricated by the move". That distinction is part of the shed_profiles work (a profile can
+	// declare the reproductive fact it requires and the move can be validated against confirmation),
+	// tracked in the PR #12 reply.
+	if isClinicalDestinationStage(tag) {
+		return "", ports.ErrClinicalDestinationTag
+	}
+	return tag, nil
+}
+
+// clinicalStageKey normalizes a free-text management_stage for comparison against the canonical
+// clinical vocabulary: lowercase, trimmed, and inner whitespace collapsed to single underscores so
+// "Under Treatment", "under treatment", and "under_treatment" all match.
+func clinicalStageKey(stage string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(stage))), "_")
+}
+
+// isClinicalDestinationStage reports whether a resolved destination tag names a clinical state -- the
+// canonical protocol/domain.MandatoryClinicalDeferStates (sick, under_treatment, recovering,
+// quarantine, icu), reused rather than re-hardcoded per the clinical-defer safety rule.
+func isClinicalDestinationStage(stage string) bool {
+	key := clinicalStageKey(stage)
+	if key == "" {
+		return false
+	}
+	for _, clinical := range protocoldomain.MandatoryClinicalDeferStates {
+		if key == clinicalStageKey(clinical) {
+			return true
+		}
+	}
+	return false
 }
 
 // insertRelocationIdentityEvents takes the row locks and writes the canonical per-animal

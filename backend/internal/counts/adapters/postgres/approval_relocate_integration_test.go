@@ -814,3 +814,67 @@ WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.st
 		t.Fatalf("stage_changed outbox messages after replays=%d, want 1 -- replay must not re-enqueue", got)
 	}
 }
+
+// TestCompleteShiftingIntoClinicalCohortFailsClosed is the clinical fail-closed guard (PR #12
+// review, 2026-07-20). A shed move must not FABRICATE a clinical fact: an animal does not become
+// quarantined, in ICU, sick, under treatment, or recovering by being walked into a clinical shed.
+// Adopting such a destination tag would misclassify a healthy animal and, via the clinical defer
+// rule, suppress its vaccination work. Both the DERIVED (occupied clinical shed) and the SUPPLIED
+// (empty shed + clinical tag) paths must reject with ErrClinicalDestinationTag and change nothing.
+func TestCompleteShiftingIntoClinicalCohortFailsClosed(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("occupied clinical destination cohort is rejected", func(t *testing.T) {
+		pool := setupCountsDB(t, ctx)
+		repo := newRealIdentityApprovalRepo(t, pool)
+
+		mover := "00000000-0000-4000-8000-00000000c131"
+		resident := "00000000-0000-4000-8000-00000000c132"
+		seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K1")
+		// Destination shed B holds a QUARANTINE resident, so the derived cohort is clinical.
+		seedApprovalGoatWithStage(t, ctx, pool, resident, countsShedB, "quarantine")
+
+		shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "clinical-1", []string{mover})
+		if _, _, err := approveShifting(repo, ctx, "clinical-1", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+			t.Fatalf("approve shifting: %v", err)
+		}
+
+		_, _, err := completeShifting(repo, ctx, "clinical-1", shiftingEventID)
+		if !errors.Is(err, identityports.ErrClinicalDestinationTag) {
+			t.Fatalf("err=%v, want ErrClinicalDestinationTag", err)
+		}
+		// Fail closed: nothing moved, the mover keeps its tag, and the event stays authorized for a
+		// corrected flow (mark the animal clinical via the health path first, then move).
+		if got := goatShed(t, ctx, pool, mover); got != countsShedA {
+			t.Fatalf("mover shed=%s after rejected completion, want it still at source %s", got, countsShedA)
+		}
+		if got := goatStage(t, ctx, pool, mover); got != "K1" {
+			t.Fatalf("mover management_stage=%q after rejected completion, want unchanged K1", got)
+		}
+	})
+
+	t.Run("supplied clinical tag into an empty shed is rejected", func(t *testing.T) {
+		pool := setupCountsDB(t, ctx)
+		repo := newRealIdentityApprovalRepo(t, pool)
+
+		mover := "00000000-0000-4000-8000-00000000c141"
+		seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "K0")
+		seedActiveStage(t, ctx, pool, "icu") // a real active stage, but a clinical one
+
+		shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "clinical-2", []string{mover})
+		if _, _, err := approveShifting(repo, ctx, "clinical-2", approvalRequestID, shiftingEventID, []string{mover}); err != nil {
+			t.Fatalf("approve shifting: %v", err)
+		}
+
+		_, _, err := completeShiftingWithTag(repo, ctx, "clinical-2", shiftingEventID, "icu")
+		if !errors.Is(err, identityports.ErrClinicalDestinationTag) {
+			t.Fatalf("err=%v, want ErrClinicalDestinationTag", err)
+		}
+		if got := goatShed(t, ctx, pool, mover); got != countsShedA {
+			t.Fatalf("mover shed=%s after rejected completion, want source %s", got, countsShedA)
+		}
+		if got := goatStage(t, ctx, pool, mover); got != "K0" {
+			t.Fatalf("mover management_stage=%q after rejected completion, want unchanged K0", got)
+		}
+	})
+}

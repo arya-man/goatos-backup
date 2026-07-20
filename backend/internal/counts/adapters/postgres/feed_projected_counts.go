@@ -35,7 +35,7 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 // approved-but-unexecuted movement set are both served directly from canonical SQL at the current
 // release envelope; this screen earns its own projection only under that ADR's scale-out ladder.
 //
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to authorization_state='authorized' AND event_status='authorized' so an already-executed ('applied') movement is structurally excluded and cannot be counted twice; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT, and locations is joined twice after aggregation on the (tenant_id, location_id) primary key as a strict 1:{0,1} label lookup; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset, and the overdue event-id array is aggregated per grain rather than per page; scope=tenant_id on goats, shifting_events, shifting_event_impacts and both locations joins, plus optional park/shed equality predicates AND an optional shed-SET (= ANY) predicate, every one of them applied to the live side and to BOTH movement legs so a shed-scoped page cannot show a delta sourced from a shed the same filter excluded
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to authorization_state='authorized' AND event_status='authorized' so an already-executed ('applied') movement is structurally excluded and cannot be counted twice; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; leg_tag=the SOURCE leg carries the impact's stage_tag (the cohort the animals leave with) while the DESTINATION leg carries the destination shed's own inferred cohort (dest_cohort: the shed's single distinct live management_stage, falling back to the source stage_tag only for an empty/mixed shed) so a cross-profile K1->K2 move projects -N K1 at the source and +N K2 at the destination rather than +N K1 into the K2 shed -- resident-inference bridge until public.shed_profiles.animal_stage_id is seeded; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT, dest_cohort is a strict 1:{0,1} per-shed lookup LEFT JOINed onto the destination leg (never fans out), and locations is joined twice after aggregation on the (tenant_id, location_id) primary key as a strict 1:{0,1} label lookup; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset, and the overdue event-id array is aggregated per grain rather than per page; scope=tenant_id on goats, shifting_events, shifting_event_impacts and both locations joins, plus optional park/shed equality predicates AND an optional shed-SET (= ANY) predicate, every one of them applied to the live side and to BOTH movement legs so a shed-scoped page cannot show a delta sourced from a shed the same filter excluded
 //
 // Expanded rationale:
 //
@@ -132,6 +132,36 @@ pending_event AS (
     AND se.event_status = 'authorized'
     AND se.authorized_at IS NOT NULL
 ),
+-- The destination shed's own operational cohort, so the DESTINATION leg of a movement is tagged
+-- with the tag the animals ADOPT on arrival, not the SOURCE stage they leave with. A cross-profile
+-- move (K1 -> K2, warmup -> fattening, ...) otherwise projected +N of the SOURCE cohort into the
+-- destination shed, over-feeding the wrong ration there while under-representing the real one.
+--
+-- BRIDGE (2026-07-20): the authoritative per-shed profile is public.shed_profiles.animal_stage_id,
+-- but that table is not yet populated, so the destination tag is inferred from the destination
+-- shed's existing residents -- the SAME resident-inference bridge the completion path
+-- (identity.resolveDestinationTag) uses, so the pending projection agrees with the eventual
+-- completed row. A shed with exactly one distinct non-blank management_stage yields that stage; an
+-- empty or mixed shed yields NULL and the leg falls back to the source stage_tag (the pre-fix
+-- behaviour) until shed_profiles is seeded and both paths switch to it.
+--
+-- Set-based: ONE GROUP BY over goats per shed, never a per-movement subquery -- the same shape as
+-- the live CTE, so it adds a scan, not an N+1.
+--
+-- projection-review: membership=live goats grouped per shed (same tenant/merged/exited/lifecycle filter as the live CTE), non-blank management_stage only; group_key=shed_id, exactly one row per shed with cohort_stage = its single distinct management_stage or NULL when empty/mixed; join_cardinality=strict 1:{0,1} per shed, LEFT JOINed onto the destination movement leg by shed_id so it can only relabel that leg's stage and never fans it out (a shed appears at most once); pagination=not itself paged -- it is a bounded per-shed cohort lookup consumed by the delta CTE, which pre-aggregates and is the paged grain set; scope=tenant_id on goats; the destination leg it feeds still carries the same optional park_id/shed_id and shed-SET predicates as the live side
+dest_cohort AS (
+  SELECT
+    g.shed_id,
+    CASE WHEN count(DISTINCT COALESCE(g.management_stage, '')) = 1
+         THEN min(g.management_stage) END AS cohort_stage
+  FROM goats g
+  WHERE g.tenant_id = $1::uuid
+    AND g.merged_into_goat_id IS NULL
+    AND ($2 = '' OR g.lifecycle_status = $2)
+    AND g.management_stage IS NOT NULL
+    AND btrim(g.management_stage) <> ''
+  GROUP BY g.shed_id
+),
 -- One row per (movement, impact, direction). Source loses head_count, destination gains it.
 --
 -- feed_effective_date <= D, never = D. An OVERDUE movement -- due for feed days ago and still not
@@ -159,7 +189,10 @@ pending_leg AS (
     p.feed_effective_date,
     p.destination_park_id,
     p.destination_shed_id,
-    COALESCE(i.stage_tag, ''),
+    -- DESTINATION tag, not the source stage_tag: the animals adopt the destination shed's cohort on
+    -- arrival. Falls back to the source tag only when the destination shed is empty/mixed and its
+    -- cohort cannot be inferred (bridge limitation until shed_profiles is seeded -- see dest_cohort).
+    COALESCE(NULLIF(dc.cohort_stage, ''), i.stage_tag, ''),
     i.breed_label,
     COALESCE(i.sex, ''),
     i.head_count
@@ -167,6 +200,8 @@ pending_leg AS (
   JOIN shifting_event_impacts i
     ON i.tenant_id = $1::uuid
    AND i.shifting_event_id = p.shifting_event_id
+  LEFT JOIN dest_cohort dc
+    ON dc.shed_id = p.destination_shed_id
   WHERE p.feed_effective_date <= $5::date
 ),
 -- Pre-aggregate the legs to ONE row per grain BEFORE joining the live herd. This is what keeps a
