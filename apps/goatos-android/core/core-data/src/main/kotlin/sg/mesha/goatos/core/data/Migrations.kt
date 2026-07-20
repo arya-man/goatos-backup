@@ -255,3 +255,17 @@ val MIGRATION_11_12: Migration = object : Migration(11, 12) {
         )
     }
 }
+
+/** v12 -> v13: persist `capture_source` on each proof row. The startup-recovery re-registration
+ * path (ProofCaptureRepository's `reconcileRecoverableUploadsNow`) runs with no in-memory
+ * `ProofPolicy`, so it previously re-sent the hardcoded default `capture_source`, silently
+ * rewriting the metadata of any non-camera source. Persisting the value with the durable row makes
+ * the row the single source of truth and keeps recovery faithful. Additive; existing rows backfill
+ * the historical `in_app_camera` default (`NOT NULL DEFAULT`). */
+val MIGRATION_12_13: Migration = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `proof_capture` ADD COLUMN `captureSource` TEXT NOT NULL DEFAULT 'in_app_camera'",
+        )
+    }
+}

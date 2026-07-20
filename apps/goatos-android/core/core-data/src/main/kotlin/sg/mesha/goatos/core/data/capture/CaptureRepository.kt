@@ -406,10 +406,13 @@ class DefaultProofCaptureRepository(
             capturedByPrincipalId = capturedByPrincipalId,
             syncStatus = EntitySyncStatus.PENDING.name,
             idempotencyKey = idempotencyKey,
+            // R50-027 SSOT: persist capture_source with the durable row so the startup-recovery
+            // re-registration path re-sends the ORIGINAL source, not a Default fallback.
+            captureSource = proofPolicy.captureSource,
         )
         // Room FIRST — the capture is durable before any network call is even attempted.
         dao.insert(entity)
-        enqueueRegistration(entity, scopeType, scopeId, proofPolicy)
+        enqueueRegistration(entity, scopeType, scopeId)
         AppResult.Ok(entity.toRow())
     }
 
@@ -549,10 +552,9 @@ class DefaultProofCaptureRepository(
         entity: ProofCaptureEntity,
         scopeType: String,
         scopeId: String,
-        proofPolicy: ProofPolicy = ProofPolicy.Default,
     ) {
         appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
-            enqueueRegistrationNow(entity, scopeType, scopeId, proofPolicy)
+            enqueueRegistrationNow(entity, scopeType, scopeId)
         }
     }
 
@@ -560,7 +562,6 @@ class DefaultProofCaptureRepository(
         entity: ProofCaptureEntity,
         scopeType: String,
         scopeId: String,
-        proofPolicy: ProofPolicy = ProofPolicy.Default,
     ) {
         val request = ProofUploadRequestDto(
             proofType = "video",
@@ -571,9 +572,10 @@ class DefaultProofCaptureRepository(
             subjectId = entity.subjectId,
             metadata = buildMap {
                 put("field_key", JsonPrimitive(entity.fieldKey))
-                // R50-027: policy-driven, falls back to the historical hardcoded value for the
-                // startup-recovery path where the original request's policy is not available.
-                put("capture_source", JsonPrimitive(proofPolicy.captureSource))
+                // R50-027 SSOT: capture_source is read from the durable row, so the startup-recovery
+                // path (which has no in-memory ProofPolicy) re-sends the ORIGINAL source instead of a
+                // Default fallback that would silently rewrite a non-camera source.
+                put("capture_source", JsonPrimitive(entity.captureSource))
                 entity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
                 // Camera-only capture freshness proof (docs/mobile/proof-capture-sync-and-e2e.md
                 // "Camera-only capture"): the verifier can see this was a live, timed,

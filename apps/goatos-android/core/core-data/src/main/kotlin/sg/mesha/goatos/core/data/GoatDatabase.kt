@@ -89,7 +89,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CalendarScheduleEntity::class,
         CalendarScheduleRemoteKeyEntity::class,
     ],
-    version = 12,
+    version = 13,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -99,6 +99,8 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // v10 (see [MIGRATION_9_10]) adds row-level vaccination proof ownership.
     // v11 (see [MIGRATION_10_11]) scopes canonical RFID rows to shed+task.
     // v12 (see [MIGRATION_11_12]) adds the shed-completion-summary cache table.
+    // v13 (see [MIGRATION_12_13]) persists capture_source on proof_capture so startup-recovery
+    // re-registration re-sends the original source instead of a default fallback.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

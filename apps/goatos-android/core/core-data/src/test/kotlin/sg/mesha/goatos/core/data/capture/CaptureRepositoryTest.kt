@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -475,6 +476,59 @@ class CaptureRepositoryTest {
             assertEquals("proof-upload:task-orphan:proof-orphan", sync.enqueueCalls.single().idempotencyKey)
             assertEquals("outbox-0", row?.outboxItemId)
             assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `entity default capture_source stays in lockstep with the ProofPolicy default`() {
+        // The proof_capture.captureSource column default (core-database, DEFAULT_CAPTURE_SOURCE)
+        // and ProofPolicy.Default.captureSource (core-data) are two hardcoded literals that MUST
+        // agree — a fresh capture with no explicit policy and a backfilled legacy row must carry the
+        // SAME capture_source. They live in different modules (no shared const possible), so this
+        // test is the drift guard the "kept in lockstep" comments rely on.
+        assertEquals(
+            sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource,
+            sg.mesha.goatos.core.database.capture.DEFAULT_CAPTURE_SOURCE,
+        )
+    }
+
+    @Test
+    fun `startup recovery re-registers with the row's persisted capture_source not a default (BUG 7-res)`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            // A proof captured under a NON-default source, persisted to Room before the process died
+            // (outboxItemId still null → the recovery walk must re-enqueue it). The recovery path has
+            // no in-memory ProofPolicy: before the SSOT fix it fell back to ProofPolicy.Default
+            // ("in_app_camera"), silently rewriting this proof's capture_source.
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-src",
+                    taskId = "task-src",
+                    fieldKey = "administration_video",
+                    idempotencyKey = "proof-upload:task-src:proof-src",
+                    captureSource = "external_upload",
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            repo.reconcileRecoverableUploadsNow()
+
+            assertEquals(1, sync.enqueueCalls.size)
+            val captureSource = (sync.enqueueCalls.single().request.metadata["capture_source"] as? JsonPrimitive)?.content
+            assertEquals(
+                "recovery must re-send the persisted capture_source, not the ProofPolicy.Default fallback",
+                "external_upload",
+                captureSource,
+            )
         } finally {
             db.close()
         }
@@ -972,6 +1026,7 @@ private fun proofEntity(
     fieldKey: String,
     idempotencyKey: String,
     outboxItemId: String? = null,
+    captureSource: String = "in_app_camera",
 ) = ProofCaptureEntity(
     id = id,
     taskId = taskId,
@@ -988,6 +1043,7 @@ private fun proofEntity(
     syncStatus = CaptureSyncStatus.PENDING.name,
     idempotencyKey = idempotencyKey,
     outboxItemId = outboxItemId,
+    captureSource = captureSource,
 )
 
 /** Minimal, deterministic [SyncRepository] test double: records every

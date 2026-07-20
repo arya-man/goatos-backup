@@ -196,7 +196,20 @@ data class ProofCaptureEntity(
      *  registered this proof — null until [syncStatus] reaches SYNCED. */
     val serverProofId: String? = null,
     val lastError: String? = null,
+    /** The `capture_source` metadata (e.g. `in_app_camera`) persisted WITH the durable row so the
+     *  startup-recovery re-registration path
+     *  ([sg.mesha.goatos.core.data.capture.ProofCaptureRepository]'s recovery walk) re-sends the
+     *  ORIGINAL source. Before this was persisted, recovery had no in-memory `ProofPolicy` and fell
+     *  back to the hardcoded default — silently rewriting the metadata of any non-camera source. The
+     *  row is the SSOT; no enqueue path re-derives this from a policy. Mirrors
+     *  `sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource` (cross-module const cannot
+     *  be shared, so both default to [DEFAULT_CAPTURE_SOURCE]). */
+    val captureSource: String = DEFAULT_CAPTURE_SOURCE,
 )
+
+/** Historical hardcoded `capture_source` — the only source a live in-app recording could have.
+ *  Kept in lockstep with `sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource`. */
+const val DEFAULT_CAPTURE_SOURCE = "in_app_camera"
 
 @Dao
 interface ProofCaptureDao {

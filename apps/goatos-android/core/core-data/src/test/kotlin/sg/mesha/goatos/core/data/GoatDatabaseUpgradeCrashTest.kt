@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
+import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 
 /**
  * Upgrade-crash E2E for [GoatDatabase]: simulates an already-installed APK whose on-device DB was
@@ -70,6 +71,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_9_10,
                 MIGRATION_10_11,
                 MIGRATION_11_12,
+                MIGRATION_12_13,
             )
             .build()
         try {
@@ -128,6 +130,29 @@ class GoatDatabaseUpgradeCrashTest {
             )
             val summaryRow = summaryDao.observe("task-1").first()
             assertEquals(13L, summaryRow?.updatedAt)
+
+            // 7. The v13 proof_capture.captureSource column (persisted capture_source SSOT) is
+            //    present and usable post-upgrade — insert a proof with a NON-default source and read
+            //    it back verbatim, proving MIGRATION_12_13's ADD COLUMN produced a column Room can
+            //    round-trip (not silently coerced to the default).
+            val proofDao = upgraded.proofCaptureDao()
+            proofDao.insert(
+                ProofCaptureEntity(
+                    id = "proof-1",
+                    taskId = "task-1",
+                    fieldKey = "administration_video",
+                    proofSubject = "administration",
+                    localUri = "file://p.mp4",
+                    mimeType = "video/mp4",
+                    capturedAtMs = 5L,
+                    capturedStartMs = 0L,
+                    capturedEndMs = 5L,
+                    idempotencyKey = "proof-upload:task-1:proof-1",
+                    captureSource = "external_upload",
+                ),
+            )
+            val proofRow = proofDao.findById("proof-1")
+            assertEquals("external_upload", proofRow?.captureSource)
         } finally {
             upgraded.close()
         }
