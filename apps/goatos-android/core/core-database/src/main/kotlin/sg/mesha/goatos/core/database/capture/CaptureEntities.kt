@@ -241,6 +241,12 @@ interface ProofCaptureDao {
     )
     suspend fun activeCountForSubject(taskId: String, subjectId: String): Int
 
+    @Query(
+        "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND proofSubject = :proofSubject " +
+            "AND subjectId IS NULL AND syncStatus != 'FAILED'",
+    )
+    suspend fun activeCountForSubjectType(taskId: String, proofSubject: String): Int
+
     @Query("SELECT * FROM proof_capture WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ProofCaptureEntity?
 

@@ -370,6 +370,11 @@ class DefaultProofCaptureRepository(
                 dao.activeCountForSubject(taskId, effectiveSubjectId)
             subject != ProofSubject.GOAT && effectiveSubjectId != null ->
                 dao.activeCountForSubject(taskId, effectiveSubjectId)
+            // R50-027: a generic (shed/vial/administration) capture has no per-goat subjectId, so
+            // count active proofs of that subject TYPE for the task — otherwise the cap saw 0 and
+            // never applied, leaving generic proofs unbounded.
+            subject != ProofSubject.GOAT && effectiveSubjectId == null ->
+                dao.activeCountForSubjectType(taskId, subject.wireValue)
             else -> 0
         }
         if (existing >= maxPerSubject) {

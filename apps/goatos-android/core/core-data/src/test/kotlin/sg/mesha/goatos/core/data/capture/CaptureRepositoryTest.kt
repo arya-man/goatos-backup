@@ -197,6 +197,58 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `R50-027 generic (no-subjectId) shed proof capture is capped, not unlimited`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            // A shed proof has no per-goat subjectId. Before the fix the per-subject count saw 0
+            // and the cap never applied, so generic proofs were unbounded.
+            repeat(5) { index ->
+                val result = repo.capture(
+                    taskId = "task-shed",
+                    fieldKey = "vaccination_shed_proof",
+                    subject = ProofSubject.SHED,
+                    subjectId = null,
+                    localUri = "file://shed-$index.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-shed",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                )
+                assertTrue("shed capture #$index (under cap) must succeed", result is AppResult.Ok)
+            }
+            val sixth = repo.capture(
+                taskId = "task-shed",
+                fieldKey = "vaccination_shed_proof",
+                subject = ProofSubject.SHED,
+                subjectId = null,
+                localUri = "file://shed-6.mp4",
+                mimeType = "video/mp4",
+                caption = "one too many",
+                scopeType = "task",
+                scopeId = "task-shed",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = "operator-1",
+            )
+            assertTrue("generic shed cap must reject the 6th, not accept unlimited", sixth is AppResult.Err)
+            assertEquals(5, repo.observeProofs("task-shed").first().size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `terminally failed proof rows do not exhaust the active capture cap`() = runTest {
         val db = newDb()
         try {
