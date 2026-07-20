@@ -442,7 +442,7 @@
       "selfTest": "node tools/ci/check-review-lens-ledger.mjs --self-test",
       "owningDoc": ".agents/skills/goatos-code-review/references/review-lens-ledger.md",
       "requiredInCI": true,
-      "ciStep": "guardrails"
+      "ciStep": "review-lens-ledger-guard"
     }
   ]
 }

@@ -30,9 +30,24 @@ Hard rule:
 - Frontend/mobile send idempotent commands and render backend-owned contracts;
   they do not create business follow-up state.
 - Direct animal-table writers must already be registered, or the guard fails.
+- A shed-movement writer activates the prospective
+  `shifting_completion_to_vaccination` contract. It must resolve the destination
+  operational stage from active `shed_profiles -> animal_stage_lookup`, snapshot
+  profile ID + `row_version`, atomically update shed and stage on verified
+  completion, publish per-animal location/stage events, and prove the real
+  Vaccination rescope + eligibility-recheck handoff in one E2E. Inferring the
+  destination stage from resident goats or proving producer and consumers only
+  in separate tests is a blocked anti-pattern.
+- Movement never invents pregnancy, lactation, health, or reproductive truth.
+  Those facts change only through their authoritative clinical workflows.
 
 Required check:
 
 ```bash
 make domain-event-architecture-guard
+make ci-local JOB=common
 ```
+
+The common local-CI job is mandatory enforcement. Wiring a guard only into the
+legacy `JOB=guardrails` compatibility helper does not protect normal PR/local
+runs and fails `guardrail-registration-guard`.

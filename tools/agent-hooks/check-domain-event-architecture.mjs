@@ -20,6 +20,35 @@ const REQUIRED_EVENTS = [
 
 const REQUIRED_FEATURES = ["shifting", "dead_birth", "feed_direction"];
 const REQUIRED_SURFACES = ["backend", "frontend", "mobile"];
+const REQUIRED_MOVEMENT_INTEGRATION = {
+  contract: "shifting_completion_to_vaccination",
+  activationPath: "backend/internal/identity/adapters/postgres/goat_relocate.go",
+  producerFile: "backend/internal/identity/adapters/postgres/goat_relocate.go",
+  requiredEvents: ["goat.location.changed", "goat.stage_changed"],
+  requiredConsumers: [
+    { eventType: "goat.location.changed", module: "vaccination", file: "backend/internal/vaccination/app/generation_handler.go" },
+    { eventType: "goat.location.changed", module: "obligation", file: "backend/internal/obligation/app/shift.go" },
+    { eventType: "goat.stage_changed", module: "vaccination", file: "backend/internal/vaccination/app/generation_handler.go" },
+  ],
+  authoritativeProfileTokens: [
+    "shed_profiles",
+    "animal_stage_lookup",
+    "row_version",
+    "destination_profile_id",
+    "destination_profile_row_version",
+  ],
+  transactionTokens: ["goat_identity_events", "outbox_messages", "UPDATE goats", "management_stage"],
+  proofFile: "backend/tests/e2e/story_shifting_vaccination_handoff_test.go",
+  proofTokens: [
+    "CompleteShifting",
+    "goat.location.changed",
+    "goat.stage_changed",
+    "GoatShiftedHandler",
+    "GoatRecheckHandler",
+    "management_stage",
+    "scope_id",
+  ],
+};
 
 function readText(root, rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
@@ -73,6 +102,111 @@ function hasConsumerEvidence(text, eventType) {
 // consumer effect, which the registry must not accept as a consumer.
 function hasNoOpHandleEvent(text) {
   return /HandleEvent\s*\([^)]*\)\s*error\s*\{(?:\s|\/\/[^\n]*)*return\s+nil\s*(?:\s|\/\/[^\n]*)*\}/m.test(text);
+}
+
+function sameConsumerBinding(actual, required) {
+  return actual?.module === required.module && actual?.file === required.file;
+}
+
+function validateRequiredConsumer(featureLabel, required, byType, errors) {
+  if (!required?.eventType || !required?.module || !required?.file) {
+    errors.push(`${featureLabel} required consumer must declare eventType, module, and file`);
+    return;
+  }
+  const event = byType.get(required.eventType);
+  if (!event) {
+    errors.push(`${featureLabel} required consumer references unregistered event ${required.eventType}`);
+    return;
+  }
+  if (!(event.consumers || []).some((consumer) => sameConsumerBinding(consumer, required))) {
+    errors.push(`${featureLabel} required consumer ${required.module} (${required.file}) is not registered on ${required.eventType}`);
+  }
+}
+
+function validateMovementIntegrationContracts(registry, byType, read, fileExists) {
+  const errors = [];
+  const contracts = Array.isArray(registry.movementIntegrationContracts) ? registry.movementIntegrationContracts : [];
+  const contract = contracts.find((entry) => entry.contract === REQUIRED_MOVEMENT_INTEGRATION.contract);
+  if (!contract) {
+    return [`required movement integration contract ${REQUIRED_MOVEMENT_INTEGRATION.contract} is missing`];
+  }
+
+  const label = `movement contract ${contract.contract}`;
+  const activationPaths = Array.isArray(contract.activationPaths) ? contract.activationPaths : [];
+  const producerFiles = Array.isArray(contract.producerFiles) ? contract.producerFiles : [];
+  const requiredEvents = Array.isArray(contract.requiredEvents) ? contract.requiredEvents : [];
+  const requiredConsumers = Array.isArray(contract.requiredConsumers) ? contract.requiredConsumers : [];
+
+  if (!activationPaths.includes(REQUIRED_MOVEMENT_INTEGRATION.activationPath)) {
+    errors.push(`${label} must activate on ${REQUIRED_MOVEMENT_INTEGRATION.activationPath}`);
+  }
+  if (!producerFiles.includes(REQUIRED_MOVEMENT_INTEGRATION.producerFile)) {
+    errors.push(`${label} must register producer ${REQUIRED_MOVEMENT_INTEGRATION.producerFile}`);
+  }
+  for (const eventType of REQUIRED_MOVEMENT_INTEGRATION.requiredEvents) {
+    if (!requiredEvents.includes(eventType)) errors.push(`${label} must require event ${eventType}`);
+  }
+  for (const required of REQUIRED_MOVEMENT_INTEGRATION.requiredConsumers) {
+    if (!requiredConsumers.some((actual) => actual.eventType === required.eventType && sameConsumerBinding(actual, required))) {
+      errors.push(`${label} must require consumer ${required.module} (${required.file}) on ${required.eventType}`);
+    }
+    validateRequiredConsumer(label, required, byType, errors);
+  }
+
+  // The contract is prospective on main and becomes mandatory the moment shifting's canonical
+  // relocation writer appears in a PR. This lets main carry the rule before feature code exists.
+  const active = activationPaths.some((rel) => fileExists(rel));
+  if (!active) return errors;
+
+  for (const rel of producerFiles) {
+    if (!fileExists(rel)) errors.push(`${label} active producer file not found: ${rel}`);
+  }
+  for (const eventType of REQUIRED_MOVEMENT_INTEGRATION.requiredEvents) {
+    const event = byType.get(eventType);
+    if (!event || !(event.producerFiles || []).includes(REQUIRED_MOVEMENT_INTEGRATION.producerFile)) {
+      errors.push(`${label} must register ${REQUIRED_MOVEMENT_INTEGRATION.producerFile} as a producer of ${eventType}`);
+    }
+  }
+
+  const profile = contract.authoritativeProfile || {};
+  const evidenceFiles = Array.isArray(profile.evidenceFiles) ? profile.evidenceFiles : [];
+  if (!evidenceFiles.includes(REQUIRED_MOVEMENT_INTEGRATION.producerFile)) {
+    errors.push(`${label} authoritative shed profile evidence must include ${REQUIRED_MOVEMENT_INTEGRATION.producerFile}`);
+  }
+  const evidenceText = evidenceFiles.filter((rel) => fileExists(rel)).map((rel) => read(rel)).join("\n");
+  for (const token of REQUIRED_MOVEMENT_INTEGRATION.authoritativeProfileTokens) {
+    if (!evidenceText.includes(token)) {
+      errors.push(`${label} authoritative shed profile evidence is missing ${token}`);
+    }
+  }
+  // Resident goats are observations, never configuration authority. This exact false-green query
+  // appeared in PR #12 and must stay mechanically banned from the movement authority path.
+  if (/SELECT\s+DISTINCT\s+management_stage\s+FROM\s+goats/is.test(evidenceText)) {
+    errors.push(`${label} authoritative shed profile must not derive destination stage from resident goats`);
+  }
+
+  const transaction = contract.transactionEvidence || {};
+  const transactionFiles = Array.isArray(transaction.evidenceFiles) ? transaction.evidenceFiles : [];
+  if (!transactionFiles.includes(REQUIRED_MOVEMENT_INTEGRATION.producerFile)) {
+    errors.push(`${label} atomic transaction evidence must include ${REQUIRED_MOVEMENT_INTEGRATION.producerFile}`);
+  }
+  const transactionText = transactionFiles.filter((rel) => fileExists(rel)).map((rel) => read(rel)).join("\n");
+  for (const token of REQUIRED_MOVEMENT_INTEGRATION.transactionTokens) {
+    if (!transactionText.includes(token)) errors.push(`${label} atomic transaction evidence is missing ${token}`);
+  }
+
+  const proofs = Array.isArray(contract.requiredProof) ? contract.requiredProof : [];
+  const proof = proofs.find((entry) => entry.file === REQUIRED_MOVEMENT_INTEGRATION.proofFile);
+  if (!proof || !fileExists(REQUIRED_MOVEMENT_INTEGRATION.proofFile)) {
+    errors.push(`${label} requires real producer-to-consumer E2E proof ${REQUIRED_MOVEMENT_INTEGRATION.proofFile}`);
+  } else {
+    const proofText = read(REQUIRED_MOVEMENT_INTEGRATION.proofFile);
+    for (const token of REQUIRED_MOVEMENT_INTEGRATION.proofTokens) {
+      if (!proofText.includes(token)) errors.push(`${label} E2E proof is missing ${token}`);
+    }
+  }
+
+  return errors;
 }
 
 // collectEventConstants maps Go event-constant identifiers to their string values across the
@@ -277,6 +411,20 @@ function validateRegistry(root, registry, files = walk(root), read = (rel) => re
     if (!Array.isArray(feature.requiredEvents) || feature.requiredEvents.length === 0) {
       errors.push(`${feature.feature} must list requiredEvents`);
     }
+    for (const eventType of feature.requiredEvents || []) {
+      if (!byType.has(eventType)) {
+        errors.push(`${feature.feature} requiredEvents includes unregistered event ${eventType}`);
+      }
+    }
+    if (!Array.isArray(feature.requiredConsumers)) {
+      errors.push(`${feature.feature} requiredConsumers must be an array (may be empty for planned consumers)`);
+    }
+    for (const required of feature.requiredConsumers || []) {
+      if (!(feature.requiredEvents || []).includes(required.eventType)) {
+        errors.push(`${feature.feature} required consumer ${required.module || "unknown"} references ${required.eventType}, which is not in requiredEvents`);
+      }
+      validateRequiredConsumer(`feature ${feature.feature}`, required, byType, errors);
+    }
     if (!Array.isArray(feature.e2eScenarios) || feature.e2eScenarios.length === 0) {
       errors.push(`${feature.feature} must list e2eScenarios`);
     }
@@ -306,6 +454,7 @@ function validateRegistry(root, registry, files = walk(root), read = (rel) => re
   }
 
   errors.push(...validateRuntimeSubscriptionParity(registry, files, read, opts));
+  errors.push(...validateMovementIntegrationContracts(registry, byType, read, fileExists));
 
   return errors;
 }
@@ -328,9 +477,20 @@ function selfTest() {
     futureFeatureContracts: REQUIRED_FEATURES.map((feature) => ({
       feature,
       requiredEvents: ["goat.created"],
+      requiredConsumers: [{ module: "x", eventType: "goat.created", file: "consumer-goat.created.go" }],
       surfaces: [...REQUIRED_SURFACES],
       e2eScenarios: ["happy path"],
     })),
+    movementIntegrationContracts: [{
+      contract: REQUIRED_MOVEMENT_INTEGRATION.contract,
+      activationPaths: [REQUIRED_MOVEMENT_INTEGRATION.activationPath],
+      producerFiles: [REQUIRED_MOVEMENT_INTEGRATION.producerFile],
+      requiredEvents: [...REQUIRED_MOVEMENT_INTEGRATION.requiredEvents],
+      requiredConsumers: structuredClone(REQUIRED_MOVEMENT_INTEGRATION.requiredConsumers),
+      authoritativeProfile: { evidenceFiles: [REQUIRED_MOVEMENT_INTEGRATION.producerFile] },
+      transactionEvidence: { evidenceFiles: [REQUIRED_MOVEMENT_INTEGRATION.producerFile] },
+      requiredProof: [{ file: REQUIRED_MOVEMENT_INTEGRATION.proofFile }],
+    }],
   };
   const virtualFiles = new Map([
     ["contract.md", "backend frontend mobile outbox idempotent dlq e2e"],
@@ -341,6 +501,18 @@ function selfTest() {
     virtualFiles.set(`consumer-${eventType}.go`, `${eventType}\nfunc (h *H) Register(bus eventbus.Bus) { bus.Subscribe("${eventType}", h) }`);
     virtualFiles.set(`proof-${eventType}_test.go`, "proof");
   }
+  const locationEvent = goodRegistry.events.find((event) => event.eventType === "goat.location.changed");
+  const stageEvent = goodRegistry.events.find((event) => event.eventType === "goat.stage_changed");
+  locationEvent.consumers.push(...REQUIRED_MOVEMENT_INTEGRATION.requiredConsumers.filter((consumer) => consumer.eventType === locationEvent.eventType));
+  stageEvent.consumers.push(...REQUIRED_MOVEMENT_INTEGRATION.requiredConsumers.filter((consumer) => consumer.eventType === stageEvent.eventType));
+  virtualFiles.set(
+    "backend/internal/vaccination/app/generation_handler.go",
+    'func Register(bus eventbus.Bus) { bus.Subscribe("goat.location.changed", shifted); bus.Subscribe("goat.stage_changed", recheck) }',
+  );
+  virtualFiles.set(
+    "backend/internal/obligation/app/shift.go",
+    'func Register(bus eventbus.Bus) { bus.Subscribe("goat.location.changed", shifted) }',
+  );
   const fileList = Array.from(virtualFiles.keys());
   const read = (rel) => virtualFiles.get(rel) || "";
   const fileExists = (rel) => virtualFiles.has(rel);
@@ -437,6 +609,53 @@ function selfTest() {
     throw new Error("string-literal subscription to unregistered event was not detected");
   }
   virtualFiles.delete("backend/internal/orphan2/handler.go");
+
+  // A feature contract must prove its named downstream module is registered on the exact event.
+  // Merely listing requiredEvents is not producer-to-consumer closure.
+  const badFeatureConsumer = structuredClone(goodRegistry);
+  badFeatureConsumer.futureFeatureContracts[0].requiredConsumers = [{
+    eventType: "goat.created",
+    module: "missing-module",
+    file: "backend/internal/missing/handler.go",
+  }];
+  if (!validateRegistry(root, badFeatureConsumer, fileList, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("required consumer"))) {
+    throw new Error("feature contract missing its required consumer binding was not detected");
+  }
+
+  // An activated shed-movement implementation that infers destination stage from resident goats
+  // instead of shed_profiles -> animal_stage_lookup must fail even when unrelated files contain the
+  // right words. This is the exact PR #12 false-green shape.
+  const movementPath = "backend/internal/identity/adapters/postgres/goat_relocate.go";
+  const badMovementFiles = [...fileList, movementPath, "unrelated/profile_notes.go"];
+  virtualFiles.set(movementPath, "SELECT DISTINCT management_stage FROM goats");
+  virtualFiles.set("unrelated/profile_notes.go", "shed_profiles animal_stage_lookup row_version");
+  const badMovement = structuredClone(goodRegistry);
+  badMovement.movementIntegrationContracts = [{
+    contract: "shifting_completion_to_vaccination",
+    activationPaths: [movementPath],
+    producerFiles: [movementPath],
+    requiredEvents: ["goat.location.changed", "goat.stage_changed"],
+    requiredConsumers: [
+      { eventType: "goat.location.changed", module: "x", file: "consumer-goat.location.changed.go" },
+      { eventType: "goat.stage_changed", module: "x", file: "consumer-goat.stage_changed.go" },
+    ],
+    authoritativeProfile: {
+      evidenceFiles: [movementPath],
+      requiredTokens: ["shed_profiles", "animal_stage_lookup", "row_version"],
+      forbiddenPatterns: [{ pattern: "SELECT\\s+DISTINCT\\s+management_stage\\s+FROM\\s+goats", reason: "resident inference" }],
+    },
+    requiredProof: [{
+      file: "proof-shifting-vaccination_test.go",
+      mustContain: ["CompleteShifting", "GoatShiftedHandler", "GoatRecheckHandler"],
+    }],
+  }];
+  virtualFiles.set("proof-shifting-vaccination_test.go", "CompleteShifting GoatShiftedHandler GoatRecheckHandler");
+  if (!validateRegistry(root, badMovement, badMovementFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("authoritative shed profile"))) {
+    throw new Error("resident-derived destination stage was not rejected by the movement integration contract");
+  }
+  virtualFiles.delete(movementPath);
+  virtualFiles.delete("unrelated/profile_notes.go");
+  virtualFiles.delete("proof-shifting-vaccination_test.go");
 }
 
 function main() {

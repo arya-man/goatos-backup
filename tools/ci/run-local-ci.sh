@@ -89,6 +89,7 @@ run_sqlc_static_checks() {
 run_common() {
   step "guardrail-registration-guard" make guardrail-registration-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
+  step "domain-event-architecture-guard" make domain-event-architecture-guard
   step "agent: ai-doctor"          make ai-doctor
   step "agent: stg-promotion"      make stg-promotion-guard
   step "agent: boundaries self-test" bash tools/agent-hooks/check-boundaries.sh --self-test
@@ -205,7 +206,6 @@ run_android() {
 
 run_guardrails() {
   run_common
-  step "domain-event-architecture-guard" make domain-event-architecture-guard
   run_backend
   run_android_guards
 }

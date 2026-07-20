@@ -190,21 +190,64 @@
   "futureFeatureContracts": [
     {
       "feature": "shifting",
-      "requiredEvents": ["goat.location.changed", "goat.health.changed", "goat.stage_changed"],
+      "requiredEvents": ["goat.location.changed", "goat.stage_changed"],
+      "requiredConsumers": [
+        {"eventType": "goat.location.changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"},
+        {"eventType": "goat.location.changed", "module": "obligation", "file": "backend/internal/obligation/app/shift.go"},
+        {"eventType": "goat.stage_changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}
+      ],
       "surfaces": ["backend", "frontend", "mobile"],
-      "e2eScenarios": ["same-shed move", "cross-shed move", "ICU/quarantine entry and exit", "stale event replay"]
+      "e2eScenarios": ["same-stage shed move", "cross-stage shed move", "ICU/quarantine entry and exit", "stale event replay", "verified shifting completion atomically updates shed and operational stage then reschedules and rechecks vaccination"]
     },
     {
       "feature": "dead_birth",
       "requiredEvents": ["goat.reproductive.changed"],
+      "requiredConsumers": [
+        {"eventType": "goat.reproductive.changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}
+      ],
       "surfaces": ["backend", "frontend", "mobile"],
       "e2eScenarios": ["dead offspring creates no vaccination obligation", "mother state triggers downstream checks"]
     },
     {
       "feature": "feed_direction",
       "requiredEvents": ["goat.location.changed", "goat.stage_changed", "goat.health.changed", "goat.reproductive.changed", "protocol.version.published"],
+      "requiredConsumers": [],
       "surfaces": ["backend", "frontend", "mobile"],
       "e2eScenarios": ["location/stage/health/reproductive changes recompute feed work", "offline mobile command converges through backend event"]
+    }
+  ],
+  "movementIntegrationContracts": [
+    {
+      "contract": "shifting_completion_to_vaccination",
+      "status": "prospective_until_activation_path_exists",
+      "activationPaths": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
+      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
+      "requiredEvents": ["goat.location.changed", "goat.stage_changed"],
+      "requiredConsumers": [
+        {"eventType": "goat.location.changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"},
+        {"eventType": "goat.location.changed", "module": "obligation", "file": "backend/internal/obligation/app/shift.go"},
+        {"eventType": "goat.stage_changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}
+      ],
+      "authoritativeProfile": {
+        "source": "active destination shed_profiles row joined through animal_stage_lookup",
+        "snapshotAtAuthorization": ["destination_profile_id", "destination_profile_row_version"],
+        "evidenceFiles": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
+        "requiredTokens": ["shed_profiles", "animal_stage_lookup", "row_version", "destination_profile_id", "destination_profile_row_version"],
+        "forbiddenPatterns": [
+          {"pattern": "SELECT\\s+DISTINCT\\s+management_stage\\s+FROM\\s+goats", "reason": "resident goats are observations, not destination shed configuration authority"}
+        ]
+      },
+      "transactionEvidence": {
+        "rule": "verified completion updates goat shed and operational stage and writes identity audit plus both outbox events in one transaction",
+        "evidenceFiles": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
+        "requiredTokens": ["goat_identity_events", "outbox_messages", "UPDATE goats", "management_stage"]
+      },
+      "requiredProof": [
+        {
+          "file": "backend/tests/e2e/story_shifting_vaccination_handoff_test.go",
+          "mustContain": ["CompleteShifting", "goat.location.changed", "goat.stage_changed", "GoatShiftedHandler", "GoatRecheckHandler", "management_stage", "scope_id"]
+        }
+      ]
     }
   ]
 }

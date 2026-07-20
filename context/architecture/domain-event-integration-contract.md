@@ -86,13 +86,58 @@ missing registered writer, impossible DB window, runtime config/proof mismatch,
 or an unconfigured same-priority cap conflict. Such failures must be loud in
 proof/CI and must not block unrelated valid animals from batching.
 
+## Shed Movement → Vaccination Closure
+
+A shed shift is not complete when only `goats.shed_id` changes. The destination
+shed owns an active operational profile; resolve it from `shed_profiles` through
+`animal_stage_lookup`, snapshot its profile ID and `row_version` when the move is
+authorized, and revalidate that snapshot at verified completion. Resident goats
+are observations and must never be queried as the authority for a destination
+stage. A missing, inactive, ambiguous, incompatible, or changed profile blocks
+completion without partial state or count effects.
+
+Approval records intent and emits no location/stage fact. Verified completion is
+one transaction that:
+
+1. locks and validates the goat, source shed, destination shed, and approved
+   destination profile snapshot;
+2. updates `shed_id` and `management_stage` together;
+3. records identity audit/history;
+4. publishes a per-animal `goat.location.changed` event and, when different, a
+   `goat.stage_changed` event through the transactional outbox; and
+5. applies source/destination count legs from the snapshotted source and
+   destination stages, never one old stage on both legs.
+
+Vaccination then has two distinct required effects. The location consumer
+rescopes open scheduled/due/deferred work and planned batches to the destination
+shed while preserving in-progress/completed history. The location/stage recheck
+consumer recomputes eligibility and schedule from current authoritative facts.
+Watermarks/idempotency must prevent stale or replayed movement events from
+undoing newer state.
+
+Movement may change operational stage because the configured destination profile
+requires it; it may not infer or fabricate pregnancy, lactation, health,
+reproductive, or medical confirmation. Those facts remain separate
+authoritative commands/events even when they influence whether a move is legal.
+
+The acceptance proof is a production-path E2E beginning with shifting completion
+and ending after the real Vaccination rescope and recheck handlers have produced
+the correct shed-scoped result. Separate producer integration tests and consumer
+unit/integration tests do not prove the handoff and do not satisfy this contract.
+`movementIntegrationContracts.shifting_completion_to_vaccination` in the
+registry activates mechanically when the canonical shifting relocation writer
+appears.
+
 ## Future Feature Examples
 
 Shifting:
 
-- Producer: move/shifting command emits `goat.location.changed`.
-- Consumers: vaccination rescope/recheck, feed direction, counts, procurement
-  blockers, critical-action guardrails.
+- Producer: verified move/shifting completion emits `goat.location.changed` and
+  emits `goat.stage_changed` when the destination shed profile changes the
+  operational stage.
+- Deployed consumers: vaccination rescope/recheck and obligation rescope. Future
+  consumers such as feed direction and counts must register before activation;
+  planned modules are not described as already implemented.
 - Edge cases: sick to normal, ICU/quarantine entry and exit, death/cull/sale
   closure, pregnant/mother state, and stale out-of-order move events.
 

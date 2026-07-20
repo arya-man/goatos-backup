@@ -1,8 +1,9 @@
 # Local CI Mirror
 
-GitHub Actions billing or platform startup failure is not a reason to stop Goat
-OS defect work. The repository has one CI command surface used by both GitHub
-workflows and local agents:
+The current Goat OS acceptance authority is local CI. GitHub Actions is not
+required or assumed to be available; billing/platform startup state must never
+delay a review, fix, or main landing. Every developer and agent uses this command
+surface:
 
 ```bash
 make ci-local                 # common + affected components vs origin/main
@@ -15,10 +16,9 @@ make ci-local JOB=android
 GOATOS_RUN_POSTGRES_TESTS=1 make ci-local  # deliberate DB/Docker integration run
 ```
 
-`.github/workflows/ci.yml` and `.github/workflows/android-quality.yml` invoke
-these same targets. Do not maintain a second hand-copied list of commands in
-workflow YAML. A gate added to `tools/ci/run-local-ci.sh` therefore protects
-both local and hosted runs.
+Hosted workflows, if later enabled, invoke these same targets. They are a mirror,
+not the present authority. Do not maintain a second hand-copied command list in
+workflow YAML.
 
 ## Landing on main
 
@@ -51,7 +51,7 @@ session can start inside a dirty/shared worktree that must not be rewritten.
 
 Run the deterministic fixture test with `make land-main-self-test`.
 
-## Billing/platform fallback
+## Local-only enforcement when hosted Actions is unavailable
 
 When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
 
@@ -67,7 +67,10 @@ When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
 5. Run `make land-main`; it performs fresh-main rebase, exact-SHA CI, race
    recheck, and the Mesha-credential push in the required order.
 
-The common job runs repository, agent, contract, large-file, and diff hygiene.
+The common job always runs repository, agent, contract, domain-event architecture,
+large-file, and diff hygiene. In particular, movement/Vaccination producer-to-
+consumer closure is checked by `domain-event-architecture-guard` on every normal
+`make ci-local` run; it is not confined to the legacy compatibility job.
 Backend owns kernel/E2E/scale static guards and Go package/unit tests. Postgres
 containers, DB-backed Go tests, the Docker E2E chain, sqlc schema regeneration,
 SQL plans, migration replay, and live latency are skipped by default. They run
@@ -77,9 +80,9 @@ lint, tests, typecheck, fidelity gates, and production build. Android owns its
 mobile/offline/telemetry/memory/Room guards plus staging release compile and unit
 suite under JDK 21.
 
-This fallback certifies repository code only. Restoring GitHub billing and
-required-check enforcement remains an operational task, but it never blocks
-continuing other fixable ledger work.
+Local CI certifies repository code. Restoring GitHub billing or required-check
+enforcement is a separate optional operational task and is never part of PR
+acceptance while Actions is unavailable.
 
 ## Guardrail registration and exact-SHA push evidence
 
@@ -103,12 +106,16 @@ meta-guard that FAILS if:
   (incomplete registration: unvalidated guards might silently break)
 - A `requiredInCI=true` guard's Make target is missing from the `guardrails:` target
   in the Makefile (unwired guard: appears to run but doesn't)
-- A `requiredInCI=true` guard's CI step is missing from `tools/ci/run-local-ci.sh`
-  (half-wired: local passes but remote CI skips it)
+- A `requiredInCI=true` guard's CI step is missing from a standard
+  `run_common`/component job in `tools/ci/run-local-ci.sh` (half-wired: a mention
+  or compatibility-only `run_guardrails` call is not enforcement)
 
-The `guardrail-registration-guard` itself has a `--self-test` mode. Run it locally
-with `make guardrails JOB=guardrail-registration-guard --self-test` to validate the
-guard logic.
+The `guardrail-registration-guard` target runs its adversarial self-test and real
+check together:
+
+```bash
+make guardrail-registration-guard
+```
 
 When you add a new guardrail, register it BEFORE the commit:
 
@@ -116,7 +123,9 @@ When you add a new guardrail, register it BEFORE the commit:
 2. Register it in `tools/ci/guardrail-manifest.json` with a Make target, real
    command, self-test or exemption reason, owning docs, and `requiredInCI` flag
 3. Wire the Make target into `Makefile:guardrails` (if `requiredInCI=true`)
-4. Add the CI step to `tools/ci/run-local-ci.sh` (if `requiredInCI=true`)
+4. Add the CI step to a standard common/component function in
+   `tools/ci/run-local-ci.sh` (if `requiredInCI=true`); compatibility-only wiring
+   is rejected
 5. Run `make guardrails` locally to verify the registration passes
 
 The `guardrail-registration-guard` runs first in `make guardrails`, so registration

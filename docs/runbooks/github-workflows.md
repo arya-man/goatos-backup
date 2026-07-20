@@ -1,8 +1,10 @@
 # GitHub Workflows
 
-When hosted Actions cannot allocate jobs because of billing/platform state,
-follow [Local CI Mirror](local-ci.md). The hosted workflows call the same
-`make ci-local JOB=...` implementation, so local proof is command-identical.
+Hosted Actions is currently not the Goat OS acceptance authority and may be
+unavailable because billing is intentionally not enabled. Do not wait for it,
+change billing, or treat its absence as a PR blocker. Follow
+[Local CI Mirror](local-ci.md); the required proof is `make ci-local` on the exact
+candidate SHA.
 For Codex/Claude pushes to `main`, `make land-main` is the required outer
 command: it rebases onto fresh main before calling the same local CI, rechecks
 main afterward, and only then uses the guarded push path.

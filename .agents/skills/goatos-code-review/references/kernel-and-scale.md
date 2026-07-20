@@ -91,6 +91,13 @@ near-term retries/reminders (minutes-hours). Losing a task must never lose work.
    action request, scoped evidence, policy-pack/version, deterministic decision,
    approval/exception/proof/obligation/escalation plan, audit, outbox, and
    projection. Lower-level mutation primitives are adapters, not a bypass.
+8. **Movement changes location without closing downstream truth.** A shifting
+   path that updates only `shed_id`, retains the source stage, infers destination
+   stage from resident goats, emits aggregate-only counts, or tests the producer
+   and Vaccination consumers separately is incomplete. Destination stage comes
+   from the versioned active shed profile; verified completion atomically writes
+   shed + stage + audit + per-animal outbox events; Vaccination rescopes open
+   work and rechecks eligibility through real registered consumers.
 
 ## Legal-status transition review (obligation state machine)
 
@@ -156,6 +163,39 @@ contract from `context/architecture/operational-kernel-system-design.md` and
       unless a cited source explicitly allows that lifecycle
 - [ ] Tests cover allow, block, approval, exception, replay, idempotency conflict,
       missing evidence, stale state, primitive bypass, and skewed/high-scale load
+
+## Shed-movement source and Vaccination handoff review
+
+Apply this checklist to shifting, relocation, bulk move, phone scan-to-move, and
+any lower-level goat relocation primitive:
+
+- [ ] Cross-park movement is rejected; park departure is an explicit terminal
+      transfer/sale/exit flow, not a shed move
+- [ ] Destination operational stage is resolved only from the destination shed's
+      active `shed_profiles -> animal_stage_lookup` configuration; no resident-
+      goat inference, current-goat fallback, free text, or reason-label mapping
+- [ ] Authorization snapshots destination profile ID + `row_version`; completion
+      fails closed if missing/inactive/ambiguous/incompatible/stale
+- [ ] Approval has no location/stage/count side effect; verified completion
+      atomically updates `shed_id` + `management_stage`, audit, and transactional
+      outbox
+- [ ] Events are per animal: `goat.location.changed` always and
+      `goat.stage_changed` when applicable; multi-animal input cannot collapse
+      cohort facts into one invented aggregate
+- [ ] Source count leg uses source stage and destination leg uses destination
+      stage; cancellation/failure rolls back both, and replay is idempotent
+- [ ] Vaccination location handling rescopes scheduled/due/deferred work and
+      planned batches to the destination shed while preserving in-progress and
+      completed history
+- [ ] Vaccination location/stage handling re-evaluates current eligibility and
+      schedule; stale-event watermarks prevent older movement from winning
+- [ ] Movement does not fabricate health, pregnancy, lactation, reproductive, or
+      medical confirmation; legal-move checks read those authoritative facts
+- [ ] One E2E starts at real shifting completion and asserts the real
+      Vaccination rescope + recheck result. Sibling producer/consumer tests alone
+      are insufficient
+- [ ] `make domain-event-architecture-guard` and the mandatory common path of
+      `make ci-local` both execute and pass on the exact candidate SHA
 
 ## Scale shape — hard requirement on every change (5k-50k now, 1-5M future)
 

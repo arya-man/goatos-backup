@@ -91,6 +91,24 @@ terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
 
+Confirmed shed-stage authority and Vaccination handoff rule (maintainer decision
+2026-07-20): a shed move is both a physical shed transition and, when the
+destination profile differs, an operational-stage transition. The destination
+stage comes only from the destination shed's active `shed_profiles` row joined
+through `animal_stage_lookup`; resident goats, the source goat's current stage,
+free text, and shift-reason labels are never configuration authority. Snapshot
+the destination profile ID and `row_version` at authorization and fail closed if
+the profile is missing, inactive, ambiguous, incompatible, or changes before
+completion. Approval is intent only. Verified completion must atomically update
+the goat's `shed_id` and `management_stage`, write identity audit, and publish
+per-animal `goat.location.changed` plus `goat.stage_changed` when the stage
+changed. Vaccination must consume the result twice: rescope open shed-scoped
+work while preserving in-progress/completed history, then re-evaluate clinical
+eligibility/schedule. Movement must not fabricate pregnancy, health, lactation,
+or other clinical facts; those stay on their authoritative workflows. A real
+shifting-completion → Vaccination E2E test is mandatory—separate producer and
+consumer tests are not closure.
+
 ## Domain Event Integration Is Mandatory
 
 Backend, admin-web, and mobile business mutations all use the same domain-event
@@ -99,7 +117,9 @@ moves, closes, reclassifies, or consumes business state must register producer,
 event, consumer, replay/DLQ behavior, and E2E proof in
 `context/architecture/domain-event-registry.json`, following
 `context/architecture/domain-event-integration-contract.md`. Run
-`make domain-event-architecture-guard`.
+`make domain-event-architecture-guard`. This guard is part of the mandatory
+`run_common` path in `make ci-local`; an optional compatibility job or a textual
+mention elsewhere is not accepted as CI wiring.
 
 Frontend/mobile render backend-owned contracts and send idempotent commands; they
 do not create private business follow-up pipelines. Direct live-animal table

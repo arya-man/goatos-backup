@@ -88,6 +88,14 @@ Permanent scale and guard-authoring rules:
 - A green unit test or checker is not recurrence protection until the failing
   fixture is run by the local/hosted CI entrypoint and the shared anti-pattern
   is recorded in `AGENTS.md` and the relevant reference doc.
+- `requiredInCI` means a guard runs from a standard `make ci-local` component
+  job. A guard reachable only through the legacy `JOB=guardrails` compatibility
+  helper is unwired and must fail the registration meta-guard.
+- Shed shifting is profile-driven. Resolve the active destination
+  `shed_profiles -> animal_stage_lookup` row and lock its version; never infer a
+  destination stage from resident goats. Verified completion atomically changes
+  shed + operational stage and hands both events to Vaccination's rescope and
+  recheck consumers. Require one production-path E2E for that whole chain.
 
 Operational kernel golden rule: every feature must plug into the shared
 trigger -> obligation -> sweeper/reminder -> notification/escalation -> proof ->
@@ -135,7 +143,8 @@ failing-before test is unproven.
 
 Before pushing to `main`, a FULL `make ci-local` must pass on the exact commit being
 pushed. Partial `JOB=...` runs are fine while developing; only a full local CI gates
-main push.
+main push. GitHub Actions availability is irrelevant to this gate; use
+`make land-main` for the fetch/rebase/full-local-CI/race-check/push sequence.
 
 ## Reference Guide
 

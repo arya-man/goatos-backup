@@ -21,12 +21,40 @@ import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const MANIFEST = "tools/ci/guardrail-manifest.json";
+const STANDARD_CI_FUNCTIONS = [
+  "run_common",
+  "run_backend",
+  "run_query_plans",
+  "run_admin_web",
+  "run_android_guards",
+  "run_android",
+];
+
+// Extract top-level Bash function bodies by their column-zero closing brace. The local-CI runner
+// follows this shape deliberately; parsing only these standard jobs prevents a guard mentioned in
+// comments or in the optional compatibility `run_guardrails` helper from posing as PR enforcement.
+function extractShellFunction(text, name) {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => line.trim() === `${name}() {`);
+  if (start < 0) return "";
+  const body = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (lines[i] === "}") return body.join("\n");
+    body.push(lines[i]);
+  }
+  return "";
+}
+
+function standardCiJobText(runLocalCiText) {
+  return STANDARD_CI_FUNCTIONS.map((name) => extractShellFunction(runLocalCiText, name)).join("\n");
+}
 
 // Pure validator — all inputs injected so the self-test can feed adversarial fixtures.
 export function validate({ manifest, mjsScripts, makeGuardrailsBody, runLocalCiText }) {
   const problems = [];
   const guards = manifest.guards || [];
   const registered = new Set(guards.map((g) => g.script));
+  const standardJobs = standardCiJobText(runLocalCiText);
 
   // (1) every enumerated check-*.mjs must be registered.
   for (const script of mjsScripts) {
@@ -50,10 +78,11 @@ export function validate({ manifest, mjsScripts, makeGuardrailsBody, runLocalCiT
       if (g.makeTarget && !makeGuardrailsBody.includes(g.makeTarget)) {
         problems.push(`required guard ${id}: makeTarget "${g.makeTarget}" missing from Makefile guardrails: target`);
       }
-      // (4) required guard's ciStep must appear in run-local-ci.sh.
+      // (4) required guard's ciStep must appear in a standard local-CI job. A mention only
+      // in run_guardrails (the compatibility mode) is not enforcement over pull requests.
       const ciStep = g.ciStep || g.makeTarget;
-      if (!ciStep || !runLocalCiText.includes(ciStep)) {
-        problems.push(`required guard ${id}: ciStep "${ciStep}" missing from tools/ci/run-local-ci.sh`);
+      if (!ciStep || !standardJobs.includes(ciStep)) {
+        problems.push(`required guard ${id}: ciStep "${ciStep}" missing from a standard CI job in tools/ci/run-local-ci.sh`);
       }
     }
   }
@@ -97,7 +126,7 @@ function selfTest() {
   };
   const mjs = ["tools/ci/check-a.mjs", "tools/agent-hooks/check-b.mjs"];
   const makeBody = "\t$(MAKE) a-guard\n";
-  const ci = "step a-guard\n";
+  const ci = "run_common() {\n  step a-guard\n}\n";
 
   const clean = validate({ manifest: goodManifest, mjsScripts: mjs, makeGuardrailsBody: makeBody, runLocalCiText: ci });
   if (clean.length !== 0) throw new Error(`self-test: expected clean, got ${JSON.stringify(clean)}`);
@@ -123,8 +152,29 @@ function selfTest() {
 
   // required guard missing from run-local-ci -> detected.
   const missCi = validate({ manifest: goodManifest, mjsScripts: mjs, makeGuardrailsBody: makeBody, runLocalCiText: "" });
-  if (!missCi.some((p) => p.includes("missing from tools/ci/run-local-ci.sh"))) {
+  if (!missCi.some((p) => p.includes("missing from a standard CI job"))) {
     throw new Error("self-test: required-missing-from-ci not detected");
+  }
+
+  // A required guard mentioned only by the compatibility `run_guardrails` helper is NOT wired to
+  // the standard `common`/component jobs that hosted CI and default `make ci-local` actually run.
+  // This was the false green that left domain-event-architecture-guard out of every normal PR run.
+  const compatibilityOnlyCi = [
+    "run_common() {",
+    "  step other-guard",
+    "}",
+    "run_guardrails() {",
+    "  step a-guard",
+    "}",
+  ].join("\n");
+  const compatibilityOnly = validate({
+    manifest: goodManifest,
+    mjsScripts: mjs,
+    makeGuardrailsBody: makeBody,
+    runLocalCiText: compatibilityOnlyCi,
+  });
+  if (!compatibilityOnly.some((p) => p.includes("standard CI job"))) {
+    throw new Error("self-test: compatibility-only guard wiring was not detected");
   }
 
   console.log("guardrail-registration guard: self-test passed");
