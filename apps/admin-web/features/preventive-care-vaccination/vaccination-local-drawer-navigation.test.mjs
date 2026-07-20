@@ -38,9 +38,17 @@ test("shed passport drawer opens locally and fetches detail without re-rendering
   assert.doesNotMatch(page, /selectedGoatId \? getGoatPassport/);
   assert.match(drawer, /useLocalOverlaySelection/);
   assert.match(drawer, /fetch\(`\/api\/goats\/\$\{encodeURIComponent\(goatId\)\}\/passport`/);
+  assert.match(drawer, /fetch\(`\/api\/goats\/\$\{encodeURIComponent\(goatId\)\}\/vaccination-passport`/);
+  assert.match(drawer, /DrawerVaccinationBlock/);
+  assert.match(drawer, /vaccination_history/);
   assert.match(route, /UUID_RE\.test\(goat_id\)/);
   assert.match(route, /getGoatPassport\(goat_id\)/);
   assert.match(route, /"Cache-Control": "no-store"/);
+
+  const vaccinationRoute = source("../../app/api/goats/[goat_id]/vaccination-passport/route.ts");
+  assert.match(vaccinationRoute, /UUID_RE\.test\(goat_id\)/);
+  assert.match(vaccinationRoute, /getGoatVaccinationPassport\(goat_id\)/);
+  assert.match(vaccinationRoute, /"Cache-Control": "no-store"/);
 });
 
 test("shared local overlay lifecycle covers history, Escape, outside click, focus, and animation", () => {

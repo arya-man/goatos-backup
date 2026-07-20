@@ -3,24 +3,25 @@
 import Link from "@/components/no-prefetch-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
-import type { GoatPassportResponse } from "@/lib/api/server";
+import type { GoatPassportResponse, VaccinationPassport, VaccinationPassportHistoryItem } from "@/lib/api/server";
 import type { VaccinationShedAnimalRow } from "@/lib/api/vaccination-sheds";
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { dash } from "@/lib/format";
-import { X } from "lucide-react";
+import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { dash, fmtDate } from "@/lib/format";
+import { Syringe, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 type GoatPassport = GoatPassportResponse["goat"];
+const DRAWER_ROW_LIMIT = 5;
 
 function animalId(row: VaccinationShedAnimalRow): string {
   return row.goatId;
 }
 
-type PassportReadResult =
-  | { ok: true; data: GoatPassportResponse }
+type ReadResult<T> =
+  | { ok: true; data: T }
   | { ok: false; error: string };
 
-async function getShedGoatPassport(goatId: string): Promise<PassportReadResult> {
+async function getShedGoatPassport(goatId: string): Promise<ReadResult<GoatPassportResponse>> {
   const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/passport`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
@@ -30,6 +31,18 @@ async function getShedGoatPassport(goatId: string): Promise<PassportReadResult> 
     return { ok: false, error: payload.error ?? `passport_read_${response.status}` };
   }
   return { ok: true, data: payload as GoatPassportResponse };
+}
+
+async function getShedGoatVaccinationPassport(goatId: string): Promise<ReadResult<VaccinationPassport>> {
+  const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = await response.json() as Partial<VaccinationPassport> & { error?: string };
+  if (!response.ok || !payload.goat_id) {
+    return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+  }
+  return { ok: true, data: payload as VaccinationPassport };
 }
 
 function statusTone(value: string | null | undefined, kind: "lifecycle" | "health" | "breeding"): "ok" | "warn" | "dng" | "info" | "mut" {
@@ -51,6 +64,196 @@ function statusTone(value: string | null | undefined, kind: "lifecycle" | "healt
   return "mut";
 }
 
+function obligationTone(status: string): "ok" | "warn" | "dng" | "info" | "mut" {
+  if (status === "deferred" || status === "missed") return "warn";
+  if (status === "due" || status === "in_progress") return "info";
+  if (status === "scheduled") return "mut";
+  return "mut";
+}
+
+function historyTone(status: string): "ok" | "warn" | "dng" | "info" | "mut" {
+  if (status === "accepted") return "ok";
+  if (status === "rejected") return "dng";
+  if (status === "recorded") return "warn";
+  return "mut";
+}
+
+function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiPageContract) {
+  if (item.status === "accepted") return <Tag tone="ok">{copy(pageContract, "vaccination.proof_verified")}</Tag>;
+  if (item.status === "recorded") return <Tag tone="warn">{copy(pageContract, "vaccination.awaiting_verify")}</Tag>;
+  if (item.status === "rejected") return <Tag tone="dng">{copy(pageContract, "vaccination.rework_rejected")}</Tag>;
+  return <Tag tone="mut">{item.status}</Tag>;
+}
+
+function realWorkflowRowId(rowId: string | undefined): string | null {
+  const trimmed = rowId?.trim();
+  if (!trimmed || trimmed.startsWith("obligation:")) return null;
+  return trimmed;
+}
+
+function workflowHref(rowId: string): string {
+  return `/workflows/${encodeURIComponent(rowId)}`;
+}
+
+function sourceObligationLabel(obligationId: string): string {
+  return obligationId.slice(0, 8);
+}
+
+function DrawerVaccinationBlock({
+  vaccination,
+  error,
+  pageContract,
+}: {
+  vaccination: VaccinationPassport | undefined;
+  error: string | undefined;
+  pageContract: AdminUiPageContract;
+}) {
+  const open = vaccination?.open_obligations ?? [];
+  const history = vaccination?.vaccination_history ?? [];
+  const openCols = tableLabels(pageContract, "vaccination-open-obligations");
+  const historyCols = tableLabels(pageContract, "vaccination-history");
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div
+        className="muted small"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: ".4px",
+          marginBottom: 10,
+        }}
+      >
+        <Syringe className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
+        {copy(pageContract, "section.vaccination.title")}
+      </div>
+
+      {error ? (
+        <p className="muted small" style={{ marginTop: 8 }}>
+          {copy(pageContract, "vaccination.unavailable_prefix")}: {error}
+        </p>
+      ) : !vaccination ? (
+        <p className="muted small" style={{ margin: 0 }} aria-live="polite">...</p>
+      ) : (
+        <>
+          <div className="metagrid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 12 }}>
+            <div>
+              <div className="k">{copy(pageContract, "vaccination.next_due")}</div>
+              <div className="v" style={{ fontSize: 13 }}>
+                {vaccination.next_due ? (
+                  <>
+                    {fmtDate(vaccination.next_due.due_at)}{" "}
+                    <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
+                  </>
+                ) : (
+                  copy(pageContract, "vaccination.no_upcoming")
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="k">{copy(pageContract, "vaccination.open_obligations")}</div>
+              <div className="v">{open.length}</div>
+            </div>
+            <div>
+              <div className="k">{copy(pageContract, "vaccination.last_accepted")}</div>
+              <div className="v" style={{ fontSize: 13 }}>
+                {vaccination.last_accepted ? fmtDate(vaccination.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}
+              </div>
+            </div>
+          </div>
+
+          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>
+            {copy(pageContract, "vaccination.open_due_rows")}
+          </div>
+          {open.length === 0 ? (
+            <p className="muted small" style={{ margin: "0 0 12px" }}>
+              {copy(pageContract, "vaccination.empty_open")}
+            </p>
+          ) : (
+            <div style={{ overflowX: "auto", marginBottom: 12 }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
+              <table>
+                <thead>
+                  <tr>
+                    {openCols.slice(0, 4).map((label) => (
+                      <th key={label}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {open.slice(0, DRAWER_ROW_LIMIT).map((due) => {
+                    const rowId = realWorkflowRowId(due.workflow_row_id);
+                    return (
+                      <tr key={due.obligation_id}>
+                        <td>{fmtDate(due.due_at)}</td>
+                        <td>{due.sequence}</td>
+                        <td><Tag tone={obligationTone(due.status)}>{due.status}</Tag></td>
+                        <td>
+                          {rowId ? (
+                            <Link href={workflowHref(rowId)} className="lk small">
+                              {copy(pageContract, "action.open_workflow")} →
+                            </Link>
+                          ) : (
+                            <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {open.length > DRAWER_ROW_LIMIT ? (
+                <p className="muted small" style={{ margin: "6px 0 0" }}>
+                  +{open.length - DRAWER_ROW_LIMIT} more
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>
+            {copy(pageContract, "vaccination.history")}
+          </div>
+          {history.length === 0 ? (
+            <p className="muted small" style={{ margin: 0 }}>
+              {copy(pageContract, "vaccination.empty_history")}
+            </p>
+          ) : (
+            <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
+              <table>
+                <thead>
+                  <tr>
+                    {historyCols.slice(0, 5).map((label) => (
+                      <th key={label}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.slice(0, DRAWER_ROW_LIMIT).map((item) => (
+                    <tr key={item.completion_id}>
+                      <td>{fmtDate(item.administered_at)}</td>
+                      <td>{item.doses}</td>
+                      <td><Tag tone={historyTone(item.status)}>{item.status}</Tag></td>
+                      <td>{proofLabel(item, pageContract)}</td>
+                      <td><span className="gid" title={item.obligation_id}>{sourceObligationLabel(item.obligation_id)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {history.length > DRAWER_ROW_LIMIT ? (
+                <p className="muted small" style={{ margin: "6px 0 0" }}>
+                  +{history.length - DRAWER_ROW_LIMIT} more
+                </p>
+              ) : null}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ShedPassportLocalDrawer({
   rows,
   initialSelectedGoatId,
@@ -70,8 +273,11 @@ export function ShedPassportLocalDrawer({
     closeHref,
   });
   const [passports, setPassports] = useState<Record<string, GoatPassport>>({});
+  const [vaccinationPassports, setVaccinationPassports] = useState<Record<string, VaccinationPassport>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [vaccinationErrors, setVaccinationErrors] = useState<Record<string, string>>({});
   const requestsRef = useRef(new Map<string, ReturnType<typeof getShedGoatPassport>>());
+  const vaccinationRequestsRef = useRef(new Map<string, ReturnType<typeof getShedGoatVaccinationPassport>>());
 
   useEffect(() => {
     if (!displayedItem || passports[displayedItem.goatId] || errors[displayedItem.goatId]) return;
@@ -89,9 +295,27 @@ export function ShedPassportLocalDrawer({
     };
   }, [displayedItem, errors, passports]);
 
+  useEffect(() => {
+    if (!displayedItem || vaccinationPassports[displayedItem.goatId] || vaccinationErrors[displayedItem.goatId]) return;
+    const goatId = displayedItem.goatId;
+    let active = true;
+    const request = vaccinationRequestsRef.current.get(goatId) ?? getShedGoatVaccinationPassport(goatId);
+    vaccinationRequestsRef.current.set(goatId, request);
+    void request.then((result) => {
+      if (!active) return;
+      if (result.ok) setVaccinationPassports((current) => ({ ...current, [goatId]: result.data }));
+      else setVaccinationErrors((current) => ({ ...current, [goatId]: result.error }));
+    });
+    return () => {
+      active = false;
+    };
+  }, [displayedItem, vaccinationErrors, vaccinationPassports]);
+
   if (!displayedItem) return null;
   const goat = passports[displayedItem.goatId];
   const error = errors[displayedItem.goatId];
+  const vaccination = vaccinationPassports[displayedItem.goatId];
+  const vaccinationError = vaccinationErrors[displayedItem.goatId];
 
   return (
     <>
@@ -140,6 +364,11 @@ export function ShedPassportLocalDrawer({
                 <div className="hk">{copy(pageContract, "label.reproductive")}</div>
                 <div><Tag tone={statusTone(goat?.summary.reproductive_status, "breeding")}>{dash(goat?.summary.reproductive_status)}</Tag></div>
               </div>
+              <DrawerVaccinationBlock
+                vaccination={vaccination}
+                error={vaccinationError}
+                pageContract={pageContract}
+              />
               {!goat ? <p className="muted small" style={{ marginTop: 14 }} aria-live="polite">…</p> : null}
             </>
           )}
