@@ -53,14 +53,29 @@ WITH duplicate_rows AS (
 DELETE FROM public.outbox_messages
 WHERE outbox_id IN (SELECT outbox_id FROM duplicate_rows);
 
--- ROOT-CAUSE FIX for R50-015 P0: Before attempting CREATE, drop any leftover INVALID index from
--- a prior failed attempt. If a prior CREATE INDEX CONCURRENTLY failed partway, Postgres leaves an
--- INVALID index. On retry, CREATE ... IF NOT EXISTS sees the invalid index "exists" and skips
--- rebuilding, then DROP removes the working OLD index, leaving the table with ONLY an invalid
--- unique index that breaks all writes. Dropping the invalid _v2 first ensures it will be properly
--- rebuilt, and ensures a valid target exists before we drop the old index. Idempotent: noop if _v2
--- doesn't exist.
-DROP INDEX CONCURRENTLY IF EXISTS outbox_messages_verification_idempotency_idx_v2;
+-- ROOT-CAUSE FIX for R50-015 P0: drop the _v2 index ONLY IF it is INVALID (a leftover from a prior
+-- CONCURRENTLY that failed partway). A VALID _v2 from a fully-successful prior attempt must be KEPT:
+-- unconditionally dropping it would, on a retry where the OLD index is already gone, leave NO
+-- ON CONFLICT arbiter and break every write (42P10 "no unique or exclusion constraint matching the
+-- ON CONFLICT specification"). Invariant: the old index is dropped ONLY after _v2 is valid, so
+-- whenever _v2 is invalid the old index still exists as the arbiter — this conditional drop never
+-- opens a no-arbiter window. A non-CONCURRENT drop is safe here: an invalid index serves no reads.
+-- +goose StatementBegin
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = 'outbox_messages_verification_idempotency_idx_v2'
+      AND n.nspname = 'public'
+      AND NOT i.indisvalid
+  ) THEN
+    DROP INDEX IF EXISTS public.outbox_messages_verification_idempotency_idx_v2;
+  END IF;
+END
+$$;
+-- +goose StatementEnd
 
 -- Create the NEW unique index CONCURRENTLY with the widened predicate. Using a distinct name (_v2)
 -- to avoid naming conflict with the old index during the transition. ON CONFLICT (tenant_id, idempotency_key)
@@ -127,7 +142,24 @@ WHERE obligation_event_id IN (SELECT obligation_event_id FROM duplicate_rows);
 -- unique index that breaks all writes. Dropping the invalid _v2 first ensures it will be properly
 -- rebuilt, and ensures a valid target exists before we drop the old index. Idempotent: noop if _v2
 -- doesn't exist.
-DROP INDEX CONCURRENTLY IF EXISTS obligation_status_events_idempotency_idx_v2;
+-- R50-015 P0 (same fix as the outbox _v2 above): drop _v2 ONLY IF invalid; a valid _v2 must be
+-- kept so a retry (with the old index already gone) never leaves a no-arbiter 42P10 window.
+-- +goose StatementBegin
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = 'obligation_status_events_idempotency_idx_v2'
+      AND n.nspname = 'public'
+      AND NOT i.indisvalid
+  ) THEN
+    DROP INDEX IF EXISTS public.obligation_status_events_idempotency_idx_v2;
+  END IF;
+END
+$$;
+-- +goose StatementEnd
 
 -- Create the new UNIQUE index CONCURRENTLY using a distinct name (_v2) to avoid naming conflict
 -- with the old (non-unique) index. ON CONFLICT (tenant_id, idempotency_key) will find the unique
