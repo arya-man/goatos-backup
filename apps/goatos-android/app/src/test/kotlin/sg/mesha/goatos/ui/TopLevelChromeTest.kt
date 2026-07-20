@@ -47,6 +47,14 @@ class TopLevelChromeTest {
             Routes.CALENDAR_DRIVE,
             calendarTargetRoute("/vaccination/execution"),
         )
+        assertEquals(
+            Routes.CALENDAR_DRIVE,
+            calendarTargetRoute("/vaccination/scan/shed-1"),
+        )
+        assertEquals(
+            Routes.CALENDAR_DRIVE,
+            calendarTargetRoute("/vaccination/sheds/shed-1"),
+        )
         assertFalse(isTopLevelRoute(calendarTargetRoute(null), roots))
     }
 }

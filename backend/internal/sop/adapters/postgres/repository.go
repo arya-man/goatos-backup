@@ -819,7 +819,6 @@ func (r *Repository) ListAgedFailedSubmissionFanouts(ctx context.Context, params
 		params.Now = time.Now().UTC()
 	}
 	rows, err := r.pool.Query(ctx, `
--- projection-review: membership=failed sop_task_submission_fanouts for vaccination tasks older than the requested cutoff; group_key=submission_fanout_id (one row per failed fanout); join_cardinality=sop_tasks/sop_definitions/sop_submissions are keyed 1:1, sop_submission_items is 1:N but counted at item grain, vaccination_completions is 0:N and counted DISTINCT by sop_submission_item_id so completion retries cannot fan out counts; pagination=oldest failed fanouts ordered by updated_at/submission_fanout_id with repository cap <=100 after grouping, independent of any UI page; scope=tenant plus vaccination sop code/task type and failed fanout status, with eligible item status limited to accepted/needs_review
 SELECT f.task_id::text,
        f.submission_id::text,
        sd.code,
@@ -859,6 +858,7 @@ WHERE f.tenant_id = $1::uuid
     sd.code IN ('vaccination.drive', 'vaccination.session')
     OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
   )
+-- projection-review: membership=failed sop_task_submission_fanouts for vaccination tasks older than the requested cutoff; group_key=submission_fanout_id (one row per failed fanout); join_cardinality=sop_tasks/sop_definitions/sop_submissions are keyed 1:1, sop_submission_items is 1:N but counted at item grain, vaccination_completions is 0:N and counted DISTINCT by sop_submission_item_id so completion retries cannot fan out counts; pagination=oldest failed fanouts ordered by updated_at/submission_fanout_id with repository cap <=100 after grouping, independent of any UI page; scope=tenant plus vaccination sop code/task type and failed fanout status, with eligible item status limited to accepted/needs_review
 GROUP BY f.submission_fanout_id, f.task_id, f.submission_id, sd.code, st.task_type, st.state, ss.submitted_at, f.updated_at, f.attempt_count, f.last_error
 ORDER BY f.updated_at ASC, f.submission_fanout_id ASC
 LIMIT $4`, params.TenantID, params.UpdatedBefore, params.Now, params.Limit)

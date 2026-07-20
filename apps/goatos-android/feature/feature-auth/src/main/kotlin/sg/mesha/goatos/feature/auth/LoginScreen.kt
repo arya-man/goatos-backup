@@ -66,6 +66,9 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
  * Sign-in (`v-login`) with Google SSO, email/password, and password reset. The
  * feature module owns only presentation; real credential verification lives in
  * SessionViewModel in :app.
+ *
+ * telemetry:exempt Login attempt, success, failure, and password-reset events are owned by
+ * SessionViewModel so this presentation-only composable cannot double-count them.
  */
 @Composable
 fun LoginScreen(

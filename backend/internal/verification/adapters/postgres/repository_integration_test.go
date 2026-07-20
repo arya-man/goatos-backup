@@ -375,12 +375,12 @@ RETURNING location_id::text`, tenantID).Scan(&parkID)
 
 	// Create a verification item with operator, shed, and park references
 	createResult, err := repo.CreateItem(ctx, domain.CreateItem{
-		TenantID:       tenantID,
-		Vertical:       "preventive_care",
-		Module:         "vaccination",
-		Category:       "vaccination_proof",
-		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: tenantID},
-		MediaRefs:      []string{"proof-1"},
+		TenantID:  tenantID,
+		Vertical:  "preventive_care",
+		Module:    "vaccination",
+		Category:  "vaccination_proof",
+		Source:    domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: tenantID},
+		MediaRefs: []string{"proof-1"},
 		// Submission producers carry the authenticated user id. ListQueue must resolve that
 		// through workforce_members.user_id, not expose it as a raw UUID in the app.
 		OperatorID:     &operatorUserID,

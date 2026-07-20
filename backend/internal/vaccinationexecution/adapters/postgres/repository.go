@@ -746,10 +746,40 @@ func int32Ptr(v pgtype.Int4) *int32 {
 // sop_tasks.state / obligation_batches.status stay current-state.
 //
 // This is now the request-path serving read (ListVaccinationExecutionPage), not only the projector replay.
-// projection-review: membership=obligation_instances rows for one tenant due by $4, joined to obligation_batches by batch_id so batched rows use the canonical batch planned_date while unbatched rows fall back to obligation due_at; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_name, dose_code); join_cardinality=each obligation has at most one batch/task/goat row, vaccination_completions is filtered to the as_of-bounded effective row per obligation through the obligation_id join, and grouped COUNT/ARRAY_AGG operate on obligation grain so target counts cannot fan out; pagination=classified rows are keyset paginated after grouped aggregation with total_count over the full filtered set; scope=park/shed filters are resolved through located.park_uuid/shed_uuid with tenant scoping and status buckets from as_of-effective eff_status/work_state.
+// projection-review: membership=obligation_instances rows for one tenant due by $4, joined to obligation_batches by batch_id so batched rows use the canonical batch planned_date while unbatched rows fall back to obligation due_at; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_name, dose_code); join_cardinality=completion history is pre-aggregated from 0:N to one as-of-effective row per obligation before joining, while batch/task/goat joins are keyed 1:1 and grouped COUNT/ARRAY_AGG operate on obligation grain so target counts cannot fan out; pagination=classified rows are keyset paginated after grouped aggregation with total_count over the full filtered set; scope=park/shed filters are resolved through located.park_uuid/shed_uuid with tenant scoping and status buckets from as_of-effective eff_status/work_state.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 rows) canonical execution list, query-plan-tested (canonical_read_plan_test.go).
 const vaccinationExecutionSQL = `
-WITH asof_terminal AS (
+WITH completion_candidates AS (
+  SELECT
+    obligation_id,
+    completion_id,
+    administered_at,
+    created_at,
+    CASE
+      WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $7::timestamptz THEN 'recorded'
+      ELSE status
+    END AS asof_status
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+    AND COALESCE(administered_at, created_at) <= $7::timestamptz
+),
+completions AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC,
+      completion_id DESC))[1] AS effective_status,
+    (ARRAY_AGG(completion_id ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC,
+      completion_id DESC))[1] AS completion_id
+  FROM completion_candidates
+  GROUP BY obligation_id
+),
+asof_terminal AS (
   -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
   -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
   -- (latest of missed/waived/deferred <= as_of); NULL means the obligation's only terminal events are after as_of
@@ -792,13 +822,8 @@ raw AS (
     g.lifecycle_status AS goat_lifecycle_status,
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
-    -- as_of correctness on the verification: a dose accepted/rejected AFTER as_of was only 'recorded'
-    -- (proof pending) at as_of (accept/reject stamps verified_at = now()).
-    CASE
-      WHEN vc.status IN ('accepted', 'rejected') AND vc.verified_at IS NOT NULL AND vc.verified_at > $7::timestamptz THEN 'recorded'
-      ELSE vc.status
-    END AS completion_status,
-    vc.completion_id,
+    c.effective_status AS completion_status,
+    c.completion_id,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -833,11 +858,8 @@ raw AS (
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
-  LEFT JOIN vaccination_completions vc
-    ON vc.tenant_id = oi.tenant_id
-   AND vc.obligation_id = oi.obligation_id
-   -- as_of correctness: a completion recorded/administered AFTER as_of must not count.
-   AND COALESCE(vc.administered_at, vc.created_at) <= $7::timestamptz
+  LEFT JOIN completions c
+    ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
@@ -879,7 +901,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply target counts; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -890,7 +912,8 @@ grouped AS (
     located.dose_code,
     MIN(located.execution_due_at) AS due_at,
     COUNT(*)::bigint AS obligation_count,
-    -- Bucket counts use the as_of-effective status; completion counts below use the as_of-bounded vc join.
+    -- Bucket counts use the as_of-effective status; completion counts use the pre-aggregated,
+    -- as-of-bounded completion projection above.
     COUNT(*) FILTER (WHERE located.eff_status = 'scheduled')::bigint AS scheduled_count,
     COUNT(*) FILTER (WHERE located.eff_status = 'due')::bigint AS due_count,
     COUNT(*) FILTER (WHERE located.eff_status = 'in_progress')::bigint AS in_progress_count,
@@ -1380,6 +1403,7 @@ cohort_page AS (
     effective.stage COLLATE "C" ASC
   LIMIT $9
 )
+-- projection-review: membership=effective vaccination obligation rows inside the tenant due horizon after as-of status reconstruction; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name) selected by cohort_page; join_cardinality=completions and terminal events are pre-aggregated to one row per obligation, goat/protocol/location joins are tenant-keyed 1:1, and COUNT(DISTINCT goat_id) protects animal membership; pagination=cohort_page keysets whole cohort groups before this final aggregate so page size cannot split a group or alter its totals; scope=tenant plus explicit optional park/shed filters with park resolved from direct goat park or shed parent.
 SELECT
   effective.park_uuid,
   park.name AS park_name,

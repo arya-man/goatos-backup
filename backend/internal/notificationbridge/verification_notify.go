@@ -205,10 +205,10 @@ func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string
 	// Build context fields for FCM deep-linking: type, obligation_id, park_id (all required),
 	// plus priority for android. The gateway will merge these into fcmData and set android priority.
 	notificationContext := map[string]string{
-		"type":           NotificationTypeRework,
-		"obligation_id":  completionCtx.ObligationID,
-		"park_id":        completionCtx.ParkID,
-		"priority":       priorityHigh,
+		"type":          NotificationTypeRework,
+		"obligation_id": completionCtx.ObligationID,
+		"park_id":       completionCtx.ParkID,
+		"priority":      priorityHigh,
 	}
 
 	_, err = n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{

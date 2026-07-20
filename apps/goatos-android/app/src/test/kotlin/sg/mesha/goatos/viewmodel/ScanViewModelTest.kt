@@ -141,7 +141,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         val answer = submitSync.lastRequest?.answers?.get("goat_ids") as? JsonArray
-        assertEquals(listOf(JsonPrimitive("TAG-100")), answer)
+        assertEquals(listOf(JsonPrimitive("goat-1")), answer)
     }
 
     @Test

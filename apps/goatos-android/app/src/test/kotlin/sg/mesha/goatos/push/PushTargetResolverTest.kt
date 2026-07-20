@@ -40,7 +40,7 @@ class PushTargetResolverTest {
     fun `explicit taskless scan target falls back instead of showing an unresumable execution`() {
         val route = resolvePushRoute(mapOf(PushExtras.TARGET to "scan/shed-123"))
 
-        assertEquals(Routes.VACCINATION, route)
+        assertEquals(Routes.CALENDAR_DRIVE, route)
     }
 
     @Test

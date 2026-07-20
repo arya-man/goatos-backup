@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -126,6 +127,43 @@ func TestListVaccinationExecutionProjection(t *testing.T) {
 	}
 }
 
+func TestListVaccinationExecutionDateShiftUsesBatchPlannedDateInsteadOfObligationDueDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "remove proof pending state",
+		`DELETE FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2`, testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "shift execution date after canonical due date",
+		`UPDATE obligation_batches SET planned_date=DATE '2026-06-30' WHERE tenant_id=$1 AND batch_id=$2`, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "return obligation to open scheduling",
+		`UPDATE obligation_instances SET status='scheduled' WHERE tenant_id=$1 AND obligation_id=$2`, testTenant, testObl)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution: %v", err)
+	}
+	got := rowByBatch(rows, testBatch)
+	if got == nil || got.DueAt == nil {
+		t.Fatalf("shifted batch row missing: %#v", rows)
+	}
+	wantExecutionDate := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	if !got.DueAt.Equal(wantExecutionDate) {
+		t.Fatalf("execution date=%s want batch planned date %s (obligation due date remains 2026-06-24)", got.DueAt, wantExecutionDate)
+	}
+	if got.ScheduledCount != 1 || got.DueCount != 0 || got.InProgressCount != 0 {
+		t.Fatalf("shifted buckets scheduled=%d due=%d in_progress=%d want 1/0/0", got.ScheduledCount, got.DueCount, got.InProgressCount)
+	}
+}
+
 func TestScanRosterUsesExactTaskIdentityCursorAndPinnedOptions(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -212,7 +250,7 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-TWO','rfid-two','act
 	}
 }
 
-func TestScanRosterPinsParkScopedDriveTaskToSelectedShed(t *testing.T) {
+func TestScanRosterParkScopePinsDriveTaskToSelectedShed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -288,7 +326,7 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','PARK-RFID-ONE','park-rfid
 	}
 }
 
-func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing.T) {
+func TestListVaccinationExecutionPageBoundaryKeepsFullFilteredTotal(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -303,10 +341,8 @@ func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing
 	insertProjectionObligation(t, ctx, pool, secondObligation, secondBatch, secondGoat, "scheduled", "2026-06-26 00:00:00+00", "vaccexec-cursor-second")
 
 	repo := NewRepository(pool, 5*time.Second)
-	severity := domain.SeverityWatch
 	query := domain.ExecutionQuery{
 		TenantID:  testTenant,
-		Severity:  &severity,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     1,
@@ -328,6 +364,167 @@ func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing
 	}
 	if first.Rows[0].SortRowKey == second.Rows[0].SortRowKey {
 		t.Fatalf("cursor repeated row %q", first.Rows[0].SortRowKey)
+	}
+}
+
+func TestListVaccinationExecutionStatusMatrixMatchesConstraintAndDisjointBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "clear base completion",
+		`DELETE FROM vaccination_completions WHERE tenant_id=$1`, testTenant)
+	execProjectionSQL(t, ctx, pool, "clear base obligation",
+		`DELETE FROM obligation_instances WHERE tenant_id=$1`, testTenant)
+	execProjectionSQL(t, ctx, pool, "clear base batch",
+		`DELETE FROM obligation_batches WHERE tenant_id=$1`, testTenant)
+
+	type statusCase struct {
+		plannedDate string
+		bucket      string
+		included    bool
+	}
+	statusCases := map[string]statusCase{
+		"scheduled":   {plannedDate: "2026-06-25", bucket: "scheduled", included: true},
+		"due":         {plannedDate: "2026-06-24", bucket: "due", included: true},
+		"in_progress": {plannedDate: "2026-06-26", bucket: "in_progress", included: true},
+		"deferred":    {plannedDate: "2026-06-27", bucket: "deferred", included: true},
+		"completed":   {plannedDate: "2026-06-28", bucket: "completed", included: true},
+		"missed":      {plannedDate: "2026-06-29", bucket: "missed", included: true},
+		"waived":      {plannedDate: "2026-06-30", bucket: "deferred", included: true},
+		"canceled":    {plannedDate: "2026-07-01", included: false},
+		"superseded":  {plannedDate: "2026-07-02", included: false},
+	}
+	assertConstraintValues(t, ctx, pool, "obligation_instances", "obligation_instances_status_check", statusCases)
+
+	completionByObligationStatus := map[string]string{
+		"scheduled":   "recorded",
+		"due":         "accepted",
+		"in_progress": "rejected",
+		"deferred":    "reversed",
+	}
+	completionCases := map[string]statusCase{
+		"recorded": {included: true},
+		"accepted": {included: true},
+		"rejected": {included: true},
+		"reversed": {included: true},
+	}
+	assertConstraintValues(t, ctx, pool, "vaccination_completions", "vaccination_completions_status_check", completionCases)
+
+	statusOrder := []string{"scheduled", "due", "in_progress", "deferred", "completed", "missed", "waived", "canceled", "superseded"}
+	batchByStatus := make(map[string]string, len(statusOrder))
+	for index, status := range statusOrder {
+		goatID := fmt.Sprintf("71000000-0000-4000-8000-%012d", 100+index)
+		batchID := fmt.Sprintf("71000000-0000-4000-8000-%012d", 200+index)
+		obligationID := fmt.Sprintf("71000000-0000-4000-8000-%012d", 300+index)
+		batchByStatus[status] = batchID
+		insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
+		execProjectionSQL(t, ctx, pool, "status matrix batch "+status,
+			`INSERT INTO obligation_batches (batch_id,tenant_id,protocol_version_id,scope_type,scope_id,status,planned_date,conducted_by)
+			 VALUES ($1,$2,$3,'shed',$4,'planned',$5::date,$6)`,
+			batchID, testTenant, testVersion, testShed, statusCases[status].plannedDate, testOperator)
+		insertProjectionObligation(t, ctx, pool, obligationID, batchID, goatID, status, "2026-06-24 00:00:00+00", "status-matrix-"+status)
+		if status == "completed" {
+			execProjectionSQL(t, ctx, pool, "completed timestamp",
+				`UPDATE obligation_instances SET completed_at=TIMESTAMPTZ '2026-06-23 09:00:00+00' WHERE tenant_id=$1 AND obligation_id=$2`,
+				testTenant, obligationID)
+		}
+		if completionStatus, ok := completionByObligationStatus[status]; ok {
+			completionID := fmt.Sprintf("71000000-0000-4000-8000-%012d", 400+index)
+			execProjectionSQL(t, ctx, pool, "completion status "+completionStatus,
+				`INSERT INTO vaccination_completions
+				 (completion_id,tenant_id,obligation_id,batch_id,goat_id,administered_at,status,verified_at,idempotency_key,recorded_by)
+				 VALUES ($1,$2,$3,$4,$5,TIMESTAMPTZ '2026-06-23 08:00:00+00',$6,
+				   CASE WHEN $6 IN ('accepted','rejected') THEN TIMESTAMPTZ '2026-06-23 09:00:00+00' ELSE NULL END,$7,$8)`,
+				completionID, testTenant, obligationID, batchID, goatID, completionStatus, "completion-status-matrix-"+completionStatus, testOperator)
+		}
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution: %v", err)
+	}
+	if len(rows) != 7 {
+		t.Fatalf("included rows=%d want 7: %#v", len(rows), rows)
+	}
+	for status, tc := range statusCases {
+		row := rowByBatch(rows, batchByStatus[status])
+		if !tc.included {
+			if row != nil {
+				t.Fatalf("excluded status %s appeared in projection: %#v", status, row)
+			}
+			continue
+		}
+		if row == nil {
+			t.Fatalf("included status %s missing from projection", status)
+		}
+		buckets := map[string]int{
+			"scheduled":   row.ScheduledCount,
+			"due":         row.DueCount,
+			"in_progress": row.InProgressCount,
+			"completed":   row.CompletedCount,
+			"missed":      row.MissedCount,
+			"deferred":    row.DeferredCount,
+		}
+		bucketTotal := 0
+		for _, count := range buckets {
+			bucketTotal += count
+		}
+		if row.ObligationCount != 1 || bucketTotal != row.ObligationCount || buckets[tc.bucket] != 1 || row.CanceledCount != 0 {
+			t.Fatalf("status %s bucket=%s row=%#v bucketTotal=%d", status, tc.bucket, row, bucketTotal)
+		}
+		if completionStatus, ok := completionByObligationStatus[status]; ok {
+			completionCounts := map[string]int{
+				"recorded": row.CompletionRecorded,
+				"accepted": row.CompletionAccepted,
+				"rejected": row.CompletionRejected,
+				"reversed": row.CompletionReversed,
+			}
+			if completionCounts[completionStatus] != 1 {
+				t.Fatalf("completion status %s row=%#v", completionStatus, row)
+			}
+		}
+	}
+}
+
+func assertConstraintValues[T any](t *testing.T, ctx context.Context, pool *pgxpool.Pool, table, constraint string, expected map[string]T) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+SELECT (matches.value)[1]
+FROM pg_constraint c
+CROSS JOIN LATERAL regexp_matches(pg_get_constraintdef(c.oid), '''([^'']+)''::text', 'g') AS matches(value)
+WHERE c.conname=$1 AND c.conrelid=$2::regclass
+ORDER BY (matches.value)[1]`, constraint, table)
+	if err != nil {
+		t.Fatalf("read %s: %v", constraint, err)
+	}
+	defer rows.Close()
+	got := []string{}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			t.Fatalf("scan %s: %v", constraint, err)
+		}
+		got = append(got, value)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate %s: %v", constraint, err)
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("%s values=%v, test matrix keys=%v", constraint, got, expected)
+	}
+	for _, value := range got {
+		if _, ok := expected[value]; !ok {
+			t.Fatalf("%s added value %q without a status-matrix fixture", constraint, value)
+		}
 	}
 }
 
@@ -998,12 +1195,12 @@ func rowByBatch(rows []domain.ExecutionProjection, batchID string) *domain.Execu
 	return nil
 }
 
-// TestVaccinationOperationsAggregatesCohortsAndDedupesRework proves the operations read model:
+// TestVaccinationOperationsOneToManyCompletionHistoryCountsEachObligationOnce proves the operations read model:
 //   - cohort × protocol cells from real obligations/completions
 //   - rejected-then-accepted rework collapses to ONE effective row (no overcount, not stuck "rejected")
 //   - last_dose is the latest ACCEPTED administered_at
 //   - park scope filters cohorts
-func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
+func TestVaccinationOperationsOneToManyCompletionHistoryCountsEachObligationOnce(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1091,6 +1288,22 @@ func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
 	}
 	if k2.AgeBand == nil || *k2.AgeBand != "2-4 mo" {
 		t.Errorf("K2 ageBand: want '2-4 mo', got %v", k2.AgeBand)
+	}
+
+	// The execution board uses a separate aggregate. It must also collapse the rejected+accepted
+	// completion history before joining, otherwise this two-obligation batch becomes three rows.
+	executionRows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      asOf,
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution: %v", err)
+	}
+	execution := rowByBatch(executionRows, testBatch)
+	if execution == nil || execution.ObligationCount != 2 || execution.CompletionRecorded != 1 || execution.CompletionAccepted != 1 || execution.CompletionRejected != 0 {
+		t.Fatalf("execution one-to-many completion collapse=%#v, want obligations=2 recorded=1 accepted=1 rejected=0", execution)
 	}
 
 	// Park scope: matching park returns rows, a different park returns none.

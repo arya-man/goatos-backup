@@ -1,5 +1,6 @@
 package sg.mesha.goatos
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -208,6 +209,10 @@ class MainActivity : ComponentActivity() {
      * capture is inactive, or the key is unrelated to a tag, the event still follows the
      * normal Activity/View path unchanged.
      */
+    // Activity.dispatchKeyEvent is the public platform interception point required for a
+    // keyboard-wedge reader. ComponentActivity redeclares it with a library-group lint
+    // restriction, so suppress that annotation only on this intentional platform override.
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = dispatchRfidFirst(
         rfidConsumes = { rfidReader.onKeyEvent(event) },
         dispatchNormally = { super.dispatchKeyEvent(event) },
