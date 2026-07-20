@@ -23,6 +23,22 @@ android {
     namespace = "sg.mesha.goatos"
     compileSdk = 36
 
+    fun signingProperty(name: String): String? =
+        (project.findProperty(name) as String?)
+            ?: System.getenv(name)
+
+    signingConfigs {
+        create("stgRelease") {
+            val storeFilePath = signingProperty("GOATOS_ANDROID_STG_KEYSTORE")
+            if (!storeFilePath.isNullOrBlank()) {
+                storeFile = file(storeFilePath)
+                storePassword = signingProperty("GOATOS_ANDROID_STG_KEYSTORE_PASSWORD")
+                keyAlias = signingProperty("GOATOS_ANDROID_STG_KEY_ALIAS")
+                keyPassword = signingProperty("GOATOS_ANDROID_STG_KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "sg.mesha.goatos"
         minSdk = 29
@@ -122,6 +138,10 @@ android {
         release {
             isMinifyEnabled = false
             manifestPlaceholders["appLabel"] = "Mesha"
+            val stgReleaseSigning = signingConfigs.getByName("stgRelease")
+            if (stgReleaseSigning.storeFile != null) {
+                signingConfig = stgReleaseSigning
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         create("benchmark") {

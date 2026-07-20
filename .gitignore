@@ -38,6 +38,7 @@ tfplan
 firebase-debug.log
 *.log
 .DS_Store
+.local/
 
 # media and generated heavy artifacts
 *.mp4
