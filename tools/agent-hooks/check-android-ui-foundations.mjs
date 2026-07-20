@@ -156,6 +156,18 @@ function architectureFindings(read = (rel) => fs.readFileSync(path.join(sourceRo
     [/persistedScanDone[\s\S]*_localDone/, "rendered scan completion must merge persisted and in-process state"],
   ]));
 
+  const shedsScreen = "apps/goatos-android/feature/feature-sheds/src/main/kotlin/sg/mesha/goatos/feature/sheds/ShedsScreen.kt";
+  findings.push(...requirePatterns(shedsScreen, read(shedsScreen), [
+    [/LoadingSkeletonList/, "vaccination sheds cold-load content must use skeleton/shimmer placeholders"],
+    [/state\.isInitialLoading[\s\S]{0,180}state\.rows\.isEmpty\(\)/, "vaccination sheds loading skeleton must be gated by explicit initial-loading state, not loading copy"],
+  ]));
+
+  const shedsVm = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ShedsViewModel.kt";
+  findings.push(...requirePatterns(shedsVm, read(shedsVm), [
+    [/isInitialLoading\s*=\s*dto\s*==\s*null\s*&&\s*!\s*resource\.hasData/, "vaccination sheds ViewModel must distinguish cold loading from cached refresh"],
+    [/shedsPlaceholder\("Loading today.s sheds…"\)\.copy\(isInitialLoading\s*=\s*true\)/, "initial sheds placeholder must render skeleton, not an empty-state loading wall"],
+  ]));
+
   const formSpec = "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/forms/FormSpec.kt";
   findings.push(...requirePatterns(formSpec, read(formSpec), [
     [/"select",\s*"single_select"\s*->\s*SELECT/, "backend select fields must map to a supported renderer"],

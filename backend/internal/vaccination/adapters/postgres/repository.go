@@ -1671,6 +1671,7 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 		expectedCount int64
 		handledCount  int64
 		proofReady    int64
+		pendingVerify int64
 	)
 	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id = the shed drive's batch); group_key=(tenant_id, task_id) resolving one batch_id, all counts keyed to that single batch/shed; join_cardinality=each count is a SEPARATE scalar sub-select over a 1-row-per-fact source (expected=one row per obligation_instance in the batch; handled=COUNT(DISTINCT goat_id) over scan_captures so multiple scans of one goat count once; proof_ready=COUNT(DISTINCT subject_id) over proof_artifacts so multiple clips per goat count once) — the buckets are never multiplied by a shared fan-out because they are computed independently, not from one wide JOIN; pagination=whole-shed totals computed server-side in one aggregation, NOT page-limited (no LIMIT/OFFSET on the counts); scope=explicit — the task's own scope_type='shed' resolves shed_name via locations, and expected animals come ONLY from obligation_instances joined to THIS task's batch_id, so no park/cohort/other-shed animals bleed in.
 	// grain: one summary row per (tenant, task/shed drive). status buckets: expected excludes terminal obligations ('completed','waived','canceled','superseded') to mirror RecordCompletionsFromSubmission; submit is enabled only at handled==expected==proof_ready (strict — over- and under-scan both block).
@@ -1717,6 +1718,14 @@ proofed AS (
     AND subject_id IS NOT NULL
     AND upload_state = 'completed'
 ),
+verification_pending AS (
+  SELECT count(*) AS n
+  FROM verification_items vi
+  WHERE vi.tenant_id = $1
+    AND vi.source_task_id = $2
+    AND vi.status = 'pending'
+    AND vi.closed_at IS NULL
+),
 shed AS (
   SELECT l.name
   FROM t
@@ -1741,11 +1750,12 @@ SELECT
   t.state,
   COALESCE((SELECT n FROM expected), 0),
   COALESCE((SELECT n FROM handled), 0),
-  COALESCE((SELECT n FROM proofed), 0)
+  COALESCE((SELECT n FROM proofed), 0),
+  COALESCE((SELECT n FROM verification_pending), 0)
 FROM t
 LEFT JOIN shed ON true`,
 		tenant, task,
-	).Scan(&shedName, &driveName, &state, &expectedCount, &handledCount, &proofReady)
+	).Scan(&shedName, &driveName, &state, &expectedCount, &handledCount, &proofReady, &pendingVerify)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", ports.ErrNotFound)
@@ -1766,7 +1776,7 @@ LEFT JOIN shed ON true`,
 		HandledCount:     handledCount,
 		ProofReadyCount:  proofReady,
 		VaccineBreakdown: breakdown,
-		SubmitState:      shedCompletionSubmitState(state),
+		SubmitState:      shedCompletionSubmitState(state, pendingVerify),
 	}
 	summary.SubmitEnabled, summary.BlockingReason = shedCompletionReadiness(expectedCount, handledCount, proofReady)
 	return summary, nil
@@ -1832,7 +1842,10 @@ LIMIT 50`, tenant, task)
 
 // shedCompletionSubmitState maps a generic sop_tasks.state onto the frozen ShedCompletionSummary
 // submit_state vocabulary (draft | submitted | verified | closed).
-func shedCompletionSubmitState(taskState string) string {
+func shedCompletionSubmitState(taskState string, pendingVerify int64) string {
+	if pendingVerify > 0 {
+		return "submitted"
+	}
 	switch taskState {
 	case "queued", "assigned", "in_progress":
 		return "draft"

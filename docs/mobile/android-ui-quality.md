@@ -31,6 +31,12 @@ system concerns rather than per-screen polish.
   and gesture/navigation-bar gaps.
 - Render cached content during refresh. Loading, empty, error, offline and disabled states must be
   explicit and screenshot-tested at compact and expanded widths.
+- Cold-load content areas must render skeleton/shimmer placeholders, not a text-only loading card
+  or a full-screen loading wall. The app shell and bottom navigation stay structurally visible
+  while route content loads. A refresh/retry over cached data must annotate the existing content
+  (`Syncing…`, `Offline · updated…`, retry affordance, etc.) instead of replacing it with
+  “Loading…”. Any route that introduces `isLoading`/`isRefreshing` needs a screenshot regression
+  proving the skeleton path and a device/E2E observation when it is part of a release flow.
 - Do not render the container for an absent status. A blank sync/state label must remove its whole
   banner, including background, padding, and status icon; a lone dot or empty strip is a release
   failure and needs an unanswered-draft screenshot regression.
