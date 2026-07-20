@@ -161,7 +161,9 @@ export function MeshaShell({
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
   const searchKey = searchParams?.toString() ?? "";
+  const isCalendarPage = pathname === "/calendar" || pathname.startsWith("/calendar/");
   const isVaccinationFullSchedule = pathname === "/vaccination" && searchParams?.get("view") === "schedule";
+  const hideCalendarTopbarScope = isCalendarPage || isVaccinationFullSchedule;
   const preserveVaccinationSchedule =
     isVaccinationFullSchedule
       ? { view: "schedule", schedule_year: searchParams.get("schedule_year") ?? undefined }
@@ -394,7 +396,7 @@ export function MeshaShell({
             an app-wide scope. */}
         {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Park-wise does
             not force a park filter; users choose a concrete park separately from the park picker. */}
-        {isVaccinationFullSchedule ? null : (
+        {hideCalendarTopbarScope ? null : (
           <div className="parkpick" style={{ marginRight: 6 }}>
             <Link
               href={currentScopeHref({ park: null, mode: "company" })}
@@ -479,7 +481,7 @@ export function MeshaShell({
         </div>
         {/* Point-in-time date scope only. This is deliberately visible: process-integrity screens honor
             `as_of`, so carrying a bookmarked historical date must never look like today's live queue. */}
-        {isVaccinationFullSchedule ? null : (
+        {hideCalendarTopbarScope ? null : (
           <div
             className={`pscope date-scope ${isHistoricalDate ? "stale" : ""}`}
             style={{ marginRight: 4 }}

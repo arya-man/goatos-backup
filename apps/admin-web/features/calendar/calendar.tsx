@@ -159,7 +159,7 @@ export async function VaccinationCalendarPage({
   // NB: the sentinel is "week", NOT "all" — scopeHref() drops any query value equal to "all",
   // so an "all" sentinel would be silently stripped and the toggle would never engage.
   const anchorWeekday = weekdayOf(`${anchorKey}T00:00:00+05:30`);
-  const allWeek = !historyMode && dayFilter === "week";
+  const allWeek = !historyMode && (dayFilter === "week" || (datePickerOpen && !dayFilter));
   const effectiveDayFilter = historyMode || allWeek ? undefined : dayFilter ?? anchorWeekday;
   const dayForHref = allWeek ? "week" : effectiveDayFilter;
   const pickerWindow = monthWindow(anchorKey);
@@ -318,12 +318,12 @@ export async function VaccinationCalendarPage({
       targets_page: undefined,
       targets_cursor_stack: undefined,
     });
-  const pickerDateHref = (date: string, historyOnly = false) =>
+  const pickerDateHref = (date: string, historyOnly = false, showWholeWeek = false) =>
     hrefWith({
       as_of: date,
       status: historyOnly ? "completed" : undefined,
       view: undefined,
-      day: undefined,
+      day: showWholeWeek ? "week" : undefined,
       event: undefined,
       cursor: undefined,
       page: undefined,
@@ -759,7 +759,7 @@ function CalendarDatePicker({
   presentation: CalendarPresentation;
   pageContract: AdminUiPageContract;
   monthHref: (date: string) => string;
-  dateHref: (date: string, historyOnly?: boolean) => string;
+  dateHref: (date: string, historyOnly?: boolean, showWholeWeek?: boolean) => string;
 }) {
   const { year, month } = calendarMonthAnchor(anchorKey, today);
   const weekdays = optionGroup(pageContract, "calendar_weekdays");
@@ -845,7 +845,7 @@ function CalendarDatePicker({
           return (
             <Link
               key={cell.key}
-              href={dateHref(cell.key, hasHistory && !hasOpenWork)}
+              href={dateHref(cell.key, hasHistory && !hasOpenWork, eventCount > 0)}
               replace
               scroll={false}
               className={`calpicker-day${cell.key === today ? " today" : ""}${cell.key === anchorKey ? " selected" : ""}${eventCount ? " has-events" : ""}${hasDrive ? " has-drive" : ""}${hasHistory ? " has-history" : ""}${hasOpenWork ? " has-open-work" : ""}`}
