@@ -72,7 +72,7 @@
   .scopebadge.park{background:color-mix(in srgb,var(--info) 16%,var(--panel));color:var(--info)}
   .scopetabs{padding:2px}
   .scopetabs button{padding:3px 10px;font-size:11px}
-  .parkpick button,.parkpick a{border:0;background:transparent;padding:6px 12px;border-radius:7px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap}
+  .parkpick button,.parkpick a{border:0;background:transparent;padding:6px 12px;border-radius:7px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap;flex:0 0 auto}
   .parkpick button.on,.parkpick a.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
   .parkpick a[aria-disabled="true"]{opacity:.45;cursor:not-allowed;pointer-events:none}
   .parkpick button:disabled{opacity:.55;cursor:not-allowed}
@@ -538,7 +538,7 @@
   .main table.shed-summary-table{min-width:1080px}
   .main table.shed-summary-table th:nth-child(1),.main table.shed-summary-table td:nth-child(1){min-width:132px}
   .main table.shed-summary-table th:nth-child(2),.main table.shed-summary-table td:nth-child(2){min-width:160px}
-  .main table.shed-summary-table td:nth-child(1) .celllink,.main table.shed-summary-table td:nth-child(2) .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.shed-summary-table td:nth-child(1) .celllink,.main table.shed-summary-table td:nth-child(2) .celllink{width:max-content;max-width:none;white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.shed-summary-table th:nth-child(8),.main table.shed-summary-table td:nth-child(8),.main table.shed-summary-table th:nth-child(9),.main table.shed-summary-table td:nth-child(9){min-width:140px}
   /* Numeric cols (Animals/Due/Done/Sessions = 3-6) + Next due (col 7) carry plain text with no ClipText,
      so the global .celllink overflow-wrap:anywhere breaks "93"->"9/3" and the date char-by-char once the
@@ -923,9 +923,9 @@
   .calpicker-months{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:0 0 12px}
   .calpicker-months a{border:1px solid var(--line);border-radius:8px;padding:7px 4px;text-align:center;text-decoration:none;color:var(--muted);font-size:11px;font-weight:800}
   .calpicker-months a:hover,.calpicker-months a.selected{border-color:var(--brand);color:var(--ink);background:color-mix(in srgb,var(--brand-soft) 45%,var(--bg))}
-  .agenda .dh{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--faint);text-transform:uppercase;margin:16px 2px 8px}
+  .agenda .dh{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--muted);text-transform:uppercase;margin:16px 2px 8px}
   .agenda .dh.today{color:var(--brand-d)}
-  .agenda .cal-empty{display:inline-flex;align-items:center;gap:7px;border:1px dashed var(--line);border-radius:10px;padding:9px 14px;color:var(--faint);font-size:12px}
+  .agenda .cal-empty{display:inline-flex;align-items:center;gap:7px;border:1px dashed var(--line);border-radius:10px;padding:9px 14px;color:var(--ink);font-size:12px}
   .agenda .dh + .ev,.agenda .dh + .cal-empty{margin-top:0}
   /* Drive card: hug content, ring + animals + sheds + vaccines + status chips + owner footer, NO CTA */
   .ev{display:inline-flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:10px;padding:10px 14px;width:fit-content;max-width:100%;cursor:pointer;margin-bottom:8px}
@@ -1016,6 +1016,7 @@
     /* Buttons stay >=40px tap targets on touch widths (the mock's compact desktop padding is too short). */
     .btn,.btn.sm{min-height:40px}
     .celllink{min-width:40px}
+    .tipwrap .ihelp{min-width:40px;min-height:40px}
     /* Tabs, quick-filter tabs, and filter chips are real controls — keep them >=40px on touch widths. */
     .subtabs a,.subtabs button{min-height:40px}
     /* Operation-family chips (audit log, etc.) are real filter controls — >=40px tap targets on touch. */

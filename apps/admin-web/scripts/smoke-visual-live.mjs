@@ -77,7 +77,7 @@ const routes = [
   { name: "login", path: "/login" },
   { name: "control-tower", path: "/?scope_mode=company" },
   { name: "action-center", path: "/action-center?scope_mode=company" },
-  { name: "calendar", path: "/calendar?scope_mode=company" },
+  { name: "calendar", path: "/calendar?scope_mode=company&day=week" },
   { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
   { name: "workflows", path: "/workflows?scope_mode=company" },
   { name: "vaccination", path: "/vaccination?scope_mode=company" },
@@ -589,7 +589,13 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   }
 
   if (routeName === "calendar") {
-    await openAndCloseDrawer(page, page.locator(".agenda .ev.celllink").first(), "CALENDAR EVENT", routeName, assertCalendarTargetIdentity);
+    const drawerEvent = page.locator(".agenda .ev.celllink").first();
+    const driveEvent = page.locator(".agenda .drivelink").first();
+    if ((await drawerEvent.count()) === 1) {
+      await openAndCloseDrawer(page, drawerEvent, "CALENDAR EVENT", routeName, assertCalendarTargetIdentity);
+    } else {
+      await openCalendarDriveDetail(page, driveEvent, routeName);
+    }
     // Month view + a month-cell (.mev) event open — exercised in-app so the top-bar scope is carried.
     const monthTab = page.getByRole("link", { name: "Month", exact: true });
     if ((await monthTab.count()) === 1) {
@@ -626,7 +632,12 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   }
 
   if (routeName === "vaccination") {
-    await openAndCloseDialog(page, page.getByRole("button", { name: "SOP", exact: true }), "Vaccination Drive SOP", "Close", routeName);
+    const sopQuickView = page.getByRole("button", { name: "SOP", exact: true });
+    if ((await sopQuickView.count()) === 1) {
+      await openAndCloseDialog(page, sopQuickView, "Vaccination Drive SOP", "Close", routeName);
+    } else {
+      await page.getByRole("link", { name: "SOP Library", exact: true }).waitFor({ state: "visible", timeout: 5_000 });
+    }
     if ((await page.getByRole("button", { name: "Import sheet", exact: true }).count()) > 0) {
       throw new Error(`${routeName} still exposes the removed Import sheet action`);
     }
@@ -667,6 +678,37 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     }
     await page.goto(`${appBaseUrl}${appPath("/vaccination?scope_mode=company")}`, { waitUntil: "networkidle", timeout: 30_000 });
   }
+}
+
+async function openCalendarDriveDetail(page, trigger, routeName) {
+  await trigger.first().waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
+  const triggerCount = await trigger.count();
+  if (triggerCount !== 1) {
+    throw new Error(`${routeName} drive detail trigger resolved to ${triggerCount} elements`);
+  }
+  const href = await trigger.getAttribute("href");
+  if (!href) throw new Error(`${routeName} drive detail trigger has no href`);
+  const expectedUrl = new URL(href, page.url());
+  await trigger.scrollIntoViewIfNeeded();
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === expectedUrl.pathname && url.search === expectedUrl.search, { timeout: 10_000 }),
+    trigger.click(),
+  ]);
+  if (!page.url().includes("/calendar/drive/")) {
+    throw new Error(`${routeName} drive detail did not navigate to /calendar/drive`);
+  }
+  await page.getByText("Animal roster", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+  const headers = (await page.locator("table thead th").allInnerTexts()).map((h) => h.trim());
+  const expected = ["Display ID", "Shed", "Tag 1", "Tag 2"];
+  if (headers.slice(0, 4).map(comparableHeader).join("|") !== expected.map(comparableHeader).join("|")) {
+    throw new Error(`${routeName} calendar drive detail roster must start with ${expected.join(", ")}; got ${headers.join(", ")}`);
+  }
+  for (const banned of ["Animal ID 1", "Animal ID 2", "missing ID"]) {
+    if ((await page.locator("body").innerText()).includes(banned)) {
+      throw new Error(`${routeName} calendar drive detail contains banned identity wording "${banned}"`);
+    }
+  }
+  await page.goBack({ waitUntil: "networkidle", timeout: 30_000 });
 }
 
 async function submitActionCenterVerification(page, routeName) {
