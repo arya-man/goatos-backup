@@ -535,7 +535,37 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		}
 		cmd.Body.ProofRefs = proofRefs
 	}
-	evaluation := Evaluate(version.FormDSL, version.ProofPolicy, cmd.Body.Answers, cmd.Body.ProofRefs)
+	shedCompletionAck := false
+	proofPolicy := version.ProofPolicy
+	if submissionFanoutNeeded(task) {
+		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID)
+		if err != nil {
+			return nil, mapRepoErr(err)
+		}
+		if !readiness.Enabled {
+			reason := strings.TrimSpace(readiness.Reason)
+			if reason == "" {
+				reason = "shed completion is not ready"
+			}
+			return nil, BadRequest("shed_completion_not_ready", reason)
+		}
+		// Vaccination shed completion is an acknowledgement. The per-animal proof gate is the
+		// backend shed summary above (expected == scanned == proof-ready), not the generic SOP
+		// proof_refs field, so do not require a duplicated task-level proof attachment here.
+		proofPolicy = map[string]any{"required": false, "subject_scope": "task", "types": []any{"video"}, "minimum_count": 0}
+		if len(cmd.Body.ProofRefs) == 0 {
+			proofRefs, err := s.repo.CompletedTaskGoatProofRefs(ctx, cmd.TenantID, cmd.TaskID)
+			if err != nil {
+				return nil, mapRepoErr(err)
+			}
+			cmd.Body.ProofRefs = proofRefs
+		}
+		shedCompletionAck = true
+	}
+	evaluation := domain.DryRunResponse{Valid: true, WorkflowPath: []string{"operator_submission"}, FinalState: "accepted"}
+	if !shedCompletionAck {
+		evaluation = Evaluate(version.FormDSL, proofPolicy, cmd.Body.Answers, cmd.Body.ProofRefs)
+	}
 	cmd.Report = domain.ValidationReport{Valid: evaluation.Valid, Errors: evaluation.Errors, Warnings: evaluation.Warnings}
 	if !evaluation.Valid {
 		return nil, BadRequest("submission_failed_validation", evaluation.Errors[0].Message)

@@ -1028,6 +1028,111 @@ RETURNING attempt_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	return item, nil
 }
 
+func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID string) (ports.ShedCompletionReadiness, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var expected, handled, proofReady int64
+	err := r.pool.QueryRow(ctx, `
+WITH batch AS (
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  WHERE ob.tenant_id = $1::uuid
+    AND ob.sop_task_id = $2::uuid
+),
+expected AS (
+  SELECT count(*) AS n
+  FROM obligation_instances oi
+  JOIN batch b ON b.batch_id = oi.batch_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+),
+handled AS (
+  SELECT count(DISTINCT goat_id) AS n
+  FROM sop_task_scan_captures
+  WHERE tenant_id = $1::uuid
+    AND task_id = $2::uuid
+    AND field_key IN ('goat_ids', '__scan_roster__')
+    AND goat_id IS NOT NULL
+),
+proofed AS (
+  SELECT count(DISTINCT subject_id) AS n
+  FROM proof_artifacts
+  WHERE tenant_id = $1::uuid
+    AND scope_type = 'task'
+    AND scope_id = $2::uuid
+    AND subject_type = 'goat'
+    AND subject_id IS NOT NULL
+    AND upload_state = 'completed'
+)
+SELECT COALESCE((SELECT n FROM expected), 0),
+       COALESCE((SELECT n FROM handled), 0),
+       COALESCE((SELECT n FROM proofed), 0)`,
+		tenantID,
+		taskID,
+	).Scan(&expected, &handled, &proofReady)
+	if err != nil {
+		return ports.ShedCompletionReadiness{}, err
+	}
+	if expected <= 0 {
+		return ports.ShedCompletionReadiness{Enabled: false, Reason: "no animals found for this shed"}, nil
+	}
+	if handled != expected {
+		if handled < expected {
+			return ports.ShedCompletionReadiness{Enabled: false, Reason: fmt.Sprintf("%d animals still need scanning", expected-handled)}, nil
+		}
+		return ports.ShedCompletionReadiness{Enabled: false, Reason: "scanned animals do not match this shed"}, nil
+	}
+	if proofReady != expected {
+		if proofReady < expected {
+			return ports.ShedCompletionReadiness{Enabled: false, Reason: fmt.Sprintf("%d animals still need proof", expected-proofReady)}, nil
+		}
+		return ports.ShedCompletionReadiness{Enabled: false, Reason: "proof records do not match this shed"}, nil
+	}
+	return ports.ShedCompletionReadiness{Enabled: true}, nil
+}
+
+func (r *Repository) CompletedTaskGoatProofRefs(ctx context.Context, tenantID, taskID string) ([]domain.ProofReference, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT proof_id::text,
+       proof_type,
+       subject_type,
+       COALESCE(subject_id::text, ''),
+       upload_state,
+       metadata::text
+FROM proof_artifacts
+WHERE tenant_id = $1::uuid
+  AND scope_type = 'task'
+  AND scope_id = $2::uuid
+  AND subject_type = 'goat'
+  AND subject_id IS NOT NULL
+  AND upload_state = 'completed'
+ORDER BY created_at, proof_id`,
+		tenantID,
+		taskID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.ProofReference{}
+	for rows.Next() {
+		var ref domain.ProofReference
+		var subjectID string
+		var metadataRaw string
+		if err := rows.Scan(&ref.ProofID, &ref.ProofType, &ref.SubjectType, &subjectID, &ref.UploadState, &metadataRaw); err != nil {
+			return nil, err
+		}
+		if subjectID != "" {
+			ref.SubjectID = &subjectID
+		}
+		ref.Metadata = decodeMap([]byte(metadataRaw))
+		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
 func insertSubmissionFanout(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID string) error {
 	_, err := tx.Exec(ctx, `
 INSERT INTO sop_task_submission_fanouts (

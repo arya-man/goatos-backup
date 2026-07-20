@@ -1530,7 +1530,7 @@ SELECT
   NULL::numeric,
   NULL::text,
   false,
-  true,
+  false,
   ss.submitted_at,
   'recorded',
   COALESCE(
@@ -1702,7 +1702,10 @@ expected AS (
 handled AS (
   SELECT count(DISTINCT goat_id) AS n
   FROM sop_task_scan_captures
-  WHERE tenant_id = $1 AND task_id = $2 AND field_key = 'goat_ids' AND goat_id IS NOT NULL
+  WHERE tenant_id = $1
+    AND task_id = $2
+    AND field_key IN ('goat_ids', '__scan_roster__')
+    AND goat_id IS NOT NULL
 ),
 proofed AS (
   SELECT count(DISTINCT subject_id) AS n
@@ -1719,9 +1722,21 @@ shed AS (
   FROM t
   JOIN locations l ON l.tenant_id = t.tenant_id AND l.location_id = t.scope_id
   WHERE t.scope_type = 'shed'
+),
+obligation_shed AS (
+  SELECT CASE
+    WHEN count(DISTINCT l.location_id) = 1 THEN max(l.name)
+    ELSE 'Multiple sheds'
+  END AS name
+  FROM obligation_instances oi
+  JOIN batch b ON b.batch_id = oi.batch_id
+  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  JOIN locations l ON l.tenant_id = g.tenant_id AND l.location_id = g.shed_id
+  WHERE oi.tenant_id = $1
+    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
 )
 SELECT
-  COALESCE(shed.name, t.title),
+  COALESCE((SELECT name FROM obligation_shed), shed.name, t.title),
   t.title,
   t.state,
   COALESCE((SELECT n FROM expected), 0),
@@ -1773,10 +1788,17 @@ batch AS (
   FROM obligation_batches ob
   JOIN t ON t.tenant_id = ob.tenant_id AND t.task_id = ob.sop_task_id
 )
-SELECT COALESCE(v.vaccine, 'Unspecified') AS vaccine,
+SELECT COALESCE(v.vaccine, NULLIF(pv.rule_dsl -> 'vaccine' ->> 'name', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''), NULLIF(pr.dose_code, ''), 'Unspecified') AS vaccine,
        count(*) AS n
 FROM obligation_instances oi
 JOIN batch b ON b.batch_id = oi.batch_id
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.protocol_version_id = oi.protocol_version_id
+ AND pr.rule_id = oi.rule_id
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
 LEFT JOIN LATERAL (
   SELECT COALESCE(nullif(prd.vaccine_type, ''), nullif(prd.vaccine_code, '')) AS vaccine
   FROM protocol_rule_dimensions prd
@@ -1879,6 +1901,7 @@ SELECT vc.completion_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
        COALESCE(g.park_id::text, ''),
+       COALESCE(proofs.proof_ids, ARRAY[]::text[]),
        vc.administered_at
 FROM vaccination_completions vc
 JOIN sop_submission_items si
@@ -1887,6 +1910,16 @@ JOIN sop_submission_items si
 JOIN goats g
   ON g.tenant_id = vc.tenant_id
  AND g.goat_id = vc.goat_id
+LEFT JOIN LATERAL (
+  SELECT array_agg(pa.proof_id::text ORDER BY pa.created_at, pa.proof_id) AS proof_ids
+  FROM proof_artifacts pa
+  WHERE pa.tenant_id = vc.tenant_id
+    AND pa.scope_type = 'task'
+    AND pa.scope_id = si.task_id
+    AND pa.subject_type = 'goat'
+    AND pa.subject_id = vc.goat_id
+    AND pa.upload_state = 'completed'
+) proofs ON true
 WHERE vc.tenant_id = $1
   AND si.submission_id = $2
 ORDER BY vc.goat_id, vc.completion_id
@@ -1906,6 +1939,7 @@ LIMIT 5000`, tenant, submission)
 			&item.GoatLabel,
 			&item.ShedID,
 			&item.ParkID,
+			&item.ProofRefIDs,
 			&item.AdministeredAt,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination: scan submission completion: %w", err)
@@ -1915,6 +1949,49 @@ LIMIT 5000`, tenant, submission)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("vaccination: list submission completion rows: %w", err)
+	}
+	return out, nil
+}
+
+// CompletedProofRefsByTask returns completed proof ids keyed by goat for one vaccination task.
+// Grain is one completed proof artifact; callers use this as the hidden evidence bridge for shed
+// completion acknowledgements, where the operator sees no manual proof_refs form field.
+func (r *Repository) CompletedProofRefsByTask(ctx context.Context, tenantID, taskID string) (map[string][]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	task, err := pgconv.UUID(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: task id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT subject_id::text, proof_id::text
+FROM proof_artifacts
+WHERE tenant_id = $1
+  AND scope_type = 'task'
+  AND scope_id = $2
+  AND subject_type = 'goat'
+  AND subject_id IS NOT NULL
+  AND upload_state = 'completed'
+ORDER BY subject_id, created_at, proof_id
+LIMIT 5000`, tenant, task)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: completed proof refs by task: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string][]string)
+	for rows.Next() {
+		var goatID, proofID string
+		if err := rows.Scan(&goatID, &proofID); err != nil {
+			return nil, fmt.Errorf("vaccination: scan completed proof ref: %w", err)
+		}
+		out[goatID] = append(out[goatID], proofID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: completed proof refs by task rows: %w", err)
 	}
 	return out, nil
 }

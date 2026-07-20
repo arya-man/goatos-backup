@@ -70,6 +70,27 @@ class SyncEngineTest {
         SubmissionResponseDto(submission = SubmissionSummaryDto(validationReport = ValidationReportDto(valid = true)))
 
     @Test
+    fun `successful shed submission response accepts null validation issue arrays`() {
+        val decoded = syncJson.decodeFromString<SubmissionResponseDto>(
+            """
+            {
+              "submission": {
+                "validation_report": {
+                  "valid": true,
+                  "errors": null,
+                  "warnings": null
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertTrue(decoded.submission.validationReport.valid)
+        assertTrue(decoded.submission.validationReport.errors.orEmpty().isEmpty())
+        assertTrue(decoded.submission.validationReport.warnings.orEmpty().isEmpty())
+    }
+
+    @Test
     fun `happy path drains a queued item to SUCCEEDED`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit())

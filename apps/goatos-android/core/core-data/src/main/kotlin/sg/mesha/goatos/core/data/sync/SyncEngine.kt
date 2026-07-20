@@ -243,7 +243,7 @@ class SyncEngine(
     // owns field-level validation copy, so preserve its messages instead of replacing them with
     // a generic client sentence.
     private fun rejectionReason(report: sg.mesha.goatos.core.network.dto.ValidationReportDto): String {
-        return report.errors
+        return report.errors.orEmpty()
             .mapNotNull { issue ->
                 val message = issue.message.trim().ifBlank { issue.code.trim() }
                 if (message.isBlank()) null else message

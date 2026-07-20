@@ -50,6 +50,7 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.sheds.R
 
@@ -156,6 +157,7 @@ data class ShedsUiState(
     // describe the background network refresh over the ALREADY-RENDERED Room cache above —
     // they never gate whether the rest of this state renders.
     val isRefreshing: Boolean = false,
+    val isInitialLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val hasMore: Boolean = false,
     val lastSyncedAt: Long? = null,
@@ -233,7 +235,14 @@ fun ShedsScreen(
             item { DriveMeta(state) }
             item { DayProgress(state) }
             state.roleNote?.let { note -> item { RoleNote(note) } }
-            if (state.rows.isEmpty() && state.caption != null) {
+            if (state.isInitialLoading && state.rows.isEmpty()) {
+                item(key = "initial-skeleton") {
+                    LoadingSkeletonList(
+                        modifier = Modifier.fillMaxWidth(),
+                        rows = 4,
+                    )
+                }
+            } else if (state.rows.isEmpty() && state.caption != null) {
                 item {
                     EmptyState(
                         title = state.caption,

@@ -89,6 +89,34 @@ func scsSeedDrive(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version
 	return taskID, batchID
 }
 
+// scsSeedParkDrive creates the shape produced by the local sweeper today: the SOP
+// task/batch are park-scoped, but the obligations inside it still belong to one
+// concrete shed through goat placement. The mobile shed-completion summary must
+// show that human shed name, never the generic task title.
+func scsSeedParkDrive(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, parkID, code string, lot *string) (taskID, batchID string) {
+	t.Helper()
+	sopID := scanText(t, ctx, pool,
+		`INSERT INTO sop_definitions (tenant_id, code, name, description, status)
+		 VALUES ($1, $2, 'Vaccination Drive', 'park-scoped shed completion summary test', 'active')
+		 RETURNING sop_id::text`, impTenant, "vaccination.park.drive."+code)
+	sopVersionID := scanText(t, ctx, pool,
+		`INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1, $2, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[{"key":"goat_ids","type":"goat_scan","repeat":true}]}'::jsonb,
+		   '{"required":true,"subject_scope":"goat","types":["video"],"minimum_count":1}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)
+		 RETURNING sop_version_id::text`, impTenant, sopID)
+	taskID = scanText(t, ctx, pool,
+		`INSERT INTO sop_tasks (tenant_id, sop_id, sop_version_id, task_type, title, scope_type, scope_id, state)
+		 VALUES ($1, $2, $3, 'vaccination_drive', 'Vaccination drive', 'park', $4, 'assigned')
+		 RETURNING task_id::text`, impTenant, sopID, sopVersionID, parkID)
+	batchID = scanText(t, ctx, pool,
+		`INSERT INTO obligation_batches (tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id, primary_inventory_lot_id)
+		 VALUES ($1, $2, 'park', $3, 'in_progress', 0, $4, $5)
+		 RETURNING batch_id::text`, impTenant, versionID, parkID, taskID, lot)
+	return taskID, batchID
+}
+
 // scsSeedRuleDim inserts one protocol_rule_dimensions row (a selector) with a vaccine label.
 func scsSeedRuleDim(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, selectorKey, vaccineType string) {
 	t.Helper()
@@ -96,6 +124,40 @@ func scsSeedRuleDim(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versi
 		`INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, vaccine_type)
 		 VALUES ($1, $2, $3, 'vaccination', $4, $5)`, impTenant, versionID, ruleID, selectorKey, vaccineType); err != nil {
 		t.Fatalf("rule dimension %s: %v", selectorKey, err)
+	}
+}
+
+func TestShedCompletionSummaryParkScopedTaskUsesObligationShedAndRuleDSLVaccine(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, ruleID := scsSeedProtocol(t, ctx, pool)
+	if _, err := pool.Exec(ctx,
+		`UPDATE protocol_versions
+		 SET rule_dsl = jsonb_set(rule_dsl, '{vaccine}', '{"name":"ET+TT","code":"ET+TT"}'::jsonb, true)
+		 WHERE tenant_id=$1 AND protocol_version_id=$2`, impTenant, versionID); err != nil {
+		t.Fatalf("patch rule_dsl vaccine: %v", err)
+	}
+	const shed = "32000000-0000-4000-8000-0000000000c2"
+	seedShedOperational(t, ctx, pool, shed, "SHED-C", true, false, false)
+	taskID, batchID := scsSeedParkDrive(t, ctx, pool, versionID, impCbe, "park-scope", nil)
+
+	const goatID = "33000000-0000-4000-8000-0000000000c1"
+	seedGoatAtShed(t, ctx, pool, goatID, shed)
+	scsSeedObligation(t, ctx, pool, versionID, ruleID, batchID, goatID, "scheduled", 1)
+
+	vacc := NewRepository(pool, 5*time.Second)
+	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID)
+	if err != nil {
+		t.Fatalf("ShedCompletionSummary: %v", err)
+	}
+	if got.ShedName != "SHED-C" {
+		t.Fatalf("shed name = %q, want SHED-C from obligation goat placement", got.ShedName)
+	}
+	if len(got.VaccineBreakdown) != 1 || got.VaccineBreakdown[0].Vaccine != "ET+TT" || got.VaccineBreakdown[0].Count != 1 {
+		t.Fatalf("vaccine breakdown = %+v, want ET+TT x1 from rule_dsl fallback", got.VaccineBreakdown)
 	}
 }
 
@@ -117,7 +179,7 @@ func scsSeedScan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID, 
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO sop_task_scan_captures
 		   (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, captured_by, idempotency_key)
-		 VALUES ($1, $2, 'goat_ids', $3, $3, $4, $5, $6)`,
+		 VALUES ($1, $2, '__scan_roster__', $3, $3, $4, $5, $6)`,
 		impTenant, taskID, tag, goatID, impParty, "scs-scan:"+taskID+":"+tag); err != nil {
 		t.Fatalf("scan %s: %v", goatID, err)
 	}

@@ -95,6 +95,9 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		if completion.GoatID == "" {
 			continue
 		}
+		if len(completion.ProofRefIDs) > 0 {
+			proofsByGoat[completion.GoatID] = append(proofsByGoat[completion.GoatID], completion.ProofRefIDs...)
+		}
 		if existing, ok := byGoat[completion.GoatID]; !ok || completion.AdministeredAt.Before(existing.AdministeredAt) {
 			byGoat[completion.GoatID] = completion
 		}
@@ -111,6 +114,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	}
 	for goatID, completion := range byGoat {
 		mediaRefs := proofsByGoat[goatID]
+		mediaRefs = uniqueStrings(mediaRefs)
 		if len(mediaRefs) == 0 {
 			return fmt.Errorf("%w: goat_id=%s", ErrMissingGoatProof, goatID)
 		}
@@ -141,6 +145,25 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 		}
 	}
 	return nil
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func stringPtr(value string) *string {

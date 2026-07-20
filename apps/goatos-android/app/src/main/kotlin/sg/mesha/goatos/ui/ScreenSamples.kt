@@ -459,9 +459,9 @@ fun overduePlaceholder(message: String): OverdueUiState =
 
 // MOB-005: Submit's loading / no-task / task-load-failed states previously fell back to
 // sampleSubmitState() directly, leaking "Gandhi 1" / "Milking does" / "Thu 9 Jul" farm identity
-// onto a medical recording screen whenever the real task hadn't loaded (or failed to). Only
-// stable chrome (eyebrow/title/submit label) survives here — every operational identity field
-// is cleared, matching every other honest placeholder above.
+// and sample proof counters onto a medical recording screen whenever the real task hadn't loaded
+// (or failed to). Only stable chrome survives here — every operational identity/count field is
+// cleared, matching every other honest placeholder above.
 fun submitPlaceholder(): SubmitUiState = sampleSubmitState().copy(
     eyebrow = "",
     title = "",
@@ -474,6 +474,10 @@ fun submitPlaceholder(): SubmitUiState = sampleSubmitState().copy(
     syncLabel = "",
     canSubmit = false,
     syncProgress = 0f,
+    goatProofTotal = 0,
+    goatProofSynced = 0,
+    goatProofUploading = 0,
+    goatProofFailed = 0,
     attemptCount = 0,
     maxAttempts = 0,
     lastError = null,

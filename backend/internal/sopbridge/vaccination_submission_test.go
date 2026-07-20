@@ -32,6 +32,17 @@ func (r *captureVaccinationRecorder) SubmissionCompletions(_ context.Context, _ 
 	return append([]vaccinationdomain.SubmissionCompletion(nil), r.completions...), nil
 }
 
+func (r *captureVaccinationRecorder) CompletedProofRefsByTask(_ context.Context, _ string, _ string) (map[string][]string, error) {
+	out := make(map[string][]string)
+	for _, completion := range r.completions {
+		if completion.GoatID == "" || len(completion.ProofRefIDs) == 0 {
+			continue
+		}
+		out[completion.GoatID] = append(out[completion.GoatID], completion.ProofRefIDs...)
+	}
+	return out, nil
+}
+
 func TestVaccinationSubmissionBridgeOnlyRecordsVaccinationTasks(t *testing.T) {
 	rec := &captureVaccinationRecorder{count: 2}
 	bridge := NewVaccinationSubmissionBridge(rec)
@@ -124,6 +135,41 @@ func TestVaccinationSubmissionBridgeEmitsOneVerificationItemPerGoatWithAllClips(
 	}
 	if producer.last.IdempotencyKey != "vaccination:submission:sub-1:goat:goat-1" {
 		t.Fatalf("idempotency key = %q", producer.last.IdempotencyKey)
+	}
+}
+
+func TestVaccinationSubmissionBridgeUsesCompletionProofRefsForShedAck(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	rec := &captureVaccinationRecorder{
+		count: 1,
+		completions: []vaccinationdomain.SubmissionCompletion{{
+			CompletionID:   "completion-1",
+			SubmissionID:   "sub-1",
+			GoatID:         "goat-1",
+			ShedID:         "shed-1",
+			ParkID:         "park-1",
+			ProofRefIDs:    []string{"proof-from-backend-artifact"},
+			AdministeredAt: administeredAt,
+		}},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-1",
+		SubmittedBy:  "operator-1",
+		// Shed completion is an acknowledgement. The operator does not fill or see a proof_refs
+		// form field; the bridge must use the completed proof artifacts already attached to the
+		// scanned goat rows.
+		ProofRefs: nil,
+	}
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	if producer.calls != 1 {
+		t.Fatalf("verification producer calls = %d, want 1", producer.calls)
+	}
+	if got := producer.last.MediaRefs; len(got) != 1 || got[0] != "proof-from-backend-artifact" {
+		t.Fatalf("media refs = %v, want backend proof artifact", got)
 	}
 }
 

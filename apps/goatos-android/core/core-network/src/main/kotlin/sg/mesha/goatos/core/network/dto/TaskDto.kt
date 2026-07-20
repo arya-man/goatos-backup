@@ -80,8 +80,8 @@ data class ValidationIssueDto(
 @Serializable
 data class ValidationReportDto(
     @SerialName("valid") val valid: Boolean = true,
-    @SerialName("errors") val errors: List<ValidationIssueDto> = emptyList(),
-    @SerialName("warnings") val warnings: List<ValidationIssueDto> = emptyList(),
+    @SerialName("errors") val errors: List<ValidationIssueDto>? = emptyList(),
+    @SerialName("warnings") val warnings: List<ValidationIssueDto>? = emptyList(),
 )
 
 @Serializable

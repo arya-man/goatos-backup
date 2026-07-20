@@ -163,6 +163,11 @@ type SubmissionItemInput struct {
 	ItemKey string
 }
 
+type ShedCompletionReadiness struct {
+	Enabled bool
+	Reason  string
+}
+
 type Repository interface {
 	ListSOPs(ctx context.Context, params ListSOPsParams) ([]domain.SOPDefinition, error)
 	CreateSOP(ctx context.Context, cmd CreateSOPCommand) (domain.SOPDefinition, error)
@@ -191,6 +196,8 @@ type Repository interface {
 	RecordScanCapture(ctx context.Context, cmd RecordScanCaptureCommand) (domain.ScanCaptureSummary, error)
 	ListScanCaptures(ctx context.Context, tenantID, taskID string) ([]domain.ScanCaptureSummary, error)
 	RecordScanAttempt(ctx context.Context, cmd RecordScanAttemptCommand) (domain.ScanAttemptSummary, error)
+	ShedCompletionReadiness(ctx context.Context, tenantID, taskID string) (ShedCompletionReadiness, error)
+	CompletedTaskGoatProofRefs(ctx context.Context, tenantID, taskID string) ([]domain.ProofReference, error)
 	SubmitTask(ctx context.Context, cmd SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error)
 	AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 }

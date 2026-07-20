@@ -76,6 +76,31 @@ class ScreenshotTest {
     fun sheds() = shot("sheds") { ShedsScreen(state = sampleShedsState()) }
 
     @Test
+    fun vaccination_sheds_initial_loading_uses_skeleton() = shot("vaccination_sheds_initial_loading_uses_skeleton") {
+        ShedsScreen(
+            state = sampleShedsState().copy(
+                date = "",
+                window = "",
+                shedCountLabel = "",
+                dueLabel = "",
+                dayProgressLabel = "",
+                dayProgressFraction = 0f,
+                daySummary = "",
+                shedCount = 0,
+                dueCount = 0,
+                doneCount = 0,
+                caption = "Loading…",
+                rows = emptyList(),
+                rosterChanges = emptyList(),
+                kernelInfo = null,
+                lastSyncedAt = null,
+                isInitialLoading = true,
+                isRefreshing = true,
+            ),
+        )
+    }
+
+    @Test
     fun scan() = shot("scan") { ScanScreen(state = sampleScanState()) }
 
     @Test

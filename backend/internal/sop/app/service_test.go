@@ -441,6 +441,83 @@ func TestSubmitMergesServerDraftScanCapturesOneToManyPageBoundaryStatusMatrix(t 
 	}
 }
 
+func TestSubmitVaccinationShedCompletionAckSkipsGenericProofRefsWhenReady(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = map[string]any{
+		"schema_version": "goatos.sop-form.v1",
+		"fields":         []any{},
+	}
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	goatID := "66000000-0000-4000-8000-000000000001"
+	repo.completedTaskGoatProofRefs = []domain.ProofReference{{
+		ProofID:     "67000000-0000-4000-8000-000000000001",
+		ProofType:   "video",
+		SubjectType: "goat",
+		SubjectID:   &goatID,
+		UploadState: "completed",
+	}}
+	service := NewService(repo)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "vaccination-shed-ack-ready",
+			Answers:        map[string]any{},
+			ProofRefs:      nil,
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	if repo.lastSubmit.TaskState != "accepted" {
+		t.Fatalf("task state = %q, want accepted", repo.lastSubmit.TaskState)
+	}
+	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].ProofID != "67000000-0000-4000-8000-000000000001" || got[0].SubjectID == nil || *got[0].SubjectID != goatID {
+		t.Fatalf("proof refs = %#v, want backend-attached completed goat proof", got)
+	}
+}
+
+func TestSubmitVaccinationShedCompletionAckBlocksWhenSummaryNotReady(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.task.TaskType = "vaccination"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = map[string]any{
+		"schema_version": "goatos.sop-form.v1",
+		"fields":         []any{},
+	}
+	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
+	repo.shedReadiness = ports.ShedCompletionReadiness{Enabled: false, Reason: "1 animals still need proof"}
+	service := NewService(repo)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "vaccination-shed-ack-blocked",
+			Answers:        map[string]any{},
+			ProofRefs:      nil,
+		},
+	}, "trace")
+	if err == nil {
+		t.Fatal("SubmitTask() error = nil, want shed_completion_not_ready")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "shed_completion_not_ready" {
+		t.Fatalf("err = %#v", err)
+	}
+	if repo.lastSubmit.Body.IdempotencyKey != "" {
+		t.Fatalf("submission should not be written when blocked: %#v", repo.lastSubmit)
+	}
+}
+
 func TestRecordScanCaptureValidatesAndPersistsDraft(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.SOPCode = "vaccination.drive"
@@ -1223,6 +1300,10 @@ type fakeRepo struct {
 	failedSubmissionFanouts     []domain.FailedSubmissionFanout
 	lastFailedSubmissionFanouts ports.ListAgedFailedSubmissionFanoutsParams
 	scanCaptures                []domain.ScanCaptureSummary
+	shedReadiness               ports.ShedCompletionReadiness
+	shedReadinessErr            error
+	completedTaskGoatProofRefs  []domain.ProofReference
+	completedTaskGoatProofErr   error
 	lastScanCapture             ports.RecordScanCaptureCommand
 	scanAttempts                []domain.ScanAttemptSummary
 	lastScanAttempt             ports.RecordScanAttemptCommand
@@ -1264,6 +1345,7 @@ func newFakeRepo() *fakeRepo {
 			Context:      map[string]any{},
 			RowVersion:   1,
 		},
+		shedReadiness: ports.ShedCompletionReadiness{Enabled: true},
 		version: domain.SOPVersion{
 			SOPVersionID: testVersionID,
 			TenantID:     testTenantID,
@@ -1394,6 +1476,12 @@ func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAtte
 	}
 	f.scanAttempts = append(f.scanAttempts, attempt)
 	return attempt, nil
+}
+func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string) (ports.ShedCompletionReadiness, error) {
+	return f.shedReadiness, f.shedReadinessErr
+}
+func (f *fakeRepo) CompletedTaskGoatProofRefs(context.Context, string, string) ([]domain.ProofReference, error) {
+	return f.completedTaskGoatProofRefs, f.completedTaskGoatProofErr
 }
 func (f *fakeRepo) SubmitTask(_ context.Context, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error) {
 	f.lastSubmit = cmd

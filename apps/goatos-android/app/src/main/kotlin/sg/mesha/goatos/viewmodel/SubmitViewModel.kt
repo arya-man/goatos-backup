@@ -133,7 +133,7 @@ class SubmitViewModel @Inject constructor(
     // client constants. Kept alongside currentTask/currentForm from the same TaskDetail resource.
     private var currentProofPolicy: ProofPolicy = ProofPolicy.Default
     private var currentShedCompletionSummary: ShedCompletionSummaryDto? = null
-    private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")
+    private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private var statusJob: Job? = null
     private var outboxRecoveryKey: String? = null
     private var scanTagJob: Job? = null
@@ -503,11 +503,14 @@ class SubmitViewModel @Inject constructor(
         // Defensive: the UI already disables the button while a required answer/proof is
         // missing (see buildFormRunnerState's blockedReason), but never enqueue a submission
         // that fails its own client-side gate even if this is reached some other way.
-        if (buildFormRunnerState(currentForm, current)?.blockedReason != null) return
         // Vaccination shed acknowledgement: the backend owns the readiness gate. When a
         // shed-completion summary is present, never enqueue the acknowledgement unless the
         // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
-        if (currentShedCompletionSummary?.let { !it.submitEnabled } == true) return
+        if (currentShedCompletionSummary != null) {
+            if (currentShedCompletionSummary?.submitEnabled != true) return
+        } else if (buildFormRunnerState(currentForm, current)?.blockedReason != null) {
+            return
+        }
         stopScanning()
         val key = idempotencyKey ?: stableSubmissionKey(current).also { idempotencyKey = it }
         statusJob?.cancel()
@@ -688,7 +691,11 @@ class SubmitViewModel @Inject constructor(
     private fun loadingState(): SubmitUiState = submitPlaceholder().copy(isLoadingTask = true)
 
     private fun draftState(task: TaskSummaryDto, form: FormSpec): SubmitUiState {
-        val formRunner = buildFormRunnerState(form, task)
+        val summary = currentShedCompletionSummary
+        // Vaccination shed completion is an acknowledgement screen. The cleaned contract has no
+        // operator-entered shed-level fields; scans and proof are shown from backend summary. Do
+        // not render or gate on the historical generic SOP form when this summary exists.
+        val formRunner = if (summary != null) null else buildFormRunnerState(form, task)
         val goatIds = currentScans
             .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
             .distinct()
@@ -709,8 +716,6 @@ class SubmitViewModel @Inject constructor(
                         it.syncStatus == CaptureSyncStatus.IN_FLIGHT
                 }
         }
-        // Map shed completion summary from backend
-        val summary = currentShedCompletionSummary
         val shedCompletionSummary = if (summary != null) {
             ShedCompletionSummary(
                 taskId = summary.taskId,
@@ -748,10 +753,10 @@ class SubmitViewModel @Inject constructor(
             },
             blockingReason = summary?.blockingReason,
             syncProgress = 0f,
-            goatProofTotal = goatIds.size,
-            goatProofSynced = syncedProofs,
-            goatProofUploading = uploadingProofs,
-            goatProofFailed = failedProofs,
+            goatProofTotal = summary?.expectedCount ?: goatIds.size,
+            goatProofSynced = summary?.proofReadyCount ?: syncedProofs,
+            goatProofUploading = if (summary != null) 0 else uploadingProofs,
+            goatProofFailed = if (summary != null) 0 else failedProofs,
             attemptCount = 0,
             maxAttempts = 0,
             shedCompletionSummary = shedCompletionSummary,

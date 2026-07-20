@@ -72,10 +72,12 @@ class ShedsViewModel @Inject constructor(
     ) { resource, isRefreshing, isOffline, isLoadingMore ->
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
+        val isInitialLoading = dto == null && !resource.hasData && resource.error == null
         val base = dto?.toShedsUiState()
             ?: if (resource.hasData) shedsPlaceholder("No sheds scheduled today") else shedsPlaceholder("Loading…")
         base.copy(
             isRefreshing = isRefreshing,
+            isInitialLoading = isInitialLoading,
             isLoadingMore = isLoadingMore,
             hasMore = !dto?.nextCursor.isNullOrBlank(),
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
@@ -84,7 +86,7 @@ class ShedsViewModel @Inject constructor(
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        shedsPlaceholder("Loading today's sheds…")
+        shedsPlaceholder("Loading today's sheds…").copy(isInitialLoading = true)
     )
 
     init {

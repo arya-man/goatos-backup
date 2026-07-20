@@ -977,7 +977,7 @@ grouped AS (
       MAX(goat_stage.name),
       MAX(profile_stage.stage_code),
       MAX(goat_stage.stage_code),
-      MAX(located.goat_stage),
+      MAX(NULLIF(regexp_replace(initcap(replace(located.goat_stage, '_', ' ')), '\s+', ' ', 'g'), '')),
       'Unknown'
     ) AS animal_stage,
     COUNT(*) FILTER (

@@ -78,8 +78,10 @@ class ScanViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val shedId: String? = savedStateHandle.get<String>("shedId")
-    private val taskId: String? = savedStateHandle.get<String>("taskId")
+    private val shedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
+    private val taskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
+    private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
+    private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
     private var readerRefreshJob: Job? = null
 
     // The visible scan-list window size. loadMore() grows it; the full roster is already local in the
@@ -221,7 +223,17 @@ class ScanViewModel @Inject constructor(
         } else null
         // The scan LIST renders from the bounded SSOT window; page-N animals are present once the
         // full roster is persisted (the whole roster is fetched on refresh).
-        val base = applyRows(rows, total, localDone, proofs, operatorAllowed == true, isRefreshing)
+        val base = applyRows(
+            rows = rows,
+            total = total,
+            localDone = localDone,
+            proofs = proofs,
+            operatorAllowed = operatorAllowed == true,
+            isRefreshing = isRefreshing,
+            taskId = taskId,
+            sopVersionId = sopVersionId,
+            taskRowVersion = taskRowVersion,
+        )
         // Full-roster (page-independent) aggregates overlay the window-derived counts (R50-008).
         val aggregated = applyFullRosterCounts(base, counts, localDone)
         // Submit proof gate over the FULL roster (not just the window): every DONE animal must have a
@@ -523,6 +535,9 @@ class ScanViewModel @Inject constructor(
         proofs: List<ProofCaptureRow>,
         operatorAllowed: Boolean,
         isRefreshing: Boolean,
+        taskId: String?,
+        sopVersionId: String?,
+        taskRowVersion: Int?,
     ): ScanUiState {
         // R50-029: group once instead of re-filtering the full proof list per roster row
         // (O(rows * proofs) on every state build) — then a bounded per-row map lookup below.
@@ -532,6 +547,9 @@ class ScanViewModel @Inject constructor(
         val skipped = rosterRows.count { it.status == ScanStatus.SKIPPED }
         val pending = (rosterRows.size - done - skipped).coerceAtLeast(0)
         return emptyScanState().copy(
+            taskId = taskId?.takeIf { it.isNotBlank() },
+            sopVersionId = sopVersionId?.takeIf { it.isNotBlank() },
+            taskRowVersion = taskRowVersion?.takeIf { it > 0 },
             roster = rosterRows,
             ringTotal = total.coerceAtLeast(rosterRows.size),
             ringDone = done,

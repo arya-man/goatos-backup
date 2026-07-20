@@ -199,6 +199,9 @@ data class ScanUiState(
     // animals below the visible scroll window.
     val proofActionNeeded: List<RosterRow> = emptyList(),
     val readerConnection: ScanReaderConnection? = null,
+    val taskId: String? = null,
+    val sopVersionId: String? = null,
+    val taskRowVersion: Int? = null,
 )
 
 /** User intents the screen emits; the app/viewmodel layer handles them. */

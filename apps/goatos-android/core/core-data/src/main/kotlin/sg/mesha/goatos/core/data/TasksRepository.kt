@@ -148,7 +148,9 @@ class DefaultTasksRepository(
 }
 
 private fun TaskDetailResponseDto.toDomain(): TaskDetail = TaskDetail(
-    task = task,
+    task = task.copy(
+        sopVersionId = task.sopVersionId.ifBlank { sopVersion?.sopVersionId.orEmpty() },
+    ),
     form = (sopVersion?.toFormSpec() ?: FormSpec.Empty).withOptionValues(optionValues),
     submissions = submissions,
     proofPolicy = sopVersion?.toProofPolicy() ?: ProofPolicy.Default,

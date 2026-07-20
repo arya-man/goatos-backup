@@ -45,6 +45,7 @@ import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
+import sg.mesha.goatos.feature.submit.FieldKindUi
 import sg.mesha.goatos.feature.timetable.TimetableScreen
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
@@ -155,15 +156,15 @@ object Routes {
         sopVersionId: String?,
         taskRowVersion: Int?,
     ): String {
-        val args = listOfNotNull(
-            shedId?.takeIf { it.isNotBlank() }?.let { SCAN_SHED_ARG to it },
-            driveId?.takeIf { it.isNotBlank() }?.let { EXECUTION_DRIVE_ARG to it },
-            batchId?.takeIf { it.isNotBlank() }?.let { EXECUTION_BATCH_ARG to it },
-            taskId?.takeIf { it.isNotBlank() }?.let { EXECUTION_TASK_ARG to it },
-            sopVersionId?.takeIf { it.isNotBlank() }?.let { EXECUTION_SOP_VERSION_ARG to it },
-            taskRowVersion?.takeIf { it > 0 }?.let { EXECUTION_TASK_ROW_VERSION_ARG to it.toString() },
+        val args = listOf(
+            SCAN_SHED_ARG to shedId.orEmpty(),
+            EXECUTION_DRIVE_ARG to driveId.orEmpty(),
+            EXECUTION_BATCH_ARG to batchId.orEmpty(),
+            EXECUTION_TASK_ARG to taskId.orEmpty(),
+            EXECUTION_SOP_VERSION_ARG to sopVersionId.orEmpty(),
+            EXECUTION_TASK_ROW_VERSION_ARG to (taskRowVersion?.takeIf { it > 0 }?.toString() ?: "0"),
         )
-        return if (args.isEmpty()) base else "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+        return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
     }
 
     const val CALENDAR_DAY = "/calendarDay"
@@ -404,9 +405,12 @@ fun AppNavHost(
                                 shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG),
                                 driveId = entry.arguments?.getString(Routes.EXECUTION_DRIVE_ARG),
                                 batchId = entry.arguments?.getString(Routes.EXECUTION_BATCH_ARG),
-                                taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG),
-                                sopVersionId = entry.arguments?.getString(Routes.EXECUTION_SOP_VERSION_ARG),
-                                taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 },
+                                taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG)?.takeIf { it.isNotBlank() }
+                                    ?: state.taskId,
+                                sopVersionId = entry.arguments?.getString(Routes.EXECUTION_SOP_VERSION_ARG)?.takeIf { it.isNotBlank() }
+                                    ?: state.sopVersionId,
+                                taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 }
+                                    ?: state.taskRowVersion,
                             ),
                         ) { launchSingleTop = true }
                         ScanEvent.Back -> navController.popBackStack()
@@ -433,7 +437,10 @@ fun AppNavHost(
         ) {
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            if (state.isCaptureRoleBlocked) {
+            val needsCaptureBinding = state.formRunner?.fields.orEmpty().any { field ->
+                field.kind == FieldKindUi.GOAT_SCAN || field.kind == FieldKindUi.VIDEO_PROOF
+            }
+            if (state.isCaptureRoleBlocked || !needsCaptureBinding) {
                 SubmitScreen(state = state, onEvent = vm::onEvent)
             } else {
                 // Capture permissions are operator-only. Verifier/leadership viewers never see
