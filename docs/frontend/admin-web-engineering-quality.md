@@ -209,6 +209,14 @@ npm --prefix apps/admin-web run smoke:visual:live
 Use the seeded isolated backend/database required by the touched flow. Open the
 screenshots and diffs; a command exit code alone is not visual review.
 
+When a user reports or asks to fix a frontend/UI defect, the acceptance check is
+the rendered browser flow, not the code diff. Recreate the reported URL,
+viewport, scope, filters, drawer/modal/popover state, and click path. Verify the
+screen in the same user lens: active sidebar item, right-edge/status columns,
+chip text, table overflow, drawer outside-click/back/X close, drilldown
+destination, and scoped records. If this cannot be rendered locally, the handoff
+must say that explicitly; otherwise do not claim the frontend issue is fixed.
+
 ## Static/CI Recurrence Checks
 
 The shared guard and CI owners should keep the following executable:

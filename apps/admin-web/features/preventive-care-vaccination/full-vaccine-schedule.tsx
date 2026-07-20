@@ -56,6 +56,30 @@ function scheduleShedGroups(event: CalendarEvent): ScheduleShedGroup[] {
     .filter((shed) => shed.shed);
 }
 
+function ScheduleDrawerCloseForm({
+  href,
+  className,
+  label,
+  children,
+}: {
+  href: string;
+  className: string;
+  label: string;
+  children?: React.ReactNode;
+}) {
+  const closeUrl = new URL(href, "http://mesha.local");
+  return (
+    <form action={closeUrl.pathname} method="get">
+      {Array.from(closeUrl.searchParams.entries()).map(([key, value]) => (
+        <input key={`${key}:${value}`} type="hidden" name={key} value={value} />
+      ))}
+      <button type="submit" className={className} aria-label={label}>
+        {children}
+      </button>
+    </form>
+  );
+}
+
 function selectedScheduleYear(searchParams: RouteSearchParams | undefined): number {
   return boundedInt(one(searchParams ?? {}, "schedule_year"), CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR + 5);
 }
@@ -568,7 +592,7 @@ async function ScheduleShedDrawer({
 
   return (
     <div className="schedule-drawer-backdrop" role="presentation">
-      <a href={currentScheduleHref} className="schedule-drawer-close-layer" aria-label={copy(pageContract, "schedule.drawer.close")} />
+      <ScheduleDrawerCloseForm href={currentScheduleHref} className="schedule-drawer-close-layer" label={copy(pageContract, "schedule.drawer.close")} />
       <aside className="schedule-side-drawer" role="dialog" aria-modal="false" aria-labelledby="schedule-shed-drawer-title">
         <div className="schedule-drawer-head">
           <div style={{ minWidth: 0 }}>
@@ -578,9 +602,9 @@ async function ScheduleShedDrawer({
               {shedGroups.length || row.shed_count || 0} {copy(pageContract, "schedule.unit.sheds")} · {summary?.total_animals ?? row.target_count ?? 0} {copy(pageContract, "schedule.unit.animals")} · {vaccines.join(", ") || copy(pageContract, "label.placeholder")}
             </p>
           </div>
-          <a href={currentScheduleHref} className="iconbtn" aria-label={copy(pageContract, "schedule.drawer.close")}>
+          <ScheduleDrawerCloseForm href={currentScheduleHref} className="iconbtn" label={copy(pageContract, "schedule.drawer.close")}>
             <X className="ic" aria-hidden="true" />
-          </a>
+          </ScheduleDrawerCloseForm>
         </div>
 
         <form className="schedule-drawer-search" action="/vaccination" method="get">

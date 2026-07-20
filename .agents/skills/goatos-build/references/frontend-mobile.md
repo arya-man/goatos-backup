@@ -143,6 +143,11 @@ Calendar or dashboard label.
   handoff.
 - Run lint/typecheck/build, and run `smoke:visual:live` when local backend and
   admin-web can be started.
+- If the user asks to fix a frontend/UI issue, the rendered local page is part
+  of the fix, not an optional follow-up. Reproduce the user’s screenshot route,
+  viewport, scope, filters, drawer/modal state, and click path before handoff;
+  do not rely on source inspection, typecheck, or a server-rendered HTML grep as
+  proof that the UI is fixed.
 - For any route, table, chip row, drawer, modal, popover, or navigation change,
   open the rendered local page and inspect the screenshots before handoff. When
   a user supplies a screenshot, reproduce that exact route/viewport. The review

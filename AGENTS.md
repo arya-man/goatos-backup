@@ -511,6 +511,14 @@ Do:
   Backend code may hold only product contract shape, compile mapping, and
   intentional default skeletons for missing optional UI config rows; live/domain
   values stay in canonical module tables.
+- When the user asks to fix a frontend/UI issue, rendered browser review is part
+  of the requested fix for Codex, Claude, and every developer. Do not treat it
+  as optional judgment or defer it to the user. Reproduce the user’s route,
+  viewport, scope, filters, drawer/modal state, and click path as closely as
+  possible; if the user supplied a screenshot, that screenshot is the minimum
+  acceptance case. Do not push a frontend fix until the changed screen has been
+  opened locally and visually checked, or until you explicitly report why local
+  rendering is blocked.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`
@@ -533,6 +541,15 @@ Do:
   destination, drawer/popup outside-click close, and drawer/popup close button
   behavior. A screenshot supplied by a reviewer/user is a failing visual test
   case until the same route is re-opened and the rendered screen is inspected.
+- When a maintainer asks to "fix frontend" or reports a visible UI defect, treat
+  frontend review as part of the fix, not as optional agent judgment. Use the
+  same rendered lens for every session (Codex, Claude, Cursor, or sub-agent):
+  reproduce the route, inspect the changed UI, catch adjacent clipping/overflow/
+  close-behavior regressions introduced or exposed by the change, and document
+  the visual proof. If a focused frontend fix is green, commit and push that
+  focused fix to `main` promptly; do not pile unrelated visual-smoke fallout into
+  one end-of-session batch. Split newly discovered adjacent UI bugs into their
+  own focused commits unless they block the original fix's visual proof.
 - Admin-web route/table/drawer/popover changes require a visual-closeout checklist
   before push. Reproduce the exact URL/viewport from any user screenshot when one
   exists, then verify: no right-edge/status-column clipping; no horizontal page
