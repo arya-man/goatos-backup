@@ -131,11 +131,6 @@ data class AuthSessionEventRequestDto(
 )
 
 @Serializable
-data class AuthSessionEventResponseDto(
-    @SerialName("trace_id") val traceId: String = "",
-)
-
-@Serializable
 data class NavItemDto(
     val key: String = "",
     val label: String = "",
@@ -172,8 +167,7 @@ data class BootstrapOperatorProfileDto(
  */
 interface AppApi {
     /** POST /auth/session-events — audited sign-in/session-refresh bridge for Firebase auth. */
-    suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto): AuthSessionEventResponseDto =
-        AuthSessionEventResponseDto()
+    suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) = Unit
 
     /** GET /app/bootstrap — nav + identity + device state. [deviceId] identifies a
      *  previously-registered device so the backend can return its device_state. */

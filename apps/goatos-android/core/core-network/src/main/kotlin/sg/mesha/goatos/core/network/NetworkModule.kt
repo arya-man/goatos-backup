@@ -68,7 +68,7 @@ private val localeTagPattern = Regex("^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
  */
 interface AppApiService {
     @POST("auth/session-events")
-    suspend fun recordAuthSessionEvent(@Body request: AuthSessionEventRequestDto): AuthSessionEventResponseDto
+    suspend fun recordAuthSessionEvent(@Body request: AuthSessionEventRequestDto)
 
     @GET("app/bootstrap")
     suspend fun bootstrap(@Query("device_id") deviceId: String?): BootstrapDto
@@ -292,7 +292,7 @@ class RetrofitAppApi(
     private val service: AppApiService,
     private val blobUploader: ProofBlobUploader,
 ) : AppApi {
-    override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto): AuthSessionEventResponseDto =
+    override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) =
         service.recordAuthSessionEvent(request)
 
     override suspend fun bootstrap(deviceId: String?): BootstrapDto = service.bootstrap(deviceId)
