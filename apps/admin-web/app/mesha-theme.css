@@ -545,19 +545,23 @@
   }
   /* Shed-wise vaccination table (10 cols): widen Manager/Backup (cols 8,9) for names; scrolls on narrow. */
   .main table.shed-summary-table{min-width:1080px}
+  .main table.shed-summary-table .shed-summary-row{position:relative;cursor:pointer}
+  .main table.shed-summary-table .shed-summary-row:hover td{background:var(--bg)}
+  .main table.shed-summary-table .shed-summary-row-link{position:absolute;inset:0;z-index:1;display:block;text-decoration:none;color:inherit}
+  .main table.shed-summary-table .shed-summary-cell-content{position:relative;z-index:2;pointer-events:none;display:block;min-width:0}
   .main table.shed-summary-table th:nth-child(1),.main table.shed-summary-table td:nth-child(1){min-width:132px}
   .main table.shed-summary-table th:nth-child(2),.main table.shed-summary-table td:nth-child(2){min-width:160px}
-  .main table.shed-summary-table td:nth-child(1) .celllink,.main table.shed-summary-table td:nth-child(2) .celllink{width:max-content;max-width:none;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.shed-summary-table td:nth-child(1) .shed-summary-cell-content,.main table.shed-summary-table td:nth-child(2) .shed-summary-cell-content{width:max-content;max-width:none;white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.shed-summary-table th:nth-child(8),.main table.shed-summary-table td:nth-child(8),.main table.shed-summary-table th:nth-child(9),.main table.shed-summary-table td:nth-child(9){min-width:140px}
   /* Numeric cols (Animals/Due/Done/Sessions = 3-6) + Next due (col 7) carry plain text with no ClipText,
      so the global .celllink overflow-wrap:anywhere breaks "93"->"9/3" and the date char-by-char once the
      column narrows. Keep these cells single-line and give them room so auto-layout can't collapse them. */
   .main table.shed-summary-table th:nth-child(3),.main table.shed-summary-table td:nth-child(3),.main table.shed-summary-table th:nth-child(4),.main table.shed-summary-table td:nth-child(4),.main table.shed-summary-table th:nth-child(5),.main table.shed-summary-table td:nth-child(5),.main table.shed-summary-table th:nth-child(6),.main table.shed-summary-table td:nth-child(6){min-width:64px}
   .main table.shed-summary-table th:nth-child(7),.main table.shed-summary-table td:nth-child(7){min-width:118px}
-  .main table.shed-summary-table td:nth-child(3) .celllink,.main table.shed-summary-table td:nth-child(4) .celllink,.main table.shed-summary-table td:nth-child(5) .celllink,.main table.shed-summary-table td:nth-child(6) .celllink,.main table.shed-summary-table td:nth-child(7) .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.shed-summary-table td:nth-child(3) .shed-summary-cell-content,.main table.shed-summary-table td:nth-child(4) .shed-summary-cell-content,.main table.shed-summary-table td:nth-child(5) .shed-summary-cell-content,.main table.shed-summary-table td:nth-child(6) .shed-summary-cell-content,.main table.shed-summary-table td:nth-child(7) .shed-summary-cell-content{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   /* Owner/status cells contain no-wrap pills. Let those link hit targets take the pill's intrinsic
      width; the surrounding table already owns horizontal scrolling. */
-  .main table.shed-summary-table td:nth-child(8) .celllink,.main table.shed-summary-table td:nth-child(9) .celllink,.main table.shed-summary-table td:nth-child(10) .celllink{width:max-content;max-width:none;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.shed-summary-table td:nth-child(8) .shed-summary-cell-content,.main table.shed-summary-table td:nth-child(9) .shed-summary-cell-content,.main table.shed-summary-table td:nth-child(10) .shed-summary-cell-content{width:max-content;max-width:none;white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .vaccination-schedule-card{overflow:hidden}
   .vaccination-schedule-hd{align-items:center;flex-wrap:wrap;gap:8px 10px}
   .vaccination-schedule-hd .chip{white-space:nowrap;text-decoration:none}

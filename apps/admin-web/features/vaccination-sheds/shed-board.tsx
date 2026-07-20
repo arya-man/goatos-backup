@@ -285,20 +285,31 @@ export async function VaccinationShedBoard({
               <tbody>
                 {rows.map((row) => {
                   const href = detailHref(row);
-                  const cell = (content: React.ReactNode, extra?: string) => (
+                  const cell = (content: React.ReactNode, extra?: string, withRowLink = false) => (
                     <td className={extra}>
-                      <Link href={href} className="celllink" scroll={false} prefetch={false}>
+                      {withRowLink ? (
+                        <Link
+                          href={href}
+                          className="shed-summary-row-link"
+                          scroll={false}
+                          prefetch={false}
+                          aria-label={`${copy(pageContract, "action.open_shed_board")} ${row.shedName}`}
+                        />
+                      ) : null}
+                      <span className="shed-summary-cell-content">
                         {content}
-                      </Link>
+                      </span>
                     </td>
                   );
                   return (
-                    <tr key={row.shedId}>
+                    <tr key={row.shedId} className="shed-summary-row">
                       {cell(
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <MapPin className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
                           <ClipText title={row.parkName}>{row.parkName}</ClipText>
                         </span>,
+                        undefined,
+                        true,
                       )}
                       {cell(<ClipText title={row.shedName}>{row.shedName}</ClipText>)}
                       {cell(row.animals, "muted")}
