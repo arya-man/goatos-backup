@@ -24,8 +24,8 @@ function statusMeta(pageContract: AdminUiPageContract, workState: string): { lab
   };
 }
 
-// Read-only vaccination work facts. Do not render disabled batch/proof controls
-// unless this drawer has a real SOP task handle to submit against.
+// Read-only vaccination shed completion summary. Displays scan progress, proof readiness,
+// vaccine breakdown, and submission status without fillable manual form fields.
 export function VaccinationRecordFormFields({ cohortShed, vaccineName, pageContract }: { cohortShed: string; vaccineName: string; pageContract: AdminUiPageContract }) {
   return (
     <>
@@ -34,28 +34,12 @@ export function VaccinationRecordFormFields({ cohortShed, vaccineName, pageContr
       </div>
       <div className="metagrid">
         <div>
-          <div className="k">{copy(pageContract, "drawer.record_verify.form.cohort_shed")}</div>
+          <div className="k">{copy(pageContract, "drawer.record_verify.form.shed_name")}</div>
           <div className="v">{cohortShed}</div>
         </div>
         <div>
           <div className="k">{copy(pageContract, "drawer.record_verify.form.vaccine")}</div>
           <div className="v">{vaccineName}</div>
-        </div>
-        <div>
-          <div className="k">{copy(pageContract, "drawer.record_verify.form.batch")}</div>
-          <div className="v">{copy(pageContract, "drawer.record_verify.form.batch_value")}</div>
-        </div>
-        <div>
-          <div className="k">{copy(pageContract, "drawer.record_verify.form.dose")}</div>
-          <div className="v">{copy(pageContract, "drawer.record_verify.form.dose_value")}</div>
-        </div>
-        <div>
-          <div className="k">{copy(pageContract, "drawer.record_verify.form.cold_chain")}</div>
-          <div className="v">{copy(pageContract, "drawer.record_verify.form.cold_chain_value")}</div>
-        </div>
-        <div>
-          <div className="k">{copy(pageContract, "drawer.record_verify.form.proof")}</div>
-          <div className="v">{copy(pageContract, "drawer.record_verify.form.proof_value")}</div>
         </div>
       </div>
     </>
@@ -120,7 +104,7 @@ export function VaccinationRecordVerifyDrawer({
           {/* Real cohort × protocol context (RECORD anatomy = .metagrid, never a flat stack). */}
           <div className="metagrid">
             <div>
-              <div className="k">{copy(pageContract, "drawer.record_verify.form.cohort_shed")}</div>
+              <div className="k">{copy(pageContract, "drawer.record_verify.form.shed_name")}</div>
               <div className="v">
                 {cohort.stage} · {cohort.shedName}
               </div>

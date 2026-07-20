@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 
@@ -82,6 +83,11 @@ private class CapturingTasksRepository : TasksRepository {
         val detail = taskDetail(taskId)
         detailFlow.value = Resource(data = detail, lastSyncedAt = 1L)
     }
+
+    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+        MutableStateFlow(null)
+
+    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = Result.success(Unit)
 }
 
 private class NoopSyncRepository : SyncRepository {

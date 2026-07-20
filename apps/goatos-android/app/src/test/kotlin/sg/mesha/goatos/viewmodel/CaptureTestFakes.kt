@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 
 /** In-memory [ScanCaptureRepository] test double — real dedup semantics (unique per
  *  task+field+tag), no Room. Mirrors [sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository]'s
@@ -266,4 +267,7 @@ class FakeTasksRepositoryForCapture(
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
         MutableStateFlow(Resource(data = detail))
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.success(Unit)
+    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+        MutableStateFlow(null)
+    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = Result.success(Unit)
 }

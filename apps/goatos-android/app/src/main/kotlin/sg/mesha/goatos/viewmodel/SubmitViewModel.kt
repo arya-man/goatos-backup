@@ -47,6 +47,7 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.feature.submit.FieldKindUi
@@ -54,10 +55,12 @@ import sg.mesha.goatos.feature.submit.FormFieldUi
 import sg.mesha.goatos.feature.submit.FormPickerOptionUi
 import sg.mesha.goatos.feature.submit.FormRunnerState
 import sg.mesha.goatos.feature.submit.ProofItemUi
+import sg.mesha.goatos.feature.submit.ShedCompletionSummary
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.feature.submit.SubmitSummaryItem
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
+import sg.mesha.goatos.feature.submit.VaccineSummaryItem
 import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.ui.submitPlaceholder
 import javax.inject.Inject
@@ -129,6 +132,7 @@ class SubmitViewModel @Inject constructor(
     // R50-027: this task's SOP proof policy, driving capture limits/subject instead of hardcoded
     // client constants. Kept alongside currentTask/currentForm from the same TaskDetail resource.
     private var currentProofPolicy: ProofPolicy = ProofPolicy.Default
+    private var currentShedCompletionSummary: ShedCompletionSummaryDto? = null
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")
     private var statusJob: Job? = null
     private var outboxRecoveryKey: String? = null
@@ -222,7 +226,23 @@ class SubmitViewModel @Inject constructor(
                 }
             }
         }
+        // Observe the Room-cached shed-completion summary (offline-first SSOT). Gated on
+        // [uiSubscribed] like the other Room observers so the DB stream is released the instant
+        // the screen backgrounds. Each emission re-renders the read-only acknowledgement summary.
+        viewModelScope.launch {
+            uiSubscribed.collectLatest { subscribed ->
+                if (subscribed) {
+                    repo.observeShedCompletionSummary(taskId).collect { summary ->
+                        currentShedCompletionSummary = summary
+                        renderDraft()
+                    }
+                }
+            }
+        }
         val refreshResult = repo.refreshTaskDetail(taskId)
+        // Background refresh of the shed-completion summary; the observe() stream above re-emits
+        // once Room is upserted. A failure leaves any cached summary on screen (offline-first).
+        repo.refreshShedCompletionSummary(taskId)
         if (refreshResult.isFailure && currentTask == null) {
             // Never synced, ever: no cache to fall back to. A stale cache (if any) stays on
             // screen instead — applyTaskResource already rendered it before this refresh ran.
@@ -456,10 +476,13 @@ class SubmitViewModel @Inject constructor(
 
     private fun renderDraft() {
         val task = currentTask ?: return
-        // Room scan/proof observers may emit after an outbox row has already reached QUEUED,
-        // FAILED, or SUCCEEDED. Those capture emissions must not repaint the screen as a fresh
-        // draft and erase the durable submission lifecycle banner.
+        // Room scan/proof/summary observers may emit after an outbox row has already reached
+        // QUEUED, FAILED, or SUCCEEDED, or after the backend task itself reached a terminal
+        // (submitted/needs_review/accepted) state. Those late emissions must not repaint the
+        // screen as a fresh draft and erase the durable ACKED/submission lifecycle banner —
+        // applyTaskResource is the authoritative terminal/outbox renderer.
         if (outboxItemId != null) return
+        if (task.state.isSubmissionTerminal()) return
         if (captureAllowed == false) {
             _state.value = submitPlaceholder().copy(isCaptureRoleBlocked = true)
             return
@@ -481,6 +504,10 @@ class SubmitViewModel @Inject constructor(
         // missing (see buildFormRunnerState's blockedReason), but never enqueue a submission
         // that fails its own client-side gate even if this is reached some other way.
         if (buildFormRunnerState(currentForm, current)?.blockedReason != null) return
+        // Vaccination shed acknowledgement: the backend owns the readiness gate. When a
+        // shed-completion summary is present, never enqueue the acknowledgement unless the
+        // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
+        if (currentShedCompletionSummary?.let { !it.submitEnabled } == true) return
         stopScanning()
         val key = idempotencyKey ?: stableSubmissionKey(current).also { idempotencyKey = it }
         statusJob?.cancel()
@@ -682,8 +709,21 @@ class SubmitViewModel @Inject constructor(
                         it.syncStatus == CaptureSyncStatus.IN_FLIGHT
                 }
         }
-        // No fabricated vaccine groups — the due-group breakdown needs a read model this
-        // build doesn't have yet, so groups stay empty until it is wired.
+        // Map shed completion summary from backend
+        val summary = currentShedCompletionSummary
+        val shedCompletionSummary = if (summary != null) {
+            ShedCompletionSummary(
+                taskId = summary.taskId,
+                shedName = summary.shedName,
+                driveName = summary.driveName,
+                expectedCount = summary.expectedCount,
+                handledCount = summary.handledCount,
+                proofReadyCount = summary.proofReadyCount,
+                submitState = summary.submitState,
+            )
+        } else null
+        val vaccineBreakdown = summary?.vaccineBreakdown.orEmpty()
+            .map { VaccineSummaryItem(vaccine = it.vaccine, count = it.count) }
         return submitPlaceholder().copy(
             eyebrow = task.presentation?.eyebrow.orEmpty(),
             title = task.presentation?.title.orEmpty(),
@@ -697,7 +737,16 @@ class SubmitViewModel @Inject constructor(
             formRunner = formRunner,
             syncState = SyncState.DRAFT,
             syncLabel = "",
-            canSubmit = formRunner?.blockedReason == null,
+            // Vaccination shed acknowledgement: when a backend shed-completion summary is present,
+            // Submit is gated on its submit_enabled flag (all expected animals handled + proof
+            // ready) AND any residual form gate. Generic tasks with no shed summary keep the
+            // pre-existing form-only gate.
+            canSubmit = if (summary != null) {
+                summary.submitEnabled && formRunner?.blockedReason == null
+            } else {
+                formRunner?.blockedReason == null
+            },
+            blockingReason = summary?.blockingReason,
             syncProgress = 0f,
             goatProofTotal = goatIds.size,
             goatProofSynced = syncedProofs,
@@ -705,6 +754,8 @@ class SubmitViewModel @Inject constructor(
             goatProofFailed = failedProofs,
             attemptCount = 0,
             maxAttempts = 0,
+            shedCompletionSummary = shedCompletionSummary,
+            vaccineBreakdown = vaccineBreakdown,
         )
     }
 

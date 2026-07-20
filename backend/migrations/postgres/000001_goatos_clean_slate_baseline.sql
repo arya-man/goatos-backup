@@ -12344,7 +12344,9 @@ rewritten AS (
             WITH ORDINALITY AS entries(field, ordinal)
           WHERE field ->> 'key' NOT IN (
             'shed_video', 'vial_lot_video', 'administration_video',
-            'extra_video_1', 'extra_video_1_caption', 'extra_video_2', 'extra_video_2_caption'
+            'extra_video_1', 'extra_video_1_caption', 'extra_video_2', 'extra_video_2_caption',
+            'vaccine_lot_id', 'cold_chain_verified', 'dose_ml_given', 'route_site',
+            'administered_at', 'adverse_reaction', 'adverse_reaction_notes'
           )
         ), '[]'::jsonb),
         true
@@ -12356,7 +12358,11 @@ rewritten AS (
           WITH ORDINALITY AS entries(rule, ordinal)
         WHERE COALESCE(rule ->> 'field', '') NOT IN (
           'shed_video', 'vial_lot_video', 'administration_video',
-          'extra_video_1_caption', 'extra_video_2_caption'
+          'extra_video_1_caption', 'extra_video_2_caption',
+          'cold_chain_verified', 'adverse_reaction_notes'
+        )
+        AND COALESCE(rule -> 'when' ->> 'field', '') NOT IN (
+          'cold_chain_verified', 'adverse_reaction'
         )
       ), '[]'::jsonb),
       true

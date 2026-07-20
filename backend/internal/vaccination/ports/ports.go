@@ -83,8 +83,11 @@ type Repository interface {
 	// cohort matching the filter; afterGoatID is the cursor ("" starts at the beginning).
 	ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error)
 
-
 	// GetGoatForGeneration loads one goat's generation fields (incl sex/breed/stage). found is
 	// false when the goat does not exist.
 	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (g domain.EligibleGoat, found bool, err error)
+
+	// ShedCompletionSummary computes the FROZEN read-only shed-completion/submit summary (scan +
+	// proof + obligation state only, never submitted answers) for one vaccination task.
+	ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error)
 }

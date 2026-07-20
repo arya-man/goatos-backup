@@ -114,6 +114,42 @@ class ScreenshotTest {
         }
 
     @Test
+    fun vaccination_shed_completion_summary() = shot("vaccination_shed_completion_summary") {
+        // Read-only shed acknowledgement summary (no manual medical form): human shed + drive
+        // name, expected/handled/proof-ready counts, per-vaccine breakdown, and the Submit button
+        // gated on backend submit_enabled.
+        SubmitScreen(
+            state = sampleSubmitState().copy(
+                syncState = sg.mesha.goatos.feature.submit.SyncState.DRAFT,
+                syncLabel = "",
+                shed = "",
+                cohort = "",
+                date = "",
+                summaryItems = emptyList(),
+                groups = emptyList(),
+                goatProofTotal = 0,
+                formRunner = null,
+                submitLabel = "Submit",
+                canSubmit = true,
+                shedCompletionSummary = sg.mesha.goatos.feature.submit.ShedCompletionSummary(
+                    taskId = "task-shed",
+                    shedName = "Shed A — Weaners",
+                    driveName = "Vaccination · July 2026",
+                    expectedCount = 50,
+                    handledCount = 50,
+                    proofReadyCount = 50,
+                    submitState = "draft",
+                ),
+                vaccineBreakdown = listOf(
+                    sg.mesha.goatos.feature.submit.VaccineSummaryItem("FMD", 50),
+                    sg.mesha.goatos.feature.submit.VaccineSummaryItem("PPR", 48),
+                ),
+                blockingReason = null,
+            ),
+        )
+    }
+
+    @Test
     fun overview() = shot("overview") { LeadershipScreen(state = sampleLeadershipState()) }
 
     @Test

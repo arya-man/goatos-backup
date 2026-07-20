@@ -48,6 +48,16 @@
       "ciStep": "frontend-foundations-guard"
     },
     {
+      "id": "vaccination-shed-ack-not-form",
+      "script": "tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs",
+      "makeTarget": "vaccination-shed-ack-guard",
+      "realCheck": "node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs",
+      "selfTest": "node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs --self-test",
+      "owningDoc": "docs/decisions/vaccination-shed-ack-not-form.md",
+      "requiredInCI": true,
+      "ciStep": "vaccination-shed-ack-guard"
+    },
+    {
       "id": "domain-event-architecture",
       "script": "tools/agent-hooks/check-domain-event-architecture.mjs",
       "makeTarget": "domain-event-architecture-guard",

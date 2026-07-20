@@ -26,6 +26,7 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
+	ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -66,6 +67,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
 	mux.HandleFunc("POST /vaccination/manual-campaigns", h.RunManualCampaign)
 	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
+	mux.HandleFunc("GET /app/tasks/{task_id}/shed-completion-summary", h.ShedCompletionSummary)
 }
 
 const (
@@ -311,6 +313,65 @@ type queueResponse struct {
 	Items      []queueItem `json:"items"`
 	TotalCount int64       `json:"total_count"`
 	NextCursor *string     `json:"next_cursor,omitempty"`
+}
+
+type shedCompletionVaccineBreakdownItem struct {
+	Vaccine string `json:"vaccine"`
+	Count   int64  `json:"count"`
+}
+
+// shedCompletionSummaryResponse is the FROZEN wire shape for the vaccination shed-completion /
+// submit read-only summary. Shed completion is an acknowledgement, not a manual form: field names
+// below are exact per the frozen contract and must not change without updating every consumer
+// (Android SubmitScreen, admin-web record/verify drawer, OpenAPI spec + generated api-client).
+type shedCompletionSummaryResponse struct {
+	TaskID           string                               `json:"task_id"`
+	ShedName         string                               `json:"shed_name"`
+	DriveName        string                               `json:"drive_name"`
+	ExpectedCount    int64                                `json:"expected_count"`
+	HandledCount     int64                                `json:"handled_count"`
+	ProofReadyCount  int64                                `json:"proof_ready_count"`
+	VaccineBreakdown []shedCompletionVaccineBreakdownItem `json:"vaccine_breakdown"`
+	SubmitEnabled    bool                                 `json:"submit_enabled"`
+	BlockingReason   *string                              `json:"blocking_reason"`
+	SubmitState      string                               `json:"submit_state"`
+}
+
+// ShedCompletionSummary serves GET /app/tasks/{task_id}/shed-completion-summary — the read-only
+// acknowledgement summary the operator sees on the shed-completion/submit screen. It never reads
+// submitted form answers; readiness comes exclusively from scan + proof + obligation state.
+func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("task_id")
+	if !uuidutil.IsUUIDString(taskID) {
+		h.badRequest(w, r, "invalid_task_id", "task_id must be a UUID")
+		return
+	}
+	summary, err := h.svc.ShedCompletionSummary(r.Context(), tenantID(r), taskID)
+	if err != nil {
+		if errors.Is(err, vaccports.ErrNotFound) {
+			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+				errorEnvelope{Code: "task_not_found", Message: "vaccination task not found", TraceID: traceID(r)}, err)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	breakdown := make([]shedCompletionVaccineBreakdownItem, 0, len(summary.VaccineBreakdown))
+	for _, item := range summary.VaccineBreakdown {
+		breakdown = append(breakdown, shedCompletionVaccineBreakdownItem{Vaccine: item.Vaccine, Count: item.Count})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, shedCompletionSummaryResponse{
+		TaskID:           summary.TaskID,
+		ShedName:         summary.ShedName,
+		DriveName:        summary.DriveName,
+		ExpectedCount:    summary.ExpectedCount,
+		HandledCount:     summary.HandledCount,
+		ProofReadyCount:  summary.ProofReadyCount,
+		VaccineBreakdown: breakdown,
+		SubmitEnabled:    summary.SubmitEnabled,
+		BlockingReason:   summary.BlockingReason,
+		SubmitState:      summary.SubmitState,
+	})
 }
 
 // VerificationQueue lists completions awaiting review (earliest administered first), bounded by limit

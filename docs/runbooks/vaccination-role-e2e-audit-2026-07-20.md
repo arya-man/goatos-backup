@@ -11,7 +11,7 @@ The vaccination transaction closed successfully in the isolated physical-device 
 
 This is not a certification of real Firebase delivery. The committed dev Firebase file contains placeholder project/sender/app identifiers. Role-wise notification routing was therefore verified with synthetic local device tokens and the local event bus only; no external notification dispatcher ran.
 
-The closure also has one material product-context gap: the verifier UI does not expose route/site/adverse-reaction context even though that context exists in the Goat OS submission contract. The successful approval result must not be read as proof that a verifier could inspect those fields on-screen.
+Product-context note (superseded gap): an earlier version of this audit flagged that the verifier UI did not expose route/site/adverse-reaction context. That is **no longer a gap** — vaccination shed completion is an acknowledgement, not a manual medical form, so route/site/dose/cold-chain/adverse-reaction are not collected at all. The verifier reviews the per-animal scan roster, the per-animal camera proof, and the shed-completion acknowledgement summary (shed name, expected/handled/proof-ready counts, vaccine breakdown). Adverse events are handled on the separate health problem-report path. See ADR [docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md).
 
 ## Certification boundary
 
@@ -21,7 +21,7 @@ The closure also has one material product-context gap: the verifier UI does not 
 | Android emulator + isolated backend/DB | **VERIFIED (operator path)** | Permission gate, HID scan, process restoration, camera exclusivity, real MP4 upload, task-scoped deep link, FEFO lot selection, and system insets passed. Emulator intentionally stopped before Submit. |
 | Synthetic notification routing | **VERIFIED** | Exactly 4 `verification_pending`, 4 `verification_approved`, and 4 `verification_closed` requests queued to the expected synthetic role tokens. All 12 source events republished; zero failed/dead-letter. |
 | Real FCM delivery and notification tap | **NOT CERTIFIED** | Dev APK uses placeholder Firebase configuration. No real device token or external sender was used. |
-| Verifier clinical context | **KNOWN GAP** | Current verifier screen does not expose route/site/adverse-reaction context. |
+| Verifier clinical context | **RESOLVED (not applicable)** | Route/site/dose/cold-chain/adverse-reaction are no longer collected — shed completion is an acknowledgement over per-animal scan + proof, not a manual medical form. The verifier reviews scans, per-animal proof, and the acknowledgement summary. |
 | Staging/production | **NOT RUN** | No staging, production, Firebase, or other cloud data was mutated. |
 
 ## Physical role matrix
@@ -29,7 +29,7 @@ The closure also has one material product-context gap: the verifier UI does not 
 | Role | Result | What was proved | Limitation |
 |---|---|---|---|
 | Vaccination operator | **VERIFIED** | Two sheds, four goats, four camera proofs, FEFO batch selection, one submission, duplicate request rejected with HTTP 409 while submission count remained 1. | Real FCM reminder delivery was not exercised. |
-| Preventive-care verifier | **VERIFIED — physical role + backend workflow** | All four pending items received approved verdicts and drove the expected notification and SOP events; the final physical queue is clear. | Route/site/adverse context is absent from the verifier detail UI. |
+| Preventive-care verifier | **VERIFIED — physical role + backend workflow** | All four pending items received approved verdicts and drove the expected notification and SOP events; the final physical queue is clear. | Verifier reviews per-animal scan + proof + shed-ack summary; route/site/adverse are not collected (acknowledgement model), so their absence is by design, not a gap. |
 | Park head | **VERIFIED — physical role + backend workflow** | Closed the approved submission; inventory and closure events completed; the final physical overview has no remaining closure work. | The post-close screen proves the queue is empty; the completed action itself is certified by the durable close/audit rows. |
 | Preventive-care director | **VERIFIED — role landing** | Authorized director landing screen rendered on the physical device. | Per-proof pushes are intentionally excluded for this role; planned digest delivery is not implemented/certified. |
 | CEO/CXO | **VERIFIED — role landing** | Authorized leadership overview rendered on the physical device. | Per-proof pushes are intentionally excluded; this does not certify a role-specific notification delivery. |
@@ -121,13 +121,13 @@ The emulator did not submit the record and did not run verifier or leadership cl
 | Vaccination execution aggregates joined 0:N rejected/reworked completion history directly, allowing one obligation to fan out into multiple counted rows | **FIXED** | Completion history is reduced to one as-of-effective row per obligation before the execution join. The Postgres regression seeds rejected-then-accepted history and proves one obligation, accepted effective status, zero stale rejection, correct last dose, and unchanged batch totals. `aggregate-projection-guard` records the obligation-grain/cardinality contract. |
 | Restored scan ring can show completed progress while activity feed says `No taps yet` | **OPEN FOLLOW-UP** | Reproduced on emulator and again as physical `2/2` after process death; persistence-to-feed projection needs correction. |
 | Local scan/attempt entities can remain `PENDING` after outbox success | **OPEN FOLLOW-UP** | Observed in emulator DB despite corresponding server rows; reconciliation status needs review. |
-| Verifier cannot see route/site/adverse-reaction context | **OPEN PRODUCT GAP** | Backend submission context exists, but it is not rendered in the current verifier detail UI. |
+| Verifier cannot see route/site/adverse-reaction context | **RESOLVED (removed by design)** | Shed completion is now an acknowledgement, not a manual medical form: route/site/dose/cold-chain/adverse-reaction are not collected. The verifier reviews per-animal scan + proof + the shed-ack summary; adverse events go through the health problem-report path. See ADR [docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md). |
 
 ## Field provenance: legacy Slack vs Goat OS
 
 A read-only inspection of the actual `slack-automation-scripts` repository found no vaccination form schema, card schema, or source for the labels `cohort`, route/site, administered date, or adverse-reaction notes. The 17-page Slack Modules Training PDF likewise contains no vaccination form and no `vaccin`, route, administered, or adverse terminology. The only vaccination-specific helper found in the repository was `fixVaccinationAccess()`, which grants access to two opaque list IDs.
 
-`administered_at`, `adverse_reaction`, and `reaction_notes` originate in the local source-material vaccination template referenced by `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`. They were not copied from a legacy Slack vaccination form. `route_site` is absent from Slack and from the approved vaccination rules; it came from a Goat OS draft SOP skeleton/general model. Its meaning is administration route/body site, but its requirement is a **source-provenance gap** that product must approve or remove. The incorrect visible `cohort` label was a Goat OS semantic mismatch and was replaced with the actual animal-stage meaning.
+`administered_at`, `adverse_reaction`, and `reaction_notes` originated in a local source-material vaccination template referenced by `context/source-findings/preventive-care-vaccination-roster-stage-proposal.md`; `route_site` came from a Goat OS draft SOP skeleton and was absent from Slack and from the approved vaccination rules. **All of these have since been removed as shed-form fields** (migration `000007`): shed completion is an acknowledgement, `administered_at` is derived server-side, and route/dose/cold-chain/adverse are not collected. The provenance question is therefore closed by removal rather than approval. The incorrect visible `cohort` label was a Goat OS semantic mismatch and was replaced with the human shed name (`shed_name` in `ShedCompletionSummary`).
 
 ## Origin/main change handling
 
@@ -176,6 +176,6 @@ Independent emulator evidence root: `/Users/ravi/.codex/results/goatos-vaccinati
 ## Remaining release work
 
 1. Add valid non-production Firebase configuration and certify real role-wise FCM delivery and notification-tap routing.
-2. Obtain product approval or removal of draft-derived `route_site`; expose the approved administration/adverse context to the verifier and run a physical verifier UI decision check.
+2. Verify the read-only shed-completion acknowledgement summary (`ShedCompletionSummary`: shed name, expected/handled/proof-ready counts, vaccine breakdown, submit_enabled + blocking_reason) renders on the operator Submit screen and the verifier detail screen, and that submit is blocked until every expected animal is scanned + proofed. (The draft `route_site`/adverse-form gap is closed by removal — see ADR [docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md).)
 3. Fix restored-scan activity-feed hydration and reconcile local entity status after successful outbox delivery.
 4. For any commit that lands after the recorded `8699e0ea` baseline, rerun only the impacted E2E slice before release certification.

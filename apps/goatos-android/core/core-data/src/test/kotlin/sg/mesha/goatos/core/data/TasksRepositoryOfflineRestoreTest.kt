@@ -78,7 +78,7 @@ class TasksRepositoryOfflineRestoreTest {
                 }
             } as AppApi
 
-            val detail = DefaultTasksRepository(api, database.taskDetailCacheDao()).taskDetail("task-inline")
+            val detail = DefaultTasksRepository(api, database.taskDetailCacheDao(), database.shedCompletionSummaryCacheDao()).taskDetail("task-inline")
 
             assertEquals("INLINE-LOT", detail.form.fields.single().options.single().label)
             assertEquals(0, optionCalls)
@@ -148,7 +148,7 @@ class TasksRepositoryOfflineRestoreTest {
             } as AppApi
 
             // Session 1 (online): first open — populates Room via refreshTaskDetail.
-            val sessionOne = DefaultTasksRepository(api, database.taskDetailCacheDao(), clock = { 10L })
+            val sessionOne = DefaultTasksRepository(api, database.taskDetailCacheDao(), database.shedCompletionSummaryCacheDao(), clock = { 10L })
             assertNull("cold cache must start empty", sessionOne.observeTaskDetail(taskId).first().data)
             sessionOne.refreshTaskDetail(taskId).getOrThrow()
             val cached = sessionOne.observeTaskDetail(taskId).first().data
@@ -160,7 +160,7 @@ class TasksRepositoryOfflineRestoreTest {
             // Simulate process death: a brand-new repository instance over the SAME Room
             // database, network now offline.
             online = false
-            val sessionTwo = DefaultTasksRepository(api, database.taskDetailCacheDao(), clock = { 20L })
+            val sessionTwo = DefaultTasksRepository(api, database.taskDetailCacheDao(), database.shedCompletionSummaryCacheDao(), clock = { 20L })
             val restored = sessionTwo.observeTaskDetail(taskId).first().data
             assertEquals(
                 "a recreated repository must render the cached task with ZERO network calls",

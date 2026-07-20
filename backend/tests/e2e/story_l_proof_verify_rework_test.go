@@ -86,7 +86,6 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
 	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
 	story.Assert("sweeper created executable SOP task", taskID != "", "task_id=%q", taskID)
-	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	story.Step("Operator uploads canonical proof and submits the first administration",
 		"A task-bound camera clip from the scanned goat row and the exact goat/form payload pass through the SOP submission bridge, which records the completion.")
@@ -130,10 +129,11 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 	sopService.WithProofValidator(proofService).
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, verifyBus))
+	// Shed completion is an acknowledgement: the submission carries only the per-animal scan roster
+	// (plus proof); no manual medical fields. administered_at is derived server-side.
+	// See docs/decisions/vaccination-shed-ack-not-form.md.
 	answers := map[string]any{
-		"vaccine_lot_id": reservedLot, "cold_chain_verified": true, "goat_ids": []any{goatID},
-		"dose_ml_given": 1.0, "doses": 1, "route_site": "subcutaneous", "administered_at": now.Format(time.RFC3339),
-		"adverse_reaction": false,
+		"goat_ids": []any{goatID},
 	}
 	first, err := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
 		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,

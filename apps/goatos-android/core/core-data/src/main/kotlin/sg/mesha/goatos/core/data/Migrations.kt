@@ -244,10 +244,26 @@ val MIGRATION_10_11: Migration = object : Migration(10, 11) {
     }
 }
 
+/** v11 -> v12: adds the shed-completion-summary cache (JSON-blob-by-task offline-first read for
+ * the vaccination shed acknowledgement Submit screen). Additive, non-destructive. */
+val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `shed_completion_summary_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
 /**
- * v11 -> v12: adds the Counts vertical's read models in ONE step — all seven tables, no change to
+ * v12 -> v13: adds the Counts vertical's read models in ONE step — all seven tables, no change to
  * any existing table. Purely additive, so an installed APK upgrades in place with every cached row
  * and every unsynced outbox write intact.
+ *
+ * Renumbered from the branch's original v11 -> v12 during the main merge: main's
+ * shed-completion-summary cache is the integration baseline and keeps [MIGRATION_11_12], so the
+ * Counts tables move one step later to v13.
  *
  * Three shapes, deliberately different (see `cache/CountsCache.kt`,
  * `cache/CountsApprovalCache.kt`):
@@ -268,11 +284,11 @@ val MIGRATION_10_11: Migration = object : Migration(10, 11) {
  * touched here: they live in a different database (`goatos-outbox.db`) and are stored as plain
  * TEXT in an existing column.
  */
-val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+val MIGRATION_12_13: Migration = object : Migration(12, 13) {
     override fun migrate(db: SupportSQLiteDatabase) {
         // Each CREATE spells its table name out as a literal rather than looping over an
         // interpolated list. That is deliberate: `make room-migration-guard` statically matches
-        // every new v12 @Entity table against the CREATEs in this migration, and an interpolated
+        // every new v13 @Entity table against the CREATEs in this migration, and an interpolated
         // `$table` name is invisible to it — so a loop here would let a genuinely missing table
         // pass the very check that exists to catch the upgrade-crash defect
         // (docs/decisions/room-migration-safety.md).

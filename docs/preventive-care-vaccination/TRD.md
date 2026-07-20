@@ -414,16 +414,24 @@ bug-for-bug row copying. Known legacy gaps to close are row/header evidence bein
 treated as dose proof, optional/weak medicine-batch capture, adverse reactions
 without durable notes/follow-up, and review confidence not being first-class.
 
-- `rule_dsl.proof_policy` and `sop_versions.form_dsl` normalize the source SOP
-  shape: scheduled date, operator, animal scan, vaccine name, medicine
-  batch/vial-lot, dose ml, administered date/time, proof media, adverse reaction
-  + notes/follow-up, verifier/park-head review, and cold-chain/quantity checks
-  where the SOP version requires them.
-- The committed `000075` SOP version is only a draft skeleton
-  (`shed_video`, `vial_lot`, `cold_chain`, `dose`, `route_site`,
-  `administered_at`, `adverse_reaction`, `est_vs_used`, `verifier_review`). It
-  must be upgraded or superseded by a source-normalized SOP/proof-policy version
-  before vaccination SOP parity is called closed.
+- `sop_versions.form_dsl` for vaccination carries a **single** operator field:
+  `goat_ids` (the per-animal scan roster, `repeat`), each scanned row bound to its
+  own live camera proof via the per-goat `proof_policy`. There is **no shed-level
+  manual medical form**: vaccine + dose come from the drive/obligation config,
+  `administered_at` is derived server-side (the submit time), and adverse events go
+  through the health problem-report path. The manual field keys `vaccine_lot_id`,
+  `cold_chain_verified`, `dose_ml_given`, `route_site`, `administered_at`,
+  `adverse_reaction`, `adverse_reaction_notes` are **banned** from the vaccination
+  form_dsl and enforced by the `vaccination-shed-ack-guard` CI check.
+- Shed completion is an **acknowledgement**, not a form submission. The read
+  contract `ShedCompletionSummary` (see §6) backs a read-only summary screen; submit
+  is enabled only when every expected animal is scanned and proofed. See ADR
+  [docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md).
+- The earlier draft SOP skeleton (`shed_video`, `vial_lot`, `cold_chain`, `dose`,
+  `route_site`, `administered_at`, `adverse_reaction`, `est_vs_used`,
+  `verifier_review`) has been superseded: migration `000006` removed the batch-level
+  proof videos and `000007` removed the remaining manual medical fields. Do not
+  reintroduce them.
 - Procurement or legacy vaccination mentions are source evidence with
   `source_ref` + confidence/proof semantics. The live legacy guardrail found no
   first-class trusted vaccination evidence field in the cleaned BigQuery tables,
@@ -487,6 +495,11 @@ missed.
 `vaccination_completions`: `completion_id PK · tenant_id · obligation_id NOT NULL→obligation_instances · batch_id NULL→obligation_batches · animal_id→herd_animals · sop_submission_item_id NULL→sop_submission_items · vaccine_inventory_lot_id NULL→inventory_stock(§5) · doses int · dose_ml_given · route_site text · adverse_reaction bool · adverse_reaction_problem_id NULL · cold_chain_verified bool · administered_at · withdrawal_until_date date NULL · recorded_by · idempotency_key`.
 - **UNIQUE `(tenant_id, obligation_id, animal_id)`** — a dose recorded once; double-submit = no-op (the idempotency the mock assumes but had no backing column for).
 - On insert (one txn): write `obligation_status_events('completed')` + `outbox_messages`. **Stock is NOT decremented per completion** in a group drive — see §5 for the mode split.
+- **Values are server-derived, not operator answers** (shed completion is an acknowledgement, not a form): `administered_at` defaults to the submit time (migration `000007` relaxes its NOT NULL and keeps a `now()` default), `dose_ml_given` and `route_site` are **NULL**, `adverse_reaction` is **false**, and `cold_chain_verified` no longer gates submission. The columns remain for history/booster/withdrawal math but are populated by the completion service from protocol + scan/proof state, never from a shed-form field. See ADR [docs/decisions/vaccination-shed-ack-not-form.md](../decisions/vaccination-shed-ack-not-form.md).
+
+**Shed-completion read contract (`ShedCompletionSummary`, additive read):** backs the read-only shed-completion/Submit screen on Android and admin-web. `GET /app/tasks/{task_id}/shed-completion-summary` →
+`{ task_id: uuid · shed_name: string (human, e.g. "Shed A — Weaners", never a raw UUID) · drive_name: string (human) · expected_count: int (animals expected in this shed for the drive) · handled_count: int (animals scanned) · proof_ready_count: int (scanned AND ≥1 ready proof clip) · vaccine_breakdown: [{ vaccine: string, count: int }] (display names from the drive/obligation, not a form field) · submit_enabled: bool · blocking_reason: string|null (human; null when enabled) · submit_state: draft|submitted|verified|closed }`.
+- **`submit_enabled` is true only when `handled_count == expected_count AND proof_ready_count == expected_count`** — an unscanned animal, a scanned animal missing proof, OR an over-scan (handled > expected) all block submit with a human `blocking_reason`. Reads must be keyset/bounded (no full-table scan), per the scale envelope.
 
 **Side effects:** vaccination has no shifting side effect → do **not** touch `movement_commands` (its CHECK is `'shifting.apply'` only). If a future protocol needs a typed side-effect dispatch, add an obligation-scoped command table, don't overload it.
 

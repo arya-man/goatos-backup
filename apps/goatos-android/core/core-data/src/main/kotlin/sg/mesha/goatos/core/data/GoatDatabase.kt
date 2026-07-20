@@ -48,6 +48,8 @@ import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
+import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
+import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
@@ -74,12 +76,17 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * v9 (see [MIGRATION_8_9]) adds normalized full-roster rows for indexed RFID lookup.
  * v10 (see [MIGRATION_9_10]) binds every vaccination clip to its goat and indexes the
  * per-goat upload/status view used on the shed scan screen.
- * v11 (see [MIGRATION_10_11]) adds the Counts vertical's read models in one step — the
+ * v11 (see [MIGRATION_10_11]) scopes canonical RFID roster rows to shed+task.
+ * v12 (see [MIGRATION_11_12]) adds the shed-completion-summary cache — the vaccination
+ * shed-acknowledgement read the Submit screen renders, offline-first from day one like every
+ * other screen-facing read model.
+ * v13 (see [MIGRATION_12_13]) adds the Counts vertical's read models in one step — the
  * herd-register summary rollup, the breakdown's fixed-size totals/charts/facets envelope,
  * normalized per-grain breakdown rows with their page offsets, the approver queue's keyset
  * rows and cursor, and the shifting destination catalog (the bounded park -> sheds vocabulary
  * behind the shifting screen's cascading dropdowns, so the picker still opens with real
- * options when the phone is offline in a shed).
+ * options when the phone is offline in a shed). Renumbered from the branch's original v12 so
+ * main's shed-completion cache keeps v12 as the integration baseline.
  */
 @Database(
     entities = [
@@ -96,6 +103,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         RosterTimetableCacheEntity::class,
         RosterCoverageCacheEntity::class,
         TaskDetailCacheEntity::class,
+        ShedCompletionSummaryCacheEntity::class,
         ScannedGoatEntity::class,
         RfidScanAttemptEntity::class,
         ProofCaptureEntity::class,
@@ -110,7 +118,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CountsApprovalRemoteKeyEntity::class,
         CountsShiftingDestinationsCacheEntity::class,
     ],
-    version = 12,
+    version = 13,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -119,7 +127,8 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // via bounded indexed Room query (offline-first SSOT single-row entities instead of merged blob).
     // v10 (see [MIGRATION_9_10]) adds row-level vaccination proof ownership.
     // v11 (see [MIGRATION_10_11]) scopes canonical RFID rows to shed+task.
-    // v12 (see [MIGRATION_11_12]) adds the seven Counts read-model tables.
+    // v12 (see [MIGRATION_11_12]) adds the shed-completion-summary cache table.
+    // v13 (see [MIGRATION_12_13]) adds the seven Counts read-model tables.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -138,6 +147,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun rosterTimetableCacheDao(): RosterTimetableCacheDao
     abstract fun rosterCoverageCacheDao(): RosterCoverageCacheDao
     abstract fun taskDetailCacheDao(): TaskDetailCacheDao
+    abstract fun shedCompletionSummaryCacheDao(): ShedCompletionSummaryCacheDao
     abstract fun scannedGoatDao(): ScannedGoatDao
     abstract fun rfidScanAttemptDao(): RfidScanAttemptDao
     abstract fun proofCaptureDao(): ProofCaptureDao

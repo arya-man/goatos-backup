@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.rfid.FakeScanSource
@@ -134,6 +135,11 @@ private class CountingTasksRepository(task: TaskSummaryDto) : TasksRepository {
         }
 
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.success(Unit)
+
+    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+        MutableStateFlow(null)
+
+    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = Result.success(Unit)
 }
 
 /** Counts active collectors of [observeAllForTask]'s Flow. */

@@ -263,6 +263,26 @@ paths:
                 $ref: "#/components/schemas/TaskResponse"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /app/tasks/{task_id}/shed-completion-summary:
+    get:
+      tags:
+        - Operator Tasks
+      operationId: getShedCompletionSummary
+      summary: >-
+        Read-only vaccination shed-completion / submit acknowledgement summary. Shed completion
+        is NOT a manual form: the operator already scanned every animal and attached camera proof
+        at the animal level; this summary reports whether the shed is ready to acknowledge.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Shed completion summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShedCompletionSummary"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
   /app/sop-versions/{sop_version_id}:
     get:
       tags:
@@ -6281,6 +6301,64 @@ components:
             $ref: "#/components/schemas/SubmissionSummary"
         trace_id:
           type: string
+    ShedCompletionVaccineBreakdownItem:
+      type: object
+      additionalProperties: false
+      required:
+        - vaccine
+        - count
+      properties:
+        vaccine:
+          type: string
+          description: Human display name of the vaccine, never a raw id/code.
+        count:
+          type: integer
+    ShedCompletionSummary:
+      type: object
+      additionalProperties: false
+      description: >-
+        FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed
+        completion is an acknowledgement, not a manual medical form: the operator already scanned
+        every animal and attached camera proof per goat row; Submit only confirms the shed is
+        done. shed_name / drive_name / vaccine names are always human, never raw UUIDs.
+      required:
+        - task_id
+        - shed_name
+        - drive_name
+        - expected_count
+        - handled_count
+        - proof_ready_count
+        - vaccine_breakdown
+        - submit_enabled
+        - blocking_reason
+        - submit_state
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        drive_name:
+          type: string
+        expected_count:
+          type: integer
+        handled_count:
+          type: integer
+        proof_ready_count:
+          type: integer
+        vaccine_breakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShedCompletionVaccineBreakdownItem"
+        submit_enabled:
+          type: boolean
+        blocking_reason:
+          oneOf:
+            - type: string
+            - type: "null"
+        submit_state:
+          type: string
+          enum: [draft, submitted, verified, closed]
     RetryReviewFanoutsRequest:
       type: object
       additionalProperties: false

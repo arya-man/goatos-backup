@@ -65,6 +65,7 @@ import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
+import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -181,6 +182,10 @@ object AppModule {
     fun provideTaskDetailCacheDao(db: GoatDatabase): TaskDetailCacheDao = db.taskDetailCacheDao()
 
     @Provides
+    fun provideShedCompletionSummaryCacheDao(db: GoatDatabase): ShedCompletionSummaryCacheDao =
+        db.shedCompletionSummaryCacheDao()
+
+    @Provides
     fun provideScannedGoatDao(db: GoatDatabase): ScannedGoatDao = db.scannedGoatDao()
 
     @Provides
@@ -291,8 +296,12 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideTasksRepository(api: AppApi, dao: TaskDetailCacheDao): TasksRepository =
-        DefaultTasksRepository(api, dao)
+    fun provideTasksRepository(
+        api: AppApi,
+        dao: TaskDetailCacheDao,
+        shedCompletionSummaryDao: ShedCompletionSummaryCacheDao,
+    ): TasksRepository =
+        DefaultTasksRepository(api, dao, shedCompletionSummaryDao)
 
     @Provides
     @Singleton

@@ -63,12 +63,18 @@ data class VaccineGroup(
     val dose: String,
 )
 
+/** One vaccine in the shed completion summary breakdown. */
+data class VaccineSummaryItem(
+    val vaccine: String,
+    val count: Int,
+)
+
 /** One backend-composed, locale-aware fact in the task summary card. */
 data class SubmitSummaryItem(val key: String, val label: String, val value: String)
 
 /** Hoisted state for [SubmitScreen]. Every visible string is a field.
- *  @Immutable: groups: List<VaccineGroup> otherwise marks this unstable (item 6,
- *  perf/stability pass). */
+ *  @Immutable: groups, vaccines, summaryItems otherwise mark this unstable.
+ */
 @Immutable
 data class SubmitUiState(
     val eyebrow: String,
@@ -114,6 +120,23 @@ data class SubmitUiState(
      *  shed-record summary. Null when the task's form has no fields to capture — the shed
      *  record is then just the vaccine-group summary, as before. */
     val formRunner: FormRunnerState? = null,
+    /** Shed completion summary from backend: human shed name, drive name, counts. */
+    val shedCompletionSummary: ShedCompletionSummary? = null,
+    /** Vaccine breakdown from shed completion summary. */
+    val vaccineBreakdown: List<VaccineSummaryItem> = emptyList(),
+    /** Human-readable blocking reason when submit not enabled. */
+    val blockingReason: String? = null,
+)
+
+/** Shed completion summary data class (mirror of backend ShedCompletionSummaryDto). */
+data class ShedCompletionSummary(
+    val taskId: String,
+    val shedName: String,
+    val driveName: String,
+    val expectedCount: Int,
+    val handledCount: Int,
+    val proofReadyCount: Int,
+    val submitState: String,
 )
 
 /** User intents. The ViewModel layer maps these to sync-engine commands. */
@@ -226,6 +249,35 @@ fun SubmitScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Vaccination shed completion summary (READ-ONLY)
+            state.shedCompletionSummary?.let { summary ->
+                item { ShedCompletionSummaryCard(summary) }
+                if (state.vaccineBreakdown.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.submit_vaccine_breakdown_label),
+                            color = T.faint,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                    }
+                }
+                items(state.vaccineBreakdown, key = { "${it.vaccine}|${it.count}" }, contentType = { "vaccine_breakdown" }) { item ->
+                    VaccineBreakdownRow(item)
+                }
+                state.blockingReason?.let { reason ->
+                    item {
+                        Text(
+                            text = reason,
+                            color = T.warn,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                    }
+                }
+            }
             if (state.summaryItems.any { it.label.isNotBlank() && it.value.isNotBlank() } ||
                 state.shed.isNotBlank() || state.cohort.isNotBlank() || state.date.isNotBlank()
             ) {
@@ -526,6 +578,45 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
             ) {
                 Text(stringResource(R.string.submit_retry_label), fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
+        }
+    }
+}
+
+@Composable
+private fun ShedCompletionSummaryCard(summary: ShedCompletionSummary) {
+    GoatCard {
+        // Shed name
+        SummaryRow(stringResource(R.string.submit_summary_shed), summary.shedName)
+        HairLine()
+        // Drive name
+        SummaryRow(stringResource(R.string.submit_summary_drive), summary.driveName)
+        HairLine()
+        // Expected animals
+        SummaryRow(stringResource(R.string.submit_summary_expected), summary.expectedCount.toString())
+        HairLine()
+        // Handled (scanned) animals
+        SummaryRow(stringResource(R.string.submit_summary_handled), summary.handledCount.toString())
+        HairLine()
+        // Proof ready animals
+        SummaryRow(stringResource(R.string.submit_summary_proof_ready), summary.proofReadyCount.toString())
+    }
+}
+
+@Composable
+private fun VaccineBreakdownRow(item: VaccineSummaryItem) {
+    GoatCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(item.vaccine, color = T.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = "${item.count}",
+                color = T.brandD,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.weight(1f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            )
         }
     }
 }

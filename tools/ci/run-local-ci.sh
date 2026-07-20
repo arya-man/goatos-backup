@@ -117,6 +117,7 @@ run_backend() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
+  step "vaccination-shed-ack-guard" make vaccination-shed-ack-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
   step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard

@@ -311,3 +311,28 @@ type RollupRecomputeResult struct {
 	SourceRevision  int64
 	RecomputedAt    time.Time
 }
+
+// VaccineBreakdownItem is one display-name/count pair in a ShedCompletionSummary.
+type VaccineBreakdownItem struct {
+	Vaccine string
+	Count   int64
+}
+
+// ShedCompletionSummary is the FROZEN read-only contract for the vaccination shed-completion /
+// submit screen. Shed completion is an ACKNOWLEDGEMENT, not a manual form: the operator already
+// did the real work at animal level (scan + one camera proof clip per goat row); this summary
+// reports whether every expected animal in the shed has been scanned and proofed, so Submit can
+// be enabled or blocked with a human reason. shed_name / drive_name / vaccine names are always
+// human display strings, never raw UUIDs.
+type ShedCompletionSummary struct {
+	TaskID           string
+	ShedName         string
+	DriveName        string
+	ExpectedCount    int64
+	HandledCount     int64
+	ProofReadyCount  int64
+	VaccineBreakdown []VaccineBreakdownItem
+	SubmitEnabled    bool
+	BlockingReason   *string
+	SubmitState      string // draft | submitted | verified | closed
+}

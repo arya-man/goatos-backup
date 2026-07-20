@@ -298,3 +298,53 @@ func TestR50InvalidIndexRecovery(t *testing.T) {
 		}
 	})
 }
+
+// TestR50ValidV2RetryKeepsArbiter reproduces the residual Codex found: a prior migration attempt
+// already created a VALID _v2 unique index AND dropped the old index, then failed on a LATER
+// statement. On retry, UNCONDITIONALLY dropping _v2 leaves NO ON CONFLICT arbiter (42P10). The fix
+// drops _v2 ONLY IF invalid, so a valid _v2 is preserved and writes keep working.
+func TestR50ValidV2RetryKeepsArbiter(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("exec %.60q: %v", sql, err)
+		}
+	}
+	exec(`CREATE TABLE codex_retry (tenant_id uuid NOT NULL, idempotency_key text, event_type text NOT NULL)`)
+	// Prior attempt's END state: valid _v2 present, old index already dropped.
+	exec(`CREATE UNIQUE INDEX codex_retry_v2 ON codex_retry (tenant_id, idempotency_key)`)
+
+	// The FIXED conditional drop (drop _v2 ONLY IF invalid). _v2 is valid, so it MUST be kept.
+	exec(`DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+             WHERE c.relname = 'codex_retry_v2' AND NOT i.indisvalid) THEN
+    DROP INDEX IF EXISTS codex_retry_v2;
+  END IF;
+END $$;`)
+	exec(`CREATE UNIQUE INDEX IF NOT EXISTS codex_retry_v2 ON codex_retry (tenant_id, idempotency_key)`)
+
+	// The arbiter must still exist: ON CONFLICT must NOT raise 42P10.
+	tenant := "11111111-1111-1111-1111-111111111111"
+	exec(`INSERT INTO codex_retry (tenant_id, idempotency_key, event_type) VALUES ($1, 'k', 'e')`, tenant)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO codex_retry (tenant_id, idempotency_key, event_type) VALUES ($1, 'k', 'e') ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+		tenant); err != nil {
+		t.Fatalf("ON CONFLICT must work after retry (valid _v2 arbiter preserved), got: %v", err)
+	}
+
+	var valid bool
+	if err := pool.QueryRow(ctx,
+		`SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = 'codex_retry_v2'`).
+		Scan(&valid); err != nil {
+		t.Fatalf("_v2 must still exist after retry: %v", err)
+	}
+	if !valid {
+		t.Fatal("_v2 must remain VALID (not dropped) — unconditional drop would break the arbiter")
+	}
+}

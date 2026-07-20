@@ -677,6 +677,49 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `remove refuses when guarded cancel misses and item raced to a retryable FAILED (BUG 8 residual)`() = runTest {
+        val db = newDb()
+        try {
+            // Simulate: the guarded cancel loses the race (item was IN_FLIGHT at the DELETE), then the
+            // dispatcher's markFailed flips it to a RETRYABLE FAILED before we re-check. The old code
+            // saw "not IN_FLIGHT" and proceeded to delete the file, stranding a retryable upload of a
+            // now-missing file. remove() must REFUSE here.
+            val sync = FakeSyncRepository(cancelAlwaysMisses = true)
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            val captured = (
+                repo.capture(
+                    taskId = "task-bug8-flip",
+                    fieldKey = "shed_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://bug8-flip.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-bug8-flip",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+                ).value
+            val outboxItemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId!!
+            // The item is now a retryable FAILED (raced there after our guarded cancel missed).
+            sync.emit(outboxItemId, SyncItemStatus.FAILED, resultJson = null)
+
+            val result = repo.remove("task-bug8-flip", captured.id)
+            assertTrue("must refuse while a retryable FAILED outbox row still references the file", result is AppResult.Err)
+            assertEquals("proof row must NOT be deleted", captured.id, db.proofCaptureDao().findById(captured.id)?.id)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `remove surfaces deleteOutboxItem failure and preserves row and file (BUG 8)`() = runTest {
         val db = newDb()
         try {
@@ -953,6 +996,9 @@ private fun proofEntity(
 private class FakeSyncRepository(
     private val deleteOutboxItemFailure: String? = null,
     private val cancelOutboxItemFailure: String? = null,
+    // Simulates the guarded cancel losing the race to the dispatcher (item was IN_FLIGHT at the
+    // instant of the DELETE): returns Ok(false) and removes nothing, regardless of observed status.
+    private val cancelAlwaysMisses: Boolean = false,
 ) : SyncRepository {
     data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
     data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
@@ -1060,6 +1106,7 @@ private class FakeSyncRepository(
     override suspend fun cancelOutboxItemIfPending(itemId: String): AppResult<Boolean> {
         cancelCalls += itemId
         cancelOutboxItemFailure?.let { return AppResult.Err(it) }
+        if (cancelAlwaysMisses) return AppResult.Ok(false)
         val item = status.value.items.firstOrNull { it.id == itemId }
         val cancellable = item != null &&
             (item.status == SyncItemStatus.QUEUED || item.status == SyncItemStatus.FAILED)

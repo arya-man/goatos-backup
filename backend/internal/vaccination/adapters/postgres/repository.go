@@ -71,10 +71,6 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
-
-
-
-
 func nullUUID(v string) any {
 	if strings.TrimSpace(v) == "" {
 		return nil
@@ -1510,20 +1506,39 @@ SELECT
   oi.batch_id,
   si.goat_id,
   si.item_id,
-  nullif(ss.answers ->> 'vaccine_lot_id', '')::uuid,
+  -- Vaccine lot is reserved at the DRIVE/BATCH level, not collected as a per-shed operator form
+  -- field anymore. Thread the batch's reserved lot into the completion so stock deduction + lot
+  -- traceability survive the ack model. Prefer obligation_batches.primary_inventory_lot_id when a
+  -- deliberate/manual path set it; otherwise fall back to the FEFO-reserved lot recorded by the
+  -- sweeper reserve path in inventory_stock_movements (the batch reserve trigger only marks
+  -- context.stock_reservation and never writes primary_inventory_lot_id, so sweeper-created batch
+  -- drives carry the reserved lot ONLY as a reserve movement). Earliest (occurred_at, movement_id)
+  -- reserve row = the earliest-expiry FEFO lot, matching consumeAcceptedCompletionStock's gate.
+  COALESCE(
+    ob.primary_inventory_lot_id,
+    (
+      SELECT ism.lot_id
+      FROM inventory_stock_movements ism
+      WHERE ism.tenant_id = si.tenant_id
+        AND ism.batch_id = oi.batch_id
+        AND ism.movement_type = 'reserve'
+      ORDER BY ism.occurred_at, ism.movement_id
+      LIMIT 1
+    )
+  ),
   COALESCE(nullif(ss.answers ->> 'doses', '')::int, 1),
-  nullif(ss.answers ->> 'dose_ml_given', '')::numeric,
-  nullif(ss.answers ->> 'route_site', ''),
-  COALESCE((ss.answers ->> 'adverse_reaction')::boolean, false),
-  COALESCE((ss.answers ->> 'cold_chain_verified')::boolean, false),
-  COALESCE(nullif(ss.answers ->> 'administered_at', '')::timestamptz, ss.submitted_at),
+  NULL::numeric,
+  NULL::text,
+  false,
+  true,
+  ss.submitted_at,
   'recorded',
   COALESCE(
     (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
     nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
     CASE
       WHEN pr.withdrawal_days IS NOT NULL THEN
-        (COALESCE(nullif(ss.answers ->> 'administered_at', '')::timestamptz, ss.submitted_at)::date + pr.withdrawal_days)
+        (ss.submitted_at::date + pr.withdrawal_days)
       ELSE NULL
     END
   ),
@@ -1559,13 +1574,9 @@ WHERE si.tenant_id = $1
   AND si.goat_id IS NOT NULL
   AND si.state IN ('accepted', 'needs_review')
   AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
-  AND (
-    oi.batch_id IS NULL
-    OR (
-      nullif(ss.answers ->> 'vaccine_lot_id', '') IS NOT NULL
-      AND COALESCE((ss.answers ->> 'cold_chain_verified')::boolean, false)
-    )
-  )
+  -- Manual vaccine-batch/cold-chain answer gate removed: the generic SOP engine already
+  -- enforces per-goat proof completeness (validatePerGoatProofRefs) before a submission item
+  -- can reach 'accepted'/'needs_review', so no vaccination-specific answer gate is needed here.
   AND (
     sd.code IN ('vaccination.drive', 'vaccination.session')
     OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
@@ -1591,7 +1602,7 @@ SET withdrawal_until_date = COALESCE(
       nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
       CASE
         WHEN pr.withdrawal_days IS NOT NULL THEN
-          (COALESCE(nullif(ss.answers ->> 'administered_at', '')::timestamptz, ss.submitted_at)::date + pr.withdrawal_days)
+          (vc.administered_at::date + pr.withdrawal_days)
         ELSE NULL
       END
     ),
@@ -1632,6 +1643,217 @@ WHERE vc.tenant_id = $1
 		return materializedItems, nil
 	}
 	return count, nil
+}
+
+// ShedCompletionSummary computes the FROZEN read-only shed-completion / submit summary for a
+// vaccination task: how many animals were expected vs. scanned vs. proof-ready, a display-name
+// vaccine breakdown, and whether Submit is enabled. Shed completion is an acknowledgement, not a
+// manual form, so this reads exclusively from scan/proof/obligation state, never from submitted
+// form answers. Every read here is a single tenant+task (or tenant+batch) equality lookup against
+// an indexed column (sop_task_scan_captures_task_idx, obligation_instances_batch_idx,
+// proof_artifacts_scope_idx) — bounded to one task's shed, never a table scan.
+func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	task, err := pgconv.UUID(taskID)
+	if err != nil {
+		return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: task id: %w", err)
+	}
+
+	var (
+		shedName      string
+		driveName     string
+		state         string
+		expectedCount int64
+		handledCount  int64
+		proofReady    int64
+	)
+	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id = the shed drive's batch); group_key=(tenant_id, task_id) resolving one batch_id, all counts keyed to that single batch/shed; join_cardinality=each count is a SEPARATE scalar sub-select over a 1-row-per-fact source (expected=one row per obligation_instance in the batch; handled=COUNT(DISTINCT goat_id) over scan_captures so multiple scans of one goat count once; proof_ready=COUNT(DISTINCT subject_id) over proof_artifacts so multiple clips per goat count once) — the buckets are never multiplied by a shared fan-out because they are computed independently, not from one wide JOIN; pagination=whole-shed totals computed server-side in one aggregation, NOT page-limited (no LIMIT/OFFSET on the counts); scope=explicit — the task's own scope_type='shed' resolves shed_name via locations, and expected animals come ONLY from obligation_instances joined to THIS task's batch_id, so no park/cohort/other-shed animals bleed in.
+	// grain: one summary row per (tenant, task/shed drive). status buckets: expected excludes terminal obligations ('completed','waived','canceled','superseded') to mirror RecordCompletionsFromSubmission; submit is enabled only at handled==expected==proof_ready (strict — over- and under-scan both block).
+	err = r.pool.QueryRow(ctx, `
+WITH t AS (
+  SELECT st.task_id, st.tenant_id, st.title, st.scope_type, st.scope_id, st.state
+  FROM sop_tasks st
+  WHERE st.tenant_id = $1 AND st.task_id = $2
+),
+batch AS (
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  JOIN t ON t.tenant_id = ob.tenant_id AND t.task_id = ob.sop_task_id
+),
+-- expected counts animals in this shed's batch that STILL need vaccination. The exclusion set
+-- MUST match RecordCompletionsFromSubmission's obligation filter exactly ('completed', 'waived',
+-- 'canceled', 'superseded'): a vaccination task is re-submittable via the rework path (task state
+-- rework_requested -> re-submit), and obligations transition to 'completed' only at verify/accept.
+-- Excluding already-completed obligations keeps expected == "animals submit will actually
+-- materialize", so drive-% is correct across re-reads and an over-scan can never be masked by a
+-- stale, inflated expected_count.
+expected AS (
+  SELECT count(*) AS n
+  FROM obligation_instances oi
+  JOIN batch b ON b.batch_id = oi.batch_id
+  WHERE oi.tenant_id = $1
+    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+),
+handled AS (
+  SELECT count(DISTINCT goat_id) AS n
+  FROM sop_task_scan_captures
+  WHERE tenant_id = $1 AND task_id = $2 AND field_key = 'goat_ids' AND goat_id IS NOT NULL
+),
+proofed AS (
+  SELECT count(DISTINCT subject_id) AS n
+  FROM proof_artifacts
+  WHERE tenant_id = $1
+    AND scope_type = 'task'
+    AND scope_id = $2
+    AND subject_type = 'goat'
+    AND subject_id IS NOT NULL
+    AND upload_state = 'completed'
+),
+shed AS (
+  SELECT l.name
+  FROM t
+  JOIN locations l ON l.tenant_id = t.tenant_id AND l.location_id = t.scope_id
+  WHERE t.scope_type = 'shed'
+)
+SELECT
+  COALESCE(shed.name, t.title),
+  t.title,
+  t.state,
+  COALESCE((SELECT n FROM expected), 0),
+  COALESCE((SELECT n FROM handled), 0),
+  COALESCE((SELECT n FROM proofed), 0)
+FROM t
+LEFT JOIN shed ON true`,
+		tenant, task,
+	).Scan(&shedName, &driveName, &state, &expectedCount, &handledCount, &proofReady)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", ports.ErrNotFound)
+		}
+		return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", err)
+	}
+
+	breakdown, err := r.shedCompletionVaccineBreakdown(ctx, tenant, task)
+	if err != nil {
+		return domain.ShedCompletionSummary{}, err
+	}
+
+	summary := domain.ShedCompletionSummary{
+		TaskID:           taskID,
+		ShedName:         shedName,
+		DriveName:        driveName,
+		ExpectedCount:    expectedCount,
+		HandledCount:     handledCount,
+		ProofReadyCount:  proofReady,
+		VaccineBreakdown: breakdown,
+		SubmitState:      shedCompletionSubmitState(state),
+	}
+	summary.SubmitEnabled, summary.BlockingReason = shedCompletionReadiness(expectedCount, handledCount, proofReady)
+	return summary, nil
+}
+
+// shedCompletionVaccineBreakdown returns the display-name/count breakdown of vaccines expected in
+// this task's shed/batch, bounded by the same batch_id index as the summary counts above.
+func (r *Repository) shedCompletionVaccineBreakdown(ctx context.Context, tenant, task pgtype.UUID) ([]domain.VaccineBreakdownItem, error) {
+	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id); group_key=(tenant_id, task_id) -> one batch_id; join_cardinality=one row per obligation_instance in the batch — protocol_rule_dimensions is many-rows-per-rule, so it is collapsed to ONE label per rule via LEFT JOIN LATERAL ... LIMIT 1 (NOT a plain JOIN) to stop count(*) double-counting an obligation when a rule has multiple selector/dimension rows; pagination=whole-shed totals, LIMIT 50 caps the number of DISTINCT vaccine labels (a shed drive has a handful of vaccines), never the per-vaccine COUNT; scope=explicit — obligations come only from THIS task's batch_id, so other sheds/parks never contribute.
+	// grain: one row per vaccine label for this shed drive. status: excludes terminal ('completed','waived','canceled','superseded') to mirror the summary's expected bucket.
+	rows, err := r.pool.Query(ctx, `
+WITH t AS (
+  SELECT st.task_id, st.tenant_id
+  FROM sop_tasks st
+  WHERE st.tenant_id = $1 AND st.task_id = $2
+),
+batch AS (
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  JOIN t ON t.tenant_id = ob.tenant_id AND t.task_id = ob.sop_task_id
+)
+SELECT COALESCE(v.vaccine, 'Unspecified') AS vaccine,
+       count(*) AS n
+FROM obligation_instances oi
+JOIN batch b ON b.batch_id = oi.batch_id
+LEFT JOIN LATERAL (
+  SELECT COALESCE(nullif(prd.vaccine_type, ''), nullif(prd.vaccine_code, '')) AS vaccine
+  FROM protocol_rule_dimensions prd
+  WHERE prd.tenant_id = oi.tenant_id
+    AND prd.rule_id = oi.rule_id
+  ORDER BY prd.vaccine_type, prd.vaccine_code
+  LIMIT 1
+) v ON true
+WHERE oi.tenant_id = $1
+  AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+GROUP BY 1
+ORDER BY 1
+LIMIT 50`, tenant, task)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: shed completion vaccine breakdown: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.VaccineBreakdownItem
+	for rows.Next() {
+		var item domain.VaccineBreakdownItem
+		if err := rows.Scan(&item.Vaccine, &item.Count); err != nil {
+			return nil, fmt.Errorf("vaccination: shed completion vaccine breakdown row: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: shed completion vaccine breakdown rows: %w", err)
+	}
+	return out, nil
+}
+
+// shedCompletionSubmitState maps a generic sop_tasks.state onto the frozen ShedCompletionSummary
+// submit_state vocabulary (draft | submitted | verified | closed).
+func shedCompletionSubmitState(taskState string) string {
+	switch taskState {
+	case "queued", "assigned", "in_progress":
+		return "draft"
+	case "submitted", "needs_review", "rework_requested":
+		return "submitted"
+	case "accepted":
+		return "verified"
+	case "rejected", "canceled":
+		return "closed"
+	default:
+		return "draft"
+	}
+}
+
+// shedCompletionReadiness applies the frozen submit_enabled rule STRICTLY: enabled only when the
+// scanned set and the proof-ready set each EXACTLY equal the expected set (handled == expected AND
+// proof_ready == expected). Any mismatch — under-scan OR over-scan — blocks submit with a human
+// reason. Over-scan matters for data integrity: RecordCompletionsFromSubmission INNER-JOINs each
+// scanned goat to an open obligation in this shed's batch, so a scanned animal that is not expected
+// here has no obligation to join and would be silently dropped. Blocking on over-scan surfaces the
+// stray animal to the operator instead of losing it.
+func shedCompletionReadiness(expected, handled, proofReady int64) (bool, *string) {
+	if expected <= 0 {
+		reason := "No animals are expected in this shed for this drive yet."
+		return false, &reason
+	}
+	if handled < expected {
+		reason := fmt.Sprintf("%d of %d animals are not yet scanned.", expected-handled, expected)
+		return false, &reason
+	}
+	if handled > expected {
+		reason := fmt.Sprintf("%d scanned animals are not expected in this shed for this drive.", handled-expected)
+		return false, &reason
+	}
+	if proofReady < expected {
+		reason := fmt.Sprintf("%d of %d animals are missing proof.", expected-proofReady, expected)
+		return false, &reason
+	}
+	if proofReady > expected {
+		reason := fmt.Sprintf("%d proof clips belong to animals not expected in this shed for this drive.", proofReady-expected)
+		return false, &reason
+	}
+	return true, nil
 }
 
 // ListSubmissionCompletions returns the materialized completion rows for one SOP submission.

@@ -112,6 +112,7 @@ var protectedRoutes = []Route{
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
 	{OperationID: "recordAppScanAttempt", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-attempts", Permissions: []string{TaskExecute}},
 	{OperationID: "submitAppTask", Method: "POST", Pattern: "/app/tasks/{task_id}/submissions", Permissions: []string{TaskExecute}},
+	{OperationID: "getShedCompletionSummary", Method: "GET", Pattern: "/app/tasks/{task_id}/shed-completion-summary", Permissions: []string{TaskRead}},
 
 	// Procurement/source-entry backend slice.
 	{OperationID: "listProcurementSourceEntryLoads", Method: "GET", Pattern: "/procurement/source-entry/loads", Permissions: []string{ProcurementRead}},

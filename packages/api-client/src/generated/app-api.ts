@@ -163,6 +163,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/tasks/{task_id}/shed-completion-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read-only vaccination shed-completion / submit acknowledgement summary. Shed completion is NOT a manual form: the operator already scanned every animal and attached camera proof at the animal level; this summary reports whether the shed is ready to acknowledge. */
+        get: operations["getShedCompletionSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/sop-versions/{sop_version_id}": {
         parameters: {
             query?: never;
@@ -2395,6 +2412,26 @@ export interface components {
             sop_version?: components["schemas"]["SOPVersion"] | null;
             submissions?: components["schemas"]["SubmissionSummary"][];
             trace_id: string;
+        };
+        ShedCompletionVaccineBreakdownItem: {
+            /** @description Human display name of the vaccine, never a raw id/code. */
+            vaccine: string;
+            count: number;
+        };
+        /** @description FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed completion is an acknowledgement, not a manual medical form: the operator already scanned every animal and attached camera proof per goat row; Submit only confirms the shed is done. shed_name / drive_name / vaccine names are always human, never raw UUIDs. */
+        ShedCompletionSummary: {
+            /** Format: uuid */
+            task_id: string;
+            shed_name: string;
+            drive_name: string;
+            expected_count: number;
+            handled_count: number;
+            proof_ready_count: number;
+            vaccine_breakdown: components["schemas"]["ShedCompletionVaccineBreakdownItem"][];
+            submit_enabled: boolean;
+            blocking_reason: string | null;
+            /** @enum {string} */
+            submit_state: "draft" | "submitted" | "verified" | "closed";
         };
         RetryReviewFanoutsRequest: {
             /** @default 50 */
@@ -5252,6 +5289,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    getShedCompletionSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Shed completion summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShedCompletionSummary"];
                 };
             };
             404: components["responses"]["NotFoundOrNotAllowed"];

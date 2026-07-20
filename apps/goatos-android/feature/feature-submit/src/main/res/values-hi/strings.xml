@@ -3,8 +3,13 @@
     <string name="submit_eyebrow">टीकाकरण</string>
     <string name="submit_record_title">शेड रिकॉर्ड</string>
     <string name="submit_summary_shed">शेड</string>
+    <string name="submit_summary_drive">ड्राइव</string>
     <string name="submit_summary_cohort">पशु अवस्था</string>
     <string name="submit_summary_date">तारीख</string>
+    <string name="submit_summary_expected">अपेक्षित पशु</string>
+    <string name="submit_summary_handled">स्कैन किए गए</string>
+    <string name="submit_summary_proof_ready">प्रमाण तैयार</string>
+    <string name="submit_vaccine_breakdown_label">टीका टूटना</string>
     <string name="submit_dose_label">खुराक</string>
     <string name="submit_goat_proof_title">बकरी का कैमरा प्रमाण</string>
     <string name="submit_goat_proof_synced">%2$d में से %1$d बकरियाँ सिंक हुईं</string>

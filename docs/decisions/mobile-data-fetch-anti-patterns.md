@@ -130,3 +130,39 @@ It is **diff-scoped** (a commit with no android Kotlin passes instantly), skips
 `*Test`/`Fake`/`Preview`/`Entity`/`Dto` files, and honors an inline `// mobile-guard:ignore: <reason>`
 for a genuinely-bounded case. `make android-bounded-memory-guard-audit` runs the whole-tree audit;
 the legacy deprecated `OutboxDao.observeAll` surfaces there until it is deleted.
+
+## Antipattern: whole-collection JSON blob for a list UI (render from a bounded SSOT)
+
+A screen that must show a *complete* collection (e.g. the vaccination scan roster — the operator
+needs every shed animal + status, and a scanned tag is validated against the full set) must render
+from a **bounded per-scope Room read (the per-row SSOT)**, NOT by serializing the entire collection
+into one JSON blob cache row (`json.encodeToString(wholeList)`). The blob duplicates the SSOT in the
+heap and grows without bound as the scope grows.
+
+- Tag/row validation reads the indexed SSOT DAO (`findByTag`, `countByStatus`) — never the blob.
+- The UI list observes the SSOT scope (a bounded Room query), not a decoded whole-collection blob.
+- The blob cache is for a bounded *window* (first page) only, paged forward, never the whole thing.
+
+Known open item (2026-07-20): `ExecutionRepository.refreshCompleteScanRoster` still serializes the
+whole shed roster into one `ScanRosterCacheEntity` blob. It is bounded-by-shed today (tens–hundreds
+of animals, `mobile-guard:ignore`'d) so it is not a live crash, but the scale-safe fix is to render
+`ScanViewModel`'s roster list from a `scanRosterRowDao` observe (the SSOT already holds every row)
+and drop the whole-roster blob. This is a UI-layer refactor with a real design choice (the list is
+already paginated via `loadMore`/`appendScanRoster`), so it is tracked separately rather than rushed.
+
+## Verified NON-issues (do not re-flag as bugs)
+
+Re-verified against `origin/main` 05889b83 on 2026-07-20:
+
+- **Proof read cap (`ProofCaptureDao.observeForTask`/`listForTask` `LIMIT MAX_PROOFS_PER_TASK=10_000`)**
+  is an UNREACHABLE safety bound, not a silent truncation: a task's proofs are bounded by
+  `MAX_PROOFS_PER_GOAT=5` × the shed's animals (hundreds at most) — orders of magnitude below 10k.
+  It is not a live data-loss bug.
+- **Crash-recovery re-enqueue uses `ProofPolicy.Default`** (`reconcileRecoverableUploadsNow` →
+  `enqueueRegistrationNow` with no policy). The only field this affects is `capture_source`, which is
+  camera-only-enforced and effectively constant (`in_app_camera`), so the "loss" is a no-op. If a
+  non-default `capture_source` is ever introduced, persist the policy on the proof row (Room bump +
+  MigrationTest + UpgradeCrashTest) and use it in recovery — until then this is not a live bug.
+- **`minimumCountPerSubject`** is enforced server-side at SOP submission
+  (`backend/internal/sop/app/service.go` `validatePerGoatProofRefs`), the correct boundary. The Android
+  client parses it for display only; that is not a missing-enforcement bug.

@@ -3,8 +3,13 @@
     <string name="submit_eyebrow">ಲಸಿಕೆ</string>
     <string name="submit_record_title">ಶೆಡ್ ದಾಖಲೆ</string>
     <string name="submit_summary_shed">ಶೆಡ್</string>
+    <string name="submit_summary_drive">ಡ್ರೈವ್</string>
     <string name="submit_summary_cohort">ಪ್ರಾಣಿಯ ಹಂತ</string>
     <string name="submit_summary_date">ದಿನಾಂಕ</string>
+    <string name="submit_summary_expected">ಅಪೇಕ್ಷಿತ ಪ್ರಾಣಿಗಳು</string>
+    <string name="submit_summary_handled">ಸ್ಕ್ಯಾನ್ ಮಾಡಲಾದ</string>
+    <string name="submit_summary_proof_ready">ಪುರಾವೆ ಸಿದ್ಧ</string>
+    <string name="submit_vaccine_breakdown_label">ಲಸಿಕೆ ವಿಭಜನೆ</string>
     <string name="submit_dose_label">ಖುರಾಕ</string>
     <string name="submit_goat_proof_title">ಮೇಕೆಯ ಕ್ಯಾಮೆರಾ ಪುರಾವೆ</string>
     <string name="submit_goat_proof_synced">%2$d ರಲ್ಲಿ %1$d ಮೇಕೆಗಳು ಸಿಂಕ್ ಆಗಿವೆ</string>

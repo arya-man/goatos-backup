@@ -43,6 +43,7 @@ import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
+import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
@@ -98,6 +99,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_9_10,
                 MIGRATION_10_11,
                 MIGRATION_11_12,
+                MIGRATION_12_13,
             )
             .build()
         try {
@@ -147,14 +149,23 @@ class GoatDatabaseUpgradeCrashTest {
             assertEquals(1, counts.single().count)
             assertEquals("pending", counts.single().status)
 
-            // 6. Same proof for the seven v12 Counts tables (MIGRATION_11_12). Open-without-crash
+            // 6. The v12 shed_completion_summary_cache table (vaccination shed acknowledgement) is
+            //    present and usable post-upgrade — a write + read round-trip proves MIGRATION_11_12
+            //    created the table with the shape Room expects.
+            val summaryDao = upgraded.shedCompletionSummaryCacheDao()
+            summaryDao.upsert(
+                ShedCompletionSummaryCacheEntity(cacheKey = "task-1", dtoJson = "{}", updatedAt = 12L),
+            )
+            assertEquals(12L, summaryDao.observe("task-1").first()?.updatedAt)
+
+            // 7. Same proof for the seven v13 Counts tables (MIGRATION_12_13). Open-without-crash
             //    only proves Room ACCEPTED the migrated schema; a write+read round-trip proves each
             //    new table actually exists with the shape its @Entity declares. All three table
             //    shapes in that single migration are exercised: the JSON-blob rollups, the
             //    normalized per-grain rows + their page offset, and the keyset approval queue.
-            val summaryDao = upgraded.herdSummaryCacheDao()
-            summaryDao.upsert(HerdSummaryCacheEntity(cacheKey = "all", dtoJson = "{}", updatedAt = 11L))
-            assertEquals(11L, summaryDao.observe("all").first()?.updatedAt)
+            val herdDao = upgraded.herdSummaryCacheDao()
+            herdDao.upsert(HerdSummaryCacheEntity(cacheKey = "all", dtoJson = "{}", updatedAt = 11L))
+            assertEquals(11L, herdDao.observe("all").first()?.updatedAt)
 
             val metaDao = upgraded.countsBreakdownMetaCacheDao()
             metaDao.upsert(CountsBreakdownMetaCacheEntity(cacheKey = "all", dtoJson = "{}", updatedAt = 12L))
@@ -184,7 +195,7 @@ class GoatDatabaseUpgradeCrashTest {
             assertEquals(20, remoteKey?.nextOffset)
             assertEquals(false, remoteKey?.endReached)
 
-            // 7. The Counts APPROVAL tables, also part of MIGRATION_11_12. This is the
+            // 8. The Counts APPROVAL tables, also part of MIGRATION_12_13. This is the
             //    shape that actually crashed in MOB-007: an @Entity added to the @Database with
             //    no migration to CREATE its table compiles, passes every fresh-install test, and
             //    throws "Migration didn't properly handle counts_approval_items" on the first
@@ -216,7 +227,7 @@ class GoatDatabaseUpgradeCrashTest {
             assertEquals("cursor-2", approvalKey?.nextCursor)
             assertEquals(false, approvalKey?.endReached)
 
-            // 8. The shifting DESTINATION CATALOG table, also part of MIGRATION_11_12.
+            // 9. The shifting DESTINATION CATALOG table, also part of MIGRATION_12_13.
             //    The shifting screen's two cascading dropdowns render from this table, so an
             //    upgraded install that could not open it would leave an operator with two empty
             //    menus and no way to record a movement.
@@ -236,15 +247,16 @@ class GoatDatabaseUpgradeCrashTest {
 
     /**
      * The upgrade that THIS change actually ships: a device sitting at v10 — the version real
-     * installs of `main` carry — opening the app for the first time after the Counts feature lands.
-     * Both [MIGRATION_10_11] and [MIGRATION_11_12] run here, demonstrating the full two-step
-     * migration chain: scan_roster_row in v11, then Counts tables in v12. If either migration
+     * installs of `main` carry before the shed-completion + Counts features land — opening the app
+     * for the first time after. [MIGRATION_10_11], [MIGRATION_11_12] and [MIGRATION_12_13] all run
+     * here, demonstrating the full three-step migration chain: scan_roster_row in v11,
+     * shed_completion_summary_cache in v12, then the seven Counts tables in v13. If any migration
      * fails to CREATE its tables, Room throws `IllegalStateException: Migration didn't properly
      * handle …` on this open, exactly as it would crash the operator's phone on first launch
      * after the update.
      */
     @Test
-    fun `installed v10 db upgrades to v12 without crashing and keeps its data`() = runTest {
+    fun `installed v10 db upgrades to v13 without crashing and keeps its data`() = runTest {
         // 1. A shipped v10 APK's on-disk file, written by a real Room database pinned to the v10
         //    entity set, so it carries Room's own identity metadata just like a user's phone would.
         val oldDb = Room.databaseBuilder(context, OldGoatDatabaseV10::class.java, DB_NAME).build()
@@ -269,9 +281,9 @@ class GoatDatabaseUpgradeCrashTest {
         )
         oldDb.close() // closes the file at user_version = 10
 
-        // 2. The app update: same file, current schema (v12), real migration chain. Room detects
-        //    user_version = 10 and runs MIGRATION_10_11 (scan_roster_row restructure)
-        //    then MIGRATION_11_12 (seven Counts tables).
+        // 2. The app update: same file, current schema (v13), real migration chain. Room detects
+        //    user_version = 10 and runs MIGRATION_10_11 (scan_roster_row restructure),
+        //    then MIGRATION_11_12 (shed-completion cache), then MIGRATION_12_13 (seven Counts tables).
         val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
             .addMigrations(
                 MIGRATION_1_2,
@@ -285,6 +297,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_9_10,
                 MIGRATION_10_11,
                 MIGRATION_11_12,
+                MIGRATION_12_13,
             )
             .build()
         try {
@@ -294,11 +307,21 @@ class GoatDatabaseUpgradeCrashTest {
             //    scan_roster_row is recreated by MIGRATION_10_11 (v10->v11 restructures it to add
             //    scopeKey, so old v10 rows are not preserved, but the table exists and is usable).
             val kept = upgraded.bootstrapCacheDao().get()
-            assertNotNull("bootstrap row must survive the v10 -> v12 upgrade", kept)
+            assertNotNull("bootstrap row must survive the v10 -> v13 upgrade", kept)
             assertEquals(SEEDED_BOOTSTRAP_JSON, kept?.dtoJson)
             assertEquals(SEEDED_AT, kept?.updatedAt)
 
-            // 4. Every one of the seven v12 Counts tables (from MIGRATION_11_12) exists and round-trips
+            // 4. The v12 shed_completion_summary_cache table (MIGRATION_11_12) exists and round-trips
+            //    post-upgrade.
+            upgraded.shedCompletionSummaryCacheDao().upsert(
+                ShedCompletionSummaryCacheEntity(cacheKey = "task-9", dtoJson = "{}", updatedAt = 20L),
+            )
+            assertEquals(
+                20L,
+                upgraded.shedCompletionSummaryCacheDao().observe("task-9").first()?.updatedAt,
+            )
+
+            // 5. Every one of the seven v13 Counts tables (from MIGRATION_12_13) exists and round-trips
             //    post-upgrade. These tables are purely additive — no existing table changes — so they
             //    survive as empty tables after the migration.
             upgraded.herdSummaryCacheDao()
