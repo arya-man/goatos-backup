@@ -451,6 +451,7 @@ func TestAuthAllowsAppScanTaskWrites(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T) {
@@ -484,6 +485,56 @@ func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T)
 	appHandler.ServeHTTP(appRec, appReq)
 	if appRec.Code != http.StatusNoContent {
 		t.Fatalf("app vaccination status=%d body=%s", appRec.Code, appRec.Body.String())
+	}
+
+	for _, appRoute := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/app/bootstrap"},
+		{http.MethodGet, "/app/tasks"},
+	} {
+		req := httptest.NewRequest(appRoute.method, appRoute.path, nil)
+		req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+		rec := httptest.NewRecorder()
+		appHandler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("scoped app route %s %s status=%d body=%s", appRoute.method, appRoute.path, rec.Code, rec.Body.String())
+		}
+	}
+
+	operatorGrant := permissions.ActiveGrant{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: scopedGrant.ScopeID}
+	operatorMW := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {operatorGrant}}})
+	operatorHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(operatorMW.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	for _, path := range []string{
+		"/app/tasks/63000000-0000-4000-8000-000000000001/scan-captures",
+		"/app/proofs/uploads",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+		rec := httptest.NewRecorder()
+		operatorHandler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("scoped operator app route POST %s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	calendarReadReq := httptest.NewRequest(http.MethodGet, "/calendar/vaccination/events", nil)
+	calendarReadReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	calendarReadRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(calendarReadRec, calendarReadReq)
+	if calendarReadRec.Code != http.StatusNoContent {
+		t.Fatalf("scoped operator calendar read status=%d body=%s", calendarReadRec.Code, calendarReadRec.Body.String())
+	}
+
+	calendarActionReq := httptest.NewRequest(http.MethodPost, "/calendar/vaccination/events/71000000-0000-4000-8000-000000000001/nudge", nil)
+	calendarActionReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	calendarActionRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(calendarActionRec, calendarActionReq)
+	if calendarActionRec.Code != http.StatusForbidden {
+		t.Fatalf("operator calendar action status=%d body=%s", calendarActionRec.Code, calendarActionRec.Body.String())
 	}
 
 	otherHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

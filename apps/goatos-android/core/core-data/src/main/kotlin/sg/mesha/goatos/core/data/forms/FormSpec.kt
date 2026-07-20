@@ -17,7 +17,7 @@ import sg.mesha.goatos.core.network.dto.SopVersionDto
  * safe read-only placeholder rather than crashing an older app.
  */
 enum class FormFieldType {
-    BOOLEAN, NUMBER, TEXT, GOAT_SCAN, VACCINE_BATCH_PICKER, LOCATION_PICKER, VIDEO_PROOF, UNKNOWN;
+    BOOLEAN, NUMBER, TEXT, SELECT, DATE_TIME, GOAT_SCAN, VACCINE_BATCH_PICKER, LOCATION_PICKER, VIDEO_PROOF, UNKNOWN;
 
     companion object {
         /** Maps the backend field `type` (incl. known aliases) to a renderer type. */
@@ -25,6 +25,8 @@ enum class FormFieldType {
             "boolean", "checkbox", "toggle" -> BOOLEAN
             "number", "integer", "decimal" -> NUMBER
             "text", "string", "note", "textarea" -> TEXT
+            "select", "single_select" -> SELECT
+            "date_time", "datetime", "timestamp" -> DATE_TIME
             "goat_scan", "goat_lookup", "animal_id_scan", "rfid_scan" -> GOAT_SCAN
             "vaccine_batch_picker", "vaccine_lot_picker", "batch_picker" -> VACCINE_BATCH_PICKER
             "location_picker", "shed_picker", "park_picker" -> LOCATION_PICKER
@@ -50,7 +52,12 @@ enum class FormRuleType {
     }
 }
 
-data class FormOption(val value: String, val label: String)
+data class FormOption(
+    val value: String,
+    val label: String,
+    val disabled: Boolean = false,
+    val disabledReason: String? = null,
+)
 
 data class FormField(
     val key: String,
@@ -62,6 +69,10 @@ data class FormField(
     val helpText: String? = null,
     /** Inline options for pickers when the backend embeds them; otherwise fetched by key. */
     val options: List<FormOption> = emptyList(),
+    /** Backend-authored source key resolved by GET task option-values and cached with detail. */
+    val optionSource: String? = null,
+    /** Backend-authored reason the entire source cannot currently be selected. */
+    val disabledReason: String? = null,
 )
 
 /** A conditional rule (`when` a [conditionField] [operator]s [value], apply the rule to [field]). */
@@ -112,12 +123,16 @@ private fun JsonElement.toFormField(): FormField? {
         type = FormFieldType.from(obj["type"].asStringOrEmpty()),
         required = obj["required"].asBool(),
         repeat = obj["repeat"].asBool(),
-        helpText = obj["help_text"].asStringOrNull(),
+        helpText = obj["help_text"].asStringOrNull() ?: obj["description"].asStringOrNull(),
         options = (obj["options"] as? JsonArray).orEmpty().mapNotNull { it.toFormOption() },
+        optionSource = obj["option_source"].asStringOrNull(),
     )
 }
 
 private fun JsonElement.toFormOption(): FormOption? {
+    if (this is JsonPrimitive && isString) {
+        return content.takeIf(String::isNotBlank)?.let { FormOption(value = it, label = it) }
+    }
     val obj = this as? JsonObject ?: return null
     val value = obj["value"].asStringOrEmpty().ifBlank { return null }
     return FormOption(value = value, label = obj["label"].asStringOrEmpty().ifBlank { value })

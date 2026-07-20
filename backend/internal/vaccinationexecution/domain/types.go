@@ -83,6 +83,9 @@ type ExecutionRow struct {
 	ShedID             string             `json:"shedId"`
 	ShedName           string             `json:"shedName"`
 	AnimalStage        string             `json:"animalStage"`
+	TargetCount        int                `json:"targetCount"`
+	OpenCount          int                `json:"openCount"`
+	DoneCount          int                `json:"doneCount"`
 	DriveID            *string            `json:"driveId,omitempty"`
 	DriveName          *string            `json:"driveName,omitempty"`
 	DueDate            *string            `json:"dueDate,omitempty"`

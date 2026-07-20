@@ -86,8 +86,25 @@ func TestListVaccinationExecutionProjection(t *testing.T) {
 	if got.ShedID != testShed || got.ShedName != "K1 Shed" {
 		t.Fatalf("shed = %s/%s", got.ShedID, got.ShedName)
 	}
-	if got.AnimalStage != "K1" {
-		t.Fatalf("animal stage = %q want K1", got.AnimalStage)
+	if got.AnimalStage != "K1 kids" {
+		t.Fatalf("animal stage = %q want human label K1 kids", got.AnimalStage)
+	}
+	// Legacy sheds can be missing shed_profiles.animal_stage_id even though the
+	// goat carries the governed stage code. The projection must still resolve
+	// that code through animal_stage_lookup rather than expose K1/K2 to mobile.
+	execProjectionSQL(t, ctx, pool, "clear shed stage profile",
+		`UPDATE shed_profiles SET animal_stage_id = NULL WHERE tenant_id = $1 AND location_id = $2`,
+		testTenant, testShed)
+	fallbackRows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution(stage-code fallback) error = %v", err)
+	}
+	if len(fallbackRows) != 1 || fallbackRows[0].AnimalStage != "K1 kids" {
+		t.Fatalf("stage-code fallback rows = %#v, want human label K1 kids", fallbackRows)
 	}
 	if got.BatchID == nil || *got.BatchID != testBatch {
 		t.Fatalf("batch = %v want %s", got.BatchID, testBatch)
@@ -192,6 +209,82 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-TWO','rfid-two','act
 	}
 	if sites == nil || len(sites.Options) != 1 || sites.Options[0].Value != "subcutaneous" {
 		t.Fatalf("sites=%#v", sites)
+	}
+}
+
+func TestScanRosterPinsParkScopedDriveTaskToSelectedShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "park-scoped drive task", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Park drive','in_progress',$5,'park',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`,
+		testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testPark, testBatch)
+	execProjectionSQL(t, ctx, pool, "park-scoped batch",
+		`UPDATE obligation_batches SET sop_task_id=$1, scope_type='park', scope_id=$2 WHERE tenant_id=$3 AND batch_id=$4`,
+		testTask, testPark, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "keep goat obligation batch-owned only",
+		`UPDATE obligation_instances SET sop_task_id=NULL WHERE tenant_id=$1 AND batch_id=$2`,
+		testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "primary tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','PARK-RFID-ONE','park-rfid-one','active','global','v1',now())`,
+		testTenant, testGoat)
+	execProjectionSQL(t, ctx, pool, "ET+TT matrix display context",
+		`UPDATE protocol_definitions SET name='Preventive Care Vaccination Matrix' WHERE tenant_id=$1 AND protocol_id=$2`,
+		testTenant, testProtocol)
+	execProjectionSQL(t, ctx, pool, "ET+TT booster code",
+		`UPDATE protocol_rules SET dose_code='ET_TT_7W' WHERE tenant_id=$1 AND rule_id=$2`,
+		testTenant, testRule)
+	const (
+		parkItem = "70000000-0000-4000-8000-000000000087"
+		parkLot  = "70000000-0000-4000-8000-000000000088"
+	)
+	execProjectionSQL(t, ctx, pool, "park drive vaccine item",
+		`INSERT INTO inventory_items (item_id,tenant_id,item_code,name,category,base_unit,status)
+		 VALUES ($1,$2,'VAC-PARK','Park vaccine','vaccine','dose','active')`,
+		parkItem, testTenant)
+	execProjectionSQL(t, ctx, pool, "park drive vaccine lot",
+		`INSERT INTO inventory_stock
+		 (stock_id,tenant_id,item_id,location_id,lot_code,expiry_date,quantity_in_stock,quantity_reserved,quantity_unit,status)
+		 VALUES ($1,$2,$3,$4,'PARK-LOT-001','2027-12-31',20,2,'dose','active')`,
+		parkLot, testTenant, parkItem, testPark)
+	execProjectionSQL(t, ctx, pool, "park drive lot reservation",
+		`INSERT INTO inventory_stock_movements
+		 (movement_id,tenant_id,lot_id,item_id,location_id,movement_type,quantity,quantity_unit,batch_id,actor_id,idempotency_key)
+		 VALUES (gen_random_uuid(),$1,$2,$3,$4,'reserve',2,'dose',$5,$6,'vaccexec-park-option-reserve')`,
+		testTenant, parkLot, parkItem, testPark, testBatch, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster: %v", err)
+	}
+	if len(roster.Rows) != 1 {
+		t.Fatalf("rows=%#v", roster.Rows)
+	}
+	row := roster.Rows[0]
+	if row.GoatID != testGoat || row.PrimaryTag != "PARK-RFID-ONE" || row.TaskID != testTask || row.BatchID != testBatch || row.SOPVersionID != testVaccinationSOPVer || row.VaccineLabel != "ET+TT · Booster" {
+		t.Fatalf("row=%#v", row)
+	}
+
+	options, err := repo.TaskOptionValues(ctx, testTenant, testTask)
+	if err != nil {
+		t.Fatalf("TaskOptionValues(park drive): %v", err)
+	}
+	var lots *domain.TaskOptionSource
+	for i := range options.Sources {
+		if options.Sources[i].Source == "inventory.vaccine_lots.fefo" {
+			lots = &options.Sources[i]
+		}
+	}
+	if lots == nil || len(lots.Options) != 1 || lots.Options[0].Value != parkLot || lots.Options[0].Label != "PARK-LOT-001" || lots.Options[0].Disabled {
+		t.Fatalf("park drive lots=%#v", lots)
 	}
 }
 

@@ -1068,10 +1068,10 @@ func (s *RosterService) ResolveModuleDutyRecipients(ctx context.Context, tenantI
 	return s.repo.ResolveModuleDutyRecipients(ctx, tenantID, scopeType, scopeID, moduleCode, dutyType, s.now())
 }
 
-// ResolveMemberRecipients returns active, reachable devices for one specific workforce member (e.g.
-// the operator who executed a completion).
-func (s *RosterService) ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]domain.NotificationRecipient, error) {
-	return s.repo.ResolveMemberRecipients(ctx, tenantID, workforceMemberID)
+// ResolveMemberRecipients returns active, reachable devices for one specific workforce member.
+// memberOrUserID may be either the canonical workforce id or the linked authenticated actor id.
+func (s *RosterService) ResolveMemberRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]domain.NotificationRecipient, error) {
+	return s.repo.ResolveMemberRecipients(ctx, tenantID, memberOrUserID)
 }
 
 // ResolvePositionRecipients returns active, reachable devices for whoever actively holds

@@ -273,24 +273,33 @@ func (s *CompletionService) ApplyGoatVerification(
 	if err != nil {
 		return err
 	}
+	matched := 0
 	for _, completion := range completions {
 		if completion.GoatID != goatID {
 			continue
 		}
+		matched++
 		switch outcome {
 		case "closed":
-			if _, err := s.AcceptExisting(ctx, AcceptExistingInput{
+			result, err := s.AcceptExisting(ctx, AcceptExistingInput{
 				TenantID:     tenantID,
 				CompletionID: completion.CompletionID,
 				VerifiedBy:   actorID,
-			}); err != nil {
+			})
+			if err != nil {
 				return err
+			}
+			if result.CompletionID == "" {
+				return domain.ErrCompletionNotOpen
 			}
 		case "rejected":
 			if _, err := s.RejectExisting(ctx, tenantID, completion.CompletionID, reason, actorID); err != nil {
 				return err
 			}
 		}
+	}
+	if matched == 0 {
+		return domain.ErrCompletionNotOpen
 	}
 	return nil
 }

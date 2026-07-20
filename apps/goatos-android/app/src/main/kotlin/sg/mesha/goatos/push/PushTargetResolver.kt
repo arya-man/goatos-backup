@@ -17,8 +17,9 @@ private val RECORD_TYPES = setOf("record", "verification", "verification_closed"
  *  - `screen`/`type` "record"/"verification"/"verify"/"rework" -> the read-only/verify record
  *    for [PushExtras.SHED_ID] (falls back to the Vaccination landing with no shed id).
  *  - `screen`/`type` "reschedule" -> the reschedule form for [PushExtras.OBLIGATION_ID].
- *  - `type` "reminder" or `screen` "scan"/"shed" -> the execute (scan) loop for the shed — a
- *    reminder opens the drive/shed, not a passive summary.
+ *  - `type` "reminder" or `screen` "scan"/"shed" -> the exact task-scoped execute loop when both
+ *    `shed_id` and `task_id` are present. A shed-only payload falls back to Vaccination: scan,
+ *    proof, and submit state is task-scoped, so presenting an ambiguous 0/N execution is unsafe.
  *  - `screen` "calendar" -> Calendar.
  *  - anything else / no recognizable field -> the Vaccination landing (never a crash or blank
  *    screen for an unrecognized push shape — see [sg.mesha.goatos.MainActivity]'s "robust
@@ -30,6 +31,7 @@ fun resolvePushRoute(payload: Map<String, String>): String {
     if (target != null) return calendarTargetRoute(target)
 
     val shedId = payload[PushExtras.SHED_ID]?.takeIf { it.isNotBlank() }
+    val taskId = payload[PushExtras.TASK_ID]?.takeIf { it.isNotBlank() }
     val obligationId = payload[PushExtras.OBLIGATION_ID]?.takeIf { it.isNotBlank() }
     val itemId = payload[PushExtras.ITEM_ID]?.takeIf { it.isNotBlank() }
     val category = payload[PushExtras.CATEGORY]?.takeIf { it.isNotBlank() }
@@ -44,7 +46,7 @@ fun resolvePushRoute(payload: Map<String, String>): String {
             if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
         screen == "reschedule" || type == "reschedule" -> Routes.rescheduleRoute(obligationId)
         screen == "scan" || screen == "shed" || type == "reminder" ->
-            if (shedId != null) Routes.scanRoute(shedId) else Routes.VACCINATION
+            if (shedId != null && taskId != null) Routes.scanRoute(shedId, taskId = taskId) else Routes.VACCINATION
         screen == "calendar" || type == "calendar" -> Routes.CALENDAR
         else -> Routes.VACCINATION
     }

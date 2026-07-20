@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
+import sg.mesha.goatos.core.network.dto.TaskOptionValuesResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
@@ -167,7 +168,7 @@ interface AppApi {
      *  caller's own registration). Idempotent for an already-revoked device the actor owns. */
     suspend fun deregisterDevice(deviceId: String): DeviceResponseDto
 
-    /** GET /vaccination/execution — execution rows grouped by park + shed. */
+    /** GET /app/vaccination/execution — mobile execution rows grouped by park + shed. */
     suspend fun listVaccinationExecution(
         parkId: String? = null,
         workState: String? = null,
@@ -177,7 +178,7 @@ interface AppApi {
         cursor: String? = null,
     ): VaccinationExecutionResponseDto
 
-    /** GET /vaccination/execution/sheds/{shed_id} — one shed's execution context. */
+    /** GET /app/vaccination/execution/sheds/{shed_id} — one mobile shed execution context. */
     suspend fun getVaccinationExecutionShed(
         shedId: String,
         asOf: String? = null,
@@ -234,6 +235,10 @@ interface AppApi {
     /** GET /app/tasks/{task_id} — the task PLUS its SOP version (`form_dsl`) so the operator
      *  form runner can render the drive form. The list endpoint omits the form. */
     suspend fun getAppTask(taskId: String): TaskDetailResponseDto
+
+    /** GET /app/vaccination/tasks/{task_id}/option-values — backend-pinned FEFO/source options
+     *  for the exact task row. Labels and disabled reasons are already locale-aware. */
+    suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -485,6 +490,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): TaskListResponseDto = TaskListResponseDto()
 
     override suspend fun getAppTask(taskId: String): TaskDetailResponseDto = TaskDetailResponseDto()
+
+    override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
+        TaskOptionValuesResponseDto(taskId = taskId)
 
     override suspend fun submitAppTask(
         taskId: String,

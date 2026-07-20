@@ -585,7 +585,10 @@ internal fun Map<String, JsonElement>.route(): String? =
 internal fun CalendarEventDto.routeTarget(): String? {
     if (status == COMPLETED_STATUS && !shedId.isNullOrBlank()) return "record/$shedId"
     val workflowHref = links["workflow"]?.jsonPrimitive?.contentOrNull
-    if (!workflowHref.isNullOrBlank() && !shedId.isNullOrBlank()) return "scan/$shedId"
+    if (!workflowHref.isNullOrBlank() && !shedId.isNullOrBlank()) {
+        val taskId = eventId.removePrefix("calendar:").takeIf { it.isNotBlank() && it != eventId }
+        return taskId?.let { "scan/$shedId?task_id=$it" } ?: "vaccination"
+    }
     return links.route()
 }
 

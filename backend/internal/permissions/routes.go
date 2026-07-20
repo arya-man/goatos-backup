@@ -160,6 +160,8 @@ var protectedRoutes = []Route{
 	// core operator app actions (scan the shed roster, reschedule an obligation),
 	// so gating them on admin-tier perms 403s every field operator. The admin
 	// /vaccination/* routes above stay on their existing admin-tier perms.
+	{OperationID: "appListVaccinationExecution", Method: "GET", Pattern: "/app/vaccination/execution", Permissions: []string{AppBootstrap}},
+	{OperationID: "appGetVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}", Permissions: []string{AppBootstrap}},
 	{OperationID: "appScanRoster", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}/roster", Permissions: []string{AppBootstrap}},
 	{OperationID: "appTaskOptionValues", Method: "GET", Pattern: "/app/vaccination/tasks/{task_id}/option-values", Permissions: []string{AppBootstrap}},
 	{OperationID: "appRescheduleObligation", Method: "POST", Pattern: "/app/vaccination/obligations/{obligation_id}/reschedule", Permissions: []string{AppBootstrap}},
@@ -173,10 +175,10 @@ var protectedRoutes = []Route{
 	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{ProtocolRead}},
 	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{ProtocolWrite}},
 	{OperationID: "dismissFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss", Permissions: []string{ProtocolWrite}},
-	{OperationID: "listCalendarVaccinationEvents", Method: "GET", Pattern: "/calendar/vaccination/events", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
-	{OperationID: "getCalendarVaccinationEvent", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
-	{OperationID: "listCalendarVaccinationDriveTargets", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/targets", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
-	{OperationID: "getCalendarVaccinationEventHistory", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/history", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
+	{OperationID: "listCalendarVaccinationEvents", Method: "GET", Pattern: "/calendar/vaccination/events", Permissions: []string{CalendarRead}},
+	{OperationID: "getCalendarVaccinationEvent", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}", Permissions: []string{CalendarRead}},
+	{OperationID: "listCalendarVaccinationDriveTargets", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/targets", Permissions: []string{CalendarRead}},
+	{OperationID: "getCalendarVaccinationEventHistory", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/history", Permissions: []string{CalendarRead}},
 	{OperationID: "sendCalendarVaccinationEventNudge", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/nudge", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},
 	{OperationID: "snoozeCalendarVaccinationEvent", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/snooze", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},
 	{OperationID: "acknowledgeCalendarVaccinationEscalation", Method: "POST", Pattern: "/calendar/vaccination/events/{event_id}/escalation/acknowledge", Permissions: []string{CalendarAction, VaccinationRead, ObligationRead}},

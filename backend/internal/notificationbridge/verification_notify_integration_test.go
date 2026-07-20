@@ -50,19 +50,23 @@ const (
 
 const (
 	vnOperatorMember   = "f9000000-0000-4000-8000-000000000001"
+	vnOperatorUser     = "f9000000-0000-4000-8000-000000000005"
 	vnParkHeadMember   = "f9000000-0000-4000-8000-000000000002"
 	vnVerifierMember   = "f9000000-0000-4000-8000-000000000003"
 	vnLeadershipMember = "f9000000-0000-4000-8000-000000000004"
+	vnCEOMember        = "f9000000-0000-4000-8000-000000000006"
 
 	vnOperatorDevice   = "f9000000-0000-4000-8000-000000000011"
 	vnParkHeadDevice   = "f9000000-0000-4000-8000-000000000012"
 	vnVerifierDevice   = "f9000000-0000-4000-8000-000000000013"
 	vnLeadershipDevice = "f9000000-0000-4000-8000-000000000014"
+	vnCEODevice        = "f9000000-0000-4000-8000-000000000016"
 
 	vnOperatorToken   = "fcm-token-operator-f9-0001"
 	vnParkHeadToken   = "fcm-token-parkhead-f9-0002"
 	vnVerifierToken   = "fcm-token-verifier-f9-0003"
 	vnLeadershipToken = "fcm-token-leadership-f9-0004"
+	vnCEOToken        = "fcm-token-ceo-f9-0006"
 
 	vnObligationID = "f9000000-0000-4000-8000-000000000021"
 	vnSOPTaskID    = "f9000000-0000-4000-8000-000000000022"
@@ -70,6 +74,7 @@ const (
 
 	vnVerifierPositionCode = "preventive_care_verifier"
 	vnLeadershipPosition   = "pc_director"
+	vnCEOPosition          = "ceo_internal"
 
 	// Baseline vaccination SOP skeleton ids seeded by migration 000075_vaccination_module.sql for
 	// vnTenant -- the same fixture internal/obligation/adapters/postgres/sweeper_integration_test.go
@@ -110,6 +115,10 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 	seedMember(vnParkHeadMember, "VN-PH", "VN Park Head", "park_head")
 	seedMember(vnVerifierMember, "VN-VER", "VN Verifier", "verifier")
 	seedMember(vnLeadershipMember, "VN-LEAD", "VN PC Director", "other")
+	seedMember(vnCEOMember, "VN-CEO", "VN CEO", "other")
+	exec(t, ctx, pool, "operator auth identity",
+		`UPDATE workforce_members SET user_id = $1 WHERE tenant_id = $2 AND workforce_member_id = $3`,
+		vnOperatorUser, vnTenant, vnOperatorMember)
 
 	seedPosition := func(memberID, positionCode, scopeType, scopeID, tier string) {
 		exec(t, ctx, pool, "workforce position "+positionCode,
@@ -127,6 +136,7 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 	// bridge runs (all hardcoded to scope_type='center'), proving the "never bombard leadership" rule
 	// at the SQL level, not just by omission.
 	seedPosition(vnLeadershipMember, vnLeadershipPosition, "tenant", vnTenant, "director")
+	seedPosition(vnCEOMember, vnCEOPosition, "tenant", vnTenant, "cxo")
 
 	exec(t, ctx, pool, "verify duty",
 		`INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, status, effective_from)
@@ -143,6 +153,7 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 	seedDevice(vnParkHeadDevice, vnParkHeadMember, "vn-install-parkhead", vnParkHeadToken)
 	seedDevice(vnVerifierDevice, vnVerifierMember, "vn-install-verifier", vnVerifierToken)
 	seedDevice(vnLeadershipDevice, vnLeadershipMember, "vn-install-leadership", vnLeadershipToken)
+	seedDevice(vnCEODevice, vnCEOMember, "vn-install-ceo", vnCEOToken)
 
 	// notification_requests.calendar_event_id no longer has an FK to satisfy (calendar_event_projections
 	// is retired; the FK was already dropped in migration 000186), so there is no projection row to
@@ -212,7 +223,7 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 		   completion_id, tenant_id, obligation_id, goat_id, status, administered_at,
 		   recorded_by, idempotency_key
 		 ) VALUES ($1, $2, $3, $5, 'recorded', now(), $4, 'vn-comp-idem-001')`,
-		vnCompletionID, vnTenant, vnObligationID, vnOperatorMember, vnGoatID)
+		vnCompletionID, vnTenant, vnObligationID, vnOperatorUser, vnGoatID)
 
 	// ---- Drive the notification producer off the REAL vaccination.verify.rejected event -------
 
@@ -236,10 +247,9 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 		}
 	}
 
-	// verification_pending -> only the verifier's device.
-	// (This test does NOT yet cover verification_pending because the vertical that submits proofs
-	//  has not yet published the vaccination.verification.awaiting_review event. See
-	//  verification_notify.go's integration contract comment.)
+	// verification_pending -> only the verifier's device is covered by the sibling
+	// TestVerificationEventConsumer_RecipientResolution, which drives the real
+	// verification.item.pending event emitted when the item is created.
 
 	// 1. rejected -> the operator + park head, high priority; verifier/leadership get nothing for THIS event.
 	publishRejected("video unclear")
@@ -268,6 +278,12 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 		vnTenant, vnLeadershipToken)
 	if leadershipCount != 0 {
 		t.Fatalf("leadership notification rows = %d, want 0", leadershipCount)
+	}
+	ceoCount := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND recipient_ref = $2`,
+		vnTenant, vnCEOToken)
+	if ceoCount != 0 {
+		t.Fatalf("CEO notification rows = %d, want 0", ceoCount)
 	}
 
 	// 3. Replay the identical rejected event: idempotent, no duplicate rows.
@@ -324,7 +340,7 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 		   completion_id, tenant_id, obligation_id, goat_id, status, administered_at,
 		   recorded_by, idempotency_key
 		 ) VALUES ($1, $2, $3, $5, 'recorded', now(), $4, 'vn-comp-idem-002')`,
-		vnCompletionID2, vnTenant, vnObligationID, vnOperatorMember, vnGoatID2)
+		vnCompletionID2, vnTenant, vnObligationID, vnOperatorUser, vnGoatID2)
 
 	// Publish rejection for the SECOND completion.
 	payload2, err := json.Marshal(notificationbridge.VerificationEvent{
@@ -416,11 +432,11 @@ func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string
 // allowed set, so a future rename can't silently produce invalid types.
 func TestNotificationTypeEnumGuard(t *testing.T) {
 	allowedTypes := map[string]bool{
-		"reminder":              true,
-		"nudge":                 true,
-		"escalation":            true,
-		"verification_pending":  true,
-		"rework":                true,
+		"reminder":             true,
+		"nudge":                true,
+		"escalation":           true,
+		"verification_pending": true,
+		"rework":               true,
 	}
 
 	usedTypes := map[string]bool{

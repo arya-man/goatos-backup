@@ -208,6 +208,8 @@ paths:
       operationId: listAppTasks
       summary: List assigned operator tasks.
       parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/GoatOSLocale"
         - name: state
           in: query
           required: false
@@ -248,6 +250,8 @@ paths:
       summary: Get task detail and pinned SOP version.
       parameters:
         - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/GoatOSLocale"
       responses:
         "200":
           description: Task detail.
@@ -2721,6 +2725,8 @@ paths:
       summary: Pinned capture-form option sources (vaccine lots FEFO, route/site) for a SOP task.
       parameters:
         - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/GoatOSLocale"
       responses:
         "200":
           description: Option sources for the task's capture form.
@@ -3429,6 +3435,38 @@ components:
         updated_at:
           type: string
           format: date-time
+    TaskPresentation:
+      type: object
+      additionalProperties: false
+      required:
+        - eyebrow
+        - title
+        - summary_items
+      properties:
+        eyebrow:
+          type: string
+          description: Locale-aware task category label for app display.
+        title:
+          type: string
+          description: Locale-aware task title safe for user-visible app display; never an internal id.
+        summary_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskPresentationItem"
+    TaskPresentationItem:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - value
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        value:
+          type: string
     SOPVersionResponse:
       type: object
       additionalProperties: false
@@ -3522,6 +3560,8 @@ components:
         updated_at:
           type: string
           format: date-time
+        presentation:
+          $ref: "#/components/schemas/TaskPresentation"
     TaskListResponse:
       type: object
       additionalProperties: false
@@ -7339,6 +7379,9 @@ components:
         - shedId
         - shedName
         - animalStage
+        - targetCount
+        - openCount
+        - doneCount
         - workState
         - severity
         - sopStatus
@@ -7358,6 +7401,18 @@ components:
           type: string
         animalStage:
           type: string
+        targetCount:
+          type: integer
+          minimum: 0
+          description: Number of targeted animal obligations represented by this aggregated execution row.
+        openCount:
+          type: integer
+          minimum: 0
+          description: Targeted animal obligations still requiring field execution.
+        doneCount:
+          type: integer
+          minimum: 0
+          description: Targeted animal obligations with completion evidence recorded.
         driveId:
           type: string
           format: uuid

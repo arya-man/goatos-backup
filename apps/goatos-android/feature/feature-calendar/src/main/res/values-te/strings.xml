@@ -13,6 +13,7 @@
     <string name="calendar_week_empty">డ్రైవ్‌లు షెడ్యూల్ చేయబడలేదు</string>
     <string name="calendar_history_empty">అంగీకరించిన పూర్తి చరిత్ర లేదు</string>
     <string name="calendar_day_sheet_empty">ఈ రోజు ఎలాంటి డ్రైవ్ షెడ్యూల్ చేయలేదు</string>
+    <string name="calendar_month_empty">ఈ ఫిల్టర్లకు సరిపోలే టీకా డ్రైవ్‌లు లేవు</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">ఆ రోజు బాకీ పని లేదా పూర్తి చరిత్ర కోసం రోజును నొక్కండి · చుక్కలు = ఓపెన్ పని, మసక చుక్కలు = పూర్తి చరిత్ర</string>
@@ -30,6 +31,25 @@
     <string name="calendar_drive_vaccines">టీకాలు</string>
     <string name="calendar_drive_animals">జంతువులు</string>
     <string name="calendar_drive_doses">డోసులు</string>
+    <string name="calendar_load_more_day">ఈ రోజు మరిన్ని డ్రైవ్‌లను లోడ్ చేయండి</string>
+    <string name="calendar_load_more_history">మరింత చరిత్రను లోడ్ చేయండి</string>
+    <string name="calendar_loading_more">లోడ్ అవుతోంది…</string>
+    <string name="calendar_month_schedule">నెలవారీ టీకా షెడ్యూల్</string>
+    <string name="calendar_page_size">పేజీకి 20</string>
+    <string name="calendar_filters">ఫిల్టర్లు</string>
+    <string name="calendar_retry">మళ్లీ ప్రయత్నించండి</string>
+    <string name="calendar_month_loading">షెడ్యూల్ లోడ్ అవుతోంది…</string>
+    <string name="calendar_month_load_error">షెడ్యూల్‌ను నవీకరించలేకపోయాం</string>
+    <string name="calendar_filter_title">షెడ్యూల్‌ను ఫిల్టర్ చేయండి</string>
+    <string name="calendar_filter_all">అన్నీ</string>
+    <string name="calendar_filter_year">సంవత్సరం</string>
+    <string name="calendar_filter_month">నెల</string>
+    <string name="calendar_filter_park">పార్క్</string>
+    <string name="calendar_filter_shed">షెడ్</string>
+    <string name="calendar_filter_vaccine">టీకా</string>
+    <string name="calendar_filter_status">స్థితి</string>
+    <string name="calendar_filter_clear">క్లియర్ చేయండి</string>
+    <string name="calendar_filter_apply">ఫిల్టర్లను వర్తింపజేయండి</string>
 
     <!-- v4 park-level drive progress card -->
     <string name="calendar_drive_title">టీకా డ్రైవ్ · %1$s</string>

@@ -59,6 +59,7 @@
         "calendar.escalation.resolved",
         "notification.exhausted",
         "notification.sent",
+        "obligation.in_progress",
         "obligation.missed",
         "obligation.rescoped",
         "goat.obligations_canceled",

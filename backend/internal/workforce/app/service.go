@@ -591,15 +591,23 @@ func hasCapability(items []domain.CapabilityAssignment, code string) bool {
 // leadership mobile nav (Calendar / Overview / Alerts). Mirrors the role-lens
 // tiers already used for the admin-web bootstrap (see roleLensForRole in
 // internal/adminui/app/compiler.go): ceo_internal/admin fold to CEO/COO,
-// pc_director is the health director, park_head is the park manager, and
-// verifier is the (assigned-park) health manager. permissions.RoleOperator is
-// the only grant role that is never leadership.
+// pc_director is the health director and park_head is the park manager.
+// Verifier is deliberately excluded: it owns a standalone evidence-review app,
+// not leadership action navigation. permissions.RoleOperator is also not leadership.
 var leadershipGrantRoles = map[string]bool{
 	permissions.RoleAdmin:       true,
 	permissions.RoleCEOInternal: true,
 	permissions.RolePCDirector:  true,
 	permissions.RoleParkHead:    true,
-	permissions.RoleVerifier:    true,
+}
+
+func isVerifierPrincipal(grants []domain.GrantSummary) bool {
+	for _, g := range grants {
+		if g.Role == permissions.RoleVerifier {
+			return true
+		}
+	}
+	return false
 }
 
 // isLeadershipPrincipal reports whether any active grant carries a
@@ -622,6 +630,9 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 // TODO: when department_module_grants is populated, count actual granted modules
 // and use that instead of the leadership binary check.
 func navChromeFor(grants []domain.GrantSummary) string {
+	if isVerifierPrincipal(grants) {
+		return domain.NavChromeMinimal
+	}
 	if isLeadershipPrincipal(grants) {
 		return domain.NavChromeExpanded
 	}

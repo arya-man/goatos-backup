@@ -54,6 +54,10 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
 // VerifyDetailViewModel (:app), which owns every side effect this screen triggers.
@@ -90,7 +94,9 @@ data class VerifyDetailUiState(
     val rowVersion: Int = 1,
     /** False once a verdict has already been recorded (server or a just-submitted local
      *  optimistic state) — the buttons disable rather than allow a second conflicting verdict. */
-    val isDecisionEnabled: Boolean = true,
+    // Fail closed while the requested item is absent/loading. The ViewModel enables decisions
+    // only after a real pending row with resolvable evidence arrives from Room.
+    val isDecisionEnabled: Boolean = false,
     val isSubmitting: Boolean = false,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
     val isRefreshing: Boolean = false,
@@ -261,6 +267,7 @@ private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modif
 @Composable
 private fun ContextCard(rows: List<VerifyContextRow>) {
     if (rows.isEmpty()) return
+    val locale = LocalContext.current.resources.configuration.locales[0]
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -283,7 +290,14 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
                 modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp),
             ) {
                 Text(text = contextKindLabel(row.kind), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Text(text = row.value, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                val displayValue = remember(row.value, row.kind, locale) {
+                    if (row.kind == VerifyContextKind.CAPTURED_AT) {
+                        formatCapturedAt(row.value, locale, ZoneId.systemDefault())
+                    } else {
+                        row.value
+                    }
+                }
+                Text(text = displayValue, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
             }
             if (index != rows.lastIndex) {
                 HorizontalDivider(thickness = 1.dp, color = MeshaColors.Surf2)
@@ -291,6 +305,14 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
         }
     }
 }
+
+internal fun formatCapturedAt(raw: String, locale: java.util.Locale, zoneId: ZoneId): String =
+    runCatching {
+        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+            .withLocale(locale)
+            .withZone(zoneId)
+            .format(Instant.parse(raw))
+    }.getOrDefault(raw)
 
 @Composable
 private fun contextKindLabel(kind: VerifyContextKind): String = when (kind) {

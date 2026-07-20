@@ -35,6 +35,7 @@ type ListTasksParams struct {
 	Cursor     *domain.TaskCursor
 	Limit      int
 	AppView    bool
+	LocaleTag  string
 }
 
 type TaskListPage struct {
@@ -191,4 +192,5 @@ type Repository interface {
 	ListScanCaptures(ctx context.Context, tenantID, taskID string) ([]domain.ScanCaptureSummary, error)
 	RecordScanAttempt(ctx context.Context, cmd RecordScanAttemptCommand) (domain.ScanAttemptSummary, error)
 	SubmitTask(ctx context.Context, cmd SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error)
+	AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 }

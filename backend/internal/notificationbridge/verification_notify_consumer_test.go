@@ -45,6 +45,7 @@ const (
 	vecItemIdem     = "fa000000-0000-4000-8000-0000000000a5"
 	vecItemReplay   = "fa000000-0000-4000-8000-0000000000a6"
 	vecItemClosed   = "fa000000-0000-4000-8000-0000000000a7"
+	vecOperatorUser = "fa000000-0000-4000-8000-0000000000b1"
 )
 
 // vecSetup stands up a fresh Postgres, the roster + calendar services, the consumer, and seeds the
@@ -72,6 +73,9 @@ func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEven
 	seedMember(vnOperatorMember, "VEC-OP", "VEC Operator", "operator")
 	seedMember(vnParkHeadMember, "VEC-PH", "VEC Park Head", "park_head")
 	seedMember(vnVerifierMember, "VEC-VER", "VEC Verifier", "verifier")
+	exec(t, ctx, pool, "operator auth identity",
+		`UPDATE workforce_members SET user_id = $1 WHERE tenant_id = $2 AND workforce_member_id = $3`,
+		vecOperatorUser, vnTenant, vnOperatorMember)
 
 	// Positions: verifier (center/park, manager) + park head (center/park, head).
 	seedPosition := func(memberID, positionCode, tier string) {
@@ -238,7 +242,7 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 
 	// rework -> operator + park head (both), never the verifier.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
-		vecItemRework, vecPayload(vecItemRework, vnOperatorMember, "rejected", "blurry", false))); err != nil {
+		vecItemRework, vecPayload(vecItemRework, vecOperatorUser, "rejected", "blurry", false))); err != nil {
 		t.Fatalf("rework handle: %v", err)
 	}
 	reworkRefs := vecRecipientRefs(t, ctx, pool, vecItemRework)
@@ -264,7 +268,7 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 
 	// closed -> the originating operator only; park head/verifier already completed their actions.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationItemClosed,
-		vecItemClosed, vecPayload(vecItemClosed, vnOperatorMember, "approved", "", false))); err != nil {
+		vecItemClosed, vecPayload(vecItemClosed, vecOperatorUser, "approved", "", false))); err != nil {
 		t.Fatalf("closed handle: %v", err)
 	}
 	closedRefs := vecRecipientRefs(t, ctx, pool, vecItemClosed)

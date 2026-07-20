@@ -3,13 +3,13 @@
     <!-- Header and navigation chrome -->
     <string name="sheds_back_description">ಹಿಂದಕ್ಕೆ ಹೋಗಿ</string>
     <string name="sheds_refresh_description">ರಿಫ್ರೆಶ್</string>
-    <string name="sheds_title">ಇಂದಿನ ಶೆಡ್‌ಗಳು</string>
+    <string name="sheds_title">ಲಸಿಕಾ ಅಭಿಯಾನಗಳು</string>
     <string name="sheds_count_fmt">%1$d ಶೆಡ್‌ಗಳು</string>
-    <string name="sheds_due_fmt">%1$d ಬಾಕಿ</string>
+    <string name="sheds_due_fmt">%1$d ತೆರೆದಿವೆ</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d ಮುಗಿದಿದೆ</string>
 
     <!-- Day progress section -->
-    <string name="sheds_day_progress">ದಿನದ ಪ್ರಗತಿ</string>
+    <string name="sheds_day_progress">ಒಟ್ಟು ಪ್ರಗತಿ</string>
 
     <!-- Table column labels in NumsRow -->
     <string name="sheds_num_cell_in_shed">ಗುರಿ</string>

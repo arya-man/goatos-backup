@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_module_vaccination">टीकाकरण</string>
+    <string name="verify_module_counts">गणना</string>
+    <string name="verify_module_feed_direction">फ़ीड दिशा</string>
+    <string name="verify_module_under_construction">निर्माणाधीन</string>
+    <string name="verify_module_under_construction_subtitle">इसकी कार्यप्रणाली तैयार होने पर यह सत्यापन कतार यहाँ दिखाई देगी।</string>
     <string name="verify_queue_title">वीडियो सत्यापन</string>
     <string name="verify_queue_refresh">रीफ़्रेश करें</string>
     <string name="verify_queue_empty">कतार खाली है</string>

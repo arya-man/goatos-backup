@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -33,6 +34,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -407,7 +409,10 @@ private fun ScanHeader(eyebrow: String, title: String, onBack: () -> Unit, onSwi
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            // The shell already applies the exact status-bar inset. Keep this row compact so
+            // the 48 dp back/action targets begin immediately below that inset instead of
+            // looking like a second status-bar spacer.
+            .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
         Box(
             modifier = Modifier
@@ -976,79 +981,120 @@ private fun ScanListRow(
     onEvent: (ScanEvent) -> Unit,
 ) {
     val tagColor = if (row.status == ScanStatus.SKIPPED) ScanTokens.danger else ScanTokens.ink
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 10.dp),
     ) {
-        StatusGlyph(row.status)
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    row.primaryTag,
-                    color = tagColor,
-                    fontSize = 15.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                )
-                if (row.unsynced) {
-                    Spacer(Modifier.width(6.dp))
-                    Box(
-                        Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(ScanTokens.brand),
+        Row(verticalAlignment = Alignment.Top) {
+            StatusGlyph(row.status)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        row.primaryTag,
+                        color = tagColor,
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.Monospace,
                     )
+                    if (row.unsynced) {
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(ScanTokens.brand),
+                        )
+                    }
                 }
-            }
-            row.secondaryTag?.let {
-                Text("tag 2 · $it", color = ScanTokens.faint, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                row.secondaryTag?.let {
+                    Text("tag 2 · $it", color = ScanTokens.faint, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+                Text(
+                    row.vaccineLabel,
+                    color = ScanTokens.muted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
             }
         }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(row.vaccineLabel, color = ScanTokens.muted, fontSize = 11.sp)
-            if (row.status == ScanStatus.DONE) {
-                Spacer(Modifier.height(5.dp))
-                val (proofLabel, proofColor) = when (row.proofUploadStatus) {
-                    ProofUploadStatus.MISSING -> stringResource(R.string.scan_proof_needed) to ScanTokens.danger
-                    ProofUploadStatus.UPLOADING -> stringResource(R.string.scan_proof_uploading) to ScanTokens.warning
-                    ProofUploadStatus.SYNCED -> pluralStringResource(
-                        R.plurals.scan_proof_synced,
-                        row.proofClipCount,
-                        row.proofClipCount,
-                    ) to ScanTokens.brandD
-                    ProofUploadStatus.FAILED -> stringResource(R.string.scan_proof_retry) to ScanTokens.danger
+        if (row.status == ScanStatus.DONE) {
+            Spacer(Modifier.height(6.dp))
+            ProofActions(row = row, captureEnabled = captureEnabled, onEvent = onEvent)
+        }
+    }
+}
+
+@Composable
+private fun ProofActions(
+    row: RosterRow,
+    captureEnabled: Boolean,
+    onEvent: (ScanEvent) -> Unit,
+) {
+    val (proofLabel, proofColor) = when (row.proofUploadStatus) {
+        ProofUploadStatus.MISSING -> stringResource(R.string.scan_proof_needed) to ScanTokens.danger
+        ProofUploadStatus.UPLOADING -> stringResource(R.string.scan_proof_uploading) to ScanTokens.warning
+        ProofUploadStatus.SYNCED -> pluralStringResource(
+            R.plurals.scan_proof_synced,
+            row.proofClipCount,
+            row.proofClipCount,
+        ) to ScanTokens.brandD
+        ProofUploadStatus.FAILED -> stringResource(R.string.scan_proof_retry) to ScanTokens.danger
+    }
+    val addClipLabel = stringResource(R.string.scan_add_clip)
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(start = 34.dp)) {
+        // Use the Android compact-window breakpoint. Typical phones are wider than
+        // 360 dp, but still need the proof status and primary action stacked; the
+        // side-by-side row is reserved for tablet/expanded widths.
+        val compact = maxWidth < 600.dp
+        val status: @Composable () -> Unit = {
+            if (row.proofUploadStatus == ProofUploadStatus.FAILED) {
+                TextButton(
+                    onClick = { onEvent(ScanEvent.RetryProof(row.goatId)) },
+                    enabled = captureEnabled && row.goatId.isNotBlank(),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(proofLabel, color = proofColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
+            } else {
                 Text(
                     proofLabel,
                     color = proofColor,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clickable(
-                            enabled = captureEnabled && row.proofUploadStatus == ProofUploadStatus.FAILED,
-                        ) {
-                            onEvent(ScanEvent.RetryProof(row.goatId))
-                        },
+                    modifier = Modifier.heightIn(min = 48.dp).padding(vertical = 15.dp),
                 )
-                Button(
-                    onClick = { onEvent(ScanEvent.CaptureProof(row.goatId)) },
-                    enabled = captureEnabled && row.goatId.isNotBlank(),
-                    contentPadding = ButtonDefaults.ContentPadding,
-                    modifier = Modifier.padding(top = 4.dp),
-                ) {
-                    Icon(
-                        MeshaIcons.Video,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(stringResource(R.string.scan_add_clip), fontSize = 11.sp)
-                }
+            }
+        }
+        val addClip: @Composable (Modifier) -> Unit = { buttonModifier ->
+            Button(
+                onClick = { onEvent(ScanEvent.CaptureProof(row.goatId)) },
+                enabled = captureEnabled && row.goatId.isNotBlank(),
+                contentPadding = ButtonDefaults.ContentPadding,
+                modifier = buttonModifier.heightIn(min = 48.dp),
+            ) {
+                Icon(MeshaIcons.Video, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(addClipLabel, fontSize = 11.sp)
+            }
+        }
+        if (compact) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                status()
+                addClip(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(modifier = Modifier.weight(1f)) { status() }
+                addClip(Modifier)
             }
         }
     }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -24,8 +26,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -43,12 +44,22 @@ import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 
 /** Render kind for one SOP form field (maps from core-data `FormFieldType` in the :app layer). */
-enum class FieldKindUi { BOOLEAN, NUMBER, TEXT, GOAT_SCAN, PICKER, VIDEO_PROOF, UNKNOWN }
+enum class FieldKindUi { BOOLEAN, NUMBER, TEXT, DATE_TIME, GOAT_SCAN, PICKER, VIDEO_PROOF, UNKNOWN }
 
 /** One selectable option for a [FieldKindUi.PICKER] field ([value] is submitted, [label] is shown). */
-data class FormPickerOptionUi(val value: String, val label: String)
+data class FormPickerOptionUi(
+    val value: String,
+    val label: String,
+    val enabled: Boolean = true,
+    val disabledReason: String? = null,
+)
 
 /** One captured proof video row under a [FieldKindUi.VIDEO_PROOF] field (MOB-002, Room-first —
  *  docs/mobile/proof-capture-sync-and-e2e.md §2/§3). [editableCaption] is true only for an
@@ -76,6 +87,8 @@ data class FormFieldUi(
     val helpText: String? = null,
     val text: String = "",            // text / number
     val checked: Boolean = false,     // boolean
+    /** null means the operator has not answered yet; false is a real, explicit answer. */
+    val booleanValue: Boolean? = null,
     val scannedCount: Int = 0,        // goat_scan
     /** True while [key]'s BT-HID scan capture is actively listening for tags. */
     val scanning: Boolean = false,
@@ -199,6 +212,7 @@ private fun FieldCard(
             FieldKindUi.BOOLEAN -> ToggleControl(field, onToggle)
             FieldKindUi.NUMBER -> TextControl(field, numeric = true, onText)
             FieldKindUi.TEXT -> TextControl(field, numeric = false, onText)
+            FieldKindUi.DATE_TIME -> DateTimeControl(field, onText)
             FieldKindUi.GOAT_SCAN -> ScanZoneControl(field, onScan)
             FieldKindUi.PICKER -> PickerControl(field, onPick)
             FieldKindUi.VIDEO_PROOF -> ProofBoxControl(field, onCaptureVideo, onCaption, onRemoveProof, onRetryProof)
@@ -225,23 +239,39 @@ private fun FieldLabel(label: String, required: Boolean) {
 
 @Composable
 private fun ToggleControl(field: FormFieldUi, onToggle: (String, Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            if (field.checked) "Yes" else "No",
-            color = if (field.checked) MeshaColors.BrandD else MeshaColors.Muted,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W600,
+    val selected = field.booleanValue ?: field.checked.takeIf { it }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        BooleanChoice(
+            text = stringResource(R.string.submit_form_yes),
+            selected = selected == true,
+            onClick = { onToggle(field.key, true) },
             modifier = Modifier.weight(1f),
         )
-        Switch(
-            checked = field.checked,
-            onCheckedChange = { onToggle(field.key, it) },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MeshaColors.Bg,
-                checkedTrackColor = MeshaColors.Brand,
-                uncheckedThumbColor = MeshaColors.Muted,
-                uncheckedTrackColor = MeshaColors.Surf3,
-            ),
+        BooleanChoice(
+            text = stringResource(R.string.submit_form_no),
+            selected = selected == false,
+            onClick = { onToggle(field.key, false) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun BooleanChoice(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) MeshaColors.BrandTint else MeshaColors.Surf3)
+            .border(1.dp, if (selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = if (selected) MeshaColors.BrandD else MeshaColors.Ink,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W700,
         )
     }
 }
@@ -266,23 +296,61 @@ private fun TextControl(field: FormFieldUi, numeric: Boolean, onText: (String, S
     )
 }
 
+/** Operational vaccination timestamps are explicitly acknowledged by the operator. The wire
+ * value is RFC 3339 with an offset; the visible value follows the device locale/time zone. */
+@Composable
+private fun DateTimeControl(field: FormFieldUi, onText: (String, String) -> Unit) {
+    val displayValue = remember(field.text, Locale.getDefault()) {
+        field.text.takeIf(String::isNotBlank)?.let { raw ->
+            runCatching {
+                OffsetDateTime.parse(raw)
+                    .atZoneSameInstant(ZoneId.systemDefault())
+                    .format(
+                        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+                            .withLocale(Locale.getDefault()),
+                    )
+            }.getOrElse { raw }
+        }
+    }
+    ActionControl(
+        text = displayValue ?: stringResource(R.string.submit_form_use_current_time),
+        icon = MeshaIcons.Calendar,
+        done = displayValue != null,
+        onClick = {
+            onText(field.key, OffsetDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+        },
+    )
+}
+
 /** Real (not fire-only) picker: taps open a [DropdownMenu] over [field]'s backend-supplied
  *  [FormFieldUi.options] and report the chosen option's VALUE — never a fabricated selection. A
  *  field with no options (backend expects an out-of-band picker flow) stays inert on tap. */
 @Composable
 private fun PickerControl(field: FormFieldUi, onPick: (String, String) -> Unit) {
     var expanded by remember(field.key) { mutableStateOf(false) }
-    Box {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
         ActionControl(
-            text = field.selectedLabel.ifBlank { "Select…" },
+            text = field.selectedLabel.ifBlank { stringResource(R.string.submit_form_select) },
             icon = MeshaIcons.Chevron,
             done = field.selectedLabel.isNotBlank(),
-            onClick = { if (field.options.isNotEmpty()) expanded = true },
+            onClick = { if (field.options.any { it.enabled }) expanded = true },
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.width(maxWidth),
+        ) {
             field.options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = {
+                        Column {
+                            Text(option.label)
+                            option.disabledReason?.takeIf(String::isNotBlank)?.let { reason ->
+                                Text(reason, color = MeshaColors.Faint, fontSize = 10.sp)
+                            }
+                        }
+                    },
+                    enabled = option.enabled,
                     onClick = {
                         expanded = false
                         onPick(field.key, option.value)

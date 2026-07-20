@@ -32,6 +32,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
+	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -142,6 +144,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
 		vaccinationService := vaccinationapp.NewService(vaccinationRepo)
 		vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
+		sopService := sopapp.NewService(soppg.NewRepository(pool, pgCfg.QueryTimeout))
 		vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo).WithCrossVaccineGapReader(vaccinationRepo)
 		generation := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 		workforceRepo := workforcepg.NewRepository(pool, pgCfg.QueryTimeout)
@@ -153,7 +156,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
 		vaccinationapp.NewGoatRecheckHandler(generation).Register(bus)
 		vaccinationapp.NewProtocolPublishedHandler(generation).Register(bus)
-		vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
+		vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)

@@ -9,7 +9,7 @@
     <!-- Header and navigation chrome -->
     <string name="sheds_back_description">Back</string>
     <string name="sheds_refresh_description">Refresh</string>
-    <string name="sheds_title">Today\'s sheds</string>
+    <string name="sheds_title">Vaccination drives</string>
 
     <!-- Header count/summary chrome. NOTE: ShedsUiState currently exposes these only as
          VM-baked label strings (shedCountLabel/dueLabel/daySummary), not raw Int fields, so
@@ -17,11 +17,11 @@
          DriveMeta/DayProgress for why. Kept here so a future ShedsUiState int-field refactor
          can localize the numbers without touching resources again. -->
     <string name="sheds_count_fmt">%1$d sheds</string>
-    <string name="sheds_due_fmt">%1$d due</string>
+    <string name="sheds_due_fmt">%1$d open</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d done</string>
 
     <!-- Day progress section -->
-    <string name="sheds_day_progress">Day progress</string>
+    <string name="sheds_day_progress">Overall progress</string>
 
     <!-- Table column labels in NumsRow -->
     <string name="sheds_num_cell_in_shed">TARGETED</string>

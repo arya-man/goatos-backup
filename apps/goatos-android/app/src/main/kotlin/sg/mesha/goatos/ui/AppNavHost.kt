@@ -200,6 +200,7 @@ internal fun calendarTargetRoute(target: String?): String {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
         val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
+        if (taskId.isNullOrBlank()) return Routes.VACCINATION
         return Routes.scanRoute(
             shedId = id.ifBlank { null },
             driveId = uri.getQueryParameter("drive_id") ?: uri.getQueryParameter("driveId"),
@@ -216,7 +217,15 @@ internal fun calendarTargetRoute(target: String?): String {
         return Routes.recordRoute(id.ifBlank { null })
     }
     val shedId = shedIdFromTarget(target)
-    return if (shedId != null) Routes.scanRoute(shedId) else Routes.CALENDAR_DRIVE
+    val uri = Uri.parse(target)
+    val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
+    return if (shedId != null && !taskId.isNullOrBlank()) {
+        Routes.scanRoute(shedId, taskId = taskId)
+    } else if (shedId != null) {
+        Routes.VACCINATION
+    } else {
+        Routes.CALENDAR_DRIVE
+    }
 }
 
 /** Extracts a shed id from a backend href, supporting `.../sheds/{id}` and `?shed_id={id}`. */

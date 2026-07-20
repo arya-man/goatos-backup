@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="proof_camera_title">टीकाकरण प्रमाण रिकॉर्ड करें</string>
+    <string name="proof_camera_instruction">बकरी और टीका लगाने की प्रक्रिया साफ़ दिखाई देनी चाहिए</string>
+    <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$d सेकंड</string>
+    <string name="proof_camera_unavailable">कैमरा उपलब्ध नहीं है। रद्द करें और फिर कोशिश करें।</string>
+    <string name="proof_camera_cancel">प्रमाण रिकॉर्डिंग रद्द करें</string>
+    <string name="proof_camera_start_recording">प्रमाण रिकॉर्डिंग शुरू करें</string>
+    <string name="proof_camera_stop_recording">रोकें और प्रमाण रिकॉर्डिंग सहेजें</string>
+    <string name="proof_camera_state_ready">रिकॉर्ड करने के लिए तैयार</string>
+    <string name="proof_camera_state_recording">रिकॉर्डिंग जारी है</string>
+</resources>

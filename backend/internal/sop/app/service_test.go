@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,23 @@ const (
 	testTaskID       = "63000000-0000-4000-8000-000000000001"
 	testScopeID      = "64000000-0000-4000-8000-000000000001"
 )
+
+func TestGetAppTaskUsesLocaleAwarePresentationAndHidesRawUUIDTitle(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.TaskType = "vaccination"
+	repo.task.Title = "Vaccination drive " + repo.task.ScopeID
+
+	result, err := NewService(repo).GetAppTask(context.Background(), testTenantID, testTaskID, "hi", "trace-1")
+	if err != nil {
+		t.Fatalf("GetAppTask: %v", err)
+	}
+	if result.Task.Presentation == nil || result.Task.Presentation.Eyebrow != "टीकाकरण" || result.Task.Presentation.Title != "शेड रिकॉर्ड" {
+		t.Fatalf("presentation=%+v want Hindi task copy", result.Task.Presentation)
+	}
+	if strings.Contains(result.Task.Title, repo.task.ScopeID) {
+		t.Fatalf("app task title exposed raw UUID: %q", result.Task.Title)
+	}
+}
 
 func TestEvaluateShiftingProofAndWorkflow(t *testing.T) {
 	policy := canonicalProofPolicy(true, "video")
@@ -369,8 +387,11 @@ func TestSubmitMergesServerDraftScanCapturesOneToManyPageBoundaryStatusMatrix(t 
 			Answers: map[string]any{
 				"vaccine_lot_id":      "69000000-0000-4000-8000-000000000001",
 				"cold_chain_verified": true,
-				"dose_ml_given":       float64(1),
-				"administered_at":     "2026-07-17T00:00:00Z",
+				// Simulate an older client sending one RFID alias while the other item already
+				// uses the canonical identity. Durable scan captures must canonicalize both.
+				"goat_ids":        []any{"901007000504392", "66000000-0000-4000-8000-000000000002"},
+				"dose_ml_given":   float64(1),
+				"administered_at": "2026-07-17T00:00:00Z",
 			},
 		},
 	}, "trace")
@@ -378,7 +399,7 @@ func TestSubmitMergesServerDraftScanCapturesOneToManyPageBoundaryStatusMatrix(t 
 		t.Fatalf("SubmitTask() error = %v", err)
 	}
 	got, ok := repo.lastSubmit.Body.Answers["goat_ids"].([]any)
-	if !ok || len(got) != 2 || got[0] != "901007000504392" || got[1] != "901007000504418" {
+	if !ok || len(got) != 2 || got[0] != "66000000-0000-4000-8000-000000000001" || got[1] != "66000000-0000-4000-8000-000000000002" {
 		t.Fatalf("merged goat_ids = %#v", repo.lastSubmit.Body.Answers["goat_ids"])
 	}
 	if len(repo.lastSubmit.SubmissionItems) != 2 ||
@@ -1362,6 +1383,10 @@ func (f *fakeRepo) SubmitTask(_ context.Context, cmd ports.SubmitTaskCommand) (d
 	}
 	f.submissions = append(f.submissions, submission)
 	return submission, f.task, false, nil
+}
+
+func (f *fakeRepo) AcceptSubmissionItemVerification(context.Context, string, string, string, string) error {
+	return nil
 }
 
 func shiftingDSL() map[string]any {

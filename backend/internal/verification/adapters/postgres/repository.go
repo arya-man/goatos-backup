@@ -63,7 +63,7 @@ const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical
   vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.media_refs,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
   vi.verified_at, vi.closed_by::text, vi.closed_at, vi.row_version, vi.created_at, vi.updated_at,
-  wm.display_name::text, shed_loc.name::text, park_loc.name::text`
+  COALESCE(wm_member.display_name, wm_user.display_name)::text, shed_loc.name::text, park_loc.name::text`
 
 func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -176,7 +176,10 @@ func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams
 	rows, err := r.pool.Query(ctx, `
 SELECT `+itemColumnsWithLabels+`
 FROM verification_items vi
-LEFT JOIN workforce_members wm ON vi.tenant_id = wm.tenant_id AND vi.operator_id = wm.workforce_member_id
+LEFT JOIN workforce_members wm_member
+  ON vi.tenant_id = wm_member.tenant_id AND vi.operator_id = wm_member.workforce_member_id
+LEFT JOIN workforce_members wm_user
+  ON vi.tenant_id = wm_user.tenant_id AND vi.operator_id = wm_user.user_id
 LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id = shed_loc.location_id
 LEFT JOIN locations park_loc ON vi.tenant_id = park_loc.tenant_id AND vi.park_id = park_loc.location_id
 WHERE vi.tenant_id = $1::uuid

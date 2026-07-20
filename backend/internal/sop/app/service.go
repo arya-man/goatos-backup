@@ -69,6 +69,23 @@ func (s *Service) WithTaskReviewFanout(fanout TaskReviewFanout) *Service {
 	return s
 }
 
+// AcceptSubmissionItemVerification projects one closed per-goat verification item back into the
+// SOP aggregate. The repository owns the atomic item -> submission -> task roll-up; the
+// composition-layer event bridge calls this only after the owning vertical has applied its
+// canonical business transition.
+func (s *Service) AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return err
+	}
+	if !uuidutil.IsUUIDString(strings.TrimSpace(submissionID)) {
+		return BadRequest("invalid_submission_id", "submission_id must be a UUID")
+	}
+	if !uuidutil.IsUUIDString(strings.TrimSpace(goatID)) {
+		return BadRequest("invalid_goat_id", "goat_id must be a UUID")
+	}
+	return mapRepoErr(s.repo.AcceptSubmissionItemVerification(ctx, tenantID, submissionID, goatID, actorID))
+}
+
 func (s *Service) ListSOPs(ctx context.Context, params ports.ListSOPsParams, traceID string) (*domain.SOPListResponse, error) {
 	if err := validateTenant(params.TenantID); err != nil {
 		return nil, err
@@ -287,6 +304,9 @@ func (s *Service) ListAppTasks(ctx context.Context, params ports.ListTasksParams
 		}
 		next = &encoded
 	}
+	for i := range page.Items {
+		page.Items[i] = presentAppTask(page.Items[i], params.LocaleTag)
+	}
 	return &domain.AppTaskListResponse{
 		Items:      page.Items,
 		Total:      page.Total,
@@ -336,6 +356,15 @@ func (s *Service) GetTask(ctx context.Context, tenantID, taskID, traceID string)
 		return nil, mapRepoErr(err)
 	}
 	return &domain.TaskResponse{Task: task, Version: version, Submissions: submissions, TraceID: traceID}, nil
+}
+
+func (s *Service) GetAppTask(ctx context.Context, tenantID, taskID, localeTag, traceID string) (*domain.TaskResponse, error) {
+	result, err := s.GetTask(ctx, tenantID, taskID, traceID)
+	if err != nil {
+		return nil, err
+	}
+	result.Task = presentAppTask(result.Task, localeTag)
+	return result, nil
 }
 
 func (s *Service) AssignTask(ctx context.Context, cmd ports.AssignTaskCommand, traceID string) (*domain.TaskResponse, error) {
@@ -1097,34 +1126,49 @@ func mergeDraftScanAnswers(formDSL map[string]any, answers map[string]any, captu
 		return merged
 	}
 	existing := goatIDsFromAnswer(merged[target])
+	// RFID/tag text is lookup input, never the canonical medical-record identity. Older app
+	// versions may still submit the tag, so use the durable server capture to canonicalize that
+	// alias to goat_id before proof validation and submission fan-out.
+	goatIDByNormalizedTag := make(map[string]string, len(captures))
+	for _, capture := range captures {
+		if goatID := strings.TrimSpace(capture.GoatID); goatID != "" {
+			goatIDByNormalizedTag[normalizeScanTag(capture.Tag)] = goatID
+		}
+	}
 	seen := map[string]struct{}{}
 	values := make([]any, 0, len(existing)+len(captures))
-	for _, tag := range existing {
-		tag = strings.TrimSpace(tag)
-		if tag == "" {
+	for _, raw := range existing {
+		value := strings.TrimSpace(raw)
+		if value == "" {
 			continue
 		}
-		key := normalizeScanTag(tag)
+		if goatID := goatIDByNormalizedTag[normalizeScanTag(value)]; goatID != "" {
+			value = goatID
+		}
+		key := normalizeScanTag(value)
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		seen[key] = struct{}{}
-		values = append(values, tag)
+		values = append(values, value)
 	}
 	for _, capture := range captures {
 		if !captureMatchesScanField(capture.FieldKey, target, target) {
 			continue
 		}
-		tag := strings.TrimSpace(capture.Tag)
-		if tag == "" {
+		value := strings.TrimSpace(capture.GoatID)
+		if value == "" {
+			value = strings.TrimSpace(capture.Tag)
+		}
+		if value == "" {
 			continue
 		}
-		key := normalizeScanTag(tag)
+		key := normalizeScanTag(value)
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		seen[key] = struct{}{}
-		values = append(values, tag)
+		values = append(values, value)
 	}
 	if len(values) > 0 {
 		merged[target] = values

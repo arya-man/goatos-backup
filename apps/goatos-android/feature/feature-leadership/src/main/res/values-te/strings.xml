@@ -10,6 +10,9 @@
     <string name="overview_assign_team_label">టీమ్‌ను కేటాయించండి</string>
     <string name="overview_backlog_title">టీకా ఆధారిత బ్యాకలాగ్ · బకాయి డోసులు</string>
     <string name="overview_needs_decision_title">నిర్ణయం అవసరం</string>
+    <string name="overview_verified_closure_title">ధృవీకరించబడింది · మూసివేయడానికి సిద్ధం</string>
+    <string name="overview_close_action">డ్రైవ్‌ను మూసివేయండి</string>
+    <string name="overview_close_queueing">క్యూలో చేరుస్తోంది…</string>
     <string name="overview_coverage_by_park_title">పార్క్ ఆధారిత కవరేజ్</string>
     <string name="overview_empty_title">ప్రస్తుతం అవలోకన పని లేదు</string>
     <string name="overdue_empty_title">గడువు మీరిన జంతువులు లేవు</string>

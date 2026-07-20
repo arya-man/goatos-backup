@@ -172,6 +172,34 @@ class SyncRepositoryTest {
     }
 
     @Test
+    fun `failed shed payload can be removed by stable key and rebuilt after process recreation`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi().apply {
+            submitAppTaskFn = { _, _, _ -> throw IOException("validation rejected") }
+        }
+        val repo = repository(store = store, api = api)
+
+        val first = repo.enqueueShedSubmit("task-1", "shed-1", "key-1", submitRequest("key-1"))
+        assertTrue(first is AppResult.Ok)
+        assertEquals(SyncItemStatus.FAILED, repo.observeStatus().value.items.single().status)
+		val recovered = repo.findOutboxItemByIdempotencyKey("key-1") as AppResult.Ok
+		assertEquals((first as AppResult.Ok).value, recovered.value?.id)
+
+        assertTrue(repo.deleteFailedOutboxItemByIdempotencyKey("key-1") is AppResult.Ok)
+
+        api.submitAppTaskFn = { _, _, _ ->
+            sg.mesha.goatos.core.network.dto.SubmissionResponseDto(
+                submission = sg.mesha.goatos.core.network.dto.SubmissionSummaryDto(
+                    validationReport = sg.mesha.goatos.core.network.dto.ValidationReportDto(valid = true),
+                ),
+            )
+        }
+        val corrected = SubmitTaskRequestDto(sopVersionId = "sop-2", idempotencyKey = "key-1")
+        assertTrue(repo.enqueueShedSubmit("task-1", "shed-1", "key-1", corrected) is AppResult.Ok)
+        assertEquals(SyncItemStatus.SUCCEEDED, repo.observeStatus().value.items.single().status)
+    }
+
+    @Test
     fun `offline is reported in observeStatus and enqueue does not drain until reconnect`() = runBlocking {
         // Standalone setup (not the `repository()` helper): the engine's connectivity check
         // must be the SAME live cell the test flips to simulate reconnect — the helper fixes

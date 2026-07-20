@@ -110,13 +110,13 @@ fun sampleShedsState(): ShedsUiState = ShedsUiState(
     daySummary = "54 / 128 done",
     rows = listOf(
         ShedRow(
-            id = "s1", name = "Gandhi 1", cohort = "Milking does",
+            id = "s1", name = "Gandhi 1", animalStage = "Milking does",
             status = ShedStatus.DONE, statusLabel = "Done",
             vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("PPR", "40/40", true)),
             inShed = "40", due = "40", done = "40", progressLabel = "100%", progressFraction = 1f,
         ),
         ShedRow(
-            id = "s2", name = "Sumathi 1", cohort = "Kids",
+            id = "s2", name = "Sumathi 1", animalStage = "Kids",
             status = ShedStatus.DELAYED, statusLabel = "Delayed · not started",
             vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("FMD", "0/32", false)),
             inShed = "32", due = "32", done = "0", progressLabel = "0%", progressFraction = 0f,
@@ -430,6 +430,8 @@ fun shedsPlaceholder(message: String): ShedsUiState =
 fun leadershipPlaceholder(message: String): LeadershipUiState {
     val base = sampleLeadershipState()
     return base.copy(
+        eyebrow = "Vaccination",
+        avatarInitial = "",
         hero = base.hero.copy(
             coverageLabel = "Process integrity",
             coveragePercent = 0,
@@ -461,6 +463,8 @@ fun overduePlaceholder(message: String): OverdueUiState =
 // stable chrome (eyebrow/title/submit label) survives here — every operational identity field
 // is cleared, matching every other honest placeholder above.
 fun submitPlaceholder(): SubmitUiState = sampleSubmitState().copy(
+    eyebrow = "",
+    title = "",
     shed = "",
     cohort = "",
     date = "",

@@ -95,7 +95,8 @@ data class RosterChange(
 )
 
 /**
- * One shed card. Every visible label/status/count comes from the backend payload;
+ * One shed card. Domain values come from the backend payload while localized labels
+ * and count captions are app chrome;
  * [actionLabel] is null when the backend returned no action for this principal
  * (e.g. leadership gets no Start/scan) — the absence of the field, not a client
  * `role ==` check, is what hides the affordance.
@@ -106,7 +107,7 @@ data class RosterChange(
 data class ShedRow(
     val id: String,
     val name: String,
-    val cohort: String,
+    val animalStage: String,
     val status: ShedStatus,
     val statusLabel: String,
     val vaccineGroups: List<VaccineGroup>,
@@ -283,7 +284,10 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            // GoatOsShell already applies and consumes the status-bar inset. Keep
+            // only compact content spacing here; adding a second toolbar-sized top
+            // gap makes the header look double-inset on physical devices.
+            .padding(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -422,7 +426,9 @@ private fun DayProgress(state: ShedsUiState) {
         // Live counts localize via the *_fmt resource; fall back to any VM-supplied
         // summary string when raw counts aren't present (placeholder/sample states).
         val summary = if (state.dueCount > 0) {
-            stringResource(R.string.sheds_day_summary_fmt, state.doneCount, state.dueCount)
+            // dueCount is the still-open count, not the denominator. Showing done/open
+            // as done/total produced impossible copy such as "4 / 4 done" beside 50%.
+            stringResource(R.string.sheds_day_summary_fmt, state.doneCount, state.doneCount + state.dueCount)
         } else {
             state.daySummary
         }
@@ -510,7 +516,9 @@ private fun ShedCardTop(row: ShedRow, tone: StatusTone) {
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = row.name, color = Ink, fontSize = 15.5f.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(text = row.cohort, color = Muted, fontSize = 12.sp, maxLines = 1)
+            row.animalStage.takeIf { it.isNotBlank() }?.let { stage ->
+                Text(text = stage, color = Muted, fontSize = 12.sp, maxLines = 1)
+            }
         }
         Spacer(Modifier.width(8.dp))
         StatusPill(label = row.statusLabel, tone = tone)
@@ -772,7 +780,7 @@ private fun previewState(): ShedsUiState = ShedsUiState(
         ShedRow(
             id = "mandela1",
             name = "Mandela 1 · CBE",
-            cohort = "K2 kids · 71 in shed",
+            animalStage = "K2 kids · 71 in shed",
             status = ShedStatus.DONE,
             statusLabel = "Done",
             vaccineGroups = listOf(VaccineGroup("FMD + HS", "40/40", full = true)),
@@ -786,7 +794,7 @@ private fun previewState(): ShedsUiState = ShedsUiState(
         ShedRow(
             id = "castro1",
             name = "Castro 1 · CBE",
-            cohort = "Breeding does · 44 in shed",
+            animalStage = "Breeding does · 44 in shed",
             status = ShedStatus.PENDING,
             statusLabel = "In progress",
             vaccineGroups = listOf(
@@ -803,7 +811,7 @@ private fun previewState(): ShedsUiState = ShedsUiState(
         ShedRow(
             id = "sumathi1",
             name = "Sumathi 1 · CBE",
-            cohort = "Pregnant does · 30 in shed",
+            animalStage = "Pregnant does · 30 in shed",
             status = ShedStatus.DELAYED,
             statusLabel = "Delayed · chase team",
             vaccineGroups = listOf(VaccineGroup("ET + TT · Booster", "0/9")),
@@ -817,7 +825,7 @@ private fun previewState(): ShedsUiState = ShedsUiState(
         ShedRow(
             id = "sumathi2",
             name = "Sumathi 2 · CPT",
-            cohort = "Yearling does · 38 in shed",
+            animalStage = "Yearling does · 38 in shed",
             status = ShedStatus.DELAYED,
             statusLabel = "Delayed · chase team",
             vaccineGroups = listOf(VaccineGroup("PPR · Booster", "0/38")),

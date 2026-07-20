@@ -295,7 +295,11 @@ func routeRoles(route permissions.Route, grants []permissions.ActiveGrant, tenan
 
 func routeAllowsScopedGrants(route permissions.Route) bool {
 	return strings.HasPrefix(route.Pattern, "/calendar/") ||
-		strings.HasPrefix(route.Pattern, "/app/vaccination/") ||
+		// The Android surface is scope-aware by construction: bootstrap carries the
+		// actor's grants, lists are actor/park filtered, and writes validate task
+		// assignment or handler scope. Requiring a tenant-wide grant here made a
+		// genuinely park-scoped operator or park head unable to start the app.
+		strings.HasPrefix(route.Pattern, "/app/") ||
 		strings.HasPrefix(route.Pattern, "/verification/")
 }
 

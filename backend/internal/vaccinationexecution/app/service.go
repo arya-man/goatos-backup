@@ -314,12 +314,16 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if workState == "" {
 		workState = workStateFromProjection(p, q)
 	}
+	targetCount, openCount, doneCount := executionDisplayCounts(p)
 	return domain.ExecutionRow{
 		ParkID:             p.ParkID,
 		ParkName:           p.ParkName,
 		ShedID:             p.ShedID,
 		ShedName:           p.ShedName,
 		AnimalStage:        p.AnimalStage,
+		TargetCount:        targetCount,
+		OpenCount:          openCount,
+		DoneCount:          doneCount,
 		DriveID:            p.BatchID,
 		DriveName:          driveName(p),
 		DueDate:            dueDate(p),
@@ -338,6 +342,27 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		SOPTaskRowVersion:  p.SOPTaskRowVersion,
 		CompletionID:       p.CompletionID,
 	}
+}
+
+// executionDisplayCounts is the backend-owned count contract for mobile shed cards. One execution
+// row is an aggregated obligation group, not one goat, so clients must never infer counts from the
+// number of rows. Recorded/accepted/rejected completion evidence all means field execution occurred;
+// deferred/missed/cancelled targets are not presented as open work.
+func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done int) {
+	target = p.ObligationCount
+	done = p.CompletedCount
+	completionEvidence := p.CompletionRecorded + p.CompletionAccepted + p.CompletionRejected
+	if completionEvidence > done {
+		done = completionEvidence
+	}
+	if done > target {
+		done = target
+	}
+	open = target - done - p.DeferredCount - p.MissedCount - p.CanceledCount
+	if open < 0 {
+		open = 0
+	}
+	return target, open, done
 }
 
 func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.WorkState {
@@ -466,13 +491,7 @@ func owner(p domain.ExecutionProjection) *domain.Owner {
 }
 
 func driveName(p domain.ExecutionProjection) *string {
-	name := p.ProtocolName
-	if p.DoseCode != "" {
-		if name != "" {
-			name += " - "
-		}
-		name += p.DoseCode
-	}
+	name := domain.VaccinationDoseDisplayLabel(p.ProtocolName, p.DoseCode)
 	if name == "" {
 		return nil
 	}

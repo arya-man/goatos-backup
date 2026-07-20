@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
+import sg.mesha.goatos.core.data.forms.FormRule
+import sg.mesha.goatos.core.data.forms.FormRuleType
 import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -53,6 +55,7 @@ import sg.mesha.goatos.feature.submit.FormPickerOptionUi
 import sg.mesha.goatos.feature.submit.FormRunnerState
 import sg.mesha.goatos.feature.submit.ProofItemUi
 import sg.mesha.goatos.feature.submit.SubmitEvent
+import sg.mesha.goatos.feature.submit.SubmitSummaryItem
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
 import sg.mesha.goatos.rfid.ScanSource
@@ -79,8 +82,10 @@ import javax.inject.Inject
  * DEAD_LETTER (transport retries exhausted). It never reports a fake success.
  *
  * When no task is assigned to the current principal (e.g. a leadership user), submit is
- * disabled and the banner says so. [SubmitEvent.Retry] re-arms the SAME outbox row (same
- * idempotency key, same payload) rather than minting a new one.
+ * disabled and the banner says so. [SubmitEvent.Retry] rebuilds a failed shed payload from the
+ * current durable form/scan/proof state, replaces the failed local row, and preserves the SAME
+ * idempotency key. A client contract fix can therefore repair a rejected draft without risking a
+ * duplicate if the server accepted an earlier attempt before its response was lost.
  *
  * MOB-002 (docs/mobile/proof-capture-sync-and-e2e.md): the task's SOP `form_dsl` is parsed
  * into a [FormRunnerState] and rendered inline. `goat_scan`/`video_proof` fields are Room-first:
@@ -126,6 +131,7 @@ class SubmitViewModel @Inject constructor(
     private var currentProofPolicy: ProofPolicy = ProofPolicy.Default
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")
     private var statusJob: Job? = null
+    private var outboxRecoveryKey: String? = null
     private var scanTagJob: Job? = null
 
     // Room-first capture caches driven by the gated observers in [observeCaptureState] (MOB-010).
@@ -281,8 +287,53 @@ class SubmitViewModel @Inject constructor(
         currentTask = detail.task
         currentForm = detail.form
         currentProofPolicy = detail.proofPolicy
+        if (detail.task.state.isSubmissionTerminal()) {
+            // The refreshed backend task is authoritative after a successful submit. Its row
+            // version advances when the task enters review/accepted state, so trying to recover
+            // the old pre-submit outbox key from the new row version would render a fresh,
+            // editable form and could offer a second logical submission. Keep the completed
+            // proof summary visible, but render the task as acknowledged and read-only.
+            statusJob?.cancel()
+            clearSavedSubmission()
+            outboxRecoveryKey = null
+            _state.value = draftState(detail.task, detail.form).copy(
+                formRunner = null,
+                syncState = SyncState.ACKED,
+                syncLabel = "",
+                syncProgress = 1f,
+                canSubmit = false,
+            )
+            return
+        }
         bindSubmissionKey(detail.task)
         val queuedItemId = outboxItemId
+        val key = idempotencyKey
+        if (key != null && outboxRecoveryKey != key) {
+            // APK updates and some OEM process-recreation paths do not restore Activity
+            // SavedState reliably. Always reconcile the saved row id against the stable key:
+            // the saved id itself may name a failed row that a retry already replaced.
+            outboxRecoveryKey = key
+            _state.value = draftState(detail.task, detail.form).copy(canSubmit = false)
+            viewModelScope.launch {
+                when (val recovered = syncRepository.findOutboxItemByIdempotencyKey(key)) {
+                    is AppResult.Ok -> {
+                        val item = recovered.value
+                        if (item == null) {
+                            outboxItemId = null
+                            renderDraft()
+                        } else {
+                            outboxItemId = item.id
+                            applyItemStatus(item)
+                            observeOutboxItem(item.id)
+                        }
+                    }
+                    is AppResult.Err -> {
+                        if (queuedItemId != null) observeOutboxItem(queuedItemId) else renderDraft()
+                    }
+                }
+            }
+            return
+        }
         if (queuedItemId != null) {
             // A submission for this task is already queued (it survived process death).
             // Resume its live banner instead of offering a fresh — duplicate — submit.
@@ -405,6 +456,10 @@ class SubmitViewModel @Inject constructor(
 
     private fun renderDraft() {
         val task = currentTask ?: return
+        // Room scan/proof observers may emit after an outbox row has already reached QUEUED,
+        // FAILED, or SUCCEEDED. Those capture emissions must not repaint the screen as a fresh
+        // draft and erase the durable submission lifecycle banner.
+        if (outboxItemId != null) return
         if (captureAllowed == false) {
             _state.value = submitPlaceholder().copy(isCaptureRoleBlocked = true)
             return
@@ -438,6 +493,9 @@ class SubmitViewModel @Inject constructor(
                     canSubmit = false,
                     attemptCount = 0,
                     maxAttempts = 0,
+                    lastError = null,
+                    isQueueFailed = false,
+                    isRetryFailed = false,
                 )
             }
             // groupKey = the shed/scope this submission belongs to, so the outbox drains all
@@ -483,14 +541,36 @@ class SubmitViewModel @Inject constructor(
         val itemId = outboxItemId
         when {
             itemId != null -> viewModelScope.launch {
-                when (syncRepository.retry(itemId)) {
-                    is AppResult.Ok -> observeOutboxItem(itemId)
+                // Do not byte-replay a known-invalid shed payload forever. The replacement is
+                // built from Room + SavedState and retains the stable task/row idempotency key.
+                when (syncRepository.deleteOutboxItem(itemId)) {
+                    is AppResult.Ok -> {
+                        statusJob?.cancel()
+                        statusJob = null
+                        outboxItemId = null
+                        submit()
+                    }
                     is AppResult.Err -> _state.update {
                         it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
                     }
                 }
             }
-            currentTask != null -> submit()
+            currentTask != null -> viewModelScope.launch {
+                // SavedStateHandle is normally restored after process death, but an APK update
+                // can recreate the Activity without restoring the previous outbox row id. Recover
+                // by the stable task/row key; only a terminal FAILED row is eligible for removal.
+                val key = idempotencyKey
+                if (key == null) {
+                    submit()
+                    return@launch
+                }
+                when (syncRepository.deleteFailedOutboxItemByIdempotencyKey(key)) {
+                    is AppResult.Ok -> submit()
+                    is AppResult.Err -> _state.update {
+                        it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                    }
+                }
+            }
             else -> load()
         }
     }
@@ -502,6 +582,7 @@ class SubmitViewModel @Inject constructor(
             savedStateHandle[KEY_SUBMISSION_SCOPE] = submissionScope
             idempotencyKey = stableSubmissionKey(task)
             outboxItemId = null
+            outboxRecoveryKey = null
             formAnswers = emptyMap()
             return
         }
@@ -534,16 +615,16 @@ class SubmitViewModel @Inject constructor(
     private fun applyItemStatus(item: SyncQueueItem) {
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {
-                it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0)
+                it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
             }
             item.status == SyncItemStatus.IN_FLIGHT -> _state.update {
-                it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0)
+                it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
             }
             item.status == SyncItemStatus.SUCCEEDED -> _state.update {
-                it.copy(syncState = SyncState.ACKED, syncLabel = "", syncProgress = 1f, canSubmit = false, attemptCount = 0, maxAttempts = 0)
+                it.copy(syncState = SyncState.ACKED, syncLabel = "", syncProgress = 1f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
             }
             item.conflict -> _state.update {
-                it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0)
+                it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false)
             }
             item.isDeadLetter -> _state.update {
                 it.copy(
@@ -552,6 +633,9 @@ class SubmitViewModel @Inject constructor(
                     canSubmit = false,
                     attemptCount = item.attemptCount,
                     maxAttempts = item.maxAttempts,
+                    lastError = item.lastError,
+                    isQueueFailed = false,
+                    isRetryFailed = false,
                 )
             }
             else -> _state.update {
@@ -564,6 +648,9 @@ class SubmitViewModel @Inject constructor(
                     canSubmit = false,
                     attemptCount = item.attemptCount,
                     maxAttempts = item.maxAttempts,
+                    lastError = item.lastError,
+                    isQueueFailed = false,
+                    isRetryFailed = false,
                 )
             }
         }
@@ -598,9 +685,14 @@ class SubmitViewModel @Inject constructor(
         // No fabricated vaccine groups — the due-group breakdown needs a read model this
         // build doesn't have yet, so groups stay empty until it is wired.
         return submitPlaceholder().copy(
-            shed = task.title.ifBlank { task.sopCode },
-            cohort = task.description,
-            date = task.dueAt.orEmpty(),
+            eyebrow = task.presentation?.eyebrow.orEmpty(),
+            title = task.presentation?.title.orEmpty(),
+            shed = "",
+            cohort = "",
+            date = "",
+            summaryItems = task.presentation?.summaryItems.orEmpty()
+                .filter { it.label.isNotBlank() && it.value.isNotBlank() }
+                .map { SubmitSummaryItem(it.key, it.label, it.value) },
             groups = emptyList(),
             formRunner = formRunner,
             syncState = SyncState.DRAFT,
@@ -653,7 +745,18 @@ class SubmitViewModel @Inject constructor(
      *  R50-027: enforces minimum count + per-subject caps from proofPolicy. */
     private fun buildFormRunnerState(form: FormSpec, task: TaskSummaryDto): FormRunnerState? {
         if (form.isEmpty) return null
-        val fields = form.fields.map { field -> field.toFieldUi() }
+        val conditionallyRequired = form.rules
+            .filter { it.type == FormRuleType.REQUIRED_IF && it.conditionMatches() }
+            .mapNotNullTo(mutableSetOf()) { it.field }
+        val conditionallyVisible = form.rules
+            .filter { it.type == FormRuleType.REQUIRED_IF }
+            .groupBy { it.field }
+        val fields = form.fields
+            .filter { field ->
+                val visibilityRules = conditionallyVisible[field.key].orEmpty()
+                field.required || visibilityRules.isEmpty() || visibilityRules.any { it.conditionMatches() }
+            }
+            .map { field -> field.toFieldUi(requiredOverride = field.required || field.key in conditionallyRequired) }
         val requiredUnansweredProofKeys = form.requiredUnansweredVideoProofKeys()
         val unreadyProof = currentProofs.firstOrNull { it.blocksSubmission(requiredUnansweredProofKeys) }
 
@@ -674,32 +777,85 @@ class SubmitViewModel @Inject constructor(
             .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
             .distinct()
             .firstOrNull { goatId -> goatId !in goatIdsWithCompletedProof }
-        val unmet = form.fields.firstOrNull { field -> !field.isAnswered() }
+        val unmet = form.fields.firstOrNull { field -> !field.isAnswered(field.required || field.key in conditionallyRequired) }
+        val activeBlock = form.rules.firstOrNull {
+            it.type == FormRuleType.BLOCK_SUBMISSION_IF && it.conditionMatches()
+        }
         return FormRunnerState(
             title = "Recording form",
-            subtitle = task.title,
+            subtitle = task.presentation?.title.orEmpty(),
             fields = fields,
             submitLabel = "Submit",
             blockedReason = unreadyProof?.let { blockedReasonForProofUpload(it) }
                 ?: minimumCountViolation
                 ?: missingGoatProof?.let { "Add and sync a camera clip for every scanned goat before submitting." }
+                ?: activeBlock?.message?.takeIf(String::isNotBlank)
                 ?: unmet?.let { blockedReasonFor(it) },
         )
     }
 
-    private fun FormField.isAnswered(): Boolean {
-        if (!required) return true
+    private fun FormField.isAnswered(requiredOverride: Boolean = required): Boolean {
+        if (!requiredOverride) return true
         val answer = formAnswers[key]
         return when (type) {
-            FormFieldType.BOOLEAN -> (answer as? JsonPrimitive)?.booleanOrNull == true
-            FormFieldType.NUMBER, FormFieldType.TEXT -> !(answer as? JsonPrimitive)?.content.isNullOrBlank()
-            FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER ->
+            FormFieldType.BOOLEAN -> (answer as? JsonPrimitive)?.booleanOrNull != null
+            FormFieldType.NUMBER, FormFieldType.TEXT, FormFieldType.DATE_TIME ->
+                !(answer as? JsonPrimitive)?.content.isNullOrBlank()
+            FormFieldType.SELECT, FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER ->
                 !(answer as? JsonPrimitive)?.content.isNullOrBlank()
             FormFieldType.GOAT_SCAN -> currentScans.any { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
             FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key && it.isCompletedProofRef() }
             FormFieldType.UNKNOWN -> false
         }
     }
+
+    /** Executes the backend-authored v1 rule against durable draft/capture state. Unknown
+     * operators fail closed (not matched); the app never invents a condition result. */
+    private fun FormRule.conditionMatches(): Boolean {
+        val key = conditionField ?: return false
+        val actual = conditionValue(key)
+        return when (operator?.trim()?.lowercase()) {
+            "equals" -> actual == value
+            "not_equals" -> actual != value
+            "empty" -> actual.isEmptyValue()
+            "not_empty" -> !actual.isEmptyValue()
+            "in" -> (value as? JsonArray)?.contains(actual) == true
+            "not_in" -> (value as? JsonArray)?.contains(actual) == false
+            "gt" -> actual.asDoubleOrNull()?.let { left -> value.asDoubleOrNull()?.let { left > it } } == true
+            "gte" -> actual.asDoubleOrNull()?.let { left -> value.asDoubleOrNull()?.let { left >= it } } == true
+            "lt" -> actual.asDoubleOrNull()?.let { left -> value.asDoubleOrNull()?.let { left < it } } == true
+            "lte" -> actual.asDoubleOrNull()?.let { left -> value.asDoubleOrNull()?.let { left <= it } } == true
+            else -> false
+        }
+    }
+
+    private fun conditionValue(key: String): JsonElement? {
+        formAnswers[key]?.let { return it }
+        val field = currentForm.fields.firstOrNull { it.key == key }
+        return when (field?.type) {
+            FormFieldType.GOAT_SCAN -> JsonArray(
+                currentScans
+                    .filter { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
+                    .map { JsonPrimitive(it.goatId ?: it.tag) },
+            )
+            FormFieldType.VIDEO_PROOF -> JsonArray(
+                currentProofs.filter { it.fieldKey == key && it.isCompletedProofRef() }
+                    .mapNotNull { it.serverProofId?.let(::JsonPrimitive) },
+            )
+            else -> null
+        }
+    }
+
+    private fun JsonElement?.isEmptyValue(): Boolean = when (this) {
+        null -> true
+        is JsonPrimitive -> isString && content.isBlank()
+        is JsonArray -> isEmpty()
+        is JsonObject -> isEmpty()
+        else -> false
+    }
+
+    private fun JsonElement?.asDoubleOrNull(): Double? =
+        (this as? JsonPrimitive)?.content?.toDoubleOrNull()
 
     private fun ProofCaptureRow.isCompletedProofRef(): Boolean =
         syncStatus == CaptureSyncStatus.SYNCED && !serverProofId.isNullOrBlank()
@@ -726,47 +882,69 @@ class SubmitViewModel @Inject constructor(
             "Wait for proof upload to finish before submitting."
         }
 
-    private fun blockedReasonFor(field: FormField): String = when (field.type) {
+    private fun blockedReasonFor(field: FormField): String = field.disabledReason ?: when (field.type) {
         FormFieldType.GOAT_SCAN -> "Scan the required goats (\"${field.label}\") before submitting."
         FormFieldType.VIDEO_PROOF -> "Record the required video (\"${field.label}\") before submitting."
         FormFieldType.UNKNOWN -> "Update the app to record \"${field.label}\" before submitting."
         FormFieldType.BOOLEAN -> "Confirm \"${field.label}\" before submitting."
         FormFieldType.NUMBER, FormFieldType.TEXT -> "Enter \"${field.label}\" before submitting."
-        FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER -> "Select \"${field.label}\" before submitting."
+        FormFieldType.DATE_TIME -> "Set \"${field.label}\" before submitting."
+        FormFieldType.SELECT, FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER -> "Select \"${field.label}\" before submitting."
     }
 
-    private fun FormField.toFieldUi(): FormFieldUi = when (type) {
+    private fun FormField.toFieldUi(requiredOverride: Boolean = required): FormFieldUi = when (type) {
         FormFieldType.BOOLEAN -> FormFieldUi(
             key = key,
             label = label,
             kind = FieldKindUi.BOOLEAN,
-            required = required,
-            checked = (formAnswers[key] as? JsonPrimitive)?.booleanOrNull ?: false,
+            required = requiredOverride,
+            checked = (formAnswers[key] as? JsonPrimitive)?.booleanOrNull == true,
+            booleanValue = (formAnswers[key] as? JsonPrimitive)?.booleanOrNull,
+            helpText = helpText,
         )
         FormFieldType.NUMBER -> FormFieldUi(
             key = key,
             label = label,
             kind = FieldKindUi.NUMBER,
-            required = required,
+            required = requiredOverride,
+            helpText = helpText,
             text = (formAnswers[key] as? JsonPrimitive)?.content.orEmpty(),
         )
         FormFieldType.TEXT -> FormFieldUi(
             key = key,
             label = label,
             kind = FieldKindUi.TEXT,
-            required = required,
+            required = requiredOverride,
+            helpText = helpText,
             text = (formAnswers[key] as? JsonPrimitive)?.content.orEmpty(),
         )
-        FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER -> {
+        FormFieldType.DATE_TIME -> FormFieldUi(
+            key = key,
+            label = label,
+            kind = FieldKindUi.DATE_TIME,
+            required = requiredOverride,
+            helpText = helpText,
+            text = (formAnswers[key] as? JsonPrimitive)?.content.orEmpty(),
+        )
+        FormFieldType.SELECT, FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER -> {
             val selectedValue = (formAnswers[key] as? JsonPrimitive)?.content.orEmpty()
             val selectedLabel = options.firstOrNull { it.value == selectedValue }?.label ?: selectedValue
             FormFieldUi(
                 key = key,
                 label = label,
                 kind = FieldKindUi.PICKER,
-                required = required,
+                required = requiredOverride,
+                helpText = helpText,
                 selectedLabel = selectedLabel,
-                options = options.map { FormPickerOptionUi(it.value, it.label) },
+                options = options.map {
+                    FormPickerOptionUi(
+                        value = it.value,
+                        label = it.label,
+                        enabled = !it.disabled,
+                        disabledReason = it.disabledReason,
+                    )
+                },
+                error = disabledReason,
             )
         }
         FormFieldType.GOAT_SCAN -> {
@@ -775,7 +953,7 @@ class SubmitViewModel @Inject constructor(
                 key = key,
                 label = label,
                 kind = FieldKindUi.GOAT_SCAN,
-                required = required,
+                required = requiredOverride,
                 helpText = helpText,
                 scannedCount = count,
                 scanning = scanningFieldKey == key,
@@ -791,7 +969,7 @@ class SubmitViewModel @Inject constructor(
                 key = key,
                 label = label,
                 kind = FieldKindUi.VIDEO_PROOF,
-                required = required,
+                required = requiredOverride,
                 helpText = helpText,
                 proofCaptured = items.isNotEmpty(),
                 proofItems = items.map { it.toProofItemUi(label, isExtraSlot) },
@@ -802,7 +980,7 @@ class SubmitViewModel @Inject constructor(
                 },
             )
         }
-        FormFieldType.UNKNOWN -> FormFieldUi(key = key, label = label, kind = FieldKindUi.UNKNOWN, required = required)
+        FormFieldType.UNKNOWN -> FormFieldUi(key = key, label = label, kind = FieldKindUi.UNKNOWN, required = requiredOverride)
     }
 
     private fun ProofCaptureRow.toProofItemUi(fieldLabel: String, isExtraSlot: Boolean): ProofItemUi = ProofItemUi(
@@ -829,6 +1007,11 @@ class SubmitViewModel @Inject constructor(
 
         fun submissionScope(task: TaskSummaryDto): String = "${task.taskId}:rv:${task.rowVersion}"
 
+        fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {
+            "submitted", "needs_review", "accepted", "closed", "completed" -> true
+            else -> false
+        }
+
         fun encodeAnswers(answers: Map<String, JsonElement>): String = JsonObject(answers).toString()
 
         fun decodeAnswers(raw: String?): Map<String, JsonElement> {
@@ -848,11 +1031,16 @@ class SubmitViewModel @Inject constructor(
         ): Map<String, JsonElement> = form.fields.mapNotNull { field ->
             when (field.type) {
                 FormFieldType.GOAT_SCAN -> {
-                    val tags = scans
+                    val goatIdentifiers = scans
                         .filter { it.matchesGoatScanField(field.key, form.rosterScanTargetFieldKey()) }
-                        .map { it.tag }
+                        // The canonical vaccination contract and proof subjects use goat UUIDs,
+                        // not the RFID text that located the goat. Keep the tag fallback only for
+                        // generic legacy forms whose scan repository has no resolved goat row.
+                        .map { it.goatId?.takeIf(String::isNotBlank) ?: it.tag }
                         .distinct()
-                    if (tags.isEmpty()) null else field.key to JsonArray(tags.map { JsonPrimitive(it) })
+                    if (goatIdentifiers.isEmpty()) null else {
+                        field.key to JsonArray(goatIdentifiers.map { JsonPrimitive(it) })
+                    }
                 }
                 FormFieldType.VIDEO_PROOF -> null
                 else -> answers[field.key]?.let { field.key to it }

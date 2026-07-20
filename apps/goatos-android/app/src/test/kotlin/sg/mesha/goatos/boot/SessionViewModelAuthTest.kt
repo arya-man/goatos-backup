@@ -14,6 +14,14 @@ class SessionViewModelAuthTest {
     }
 
     @Test
+    fun `a reinstalled dev APK replaces the previous local role token`() {
+        assertEquals(true, devSessionNeedsRefresh(AuthMode.DEV_BEARER, "operator-token", "verifier-token"))
+        assertEquals(true, devSessionNeedsRefresh(AuthMode.DEV_BEARER, "operator-token", ""))
+        assertEquals(false, devSessionNeedsRefresh(AuthMode.DEV_BEARER, "verifier-token", "verifier-token"))
+        assertEquals(false, devSessionNeedsRefresh(AuthMode.FIREBASE, "firebase-session", "dev-token"))
+    }
+
+    @Test
     fun `stg flavor routes to Firebase`() {
         assertEquals(AuthMode.FIREBASE, authModeForFlavor("stg"))
     }

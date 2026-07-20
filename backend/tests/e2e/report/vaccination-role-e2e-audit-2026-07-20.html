@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vaccination role E2E closure audit — 2026-07-20</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f4f7f5; --panel:#fff; --ink:#162019; --muted:#5f6e64; --line:#dbe5de; --pass:#1b7f45; --limited:#a65b00; --gap:#b3261e; --accent:#5ebd36; }
+    @media (prefers-color-scheme:dark){:root{--bg:#0b110d;--panel:#121a15;--ink:#edf5ef;--muted:#9caf9f;--line:#29362d;--pass:#73d998;--limited:#ffb95c;--gap:#ff8b83;--accent:#8dde61}}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif} main{max-width:1120px;margin:auto;padding:32px 20px 72px} h1{font-size:clamp(1.8rem,4vw,2.7rem);line-height:1.1;margin:0 0 8px} h2{margin:0 0 14px;font-size:1.35rem} h3{margin:18px 0 6px;font-size:1.02rem}.subtitle,.muted{color:var(--muted)} .banner,.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;margin:22px 0}.banner{border-left:6px solid var(--limited)} .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px;margin:22px 0}.tile{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}.tile b{display:block;font-size:1.45rem;color:var(--accent)} table{width:100%;border-collapse:collapse;font-size:.91rem}th,td{text-align:left;vertical-align:top;padding:9px 10px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}.tag{display:inline-block;border-radius:999px;padding:2px 8px;font-size:.72rem;font-weight:750;letter-spacing:.03em}.pass{color:var(--pass);background:color-mix(in srgb,var(--pass) 12%,transparent)}.limited{color:var(--limited);background:color-mix(in srgb,var(--limited) 12%,transparent)}.gap{color:var(--gap);background:color-mix(in srgb,var(--gap) 12%,transparent)}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;overflow-wrap:anywhere}ul,ol{padding-left:22px}.callout{border-left:4px solid var(--gap);padding:10px 14px;background:color-mix(in srgb,var(--gap) 7%,transparent);margin:14px 0}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}.small{font-size:.86rem} footer{color:var(--muted);font-size:.82rem;margin-top:36px}@media(max-width:700px){main{padding:22px 12px 50px}.panel,.banner{padding:16px;overflow-x:auto}th,td{min-width:130px}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Vaccination role E2E closure audit</h1>
+  <p class="subtitle">2026-07-20 · isolated local backend · throwaway PostgreSQL · physical Infinix + independent Android emulator</p>
+
+  <div class="banner">
+    <strong>Decision: locally verified with explicit limitations.</strong> One four-goat operator submission was created exactly once, approved 4/4, closed by park head, consumed four inventory units, and rolled the SOP task/submission/items to accepted. Real Firebase delivery is not certified, and the verifier UI does not expose route/site/adverse-reaction context.
+  </div>
+
+  <div class="grid">
+    <div class="tile"><b>4 / 4</b>goat proofs approved</div>
+    <div class="tile"><b>4</b>inventory consumes</div>
+    <div class="tile"><b>996 / 0</b>stock / reserved</div>
+    <div class="tile"><b>4 + 4 + 4</b>synthetic role notifications</div>
+    <div class="tile"><b>0</b>failed/dead-letter replay events</div>
+  </div>
+
+  <section class="panel">
+    <h2>Certification boundary</h2>
+    <table><thead><tr><th>Surface</th><th>Result</th><th>Boundary</th></tr></thead><tbody>
+      <tr><td>Physical Android + local backend/DB</td><td><span class="tag pass">VERIFIED</span></td><td>Operator scan/proof/submit, approvals, park-head close, inventory, SOP rollup, and leadership landing.</td></tr>
+      <tr><td>Independent emulator</td><td><span class="tag pass">VERIFIED — OPERATOR</span></td><td>Permissions, HID, restoration, camera, MP4 upload, deep link, FEFO, and safe areas. No Submit.</td></tr>
+      <tr><td>Synthetic role routing</td><td><span class="tag pass">VERIFIED</span></td><td>4 pending → verifier, 4 approved → park head, 4 closed → operator; no external dispatcher.</td></tr>
+      <tr><td>Real FCM</td><td><span class="tag limited">NOT CERTIFIED</span></td><td>Committed dev Firebase configuration contains placeholder identifiers.</td></tr>
+      <tr><td>Verifier clinical context</td><td><span class="tag gap">KNOWN GAP</span></td><td>Route/site/adverse context is not rendered in current verifier detail UI.</td></tr>
+      <tr><td>Staging/production</td><td><span class="tag limited">NOT RUN</span></td><td>No cloud environment or data was mutated.</td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="panel">
+    <h2>Role matrix</h2>
+    <table><thead><tr><th>Role</th><th>Result</th><th>Proof</th><th>Boundary</th></tr></thead><tbody>
+      <tr><td>Operator</td><td><span class="tag pass">VERIFIED</span></td><td>4 scans/proofs; one submission; duplicate HTTP 409 and count stayed 1.</td><td>No real FCM reminder.</td></tr>
+      <tr><td>Verifier</td><td><span class="tag pass">PHYSICAL + BACKEND VERIFIED</span></td><td>4/4 approved and notification/SOP events emitted; final physical queue is clear.</td><td>Route/site/adverse context is absent from verifier detail.</td></tr>
+      <tr><td>Park head</td><td><span class="tag pass">PHYSICAL + BACKEND VERIFIED</span></td><td>Closed approved submission; inventory and closure events completed; final physical overview has no remaining work.</td><td>Completed action is certified by durable close/audit rows.</td></tr>
+      <tr><td>PC director</td><td><span class="tag pass">ROLE LANDING</span></td><td>Authorized physical role home rendered.</td><td>Excluded from per-proof pushes; digest not implemented.</td></tr>
+      <tr><td>CEO/CXO</td><td><span class="tag pass">ROLE LANDING</span></td><td>Authorized physical overview rendered.</td><td>Excluded from per-proof pushes.</td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="panel">
+    <h2>Throwaway transaction</h2>
+    <div class="cols">
+      <div><p><strong>Database:</strong> <code>goatos-vax-role-e2e-db-20260720</code>, local port <code>60432</code></p><p><strong>Task:</strong> <code>4e345fc2-5466-49c4-b6a6-fcdff5eef97f</code></p><p><strong>Submission:</strong> <code>30838d22-c51e-4b65-abbe-eaa7d79c3302</code></p><p><strong>Batch:</strong> <code>6eecc5b8-43cc-4b6c-b12a-4031568c8786</code></p></div>
+      <div><p><strong>Park:</strong> <code>00000000-0000-4000-8000-000000003001</code></p><p><strong>Shed:</strong> <code>f89ab2f7-ac06-4ac1-bbe2-7b3955ff6d89</code></p><p><strong>Stock lot:</strong> <code>00000000-0000-4000-8000-00000000b002</code></p><p><strong>SOP:</strong> task accepted; submission accepted with <code>accepted_at</code>; 4/4 items accepted.</p></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Notification routing</h2>
+    <table><thead><tr><th>Event</th><th>Recipient</th><th>Query result</th></tr></thead><tbody>
+      <tr><td><code>verification.item.pending</code></td><td>Center-scoped <code>pc.vaccination/verify</code> duty holder</td><td><span class="tag pass">4 QUEUED</span> synthetic verifier token</td></tr>
+      <tr><td><code>verification.verdict.approved</code></td><td>Park head</td><td><span class="tag pass">4 QUEUED</span> synthetic park-head token</td></tr>
+      <tr><td><code>verification.item.closed</code></td><td>Originating operator</td><td><span class="tag pass">4 QUEUED</span> synthetic operator token</td></tr>
+      <tr><td>Rework</td><td>Operator + park head</td><td>Contract-tested; not emitted by successful path.</td></tr>
+      <tr><td>Director / CEO</td><td>No per-proof push</td><td>Expected exclusion; aggregate digest not implemented.</td></tr>
+    </tbody></table>
+    <p class="small muted">All 12 source events republished with zero failed/dead-letter. Synthetic tokens only; external notification dispatcher did not run.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Independent emulator result</h2>
+    <p><code>emulator-5570</code>, Android 16/API 36, 1080×2400; isolated backend <code>127.0.0.1:8181</code>; isolated DB <code>goatos-vax-emulator-e2e-db-YfV5RW</code> on <code>61432</code>.</p>
+    <ul>
+      <li>Permission hard gate, scanner HID ordering, process-death restoration, exclusive camera lifecycle, real 723,879-byte MP4 upload, exact task-scoped deep link, and FEFO lot selection passed.</li>
+      <li><code>ETTT-LOT-001</code> returned with 998 doses and FEFO rank 1, rendered, and selected.</li>
+      <li>36 XML suites / 161 tests passed with zero failures, errors, or skips; push resolver 6/6 passed.</li>
+      <li>Submission and leadership roles were intentionally left to the physical lane.</li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>Defects and disposition</h2>
+    <table><thead><tr><th>Finding</th><th>Status</th><th>Verification</th></tr></thead><tbody>
+      <tr><td>Camera over BLE/tag screen</td><td><span class="tag pass">FIXED</span></td><td>Exclusive route; camera client released after stop/cancel.</td></tr>
+      <tr><td>Scanner Enter activated focused Back</td><td><span class="tag pass">FIXED</span></td><td>Scanner-first dispatch plus ordering/fallthrough tests.</td></tr>
+      <tr><td>Empty required vaccine-lot picker</td><td><span class="tag pass">FIXED</span></td><td>FEFO lot rendered and selected.</td></tr>
+      <tr><td>Duplicated scan top inset</td><td><span class="tag pass">FIXED</span></td><td>Physical before/after and final safe-area evidence.</td></tr>
+      <tr><td>UUID/vague cohort/date presentation</td><td><span class="tag pass">FIXED</span></td><td>Human shed, Due date, and <q>Milk drinking</q> animal-stage label.</td></tr>
+      <tr><td>50% shown as 4/4 done</td><td><span class="tag pass">FIXED</span></td><td>Correct 4/8 denominator rendered.</td></tr>
+      <tr><td>Compact proof action misaligned</td><td><span class="tag pass">FIXED</span></td><td>Compact width-class layout and screenshot tests.</td></tr>
+      <tr><td>Missing <code>obligation.in_progress</code> envelope enum</td><td><span class="tag pass">FIXED</span></td><td>Contract regression test and successful event replay.</td></tr>
+      <tr><td>User-ID/member-ID notification mismatch</td><td><span class="tag pass">FIXED</span></td><td>Verified synthetic 4/4/4 routing.</td></tr>
+      <tr><td>SOP closure failed to roll task hierarchy</td><td><span class="tag pass">FIXED</span></td><td>Task, submission, and 4/4 items accepted.</td></tr>
+      <tr><td>Android scan timestamp lost millisecond precision</td><td><span class="tag pass">FIXED</span></td><td>Capture/attempt/list use RFC3339Nano; full Postgres SOP adapter suite passed.</td></tr>
+      <tr><td>Restored 1/1 ring with <q>No taps yet</q> feed</td><td><span class="tag limited">OPEN</span></td><td>Emulator persistence/feed mismatch.</td></tr>
+      <tr><td>Local scan entities remain PENDING after outbox success</td><td><span class="tag limited">OPEN</span></td><td>Emulator reconciliation follow-up.</td></tr>
+      <tr><td>Verifier route/site/adverse context missing</td><td><span class="tag gap">OPEN GAP</span></td><td>Not exposed by verifier UI.</td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="panel">
+    <h2>Legacy Slack provenance</h2>
+    <p>The actual <code>slack-automation-scripts</code> repository contains no vaccination form/card schema and no source for cohort, route/site, administered-date, or adverse-reaction labels. The 17-page Slack Modules Training PDF also contains no vaccination form or relevant terms. Its only vaccination-specific helper is <code>fixVaccinationAccess()</code>, granting access to two opaque list IDs.</p>
+    <p><code>administered_at</code>, <code>adverse_reaction</code>, and <code>reaction_notes</code> originate in the local source-material vaccination template cited by the Goat OS source-findings proposal. <code>route_site</code> is absent from Slack and approved vaccination rules; it came from a Goat OS draft SOP/general model. It means administration route/body site, but remains a <strong>source-provenance gap</strong> for product approval or removal. The visible <q>cohort</q> label was a Goat OS semantic mismatch and now uses the actual animal-stage meaning.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Origin/main targeted reruns</h2>
+    <p>An origin watcher remained active. A relevant Android outbox/leadership-close change triggered only the affected cache, outbox, and close-path checks; unrelated role suites were not restarted. Migration changes require a newly created throwaway database before their affected E2E is current.</p>
+    <p class="muted">The final landing gate must still confirm the candidate is based on then-current <code>origin/main</code>. This report does not claim coverage for later unintegrated commits.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Remaining release work</h2>
+    <ol>
+      <li>Add valid non-production Firebase configuration and certify real role-wise delivery and notification taps.</li>
+      <li>Approve or remove draft-derived <code>route_site</code>; expose approved administration/adverse context to the verifier and run a physical verifier UI decision check.</li>
+      <li>Fix restored-feed hydration and local status reconciliation.</li>
+      <li>Refresh final <code>origin/main</code>, use a fresh DB for new migrations, and rerun affected paths before landing.</li>
+    </ol>
+  </section>
+
+  <footer>This HTML is self-contained: all styling and audit content are embedded; it has no external runtime or network dependencies. Detailed screenshots and raw emulator artifacts are indexed in the Markdown counterpart.</footer>
+</main>
+</body>
+</html>

@@ -12,6 +12,7 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.forms.FormOption
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.forms.toFormSpec
 import sg.mesha.goatos.core.data.forms.toProofPolicy
@@ -19,6 +20,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.SubmissionSummaryDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
+import sg.mesha.goatos.core.network.dto.TaskOptionValuesResponseDto
 
 /** A task opened for recording: the summary, its parsed [form] to render, prior submissions, and
  *  the SOP's [proofPolicy] (R50-027) driving proof-capture limits/defaults instead of hardcoded
@@ -62,7 +64,7 @@ class DefaultTasksRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : TasksRepository {
-    override suspend fun taskDetail(taskId: String): TaskDetail = api.getAppTask(taskId).toDomain()
+    override suspend fun taskDetail(taskId: String): TaskDetail = fetchTaskDetail(taskId).toDomain()
 
     // offline-first-guard:ignore: Room-backed — reads taskDetailDao.observe(); heuristic misses the dao read through the .map/toResource helper.
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
@@ -72,11 +74,26 @@ class DefaultTasksRepository(
 
     // offline-first-guard:ignore: Room-backed — upserts via taskDetailDao.upsert() inside runCatching; heuristic misses the upsert through the runCatching block.
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
-        val dto = api.getAppTask(taskId)
+        val dto = fetchTaskDetail(taskId)
         taskDetailDao.upsert(
             TaskDetailCacheEntity(cacheKey = taskId, dtoJson = json.encodeToString(dto), updatedAt = clock()),
         )
         taskDetailDao.enforceCacheBounds()
+    }
+
+    private suspend fun fetchTaskDetail(taskId: String): TaskDetailResponseDto {
+        val detail = api.getAppTask(taskId)
+        if (!detail.task.taskType.equals("vaccination", ignoreCase = true)) return detail
+        val requiredSources = detail.sopVersion?.toFormSpec()?.fields.orEmpty()
+            .mapNotNull { it.optionSource?.takeIf(String::isNotBlank) }
+            .toSet()
+        if (requiredSources.isEmpty()) return detail
+        val optionValues = api.getTaskOptionValues(taskId)
+        val returnedSources = optionValues.sources.mapTo(mutableSetOf()) { it.source }
+        check(returnedSources.containsAll(requiredSources)) {
+            "task option-values response omitted required source keys"
+        }
+        return detail.copy(optionValues = optionValues)
     }
 
     private suspend fun TaskDetailCacheEntity?.toResource(taskId: String): Resource<TaskDetail> {
@@ -94,7 +111,27 @@ class DefaultTasksRepository(
 
 private fun TaskDetailResponseDto.toDomain(): TaskDetail = TaskDetail(
     task = task,
-    form = sopVersion?.toFormSpec() ?: FormSpec.Empty,
+    form = (sopVersion?.toFormSpec() ?: FormSpec.Empty).withOptionValues(optionValues),
     submissions = submissions,
     proofPolicy = sopVersion?.toProofPolicy() ?: ProofPolicy.Default,
 )
+
+private fun FormSpec.withOptionValues(values: TaskOptionValuesResponseDto?): FormSpec {
+    if (values == null || fields.none { !it.optionSource.isNullOrBlank() }) return this
+    val bySource = values.sources.associateBy { it.source }
+    return copy(fields = fields.map { field ->
+        val sourceKey = field.optionSource?.takeIf(String::isNotBlank) ?: return@map field
+        val source = bySource[sourceKey] ?: return@map field
+        field.copy(
+            options = source.options.map { option ->
+                FormOption(
+                    value = option.value,
+                    label = option.label.ifBlank { option.value },
+                    disabled = option.disabled,
+                    disabledReason = option.disabledReason,
+                )
+            },
+            disabledReason = source.disabledReason,
+        )
+    })
+}

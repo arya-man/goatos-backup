@@ -564,20 +564,38 @@ LIMIT 1000`, tenantID, scopeType, scopeID, at, moduleCode, dutyType, at)
 }
 
 // ResolveMemberRecipients returns active, reachable devices for one specific workforce member (e.g.
-// the operator who executed a completion). Indexed on workforce_member_devices_member_status_idx.
+// the operator who executed a completion). The supplied identity may be the canonical
+// workforce_member_id or its linked authenticated user_id: execution/SOP events carry the actor
+// user id, while older vaccination-completion events carry the workforce member id. Both resolve to
+// the same canonical member before the device lookup. Indexed on workforce_members' primary/user
+// indexes and workforce_member_devices_member_status_idx.
 // scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded multi-device notifications.
-func (r *Repository) ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]domain.NotificationRecipient, error) {
+func (r *Repository) ResolveMemberRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]domain.NotificationRecipient, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
+WITH target_member AS (
+  SELECT COALESCE(
+    (SELECT wm.workforce_member_id
+       FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid
+        AND wm.workforce_member_id = $2::uuid
+        AND wm.status = 'active'),
+    (SELECT wm.workforce_member_id
+       FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid
+        AND wm.user_id = $2::uuid
+        AND wm.status = 'active')
+  ) AS workforce_member_id
+)
 SELECT DISTINCT d.workforce_member_id::text, d.device_id::text, d.fcm_token
 FROM workforce_member_devices d
+JOIN target_member tm ON tm.workforce_member_id = d.workforce_member_id
 WHERE d.tenant_id = $1::uuid
-  AND d.workforce_member_id = $2::uuid
   AND d.status = 'active'
   AND d.fcm_token IS NOT NULL
 ORDER BY 1, 2
-LIMIT 1000`, tenantID, workforceMemberID)
+LIMIT 1000`, tenantID, memberOrUserID)
 	if err != nil {
 		return nil, err
 	}

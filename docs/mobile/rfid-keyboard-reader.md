@@ -176,6 +176,9 @@ Preferred implementation:
 
 - `MainActivity.dispatchKeyEvent(...)` delegates to a lifecycle-scoped
   `RfidKeyboardCapture` only when the active route accepts RFID input.
+- Intercept before calling `super.dispatchKeyEvent(...)`. Do not implement the wedge only through
+  `Activity.onKeyDown`/`onKeyUp`: a focused Compose control can consume the Enter terminator during
+  view dispatch first, turning a completed RFID read into an unintended click or Back navigation.
 - The capture path ignores key events when a real editable field is focused
   (search, remarks, OTP, etc.).
 - Buffer only printable tag characters. For current tags, digits are enough;
@@ -287,3 +290,7 @@ Automated tests:
 - fake reader tests: emitted tags drive the same scan path as hardware reads.
 - route gating test: RFID key events are consumed on scan/test-read screens and
   ignored in OTP/search/remarks fields.
+- dispatch-order test: an RFID-consumed Enter never reaches the Compose view tree, while an ordinary
+  key that the capture rejects still falls through to normal Activity dispatch.
+- device test: `adb shell input text <known-tag>` followed by `adb shell input keyevent 66` completes
+  the scan and leaves the operator on the same scan route.

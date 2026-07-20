@@ -8,6 +8,18 @@
             android:exported="true"
             android:theme="@style/Theme.GoatOs" />
 
+        <!-- Debug-only deterministic BT-HID/RFID E2E seam. Physical-device tests broadcast a
+             tag while the real scan route is active; the receiver feeds the SAME singleton
+             RfidReaderPort/key-event buffer as a hardware keyboard wedge. Release variants do
+             not merge this receiver, so production has no remotely injectable scan surface. -->
+        <receiver
+            android:name="sg.mesha.goatos.rfid.DebugRfidInjectionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="sg.mesha.goatos.debug.INJECT_RFID" />
+            </intent-filter>
+        </receiver>
+
         <!-- Debug-only startup hook that forwards LeakCanary heap-analysis leaks to Crashlytics
              (see sg.mesha.goatos.leak.LeakCanaryBridgeInstaller). No-op ContentProvider used purely
              for its onCreate() at process start; not exported, unique authority per applicationId. -->

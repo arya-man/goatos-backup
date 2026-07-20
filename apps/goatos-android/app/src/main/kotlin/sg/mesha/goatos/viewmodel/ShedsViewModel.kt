@@ -131,24 +131,31 @@ class ShedsViewModel @Inject constructor(
         val shedRows = rows.groupBy { it.executionIdentity() }.map { (identity, group) ->
             val first = group.first()
             val status = shedStatusFor(group)
-            val total = group.size
-            val doneCount = group.count { it.isDone() }
-            val vaccineGroups = group
-                .mapNotNull { it.driveName }
-                .distinct()
-                .map { VaccineGroup(label = humanizeDriveName(it), countLabel = "", full = false) }
+            val counts = executionCounts(group)
+            val vaccineGroups = group.groupBy { it.driveName.orEmpty() }
+                .filterKeys { it.isNotBlank() }
+                .map { (label, driveRows) ->
+                    val driveCounts = executionCounts(driveRows)
+                    VaccineGroup(
+                        label = label,
+                        countLabel = "${driveCounts.done}/${driveCounts.target}",
+                        full = driveCounts.target > 0 && driveCounts.done >= driveCounts.target,
+                    )
+                }
             ShedRow(
                 id = identity.cardId,
                 name = first.shedName,
-                cohort = first.animalStage.ifBlank { first.driveName.orEmpty() },
+                // animalStage is a biological stage supplied by the execution contract.
+                // A drive label is not a cohort/stage and must not be substituted here.
+                animalStage = first.animalStage,
                 status = status,
                 statusLabel = first.workState.ifBlank { status.readable() }.let { it.readableState() },
                 vaccineGroups = vaccineGroups,
-                inShed = total.toString(),
-                due = total.toString(),
-                done = doneCount.toString(),
-                progressLabel = percentLabel(doneCount, total),
-                progressFraction = fraction(doneCount, total),
+                inShed = counts.target.toString(),
+                due = counts.open.toString(),
+                done = counts.done.toString(),
+                progressLabel = percentLabel(counts.done, counts.target),
+                progressFraction = fraction(counts.done, counts.target),
                 shedId = identity.shedId,
                 driveId = identity.driveId,
                 batchId = identity.batchId,
@@ -157,8 +164,7 @@ class ShedsViewModel @Inject constructor(
                 taskRowVersion = identity.taskRowVersion,
             )
         }
-        val totalDue = rows.size
-        val totalDone = rows.count { it.isDone() }
+        val totals = executionCounts(rows)
         return base.copy(
             title = "Today's sheds",
             // Header scope + the drive date/window are not carried by the execution
@@ -171,13 +177,13 @@ class ShedsViewModel @Inject constructor(
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
             shedCount = rows.map { it.shedId }.distinct().size,
-            dueCount = totalDue,
-            doneCount = totalDone,
+            dueCount = totals.open,
+            doneCount = totals.done,
             shedCountLabel = "${shedRows.size} sheds",
-            dueLabel = "$totalDue due",
-            dayProgressLabel = percentLabel(totalDone, totalDue),
-            dayProgressFraction = fraction(totalDone, totalDue),
-            daySummary = "$totalDone / $totalDue done",
+            dueLabel = "${totals.open} open",
+            dayProgressLabel = percentLabel(totals.done, totals.target),
+            dayProgressFraction = fraction(totals.done, totals.target),
+            daySummary = "${totals.done} / ${totals.target} done",
             caption = null,
             roleNote = null,
             rows = shedRows,
@@ -195,7 +201,8 @@ class ShedsViewModel @Inject constructor(
                 row.severity.equals("critical", ignoreCase = true)
         }
         if (anyDelayed) return ShedStatus.DELAYED
-        val allDone = rows.all { it.isDone() }
+        val counts = executionCounts(rows)
+        val allDone = counts.target > 0 && counts.done >= counts.target
         return if (allDone) ShedStatus.DONE else ShedStatus.PENDING
     }
 
@@ -211,6 +218,17 @@ class ShedsViewModel @Inject constructor(
         if (total > 0) done.toFloat() / total else 0f
 }
 
+internal data class ExecutionCounts(val target: Int, val open: Int, val done: Int)
+
+/** Execution API rows are aggregated groups. Counts must come from the backend fields, never
+ * from List.size (which undercounted a two-goat shed as one because it had one grouped row). */
+internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
+    ExecutionCounts(
+        target = rows.sumOf { it.targetCount.coerceAtLeast(0) },
+        open = rows.sumOf { it.openCount.coerceAtLeast(0) },
+        done = rows.sumOf { it.doneCount.coerceAtLeast(0) },
+    )
+
 private data class ExecutionIdentity(
     val shedId: String,
     val driveId: String?,
@@ -219,7 +237,27 @@ private data class ExecutionIdentity(
     val sopVersionId: String?,
     val taskRowVersion: Int?,
 ) {
-    val cardId: String = taskId ?: batchId ?: driveId ?: "shed:$shedId"
+    val cardId: String = executionCardId(shedId, taskId, batchId, driveId)
+}
+
+/**
+ * A park-level vaccination task can legitimately span several sheds. Compose lazy-list keys
+ * therefore cannot use task/batch/drive identity alone: every shed card needs its own stable key
+ * while retaining the execution identity that distinguishes multiple drives in one shed.
+ */
+internal fun executionCardId(
+    shedId: String,
+    taskId: String?,
+    batchId: String?,
+    driveId: String?,
+): String = buildString {
+    append("shed:")
+    append(shedId)
+    when {
+        !taskId.isNullOrBlank() -> append("|task:").append(taskId)
+        !batchId.isNullOrBlank() -> append("|batch:").append(batchId)
+        !driveId.isNullOrBlank() -> append("|drive:").append(driveId)
+    }
 }
 
 private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
@@ -248,34 +286,3 @@ private fun String.readableState(): String =
  * - Dose suffix: _first → no suffix (default), _booster → append " · Booster".
  * - Unknown tokens are Title-Cased with underscores replaced by spaces.
  */
-private fun humanizeDriveName(raw: String): String {
-    val trimmed = raw.trim().takeIf { it.isNotBlank() } ?: return ""
-
-    // Strip the prefix (take part after last " - ")
-    val suffix = if (" - " in trimmed) trimmed.substringAfterLast(" - ") else trimmed
-    if (suffix.isBlank()) return ""
-
-    // Parse antigen and dose: split on the last underscore that precedes _first/_booster
-    val (antigen, doseSuffix) = when {
-        suffix.endsWith("_first") -> suffix.dropLast(6) to "first"
-        suffix.endsWith("_booster") -> suffix.dropLast(8) to "booster"
-        else -> suffix to ""
-    }
-
-    if (antigen.isBlank()) return ""
-
-    // Map antigen token to display name
-    val antigenLabel = when (antigen.lowercase()) {
-        "hs" -> "HS"
-        "ppr" -> "PPR"
-        "fmd" -> "FMD"
-        "et_tt" -> "ET+TT"
-        "sheep_pox" -> "Sheep Pox"
-        "blue_tongue" -> "Blue Tongue"
-        "goat_pox" -> "Goat Pox"
-        else -> antigen.replace('_', ' ').replaceFirstChar { it.uppercase() }
-    }
-
-    // Append dose suffix if present
-    return if (doseSuffix == "booster") "$antigenLabel · Booster" else antigenLabel
-}

@@ -162,6 +162,24 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	}
 }
 
+func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile: profile("active"),
+		grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+	})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	want := []domain.BootstrapNavigationItem{{Key: "verify", Label: "Verify", Href: "/verify"}}
+	if len(got.VisibleNavigation) != len(want) || got.VisibleNavigation[0] != want[0] {
+		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
+	}
+	if got.NavChrome != domain.NavChromeMinimal {
+		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	}
+}
+
 // TestBootstrapOperatorGetsFixedNav is a regression guard: an operator-role
 // principal keeps the field-operator nav untouched by the leadership branch.
 func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
@@ -192,10 +210,9 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 }
 
 // TestIsLeadershipPrincipal covers every valid workforce grant role (see
-// validRole in service.go): admin, park_head, pc_director, verifier, and
-// ceo_internal are leadership tiers (mirrors roleLensForRole in
-// internal/adminui/app/compiler.go); operator is the only non-leadership
-// role.
+// validRole in service.go): admin, park_head, pc_director, and ceo_internal
+// are leadership tiers. Verifier owns the standalone verification app; operator
+// owns field execution. Neither is leadership navigation.
 func TestIsLeadershipPrincipal(t *testing.T) {
 	tests := []struct {
 		role string
@@ -205,7 +222,7 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 		{role: permissions.RoleCEOInternal, want: true},
 		{role: permissions.RolePCDirector, want: true},
 		{role: permissions.RoleParkHead, want: true},
-		{role: permissions.RoleVerifier, want: true},
+		{role: permissions.RoleVerifier, want: false},
 		{role: permissions.RoleOperator, want: false},
 	}
 	for _, tc := range tests {
@@ -254,6 +271,13 @@ func TestVisibleNavigationFor(t *testing.T) {
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+			},
+		},
+		{
+			name:   "verifier",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+			want: []domain.BootstrapNavigationItem{
+				{Key: "verify", Label: "Verify", Href: "/verify"},
 			},
 		},
 	}

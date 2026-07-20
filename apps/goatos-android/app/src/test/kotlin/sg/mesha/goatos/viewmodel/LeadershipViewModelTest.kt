@@ -156,6 +156,25 @@ class LeadershipViewModelTest {
         )
     }
 
+    @Test
+    fun `real leadership response never inherits Director fixtures or fake farm rows`() = runTest(dispatcher) {
+        val vm = LeadershipViewModel(
+            controlTower = FakeControlTowerRepository(ControlTowerResponseDto()),
+            insights = FakeVaccinationInsightsRepository(),
+            verification = FakeVerificationRepository(closureItem("sub-real")),
+            syncRepository = FakeCloseSyncRepository(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals("Vaccination", state.eyebrow)
+        assertTrue(state.todaySheds.isEmpty())
+        assertTrue(state.backlog.isEmpty())
+        assertTrue(state.coverageByPark.isEmpty())
+        assertEquals(null, state.coverageByParkTitle)
+    }
+
     private fun closureItem(submissionId: String) = VerificationQueueItem(
         itemId = "item-$submissionId",
         category = "vaccination_proof",
@@ -164,7 +183,9 @@ class LeadershipViewModelTest {
     )
 }
 
-private class FakeControlTowerRepository : ControlTowerRepository {
+private class FakeControlTowerRepository(
+    private val response: ControlTowerResponseDto? = null,
+) : ControlTowerRepository {
     override suspend fun summary(
         parkId: String?, shedId: String?, workState: String?, severity: String?,
         dueBefore: String?, asOf: String?, cursor: String?, limit: Int?,
@@ -173,7 +194,7 @@ private class FakeControlTowerRepository : ControlTowerRepository {
     override fun observeSummary(
         parkId: String?, shedId: String?, workState: String?, severity: String?,
         dueBefore: String?, asOf: String?, cursor: String?, limit: Int?,
-    ): Flow<Resource<ControlTowerResponseDto>> = flowOf(Resource(data = null))
+    ): Flow<Resource<ControlTowerResponseDto>> = flowOf(Resource(data = response))
 
     override suspend fun refreshSummary(
         parkId: String?, shedId: String?, workState: String?, severity: String?,

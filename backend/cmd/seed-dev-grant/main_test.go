@@ -109,6 +109,18 @@ func TestResolveGrantUserIDRejectsAmbiguousOrMissingInputs(t *testing.T) {
 	}
 }
 
+func TestValidateGrantScopeMode(t *testing.T) {
+	if err := validateGrantScopeMode("00000000-0000-4000-8000-000000003001", true); err != nil {
+		t.Fatalf("park-only with park id rejected: %v", err)
+	}
+	if err := validateGrantScopeMode("", false); err != nil {
+		t.Fatalf("tenant-wide default rejected: %v", err)
+	}
+	if err := validateGrantScopeMode("", true); err == nil {
+		t.Fatal("park-only without park id accepted")
+	}
+}
+
 func TestIsLocalHostAllowsOnlyKnownLocalSocketDirs(t *testing.T) {
 	allowed := []string{
 		"/tmp/.s.PGSQL.5432",

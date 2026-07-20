@@ -115,17 +115,59 @@ function requirePatterns(rel, text, requirements) {
   return findings;
 }
 
+function scaffoldInsetFindings(rel, text) {
+  return requirePatterns(rel, text, [
+    [
+      /\.padding\(padding\)[\s\S]{0,700}\.consumeWindowInsets\(padding\)/,
+      "Scaffold innerPadding must be consumed before composing child routes so system bars are not applied twice",
+    ],
+  ]);
+}
+
+function rfidDispatchFindings(rel, text) {
+  const findings = requirePatterns(rel, text, [
+    [/override\s+fun\s+dispatchKeyEvent\s*\(/, "RFID keyboard-wedge input must be intercepted before Compose view dispatch"],
+    [/dispatchRfidFirst\s*\(/, "RFID dispatch order must remain independently regression-testable"],
+  ]);
+  if (/override\s+fun\s+onKey(?:Down|Up)\s*\(/.test(text)) {
+    findings.push({
+      rel,
+      line: 1,
+      message: "MainActivity must not rely on onKeyDown/onKeyUp for RFID Enter; Compose may consume the terminator first",
+    });
+  }
+  return findings;
+}
+
 function architectureFindings(read = (rel) => fs.readFileSync(path.join(sourceRoot, rel), "utf8")) {
   const findings = [];
   const shell = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt";
   findings.push(...requirePatterns(shell, read(shell), [
     [/startDestination\s*=\s*startDestinationFor\(navState\)/, "app start destination must be composed from backend-visible navigation"],
   ]));
+  findings.push(...scaffoldInsetFindings(shell, read(shell)));
+
+  const mainActivity = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt";
+  findings.push(...rfidDispatchFindings(mainActivity, read(mainActivity)));
 
   const scanVm = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ScanViewModel.kt";
   findings.push(...requirePatterns(scanVm, read(scanVm), [
     [/observeScannedTags\(/, "scan completion must restore from durable Room capture rows"],
     [/persistedScanDone[\s\S]*_localDone/, "rendered scan completion must merge persisted and in-process state"],
+  ]));
+
+  const formSpec = "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/forms/FormSpec.kt";
+  findings.push(...requirePatterns(formSpec, read(formSpec), [
+    [/"select",\s*"single_select"\s*->\s*SELECT/, "backend select fields must map to a supported renderer"],
+    [/"date_time",\s*"datetime",\s*"timestamp"\s*->\s*DATE_TIME/, "backend date-time fields must map to a supported renderer"],
+  ]));
+
+  const submitVm = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/SubmitViewModel.kt";
+  findings.push(...requirePatterns(submitVm, read(submitVm), [
+    [/FormFieldType\.BOOLEAN\s*->\s*\(answer as\? JsonPrimitive\)\?\.booleanOrNull\s*!=\s*null/, "explicit false must count as an answered required boolean"],
+    [/FormRuleType\.BLOCK_SUBMISSION_IF[\s\S]{0,180}conditionMatches\(\)/, "backend block-submission rules must be evaluated before enqueue"],
+    [/FormRuleType\.REQUIRED_IF[\s\S]{0,180}conditionMatches\(\)/, "backend conditional-required rules must be evaluated before enqueue"],
+    [/it\.goatId\?\.takeIf\(String::isNotBlank\)\s*\?:\s*it\.tag/, "resolved vaccination scans must submit canonical goat ids rather than RFID text"],
   ]));
 
   const launcher = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/capture/VideoCaptureLauncher.kt";
@@ -192,8 +234,29 @@ function runSelfTest() {
   `;
   const badFindings = genericFindings("Bad.kt", bad);
   const goodFindings = genericFindings("Good.kt", good);
-  if (badFindings.length !== 5 || goodFindings.length !== 0) {
-    throw new Error(`self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)}`);
+  const badInsets = scaffoldInsetFindings("BadShell.kt", "Column(Modifier.padding(padding)) { content() }");
+  const goodInsets = scaffoldInsetFindings(
+    "GoodShell.kt",
+    "Column(Modifier.padding(padding).consumeWindowInsets(padding)) { content() }",
+  );
+  const badRfid = rfidDispatchFindings(
+    "BadMainActivity.kt",
+    "override fun onKeyDown(keyCode: Int, event: KeyEvent) = reader.onKeyEvent(event)",
+  );
+  const goodRfid = rfidDispatchFindings(
+    "GoodMainActivity.kt",
+    "override fun dispatchKeyEvent(event: KeyEvent) = dispatchRfidFirst({ reader.onKeyEvent(event) }, { super.dispatchKeyEvent(event) })",
+  );
+  if (
+    badFindings.length !== 5 || goodFindings.length !== 0 ||
+    badInsets.length !== 1 || goodInsets.length !== 0 ||
+    badRfid.length !== 3 || goodRfid.length !== 0
+  ) {
+    throw new Error(
+      `self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)} ` +
+        `badInsets=${JSON.stringify(badInsets)} goodInsets=${JSON.stringify(goodInsets)} ` +
+        `badRfid=${JSON.stringify(badRfid)} goodRfid=${JSON.stringify(goodRfid)}`,
+    );
   }
   console.log("android-ui-foundations guard self-test passed");
 }

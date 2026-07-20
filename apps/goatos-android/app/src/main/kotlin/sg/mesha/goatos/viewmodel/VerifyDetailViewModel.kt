@@ -139,6 +139,7 @@ class VerifyDetailViewModel @Inject constructor(
                 isOffline = flags.isOffline,
                 isSubmitting = flags.isSubmitting,
                 errorMessage = flags.errorMessage,
+                isDecisionEnabled = false,
             )
         }
         val effectiveStatus = localDecision ?: status
@@ -164,9 +165,9 @@ class VerifyDetailViewModel @Inject constructor(
     private fun buildContext(item: VerificationQueueItem): List<VerifyContextRow> {
         // Backend-owned display labels: never render raw UUIDs (STATUS-003).
         return listOfNotNull(
-            (item.shedLabel ?: item.shedId)?.let { VerifyContextRow(VerifyContextKind.SHED, it) },
-            (item.parkLabel ?: item.parkId)?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
-            (item.operatorName ?: item.operatorId)?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
+            item.shedLabel?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.SHED, it) },
+            item.parkLabel?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
+            item.operatorName?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
             item.capturedAt.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
         )
     }

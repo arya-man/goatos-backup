@@ -1257,9 +1257,11 @@ func (s *SweeperService) finalizePlannedBatchTasks(ctx context.Context, tenantID
 			BatchID:      b.BatchID,
 			SOPVersionID: batchCfg.SOPVersionID,
 			TaskType:     "vaccination",
-			Title:        "Vaccination drive " + b.ScopeID,
-			ScopeType:    b.ScopeType,
-			ScopeID:      b.ScopeID,
+			// Never persist an internal scope UUID inside user-visible task copy. App clients render
+			// the locale-aware SOP task presentation contract; this generic title is legacy-safe.
+			Title:     "Vaccination drive",
+			ScopeType: b.ScopeType,
+			ScopeID:   b.ScopeID,
 		})
 	}
 	if len(requests) == 0 {

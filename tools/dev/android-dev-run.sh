@@ -133,8 +133,13 @@ apk="$android_dir/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
 
 log "installing on $dev ..."
 adb -s "$dev" install -r "$apk" >/dev/null
-[ "$do_clear" = "1" ] && { adb -s "$dev" shell pm clear sg.mesha.goatos.dev >/dev/null 2>&1 || true; log "cleared app data (fresh token will be used)"; }
+device_user="$(adb -s "$dev" shell am get-current-user 2>/dev/null | tr -d '\r' | head -1)"
+[[ "$device_user" =~ ^[0-9]+$ ]] || die "could not resolve the foreground Android user on $dev"
+[ "$do_clear" = "1" ] && {
+  adb -s "$dev" shell pm clear --user "$device_user" sg.mesha.goatos.dev >/dev/null 2>&1 || true
+  log "cleared app data for foreground Android user $device_user (fresh token will be used)"
+}
 adb -s "$dev" reverse tcp:8080 tcp:8080 >/dev/null
 log "adb reverse tcp:8080 -> laptop:8080 (device localhost now reaches the laptop backend)"
-adb -s "$dev" shell am start -n sg.mesha.goatos.dev/sg.mesha.goatos.MainActivity >/dev/null 2>&1 || true
+adb -s "$dev" shell am start --user "$device_user" -n sg.mesha.goatos.dev/sg.mesha.goatos.MainActivity >/dev/null 2>&1 || true
 log "launched. If it shows 'Couldn't load your workspace', the backend isn't reachable — re-run this script (it re-mints + re-tunnels)."

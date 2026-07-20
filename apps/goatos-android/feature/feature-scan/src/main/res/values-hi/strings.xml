@@ -11,5 +11,13 @@
     <string name="scan_search_empty">कोई मेल खाने वाले पशु नहीं</string>
     <string name="scan_load_more">और लोड करें</string>
     <string name="scan_loading_more">लोड हो रहा है…</string>
+    <string name="scan_add_clip">कैमरा क्लिप जोड़ें</string>
+    <string name="scan_proof_needed">कैमरा प्रूफ़ चाहिए</string>
+    <string name="scan_proof_uploading">प्रूफ़ अपलोड हो रहा है…</string>
+    <plurals name="scan_proof_synced">
+        <item quantity="one">%1$d क्लिप सिंक हो गई</item>
+        <item quantity="other">%1$d क्लिप सिंक हो गईं</item>
+    </plurals>
+    <string name="scan_proof_retry">अपलोड विफल · फिर से प्रयास करने के लिए टैप करें</string>
     <string name="scan_submit_default">शेड पूरा करें</string>
 </resources>

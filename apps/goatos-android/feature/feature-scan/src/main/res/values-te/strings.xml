@@ -11,5 +11,13 @@
     <string name="scan_search_empty">సరిపోయే జంతువులు లేవు</string>
     <string name="scan_load_more">మరిన్ని లోడ్ చేయండి</string>
     <string name="scan_loading_more">లోడ్ అవుతోంది…</string>
+    <string name="scan_add_clip">కెమెరా క్లిప్ జోడించండి</string>
+    <string name="scan_proof_needed">కెమెరా ప్రూఫ్ అవసరం</string>
+    <string name="scan_proof_uploading">ప్రూఫ్ అప్‌లోడ్ అవుతోంది…</string>
+    <plurals name="scan_proof_synced">
+        <item quantity="one">%1$d క్లిప్ సింక్ అయింది</item>
+        <item quantity="other">%1$d క్లిప్‌లు సింక్ అయ్యాయి</item>
+    </plurals>
+    <string name="scan_proof_retry">అప్‌లోడ్ విఫలమైంది · మళ్లీ ప్రయత్నించడానికి ట్యాప్ చేయండి</string>
     <string name="scan_submit_default">షెడ్ పూర్తి చేయండి</string>
 </resources>

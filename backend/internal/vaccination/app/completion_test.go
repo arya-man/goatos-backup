@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -252,6 +253,34 @@ func TestAcceptExistingStopsWhenRecordedCompletionWasRejectedBeforeSideEffects(t
 	}
 }
 
+func TestApplyGoatVerificationFailsClosedWithoutMatchingCompletion(t *testing.T) {
+	repo := newCompletionRepoFake()
+	service := NewCompletionService(NewService(repo), newObligationCompleterFake(), nil)
+
+	err := service.ApplyGoatVerification(context.Background(), "tenant-1", "submission-1", "goat-1", "closed", "", nil)
+	if !errors.Is(err, domain.ErrCompletionNotOpen) {
+		t.Fatalf("ApplyGoatVerification error = %v, want ErrCompletionNotOpen", err)
+	}
+}
+
+func TestApplyGoatVerificationAcceptsMatchingCompletionBeforeProjection(t *testing.T) {
+	repo := newCompletionRepoFake()
+	repo.byID["completion-1"] = &completionRowFake{status: "recorded", ctx: domain.AcceptedCompletion{
+		CompletionID: "completion-1", ObligationID: "obligation-1", GoatID: "goat-1",
+	}}
+	repo.submissionItems = []domain.SubmissionCompletion{{
+		CompletionID: "completion-1", SubmissionID: "submission-1", ObligationID: "obligation-1", GoatID: "goat-1",
+	}}
+	service := NewCompletionService(NewService(repo), newObligationCompleterFake(), nil)
+
+	if err := service.ApplyGoatVerification(context.Background(), "tenant-1", "submission-1", "goat-1", "closed", "", nil); err != nil {
+		t.Fatalf("ApplyGoatVerification: %v", err)
+	}
+	if repo.byID["completion-1"].status != "accepted" {
+		t.Fatalf("completion status = %s, want accepted", repo.byID["completion-1"].status)
+	}
+}
+
 type completionRepoFake struct {
 	byID           map[string]*completionRowFake
 	byKey          map[string]string
@@ -266,6 +295,7 @@ type completionRepoFake struct {
 	// stage-review re-verify doubles (VACC-REV-10).
 	srGoat          domain.EligibleGoat
 	srGoatLoadFound bool
+	submissionItems []domain.SubmissionCompletion
 }
 
 type completionRowFake struct {
@@ -361,7 +391,7 @@ func (r *completionRepoFake) RecordCompletionsFromSubmission(context.Context, st
 	return 0, nil
 }
 func (r *completionRepoFake) ListSubmissionCompletions(context.Context, string, string) ([]domain.SubmissionCompletion, error) {
-	return nil, nil
+	return r.submissionItems, nil
 }
 
 func (r *completionRepoFake) ListRecordedCompletions(context.Context, string, string, *domain.RecordedCompletionCursor, int32) (domain.RecordedCompletionPage, error) {
@@ -418,7 +448,6 @@ func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, strin
 	return r.srGoat, r.srGoatLoadFound, nil
 }
 
-
 type obligationCompleterFake struct {
 	completed     map[string]bool
 	blockComplete map[string]bool
@@ -464,5 +493,3 @@ func (s *stockConsumerFake) ConsumeForBatch(_ context.Context, _, _, _, key stri
 	s.consumeCalls++
 	return nil
 }
-
-

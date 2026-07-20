@@ -33,7 +33,6 @@ import sg.mesha.goatos.feature.leadership.Tone
 import sg.mesha.goatos.ui.GapRow
 import sg.mesha.goatos.ui.GivenRow
 import sg.mesha.goatos.ui.leadershipPlaceholder
-import sg.mesha.goatos.ui.sampleLeadershipState
 import javax.inject.Inject
 
 /**
@@ -326,7 +325,10 @@ class LeadershipViewModel @Inject constructor(
     }
 
     private fun ControlTowerResponseDto.toLeadershipUiState(): LeadershipUiState {
-        val base = sampleLeadershipState()
+        // Start from the fixture-free placeholder, never the Director design sample. Using the
+        // sample here leaked fabricated sheds, cohorts, backlog counts, park coverage, and a
+        // hard-coded Director role into real Park Head/CEO/Director sessions.
+        val base = leadershipPlaceholder("")
         // Process integrity is ONE deterministic value from the control-tower summary (the
         // hero's own source): intact → 100, else reduced by open-gap count. It must NOT be
         // prefixed with the adherence % — that is a different metric that intermittently

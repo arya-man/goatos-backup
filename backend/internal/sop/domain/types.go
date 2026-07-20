@@ -119,24 +119,42 @@ type FieldState struct {
 }
 
 type TaskSummary struct {
-	TaskID       string         `json:"task_id"`
-	TenantID     string         `json:"tenant_id"`
-	SOPID        string         `json:"sop_id"`
-	SOPVersionID string         `json:"sop_version_id"`
-	SOPCode      string         `json:"sop_code"`
-	TaskType     string         `json:"task_type"`
-	Title        string         `json:"title"`
-	Description  string         `json:"description"`
-	State        string         `json:"state"`
-	AssignedTo   *string        `json:"assigned_to"`
-	ScopeType    string         `json:"scope_type"`
-	ScopeID      string         `json:"scope_id"`
-	Priority     string         `json:"priority"`
-	DueAt        *string        `json:"due_at"`
-	Context      map[string]any `json:"context"`
-	RowVersion   int            `json:"row_version"`
-	CreatedAt    string         `json:"created_at"`
-	UpdatedAt    string         `json:"updated_at"`
+	TaskID       string  `json:"task_id"`
+	TenantID     string  `json:"tenant_id"`
+	SOPID        string  `json:"sop_id"`
+	SOPVersionID string  `json:"sop_version_id"`
+	SOPCode      string  `json:"sop_code"`
+	TaskType     string  `json:"task_type"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	State        string  `json:"state"`
+	AssignedTo   *string `json:"assigned_to"`
+	ScopeType    string  `json:"scope_type"`
+	ScopeID      string  `json:"scope_id"`
+	// ScopeLabel is resolved server-side for presentation. It is deliberately not serialized:
+	// app clients render Presentation and must never turn a database UUID into visible copy.
+	ScopeLabel   string            `json:"-"`
+	Priority     string            `json:"priority"`
+	DueAt        *string           `json:"due_at"`
+	Context      map[string]any    `json:"context"`
+	RowVersion   int               `json:"row_version"`
+	CreatedAt    string            `json:"created_at"`
+	UpdatedAt    string            `json:"updated_at"`
+	Presentation *TaskPresentation `json:"presentation,omitempty"`
+}
+
+// TaskPresentation is the only task identity/copy an app surface may render. Raw task title,
+// scope ids and context remain transport facts for compatibility and must not be used as labels.
+type TaskPresentation struct {
+	Eyebrow      string                 `json:"eyebrow"`
+	Title        string                 `json:"title"`
+	SummaryItems []TaskPresentationItem `json:"summary_items"`
+}
+
+type TaskPresentationItem struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 type TaskListResponse struct {

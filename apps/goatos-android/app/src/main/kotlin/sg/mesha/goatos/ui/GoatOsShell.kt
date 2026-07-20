@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -225,7 +226,15 @@ fun GoatOsShellChrome(
             CompositionLocalProvider(
                 LocalDrawerOpener provides { scope.launch { drawerState.open() } }
             ) {
-                Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .padding(padding)
+                        // Scaffold has already converted its system-bar insets into this
+                        // padding. Mark them consumed so child routes that are also safe when
+                        // rendered standalone do not apply the status/navigation bars again.
+                        .consumeWindowInsets(padding)
+                        .fillMaxSize(),
+                ) {
                     content()
                 }
             }

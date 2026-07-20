@@ -19,6 +19,7 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleAdmin, OperatorsManageCapability, true},
 		{RoleParkHead, OperatorsManageRoster, true},
 		{RoleOperator, AppBootstrap, true},
+		{RoleVerifier, AppBootstrap, true},
 		{RoleOperator, OperatorsRead, false},
 		{RoleVerifier, OperatorsManageCapability, false},
 		{RoleAdmin, SOPPublish, true},
@@ -40,7 +41,7 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleParkHead, CalendarAction, true},
 		{RoleVerifier, CalendarRead, true},
 		{RoleVerifier, CalendarAction, false},
-		{RoleOperator, CalendarRead, false},
+		{RoleOperator, CalendarRead, true},
 		{RoleAdmin, AdminWebBootstrap, true},
 		{RoleCEOInternal, AdminWebBootstrap, true},
 		{RoleAdmin, OperationsRepair, true},
@@ -299,6 +300,8 @@ func TestAppVaccinationExecutionRoutesAuthorizeOperator(t *testing.T) {
 		path        string
 		operationID string
 	}{
+		{"GET", "/app/vaccination/execution", "appListVaccinationExecution"},
+		{"GET", "/app/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001", "appGetVaccinationExecutionShedDrilldown"},
 		{"GET", "/app/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001/roster", "appScanRoster"},
 		{"POST", "/app/vaccination/obligations/86000000-0000-4000-8000-000000001001/reschedule", "appRescheduleObligation"},
 	} {

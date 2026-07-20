@@ -100,6 +100,20 @@ class ScreenshotTest {
     fun submit() = shot("submit") { SubmitScreen(state = sampleSubmitState()) }
 
     @Test
+    fun vaccination_submit_unanswered_draft_has_no_empty_sync_banner() =
+        shot("vaccination_submit_unanswered_draft_has_no_empty_sync_banner") {
+            SubmitScreen(
+                state = sampleSubmitState().copy(
+                    syncState = sg.mesha.goatos.feature.submit.SyncState.DRAFT,
+                    canSubmit = false,
+                    syncLabel = "",
+                    groups = emptyList(),
+                    goatProofTotal = 0,
+                ),
+            )
+        }
+
+    @Test
     fun overview() = shot("overview") { LeadershipScreen(state = sampleLeadershipState()) }
 
     @Test
@@ -161,6 +175,24 @@ class ScreenshotTest {
                     goatId = "goat-2",
                     proofClipCount = 1,
                     proofUploadStatus = ProofUploadStatus.UPLOADING,
+                ),
+                RosterRow(
+                    primaryTag = "RFID 004847",
+                    secondaryTag = "Ear tag 132",
+                    vaccineLabel = "Enterotoxaemia · Tetanus toxoid",
+                    status = ScanStatus.DONE,
+                    goatId = "goat-3",
+                    proofClipCount = 0,
+                    proofUploadStatus = ProofUploadStatus.MISSING,
+                ),
+                RosterRow(
+                    primaryTag = "RFID 004851",
+                    secondaryTag = "Ear tag 137",
+                    vaccineLabel = "PPR booster",
+                    status = ScanStatus.DONE,
+                    goatId = "goat-4",
+                    proofClipCount = 1,
+                    proofUploadStatus = ProofUploadStatus.FAILED,
                 ),
             ),
             captureEnabled = true,

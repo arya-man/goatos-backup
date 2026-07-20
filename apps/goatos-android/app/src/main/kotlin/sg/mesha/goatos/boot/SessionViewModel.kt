@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,6 +47,12 @@ internal const val FIREBASE_SESSION_MARKER = "firebase-session"
 internal fun authModeForFlavor(flavor: String): AuthMode =
     if (flavor == "dev") AuthMode.DEV_BEARER else AuthMode.FIREBASE
 
+/** A dev APK can be reinstalled for a different local E2E principal. Its newly baked token is
+ *  authoritative; retaining the previous APK's persisted bearer would silently run the wrong
+ *  role until app data was cleared. Shared Firebase builds never use this replacement path. */
+internal fun devSessionNeedsRefresh(mode: AuthMode, persisted: String?, baked: String): Boolean =
+    mode == AuthMode.DEV_BEARER && persisted != baked.takeIf { it.isNotBlank() }
+
 internal data class LoginUiState(
     val isLoading: Boolean = false,
     val errorReason: LoginError? = null,
@@ -75,14 +81,40 @@ class SessionViewModel @Inject constructor(
     private val syncJobsScheduler: SyncJobsScheduler,
 ) : ViewModel() {
 
-    val isAuthed: StateFlow<Boolean> = sessionStore.bearerToken
-        .map { !it.isNullOrBlank() }
+    private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
+    private val devSessionReady = MutableStateFlow(authMode != AuthMode.DEV_BEARER)
+
+    val isAuthed: StateFlow<Boolean> = combine(sessionStore.bearerToken, devSessionReady) { token, ready ->
+        ready && !token.isNullOrBlank()
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _uiState = MutableStateFlow(LoginUiState())
     internal val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
-    private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
+    init {
+        if (authMode == AuthMode.DEV_BEARER) {
+            viewModelScope.launch {
+                val baked = BuildConfig.DEV_BEARER_TOKEN
+                val persisted = sessionStore.currentToken()
+                if (devSessionNeedsRefresh(authMode, persisted, baked)) {
+                    // A different baked token means a different local principal. Use the same
+                    // authority-boundary wipe as an explicit logout: revoke the old device,
+                    // remove its Room/outbox/cache state, cancel its jobs, and generate a fresh
+                    // device identity before opening the new session. Replacing only the token
+                    // caused bootstrap to send the previous operator's device id as a verifier.
+                    logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+                    if (baked.isNotBlank()) {
+                        sessionStore.setBearerToken(baked)
+                        withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
+                    }
+                }
+                // Do not let bootstrap/network requests race ahead with the previous APK's
+                // persisted principal. A blank baked token deliberately leaves the login gate.
+                devSessionReady.value = true
+            }
+        }
+    }
 
     fun signInWithEmail(email: String, password: String) {
         analytics.track(AnalyticsEvents.LOGIN_ATTEMPT, mapOf(AnalyticsEvents.Params.METHOD to "email"))

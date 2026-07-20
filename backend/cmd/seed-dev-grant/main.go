@@ -28,13 +28,15 @@ func main() {
 	var role string
 	var department string
 	var parkID string
+	var parkOnly bool
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope grant")
 	flag.StringVar(&userID, "user-id", "", "user UUID for the grant")
 	flag.StringVar(&externalSubject, "external-subject", "", "non-UUID IdP subject to map into the grant user UUID")
 	flag.StringVar(&authIssuer, "auth-issuer", os.Getenv("GOATOS_AUTH_ISSUER"), "issuer used when mapping an external IdP subject")
 	flag.StringVar(&role, "role", "", "required role: a flat legacy role (admin, verifier, park_head, pc_director, operator, ceo_internal) or a composite tier x vertical org role key such as manager_feed, director_health, am_preventive_care (see context/architecture/org-role-model.md and permissions.RoleKey)")
 	flag.StringVar(&department, "department", "", "optional HR department code; provisions/attaches a workforce_member so department-driven nav works for this dev identity")
-	flag.StringVar(&parkID, "park-id", "", "optional park location UUID; when set, ALSO seeds a scope_type='park' grant row for role, so a park-scoped role's cross-park denial can be exercised locally (see permissions.ScopeIDsForPermission)")
+	flag.StringVar(&parkID, "park-id", "", "optional park location UUID; when set, also seeds a scope_type='park' grant row for role (use -park-only to omit the tenant-wide grant)")
+	flag.BoolVar(&parkOnly, "park-only", false, "seed only the park-scoped grant; requires -park-id and enables honest cross-park authorization tests")
 	flag.Parse()
 
 	department = strings.TrimSpace(department)
@@ -61,6 +63,9 @@ func main() {
 	if parkID != "" && !isUUID(parkID) {
 		fail("invalid -park-id: %q", parkID)
 	}
+	if err := validateGrantScopeMode(parkID, parkOnly); err != nil {
+		fail("%v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -71,9 +76,10 @@ func main() {
 	}
 	defer pool.Close()
 
-	var grantID string
-	existing := false
-	if err := pool.QueryRow(ctx, `
+	if !parkOnly {
+		var grantID string
+		existing := false
+		if err := pool.QueryRow(ctx, `
 SELECT grant_id::text
 FROM user_scope_grants
 WHERE tenant_id = $1
@@ -87,21 +93,22 @@ WHERE tenant_id = $1
 ORDER BY valid_from DESC, grant_id DESC
 LIMIT 1
 `, tenantID, userID, role).Scan(&grantID); err == nil {
-		fmt.Printf("dev grant already active %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
-		existing = true
-	} else if !isNoRows(err) {
-		fail("query dev grant: %v", err)
-	}
+			fmt.Printf("dev grant already active %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
+			existing = true
+		} else if !isNoRows(err) {
+			fail("query dev grant: %v", err)
+		}
 
-	if !existing {
-		if err := pool.QueryRow(ctx, `
+		if !existing {
+			if err := pool.QueryRow(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1, $2, $3, 'tenant', $1, 'active', now())
 RETURNING grant_id::text
 `, tenantID, userID, role).Scan(&grantID); err != nil {
-			fail("insert local dev grant: %v", err)
+				fail("insert local dev grant: %v", err)
+			}
+			fmt.Printf("seeded tenant grant %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
 		}
-		fmt.Printf("seeded tenant grant %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
 	}
 
 	if parkID != "" {
@@ -116,6 +123,13 @@ RETURNING grant_id::text
 		}
 		fmt.Printf("dev workforce_member for user %s attached to department %s\n", userID, department)
 	}
+}
+
+func validateGrantScopeMode(parkID string, parkOnly bool) error {
+	if parkOnly && strings.TrimSpace(parkID) == "" {
+		return errors.New("-park-only requires -park-id")
+	}
+	return nil
 }
 
 // provisionDevDepartmentMember mirrors the sign-in email-claim provisioning for

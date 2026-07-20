@@ -345,11 +345,12 @@ func TestListQueueFetchesDisplayLabels_RealPostgres(t *testing.T) {
 	tenantID := newTenant(t, ctx, pool)
 
 	// Seed workforce member for operator
-	var operatorID string
+	operatorUserID := "70000000-0000-4000-8000-000000000101"
+	var workforceMemberID string
 	err := pool.QueryRow(ctx, `
-INSERT INTO workforce_members (tenant_id, display_name, display_code, status, primary_role_hint)
-VALUES ($1::uuid, 'Ravi Operator', 'OP-001', 'active', 'operator')
-RETURNING workforce_member_id::text`, tenantID).Scan(&operatorID)
+INSERT INTO workforce_members (tenant_id, user_id, display_name, display_code, status, primary_role_hint)
+VALUES ($1::uuid, $2::uuid, 'Ravi Operator', 'OP-001', 'active', 'operator')
+RETURNING workforce_member_id::text`, tenantID, operatorUserID).Scan(&workforceMemberID)
 	if err != nil {
 		t.Fatalf("insert workforce_member: %v", err)
 	}
@@ -380,7 +381,9 @@ RETURNING location_id::text`, tenantID).Scan(&parkID)
 		Category:       "vaccination_proof",
 		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: tenantID},
 		MediaRefs:      []string{"proof-1"},
-		OperatorID:     &operatorID,
+		// Submission producers carry the authenticated user id. ListQueue must resolve that
+		// through workforce_members.user_id, not expose it as a raw UUID in the app.
+		OperatorID:     &operatorUserID,
 		ShedID:         &shedID,
 		ParkID:         &parkID,
 		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
@@ -407,8 +410,8 @@ RETURNING location_id::text`, tenantID).Scan(&parkID)
 	}
 
 	item := items[0]
-	if item.OperatorID == nil || *item.OperatorID != operatorID {
-		t.Fatalf("operator_id mismatch: got %v, want %s", item.OperatorID, operatorID)
+	if item.OperatorID == nil || *item.OperatorID != operatorUserID {
+		t.Fatalf("operator_id mismatch: got %v, want %s", item.OperatorID, operatorUserID)
 	}
 	if item.OperatorName == nil || *item.OperatorName != "Ravi Operator" {
 		t.Fatalf("operator_name = %v, want 'Ravi Operator'", item.OperatorName)

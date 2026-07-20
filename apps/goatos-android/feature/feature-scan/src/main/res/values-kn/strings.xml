@@ -11,5 +11,13 @@
     <string name="scan_search_empty">ಹೊಂದಿಕೆಯಾಗುವ ಪಶುವೆ ಇಲ್ಲ</string>
     <string name="scan_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="scan_loading_more">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="scan_add_clip">ಕ್ಯಾಮೆರಾ ಕ್ಲಿಪ್ ಸೇರಿಸಿ</string>
+    <string name="scan_proof_needed">ಕ್ಯಾಮೆರಾ ಪ್ರೂಫ್ ಅಗತ್ಯ</string>
+    <string name="scan_proof_uploading">ಪ್ರೂಫ್ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <plurals name="scan_proof_synced">
+        <item quantity="one">%1$d ಕ್ಲಿಪ್ ಸಿಂಕ್ ಆಗಿದೆ</item>
+        <item quantity="other">%1$d ಕ್ಲಿಪ್‌ಗಳು ಸಿಂಕ್ ಆಗಿವೆ</item>
+    </plurals>
+    <string name="scan_proof_retry">ಅಪ್‌ಲೋಡ್ ವಿಫಲ · ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ</string>
     <string name="scan_submit_default">ಶೆಡ್ ಪೂರ್ಣಗೊಳಿಸಿ</string>
 </resources>

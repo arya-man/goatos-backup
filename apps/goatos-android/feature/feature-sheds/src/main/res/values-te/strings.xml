@@ -3,13 +3,13 @@
     <!-- Header and navigation chrome -->
     <string name="sheds_back_description">వెనుకకు వెళ్లండి</string>
     <string name="sheds_refresh_description">రిఫ్రెష్</string>
-    <string name="sheds_title">ఈరోజు షెడ్‌లు</string>
+    <string name="sheds_title">టీకా కార్యక్రమాలు</string>
     <string name="sheds_count_fmt">%1$d షెడ్‌లు</string>
-    <string name="sheds_due_fmt">%1$d బకాయి</string>
+    <string name="sheds_due_fmt">%1$d తెరిచి ఉన్నాయి</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d పూర్తయింది</string>
 
     <!-- Day progress section -->
-    <string name="sheds_day_progress">రోజు పురోగతి</string>
+    <string name="sheds_day_progress">మొత్తం పురోగతి</string>
 
     <!-- Table column labels in NumsRow -->
     <string name="sheds_num_cell_in_shed">లక్ష్యం</string>

@@ -10,6 +10,9 @@
     <string name="overview_assign_team_label">ತಂಡವನ್ನು ನಿಯೋಜಿಸಿ</string>
     <string name="overview_backlog_title">ಲಸಿಕೆ ಆಧಾರಿತ ಬ್ಯಾಕ್ಲಾಗ್ · ಬಾಕಿ ಡೋಸ್</string>
     <string name="overview_needs_decision_title">ನಿರ್ಧಾರದ ಅಗತ್ಯ</string>
+    <string name="overview_verified_closure_title">ಪರಿಶೀಲಿಸಲಾಗಿದೆ · ಮುಚ್ಚಲು ಸಿದ್ಧ</string>
+    <string name="overview_close_action">ಡ್ರೈವ್ ಮುಚ್ಚಿ</string>
+    <string name="overview_close_queueing">ಸಾಲಿಗೆ ಸೇರಿಸಲಾಗುತ್ತಿದೆ…</string>
     <string name="overview_coverage_by_park_title">ಪಾರ್ಕ್ ಆಧಾರಿತ ಕವರೇಜ್</string>
     <string name="overview_empty_title">ಈಗ ಯಾವುದೇ ಅವಲೋಕನ ಕೆಲಸ ಇಲ್ಲ</string>
     <string name="overdue_empty_title">ಅವಧಿ ಮೀರಿದ ಪ್ರಾಣಿಗಳಿಲ್ಲ</string>

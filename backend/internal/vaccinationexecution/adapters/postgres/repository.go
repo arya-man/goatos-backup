@@ -947,7 +947,16 @@ grouped AS (
         default_operator.workforce_member_id DESC
       ) FILTER (WHERE default_operator.display_name IS NOT NULL))[1]
     ) AS operator_name,
-    COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
+    -- This value is rendered directly on mobile shed cards. Prefer the governed
+    -- human name; stage_code (K1/K2/...) is an internal fallback only.
+    COALESCE(
+      MAX(profile_stage.name),
+      MAX(goat_stage.name),
+      MAX(profile_stage.stage_code),
+      MAX(goat_stage.stage_code),
+      MAX(located.goat_stage),
+      'Unknown'
+    ) AS animal_stage,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
@@ -971,9 +980,17 @@ grouped AS (
   LEFT JOIN shed_profiles sp
     ON sp.tenant_id = $1::uuid
    AND sp.location_id = located.shed_uuid
-  LEFT JOIN animal_stage_lookup stage
-    ON stage.tenant_id = $1::uuid
-   AND stage.animal_stage_id = sp.animal_stage_id
+  LEFT JOIN animal_stage_lookup profile_stage
+    ON profile_stage.tenant_id = $1::uuid
+   AND profile_stage.animal_stage_id = sp.animal_stage_id
+   AND profile_stage.status = 'active'
+  -- Some legacy sheds do not yet carry shed_profiles.animal_stage_id. The
+  -- obligation still has the goat's governed stage code, so resolve that code
+  -- through the same lookup instead of leaking K1/K2 onto the mobile card.
+  LEFT JOIN animal_stage_lookup goat_stage
+    ON goat_stage.tenant_id = $1::uuid
+   AND goat_stage.stage_code = located.goat_stage
+   AND goat_stage.status = 'active'
   LEFT JOIN workforce_members operator
     ON operator.tenant_id = $1::uuid
    AND operator.workforce_member_id = COALESCE(located.conducted_by, located.assigned_to)
@@ -1455,17 +1472,20 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	for rows.Next() {
 		var row domain.ScanRosterRow
 		var secondaryTag pgtype.Text
+		var protocolName, doseCode string
 		if err := rows.Scan(
 			&row.GoatID,
 			&row.PrimaryTag,
 			&secondaryTag,
-			&row.VaccineLabel,
+			&protocolName,
+			&doseCode,
 			&row.Status,
 			&row.ObligationID,
 		); err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
 		row.SecondaryTag = textPtr(secondaryTag)
+		row.VaccineLabel = domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
 		row.BatchID = identity.BatchID
 		row.TaskID = identity.TaskID
 		row.SOPVersionID = identity.SOPVersionID
@@ -1489,7 +1509,8 @@ SELECT
   g.goat_id::text,
   COALESCE(aid1.identifier_value, '') AS primary_tag,
   aid2.identifier_value AS secondary_tag,
-  CONCAT(pd.name, ' · ', pr.dose_code) AS vaccine_label,
+  pd.name AS protocol_name,
+  pr.dose_code,
   CASE
     WHEN oi.status = 'due' OR (oi.due_at < now() AND oi.status = 'scheduled') THEN 'due'
     WHEN oi.status = 'in_progress' THEN 'in_progress'
@@ -1527,7 +1548,11 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.status = 'active'
 WHERE oi.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
-  AND ($3 = '' OR oi.sop_task_id = NULLIF($3, '')::uuid)
+  AND (
+    $3 = ''
+    OR oi.sop_task_id = NULLIF($3, '')::uuid
+    OR ($4 <> '' AND oi.batch_id = NULLIF($4, '')::uuid)
+  )
   AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND (
@@ -1557,10 +1582,23 @@ JOIN obligation_batches ob
  AND ob.batch_id = nullif(st.context ->> 'obligation_batch_id', '')::uuid
 WHERE st.tenant_id = $1::uuid
   AND st.task_id = $2::uuid
-  AND st.scope_type = 'shed'
-  AND st.scope_id = $3::uuid
-  AND ob.scope_type = 'shed'
-  AND ob.scope_id = $3::uuid`, tenantID, taskID, shedID).Scan(
+  AND EXISTS (
+        SELECT 1
+        FROM obligation_instances oi
+        JOIN goats g
+          ON g.tenant_id = oi.tenant_id
+         AND g.goat_id = oi.target_id
+         AND oi.target_type = 'goat'
+        WHERE oi.tenant_id = ob.tenant_id
+          AND oi.batch_id = ob.batch_id
+          AND g.shed_id = $3::uuid
+          AND (
+            (st.scope_type = 'shed' AND st.scope_id = $3::uuid AND ob.scope_type = 'shed' AND ob.scope_id = $3::uuid)
+            OR
+            (st.scope_type = 'park' AND ob.scope_type = 'park' AND st.scope_id = ob.scope_id AND g.park_id = ob.scope_id)
+          )
+      )
+LIMIT 1`, tenantID, taskID, shedID).Scan(
 		&identity.TaskID, &identity.BatchID, &identity.SOPVersionID, &identity.TaskRowVersion,
 	)
 	return identity, err
@@ -1570,7 +1608,7 @@ func (r *Repository) TaskOptionValues(ctx context.Context, tenantID, taskID stri
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var identity taskExecutionIdentity
-	var shedID string
+	var inventoryScopeLocationID string
 	var formDSL []byte
 	err := r.pool.QueryRow(ctx, `
 SELECT st.task_id::text, ob.batch_id::text, st.sop_version_id::text, st.row_version,
@@ -1585,16 +1623,20 @@ JOIN sop_versions sv
  AND sv.sop_version_id = st.sop_version_id
 WHERE st.tenant_id = $1::uuid
   AND st.task_id = $2::uuid
-  AND st.scope_type = 'shed'
-  AND ob.scope_type = 'shed'
+  AND st.scope_type IN ('shed', 'park')
+  AND ob.scope_type = st.scope_type
   AND ob.scope_id = st.scope_id
-  AND ($3::uuid[] IS NULL OR EXISTS (
-        SELECT 1 FROM goats g
-        WHERE g.tenant_id = st.tenant_id
-          AND g.shed_id = st.scope_id
-          AND g.park_id = ANY($3::uuid[])
-      ))`, tenantID, taskID, authorizedParkFilter(ctx, tenantID)).Scan(
-		&identity.TaskID, &identity.BatchID, &identity.SOPVersionID, &identity.TaskRowVersion, &shedID, &formDSL,
+  AND (
+    $3::uuid[] IS NULL
+    OR (st.scope_type = 'park' AND st.scope_id = ANY($3::uuid[]))
+    OR (st.scope_type = 'shed' AND EXISTS (
+      SELECT 1 FROM goats g
+      WHERE g.tenant_id = st.tenant_id
+        AND g.shed_id = st.scope_id
+        AND g.park_id = ANY($3::uuid[])
+    ))
+  )`, tenantID, taskID, authorizedParkFilter(ctx, tenantID)).Scan(
+		&identity.TaskID, &identity.BatchID, &identity.SOPVersionID, &identity.TaskRowVersion, &inventoryScopeLocationID, &formDSL,
 	)
 	if err != nil {
 		return domain.TaskOptionValuesResponse{}, fmt.Errorf("vaccination execution: task option identity: %w", err)
@@ -1605,7 +1647,7 @@ WHERE st.tenant_id = $1::uuid
 		TaskRowVersion: identity.TaskRowVersion, Sources: []domain.TaskOptionSource{},
 	}
 	if requested["inventory.vaccine_lots.fefo"] {
-		source, err := r.vaccineLotOptions(ctx, tenantID, identity.BatchID, shedID)
+		source, err := r.vaccineLotOptions(ctx, tenantID, identity.BatchID, inventoryScopeLocationID)
 		if err != nil {
 			return domain.TaskOptionValuesResponse{}, err
 		}
@@ -1637,7 +1679,7 @@ func pinnedOptionSources(raw []byte) map[string]bool {
 	return out
 }
 
-func (r *Repository) vaccineLotOptions(ctx context.Context, tenantID, batchID, shedID string) (domain.TaskOptionSource, error) {
+func (r *Repository) vaccineLotOptions(ctx context.Context, tenantID, batchID, inventoryScopeLocationID string) (domain.TaskOptionSource, error) {
 	// FEFO "not expired" is an India-business-day comparison, not the DB server's UTC CURRENT_DATE
 	// (a lot expiring today in Asia/Kolkata must not rank as usable past IST midnight). See
 	// GoatOS time semantics: derive the business day and pass it as a bound parameter.
@@ -1668,7 +1710,7 @@ FROM chain c JOIN inventory_stock s ON s.tenant_id=$1::uuid AND s.location_id=c.
 JOIN items i ON i.item_id=s.item_id
 ORDER BY CASE WHEN s.status='active' AND s.quantity_in_stock>s.quantity_reserved
                    AND (s.expiry_date IS NULL OR s.expiry_date>=$4::date) THEN 0 ELSE 1 END,
-         c.depth, s.expiry_date ASC NULLS LAST, s.stock_id`, tenantID, batchID, shedID, bizToday)
+         c.depth, s.expiry_date ASC NULLS LAST, s.stock_id`, tenantID, batchID, inventoryScopeLocationID, bizToday)
 	if err != nil {
 		return domain.TaskOptionSource{}, fmt.Errorf("vaccination execution: lot options: %w", err)
 	}

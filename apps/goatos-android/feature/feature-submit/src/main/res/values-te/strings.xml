@@ -1,10 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="submit_eyebrow">టీకా</string>
+    <string name="submit_record_title">షెడ్ రికార్డు</string>
     <string name="submit_summary_shed">షెడ్</string>
-    <string name="submit_summary_cohort">సమూహం</string>
+    <string name="submit_summary_cohort">జంతువు దశ</string>
     <string name="submit_summary_date">తేదీ</string>
     <string name="submit_dose_label">డోస్</string>
+    <string name="submit_goat_proof_title">మేక కెమెరా రుజువు</string>
+    <string name="submit_goat_proof_synced">%2$d మేకల్లో %1$d సింక్ అయ్యాయి</string>
+    <string name="submit_goat_proof_uploading">%1$d అప్‌లోడ్ అవుతున్నాయి</string>
+    <string name="submit_goat_proof_failed">%1$d మళ్లీ ప్రయత్నించాలి</string>
+    <string name="submit_goat_proof_finalize_hint">ఫైనలైజ్ చేయడం సింక్ అయిన రికార్డులను తనిఖీ చేస్తుంది. అది ఫైళ్లను అప్‌లోడ్ చేయదు.</string>
     <string name="submit_retry_label">మళ్లీ ప్రయత్నించండి</string>
+    <string name="submit_form_yes">అవును</string>
+    <string name="submit_form_no">కాదు</string>
+    <string name="submit_form_select">ఎంచుకోండి…</string>
+    <string name="submit_form_use_current_time">ప్రస్తుత తేదీ మరియు సమయాన్ని ఉపయోగించండి</string>
 
     <!-- Sync state labels -->
     <string name="submit_sync_loading">లోడ్ అవుతోంది…</string>

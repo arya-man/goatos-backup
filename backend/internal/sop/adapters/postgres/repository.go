@@ -914,7 +914,7 @@ INSERT INTO sop_task_scan_captures (
   tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8::uuid, $9,
-  COALESCE(to_timestamp(NULLIF($10, 0)::double precision / 1000.0), now())
+  COALESCE(to_timestamp(NULLIF($10::bigint, 0)::double precision / 1000.0), now())
 )
 ON CONFLICT (tenant_id, task_id, field_key, normalized_tag) DO UPDATE
 SET updated_at = now()
@@ -933,7 +933,7 @@ RETURNING capture_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	if err != nil {
 		return domain.ScanCaptureSummary{}, mapWriteErr(err)
 	}
-	item.CapturedAt = capturedAt.UTC().Format(time.RFC3339)
+	item.CapturedAt = capturedAt.UTC().Format(time.RFC3339Nano)
 	return item, nil
 }
 
@@ -958,7 +958,7 @@ LIMIT 2000`, tenantID, taskID)
 		if err := rows.Scan(&item.CaptureID, &item.TaskID, &item.FieldKey, &item.Tag, &item.GoatID, &item.ObligationID, &capturedAt); err != nil {
 			return nil, err
 		}
-		item.CapturedAt = capturedAt.UTC().Format(time.RFC3339)
+		item.CapturedAt = capturedAt.UTC().Format(time.RFC3339Nano)
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -990,7 +990,7 @@ INSERT INTO sop_task_scan_attempts (
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid,
   $8, $9, nullif($10, ''), $11::uuid, $12,
-  COALESCE(to_timestamp(NULLIF($13, 0)::double precision / 1000.0), now())
+  COALESCE(to_timestamp(NULLIF($13::bigint, 0)::double precision / 1000.0), now())
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET updated_at = now()
@@ -1024,7 +1024,7 @@ RETURNING attempt_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	if err != nil {
 		return domain.ScanAttemptSummary{}, mapWriteErr(err)
 	}
-	item.CapturedAt = capturedAt.UTC().Format(time.RFC3339)
+	item.CapturedAt = capturedAt.UTC().Format(time.RFC3339Nano)
 	return item, nil
 }
 
@@ -1111,7 +1111,7 @@ SET state = $3,
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND task_id = $2::uuid
-  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested', 'needs_review')
+  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested')
 RETURNING task_id::text`, cmd.TenantID, cmd.TaskID, cmd.TaskState).Scan(&taskID)
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapUpdateErr(err)
@@ -1151,6 +1151,156 @@ ON CONFLICT (tenant_id, submission_id, command_type) DO NOTHING`, cmd.TenantID, 
 		}
 	}
 	return domain.SubmissionSummary{}, domain.TaskSummary{}, false, ports.ErrNotFound
+}
+
+// AcceptSubmissionItemVerification projects one closed per-goat verification item into the SOP
+// aggregate. Locking the submission and task serializes concurrent final-goat events, so exactly
+// one caller performs the needs_review -> accepted roll-up. Replays are read-only successes.
+func (r *Repository) AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+
+	var taskID, submissionState string
+	err = tx.QueryRow(ctx, `
+SELECT ss.task_id::text, ss.state
+FROM sop_submissions ss
+JOIN sop_tasks st
+  ON st.tenant_id = ss.tenant_id
+ AND st.task_id = ss.task_id
+WHERE ss.tenant_id = $1::uuid
+  AND ss.submission_id = $2::uuid
+FOR UPDATE OF ss, st`, tenantID, submissionID).Scan(&taskID, &submissionState)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if submissionState != "needs_review" && submissionState != "accepted" {
+		return ports.ErrConflict
+	}
+
+	rows, err := tx.Query(ctx, `
+UPDATE sop_submission_items
+SET state = 'accepted',
+    result = result || jsonb_build_object(
+      'verification_closed_at', now(),
+      'verification_closed_by', $4::text
+    )
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND goat_id = $3::uuid
+  AND state = 'needs_review'
+RETURNING item_id::text`, tenantID, submissionID, goatID, actorID)
+	if err != nil {
+		return err
+	}
+	updatedItemIDs := make([]string, 0, 1)
+	for rows.Next() {
+		var itemID string
+		if err := rows.Scan(&itemID); err != nil {
+			rows.Close()
+			return err
+		}
+		updatedItemIDs = append(updatedItemIDs, itemID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	var matchingItems int
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM sop_submission_items
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND goat_id = $3::uuid
+  AND state = 'accepted'`, tenantID, submissionID, goatID).Scan(&matchingItems); err != nil {
+		return err
+	}
+	if matchingItems == 0 {
+		return ports.ErrConflict
+	}
+	for _, itemID := range updatedItemIDs {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.submission_item.accepted", "sop_submission_item", itemID, map[string]any{
+			"submission_id": submissionID,
+			"goat_id":       goatID,
+		}); err != nil {
+			return err
+		}
+	}
+
+	var remainingItems int
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM sop_submission_items
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND state NOT IN ('accepted', 'skipped')`, tenantID, submissionID).Scan(&remainingItems); err != nil {
+		return err
+	}
+	if remainingItems > 0 {
+		return tx.Commit(ctx)
+	}
+
+	var acceptedSubmissionID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_submissions
+SET state = 'accepted',
+    accepted_at = COALESCE(accepted_at, now()),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND state = 'needs_review'
+RETURNING submission_id::text`, tenantID, submissionID).Scan(&acceptedSubmissionID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if acceptedSubmissionID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.submission.accepted", "sop_submission", acceptedSubmissionID, map[string]any{"task_id": taskID}); err != nil {
+			return err
+		}
+	}
+
+	var acceptedTaskID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_tasks st
+SET state = 'accepted',
+    verified_by = $3::uuid,
+    verified_at = COALESCE(verified_at, now()),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE st.tenant_id = $1::uuid
+  AND st.task_id = $2::uuid
+  AND st.state = 'needs_review'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sop_submissions newer
+    JOIN sop_submissions current
+      ON current.tenant_id = newer.tenant_id
+     AND current.submission_id = $4::uuid
+    WHERE newer.tenant_id = st.tenant_id
+      AND newer.task_id = st.task_id
+      AND (newer.submitted_at, newer.submission_id) > (current.submitted_at, current.submission_id)
+  )
+RETURNING st.task_id::text`, tenantID, taskID, actorID, submissionID).Scan(&acceptedTaskID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if acceptedTaskID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.task.accepted", "sop_task", acceptedTaskID, map[string]any{"submission_id": submissionID}); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) setVersionStatus(ctx context.Context, cmd ports.VersionCommand, status string) (domain.SOPVersion, error) {
@@ -1543,6 +1693,7 @@ SELECT
   st.assigned_to::text,
   st.scope_type,
   st.scope_id::text,
+  COALESCE(scope_location.name, ''),
   st.priority,
   st.due_at,
   st.context,
@@ -1553,6 +1704,9 @@ FROM sop_tasks st
 JOIN sop_definitions sd
   ON sd.tenant_id = st.tenant_id
  AND sd.sop_id = st.sop_id
+LEFT JOIN locations scope_location
+  ON scope_location.tenant_id = st.tenant_id
+ AND scope_location.location_id = st.scope_id
 ` + where
 }
 
@@ -1607,7 +1761,7 @@ func scanTasks(rows pgx.Rows) ([]domain.TaskSummary, error) {
 		var dueAt pgtype.Timestamptz
 		var contextBytes []byte
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&item.TaskID, &item.TenantID, &item.SOPID, &item.SOPVersionID, &item.SOPCode, &item.TaskType, &item.Title, &item.Description, &item.State, &assignedTo, &item.ScopeType, &item.ScopeID, &item.Priority, &dueAt, &contextBytes, &item.RowVersion, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&item.TaskID, &item.TenantID, &item.SOPID, &item.SOPVersionID, &item.SOPCode, &item.TaskType, &item.Title, &item.Description, &item.State, &assignedTo, &item.ScopeType, &item.ScopeID, &item.ScopeLabel, &item.Priority, &dueAt, &contextBytes, &item.RowVersion, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		item.AssignedTo = textPtr(assignedTo)

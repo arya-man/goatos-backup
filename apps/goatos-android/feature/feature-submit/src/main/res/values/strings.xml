@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Submit (v-submit) chrome strings. The sheet renders backend-provided data only
-  (eyebrow, title, shed name, cohort, date, sync status). Only the static UI
+  (eyebrow, title, shed name, animal stage, date, sync status). Only the static UI
   chrome labels and buttons are extracted here for localization.
 -->
 <resources>
+    <string name="submit_eyebrow">Vaccination</string>
+    <string name="submit_record_title">Shed record</string>
     <!-- Record summary labels -->
     <string name="submit_summary_shed">Shed</string>
-    <string name="submit_summary_cohort">Cohort</string>
+    <string name="submit_summary_cohort">Animal stage</string>
     <string name="submit_summary_date">Date</string>
     <string name="submit_dose_label">Dose</string>
     <string name="submit_goat_proof_title">Goat camera proof</string>
@@ -18,6 +20,10 @@
 
     <!-- Button labels -->
     <string name="submit_retry_label">Retry</string>
+    <string name="submit_form_yes">Yes</string>
+    <string name="submit_form_no">No</string>
+    <string name="submit_form_select">Select…</string>
+    <string name="submit_form_use_current_time">Use current date and time</string>
 
     <!-- Sync state labels -->
     <string name="submit_sync_loading">Loading…</string>

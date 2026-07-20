@@ -3,13 +3,13 @@
     <!-- Header and navigation chrome -->
     <string name="sheds_back_description">वापस जाएं</string>
     <string name="sheds_refresh_description">ताज़ा करें</string>
-    <string name="sheds_title">आज के शेड</string>
+    <string name="sheds_title">टीकाकरण अभियान</string>
     <string name="sheds_count_fmt">%1$d शेड</string>
-    <string name="sheds_due_fmt">%1$d बकाया</string>
+    <string name="sheds_due_fmt">%1$d खुले</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d पूर्ण</string>
 
     <!-- Day progress section -->
-    <string name="sheds_day_progress">दिन की प्रगति</string>
+    <string name="sheds_day_progress">कुल प्रगति</string>
 
     <!-- Table column labels in NumsRow -->
     <string name="sheds_num_cell_in_shed">लक्षित</string>

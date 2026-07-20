@@ -171,6 +171,16 @@ interface SyncRepository {
      *  a proof that was never uploaded should clean up its queued outbox entry). */
     suspend fun deleteOutboxItem(itemId: String): AppResult<Unit>
 
+    /** Deletes a terminal FAILED row by idempotency key so a corrected payload can be rebuilt
+     *  after process recreation. Never removes QUEUED, IN_FLIGHT, or SUCCEEDED writes. */
+    suspend fun deleteFailedOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<Unit> =
+        AppResult.Err("Failed outbox recovery is not available.")
+
+    /** Finds a previously queued write by its stable idempotency key so a recreated screen can
+     *  resume QUEUED/FAILED/SUCCEEDED state even when Android did not restore SavedState. */
+    suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
+        AppResult.Err("Outbox recovery is not available.")
+
     /** Forces an immediate drain pass (pull-to-refresh, a manual "sync now", or connectivity
      *  regained). `enqueue*` already triggers this automatically — call this directly only
      *  when nothing new was enqueued but a retry should still happen right away. */
@@ -508,6 +518,36 @@ class DefaultSyncRepository(
             throw cancellation
         } catch (e: Throwable) {
             AppResult.Err("Couldn't delete outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun deleteFailedOutboxItemByIdempotencyKey(
+        idempotencyKey: String,
+    ): AppResult<Unit> = withContext(dispatchers.io) {
+        try {
+            val existing = store.findByIdempotencyKey(idempotencyKey)
+                ?: throw NoSuchElementException("Outbox item not found for idempotency key.")
+            check(existing.status == OutboxStatus.FAILED.name) {
+                "Only a FAILED outbox item can be replaced; current status is ${existing.status}."
+            }
+            store.delete(existing.id)
+            AppResult.Ok(Unit)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't replace failed outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun findOutboxItemByIdempotencyKey(
+        idempotencyKey: String,
+    ): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
+        try {
+            AppResult.Ok(store.findByIdempotencyKey(idempotencyKey)?.toSyncQueueItem())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't recover outbox item: ${e.message}", e)
         }
     }
 

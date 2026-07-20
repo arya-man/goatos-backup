@@ -178,6 +178,15 @@ func TestEnvelopeValidatorAcceptsOperationalKernelEvents(t *testing.T) {
 			evidenceRefs:  []any{map[string]any{"evidence_type": "obligation_status_event", "evidence_id": "64000000-0000-4000-8000-000000000002:missed"}},
 		},
 		{
+			name:          "obligation in progress",
+			eventType:     "obligation.in_progress",
+			aggregateType: "obligation_instance",
+			subjectType:   "obligation_instance",
+			aggregateID:   "64000000-0000-4000-8000-000000000005",
+			subjectID:     "64000000-0000-4000-8000-000000000005",
+			evidenceRefs:  []any{map[string]any{"evidence_type": "obligation_status_event", "evidence_id": "64000000-0000-4000-8000-000000000005:in_progress"}},
+		},
+		{
 			name:          "notification exhausted",
 			eventType:     "notification.exhausted",
 			aggregateType: "calendar_notification",

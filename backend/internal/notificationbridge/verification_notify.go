@@ -67,7 +67,7 @@ type CompletionContextResolver interface {
 // active, reachable devices for a duty holder, an explicit member, or a position holder.
 type RecipientResolver interface {
 	ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string) ([]workforcedomain.NotificationRecipient, error)
-	ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]workforcedomain.NotificationRecipient, error)
+	ResolveMemberRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]workforcedomain.NotificationRecipient, error)
 	ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string) ([]workforcedomain.NotificationRecipient, error)
 }
 

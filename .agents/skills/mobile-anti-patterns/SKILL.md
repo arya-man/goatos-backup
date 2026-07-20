@@ -74,6 +74,14 @@ The mobile UI must NOT gate visibility by role (`role ==`); render the backend-c
 nav/actions/disabled-reasons contract. Also blocks hardcoded disabled/blocked-reason
 literals in production screens (preview/sample sources excluded). Machine-blocked by `make mobile-contract-ownership-guard`.
 
+The same ownership applies to task copy and picker data. Never display `task.title`, `scope_id`,
+or UUID-bearing context as a label; render the locale-aware `TaskPresentation`. A picker with an
+`option_source` must fetch the task-pinned option-values endpoint, cache that response with task
+detail, submit option `value` (not label), and render backend `disabled_reason` verbatim. An empty
+client fallback list or client-authored medical reason is not an acceptable substitute. Forms that
+provide only inline `options` remain endpoint-independent; do not make every task of the same type
+fail because an option-values endpoint was unavailable when that form never declared a source.
+
 ## Navigation stack and L0 chrome (machine: `make android-navigation-stack-guard`)
 Canonical rulebook: `docs/decisions/android-navigation-stack.md`.
 - **L0 only owns global chrome.** The bottom bar/drawer renders only when the

@@ -43,12 +43,32 @@ type genericVerificationEvent struct {
 // (rework, obligation stays open). Idempotent — both delegate to accept/reject-only-when-recorded.
 // eventbus.Handler.
 type VerificationHandler struct {
-	completion *CompletionService
+	completion verificationCompletionService
+	closure    VerificationClosureProjector
+}
+
+type verificationCompletionService interface {
+	AcceptExisting(ctx context.Context, in AcceptExistingInput) (AcceptResult, error)
+	RejectExisting(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (RejectResult, error)
+	ApplyGoatVerification(ctx context.Context, tenantID, submissionID, goatID, outcome, reason string, actorID *string) error
+}
+
+// VerificationClosureProjector is the SOP-owned terminal-state projection invoked only after the
+// vaccination module has accepted every completion for the closed goat. Composition wiring
+// supplies the implementation, keeping this module free of SOP storage details.
+type VerificationClosureProjector interface {
+	AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 }
 
 // NewVerificationHandler constructs the handler over a CompletionService.
-func NewVerificationHandler(completion *CompletionService) *VerificationHandler {
+func NewVerificationHandler(completion verificationCompletionService) *VerificationHandler {
 	return &VerificationHandler{completion: completion}
+}
+
+// WithClosureProjector wires the SOP aggregate roll-up for generic verification closure events.
+func (h *VerificationHandler) WithClosureProjector(projector VerificationClosureProjector) *VerificationHandler {
+	h.closure = projector
+	return h
 }
 
 var _ eventbus.Handler = (*VerificationHandler)(nil)
@@ -115,7 +135,7 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 	if actor != "" {
 		actorID = &actor
 	}
-	return h.completion.ApplyGoatVerification(
+	if err := h.completion.ApplyGoatVerification(
 		ctx,
 		e.TenantID,
 		p.Source.SubmissionID,
@@ -123,5 +143,11 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 		outcome,
 		p.Reason,
 		actorID,
-	)
+	); err != nil {
+		return err
+	}
+	if e.Type == EventGenericVerificationClosed && h.closure != nil {
+		return h.closure.AcceptSubmissionItemVerification(ctx, e.TenantID, p.Source.SubmissionID, p.Source.RefID, actor)
+	}
+	return nil
 }

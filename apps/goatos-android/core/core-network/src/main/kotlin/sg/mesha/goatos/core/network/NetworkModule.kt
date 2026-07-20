@@ -42,6 +42,7 @@ import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
+import sg.mesha.goatos.core.network.dto.TaskOptionValuesResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
@@ -80,7 +81,7 @@ interface AppApiService {
     @POST("app/devices/{device_id}/deregister")
     suspend fun deregisterDevice(@Path("device_id") deviceId: String): DeviceResponseDto
 
-    @GET("vaccination/execution")
+    @GET("app/vaccination/execution")
     suspend fun listVaccinationExecution(
         @Query("park_id") parkId: String?,
         @Query("work_state") workState: String?,
@@ -90,7 +91,7 @@ interface AppApiService {
         @Query("cursor") cursor: String?,
     ): VaccinationExecutionResponseDto
 
-    @GET("vaccination/execution/sheds/{shed_id}")
+    @GET("app/vaccination/execution/sheds/{shed_id}")
     suspend fun getVaccinationExecutionShed(
         @Path("shed_id") shedId: String,
         @Query("as_of") asOf: String?,
@@ -146,6 +147,9 @@ interface AppApiService {
 
     @GET("app/tasks/{task_id}")
     suspend fun getAppTask(@Path("task_id") taskId: String): TaskDetailResponseDto
+
+    @GET("app/vaccination/tasks/{task_id}/option-values")
+    suspend fun getTaskOptionValues(@Path("task_id") taskId: String): TaskOptionValuesResponseDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -368,6 +372,9 @@ class RetrofitAppApi(
     ): TaskListResponseDto = service.listAppTasks(state, cursor, limit)
 
     override suspend fun getAppTask(taskId: String): TaskDetailResponseDto = service.getAppTask(taskId)
+
+    override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
+        service.getTaskOptionValues(taskId)
 
     override suspend fun submitAppTask(
         taskId: String,

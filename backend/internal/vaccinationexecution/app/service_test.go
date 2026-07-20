@@ -97,6 +97,18 @@ func (r fakeRepo) ListVaccinationExecution(ctx context.Context, q domain.Executi
 	return page.Rows, err
 }
 
+func TestDriveNameUsesBackendOwnedDoseDisplayLabel(t *testing.T) {
+	t.Parallel()
+
+	got := driveName(domain.ExecutionProjection{
+		ProtocolName: "Preventive Care Vaccination Matrix",
+		DoseCode:     "ET_TT_7W",
+	})
+	if got == nil || *got != "ET+TT · Booster" {
+		t.Fatalf("driveName() = %v, want ET+TT booster display label", got)
+	}
+}
+
 func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 	asOf := time.Date(2026, 6, 24, 10, 0, 0, 0, time.UTC)
 	dueYesterday := asOf.Add(-24 * time.Hour)
@@ -347,6 +359,18 @@ func TestCoverageRollupZeroTotalIsZeroPercentNotDivideByZero(t *testing.T) {
 	}
 	if len(resp.Protocols) != 1 || resp.Protocols[0].CoveragePercent != 0 {
 		t.Fatalf("protocols = %#v want single 0%% entry", resp.Protocols)
+	}
+}
+
+func TestExecutionDisplayCountsUseAggregatedObligations(t *testing.T) {
+	target, open, done := executionDisplayCounts(domain.ExecutionProjection{
+		ObligationCount:    4,
+		CompletedCount:     1,
+		CompletionRecorded: 2,
+		DeferredCount:      1,
+	})
+	if target != 4 || open != 1 || done != 2 {
+		t.Fatalf("counts=(target=%d open=%d done=%d) want (4,1,2)", target, open, done)
 	}
 }
 

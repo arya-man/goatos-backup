@@ -31,6 +31,9 @@ import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
+import sg.mesha.goatos.core.data.forms.FormOption
+import sg.mesha.goatos.core.data.forms.FormRule
+import sg.mesha.goatos.core.data.forms.FormRuleType
 import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -130,6 +133,79 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `vaccination select date time and explicit false answers obey backend rules and travel`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-contract", sopVersionId = "sop-contract", scopeId = "shed-1", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField("cold_chain_verified", "Cold chain verified", FormFieldType.BOOLEAN, required = true),
+                FormField(
+                    "route_site",
+                    "Route / site",
+                    FormFieldType.SELECT,
+                    required = true,
+                    options = listOf(FormOption("subcutaneous", "Subcutaneous")),
+                ),
+                FormField("administered_at", "Administered at", FormFieldType.DATE_TIME, required = true),
+                FormField("adverse_reaction", "Adverse reaction observed", FormFieldType.BOOLEAN, required = true),
+                FormField("adverse_reaction_notes", "Adverse reaction notes", FormFieldType.TEXT),
+            ),
+            rules = listOf(
+                FormRule(
+                    type = FormRuleType.BLOCK_SUBMISSION_IF,
+                    conditionField = "cold_chain_verified",
+                    operator = "equals",
+                    value = JsonPrimitive(false),
+                    message = "Cold chain must be verified before submitting the drive.",
+                ),
+                FormRule(
+                    type = FormRuleType.REQUIRED_IF,
+                    field = "adverse_reaction_notes",
+                    conditionField = "adverse_reaction",
+                    operator = "equals",
+                    value = JsonPrimitive(true),
+                    message = "Adverse reaction notes are required when a reaction is observed.",
+                ),
+            ),
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(FakeFormTasksRepository(task, form), sync, "task-contract")
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse(
+            "conditional reaction notes must stay out of the form until a reaction is observed",
+            viewModel.state.value.formRunner?.fields?.any { it.key == "adverse_reaction_notes" } == true,
+        )
+
+        viewModel.onEvent(SubmitEvent.FormToggle("cold_chain_verified", false))
+        advanceUntilIdle()
+        assertEquals("Cold chain must be verified before submitting the drive.", viewModel.state.value.formRunner?.blockedReason)
+
+        viewModel.onEvent(SubmitEvent.FormToggle("cold_chain_verified", true))
+        viewModel.onEvent(SubmitEvent.FormPick("route_site", "subcutaneous"))
+        viewModel.onEvent(SubmitEvent.FormText("administered_at", "2026-07-20T04:45:00+05:30"))
+        viewModel.onEvent(SubmitEvent.FormToggle("adverse_reaction", true))
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.canSubmit)
+        assertTrue(viewModel.state.value.formRunner?.fields?.first { it.key == "adverse_reaction_notes" }?.required == true)
+
+        viewModel.onEvent(SubmitEvent.FormToggle("adverse_reaction", false))
+        advanceUntilIdle()
+        assertTrue("explicit No is a complete required boolean answer", viewModel.state.value.canSubmit)
+        assertFalse(
+            "reaction notes must collapse again when the operator explicitly answers No",
+            viewModel.state.value.formRunner?.fields?.any { it.key == "adverse_reaction_notes" } == true,
+        )
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(JsonPrimitive("subcutaneous"), sync.lastRequest?.answers?.get("route_site"))
+        assertEquals(JsonPrimitive("2026-07-20T04:45:00+05:30"), sync.lastRequest?.answers?.get("administered_at"))
+        assertEquals(JsonPrimitive(false), sync.lastRequest?.answers?.get("adverse_reaction"))
+    }
+
+    @Test
     fun `a required goat_scan field blocks submit until a tag is scanned, then tags travel`() = runTest(dispatcher) {
         val task = TaskSummaryDto(taskId = "task-scan", sopVersionId = "sop-scan", scopeId = "shed-3", title = "Scan shed", rowVersion = 1)
         val form = FormSpec(
@@ -168,6 +244,60 @@ class SubmitViewModelFormTest {
         // Submitting stops the active scan — hardware capture is never left running behind
         // a screen that just enqueued its write.
         assertEquals(1, scanSource.stopCount)
+    }
+
+    @Test
+    fun `resolved vaccination scans submit canonical goat ids that match proof subjects`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-goat-id", sopVersionId = "sop-goat-id", scopeId = "shed-3", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("goat_ids", "Goats", FormFieldType.GOAT_SCAN, required = true)),
+            rules = emptyList(),
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(
+            taskId = task.taskId,
+            fieldKey = "goat_ids",
+            tag = "RFID-001",
+            goatId = "goat-uuid-1",
+            obligationId = "obligation-1",
+        )
+        val proofs = FakeProofCaptureRepository()
+        val proof = proofs.capture(
+            taskId = task.taskId,
+            fieldKey = "vaccination_goat_proof",
+            subject = ProofSubject.GOAT,
+            subjectId = "goat-uuid-1",
+            localUri = "file:///proof.mp4",
+            mimeType = "video/mp4",
+            caption = null,
+            scopeType = "task",
+            scopeId = task.taskId,
+            capturedStartMs = 1L,
+            capturedEndMs = 2L,
+            capturedByPrincipalId = "operator-1",
+            proofPolicy = ProofPolicy.Default,
+        ) as AppResult.Ok
+        proofs.markSynced(proof.value.id, "server-proof-1")
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            repository = FakeFormTasksRepository(task, form),
+            sync = sync,
+            taskId = task.taskId,
+            scanCaptureRepository = scans,
+            proofCaptureRepository = proofs,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.canSubmit)
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(
+            JsonArray(listOf(JsonPrimitive("goat-uuid-1"))),
+            sync.lastRequest?.answers?.get("goat_ids"),
+        )
     }
 
     @Test
@@ -526,6 +656,68 @@ class SubmitViewModelFormTest {
         advanceUntilIdle()
         assertFixtureFree(noTaskVm.state.value)
         assertTrue(noTaskVm.state.value.isNoTaskAssigned)
+    }
+
+    @Test
+    fun `vaccination record never exposes an internal task UUID as shed identity`() = runTest(dispatcher) {
+        val rawId = "00000000-0000-4000-8000-000000003001"
+        val task = TaskSummaryDto(
+            taskId = "task-safe-presentation",
+            sopVersionId = "sop-safe-presentation",
+            taskType = "vaccination",
+            scopeType = "park",
+            scopeId = rawId,
+            title = "Vaccination drive $rawId",
+            description = "",
+            rowVersion = 1,
+        )
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, FormSpec.Empty),
+            CapturingSyncRepository(),
+            "task-safe-presentation",
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertFalse("raw UUID leaked into the user-visible shed summary", state.shed.contains(rawId))
+        assertFalse("raw UUID leaked into the user-visible title", state.title.contains(rawId))
+    }
+
+    @Test
+    fun `a submitted task is acknowledged read only and cannot be submitted again`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-needs-review",
+            sopVersionId = "sop-needs-review",
+            state = "needs_review",
+            rowVersion = 2,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(
+                    key = "cold_chain_verified",
+                    label = "Cold chain verified",
+                    type = FormFieldType.BOOLEAN,
+                    required = true,
+                ),
+            ),
+            rules = emptyList(),
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(FakeFormTasksRepository(task, form), sync, task.taskId)
+        backgroundScope.launch { viewModel.state.collect {} }
+
+        advanceUntilIdle()
+
+        assertEquals(sg.mesha.goatos.feature.submit.SyncState.ACKED, viewModel.state.value.syncState)
+        assertFalse(viewModel.state.value.canSubmit)
+        assertNull("terminal task fields must not remain editable", viewModel.state.value.formRunner)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNull("terminal task must never enqueue another submission", sync.lastRequest)
     }
 
     @Test

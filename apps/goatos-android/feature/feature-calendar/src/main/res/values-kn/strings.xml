@@ -13,6 +13,7 @@
     <string name="calendar_week_empty">ಡ್ರೈವ್ ನಿಗದಿಸಲಾಗಿಲ್ಲ</string>
     <string name="calendar_history_empty">ಅಂಗೀಕೃತ ಪೂರ್ಣಗೊಳింపు ಇತಿಹಾಸ ಇಲ್ಲ</string>
     <string name="calendar_day_sheet_empty">ಈ ದಿನ ಯಾವುದೇ ಡ್ರೈವ್ ನಿಗದಿಯಾಗಿಲ್ಲ</string>
+    <string name="calendar_month_empty">ಈ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ಹೊಂದುವ ಲಸಿಕೆ ಡ್ರೈವ್‌ಗಳಿಲ್ಲ</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">ಆ ದಿನದ ಬಾಕಿ ಕೆಲಸ ಅಥವಾ ಪೂರ್ಣಗೊಳிப்பு ಇತಿಹಾಸಕ್ಕಾಗಿ ಟ್ಯಾಪ್ ಮಾಡಿ · ಚುಕ್ಕೆಗಳು = ತೆರೆದ ಕೆಲಸ, ಮಂಕಾದ ಚುಕ್ಕೆಗಳು = ಪೂರ್ಣಗೊಂಡ ಇತಿಹಾಸ</string>
@@ -30,6 +31,25 @@
     <string name="calendar_drive_vaccines">ಲಸಿಕೆಗಳು</string>
     <string name="calendar_drive_animals">ಪ್ರಾಣಿಗಳು</string>
     <string name="calendar_drive_doses">ಡೋಸ್‌ಗಳು</string>
+    <string name="calendar_load_more_day">ಈ ದಿನದ ಇನ್ನಷ್ಟು ಡ್ರೈವ್‌ಗಳನ್ನು ಲೋಡ್ ಮಾಡಿ</string>
+    <string name="calendar_load_more_history">ಇನ್ನಷ್ಟು ಇತಿಹಾಸ ಲೋಡ್ ಮಾಡಿ</string>
+    <string name="calendar_loading_more">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="calendar_month_schedule">ಮಾಸಿಕ ಲಸಿಕೆ ವೇಳಾಪಟ್ಟಿ</string>
+    <string name="calendar_page_size">ಪ್ರತಿ ಪುಟಕ್ಕೆ 20</string>
+    <string name="calendar_filters">ಫಿಲ್ಟರ್‌ಗಳು</string>
+    <string name="calendar_retry">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="calendar_month_loading">ವೇಳಾಪಟ್ಟಿ ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="calendar_month_load_error">ವೇಳಾಪಟ್ಟಿಯನ್ನು ನವೀಕರಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ</string>
+    <string name="calendar_filter_title">ವೇಳಾಪಟ್ಟಿಯನ್ನು ಫಿಲ್ಟರ್ ಮಾಡಿ</string>
+    <string name="calendar_filter_all">ಎಲ್ಲಾ</string>
+    <string name="calendar_filter_year">ವರ್ಷ</string>
+    <string name="calendar_filter_month">ತಿಂಗಳು</string>
+    <string name="calendar_filter_park">ಪಾರ್ಕ್</string>
+    <string name="calendar_filter_shed">ಶೆಡ್</string>
+    <string name="calendar_filter_vaccine">ಲಸಿಕೆ</string>
+    <string name="calendar_filter_status">ಸ್ಥಿತಿ</string>
+    <string name="calendar_filter_clear">ತೆರವುಗೊಳಿಸಿ</string>
+    <string name="calendar_filter_apply">ಫಿಲ್ಟರ್‌ಗಳನ್ನು ಅನ್ವಯಿಸಿ</string>
 
     <!-- v4 park-level drive progress card -->
     <string name="calendar_drive_title">ಲಸಿಕೆ ಡ್ರೈವ್ · %1$s</string>

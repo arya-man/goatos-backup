@@ -16,6 +16,8 @@ import (
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
+	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
@@ -36,6 +38,7 @@ func BuildDomainBus(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, queryTimeout))
 	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
+	sopService := sopapp.NewService(soppg.NewRepository(pool, queryTimeout))
 	vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo).WithCrossVaccineGapReader(vaccinationRepo)
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
@@ -43,7 +46,7 @@ func BuildDomainBus(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
-	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
+	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)

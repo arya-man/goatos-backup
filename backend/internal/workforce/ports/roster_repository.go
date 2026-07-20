@@ -235,9 +235,10 @@ type RosterRepository interface {
 	// duty_type='verify' seat seeded -- seed-position-duties derives only execute/manage today).
 	ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]domain.NotificationRecipient, error)
 
-	// ResolveMemberRecipients returns active, reachable devices for one specific workforce member
-	// (e.g. the operator who executed a completion, vaccination_completions.recorded_by).
-	ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]domain.NotificationRecipient, error)
+	// ResolveMemberRecipients returns active, reachable devices for one specific workforce member.
+	// It accepts either the workforce_member_id or the member's linked authenticated user_id because
+	// SOP execution events carry actor ids.
+	ResolveMemberRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]domain.NotificationRecipient, error)
 
 	// ResolvePositionRecipients returns active, reachable devices for whoever actively holds
 	// positionCode at (scopeType, scopeID) `at` -- e.g. the park head.

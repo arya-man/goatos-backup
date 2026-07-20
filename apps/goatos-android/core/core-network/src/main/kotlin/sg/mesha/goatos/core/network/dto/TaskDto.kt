@@ -4,6 +4,20 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
+@Serializable
+data class TaskPresentationItemDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("value") val value: String = "",
+)
+
+@Serializable
+data class TaskPresentationDto(
+    @SerialName("eyebrow") val eyebrow: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("summary_items") val summaryItems: List<TaskPresentationItemDto> = emptyList(),
+)
+
 /**
  * Operator Tasks:
  *   GET  /app/tasks                       -> TaskListResponse (items[] + paging metadata)
@@ -33,6 +47,8 @@ data class TaskSummaryDto(
     @SerialName("row_version") val rowVersion: Int = 1,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
+    /** Locale-aware display contract for app surfaces. Raw ids/title remain transport facts. */
+    @SerialName("presentation") val presentation: TaskPresentationDto? = null,
 )
 
 @Serializable
@@ -120,6 +136,36 @@ data class TaskDetailResponseDto(
     @SerialName("sop_version") val sopVersion: SopVersionDto? = null,
     @SerialName("submissions") val submissions: List<SubmissionSummaryDto> = emptyList(),
     @SerialName("trace_id") val traceId: String = "",
+    /** Client-only cache envelope field populated from the task option-values endpoint. */
+    @SerialName("option_values") val optionValues: TaskOptionValuesResponseDto? = null,
+)
+
+@Serializable
+data class TaskOptionValueDto(
+    @SerialName("value") val value: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("disabled") val disabled: Boolean = false,
+    @SerialName("disabled_reason") val disabledReason: String? = null,
+    @SerialName("available_quantity") val availableQuantity: String? = null,
+    @SerialName("quantity_unit") val quantityUnit: String? = null,
+    @SerialName("expiry_date") val expiryDate: String? = null,
+    @SerialName("fefo_rank") val fefoRank: Int? = null,
+)
+
+@Serializable
+data class TaskOptionSourceDto(
+    @SerialName("source") val source: String = "",
+    @SerialName("disabled_reason") val disabledReason: String? = null,
+    @SerialName("options") val options: List<TaskOptionValueDto> = emptyList(),
+)
+
+@Serializable
+data class TaskOptionValuesResponseDto(
+    @SerialName("task_id") val taskId: String = "",
+    @SerialName("batch_id") val batchId: String = "",
+    @SerialName("sop_version_id") val sopVersionId: String = "",
+    @SerialName("task_row_version") val taskRowVersion: Int = 0,
+    @SerialName("sources") val sources: List<TaskOptionSourceDto> = emptyList(),
 )
 
 /** Request body for POST /app/tasks/{task_id}/submissions. */

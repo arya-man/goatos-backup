@@ -13,6 +13,7 @@
     <string name="calendar_week_empty">कोई ड्राइव शेड्यूल नहीं है</string>
     <string name="calendar_history_empty">कोई स्वीकृत पूर्णता इतिहास नहीं</string>
     <string name="calendar_day_sheet_empty">इस दिन कोई ड्राइव शेड्यूल नहीं</string>
+    <string name="calendar_month_empty">इन फ़िल्टरों से मेल खाने वाली कोई टीकाकरण ड्राइव नहीं है</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">किसी दिन के देय काम या पूर्णता इतिहास के लिए टैप करें · बिंदु = खुला काम, फीके बिंदु = पूर्णता इतिहास</string>
@@ -30,6 +31,25 @@
     <string name="calendar_drive_vaccines">टीके</string>
     <string name="calendar_drive_animals">पशु</string>
     <string name="calendar_drive_doses">खुराक</string>
+    <string name="calendar_load_more_day">इस दिन की और ड्राइव लोड करें</string>
+    <string name="calendar_load_more_history">और इतिहास लोड करें</string>
+    <string name="calendar_loading_more">लोड हो रहा है…</string>
+    <string name="calendar_month_schedule">मासिक टीकाकरण कार्यक्रम</string>
+    <string name="calendar_page_size">प्रति पृष्ठ 20</string>
+    <string name="calendar_filters">फ़िल्टर</string>
+    <string name="calendar_retry">पुनः प्रयास करें</string>
+    <string name="calendar_month_loading">कार्यक्रम लोड हो रहा है…</string>
+    <string name="calendar_month_load_error">कार्यक्रम अपडेट नहीं हो सका</string>
+    <string name="calendar_filter_title">कार्यक्रम फ़िल्टर करें</string>
+    <string name="calendar_filter_all">सभी</string>
+    <string name="calendar_filter_year">वर्ष</string>
+    <string name="calendar_filter_month">माह</string>
+    <string name="calendar_filter_park">पार्क</string>
+    <string name="calendar_filter_shed">शेड</string>
+    <string name="calendar_filter_vaccine">टीका</string>
+    <string name="calendar_filter_status">स्थिति</string>
+    <string name="calendar_filter_clear">साफ़ करें</string>
+    <string name="calendar_filter_apply">फ़िल्टर लागू करें</string>
 
     <!-- v4 park-level drive progress card -->
     <string name="calendar_drive_title">टीकाकरण ड्राइव · %1$s</string>

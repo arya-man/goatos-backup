@@ -89,7 +89,7 @@ class CalendarViewModelTest {
             links = mapOf("workflow" to JsonPrimitive("/vaccination/workflows/calendar:task")),
         ).routeTarget()
 
-        assertEquals("scan/shed-1", target)
+        assertEquals("scan/shed-1?task_id=task", target)
     }
 
     @Test

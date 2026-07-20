@@ -63,6 +63,9 @@ data class VaccineGroup(
     val dose: String,
 )
 
+/** One backend-composed, locale-aware fact in the task summary card. */
+data class SubmitSummaryItem(val key: String, val label: String, val value: String)
+
 /** Hoisted state for [SubmitScreen]. Every visible string is a field.
  *  @Immutable: groups: List<VaccineGroup> otherwise marks this unstable (item 6,
  *  perf/stability pass). */
@@ -73,6 +76,7 @@ data class SubmitUiState(
     val shed: String,
     val cohort: String,
     val date: String,
+    val summaryItems: List<SubmitSummaryItem> = emptyList(),
     val dueSectionLabel: String,
     val groups: List<VaccineGroup>,
     val syncState: SyncState,
@@ -222,8 +226,10 @@ fun SubmitScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item {
-                RecordSummary(state)
+            if (state.summaryItems.any { it.label.isNotBlank() && it.value.isNotBlank() } ||
+                state.shed.isNotBlank() || state.cohort.isNotBlank() || state.date.isNotBlank()
+            ) {
+                item { RecordSummary(state) }
             }
             if (state.goatProofTotal > 0) {
                 item {
@@ -265,14 +271,16 @@ fun SubmitScreen(
                     }
                 }
             }
-            item {
-                Text(
-                    text = state.dueSectionLabel,
-                    color = T.faint,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
-                )
+            if (state.groups.isNotEmpty() && state.dueSectionLabel.isNotBlank()) {
+                item {
+                    Text(
+                        text = state.dueSectionLabel,
+                        color = T.faint,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                    )
+                }
             }
             // MOB-011: Use stable keys for vaccine groups to avoid recomposition on insert/reorder
             items(state.groups, key = { group -> "${group.name}|${group.dose}" }, contentType = { "vaccine_group" }) { group ->
@@ -292,9 +300,19 @@ private fun SubmitHeader(state: SubmitUiState) {
             .background(T.surf)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Text(state.eyebrow, color = T.brandD, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            state.eyebrow.ifBlank { stringResource(R.string.submit_eyebrow) },
+            color = T.brandD,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
         Spacer(Modifier.height(2.dp))
-        Text(state.title, color = T.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(
+            state.title.ifBlank { stringResource(R.string.submit_record_title) },
+            color = T.ink,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -302,6 +320,9 @@ private fun SubmitHeader(state: SubmitUiState) {
 private fun SyncBanner(state: SubmitUiState) {
     val tone = state.syncState.tone()
     val label = syncLabelFor(state)
+    // An unanswered DRAFT form has no sync lifecycle to announce yet. Rendering the banner shell
+    // with an empty label leaves a large blank strip and a lone status dot above the form.
+    if (label.isBlank()) return
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -331,12 +352,20 @@ private fun SyncBanner(state: SubmitUiState) {
 
 @Composable
 private fun RecordSummary(state: SubmitUiState) {
+    val items = state.summaryItems
+        .filter { it.label.isNotBlank() && it.value.isNotBlank() }
+        .ifEmpty {
+            listOf(
+                SubmitSummaryItem("shed", stringResource(R.string.submit_summary_shed), state.shed),
+                SubmitSummaryItem("cohort", stringResource(R.string.submit_summary_cohort), state.cohort),
+                SubmitSummaryItem("date", stringResource(R.string.submit_summary_date), state.date),
+            ).filter { it.value.isNotBlank() }
+        }
     GoatCard {
-        SummaryRow(stringResource(R.string.submit_summary_shed), state.shed)
-        HairLine()
-        SummaryRow(stringResource(R.string.submit_summary_cohort), state.cohort)
-        HairLine()
-        SummaryRow(stringResource(R.string.submit_summary_date), state.date)
+        items.forEachIndexed { index, item ->
+            SummaryRow(item.label, item.value)
+            if (index != items.lastIndex) HairLine()
+        }
     }
 }
 
@@ -349,8 +378,16 @@ private fun SummaryRow(key: String, value: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(key, color = T.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.weight(1f))
-        Text(value, color = T.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(16.dp))
+        Text(
+            value,
+            color = T.ink,
+            fontSize = 13.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

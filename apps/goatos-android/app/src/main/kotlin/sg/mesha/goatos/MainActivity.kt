@@ -201,16 +201,24 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Route every hardware key event through the RFID capture first. A keyboard-wedge
-     * reader types the tag as key events + Enter; the capture consumes them only while an
-     * RFID-accepting screen enabled capture, so normal typing/navigation is unaffected.
+     * Route every hardware key event through the RFID capture before the Compose view tree.
+     * A keyboard-wedge reader terminates a tag with Enter; intercepting only in
+     * [onKeyDown]/[onKeyUp] is too late because a focused Compose control (for example the
+     * Scan screen's Back affordance) may consume Enter during view dispatch first. When RFID
+     * capture is inactive, or the key is unrelated to a tag, the event still follows the
+     * normal Activity/View path unchanged.
      */
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
-        rfidReader.onKeyEvent(event) || super.onKeyDown(keyCode, event)
-
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
-        rfidReader.onKeyEvent(event) || super.onKeyUp(keyCode, event)
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = dispatchRfidFirst(
+        rfidConsumes = { rfidReader.onKeyEvent(event) },
+        dispatchNormally = { super.dispatchKeyEvent(event) },
+    )
 }
+
+/** Keeps the Activity's input-order contract independently regression-testable. */
+internal fun dispatchRfidFirst(
+    rfidConsumes: () -> Boolean,
+    dispatchNormally: () -> Boolean,
+): Boolean = if (rfidConsumes()) true else dispatchNormally()
 
 @Composable
 private fun BootstrapLoading() {

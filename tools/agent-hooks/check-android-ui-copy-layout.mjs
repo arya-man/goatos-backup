@@ -8,6 +8,7 @@
 //   - manual translation/absolute-offset alignment hacks that produce fragile layouts.
 //   - one-letter/narrow date labels that collapse calendar strips on real data.
 //   - state-dependent geometry that makes peer cards/buttons/chips render with mixed sizes.
+//   - translatable base resources missing from any supported app locale.
 //
 // The checks intentionally target display sinks and Android string resources rather than every
 // source literal, so wire DTOs, comments, tests, and internal identifiers remain legal.
@@ -22,6 +23,7 @@ const scanRoots = [
   "apps/goatos-android/feature",
   "apps/goatos-android/core/core-ui/src/main",
 ];
+const supportedLocales = ["hi", "kn", "te"];
 
 const internalToken =
   /\b(?:task_id|row_version|proof_id|submission_id|subject_id|scope_id|trace_id|idempotency_key|provider_message_id)\b/i;
@@ -44,8 +46,62 @@ function walk(dir, out = []) {
   return out;
 }
 
+function walkBaseStringFiles(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== "build") walkBaseStringFiles(full, out);
+    } else if (
+      entry.name === "strings.xml" &&
+      full.endsWith(`${path.sep}src${path.sep}main${path.sep}res${path.sep}values${path.sep}strings.xml`)
+    ) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 function lineNumber(text, index) {
   return text.slice(0, index).split("\n").length;
+}
+
+function translatableResourceEntries(xml) {
+  const entries = new Map();
+  const resourceTag = /<(string-array|plurals|string)\b([^>]*\bname\s*=\s*"([^"]+)"[^>]*)>/g;
+  for (const match of xml.matchAll(resourceTag)) {
+    if (/\btranslatable\s*=\s*"false"/.test(match[2])) continue;
+    entries.set(match[3], { index: match.index ?? 0, type: match[1] });
+  }
+  return entries;
+}
+
+function localeParityFindings(baseFile, read = (file) => fs.readFileSync(file, "utf8"), exists = fs.existsSync) {
+  const findings = [];
+  const baseXml = read(baseFile);
+  const baseEntries = translatableResourceEntries(baseXml);
+  // Identifier-only modules do not need empty translated resource files.
+  if (baseEntries.size === 0) return findings;
+
+  for (const locale of supportedLocales) {
+    const localizedFile = baseFile.replace(
+      `${path.sep}values${path.sep}strings.xml`,
+      `${path.sep}values-${locale}${path.sep}strings.xml`,
+    );
+    const localizedEntries = exists(localizedFile)
+      ? translatableResourceEntries(read(localizedFile))
+      : new Map();
+    for (const [name, entry] of baseEntries) {
+      if (!localizedEntries.has(name)) {
+        findings.push({
+          rel: path.relative(root, baseFile),
+          line: lineNumber(baseXml, entry.index),
+          message: `translatable resource '${name}' is missing from values-${locale}/strings.xml`,
+        });
+      }
+    }
+  }
+  return findings;
 }
 
 function findingsFor(file, text) {
@@ -139,6 +195,18 @@ function findingsFor(file, text) {
       });
     }
   }
+  if (rel.endsWith("app/src/main/kotlin/sg/mesha/goatos/viewmodel/SubmitViewModel.kt")) {
+    addMatches(
+      /\b(?:shed|cohort|date|subtitle|eyebrow|title)\s*=\s*task\.(?:title|description|scopeId|taskId|sopCode)\b/g,
+      "task transport fields/internal ids must not feed visible submit copy; render TaskPresentation",
+    );
+  }
+  if (rel.endsWith("backend/internal/obligation/app/sweeper.go")) {
+    addMatches(
+      /\bTitle\s*:\s*[^\n]*(?:ScopeID|BatchID|TaskID)/g,
+      "task creation must not concatenate internal ids into a user-visible title",
+    );
+  }
   return findings;
 }
 
@@ -158,11 +226,36 @@ function runSelfTest() {
     Text(stringResource(R.string.proof_ready))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp))
   `;
+  const badTaskPresentation = `shed = task.title\nTitle: "Vaccination drive " + b.ScopeID`;
   const badFindings = findingsFor("Screen.kt", bad);
   const goodFindings = findingsFor("Screen.kt", good);
-  if (badFindings.length !== 9 || goodFindings.length !== 0) {
+  const badVmFindings = findingsFor("app/src/main/kotlin/sg/mesha/goatos/viewmodel/SubmitViewModel.kt", badTaskPresentation);
+  const badBackendFindings = findingsFor("backend/internal/obligation/app/sweeper.go", badTaskPresentation);
+  const fixtureBase = path.join(root, "fixture", "src", "main", "res", "values", "strings.xml");
+  const fixtureFiles = new Map([
+    [fixtureBase, `<resources><string name="visible">Visible</string><string name="channel_id" translatable="false">id</string></resources>`],
+    [fixtureBase.replace(`${path.sep}values${path.sep}`, `${path.sep}values-hi${path.sep}`), `<resources><string name="visible">दिखने वाला</string></resources>`],
+    [fixtureBase.replace(`${path.sep}values${path.sep}`, `${path.sep}values-te${path.sep}`), `<resources><string name="visible">కనిపించేది</string></resources>`],
+  ]);
+  const localeFindings = localeParityFindings(
+    fixtureBase,
+    (file) => fixtureFiles.get(file),
+    (file) => fixtureFiles.has(file),
+  );
+  const identifierOnlyBase = fixtureBase.replace("fixture", "identifier-only");
+  const identifierOnlyFindings = localeParityFindings(
+    identifierOnlyBase,
+    () => `<resources><string name="channel_id" translatable="false">id</string></resources>`,
+    () => false,
+  );
+  if (badFindings.length !== 9 || goodFindings.length !== 0 || badVmFindings.length !== 1 || badBackendFindings.length !== 1) {
     throw new Error(
-      `self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)}`,
+      `self-test failed: bad=${JSON.stringify(badFindings)} good=${JSON.stringify(goodFindings)} vm=${JSON.stringify(badVmFindings)} backend=${JSON.stringify(badBackendFindings)}`,
+    );
+  }
+  if (localeFindings.length !== 1 || !localeFindings[0].message.includes("values-kn") || identifierOnlyFindings.length !== 0) {
+    throw new Error(
+      `locale self-test failed: missing=${JSON.stringify(localeFindings)} identifierOnly=${JSON.stringify(identifierOnlyFindings)}`,
     );
   }
   console.log("android-ui-copy-layout guard self-test passed");
@@ -173,8 +266,14 @@ if (process.argv.includes("--self-test")) {
   process.exit(0);
 }
 
-const files = scanRoots.flatMap((dir) => walk(path.join(root, dir)));
+const files = [
+  ...scanRoots.flatMap((dir) => walk(path.join(root, dir))),
+  path.join(root, "backend/internal/obligation/app/sweeper.go"),
+].filter((file) => fs.existsSync(file));
 const findings = files.flatMap((file) => findingsFor(file, fs.readFileSync(file, "utf8")));
+for (const baseFile of walkBaseStringFiles(path.join(root, "apps/goatos-android"))) {
+  findings.push(...localeParityFindings(baseFile));
+}
 if (findings.length > 0) {
   console.error("android-ui-copy-layout guard FAILED:");
   for (const finding of findings) {

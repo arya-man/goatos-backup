@@ -1312,6 +1312,18 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        TaskPresentation: {
+            /** @description Locale-aware task category label for app display. */
+            eyebrow: string;
+            /** @description Locale-aware task title safe for user-visible app display; never an internal id. */
+            title: string;
+            summary_items: components["schemas"]["TaskPresentationItem"][];
+        };
+        TaskPresentationItem: {
+            key: string;
+            label: string;
+            value: string;
+        };
         SOPVersionResponse: {
             version: components["schemas"]["SOPVersion"];
             trace_id: string;
@@ -1347,6 +1359,7 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            presentation?: components["schemas"]["TaskPresentation"];
         };
         TaskListResponse: {
             items: components["schemas"]["TaskSummary"][];
@@ -2636,6 +2649,12 @@ export interface components {
             shedId: string;
             shedName: string;
             animalStage: string;
+            /** @description Number of targeted animal obligations represented by this aggregated execution row. */
+            targetCount: number;
+            /** @description Targeted animal obligations still requiring field execution. */
+            openCount: number;
+            /** @description Targeted animal obligations with completion evidence recorded. */
+            doneCount: number;
             /** Format: uuid */
             driveId?: string;
             driveName?: string;
@@ -3946,7 +3965,12 @@ export interface operations {
                 /** @description Opaque keyset cursor returned as next_cursor by the previous task page. */
                 cursor?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+                /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+                "X-GoatOS-Locale"?: components["parameters"]["GoatOSLocale"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3968,7 +3992,12 @@ export interface operations {
     getAppTask: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+                /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+                "X-GoatOS-Locale"?: components["parameters"]["GoatOSLocale"];
+            };
             path: {
                 task_id: components["parameters"]["TaskId"];
             };
@@ -5699,7 +5728,12 @@ export interface operations {
     appTaskOptionValues: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en. */
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+                /** @description Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy. */
+                "X-GoatOS-Locale"?: components["parameters"]["GoatOSLocale"];
+            };
             path: {
                 task_id: components["parameters"]["TaskId"];
             };

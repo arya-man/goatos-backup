@@ -110,6 +110,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
 	mux.HandleFunc("GET /vaccination/capacity-config", h.GetCapacityConfig)
+	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
+	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
 	mux.HandleFunc("GET /app/vaccination/tasks/{task_id}/option-values", h.TaskOptionValues)
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)

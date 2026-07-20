@@ -75,8 +75,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
 		LocationsRead: {}, LocationsReview: {},
-		OperatorsRead: {},
-		TaskRead:      {}, TaskVerify: {},
+		OperatorsRead: {}, AppBootstrap: {},
+		TaskRead: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementReview: {},
@@ -109,7 +109,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		VerificationAct: {},
 	},
 	RoleOperator: {
-		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, ProcurementRead: {}, ProcurementWrite: {},
+		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},

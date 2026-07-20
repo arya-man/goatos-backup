@@ -103,6 +103,32 @@ class FormSpecTest {
     }
 
     @Test
+    fun `select date time description and string options use supported renderers`() {
+        val dsl = buildJsonObject {
+            putJsonArray("fields") {
+                addJsonObject {
+                    put("key", "route_site")
+                    put("label", "Route / site")
+                    put("type", "select")
+                    put("description", "Route and body site used for administration.")
+                    putJsonArray("options") { add("subcutaneous"); add("intramuscular") }
+                }
+                addJsonObject {
+                    put("key", "administered_at")
+                    put("label", "Administered at")
+                    put("type", "date_time")
+                }
+            }
+        }.entries.associate { it.key to it.value }
+
+        val fields = dsl.toFormSpec().fields
+        assertEquals(FormFieldType.SELECT, fields[0].type)
+        assertEquals(listOf("subcutaneous", "intramuscular"), fields[0].options.map { it.value })
+        assertEquals("Route and body site used for administration.", fields[0].helpText)
+        assertEquals(FormFieldType.DATE_TIME, fields[1].type)
+    }
+
+    @Test
     fun `empty or malformed dsl yields the empty spec`() {
         assertTrue(emptyMap<String, JsonElement>().toFormSpec().isEmpty)
         // a field with no key is dropped, not crashed
@@ -130,5 +156,21 @@ class FormSpecTest {
         assertEquals(listOf("cbe", "cpt"), field.options.map { it.value })
         assertEquals("Coimbatore", field.options.first().label)
         assertNull(field.helpText)
+    }
+
+    @Test
+    fun `picker option source is parsed for backend task resolution`() {
+        val dsl = buildJsonObject {
+            putJsonArray("fields") {
+                addJsonObject {
+                    put("key", "vaccine_lot_id")
+                    put("label", "Vaccine lot")
+                    put("type", "vaccine_batch_picker")
+                    put("option_source", "vaccine_lots")
+                }
+            }
+        }.entries.associate { it.key to it.value }
+
+        assertEquals("vaccine_lots", dsl.toFormSpec().fields.single().optionSource)
     }
 }

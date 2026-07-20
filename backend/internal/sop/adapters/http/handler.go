@@ -49,7 +49,7 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/tasks/submission-fanouts/retry", h.RetrySubmissionFanouts)
 
 	mux.HandleFunc("GET /app/tasks", h.ListAppTasks)
-	mux.HandleFunc("GET /app/tasks/{task_id}", h.GetTask)
+	mux.HandleFunc("GET /app/tasks/{task_id}", h.GetAppTask)
 	mux.HandleFunc("GET /app/sop-versions/{sop_version_id}", h.GetAppVersion)
 	mux.HandleFunc("POST /app/tasks/{task_id}/scan-captures", h.RecordScanCapture)
 	mux.HandleFunc("POST /app/tasks/{task_id}/scan-attempts", h.RecordScanAttempt)
@@ -204,6 +204,17 @@ func (h *Handler) GetTask(w nethttp.ResponseWriter, r *nethttp.Request) {
 	h.respond(w, r, result, err)
 }
 
+func (h *Handler) GetAppTask(w nethttp.ResponseWriter, r *nethttp.Request) {
+	result, err := h.service.GetAppTask(
+		r.Context(),
+		tenantID(r),
+		r.PathValue("task_id"),
+		httpmiddleware.LocaleTagFromRequest(r),
+		traceID(r),
+	)
+	h.respond(w, r, result, err)
+}
+
 func (h *Handler) AssignTask(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var body domain.AssignTaskRequest
 	if !decodeJSON(w, r, &body) {
@@ -304,6 +315,7 @@ func (h *Handler) ListAppTasks(w nethttp.ResponseWriter, r *nethttp.Request) {
 		Cursor:     cursor,
 		Limit:      limit,
 		AppView:    true,
+		LocaleTag:  httpmiddleware.LocaleTagFromRequest(r),
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }

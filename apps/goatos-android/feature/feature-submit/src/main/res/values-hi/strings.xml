@@ -1,10 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="submit_eyebrow">टीकाकरण</string>
+    <string name="submit_record_title">शेड रिकॉर्ड</string>
     <string name="submit_summary_shed">शेड</string>
-    <string name="submit_summary_cohort">समूह</string>
+    <string name="submit_summary_cohort">पशु अवस्था</string>
     <string name="submit_summary_date">तारीख</string>
     <string name="submit_dose_label">खुराक</string>
+    <string name="submit_goat_proof_title">बकरी का कैमरा प्रमाण</string>
+    <string name="submit_goat_proof_synced">%2$d में से %1$d बकरियाँ सिंक हुईं</string>
+    <string name="submit_goat_proof_uploading">%1$d अपलोड हो रही हैं</string>
+    <string name="submit_goat_proof_failed">%1$d के लिए पुनः प्रयास आवश्यक</string>
+    <string name="submit_goat_proof_finalize_hint">अंतिम रूप देने से सिंक किए गए रिकॉर्ड की जाँच होती है। इससे फ़ाइलें अपलोड नहीं होतीं।</string>
     <string name="submit_retry_label">पुनः प्रयास करें</string>
+    <string name="submit_form_yes">हाँ</string>
+    <string name="submit_form_no">नहीं</string>
+    <string name="submit_form_select">चुनें…</string>
+    <string name="submit_form_use_current_time">वर्तमान तारीख और समय का उपयोग करें</string>
 
     <!-- Sync state labels -->
     <string name="submit_sync_loading">लोड हो रहा है…</string>

@@ -12,11 +12,11 @@ import (
 // shared_key allows items to be deduped across modules (e.g., "calendar" is shared
 // by Vaccination, Feed Direction, and future modules).
 type moduleNavContribution struct {
-	key       string // e.g., "vaccination", "overview", "calendar"
-	labelKey  string // i18n key in bootstrapLabels
-	href      string
+	key        string // e.g., "vaccination", "overview", "calendar"
+	labelKey   string // i18n key in bootstrapLabels
+	href       string
 	shared_key string // "" if not shared; if set, dedupe by this key across modules
-	priority  int    // lower = earlier in nav; shared items use the first module's priority
+	priority   int    // lower = earlier in nav; shared items use the first module's priority
 }
 
 // moduleNavRegistry maps module IDs to their nav contributions.
@@ -40,6 +40,11 @@ var moduleNavRegistry = map[string][]moduleNavContribution{ //nav-composition:ig
 		{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
 		{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 	},
+	// The cross-vertical verifier app is intentionally standalone. Verifiers review
+	// evidence; they never inherit operator capture or leadership action navigation.
+	"verification": {
+		{key: "verify", labelKey: "nav.verify", href: "/verify", shared_key: "", priority: 0}, //nav-composition:ignore: registry entry
+	},
 }
 
 // visibleNavigationFor composes navigation from the person's granted modules.
@@ -47,6 +52,12 @@ var moduleNavRegistry = map[string][]moduleNavContribution{ //nav-composition:ig
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, localeTag string) []domain.BootstrapNavigationItem {
+	// A verifier sees only the generic media-verification module. Keep this check
+	// ahead of leadership so a verifier grant can never expose act/capture screens.
+	if isVerifierPrincipal(grants) {
+		return composeNavigationFromModules([]string{"verification"}, localeTag)
+	}
+
 	// Leadership principals get the fixed leadership nav (Overview + Calendar + Alerts)
 	if isLeadershipPrincipal(grants) {
 		return composeNavigationFromModules([]string{"leadership"}, localeTag)
@@ -127,6 +138,7 @@ func localizedBootstrapLabel(localeTag, key string) string {
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
 		"nav.leadership":     "Overview",
+		"nav.verify":         "Verify",
 		"nav.calendar":       "Calendar",
 		"nav.alerts":         "Alerts",
 		"nav.drives":         "Drives",
@@ -136,6 +148,7 @@ var bootstrapLabels = map[string]map[string]string{
 	},
 	"hi": {
 		"nav.leadership":     "अवलोकन",
+		"nav.verify":         "सत्यापित करें",
 		"nav.calendar":       "कैलेंडर",
 		"nav.alerts":         "अलर्ट",
 		"nav.drives":         "ड्राइव",
@@ -145,6 +158,7 @@ var bootstrapLabels = map[string]map[string]string{
 	},
 	"kn": {
 		"nav.leadership":     "ಅವಲೋಕನ",
+		"nav.verify":         "ಪರಿಶೀಲಿಸಿ",
 		"nav.calendar":       "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":         "ಎಚ್ಚರಿಕೆಗಳು",
 		"nav.drives":         "ಡ್ರೈವ್‌ಗಳು",
@@ -154,6 +168,7 @@ var bootstrapLabels = map[string]map[string]string{
 	},
 	"te": {
 		"nav.leadership":     "అవలోకనం",
+		"nav.verify":         "ధృవీకరించండి",
 		"nav.calendar":       "క్యాలెండర్",
 		"nav.alerts":         "అలర్ట్లు",
 		"nav.drives":         "డ్రైవ్‌లు",
