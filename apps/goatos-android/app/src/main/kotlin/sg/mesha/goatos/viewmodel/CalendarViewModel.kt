@@ -76,20 +76,16 @@ class CalendarViewModel @Inject constructor(
     private val historyRange = calendarHistoryRange(today)
 
     private val _selectedDay = MutableStateFlow(today)
-    private val _selectedSegmentId = MutableStateFlow<String?>(null)
+    private val _selectedSegmentId = MutableStateFlow<String?>(MONTH_SEGMENT)
     private val _monthFilters = MutableStateFlow(
         CalendarMonthFilters(year = today.year, month = today.monthValue),
     )
-    private val _monthQuery = MutableStateFlow<CalendarScheduleQuery?>(null)
+    private val _monthQuery = MutableStateFlow(initialMonthQuery(today))
     private val _historyActive = MutableStateFlow(false)
 
-    /** Null until Month is selected, so collecting this flow on the Calendar route
-     * cannot prefetch the monthly API before the user clicks the segment. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val monthItems: Flow<PagingData<CalendarItem>> = _monthQuery
-        .flatMapLatest { query ->
-            if (query == null) flowOf(PagingData.empty()) else repo.schedule(query)
-        }
+        .flatMapLatest { query -> repo.schedule(query) }
         .map { page -> page.map { event -> event.toCalendarItem() } }
         .cachedIn(viewModelScope)
 
@@ -104,9 +100,9 @@ class CalendarViewModel @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val monthMetadataResource: StateFlow<Resource<CalendarEventListResponseDto>> =
-        _monthQuery.flatMapLatest { query ->
-            if (query == null) flowOf(Resource(data = null)) else repo.observeScheduleMetadata(query)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
+        _monthQuery
+            .flatMapLatest { query -> repo.observeScheduleMetadata(query) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val historyResource: StateFlow<Resource<CalendarEventListResponseDto>> =
@@ -490,6 +486,11 @@ internal const val CALENDAR_PAGE_SIZE = 20
 private const val HISTORY_WINDOW_DAYS = 45L
 
 internal data class CalendarDateRange(val dateFrom: String, val dateTo: String)
+
+private fun initialMonthQuery(today: LocalDate): CalendarScheduleQuery {
+    val range = monthRange(CalendarMonthFilters(year = today.year, month = today.monthValue))
+    return CalendarScheduleQuery(dateFrom = range.dateFrom, dateTo = range.dateTo)
+}
 
 internal fun calendarWeekRange(today: LocalDate): CalendarDateRange {
     val monday = today.minusDays((today.dayOfWeek.value - DayOfWeek.MONDAY.value).toLong())
