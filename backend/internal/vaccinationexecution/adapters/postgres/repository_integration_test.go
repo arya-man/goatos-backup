@@ -538,6 +538,22 @@ func TestListVaccinationExecutionExcludesCanceledObligations(t *testing.T) {
 	insertProjectionGoat(t, ctx, pool, testCanceledGoat, testShed, testPark)
 	insertProjectionBatch(t, ctx, pool, testCanceledBatch, "planned")
 	insertProjectionObligation(t, ctx, pool, testCanceledObligation, testCanceledBatch, testCanceledGoat, "canceled", "2026-06-25 00:00:00+00", "vaccexec-canceled-only")
+	const (
+		canceledBatchOpenGoat = "70000000-0000-4000-8000-000000000023"
+		canceledBatchOpen     = "70000000-0000-4000-8000-000000000024"
+		canceledBatchOpenObl  = "70000000-0000-4000-8000-000000000025"
+		canceledTaskOpen      = "70000000-0000-4000-8000-000000000026"
+	)
+	insertProjectionGoat(t, ctx, pool, canceledBatchOpenGoat, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, canceledBatchOpen, "canceled")
+	insertProjectionObligation(t, ctx, pool, canceledBatchOpenObl, canceledBatchOpen, canceledBatchOpenGoat, "scheduled", "2026-06-25 00:00:00+00", "vaccexec-canceled-batch-open")
+	execProjectionSQL(t, ctx, pool, "canceled task for open obligation",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, context)
+		 VALUES ($1,$2,$3,$4,'vaccination_drive','Canceled stale drive','canceled','shed',$5,jsonb_build_object('obligation_batch_id',$6::text))`,
+		canceledTaskOpen, testTenant, testVaccinationSOP, testVaccinationSOPVer, testShed, canceledBatchOpen)
+	execProjectionSQL(t, ctx, pool, "link canceled task to open obligation",
+		`UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`,
+		canceledTaskOpen, testTenant, canceledBatchOpen)
 
 	insertProjectionGoat(t, ctx, pool, testCompletedGoat, testShed, testPark)
 	insertProjectionGoat(t, ctx, pool, testCompletedSkipGoat, testShed, testPark)
@@ -564,6 +580,9 @@ func TestListVaccinationExecutionExcludesCanceledObligations(t *testing.T) {
 	}
 	if rowByBatch(rows, testCanceledBatch) != nil {
 		t.Fatalf("canceled-only batch %s should not appear in vaccination execution rows: %#v", testCanceledBatch, rows)
+	}
+	if rowByBatch(rows, canceledBatchOpen) != nil {
+		t.Fatalf("open obligation under canceled batch/task %s should not appear in vaccination execution rows: %#v", canceledBatchOpen, rows)
 	}
 	completed := rowByBatch(rows, testCompletedBatch)
 	if completed == nil {

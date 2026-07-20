@@ -350,9 +350,83 @@ FOR UPDATE`, in.TenantID, in.SubmissionID)
 			allClosed = false
 		}
 	}
+	acceptVaccinationCompletions := func() error {
+		if _, err := tx.Exec(ctx, `
+UPDATE vaccination_completions vc
+SET status = 'accepted',
+    verified_by = $1::uuid,
+    verified_at = now(),
+    row_version = vc.row_version + 1,
+    updated_at = now()
+FROM sop_submission_items si
+WHERE vc.tenant_id = $2::uuid
+  AND si.tenant_id = vc.tenant_id
+  AND si.submission_id = $3::uuid
+  AND vc.sop_submission_item_id = si.item_id
+  AND vc.status = 'recorded'
+  AND EXISTS (
+    SELECT 1
+    FROM verification_items vi
+    WHERE vi.tenant_id = vc.tenant_id
+      AND vi.source_submission_id = si.submission_id
+      AND vi.source_ref_type = 'vaccination_goat'
+      AND vi.source_ref_id = si.goat_id
+      AND vi.status = 'approved'
+      AND vi.closed_at IS NOT NULL
+)`, in.ActorID, in.TenantID, in.SubmissionID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances oi
+SET status = 'completed',
+    completed_at = COALESCE(oi.completed_at, now()),
+    updated_at = now()
+WHERE oi.tenant_id = $1::uuid
+  AND oi.status <> 'completed'
+  AND EXISTS (
+    SELECT 1
+    FROM vaccination_completions vc
+    JOIN sop_submission_items si
+      ON si.tenant_id = vc.tenant_id
+     AND si.item_id = vc.sop_submission_item_id
+    WHERE vc.tenant_id = oi.tenant_id
+      AND vc.obligation_id = oi.obligation_id
+      AND vc.status = 'accepted'
+      AND si.submission_id = $2::uuid
+  )`, in.TenantID, in.SubmissionID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+UPDATE obligation_batches ob
+SET status = 'completed',
+    updated_at = now()
+WHERE ob.tenant_id = $1::uuid
+  AND EXISTS (
+    SELECT 1
+    FROM vaccination_completions vc
+    JOIN sop_submission_items si
+      ON si.tenant_id = vc.tenant_id
+     AND si.item_id = vc.sop_submission_item_id
+    WHERE vc.tenant_id = ob.tenant_id
+      AND vc.batch_id = ob.batch_id
+      AND vc.status = 'accepted'
+      AND si.submission_id = $2::uuid
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM obligation_instances oi
+    WHERE oi.tenant_id = ob.tenant_id
+      AND oi.batch_id = ob.batch_id
+      AND oi.status <> 'completed'
+  )`, in.TenantID, in.SubmissionID)
+		return err
+	}
 	// A replay after a lost response is a read-only success. A partially closed drive can only be
 	// legacy/item-level state and is failed closed rather than silently mixing authority actions.
 	if allClosed {
+		if err := acceptVaccinationCompletions(); err != nil {
+			return nil, mapWriteErr(err)
+		}
 		if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-submission", in.IdempotencyKey, "verification_submission", in.SubmissionID); err != nil {
 			return nil, err
 		}
@@ -374,6 +448,9 @@ WHERE tenant_id = $2::uuid
   AND source_submission_id = $3::uuid
   AND status = 'approved'
   AND closed_at IS NULL`, in.ActorID, in.TenantID, in.SubmissionID); err != nil {
+		return nil, mapWriteErr(err)
+	}
+	if err := acceptVaccinationCompletions(); err != nil {
 		return nil, mapWriteErr(err)
 	}
 	closedRows, err := tx.Query(ctx, `

@@ -864,6 +864,8 @@ raw AS (
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
+    AND COALESCE(st.state, '') <> 'canceled'
     AND oi.due_at <= $4::timestamptz
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')

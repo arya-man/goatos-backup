@@ -433,20 +433,21 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusPill(item.statusLabel, item.statusTone)
-            Spacer(Modifier.weight(1f))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            StatusPill(humanStatusLabel(item.statusLabel), item.statusTone)
             // Drive cards (v4) carry their own due-date badge below; the generic
             // all-day/time pill would otherwise double up with it (e.g. "Due now" +
             // "Today" + "Today"), so it only renders for non-drive items.
             if ((item.allDay || item.timeLabel.isNotEmpty()) && drive == null) {
                 StatusPill(if (item.allDay) stringResource(R.string.calendar_all_day) else item.timeLabel, CalendarTone.Neutral)
-                Spacer(Modifier.size(6.dp))
             }
             // Drive due date (v4 park-level card) sits alongside the headline status pill.
             drive?.dueDateLabel?.takeIf { it.isNotEmpty() }?.let {
                 StatusPill(it, CalendarTone.Neutral)
-                Spacer(Modifier.size(6.dp))
             }
             item.categoryLabel?.let { StatusPill(it, CalendarTone.Muted) }
         }
@@ -1406,6 +1407,15 @@ private fun StatusPill(label: String, tone: CalendarTone) {
             fontWeight = FontWeight.W700,
             maxLines = 1,
         )
+    }
+}
+
+private fun humanStatusLabel(label: String): String {
+    val trimmed = label.trim()
+    if (trimmed.isEmpty()) return trimmed
+    val normalized = trimmed.replace('_', ' ').replace('-', ' ')
+    return normalized.replaceFirstChar { first ->
+        if (first.isLowerCase()) first.titlecase() else first.toString()
     }
 }
 

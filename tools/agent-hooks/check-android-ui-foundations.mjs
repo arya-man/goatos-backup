@@ -168,6 +168,12 @@ function architectureFindings(read = (rel) => fs.readFileSync(path.join(sourceRo
     [/shedsPlaceholder\("Loading today.s sheds…"\)\.copy\(isInitialLoading\s*=\s*true\)/, "initial sheds placeholder must render skeleton, not an empty-state loading wall"],
   ]));
 
+  const calendarScreen = "apps/goatos-android/feature/feature-calendar/src/main/kotlin/sg/mesha/goatos/feature/calendar/CalendarScreen.kt";
+  findings.push(...requirePatterns(calendarScreen, read(calendarScreen), [
+    [/FlowRow\(\s*horizontalArrangement\s*=\s*Arrangement\.spacedBy\(8\.dp\),\s*verticalArrangement\s*=\s*Arrangement\.spacedBy\(6\.dp\),[\s\S]{0,500}StatusPill\(humanStatusLabel\(item\.statusLabel\)/, "Calendar event status/date/category chips must use a wrapping chip row with explicit spacing"],
+    [/private fun humanStatusLabel\(label: String\): String[\s\S]{0,260}replace\('_', ' '\)\.replace\('-', ' '\)/, "Calendar event chips must normalize backend enum labels before rendering user text"],
+  ]));
+
   const formSpec = "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/forms/FormSpec.kt";
   findings.push(...requirePatterns(formSpec, read(formSpec), [
     [/"select",\s*"single_select"\s*->\s*SELECT/, "backend select fields must map to a supported renderer"],
