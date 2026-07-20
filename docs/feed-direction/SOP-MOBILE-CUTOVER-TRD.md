@@ -16,16 +16,19 @@ Android app renders role-assigned versioned SOP tasks and works offline. GCS
 stores private proof media through signed operations. Slack and legacy Sheets
 are optional migration adapters and never participate in the canonical commit.
 
-Default and legacy "experiment" feed use the same data path. Compositions and
-their assignments are children of one mandatory Feed `protocol_version`; they
-do not have an independent approval lifecycle. A generated row pins the
-composition assignment selected from the effective published protocol version.
-All later stages refer to that row, composition and owning protocol version.
+Default per-head ration and legacy "experiment" feed use the same data path. An
+experiment absolute-kg allocation (hand-entered kg per feed item for the whole
+shed/day) is a child of one mandatory Feed `protocol_version`; it does not have an
+independent approval lifecycle. Head count is informational and is never
+multiplied in; the ExperimentPlanner splits the authored per-shed total across the
+day's sessions. A generated row pins the experiment allocation selected from the
+effective published protocol version. All later stages refer to that row,
+allocation and owning protocol version.
 
 ```mermaid
 flowchart TB
     subgraph Policy["Policy and planning"]
-        P1["One Feed protocol version with composition children"]
+        P1["One Feed protocol version: per-head ration + experiment absolute-kg allocations"]
         P2["Counts/Shifting projection snapshot"]
         P3["Direction generation logical stage"]
     end
@@ -81,8 +84,8 @@ flowchart TB
 ### 2.2 Not complete today
 
 - No production Feed generation run/row logical stage in the kernel worker.
-- No complete Feed-protocol draft editor for composition/assignment children and
-  their single protocol publish gate.
+- No complete Feed-protocol draft editor for experiment absolute-kg allocation
+  children and their single protocol publish gate.
 - No Feed obligation/stage generation and supersession path.
 - `GET /app/tasks` now has the canonical 20-row cursor boundary and completeness
   metadata, but it still needs the Feed-specific filters below before the Feed
@@ -112,8 +115,8 @@ These are implementation gaps, not reasons to create a parallel Feed platform.
 
 | Module | Owns | Does not own |
 | --- | --- | --- |
-| Counts/Shifting | Projected physical count snapshot and blocker state | Feed composition or operator proof |
-| Feed policy/config | Draft composition/item/assignment children of a Feed protocol version plus session/proof/tolerance policy | Independent approval/publish state, mobile local state or generated execution truth |
+| Counts/Shifting | Projected physical count snapshot and blocker state | Feed ration/allocation or operator proof |
+| Feed policy/config | Draft per-head ration and experiment absolute-kg allocation children of a Feed protocol version plus session/proof/tolerance policy | Independent approval/publish state, mobile local state or generated execution truth |
 | Feed generation | Deterministic run and immutable instruction rows | Direct notifications or media |
 | Operational kernel | Obligations, deadlines, escalation, SOP tasks, state transitions | Feed nutrition calculations |
 | SOP | Versioned fields/conditions, typed submissions and item answers | Direction selection |
@@ -137,29 +140,24 @@ stage discriminator. Therefore the preferred initial design is one obligation
 per stage task, with a narrow stage record linked to that obligation. Do not
 store several independent stage verdicts in one completion row.
 
-### 4.2 Feed generation and composition tables
+### 4.2 Feed generation and experiment absolute-kg tables
 
-The names may change, but these contracts are required:
+The names may change, but these contracts are required. An experiment allocation
+records absolute kg per shed and feed item (the shipped `feed_experiment_config`);
+the `ExperimentPlanner` reads that shed total, ignores head count, and splits it
+across the day's sessions.
 
 ```text
-feed_composition_versions
-  id, tenant_id, code, version, name
-  protocol_version_id NOT NULL
-  source_evidence_ref, nutrient/calculation snapshot reference
-  created_by/at, notes
-  no independent status, approver or publish timestamp
-
-feed_composition_items
-  id, composition_version_id, feed_item_id
-  optional session_code or split_ref
-  planned_quantity_base_units, unit, sort_order
-  internal calculation factors/provenance where approved
-
-feed_composition_assignments
-  id, tenant_id, protocol_version_id NOT NULL, composition_version_id
-  park_id, optional shed_id, optional cohort_id
+feed_experiment_config
+  id, tenant_id, protocol_version_id NOT NULL
+  park_id, shed_id
+  feed_item_id
+  absolute_quantity_base_units        -- hand-entered kg per feed item for the whole shed/day
+  unit
   effective_from, effective_to, optional session_code
-  priority, reason, optional comparison_set_id/variant_label
+  head_count_at_authoring             -- informational only, never a multiplier
+  reason, source_evidence_ref
+  optional comparison_set_id/variant_label
   idempotency_key; no independent approval/effective status
 
 feed_direction_generation_runs
@@ -177,7 +175,7 @@ feed_direction_generation_rows
   id, run_id, instruction_group_key, row_kind
   target_date, park_id, shed_id, session_code
   ration_context_ref
-  composition_version_id, assignment_id, optional comparison_set_id
+  experiment_config_id (null for the normal per-head ration), optional comparison_set_id
   feed_item_id, planned_quantity_base_units, unit
   obligation/batch refs, status, supersession refs
 
@@ -187,8 +185,8 @@ feed_direction_stage_records
   submission/proof/verification refs
   rejection/rework refs, idempotency_key, timestamps
 
-feed_composition_observations
-  id, composition/assignment/generation/stage refs
+feed_experiment_observations
+  id, experiment_config/generation/stage refs
   shed/date/session/feed item
   consumed/wasted/variance base units
   proof/verifier/root-cause/director-note refs
@@ -201,27 +199,29 @@ feed_direction_bridge_events
   reconciliation state, idempotency_key
 ```
 
-`feed_comparison_sets` is optional metadata. A normal custom composition
-assignment must work without it.
+`feed_comparison_sets` is optional metadata. A normal experiment absolute-kg
+allocation must work without it.
 
 ### 4.3 Database invariants
 
 1. Every row is tenant-scoped; all foreign keys remain inside the tenant.
-2. Every composition and assignment belongs to exactly one Feed
+2. Every experiment absolute-kg allocation belongs to exactly one Feed
    `protocol_version_id`. It is editable only while that owning protocol version
    is a draft, becomes immutable when the protocol is published, and inherits
-   retirement/effectivity from that protocol. Composition and assignment rows
-   have no independent publish authority.
-3. Publishing a Feed protocol validates and commits its rule DSL,
-   compositions, assignments, proof/session policy and effective window as one
-   canonical version. Publishing only a composition or assignment is impossible.
-4. An issued generation row pins protocol, projection, composition and
-   assignment provenance.
-5. A generation run may select only compositions and assignments whose
+   retirement/effectivity from that protocol. Allocation rows have no independent
+   publish authority.
+3. Publishing a Feed protocol validates and commits its rule DSL, experiment
+   absolute-kg allocations, proof/session policy and effective window as one
+   canonical version. Publishing only an allocation is impossible.
+4. An issued generation row pins protocol, projection, and experiment
+   allocation provenance. Head count is informational; the ExperimentPlanner
+   splits the authored per-shed total across the day's sessions and never
+   multiplies by head count.
+5. A generation run may select only experiment allocations whose
    `protocol_version_id` equals its effective published Feed protocol version.
    A missing/mismatched owner blocks generation before any obligation is made.
-6. At most one equally specific assignment inside that protocol version matches
-   one tenant/park/shed-or-cohort/date/session. Ambiguity blocks generation.
+6. At most one experiment allocation inside that protocol version matches
+   one tenant/park/shed/date/session. Ambiguity blocks generation.
 7. Generated instruction identity is stable under replay through a business key
    such as tenant + target date + shed + session + cohort + item + run kind.
 8. Full/Diff regeneration supersedes rows and cancels/replaces stale open work;
@@ -235,28 +235,25 @@ assignment must work without it.
     identifiers.
 14. Canonical stage mutation, audit and outbox write commit atomically.
 
-### 4.4 Assignment resolution
+### 4.4 Experiment allocation resolution
 
-Resolution order must be deterministic and versioned. A recommended specificity
-order is exact shed + cohort + session, exact shed + session, exact shed,
-cohort + park, then the default inside the same published protocol version.
-Priority breaks only explicit policy classes compiled into that version; it must
+Resolution must be deterministic and versioned. For each shed/session the
+generator uses the experiment absolute-kg allocation when one is effective, else
+the default per-head ration inside the same published protocol version. It must
 not conceal two equally valid records.
 
 ```text
 effective_protocol = one published feed_direction protocol version for scope/date
-candidates = assignments owned by effective_protocol and effective at date/session
-max_specificity = candidates with most exact scope dimensions
-max_priority = highest policy priority inside max_specificity
+candidates = experiment allocations owned by effective_protocol and effective for the shed at date/session
 
-0 matches -> default composition owned by effective_protocol
-1 match   -> use and pin assignment
+0 matches -> default per-head ration owned by effective_protocol
+1 match   -> use and pin the experiment allocation (split its shed total across sessions)
 >1 match  -> block generation with overlap exception
 ```
 
-If any candidate or referenced composition carries a different
+If any candidate experiment allocation carries a different
 `protocol_version_id`, generation fails closed. A source document, import
-reference or previously published composition can explain provenance but can
+reference or previously published allocation can explain provenance but can
 never substitute for ownership by the effective protocol version.
 
 No averaging, last-write-wins, spreadsheet row order, or `Category` string
@@ -346,7 +343,7 @@ render contract. Mobile never decides which feed items or tolerance applies.
 - `feed.rework.execute`
 - `feed.emergency_bridge.execute`
 
-Default/custom/comparison compositions share these definitions.
+The default per-head ration and experiment absolute-kg allocations share these definitions.
 
 ## 6. API contracts
 
@@ -393,23 +390,21 @@ number of currently loaded Room rows.
 
 ### 6.2 Feed planning/admin API additions
 
-Composition writes are draft-child edits under the existing protocol API. There
-is deliberately no composition `approve`, `activate` or independent `publish`
-route. `POST /protocols/versions/{version_id}/publish` is the only authority that
-makes Feed rules, compositions and assignments effective together.
+Experiment absolute-kg allocation writes are draft-child edits under the existing
+protocol API. There is deliberately no allocation `approve`, `activate` or
+independent `publish` route. `POST /protocols/versions/{version_id}/publish` is
+the only authority that makes Feed rules and experiment allocations effective
+together.
 
 Required resource contracts:
 
 ```text
-POST   /protocols/{protocol_id}/versions                         existing
-GET    /protocols/versions/{version_id}                          existing
-POST   /protocols/versions/{version_id}/feed-compositions        add
-PUT    /protocols/versions/{version_id}/feed-compositions/{id}   add; draft only
-DELETE /protocols/versions/{version_id}/feed-compositions/{id}   add; draft only
-POST   /protocols/versions/{version_id}/feed-assignments         add
-PUT    /protocols/versions/{version_id}/feed-assignments/{id}    add; draft only
-DELETE /protocols/versions/{version_id}/feed-assignments/{id}    add; draft only
-POST   /protocols/versions/{version_id}/publish                  existing; sole publish
+POST   /protocols/{protocol_id}/versions                            existing
+GET    /protocols/versions/{version_id}                             existing
+POST   /protocols/versions/{version_id}/feed-experiment-config      add
+PUT    /protocols/versions/{version_id}/feed-experiment-config/{id} add; draft only
+DELETE /protocols/versions/{version_id}/feed-experiment-config/{id} add; draft only
+POST   /protocols/versions/{version_id}/publish                     existing; sole publish
 
 POST   /feed-direction/generation-runs/preview
 POST   /feed-direction/generation-runs
@@ -423,7 +418,7 @@ POST   /feed-direction/directions/{id}/emergency-adjustments
 GET    /feed-direction/observations
 ```
 
-Creating a new effective composition or ending an assignment means creating and
+Creating a new effective experiment allocation or ending one means creating and
 publishing a new Feed protocol version; published child rows are immutable.
 Every add/change above must land in `contracts/openapi/app-api.yaml` and its
 generated clients before backend or Android implementation. Reuse current
@@ -437,7 +432,7 @@ The app task detail must include:
 - task/obligation/SOP version and optimistic row version;
 - tenant/vertical/park/shed scope;
 - target date/session/stage and deadlines;
-- pinned direction/composition/assignment refs;
+- pinned direction / experiment allocation refs;
 - ordered expected direction lines with immutable generation row ids;
 - allowed actions and disabled reasons;
 - required client capabilities;
@@ -468,7 +463,7 @@ deduped by event id plus the command's stable business key.
 | Mutation | Stable business identity included in fingerprint | Same canonical transaction must contain | Exact replay result | Different payload with same key |
 | --- | --- | --- | --- | --- |
 | `POST /protocols/{protocol_id}/versions` | protocol + proposed version/effective window | draft version, audit, outbox if any, receipt | original `201` and version id | `409`; no second draft |
-| Feed composition/assignment `POST`, `PUT`, `DELETE` under `/protocols/versions/{version_id}` | draft protocol version + child id/code/scope + expected row version | child mutation, draft row-version bump, audit, receipt | original status and child/version ids | `409`; no partial child edit |
+| Feed experiment-config `POST`, `PUT`, `DELETE` under `/protocols/versions/{version_id}` | draft protocol version + allocation id/shed/feed-item/scope + expected row version | child mutation, draft row-version bump, audit, receipt | original status and child/version ids | `409`; no partial child edit |
 | `POST /protocols/versions/{version_id}/publish` | protocol version + complete compiled Feed payload hash + effective window | publish gate, immutable protocol/child state, audit, outbox and receipt | original publish receipt/status | `409`; no second window/event |
 | `POST /feed-direction/generation-runs` | target date + run kind + effective protocol + projection snapshot/source hash | run/rows or blocker set, audit, outbox and receipt | original run id/counts/blockers | `409`; no parallel logical run |
 | `POST /feed-direction/generation-runs/{id}/publish` | run id + row/source hash + expected run version | issued rows, obligations/tasks, audit, outbox and receipt | original issued counts/task ids | `409`; no duplicate work |
@@ -595,11 +590,11 @@ diagnosed without allowing another login to observe stale Feed state.
 ### 8.1 Protocol and direction publish
 
 The existing `PublishProtocolVersion` command is the sole authority boundary
-for compositions and assignments. In one transaction it:
+for experiment absolute-kg allocations. In one transaction it:
 
 1. acquires the idempotency record and validates the semantic fingerprint;
 2. locks the draft Feed protocol version;
-3. validates its complete rule DSL, composition children, assignments,
+3. validates its complete rule DSL, experiment allocation children,
    effective window, overlap, proof/SOP binding and publish capability;
 4. marks the protocol version published and all child rows immutable without
    giving those children a separate status;
@@ -614,10 +609,10 @@ transaction:
 
 1. acquire the idempotency record or return/conflict on its stored fingerprint;
 2. lock/validate the draft generation run and publish capability;
-3. verify projection/source hashes and prove every selected composition and
-   assignment is owned by the run's effective published Feed protocol version;
+3. verify projection/source hashes and prove every selected experiment
+   allocation is owned by the run's effective published Feed protocol version;
 4. mark generation rows issued;
-5. create one obligation/task per required stage and assignment;
+5. create one obligation/task per required stage and instruction row;
 6. record audit actor/reason and insert domain outbox messages;
 7. store the complete replay receipt and commit;
 8. logical kernel stages and NotificationGateway act idempotently after commit.
@@ -677,7 +672,7 @@ Register Feed events in the central domain-event registry using the standard
 tenant/event/id/occurred-at/trace/source envelope.
 
 Consume the existing `protocol.version.published` event for
-`category='feed_direction'`; there is no separate composition approval event.
+`category='feed_direction'`; there is no separate experiment allocation approval event.
 Recommended Feed aggregate events:
 
 - `feed_direction.generation.requested`
@@ -691,7 +686,7 @@ Recommended Feed aggregate events:
 - `feed_direction.packing.rejected`
 - `feed_direction.transport.accepted`
 - `feed_direction.consumption_wastage.recorded`
-- `feed_direction.composition_observation.recorded`
+- `feed_direction.experiment_observation.recorded`
 - `feed_direction.bridge.recorded`
 - `feed_direction.notification.reconcile_failed`
 
@@ -770,7 +765,7 @@ wastage threshold, verification/rework, emergency reconciliation and completed
 work. It does not maintain a Feed projection table in the current envelope.
 
 Every returned row carries target date, park, shed/transport shed, session,
-stage, owner, deadline, composition/assignment refs, proof/verification/
+stage, owner, deadline, experiment allocation refs, proof/verification/
 escalation state, instruction group and stable cursor components derived from
 canonical rows.
 
@@ -781,10 +776,10 @@ At minimum validate query plans for:
 - `(tenant_id, target_date, park_id, status, cursor_key)` generation/task lists;
 - `(tenant_id, assigned_user_id, due_at, status, cursor_key)` mobile work;
 - `(tenant_id, shed_id, target_date, session_code, active_status)` active
-  instructions and assignment overlap;
+  instructions and experiment allocation overlap;
 - `(tenant_id, obligation_id)` stage and completion lookup;
 - `(tenant_id, verification_state, due_at, cursor_key)` verifier queue;
-- `(tenant_id, composition_assignment_id, target_date)` observations;
+- `(tenant_id, experiment_config_id, target_date)` observations;
 - unique idempotency/business keys for runs, instructions, submissions and
   bridge events.
 
@@ -809,14 +804,14 @@ Metrics:
 - planned/actual/variance/wastage threshold counts;
 - notification attempts, dedupe and reconciliation failures;
 - inventory reservation/consume/release mismatch;
-- custom assignment overlap/expiry and emergency bridge reconciliation.
+- experiment allocation overlap/expiry and emergency bridge reconciliation.
 
 Logs include tenant-safe ids, run/task/submission/proof/outbox ids, trace id,
 idempotency result and typed error; never raw media URLs, Slack tokens, personal
 names or full form payloads.
 
 Audit records actor, capability, source, before/after state refs, reason,
-composition/direction/SOP versions and correction chain.
+experiment allocation / direction / SOP versions and correction chain.
 
 ## 14. Security and media policy
 
@@ -847,7 +842,7 @@ The shadow comparator checks:
 
 - eligible/missing/duplicate sheds;
 - sessions and feed-item planned kg;
-- default versus custom assignment;
+- default per-head ration versus experiment absolute-kg allocation;
 - direction totals and supersession;
 - task/message creation versus actual completion;
 - proof count/kind, reviewer verdict and rework;
@@ -883,7 +878,7 @@ Operational retirement and analytics migration are separate gates.
 
 ### Unit
 
-- assignment specificity/overlap/effective dates;
+- experiment allocation overlap/effective dates;
 - quantity conversion/precision/tolerance and zero/missing;
 - SOP condition compilation and unsupported capability;
 - state transitions, separation of duties and rework scope;
@@ -893,7 +888,7 @@ Operational retirement and analytics migration are separate gates.
 
 - every Feed mutation: first request, exact replay, changed-payload/same-key
   conflict and duplicate downstream event delivery;
-- protocol publish rejects a composition/assignment not owned by the effective
+- protocol publish rejects an experiment allocation not owned by the effective
   Feed protocol version;
 - generation replay creates no duplicate active rows;
 - Diff supersedes/cancels stale obligations and mobile tasks;
@@ -934,10 +929,10 @@ Operational retirement and analytics migration are separate gates.
 
 ### End to end
 
-1. Default composition generation and accepted packing-through-wastage chain.
-2. Three same-tag sheds with three different compositions owned by the same
-   published Feed protocol version.
-3. Assignment overlap blocks one shed visibly.
+1. Default per-head ration generation and accepted packing-through-wastage chain.
+2. Three same-tag sheds with three different absolute per-shed kg allocations
+   owned by the same published Feed protocol version.
+3. Overlapping experiment allocations for one shed block it visibly.
 4. Offline packing with multiple videos syncs once after process death.
 5. Wrong photo for video-only proof is rejected.
 6. Short packing creates reason/exception and verifier rework.
@@ -952,11 +947,11 @@ Operational retirement and analytics migration are separate gates.
 
 ## 17. Implementation order
 
-1. Correct stale Feed docs so custom composition is never an exclusion.
+1. Correct stale Feed docs so an experiment absolute-kg allocation is never an exclusion.
 2. Ratify product decisions: stages, deadlines, roles, tolerances, proof and
    inventory boundary.
-3. Add protocol-owned composition/assignment child contracts, enforce the sole
-   protocol publish gate and reject cross-version generation.
+3. Add protocol-owned experiment absolute-kg allocation child contracts, enforce
+   the sole protocol publish gate and reject cross-version generation.
 4. Add generation run/row persistence and deterministic replay/supersession.
 5. Materialize stage obligations/tasks using existing SOP/kernel tables.
 6. Complete SOP controls and the authoritative OpenAPI task-list cursor/filter

@@ -33,11 +33,11 @@ not erased. The task moves into rework with a reason. The worker fixes only the
 failed step. The Feed Director sees the exception and its effect on tomorrow's
 plan.
 
-If two sheds with the same tag need different mixtures, the director puts both
-mixtures and their shed assignments inside the next Feed protocol version. One
-authorized publish makes that whole version effective. The workers see the
-normal packing and distribution tasks. They do not enter a separate "experiment
-system."
+If two sheds with the same tag need different quantities, the director hand-enters
+each shed's absolute per-shed kg (kg per feed item) for the next day; head count
+is informational and is never multiplied in, and the shed total is split across
+the day's sessions. The workers see the normal packing and distribution tasks.
+They do not enter a separate "experiment system."
 
 ## 2. Product decision
 
@@ -45,7 +45,7 @@ There is one Feed Direction product and one execution chain:
 
 ```mermaid
 flowchart LR
-    A["One published Feed protocol: rules, compositions and assignments"] --> B["Tomorrow direction for every shed/session"]
+    A["One published Feed protocol: per-head ration + experiment absolute per-shed kg"] --> B["Tomorrow direction for every shed/session"]
     B --> C["Role-assigned Android SOP tasks"]
     C --> D["Packing"]
     D --> E["Transport"]
@@ -56,9 +56,10 @@ flowchart LR
     I --> A
 ```
 
-The composition may be the shared default, a custom exact-shed version, a
-comparison variant, or an emergency bridge. That changes the instruction, not
-the backend, mobile app, proof model, or verification process.
+The instruction may come from the shared default per-head ration, a hand-authored
+experiment absolute-kg allocation, a comparison variant, or an emergency bridge.
+That changes the instruction, not the backend, mobile app, proof model, or
+verification process.
 
 ## 3. Goals
 
@@ -67,8 +68,8 @@ the backend, mobile app, proof model, or verification process.
 2. Make Postgres the canonical process record and GCS the canonical media store.
 3. Preserve every useful legacy field while separating direction context,
    operator answers, proof, reviewer verdict, and audit history.
-4. Support default and same-tag custom compositions in one generation and
-   execution path.
+4. Support the default per-head ration and same-tag experiment absolute-kg
+   allocations in one generation and execution path.
 5. Work under intermittent connectivity without duplicate completion or lost
    evidence.
 6. Give each role the right work and prevent channel membership from acting as
@@ -76,16 +77,16 @@ the backend, mobile app, proof model, or verification process.
 7. Make missing, late, short, rejected, and uncertain work visible and
    recoverable.
 8. Keep Slack only as an optional notification surface during migration.
-9. Give the Feed Director a closed feedback loop from published composition to
-   actual quantities, water, wastage, proof quality, cause, correction, and
-   next-day revision.
+9. Give the Feed Director a closed feedback loop from the issued instruction
+   (per-head ration or experiment absolute-kg) to actual quantities, water,
+   wastage, proof quality, cause, correction, and next-day revision.
 
 ## 4. Non-goals
 
 - Rebuilding the old Sheets or Apps Script design in Postgres.
 - A second `experiment_feed` service, database, form library, or mobile flow.
 - Requiring a scientific hypothesis/control/treatment model for an ordinary
-  exact-shed composition override.
+  exact-shed absolute-kg allocation.
 - Treating a Slack message, PDF, uploaded file, or sent notification as task
   completion.
 - Hardcoding observed legacy trigger times as future business deadlines.
@@ -100,7 +101,7 @@ the backend, mobile app, proof model, or verification process.
 
 | Role | What the person can see and do | What they cannot do by default |
 | --- | --- | --- |
-| Feed Director | Draft compositions and exact-shed assignments inside a Feed protocol version, inspect tomorrow coverage, publish that complete version when authorized, review outcomes and exceptions, issue corrections/emergency adjustments | Complete field proof as another worker or silently rewrite issued work |
+| Feed Director | Author the per-head ration and exact-shed absolute-kg allocations, inspect tomorrow coverage, publish/issue that when authorized, review outcomes and exceptions, issue corrections/emergency adjustments | Complete field proof as another worker or silently rewrite issued work |
 | Feed packing operator | See assigned shed/session packing tasks, enter actual quantities, capture required proof, explain shortfall and submit | Change the published expected quantity or verify their own submission/proof |
 | Feed transport operator | See assigned route/destination tasks, capture departure/arrival evidence and exceptions | Complete distribution or alter direction quantities |
 | Feed distribution operator | Record served/consumed quantity, distribution proof and water proof for assigned sheds/sessions | Publish the Feed protocol or hide a shortfall |
@@ -124,9 +125,9 @@ per-submission separation-of-duties rule.
 
 1. GoatOS receives a safe tomorrow count/projection snapshot.
 2. It resolves each physical shed/breed row to reviewed ration context.
-3. It loads the single effective published Feed protocol version and selects a
-   composition owned by that version: shared default or a more-specific
-   exact-shed/cohort/date/session assignment.
+3. It loads the single effective published Feed protocol version and resolves the
+   instruction for each shed: the shared default per-head ration, or a
+   hand-authored experiment absolute per-shed kg allocation where one is enrolled.
 4. It generates immutable direction items and validates coverage, overlap,
    stock/stage policy, and blockers.
 5. An authorized publisher issues the direction.
@@ -196,8 +197,8 @@ The top section is immutable context:
 - business date and target feeding date;
 - farm/park, shed and session;
 - current tag/category and count snapshot;
-- feed-direction run/version and composition version;
-- optional `custom composition` or comparison label, expressed in operational
+- feed-direction run/version and, when present, the experiment absolute-kg allocation reference;
+- optional `experiment absolute-kg` or comparison label, expressed in operational
   language rather than forcing workers to understand an experiment model;
 - expected feed items and kg;
 - assigned role/person, due time and escalation owner;
@@ -225,13 +226,13 @@ The director needs a compact operating view, not a Sheet replica:
 
 - tomorrow directions generated/blocked/missing;
 - coverage by farm/shed/session;
-- custom composition assignments and effective versions;
+- experiment absolute-kg allocations and their effective windows;
 - count freshness and unresolved ration context;
 - packing/transport/distribution/water/consumption/wastage progress;
 - late, short, rejected, missing-proof and sync-conflict work;
 - wastage/variance threshold breaches and root-cause status;
 - stock runway/reorder/delivery signals when the inventory contract is ready;
-- proposed next-day protocol/composition changes with preview, reason, authorized
+- proposed next-day protocol/absolute-kg changes with preview, reason, authorized
   protocol publisher and effective date.
 
 Publishing remains a high-authority action with preview and confirmation; it is
@@ -251,7 +252,7 @@ Every Feed SOP carries:
 | tenant, farm/park, shed | Server-scoped identifiers and human labels |
 | business/target date, session | Pinned direction context |
 | direction run/version | Immutable source of expected work |
-| composition/version/assignment | Exact default or custom composition provenance |
+| ration source / experiment allocation ref | Exact per-head ration or experiment absolute-kg allocation provenance |
 | obligation/task/SOP version | Workflow and form identity |
 | assigned role/person and escalation owner | Authorization and routing |
 | expected feed items and quantities | Ordered typed values with `kg` units |
@@ -323,8 +324,8 @@ policy says so; distribution does not complete merely because feed media exists.
 - corrective action or follow-up owner when threshold is breached;
 - derived wastage percentage shown after submission.
 
-This SOP is available to both default and custom compositions. It is not an
-experiment-only feature.
+This SOP is available to both the default per-head ration and experiment
+absolute-kg allocations. It is not an experiment-only feature.
 
 ### 8.7 Verification SOP
 
@@ -409,8 +410,9 @@ validates and submits through the same API.
 
 ## 12. Feedback and next-day adjustment
 
-The outcome record links to the composition and direction versions that caused
-the work. The director can review:
+The outcome record links to the ration source (per-head ration or experiment
+absolute-kg allocation) and direction versions that caused the work. The director
+can review:
 
 - planned and actual quantity by item/shed/session;
 - packing short/excess;
@@ -420,7 +422,7 @@ the work. The director can review:
 - proof acceptance/rejection/rework;
 - root cause and corrective action;
 - changes in count, stage/tag or shifting;
-- prior and proposed next-day composition.
+- prior and proposed next-day absolute per-shed kg.
 
 Creating a new version requires a reason, effective window and authorized
 publisher. The system shows which sheds will change before publication. Prior
@@ -438,7 +440,7 @@ Required product buckets:
 - distribution/water/consumption incomplete;
 - wastage over threshold;
 - verification pending/rejected/rework overdue;
-- custom composition expiring or overlapping;
+- experiment absolute-kg allocation expiring or overlapping;
 - emergency adjustments awaiting reconciliation;
 - stage and whole-direction completion by farm/date/session.
 
@@ -452,7 +454,8 @@ behind it.
 - Use the canonical legacy reference as the field/channel/trigger inventory.
 - Confirm active trigger ownership, live form headers and unresolved semantic
   conflicts without changing production.
-- Create sanitized parity fixtures for default and custom compositions.
+- Create sanitized parity fixtures for the default per-head ration and experiment
+  absolute-kg allocations.
 
 ### Phase 1 - Shadow tasks
 
@@ -489,12 +492,12 @@ behind it.
 
 ## 15. Acceptance criteria
 
-### Direction and composition
+### Direction and absolute-kg allocation
 
-- One generation run covers default and exact-shed custom compositions.
-- Same-tag sheds can receive different approved mixtures with pinned provenance.
-- An equal-priority overlapping assignment blocks generation visibly.
-- No experiment-only execution service, table family or mobile form is needed.
+- One generation run covers the default per-head ration and exact-shed experiment absolute-kg allocations.
+- Same-tag sheds can receive different approved absolute per-shed kg with pinned provenance.
+- An overlapping absolute-kg allocation for the same shed blocks generation visibly.
+- No experiment-only execution service or mobile form is needed.
 
 ### Mobile and offline
 
@@ -526,7 +529,7 @@ behind it.
 - Expected, actual, difference, unit, precision and tolerance are typed.
 - Feed items beyond four are included everywhere.
 - Short, excess, partial, zero, missing and unsafe outcomes behave differently.
-- Wastage is available for every composition type.
+- Wastage is available for both the per-head ration and experiment absolute-kg allocations.
 - Emergency adjustments are additive and reconciled.
 
 ### Reliability and security

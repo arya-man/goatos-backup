@@ -2,7 +2,7 @@
 
 **Status:** Draft v5, refined against source-first counter-review, read-model review, and dependency-closure audit
 **Date:** 2026-06-30
-**Updated:** 2026-07-20 (native per-shed composition allocation clarified)
+**Updated:** 2026-07-20 (experiment feed corrected to absolute per-shed kg allocation)
 **Vertical:** Feed. Feed Direction is the first Feed module. Parks are a scope
 dimension, not the owning vertical.
 
@@ -214,24 +214,31 @@ transport maps, proof thresholds, validation tolerances, and
 session-slot/feed-set policy.
 
 Legacy "Experiment Feed" is one more Sheet/App Script limitation to absorb, not
-a separate GoatOS module. The normal workbook tends to apply one shared
-breed/shed-tag/category composition, while the separate experiment workbook
-allows selected sheds with the same tag to receive different quantities. The
-live config demonstrates this structurally: three CBE Castro sheds are all
-`Sheep M NEW`, yet each has a different concentrate/bhusa quantity pair. GoatOS
-Feed Direction must therefore support versioned composition assignment directly
-at shed/cohort/date/session grain. The shared ration policy remains the default;
-one approved assignment may select a different composition version, and
+a separate GoatOS module. The normal workbook applies a per-head ration by
+breed/shed-tag/category, while the separate experiment workbook lets selected
+sheds carry an absolute per-shed daily quantity (kg per feed item) that is
+hand-entered rather than derived from head count. The live config demonstrates
+this structurally: three CBE Castro sheds are all `Sheep M NEW`, yet each carries
+a different implied per-head rate — Castro 1 = 0.969 kg/head concentrate
+(62 kg / 64 head), Castro 2 = 0.667 (50 / 75), Castro 3 = 0.667 (44 / 66). The
+config cells are plain typed kg numbers, not `count x rate` formulas; a genuine
+per-head composition would give all same-tag sheds one shared rate, so these
+differing rates prove the allocation is a hand-tuned absolute per-shed total, not
+a per-head composition. GoatOS Feed Direction must therefore support an absolute
+per-shed daily quantity (kg per feed item) for the enrolled experiment sheds,
+hand-authored and split across the day's sessions; head count is informational and
+is never multiplied in. The shared per-head ration policy remains the default; an
+enrolled experiment shed is instead served its authored absolute kg, and
 overlapping matches fail closed.
 
 Packing, distribution/water, consumption, wastage, proof, verification, rework,
 inventory, and notification stay on the same operational-kernel path regardless
-of which composition version generated the instruction. The Feed Director can
-review same-day evidence and approve the next-day composition before packing.
-An optional comparison label/group may help analyse alternatives, but a formal
-experiment, hypothesis, or control/treatment lifecycle is not required for
-ordinary per-shed tuning. See the replacement PRD for the legacy Slack/Sheet
-evidence and import/replay mapping.
+of whether the instruction came from the normal per-head ration or an experiment
+absolute-kg allocation. The Feed Director can review same-day evidence and adjust
+the next-day absolute kg before packing. An optional comparison label/group may
+help analyse alternatives, but a formal experiment, hypothesis, or
+control/treatment lifecycle is not required for ordinary per-shed tuning. See the
+replacement PRD for the legacy Slack/Sheet evidence and import/replay mapping.
 
 The admin Config surface for `feed_direction` must expose this shape, not a
 single hardcoded ration field: source tables, parameter families, dimension
@@ -263,9 +270,9 @@ Feed eligibility is reviewed config, not presentation cleanup. K0/K1 milk-fed
 exclusions are candidate policy from zero rows/automation behavior, not settled
 by the feed docx alone, and require Feed Director approval before suppressing
 packed-feed obligations. Legacy Experiment zero rows often mean the shed was
-diverted into the separate exact-shed composition workaround; they are not
-evidence that GoatOS should suppress that shed. A custom composition assignment
-continues through normal generation and execution. The June 2026 source default
+diverted into the separate absolute-kg allocation; they are not
+evidence that GoatOS should suppress that shed. An experiment absolute-kg
+allocation continues through normal generation and execution. The June 2026 source default
 is two sessions with a 50/50 split, and
 the same source calls that split a deliberate simplification to revisit if a
 breed + tag combo needs an uneven split. GoatOS therefore must model session
@@ -486,14 +493,14 @@ Under reopened `G1`, when building Feed Direction UI:
   constraint tables without shed placement are not enough to publish quantities.
 - Shifting ledger application is idempotent by event id, and unresolved
   cohort/stage impact fails closed before counts or ration selection change.
-- Warmup, K0/K1, breed/stage aliases, and custom composition assignments cannot
-  publish without reviewed source/provenance and Feed Director sign-off.
+- Warmup, K0/K1, breed/stage aliases, and experiment absolute-kg allocations
+  cannot publish without reviewed source/provenance and Feed Director sign-off.
 - K0/K1 and other explicit owner-approved non-Feed eligibility exclusions
   suppress packed-feed obligations only after policy says so. A legacy
-  Experiment zero row is treated as diversion evidence, and its custom
-  composition assignment remains inside normal Feed Direction execution.
-- Same-tag sheds can receive different approved composition versions without a
-  separate experiment backend, and the effective assignment/version is visible
+  Experiment zero row is treated as diversion evidence, and its experiment
+  absolute-kg allocation remains inside normal Feed Direction execution.
+- Same-tag sheds can receive different approved absolute-kg allocations without a
+  separate experiment backend, and the effective allocation is visible
   on generation, proof, wastage, audit, and next-day review records.
 - Field, packing, Feed Direction, and Diff quantities are as-fed gross values
   only. `wastage_factor` and `DM_factor` remain internal nutrient-accounting
@@ -546,9 +553,9 @@ Under reopened `G1`, when building Feed Direction UI:
    `11-15kg`, and `F2` `15-20kg` before treating them as protocol values.
 6. `G5`: Confirm Warmup 14-day transition handling, ICU, Quarantine, Flushing,
    Breeding, K0/K1, F2/Fattening, SIROHI->Beetal, and other true alias/exclusion
-   policies. Treat legacy Experiment zero rows as diversion into a custom
-   composition path, not an exclusion; confirm native custom-composition
-   assignment approval roles separately, plus which
+   policies. Treat legacy Experiment zero rows as diversion into an experiment
+   absolute-kg allocation, not an exclusion; confirm experiment absolute-kg
+   allocation approval roles separately, plus which
    admin roles may draft/publish effective-dated session-slot changes.
 7. `G9`: Confirm whether KT `90-95%` shed/pack/breed/tag/energy matching and
    warm-up allowance become reviewed validation thresholds, draft-only warnings,
