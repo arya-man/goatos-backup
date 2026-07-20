@@ -270,6 +270,102 @@ WHERE tenant_id = $1::uuid
 	}
 }
 
+func TestCloseSubmissionAcceptsVaccinationCompletions_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	actorID := tenantID
+	protocolID := "00000000-0000-4000-8000-000000000201"
+	versionID := "00000000-0000-4000-8000-000000000202"
+	ruleID := "00000000-0000-4000-8000-000000000203"
+	sopID := "00000000-0000-4000-8000-000000000204"
+	sopVersionID := "00000000-0000-4000-8000-000000000205"
+	taskID := "00000000-0000-4000-8000-000000000206"
+	submissionID := "00000000-0000-4000-8000-000000000207"
+	goatID := "00000000-0000-4000-8000-000000000208"
+	batchID := "00000000-0000-4000-8000-000000000209"
+	obligationID := "00000000-0000-4000-8000-000000000210"
+	itemID := "00000000-0000-4000-8000-000000000211"
+	completionID := "00000000-0000-4000-8000-000000000212"
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ($1::uuid, 'person', 'Verifier', 'active');
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ($2::uuid, $3::uuid, 'vaccination.close-submission', 'Vaccination close submission', 'vaccination', 'published');
+INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
+VALUES ($4::uuid, $3::uuid, $2::uuid, 'tenant', 1, 'published', now(), '{}'::jsonb, '{}'::jsonb);
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES ($5::uuid, $3::uuid, $4::uuid, 'primary', 1, 'manual', '{}'::jsonb, '{}'::jsonb);
+INSERT INTO sops (sop_id, tenant_id, code, name, category, status)
+VALUES ($6::uuid, $3::uuid, 'vaccination.close-submission', 'Vaccination close submission', 'vaccination', 'published');
+INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
+VALUES ($7::uuid, $3::uuid, $6::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb);
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id)
+VALUES ($8::uuid, $3::uuid, $6::uuid, $7::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'tenant', $3::uuid);
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex)
+VALUES ($9::uuid, $3::uuid, 'alive', 'goat', $1::uuid, 'female');
+INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id)
+VALUES ($10::uuid, $3::uuid, $4::uuid, 'tenant', $3::uuid, 'in_progress', 1, $8::uuid);
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key)
+VALUES ($11::uuid, $3::uuid, $4::uuid, $5::uuid, $10::uuid, 'goat', $9::uuid, 'tenant', $3::uuid, now(), 'in_progress', $8::uuid, 'verify-close-obligation');
+INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state)
+VALUES ($12::uuid, $3::uuid, $8::uuid, $7::uuid, $1::uuid, 'verify-close-submission', '{}'::jsonb, 'submitted');
+INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state)
+VALUES ($13::uuid, $3::uuid, $12::uuid, $8::uuid, $9::uuid, 'dose', 'needs_review');
+INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, idempotency_key, recorded_by)
+VALUES ($14::uuid, $3::uuid, $11::uuid, $10::uuid, $9::uuid, $13::uuid, now(), 'recorded', 'verify-close-completion', $1::uuid);`,
+		actorID, protocolID, tenantID, versionID, ruleID, sopID, sopVersionID, taskID,
+		goatID, batchID, obligationID, submissionID, itemID, completionID); err != nil {
+		t.Fatalf("seed vaccination close submission: %v", err)
+	}
+
+	created, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID: tenantID, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		Source: domain.SourceRef{
+			Module:       "vaccination",
+			SubmissionID: &submissionID,
+			RefType:      "vaccination_goat",
+			RefID:        goatID,
+		},
+		MediaRefs: []string{"proof-close-submission"}, CapturedAt: time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "vaccination:submission:" + submissionID + ":goat",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	if _, err := repo.RecordVerdict(ctx, domain.Verdict{
+		TenantID: tenantID, ItemID: created.Item.ItemID, Decision: domain.DecisionApproved,
+		VerifierID: actorID, RowVersion: created.Item.RowVersion,
+	}); err != nil {
+		t.Fatalf("RecordVerdict: %v", err)
+	}
+	if _, err := repo.CloseSubmission(ctx, domain.CloseSubmissionAction{
+		TenantID: tenantID, SubmissionID: submissionID, ActorID: actorID,
+	}); err != nil {
+		t.Fatalf("CloseSubmission: %v", err)
+	}
+
+	var completionStatus, obligationStatus, batchStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT vc.status, oi.status, ob.status
+FROM vaccination_completions vc
+JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+JOIN obligation_batches ob ON ob.tenant_id = vc.tenant_id AND ob.batch_id = vc.batch_id
+WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
+		tenantID, completionID).Scan(&completionStatus, &obligationStatus, &batchStatus); err != nil {
+		t.Fatalf("read accepted completion state: %v", err)
+	}
+	if completionStatus != "accepted" || obligationStatus != "completed" || batchStatus != "completed" {
+		t.Fatalf("states completion/obligation/batch = %s/%s/%s, want accepted/completed/completed",
+			completionStatus, obligationStatus, batchStatus)
+	}
+}
+
 func TestListQueueKeysetIsBoundedAndOrdered_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
