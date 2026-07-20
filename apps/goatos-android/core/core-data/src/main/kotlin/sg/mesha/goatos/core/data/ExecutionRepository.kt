@@ -307,30 +307,34 @@ class DefaultExecutionRepository(
     ): Result<Unit> = runCatching {
         scanAppendMutex.withLock {
             val rowScope = scanRosterRowScopeKey(shedId, taskId)
-            // Fetch the WHOLE shed roster keyset page-by-page (each network page stays ~20 rows) and
-            // stream each page STRAIGHT into the per-row SSOT — no whole-collection JSON blob, and no
-            // in-heap accumulation of the full roster (memory stays O(page), R50-008). `seq` records
-            // the backend roster order so the windowed UI read is stable. Forward progress is
-            // guaranteed by seenCursors (a repeated cursor is a backend defect, not silent truncation).
-            // The whole replace is ONE transaction: a mid-walk network failure rolls back and leaves
-            // the previously-persisted roster intact (offline-safe atomic publish).
+            // Walk the WHOLE shed roster keyset page-by-page over the NETWORK first (each page stays
+            // ~20 rows), staging the entities in one bounded per-shed buffer with backend `seq` order.
+            // No DB transaction is held across the network I/O — a long multi-page walk must not block
+            // proof-capture / outbox writers on the single SQLite write lock. `seq` records the backend
+            // roster order so the windowed UI read is stable; forward progress is guaranteed by
+            // seenCursors (a repeated cursor is a backend defect, not silent truncation). Only the
+            // network DTOs are transient per page; the buffer holds one bounded copy of the roster
+            // (a single shed = hundreds of animals), not the roster twice (R50-008).
+            val staged = ArrayList<ScanRosterRowEntity>() // mobile-guard:ignore: transient function-local sync buffer, GC'd on return; one bounded per-shed roster copy, not a persisted blob
             val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's page count, not a persistent field
             var seq = 0L
-            database.withTransaction {
-                val first = scanRoster(shedId, taskId, cursor = null, limit = limit)
-                scanRosterRowDao.deleteForScope(rowScope)
-                val firstEntities = first.rows.map { it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
-                scanRosterRowDao.upsertAll(firstEntities.distinctBy { it.id })
-                var nextCursor = first.nextCursor
-                while (nextCursor != null) {
-                    if (!seenCursors.add(nextCursor)) {
-                        throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
-                    }
-                    val page = scanRoster(shedId, taskId, cursor = nextCursor, limit = limit)
-                    val pageEntities = page.rows.map { it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
-                    scanRosterRowDao.upsertAll(pageEntities.distinctBy { it.id })
-                    nextCursor = page.nextCursor
+            var cursor: String? = null
+            while (true) {
+                val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
+                page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
+                val next = page.nextCursor ?: break
+                if (!seenCursors.add(next)) {
+                    throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
                 }
+                cursor = next
+            }
+            // Publish in ONE short transaction AFTER the whole walk succeeds: a mid-walk network
+            // failure throws before we touch the DB, so the previously-persisted roster is left intact
+            // (offline-safe atomic replace) and the write lock is held only for the local upsert.
+            val rows = staged.distinctBy { it.id }
+            database.withTransaction {
+                scanRosterRowDao.deleteForScope(rowScope)
+                scanRosterRowDao.upsertAll(rows)
             }
         }
     }

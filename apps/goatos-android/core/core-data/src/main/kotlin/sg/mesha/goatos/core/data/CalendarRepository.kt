@@ -119,7 +119,7 @@ interface CalendarRepository {
      * on-device SSOT half of pagination: page 2+ is persisted in Room — never accumulated in
      * ViewModel memory — so it survives process death and is available offline. The observed
      * [observeEvents] flow re-emits the merged, bounded keyset window; the UI never renders a
-     * direct-network DTO. Mirrors [ExecutionRepository.appendRows] / [ExecutionRepository.appendScanRoster].
+     * direct-network DTO. Mirrors [ExecutionRepository.appendRows].
      */
     suspend fun appendEvents(
         cursor: String,
