@@ -107,7 +107,10 @@ and bounded row-number examples that do not print staff PII:
 - CBE and CPT Preventive Care Manager, Backup Manager, and Park Head coverage;
 - one reviewed manager and backup for every source shed and every animal.
 - vaccination matrix schedule metadata, including `route_site=subcutaneous`,
-  while keeping route/site out of operator SOP form fields.
+  while keeping route/site out of operator SOP form fields;
+- the local trigger seed's synthetic primary RFID fixture
+  (`CBE-RFID-0001`), used only for emulator scan E2E and not as private source
+  truth.
 
 ## Current mock-fixture correction authority
 

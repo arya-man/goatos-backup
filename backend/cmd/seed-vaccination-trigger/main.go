@@ -31,6 +31,9 @@ const (
 	localOperatorID         = "00000000-0000-4000-8000-00000000b071"
 	localParkHeadID         = "00000000-0000-4000-8000-00000000b072"
 	localVerifierID         = "00000000-0000-4000-8000-00000000b073"
+	localTriggerGoatID      = "65667305-1525-48b6-8e38-f1a8f66f4aa6"
+	localTriggerGoatTagID   = "00000000-0000-4000-8000-00000000b081"
+	localTriggerGoatTag     = "CBE-RFID-0001"
 	localSOPVersionID       = "b0000000-0000-4000-8000-000000000002"
 	localStageK0ID          = "00000000-0000-4000-8000-00000000b030"
 	localStageK1ID          = "00000000-0000-4000-8000-00000000b031"
@@ -144,6 +147,34 @@ SET usable_for_vaccination = true,
     usable_for_sop = true,
     is_quarantine = false,
     is_icu = false,
+    updated_at = now();
+
+INSERT INTO goat_identifiers (
+  identifier_id, tenant_id, goat_id, identifier_type, identifier_value,
+  normalized_value, scope_key, is_primary_for_goat, status, valid_from,
+  source_system, source_record_id, normalizer_version, confidence, updated_at
+)
+SELECT
+  '` + localTriggerGoatTagID + `'::uuid, $1::uuid, '` + localTriggerGoatID + `'::uuid,
+  'animal_identifier_1', '` + localTriggerGoatTag + `', '` + localTriggerGoatTag + `',
+  'tenant:' || $1::text, true, 'active', now(),
+  'seed-vaccination-trigger', 'cbe-trigger-goat-primary-tag', 'seed-v1', 1.0, now()
+WHERE EXISTS (
+  SELECT 1
+  FROM goats g
+  WHERE g.tenant_id = $1::uuid
+    AND g.goat_id = '` + localTriggerGoatID + `'::uuid
+)
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id = EXCLUDED.goat_id,
+    identifier_value = EXCLUDED.identifier_value,
+    scope_key = EXCLUDED.scope_key,
+    is_primary_for_goat = true,
+    status = 'active',
+    source_system = EXCLUDED.source_system,
+    source_record_id = EXCLUDED.source_record_id,
+    normalizer_version = EXCLUDED.normalizer_version,
+    confidence = EXCLUDED.confidence,
     updated_at = now();
 
 WITH seeded_workforce AS (

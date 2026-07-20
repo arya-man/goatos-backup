@@ -88,6 +88,9 @@ Permanent scale and guard-authoring rules:
 - Vaccination seed/config changes must keep the committed fixture contract in
   sync. Matrix schedule rows require `route_site=subcutaneous` as protocol
   metadata only; do not add route/site back to vaccination SOP/operator forms.
+- The local vaccination trigger fixture has one reviewed synthetic primary RFID
+  (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
+  with the source fixture validator/runbooks when changed.
 - A green unit test or checker is not recurrence protection until the failing
   fixture is run by the local/hosted CI entrypoint and the shared anti-pattern
   is recorded in `AGENTS.md` and the relevant reference doc.

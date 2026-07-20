@@ -45,6 +45,9 @@ const GOAT_HEADERS = [
   "animal_status",
 ];
 const VACCINATION_HEADER = ["Farm", "Old ID", "Old ID Suffix", "RFID", "Age", "Gender", "Breed", "Tag", "Shed", "Partition", "", "ET+TT", "", "PPR", "Blue tongue", "", "FMD", "", "HS", "Goat Pox", "Sheep Pox"];
+// The local trigger seed uses one synthetic, reviewed keyboard-wedge RFID so emulator E2E can
+// exercise the same scan-capture path as a physical reader without reading private RFID material.
+export const LOCAL_TRIGGER_PRIMARY_RFID_FIXTURE = "CBE-RFID-0001";
 const VACCINATION_DOSE_HEADER = ["", "", "", "", "", "", "", "", "", "", "", "First Dose", "Booster", "First Dose", "First Dose", "Booster", "First Dose", "Booster", "First Dose", "First Dose", "First Dose"];
 const ROSTER_HEADER = ["center", "timetable_position", "timetable_name", "jun26_candidate", "designation_type", "designation", "location", "confidence", "notes"];
 const MANAGER_HEADER = ["shed_code", "shed_name", "park_code", "manager_code", "manager_name", "assignment_source", "source_ref", "confidence", "needs_review", "manager_role", "backup_manager_code", "backup_manager_name", "backup_role", "backup_source_ref", "goat_count", "notes"];

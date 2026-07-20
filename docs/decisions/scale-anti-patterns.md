@@ -145,6 +145,11 @@ July on a UTC server. A Full Schedule, Calendar, or Action Center month filter
 that uses server-local month extraction can drop or mis-bucket exactly the
 boundary rows operators care about.
 
+Local seed fixtures used by emulator E2E are also contract state when mobile or
+workers depend on them. The vaccination trigger fixture's `CBE-RFID-0001`
+primary RFID must stay synthetic, reviewed, and synchronized with the fixture
+validator/runbooks; never generate ad-hoc RFID values in runtime code.
+
 Fixes must normalize through the business timezone at the layer where the
 bucket is computed. In admin-web, use `Intl.DateTimeFormat(..., { timeZone:
 "Asia/Kolkata" })` or an equivalent shared helper for business month/year

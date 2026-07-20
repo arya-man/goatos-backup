@@ -458,6 +458,9 @@ unknown is the only accepted disposition. Source files
 `upsertSeedGoats` is a full-refresh upsert (`dob=EXCLUDED.dob` on every
 reseed), a future rerun automatically restores the real DOB the moment the
 upstream source is corrected — no manual cleanup is required on this side.
+The separate local trigger seed may also create the reviewed synthetic RFID
+`CBE-RFID-0001` for emulator scan E2E; it is fixture-only and never carries
+private source-date authority.
 Birth-origin animals are NEVER eligible for this flag: a birth-origin
 DOB-after-own-`stage_entry_date` violation stays a hard failure regardless of
 `-null-false-dob`, because it is a genuine data defect rather than the

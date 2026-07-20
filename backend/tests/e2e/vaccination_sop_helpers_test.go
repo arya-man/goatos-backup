@@ -136,6 +136,9 @@ func newVaccinationSOPHarnessWithBus(t *testing.T, fx *Fixture, bus eventbus.Bus
 
 func (h *vaccinationSOPHarness) submit(taskID, shedID, actorID, lotID string, goatIDs []string, administeredAt time.Time, idempotencyKey, routeSite string) (*sopdomain.SubmissionResponse, error) {
 	h.t.Helper()
+	if err := h.recordGoatScanCaptures(taskID, actorID, goatIDs, administeredAt, idempotencyKey); err != nil {
+		return nil, err
+	}
 	body, err := h.submissionRequest(taskID, shedID, actorID, lotID, goatIDs, administeredAt, idempotencyKey, routeSite)
 	if err != nil {
 		return nil, err
@@ -143,6 +146,29 @@ func (h *vaccinationSOPHarness) submit(taskID, shedID, actorID, lotID string, go
 	return h.Service.SubmitTask(h.fx.Ctx, sopports.SubmitTaskCommand{
 		TenantID: fxTenant, ActorID: actorID, TaskID: taskID, Body: body,
 	}, "e2e-submit-"+idempotencyKey)
+}
+
+func (h *vaccinationSOPHarness) recordGoatScanCaptures(taskID, actorID string, goatIDs []string, capturedAt time.Time, idempotencyKey string) error {
+	h.t.Helper()
+	capturedAtMs := capturedAt.UnixMilli()
+	for i, goatID := range goatIDs {
+		if _, err := h.Service.RecordScanCapture(h.fx.Ctx, sopports.RecordScanCaptureCommand{
+			TenantID:       fxTenant,
+			ActorID:        actorID,
+			TaskID:         taskID,
+			IdempotencyKey: idempotencyKey + ":scan:" + goatID,
+			Body: sopdomain.ScanCaptureRequest{
+				FieldKey:     "goat_ids",
+				Tag:          "E2E-RFID-" + goatID,
+				GoatID:       goatID,
+				CapturedAtMs: &capturedAtMs,
+			},
+		}, "e2e-scan-"+idempotencyKey+"-"+goatID); err != nil {
+			return err
+		}
+		capturedAtMs += int64(i + 1)
+	}
+	return nil
 }
 
 func (h *vaccinationSOPHarness) submissionRequest(taskID, _ string, actorID, lotID string, goatIDs []string, administeredAt time.Time, idempotencyKey, routeSite string) (sopdomain.SubmitTaskRequest, error) {
