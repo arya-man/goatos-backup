@@ -302,26 +302,36 @@ class DefaultExecutionRepository(
             // fails the whole refresh and leaves both caches untouched (atomic terminal publish).
             // Forward progress is guaranteed by seenCursors (a repeated cursor is a backend defect,
             // not silently truncated) rather than a fixed page-count cutoff.
+            // R50-008 memory optimization: stream each page's rows directly into the per-row SSOT
+            // without accumulating all pages in a single in-heap list (eliminates dual memory retention
+            // for large sheds: ~50+ pages hold entire roster twice during refresh).
             val first = scanRoster(shedId, taskId, cursor = null, limit = limit)
-            val entities = first.rows.mapTo(mutableListOf()) { it.toRowEntity(rowScope, shedId, taskId, clock()) }
-            var cursor = first.nextCursor
+            val firstEntities = first.rows.map { it.toRowEntity(rowScope, shedId, taskId, clock()) }
             val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's total page count, not a persistent field
-            while (cursor != null) {
-                if (!seenCursors.add(cursor)) {
-                    throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
-                }
-                val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
-                page.rows.mapTo(entities) { it.toRowEntity(rowScope, shedId, taskId, clock()) }
-                cursor = page.nextCursor
-            }
-            // The UI blob still holds only the first ~20-row page (the observed window stays bounded,
-            // paged forward by appendScanRoster as the user scrolls); the per-row SSOT holds every
-            // roster row for indexed tag lookup + GROUP BY aggregates, published atomically with it.
+
             database.withTransaction {
+                // Clear the old roster and insert the first page
+                scanRosterRowDao.deleteForScope(rowScope)
+                scanRosterRowDao.upsertAll(firstEntities.distinctBy { it.id })
+
+                // Stream subsequent pages into the DAO without accumulating in memory
+                var nextCursor = first.nextCursor
+                while (nextCursor != null) {
+                    if (!seenCursors.add(nextCursor)) {
+                        throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
+                    }
+                    val page = scanRoster(shedId, taskId, cursor = nextCursor, limit = limit)
+                    val pageEntities = page.rows.map { it.toRowEntity(rowScope, shedId, taskId, clock()) }
+                    scanRosterRowDao.upsertAll(pageEntities.distinctBy { it.id })
+                    nextCursor = page.nextCursor
+                }
+
+                // The UI blob still holds only the first ~20-row page (the observed window stays bounded,
+                // paged forward by appendScanRoster as the user scrolls); the per-row SSOT holds every
+                // roster row for indexed tag lookup + GROUP BY aggregates, published atomically with it.
                 scanRosterDao.upsert(
                     ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(first), updatedAt = clock()),
                 )
-                scanRosterRowDao.replaceScope(rowScope, entities.distinctBy { it.id })
             }
             scanRosterDao.enforceCacheBounds()
         }

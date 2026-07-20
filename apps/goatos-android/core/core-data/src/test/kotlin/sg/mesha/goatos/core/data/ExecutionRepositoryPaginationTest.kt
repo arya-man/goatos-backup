@@ -217,6 +217,26 @@ class ExecutionRepositoryPaginationTest {
         return ScanRosterResponseDto(source = "api", rows = rows, nextCursor = next)
     }
 
+
+    private fun largeNumberedPage(cursor: String?): ScanRosterResponseDto {
+        val pageIndex = when (cursor) {
+            null -> 0
+            else -> cursor.removePrefix("cursor-").toInt()
+        }
+        val start = pageIndex * PAGE_SIZE + 1
+        val rows = (start..LARGE_TOTAL_ROWS).take(PAGE_SIZE).map { index ->
+            ScanRosterRowDto(
+                goatId = "goat-$index",
+                primaryTag = "tag$index",
+                vaccineLabel = "FMD",
+                status = "due",
+                obligationId = "obligation-$index",
+            )
+        }
+        val next = if (start + rows.size - 1 < LARGE_TOTAL_ROWS) "cursor-${pageIndex + 1}" else null
+        return ScanRosterResponseDto(source = "api", rows = rows, nextCursor = next)
+    }
+
     private fun executionRow(shedId: String, taskId: String) = VaccinationExecutionRowDto(
         parkId = "park-a",
         shedId = shedId,
@@ -225,10 +245,39 @@ class ExecutionRepositoryPaginationTest {
         sopTaskId = taskId,
     )
 
+
+    @Test
+    fun `R50-008 scan roster refresh streams multi-page roster without retaining all pages in memory`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = ::largeNumberedPage
+            // This refresh loads 80 rows across 4 pages without accumulating all pages in a single in-heap list.
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            // Verify the UI cache holds only the first page (bounded blob per design)
+            val cachedBlob = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
+            assertEquals(PAGE_SIZE, cachedBlob.rows.size)
+            assertEquals("obligation-1", cachedBlob.rows.first().obligationId)
+            assertEquals("obligation-20", cachedBlob.rows.last().obligationId)
+            assertEquals("cursor-1", cachedBlob.nextCursor)
+
+            // Verify the per-row SSOT holds EVERY row from all 4 pages (full roster for tag lookup and aggregates)
+            val allCounts = repository.getScanRosterStatusCounts(SHED_ID, TASK_ID)
+            assertEquals(LARGE_TOTAL_ROWS, allCounts.sumOf { it.count })
+
+            // Spot-check a row from page 3 and page 4 to prove all pages landed in Room
+            assertEquals("obligation-55", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag55")?.obligationId)
+            assertEquals("obligation-80", repository.findScanRosterByTag(SHED_ID, TASK_ID, "tag80")?.obligationId)
+
+            // Verify we walked the correct cursor chain (no duplicates, all pages fetched)
+            assertEquals(listOf(null, "cursor-1", "cursor-2", "cursor-3"), requests.map { it.cursor })
+        }
+    }
+
     private companion object {
         const val SHED_ID = "shed-a"
         const val TASK_ID = "task-a"
         const val PAGE_SIZE = 20
         const val TOTAL_ROWS = 45
+        const val LARGE_TOTAL_ROWS = 80
     }
 }
