@@ -1187,6 +1187,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "shed-execution":
 		return map[string]string{
+			"action.open_passport":           "Open Animal Passport",
 			"crumb":                          "Preventive Care (PC) · Vaccination · Execution",
 			"fallback.title":                 "Shed unavailable",
 			"fallback.body":                  "Shed returned no vaccination execution context. It may be outside the current drive scope, or the service is unavailable.",

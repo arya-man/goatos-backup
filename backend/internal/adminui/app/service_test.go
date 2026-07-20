@@ -156,6 +156,13 @@ func TestCalendarBootstrapPublishesHistoryAwareCopy(t *testing.T) {
 	}
 }
 
+func TestShedExecutionBootstrapPublishesAnimalRowActionCopy(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "shed-execution")
+	if got := page.Copy["action.open_passport"]; got != "Open Animal Passport" {
+		t.Fatalf("shed-execution action.open_passport copy = %q", got)
+	}
+}
+
 func TestSourceLoadContractPublishesProcurementSexSelector(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "source-load")
 	if got := page.Copy["field.sex"]; got != "Sex" {

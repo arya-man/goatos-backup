@@ -99,6 +99,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "action.next_year": "Next year",
   },
   "shed-execution": {
+    "action.open_passport": "Open Animal Passport",
     "status.scheduled_drive": "Drive scheduled",
     "status.no_work_due": "No work due",
     "section.animals.note": "Display ID, health/lifecycle, last vaccination date, next vaccination date, and current vaccination work.",

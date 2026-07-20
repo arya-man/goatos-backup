@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { copy } from "../../lib/admin-ui-contract.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(resolve(here, "../../app/mesha-theme.css"), "utf8");
@@ -78,5 +79,12 @@ test("each shed animal roster record has one keyboard-accessible link covering t
   assert.ok(
     hasDeclaration(["table.shed-animal-roster-table", ".shed-animal-roster-cell-content", ":is(a,button"], "pointer-events:auto"),
     "a real control added to a row must remain independently clickable instead of being swallowed by the row link",
+  );
+});
+
+test("shed animal row action has a contract-safe fallback before live backend hydration", () => {
+  assert.equal(
+    copy({ route_id: "shed-execution", copy: {} }, "action.open_passport"),
+    "Open Animal Passport",
   );
 });
