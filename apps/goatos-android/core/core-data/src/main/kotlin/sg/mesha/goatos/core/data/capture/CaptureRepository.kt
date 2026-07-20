@@ -434,17 +434,20 @@ class DefaultProofCaptureRepository(
             when (val cancel = syncRepository.cancelOutboxItemIfPending(outboxItemId)) {
                 is AppResult.Err -> return@withContext cancel
                 is AppResult.Ok -> if (!cancel.value) {
-                    // The guarded delete removed 0 rows: either the dispatcher already claimed it
-                    // (IN_FLIGHT) or it is gone/synced. Refuse only if it is genuinely in-flight, so
-                    // we never pull the file out from under a live upload (orphan on the server).
+                    // The guarded delete removed 0 rows: the dispatcher claimed the item (IN_FLIGHT)
+                    // at that instant. Only delete the local row+file if the outbox row is now GONE
+                    // or SUCCEEDED (the server has the proof). If ANY non-success row still exists —
+                    // still IN_FLIGHT, or it raced to a RETRYABLE FAILED/QUEUED between our guarded
+                    // delete and the dispatcher's markFailed — REFUSE: deleting the file would strand
+                    // a retryable upload of a now-missing file (orphan). The user retries remove()
+                    // once it settles (then the guarded delete succeeds on the QUEUED/FAILED row).
                     val current = syncRepository.observeItem(outboxItemId).first()
-                    if (current != null && current.status == SyncItemStatus.IN_FLIGHT) {
+                    if (current != null && current.status != SyncItemStatus.SUCCEEDED) {
                         return@withContext AppResult.Err(
-                            "Cannot delete proof while upload is in progress. Wait for upload to complete or fail.",
+                            "Cannot delete proof while its upload is in progress. Wait for it to finish or fail, then retry.",
                         )
                     }
-                    // else: already synced/gone — the server has the proof (or the item vanished),
-                    // so deleting the local row + file leaves no orphan.
+                    // else: gone (null) or SUCCEEDED — deleting the local row + file leaves no orphan.
                 }
             }
         }
