@@ -18,6 +18,16 @@
       "ciStep": "guardrail-registration-guard"
     },
     {
+      "id": "shared-local-stack-service",
+      "script": "tools/dev/test-local-stack-service-guard.sh",
+      "makeTarget": "local-stack-service-guard",
+      "realCheck": "bash tools/dev/test-local-stack-service-guard.sh",
+      "selfTest": "bash tools/dev/test-local-stack-service-guard.sh --self-test",
+      "owningDoc": "docs/runbooks/local-full-stack-rehearsal.md",
+      "requiredInCI": true,
+      "ciStep": "local-stack-service-guard"
+    },
+    {
       "id": "local-ci-evidence",
       "script": "tools/ci/check-local-ci-evidence.mjs",
       "makeTarget": "local-ci-evidence-guard",

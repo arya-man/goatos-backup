@@ -88,6 +88,7 @@ run_sqlc_static_checks() {
 
 run_common() {
   step "guardrail-registration-guard" make guardrail-registration-guard
+  step "local-stack-service-guard" make local-stack-service-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "domain-event-architecture-guard" make domain-event-architecture-guard
   step "agent: ai-doctor"          make ai-doctor

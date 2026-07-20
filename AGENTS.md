@@ -913,6 +913,26 @@ Do:
 
 Do not:
 
+- Shared local-stack identity and isolation (Codex and Claude): the browser-visible
+  stack is exactly one atomic trio — admin-web `127.0.0.1:3300`, API
+  `127.0.0.1:8080`, and database `goatos` in the named `goatos-local-current`
+  container. FE and BE must run from the same clean checkout at **exact origin/main**.
+  Start/recover it only through the persistent service wrapper;
+  the supervisor owns both ports, discards ambient `DATABASE_URL` /
+  `GOATOS_E2E_DATABASE_URL`, includes the `libpq` tools required by closeout,
+  and must stop/restart FE+BE together if either child fails or `origin/main`
+  advances. Never point the shared UI at a feature-worktree API or an alternate
+  database, and never start only half the shared pair.
+- An **isolated E2E** stack is a separate test appliance with its own non-shared
+  FE/BE ports and explicit throwaway database. It is intentionally independent
+  of the shared exact-main stack. Shared-stack recovery must never stop, reuse,
+  migrate, seed, fast-forward, or delete an isolated E2E process/container/DB.
+  Conversely, E2E scripts must never claim `3300`, `8080`, or mutate the normal
+  `5433/goatos` database. Inspect exact port owners and database targets before
+  cleanup; do not infer that every local Goat OS process belongs to the shared
+  stack. Enforcement: `make local-stack-service-guard`, required by normal
+  `make ci-local`; operating contract:
+  `docs/runbooks/local-full-stack-rehearsal.md`.
 - Local dev servers (`:3300` admin-web, `:8080` backend): the workspace owner has
   granted agents (Codex and Claude) STANDING authority to stop, restart, re-port,
   or `next build` over them WITHOUT asking — just do it when the work needs it

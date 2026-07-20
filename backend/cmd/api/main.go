@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -101,6 +102,9 @@ func assertLocalOriginMainStack() error {
 	if os.Getenv("GOATOS_ENV") != "local" || os.Getenv("GOATOS_ALLOW_STALE_LOCAL_STACK") == "1" {
 		return nil
 	}
+	if !isSharedLocalAPIAddress(os.Getenv("GOATOS_HTTP_ADDR")) {
+		return nil
+	}
 	repoRoot, err := git("rev-parse", "--show-toplevel")
 	if err != nil {
 		return err
@@ -112,7 +116,11 @@ func assertLocalOriginMainStack() error {
 	if !strings.Contains(remote, "github.com/vgoats/goatos") {
 		return errors.New("backend local stack origin is not github.com/vgoats/goatos")
 	}
-	_ = exec.Command("git", "-C", repoRoot, "fetch", "--quiet", "origin", "main").Run()
+	if os.Getenv("GOATOS_ORIGIN_MAIN_PREVERIFIED") != "1" {
+		if err := exec.Command("git", "-C", repoRoot, "fetch", "--quiet", "origin", "main").Run(); err != nil {
+			return errors.New("backend shared local stack could not fetch origin/main")
+		}
+	}
 	head, err := git("rev-parse", "HEAD")
 	if err != nil {
 		return err
@@ -132,6 +140,14 @@ func assertLocalOriginMainStack() error {
 		return errors.New("backend local stack has modified tracked files; serve a clean origin/main checkout")
 	}
 	return nil
+}
+
+func isSharedLocalAPIAddress(addr string) bool {
+	if strings.TrimSpace(addr) == "" {
+		return true
+	}
+	_, port, err := net.SplitHostPort(addr)
+	return err == nil && port == "8080"
 }
 
 func git(args ...string) (string, error) {

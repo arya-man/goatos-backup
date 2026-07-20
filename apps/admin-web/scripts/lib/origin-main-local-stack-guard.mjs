@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
-export function assertOriginMainLocalStack(repoRoot, serviceName) {
+export function assertOriginMainLocalStack(repoRoot, serviceName, options = {}) {
   if (process.env.GOATOS_ALLOW_STALE_LOCAL_STACK === "1") return;
+  const port = Number(options.port ?? process.env.PORT ?? 3000);
+  if (!isSharedAdminWebPort(port)) return;
 
   const root = path.resolve(repoRoot);
   const remoteUrl = git(root, ["remote", "get-url", "origin"]);
@@ -10,10 +12,12 @@ export function assertOriginMainLocalStack(repoRoot, serviceName) {
     fail(serviceName, root, `origin is ${remoteUrl || "(missing)"}, expected github.com/vgoats/goatos`);
   }
 
-  try {
-    execFileSync("git", ["-C", root, "fetch", "--quiet", "origin", "main"], { stdio: "ignore" });
-  } catch (error) {
-    fail(serviceName, root, `could not fetch origin/main: ${error.message}`);
+  if (process.env.GOATOS_ORIGIN_MAIN_PREVERIFIED !== "1") {
+    try {
+      execFileSync("git", ["-C", root, "fetch", "--quiet", "origin", "main"], { stdio: "ignore" });
+    } catch (error) {
+      fail(serviceName, root, `could not fetch origin/main: ${error.message}`);
+    }
   }
 
   const head = git(root, ["rev-parse", "HEAD"]);
@@ -25,6 +29,10 @@ export function assertOriginMainLocalStack(repoRoot, serviceName) {
   if (dirty) {
     fail(serviceName, root, "tracked files are modified; local stack must serve a clean origin/main checkout");
   }
+}
+
+export function isSharedAdminWebPort(port) {
+  return Number(port) === 3300;
 }
 
 function git(root, args) {

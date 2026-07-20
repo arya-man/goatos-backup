@@ -94,6 +94,7 @@ ai-telemetry-ui:
 
 guardrails:
 	$(MAKE) guardrail-registration-guard
+	$(MAKE) local-stack-service-guard
 	$(MAKE) backend-foundations-guard
 	$(MAKE) frontend-foundations-guard
 	$(MAKE) domain-event-architecture-guard

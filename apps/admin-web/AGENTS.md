@@ -47,6 +47,14 @@ stack stopped, and do not leave required servers running only as foreground Code
 terminal sessions that block the final response; use the service wrapper or an
 equivalent supervisor and report the URL/port in the status/final update.
 
+The shared browser stack is the clean checkout at **exact origin/main** on
+admin-web `:3300`, API `:8080`, and `goatos-local-current` database `goatos`.
+Treat those three as one atomic service; do not mix a feature-worktree frontend,
+another API, or an ambient database URL into it. An isolated E2E stack uses its
+own non-shared FE/BE ports plus a throwaway DB and must not be stopped or modified
+while recovering the shared service. `make local-stack-service-guard` enforces
+this boundary in local CI for both Claude and Codex.
+
 > **Local bearer token now self-refreshes — a restart is NO LONGER needed for an
 > expired token.** In local bearer mode (`GOATOS_ENV=local` + `GOATOS_AUTH_MODE=bearer`),
 > SSR self-mints a fresh short-lived HS256 token per request via

@@ -30,7 +30,7 @@ if (mode !== "dev" && mode !== "start") {
   process.exit(2);
 }
 
-assertOriginMainLocalStack(repoRoot, "admin-web");
+assertOriginMainLocalStack(repoRoot, "admin-web", { port });
 assertNotTempCheckout();
 await assertPortFree(host, port);
 const childEnv = await prepareLocalEnvironment();

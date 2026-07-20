@@ -71,6 +71,9 @@ The common job always runs repository, agent, contract, domain-event architectur
 large-file, and diff hygiene. In particular, movement/Vaccination producer-to-
 consumer closure is checked by `domain-event-architecture-guard` on every normal
 `make ci-local` run; it is not confined to the legacy compatibility job.
+It also runs `local-stack-service-guard`, which mechanically checks the exact
+origin/main shared FE/BE contract, canonical DB pin, LaunchAgent tool PATH,
+atomic child cleanup, live main-drift watchdog, and the isolated E2E boundary.
 Backend owns kernel/E2E/scale static guards and Go package/unit tests. Postgres
 containers, DB-backed Go tests, the Docker E2E chain, sqlc schema regeneration,
 SQL plans, migration replay, and live latency are skipped by default. They run

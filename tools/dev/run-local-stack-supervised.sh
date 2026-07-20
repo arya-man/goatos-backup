@@ -23,14 +23,32 @@ EOF
   esac
 }
 
+shared_stack="${GOATOS_SHARED_LOCAL_STACK:-1}"
+if [ "$shared_stack" = "1" ]; then
+  unset GOATOS_ALLOW_STALE_LOCAL_STACK GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK
+fi
 assert_not_temp_checkout
 
-export PATH="${GOATOS_LOCAL_SERVICE_PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH}"
+export PATH="${GOATOS_LOCAL_SERVICE_PATH:-/opt/homebrew/opt/libpq/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH}"
 
-host="${GOATOS_LOCAL_HOST:-127.0.0.1}"
-api_port="${GOATOS_LOCAL_API_PORT:-8080}"
-web_port="${GOATOS_LOCAL_WEB_PORT:-3300}"
-api_base_url="${GOATOS_API_BASE_URL:-http://$host:$api_port}"
+if [ "$shared_stack" = "1" ]; then
+  # The browser-visible stack is a fixed contract. Ambient variables from an
+  # agent shell must never redirect it to an E2E DB, port, or backend.
+  host="127.0.0.1"
+  api_port="8080"
+  web_port="3300"
+  api_base_url="http://127.0.0.1:8080"
+  unset DATABASE_URL GOATOS_E2E_DATABASE_URL GOATOS_LOCAL_STACK_DATABASE_URL GOATOS_ALLOW_CUSTOM_LOCAL_STACK_DB
+else
+  host="${GOATOS_LOCAL_HOST:-127.0.0.1}"
+  api_port="${GOATOS_LOCAL_API_PORT:?isolated stack requires GOATOS_LOCAL_API_PORT}"
+  web_port="${GOATOS_LOCAL_WEB_PORT:?isolated stack requires GOATOS_LOCAL_WEB_PORT}"
+  api_base_url="${GOATOS_API_BASE_URL:-http://$host:$api_port}"
+  if [ "$api_port" = "8080" ] || [ "$web_port" = "3300" ]; then
+    echo "Isolated local stacks must not claim shared ports 8080 or 3300." >&2
+    exit 2
+  fi
+fi
 
 log_dir="$repo_root/.codex-goatos-render/logs"
 api_log="$log_dir/local-api.log"
@@ -40,6 +58,7 @@ supervisor_log="$log_dir/local-stack-supervisor.log"
 api_pid=""
 web_pid=""
 stop_requested="0"
+origin_main_restart_requested="0"
 
 timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
@@ -48,6 +67,78 @@ timestamp() {
 log() {
   mkdir -p "$log_dir"
   printf '%s %s\n' "$(timestamp)" "$*" | tee -a "$supervisor_log"
+}
+
+fetch_origin_main_with_gh() {
+  local credential_helper
+  # This is a literal Git credential-helper shell function.
+  # shellcheck disable=SC2016
+  credential_helper='!f() { test "$1" = get || exit 0; echo username=x-access-token; printf "password="; gh auth token; }; f'
+  if command -v gh >/dev/null 2>&1; then
+    git -C "$repo_root" \
+      -c credential.helper= \
+      -c "credential.helper=$credential_helper" \
+      fetch --quiet origin main
+    return
+  fi
+  git -C "$repo_root" fetch --quiet origin main
+}
+
+assert_clean_tracked_checkout() {
+  local dirty
+  dirty="$(git -C "$repo_root" status --porcelain --untracked-files=no)"
+  if [ -n "$dirty" ]; then
+    log "Refusing shared local stack: tracked files are modified in $repo_root."
+    return 1
+  fi
+}
+
+sync_exact_origin_main() {
+  if [ "$shared_stack" != "1" ]; then
+    return 0
+  fi
+
+  local remote head origin_main
+  remote="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
+  case "$remote" in
+    *github.com/vgoats/goatos*) ;;
+    *)
+      log "Refusing shared local stack: origin is ${remote:-missing}, expected vgoats/goatos."
+      return 1
+      ;;
+  esac
+  assert_clean_tracked_checkout || return 1
+  if ! fetch_origin_main_with_gh; then
+    log "Refusing shared local stack: could not authenticate and fetch origin/main."
+    return 1
+  fi
+
+  head="$(git -C "$repo_root" rev-parse HEAD)"
+  origin_main="$(git -C "$repo_root" rev-parse refs/remotes/origin/main)"
+  if [ "$head" != "$origin_main" ]; then
+    if ! git -C "$repo_root" merge-base --is-ancestor "$head" "$origin_main"; then
+      log "Refusing shared local stack: HEAD ${head:0:12} is not a clean fast-forward ancestor of origin/main ${origin_main:0:12}."
+      return 1
+    fi
+    log "Fast-forwarding shared local stack ${head:0:12} -> origin/main ${origin_main:0:12}."
+    git -C "$repo_root" merge --ff-only --quiet refs/remotes/origin/main
+    log "Re-executing the supervisor from exact origin/main before database preparation."
+    exec /bin/bash "$repo_root/tools/dev/run-local-stack-supervised.sh"
+  fi
+
+  assert_clean_tracked_checkout || return 1
+  export GOATOS_ORIGIN_MAIN_PREVERIFIED=1
+}
+
+origin_main_drifted() {
+  if [ "$shared_stack" != "1" ]; then
+    return 1
+  fi
+  if ! fetch_origin_main_with_gh; then
+    log "Lost authenticated origin/main verification; stopping the shared stack fail-closed."
+    return 0
+  fi
+  [ "$(git -C "$repo_root" rev-parse HEAD)" != "$(git -C "$repo_root" rev-parse refs/remotes/origin/main)" ]
 }
 
 detect_docker_database_url() {
@@ -88,9 +179,14 @@ export GOATOS_AUTH_ISSUER="${GOATOS_AUTH_ISSUER:-goatos-local}"
 export GOATOS_AUTH_AUDIENCE="${GOATOS_AUTH_AUDIENCE:-goatos-api}"
 export GOATOS_AUTH_HS256_SECRET="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}"
 export GOATOS_AUTH_MAX_TOKEN_TTL="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
-export GOATOS_HTTP_ADDR="${GOATOS_HTTP_ADDR:-$host:$api_port}"
+if [ "$shared_stack" = "1" ]; then
+  export GOATOS_HTTP_ADDR="$host:$api_port"
+else
+  export GOATOS_HTTP_ADDR="${GOATOS_HTTP_ADDR:-$host:$api_port}"
+fi
 # DRV-R3 local-DB mutation trust decision + guard (shared, tested: tools/dev/test-db-mutation-guard.sh).
 # shellcheck source=tools/dev/lib/db-mutation-guard.sh
+# shellcheck disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib/db-mutation-guard.sh"
 resolve_database_url detect_docker_database_url
 export GOATOS_API_BASE_URL="$api_base_url"
@@ -145,9 +241,35 @@ kill_pid() {
   fi
 }
 
+kill_process_tree() {
+  local root_pid="$1"
+  [ -n "$root_pid" ] || return 0
+  local child
+  for child in $(pgrep -P "$root_pid" 2>/dev/null || true); do
+    kill_process_tree "$child"
+  done
+  kill_pid "$root_pid"
+}
+
+kill_owned_port_listeners() {
+  local target_port="$1"
+  local pid cwd
+  for pid in $(port_listener_pids "$target_port"); do
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+    case "$cwd" in
+      "$repo_root"|"$repo_root"/*) kill_process_tree "$pid" ;;
+    esac
+  done
+}
+
 cleanup() {
-  kill_pid "$web_pid"
-  kill_pid "$api_pid"
+  kill_process_tree "$web_pid"
+  kill_process_tree "$api_pid"
+  # `go run` and npm/Next can leave compiled or worker descendants listening
+  # after their immediate parent exits. Reap only listeners owned by this repo;
+  # never scan or terminate isolated E2E stacks on other ports/checkouts.
+  kill_owned_port_listeners "$web_port"
+  kill_owned_port_listeners "$api_port"
   web_pid=""
   api_pid=""
 }
@@ -270,6 +392,9 @@ start_web() {
 monitor_stack() {
   local api_failures=0
   local web_failures=0
+  local origin_elapsed=0
+  local health_interval="${GOATOS_LOCAL_SERVICE_HEALTH_INTERVAL_SECONDS:-5}"
+  local origin_interval="${GOATOS_LOCAL_ORIGIN_CHECK_INTERVAL_SECONDS:-30}"
 
   log "Local stack ready: API $api_base_url, admin-web http://$host:$web_port/."
   while [ "$stop_requested" = "0" ]; do
@@ -301,7 +426,16 @@ monitor_stack() {
       return 1
     fi
 
-    sleep "${GOATOS_LOCAL_SERVICE_HEALTH_INTERVAL_SECONDS:-5}"
+    sleep "$health_interval"
+    origin_elapsed=$((origin_elapsed + health_interval))
+    if [ "$shared_stack" = "1" ] && [ "$origin_elapsed" -ge "$origin_interval" ]; then
+      origin_elapsed=0
+      if origin_main_drifted; then
+        origin_main_restart_requested="1"
+        log "origin/main advanced or could not be verified; stopping both shared services for an exact-main restart."
+        return 1
+      fi
+    fi
   done
 }
 
@@ -311,6 +445,11 @@ touch "$api_log" "$web_log" "$supervisor_log"
 
 log "Starting durable Goat OS local stack supervisor."
 log "Database URL target: $DATABASE_URL"
+
+if ! sync_exact_origin_main; then
+  log "Shared origin/main synchronization failed; not starting FE, BE, or touching the database."
+  exit 1
+fi
 
 # DRV-R3 single-owner prep: migrate + seed + closeout run EXACTLY ONCE here (guarded), never inside the
 # restart loop below — a monitor-triggered restart must only relaunch the servers, not re-mutate the DB.
@@ -326,6 +465,10 @@ while [ "$stop_requested" = "0" ]; do
     break
   fi
   cleanup
+  if [ "$origin_main_restart_requested" = "1" ]; then
+    log "Exiting supervisor so the persistent service can fast-forward and restart atomically."
+    exit 75
+  fi
   if [ "$stop_requested" = "1" ]; then
     break
   fi

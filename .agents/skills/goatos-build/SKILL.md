@@ -302,6 +302,18 @@ one product; this skill is the navigation layer.
   for mutating the normal app DB from E2E. Destructive/load tests must use an
   isolated DB with its own seed/cleanup, such as the explicit local GCP-kernel
   stack on `55432`; that stack must not become the default local runtime DB.
+- The browser-visible shared local stack is one atomic exact-main appliance:
+  clean **exact origin/main** admin-web on `127.0.0.1:3300`, API on
+  `127.0.0.1:8080`, and database `goatos` from `goatos-local-current`. Use the
+  persistent service wrapper, never ambient `DATABASE_URL`, and verify both
+  listener CWDs plus `/readyz` before handoff. The supervisor must fast-forward
+  only a clean ancestor checkout, re-exec before DB preparation, and restart FE
+  and BE together when either fails or `origin/main` advances. An isolated E2E
+  stack is unrelated: it must have non-shared FE/BE ports and an explicit
+  throwaway DB; never stop, sync, seed, migrate, reuse, or delete it while fixing
+  the shared stack. Run `make local-stack-service-guard`; it is a registered,
+  required standard local-CI guard. Canonical operating details:
+  `docs/runbooks/local-full-stack-rehearsal.md`.
 - Staging deployment authority is Cloud Deploy. GitHub Actions, Cloud Build, or
   local operators may build images and create releases, but `goatos-stg` Cloud
   Run services/jobs must be updated by `tools/deploy/stg-clouddeploy-task.sh`

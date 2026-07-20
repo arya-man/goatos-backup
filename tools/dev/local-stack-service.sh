@@ -11,6 +11,7 @@ launchd_stdout="$log_dir/local-stack-launchd.out.log"
 launchd_stderr="$log_dir/local-stack-launchd.err.log"
 api_port="${GOATOS_LOCAL_API_PORT:-8080}"
 web_port="${GOATOS_LOCAL_WEB_PORT:-3300}"
+service_path="/opt/homebrew/opt/libpq/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 usage() {
   cat <<EOF
@@ -48,8 +49,12 @@ write_plist() {
   <string>$launchd_stderr</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>HOME</key>
+    <string>$HOME</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>$service_path</string>
+    <key>GOATOS_SHARED_LOCAL_STACK</key>
+    <string>1</string>
   </dict>
 </dict>
 </plist>
@@ -69,7 +74,9 @@ bootout_if_loaded() {
 plist_points_to_repo() {
   [ -f "$plist_path" ] || return 1
   grep -Fq "<string>$repo_root/tools/dev/run-local-stack-supervised.sh</string>" "$plist_path" \
-    && grep -Fq "<string>$repo_root</string>" "$plist_path"
+    && grep -Fq "<string>$repo_root</string>" "$plist_path" \
+    && grep -Fq "<string>$service_path</string>" "$plist_path" \
+    && grep -Fq '<key>GOATOS_SHARED_LOCAL_STACK</key>' "$plist_path"
 }
 
 bootstrap() {
@@ -111,8 +118,9 @@ kill_port_listeners() {
 }
 
 supervisor_pids() {
+  local supervisor_script="$repo_root/tools/dev/run-local-stack-supervised.sh"
   ps -axo pid=,command= \
-    | awk -v me="$$" '/run-local-stack-supervised[.]sh/ && $1 != me { print $1 }'
+    | awk -v me="$$" -v script="$supervisor_script" 'index($0, script) && $1 != me { print $1 }'
 }
 
 kill_orphan_supervisors() {
@@ -242,9 +250,9 @@ case "$cmd" in
     status
     ;;
   restart)
-    if [ ! -f "$plist_path" ]; then
-      write_plist
-    fi
+    # Always rewrite so a PATH/contract hardening change is applied to an
+    # already-installed LaunchAgent instead of silently retaining an old plist.
+    write_plist
     bootout_if_loaded
     kill_orphan_supervisors
     kill_port_listeners "$api_port"
