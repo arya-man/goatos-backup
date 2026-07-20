@@ -64,6 +64,8 @@ self_test() {
 
   expect_rejected "LaunchAgent without libpq" \
     sed -i.bak 's#/opt/homebrew/opt/libpq/bin:##g' "$fixture/tools/dev/local-stack-service.sh"
+  expect_rejected "shared backend without local media signing" \
+    sed -i.bak 's/export GOATOS_LOCAL_MEDIA_SIGNING_SECRET=/: missing local media signing secret=/' "$fixture/tools/dev/run-local-stack-supervised.sh"
   expect_rejected "shared stack inheriting ambient database" \
     sed -i.bak 's/unset DATABASE_URL GOATOS_E2E_DATABASE_URL/: ambient database leak/' "$fixture/tools/dev/run-local-stack-supervised.sh"
   expect_rejected "shared calendar retaining the overload-prone 3s deadline" \
@@ -123,6 +125,9 @@ grep -q 'GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK' "$supervisor_script" \
 
 grep -q '/opt/homebrew/opt/libpq/bin' "$service_script" \
   || fail "LaunchAgent PATH must include Homebrew libpq so psql-backed closeout cannot boot-loop"
+
+grep -q 'export GOATOS_LOCAL_MEDIA_SIGNING_SECRET=' "$supervisor_script" \
+  || fail "shared supervisor must provide the local media signing secret required by the backend"
 
 grep -q 'sync_exact_origin_main' "$supervisor_script" \
   || fail "shared supervisor must fetch and fast-forward a clean checkout to exact origin/main before boot"
