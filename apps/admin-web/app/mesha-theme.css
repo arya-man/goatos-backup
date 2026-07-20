@@ -491,7 +491,9 @@
   .screen table{width:100%;border-collapse:collapse}
   .table-fixed{table-layout:fixed}
   .table-fixed th,.table-fixed td{min-width:0}
-  .main table.adherence-table{min-width:1080px}
+  .main table.adherence-table{min-width:1180px}
+  .main table.adherence-table th:nth-child(3),.main table.adherence-table td:nth-child(3){min-width:160px}
+  .main table.adherence-table td:nth-child(3) .celllink{width:max-content;max-width:none;white-space:normal;overflow-wrap:normal;word-break:normal}
   .main table.control-tower-gaps-table{min-width:920px}
   .main table.control-tower-gaps-table th:nth-child(1),.main table.control-tower-gaps-table td:nth-child(1),.main table.control-tower-gaps-table th:nth-child(2),.main table.control-tower-gaps-table td:nth-child(2){min-width:132px}
   .main table.herd-register-table{min-width:1600px}

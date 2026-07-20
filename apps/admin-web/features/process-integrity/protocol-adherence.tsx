@@ -302,13 +302,13 @@ export async function ProtocolAdherencePage({
 	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.ledger.aria")}>
           <table className="table-fixed adherence-table">
             <colgroup>
-              <col style={{ width: "36%" }} />
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "10%" }} />
+              <col style={{ width: "28%" }} />
               <col style={{ width: "13%" }} />
-              <col style={{ width: "8%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "6%" }} />
             </colgroup>
             <thead>
               <tr>
