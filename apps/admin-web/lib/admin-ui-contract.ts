@@ -69,6 +69,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "schedule.unit.scheduled": "scheduled",
     "schedule.load.single_drive": "single drive",
     "schedule.load.scheduled_label": "scheduled",
+    "schedule.load.todo_label": "to do",
     "schedule.load.doses_label": "doses",
     "schedule.load.deferred_label": "deferred",
     "schedule.load.overdue_label": "overdue",

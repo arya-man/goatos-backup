@@ -54,6 +54,10 @@ type ScheduleLoadModel = {
   totalLabel: string;
   goats: number;
   goatsLabel: string;
+  // Denominator for bar widths — the sum of the rendered segments. Equals
+  // `total` for backend-valid input; using it (not `total`) guarantees widths
+  // can never sum past 100% even if bad input pushes the buckets over total.
+  barTotal: number;
   segments: ScheduleLoadSegment[];
 };
 
@@ -223,7 +227,9 @@ function scheduleRows(response: VaccinationOperationsResponse): FullScheduleRow[
 }
 
 const SCHEDULE_LOAD_LABEL_KEY: Record<ScheduleLoadBucket["key"], string> = {
-  scheduled: "schedule.load.scheduled_label",
+  // The "scheduled" bucket rolls up scheduled + due + in_progress, so the
+  // operator-facing label is "to do", not "scheduled".
+  scheduled: "schedule.load.todo_label",
   deferred: "schedule.load.deferred_label",
   overdue: "schedule.load.overdue_label",
   done: "schedule.load.done_label",
@@ -239,11 +245,13 @@ function scheduleLoadModel(row: FullScheduleRow, pageContract: AdminUiPageContra
       value: bucket.value,
       tone: bucket.tone,
     }));
+  const barTotal = segments.reduce((sum, segment) => sum + segment.value, 0);
   return {
     total,
     totalLabel: copy(pageContract, "schedule.load.tasks_label"),
     goats,
     goatsLabel: copy(pageContract, "schedule.load.goats_label"),
+    barTotal,
     segments,
   };
 }
@@ -574,7 +582,7 @@ export async function VaccinationFullSchedule({
                                 <span
                                   key={segment.key}
                                   className={`schedule-load-seg tone-${segment.tone}`}
-                                  style={{ width: `${load.total > 0 ? (segment.value / load.total) * 100 : 0}%` }}
+                                  style={{ width: `${load.barTotal > 0 ? (segment.value / load.barTotal) * 100 : 0}%` }}
                                 />
                               ))}
                             </span>

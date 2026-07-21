@@ -29,11 +29,12 @@ export type ScheduleLoadBuckets = {
 };
 
 // Partition the whole obligation total into disjoint display groups whose
-// values sum EXACTLY to `total`:
-//   scheduled = scheduled + due + in_progress   (open, on-track / upcoming)
-//   deferred  = deferred                          (held for medical reason)
-//   overdue   = overdue + missed                  (past due, needs attention)
-//   done      = total - the above                 (completed family)
+// values sum EXACTLY to `total` for any backend-valid input (the six open/held
+// eff_status fields are disjoint subsets of total, so `done` is never negative):
+//   todo (key "scheduled") = scheduled + due + in_progress  (open, actionable)
+//   deferred               = deferred                        (held, medical reason)
+//   overdue                = overdue + missed                (past due, needs attention)
+//   done                   = total - the above               (completed family)
 export function scheduleLoadBuckets(counts: ScheduleLoadCounts, animals: number): ScheduleLoadBuckets {
   const total = Math.max(0, counts.total);
   const scheduled = counts.scheduled + counts.due + counts.inProgress;
