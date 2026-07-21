@@ -38,7 +38,7 @@ func authorizedParkFilter(ctx context.Context, tenantID string) []string {
 
 const (
 	defaultQueryTimeout     = 3 * time.Second
-	defaultClosedHistoryAge = 14 * 24 * time.Hour
+	defaultClosedHistoryAge = 45 * 24 * time.Hour
 	defaultExecutionHorizon = 30 * 24 * time.Hour
 )
 
@@ -106,7 +106,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
 	// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
 	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
-	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL,
+	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
 		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
 	if err != nil {
@@ -1112,6 +1112,7 @@ classified AS (
   FROM stateful
 ),
 filtered AS (
+  -- projection-review: membership=classified rows after tenant/category/scope resolution and work_state/severity filters; group_key=classified.sort_row_key; join_cardinality=classified is already grouped to one row per execution cohort before COUNT(*) OVER(); pagination=total_count is computed over the full filtered result before keyset LIMIT; scope=park/shed inherited from located.park_uuid/located.shed_uuid.
   SELECT classified.*, COUNT(*) OVER()::bigint AS total_count
   FROM classified
   WHERE ($6::text = '' OR classified.work_state = $6::text)

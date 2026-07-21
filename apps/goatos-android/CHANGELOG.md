@@ -1,5 +1,12 @@
 # Goat OS Android changelog
 
+## 0.1.2-stg — 2026-07-21
+
+- Uses the latest staging backend/admin runtime deployed from `origin/main`.
+- Keeps the signed staging package on `sg.mesha.goatos.stg`.
+- Points the app at `https://stg-api.dashboard.mesha.sg/`.
+- Includes the CEO/CXO SSO bootstrap provisioning fix and staging release-signing guardrails.
+
 ## 0.1.1-stg — 2026-07-21
 
 - Points the staging app at `https://stg-api.dashboard.mesha.sg/`.

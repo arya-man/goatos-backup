@@ -2822,6 +2822,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: include_drive_summary
+          in: query
+          required: false
+          description: Include rich park-day vaccination drive summary JSON. Omit for fast mobile/month list cards.
+          schema:
+            type: boolean
+            default: false
         - name: cursor
           in: query
           required: false

@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 )
 
@@ -39,7 +41,7 @@ import (
 // SCALE-OPTIMIZATION (migration 000190): The original OR predicate combining three date/status branches
 // caused seq-scans at scale (100k+ obligations). Refactored as UNION ALL of three indexed branches:
 // - Branch 1: window-bound (index: idx_obligation_instances_calendar_window on (tenant_id, due_at))
-// - Branch 2: exception catch-up (index: idx_obligation_instances_calendar_exceptions on (tenant_id, status))
+// - Branch 2: bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due on (tenant_id, status, due_at))
 // - Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue on (tenant_id, status, due_at))
 // This ensures the planner uses index scans for each branch and stays sub-second at 500k obligations.
 //
@@ -58,15 +60,19 @@ const calendarCanonicalEventsCTE = `obligation_events AS (
       AND status NOT IN ('waived', 'canceled', 'superseded', 'completed')
       AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
     UNION
-    -- Branch 2: exception catch-up (index: idx_obligation_instances_calendar_exceptions)
+    -- Branch 2: bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('missed', 'in_progress', 'deferred')
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
     UNION
     -- Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('scheduled', 'due') AND due_at < now()
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
   )
   SELECT
     'obligation:' || oi.obligation_id::text AS event_id,
@@ -669,15 +675,19 @@ obligation_drive_membership AS (
       AND status NOT IN ('superseded', 'canceled', 'waived')
       AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
     UNION
-    -- Unbatched exception catch-up (index: idx_obligation_instances_calendar_exceptions)
+    -- Unbatched bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('missed', 'in_progress', 'deferred')
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
     UNION
     -- Unbatched overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('scheduled', 'due') AND due_at < now()
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
     UNION
     -- Batched drives in-window (obligation_batches window joined to obligation_instances via
     -- obligation_instances_batch_idx). obligation_batches stays a cheap scan (low cardinality).
@@ -901,6 +911,7 @@ obligation_drive_summary AS (
       count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
+    WHERE current_setting('goatos.include_drive_summary', true) = 'true'
     GROUP BY m.park_id, m.due_date
   ) g
   LEFT JOIN obligation_drive_shed_complete sc
@@ -1044,7 +1055,7 @@ park_drive_events AS (
         'read_only', grouped.has_catch_up
       ),
       'links', jsonb_build_object('vaccination', '/vaccination'),
-      'drive_summary', CASE WHEN obl_summary.total_count > 0 THEN jsonb_build_object(
+      'drive_summary', CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND obl_summary.total_count > 0 THEN jsonb_build_object(
         'park_name', COALESCE(obl_summary.park_code, grouped.park_code, 'Vaccination drive'),
         'due_date', grouped.due_day,
         'shed_count', obl_summary.shed_count,
@@ -1425,24 +1436,23 @@ canonical_selected AS (
          COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
-         CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
+         CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
   FROM source_events
   WHERE due_at IS NOT NULL
     AND event_type <> 'vaccination_dose_due'
     AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending',
                    'verification_pending', 'rejected', 'rework_due', 'deferred', 'blocked', 'completed')
-    -- Mirrors the missed/in_progress/deferred/overdue OR-bypass already applied inside
-    -- catchup_drive_events'/obligation_events' own WHERE clauses (and the pre-cutover projector's
-    -- catch-up branch): a park-day drive whose aggregated status is still open catch-up work must
-    -- stay visible in the list regardless of how far its own due_at sits outside the requested
-    -- [dateFrom, dateToExclusive) window -- otherwise an old missed/overdue exception silently
-    -- disappears the moment the calendar's requested window moves past it, even though the
-    -- underlying obligation is still unresolved. event_type is scoped to vaccination_drive here
-    -- because only park_drive_events ever projects these aggregated statuses into source_events;
-    -- sop_events/config_events have no catch-up concept and stay strictly window-bound.
+    -- Calendar catch-up is intentionally bounded to the requested operating window plus the same
+    -- 45-day lookback used by obligation_events. The old unbounded bypass made every month/mobile
+    -- click inspect historical tenant work before paging the requested window.
     AND (
       (due_at >= $2::timestamptz AND due_at < $3::timestamptz)
-      OR (event_type = 'vaccination_drive' AND status IN ('missed', 'in_progress', 'deferred', 'overdue'))
+      OR (
+        event_type = 'vaccination_drive'
+        AND status IN ('missed', 'in_progress', 'deferred', 'overdue')
+        AND due_at >= $2::timestamptz - interval '45 days'
+        AND due_at < $3::timestamptz
+      )
     )
     AND ($4::text = '' OR owner_key = $4::text)
     AND ($5::text = '' OR status = $5::text)
@@ -1512,7 +1522,9 @@ LIMIT 1`
 // listEventsCanonical runs the canonical read-through page for ListEvents. Params mirror the projector
 // window ($1 tenant, $2 dateFrom, $3 dateToExclusive) plus the list filters ($4 owner, $5 status,
 // $6 park, $7 shed, $8/$9 keyset cursor, $10 fetch limit, $11 tenantWide,
-// $12/$13 park/shed scope, $14 vaccine).
+// $12/$13 park/shed scope, $14 vaccine). includeDriveSummary is carried as a
+// transaction-local Postgres setting so the shared canonical CTE remains reusable by detail,
+// markers, reminder, and escalation queries without growing every caller's parameter list.
 func (r *Repository) listEventsCanonical(
 	ctx context.Context,
 	tenantID string,
@@ -1521,10 +1533,31 @@ func (r *Repository) listEventsCanonical(
 	cursorDue any, cursorEventID string,
 	fetchLimit int,
 	tenantWide bool, parkIDs, shedIDs []string,
+	includeDriveSummary bool,
 ) ([]domain.CalendarEvent, error) {
-	rows, err := r.pool.Query(ctx, calendarCanonicalListSQL,
-		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
-		cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, vaccine)
+	type queryer interface {
+		Query(context.Context, string, ...any) (pgx.Rows, error)
+	}
+	run := func(q queryer) (pgx.Rows, error) {
+		return q.Query(ctx, calendarCanonicalListSQL,
+			tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
+			cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, vaccine)
+	}
+	var rows pgx.Rows
+	var err error
+	if includeDriveSummary {
+		tx, txErr := r.pool.Begin(ctx)
+		if txErr != nil {
+			return nil, fmt.Errorf("calendar: begin rich canonical list: %w", txErr)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err = tx.Exec(ctx, "SET LOCAL goatos.include_drive_summary = 'true'"); err != nil {
+			return nil, fmt.Errorf("calendar: enable drive summary: %w", err)
+		}
+		rows, err = run(tx)
+	} else {
+		rows, err = run(r.pool)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("calendar: canonical list events: %w", err)
 	}

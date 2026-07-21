@@ -339,7 +339,19 @@ fun AppNavHost(
                         // list to that day) and must NOT navigate. Handled by CalendarViewModel.
                         is CalendarEvent.TapDay -> vm.onEvent(event)
                         CalendarEvent.Refresh -> {
-                            if (state.selectedSegmentId == "month") monthItems.refresh() else vm.onEvent(event)
+                            if (state.selectedSegmentId == "month") {
+                                // Month has two independent data layers:
+                                // - ViewModel-managed overview/metadata/error state.
+                                // - Paging-managed schedule rows.
+                                //
+                                // A transient schedule failure must not leave the user stuck on a
+                                // stale top-level error after they tap Retry. Refresh both layers so
+                                // the banner/offline state and the paged month rows recover together.
+                                vm.onEvent(event)
+                                monthItems.refresh()
+                            } else {
+                                vm.onEvent(event)
+                            }
                         }
                         else -> vm.onEvent(event)
                     }

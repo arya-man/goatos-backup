@@ -367,6 +367,35 @@ func TestListVaccinationExecutionPageBoundaryKeepsFullFilteredTotal(t *testing.T
 	}
 }
 
+func TestListVaccinationExecutionOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixKeepsStaleOpenWorkVisible(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	oldOpenGoat := "70000000-0000-4000-8000-000000000081"
+	oldOpenBatch := "70000000-0000-4000-8000-000000000082"
+	oldOpenObligation := "70000000-0000-4000-8000-000000000083"
+	insertProjectionGoat(t, ctx, pool, oldOpenGoat, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, oldOpenBatch, "planned")
+	insertProjectionObligation(t, ctx, pool, oldOpenObligation, oldOpenBatch, oldOpenGoat, "scheduled", "2026-04-01 00:00:00+00", "vaccexec-stale-open")
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution: %v", err)
+	}
+	if rowByBatch(rows, oldOpenBatch) == nil {
+		t.Fatalf("stale open obligation batch %s missing from execution rows: %#v", oldOpenBatch, rows)
+	}
+}
+
 func TestListVaccinationExecutionStatusMatrixMatchesConstraintAndDisjointBuckets(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

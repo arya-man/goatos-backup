@@ -19,7 +19,7 @@
       "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
@@ -29,7 +29,7 @@
       "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&include_filter_options=true",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "filter_options.sheds", "min": 1 }
     },
@@ -39,7 +39,7 @@
       "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&status=scheduled",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
@@ -49,7 +49,7 @@
       "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&vaccine=FMD",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
@@ -59,7 +59,7 @@
       "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&status=completed",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 20 }
     }

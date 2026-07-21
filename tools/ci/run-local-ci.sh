@@ -96,6 +96,7 @@ run_common() {
   step "agent: boundaries self-test" bash tools/agent-hooks/check-boundaries.sh --self-test
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
+  step "agent: calendar endpoint grain" make calendar-endpoint-grain-guard
   step "agent: contract-drift"    bash tools/agent-hooks/check-contract-drift.sh
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
   step "large-file guard"         node tools/ci/check-large-files.mjs
