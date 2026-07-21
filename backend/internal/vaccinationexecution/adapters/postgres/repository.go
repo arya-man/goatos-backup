@@ -868,7 +868,7 @@ raw AS (
     AND COALESCE(st.state, '') <> 'canceled'
     AND oi.due_at <= $4::timestamptz
     AND (
-      (oi.status IN ('scheduled', 'due', 'in_progress', 'deferred') AND oi.due_at >= $8::timestamptz)
+      oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       OR oi.due_at >= $8::timestamptz
       -- A row 'completed' NOW but finalized AFTER as_of was still open at as_of; pull it to re-bucket.
       OR (oi.status = 'completed' AND oi.completed_at > $7::timestamptz)
@@ -1112,7 +1112,8 @@ classified AS (
   FROM stateful
 ),
 filtered AS (
-  SELECT classified.*, 0::bigint AS total_count
+  -- projection-review: membership=classified rows after tenant/category/scope resolution and work_state/severity filters; group_key=classified.sort_row_key; join_cardinality=classified is already grouped to one row per execution cohort before COUNT(*) OVER(); pagination=total_count is computed over the full filtered result before keyset LIMIT; scope=park/shed inherited from located.park_uuid/located.shed_uuid.
+  SELECT classified.*, COUNT(*) OVER()::bigint AS total_count
   FROM classified
   WHERE ($6::text = '' OR classified.work_state = $6::text)
     AND ($9::text = '' OR classified.severity = $9::text)
