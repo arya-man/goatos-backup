@@ -66,8 +66,13 @@ test("vaccination schedule drawer supports real close and roster drilldown", () 
   assert.match(drawerSource, /translateX\(100%\)/);
   assert.match(source, /\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(group\.shedId\)\}/);
   assert.match(source, /drive_due_date/);
-  assert.match(source, /shed\.shed_id\s*\?\?\s*shed\.shedId/);
-  assert.match(source, /shed\.total_animals\s*\?\?\s*shed\.totalAnimals/);
+  assert.match(source, /getVaccinationSchedule/);
+  assert.equal(
+    source.includes("getCalendarVaccinationEvents"),
+    false,
+    "Full Schedule list must read the vaccination schedule endpoint, not the broad Calendar list.",
+  );
+  assert.match(source, /row\.sheds\.map/);
   assert.equal(
     /\.schedule-drawer-backdrop\{[^}]*pointer-events\s*:\s*none/.test(css),
     false,

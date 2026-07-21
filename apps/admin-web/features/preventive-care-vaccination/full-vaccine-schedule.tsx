@@ -1,13 +1,19 @@
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
-import { type ApiResult } from "@/lib/api/server";
+import {
+  getVaccinationSchedule,
+  type ApiResult,
+  type VaccinationOperationsCell,
+  type VaccinationOperationsCohort,
+  type VaccinationOperationsCounts,
+  type VaccinationOperationsResponse,
+} from "@/lib/api/server";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate, todayIso } from "@/lib/format";
 import { backendScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
-import { getCalendarVaccinationEvents, type CalendarEvent, type CalendarEventListResponse } from "@/features/calendar";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { VaccineChipOverflow } from "./vaccine-chip-overflow";
 
@@ -33,30 +39,29 @@ type ScheduleCellView = {
   title: string;
 };
 
+type ScheduleLoadMetric = {
+  key: string;
+  label: string;
+  value: number;
+  tone?: "primary" | "warn";
+};
+
 type ScheduleShedGroup = {
   shed: string;
   shedId?: string;
   count: number;
 };
 
-type DriveSummaryShedShape = {
-  shed_id?: string | null;
-  shedId?: string | null;
-  shed_name?: string | null;
-  shedName?: string | null;
-  total_animals?: number | null;
-  totalAnimals?: number | null;
+type FullScheduleRow = {
+  eventId: string;
+  date: string;
+  parkId: string;
+  parkName: string;
+  sheds: ScheduleShedGroup[];
+  animals: number;
+  vaccines: string[];
+  counts: VaccinationOperationsCounts;
 };
-
-function scheduleShedGroups(event: CalendarEvent): ScheduleShedGroup[] {
-  return ((event.drive_summary?.sheds ?? []) as DriveSummaryShedShape[])
-    .map((shed) => ({
-      shed: String(shed.shed_name ?? shed.shedName ?? "").trim(),
-      shedId: String(shed.shed_id ?? shed.shedId ?? "").trim() || undefined,
-      count: Number(shed.total_animals ?? shed.totalAnimals ?? 0) || 0,
-    }))
-    .filter((shed) => shed.shed);
-}
 
 function selectedScheduleYear(searchParams: RouteSearchParams | undefined): number {
   return boundedInt(one(searchParams ?? {}, "schedule_year"), CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR + 5);
@@ -80,31 +85,28 @@ function monthLabel(year: number, month: number): string {
   return new Intl.DateTimeFormat("en", { month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
-function monthWindowKeys(year: number, month: number): { from: string; to: string } {
-  const from = `${year}-${String(month).padStart(2, "0")}-01`;
-  const end = new Date(Date.UTC(year, month, 0));
-  const to = `${year}-${String(month).padStart(2, "0")}-${String(end.getUTCDate()).padStart(2, "0")}`;
-  return { from, to };
+function cellDate(cell: VaccinationOperationsCell): string {
+  return (cell.nextDue ?? cell.lastDose ?? "").slice(0, 10);
 }
 
-function eventDate(event: CalendarEvent): string {
-  return (event.drive_summary?.due_date || event.due_at || "").slice(0, 10);
+function rowDate(cohort: VaccinationOperationsCohort): string {
+  return (cohort.nextDue ?? cohort.lastDose ?? cohort.cells.map(cellDate).find(Boolean) ?? "").slice(0, 10);
 }
 
-function eventDriveState(event: CalendarEvent, pageContract: AdminUiPageContract): ScheduleCellView {
-  const summary = event.drive_summary;
-  const date = eventDate(event);
+function rowDriveState(row: FullScheduleRow, pageContract: AdminUiPageContract): ScheduleCellView {
+  const { counts } = row;
+  const date = row.date;
   const label = date ? fmtDate(date) : copy(pageContract, "label.placeholder");
-  if ((summary?.deferred_count ?? event.deferred_count ?? 0) > 0 || event.status === "deferred") {
+  if (counts.deferred > 0) {
     return { state: "due_soon", label, title: copy(pageContract, "schedule.state.deferred_title") };
   }
-  if ((summary?.overdue_count ?? 0) > 0 || event.status === "overdue") {
+  if (counts.overdue > 0 || counts.missed > 0) {
     return { state: "overdue", label, title: copy(pageContract, "schedule.state.overdue_title") };
   }
-  if ((summary?.due_count ?? 0) > 0 || event.status === "due") {
+  if (counts.due > 0 || counts.inProgress > 0 || counts.proofPending > 0 || counts.rejected > 0) {
     return { state: "due_soon", label, title: copy(pageContract, "schedule.state.due_title") };
   }
-  if (summary && summary.remaining_count === 0 && summary.total_count > 0) {
+  if (counts.total > 0 && counts.accepted >= counts.total) {
     return { state: "up_to_date", label, title: copy(pageContract, "schedule.state.completed_title") };
   }
   return { state: "scheduled", label, title: copy(pageContract, "schedule.state.scheduled_title") };
@@ -118,26 +120,125 @@ function countUnit(pageContract: AdminUiPageContract, count: number, singularKey
   return `${count} ${copy(pageContract, count === 1 ? singularKey : pluralKey)}`;
 }
 
-function scheduleLoadLines(event: CalendarEvent, animals: number, pageContract: AdminUiPageContract): string[] {
-  const driveCount = event.drive_count ?? 0;
-  const scheduled = event.scheduled_count ?? 0;
-  const deferred = event.deferred_count ?? 0;
-  const totalDoses = event.drive_summary?.total_count ?? event.target_count ?? animals;
-  const lines = [
-    `${animals} ${copy(pageContract, animals === 1 ? "schedule.unit.animal" : "schedule.unit.animals")}`,
+function emptyCounts(): VaccinationOperationsCounts {
+  return {
+    overdue: 0,
+    due: 0,
+    inProgress: 0,
+    scheduled: 0,
+    missed: 0,
+    deferred: 0,
+    accepted: 0,
+    proofPending: 0,
+    rejected: 0,
+    total: 0,
+  };
+}
+
+function addCounts(a: VaccinationOperationsCounts, b: VaccinationOperationsCounts): VaccinationOperationsCounts {
+  return {
+    overdue: a.overdue + b.overdue,
+    due: a.due + b.due,
+    inProgress: a.inProgress + b.inProgress,
+    scheduled: a.scheduled + b.scheduled,
+    missed: a.missed + b.missed,
+    deferred: a.deferred + b.deferred,
+    accepted: a.accepted + b.accepted,
+    proofPending: a.proofPending + b.proofPending,
+    rejected: a.rejected + b.rejected,
+    total: a.total + b.total,
+  };
+}
+
+function protocolName(protocols: VaccinationOperationsResponse["protocols"], protocolId: string): string | undefined {
+  return protocols.find((protocol) => protocol.protocolId === protocolId)?.name;
+}
+
+function cellVaccineNames(cell: VaccinationOperationsCell, protocols: VaccinationOperationsResponse["protocols"]): string[] {
+  const names = uniqueSorted(cell.vaccineNames ?? []);
+  return names.length ? names : uniqueSorted([protocolName(protocols, cell.protocolId)]);
+}
+
+function scheduleRows(response: VaccinationOperationsResponse): FullScheduleRow[] {
+  const grouped = new Map<string, FullScheduleRow>();
+  const shedSeenByGroup = new Map<string, Set<string>>();
+  const vaccineSeenByGroup = new Map<string, Set<string>>();
+
+  for (const cohort of response.cohorts) {
+    const date = rowDate(cohort);
+    if (!date) continue;
+    const key = `${date}|${cohort.parkId}`;
+    const row = grouped.get(key) ?? {
+      eventId: `schedule:${cohort.parkId}:${date}`,
+      date,
+      parkId: cohort.parkId,
+      parkName: cohort.parkName,
+      sheds: [],
+      animals: 0,
+      vaccines: [],
+      counts: emptyCounts(),
+    };
+    grouped.set(key, row);
+
+    row.counts = addCounts(row.counts, cohort.counts);
+
+    let shedSeen = shedSeenByGroup.get(key);
+    if (!shedSeen) {
+      shedSeen = new Set<string>();
+      shedSeenByGroup.set(key, shedSeen);
+    }
+    if (!shedSeen.has(cohort.shedId)) {
+      shedSeen.add(cohort.shedId);
+      row.sheds.push({ shed: cohort.shedName, shedId: cohort.shedId, count: cohort.animals });
+      row.animals += cohort.animals;
+    }
+
+    let vaccineSeen = vaccineSeenByGroup.get(key);
+    if (!vaccineSeen) {
+      vaccineSeen = new Set<string>();
+      vaccineSeenByGroup.set(key, vaccineSeen);
+    }
+    for (const cell of cohort.cells) {
+      for (const vaccine of cellVaccineNames(cell, response.protocols)) {
+        vaccineSeen.add(vaccine);
+      }
+    }
+    row.vaccines = Array.from(vaccineSeen).sort((a, b) => a.localeCompare(b));
+  }
+
+  return Array.from(grouped.values()).sort((a, b) =>
+    [a.date, a.parkName, a.eventId].join("|").localeCompare([b.date, b.parkName, b.eventId].join("|")),
+  );
+}
+
+function scheduleLoadMetrics(row: FullScheduleRow, pageContract: AdminUiPageContract): ScheduleLoadMetric[] {
+  const scheduled = row.counts.scheduled;
+  const deferred = row.counts.deferred;
+  const totalDoses = row.counts.total || row.animals;
+  const scheduledAnimals = scheduled > 0 ? scheduled : row.animals;
+  const metrics: ScheduleLoadMetric[] = [
+    {
+      key: "scheduled",
+      label: copy(pageContract, "schedule.load.scheduled_label"),
+      value: scheduledAnimals,
+      tone: "primary",
+    },
+    {
+      key: "doses",
+      label: copy(pageContract, "schedule.load.doses_label"),
+      value: totalDoses,
+      tone: "primary",
+    },
   ];
-  if (totalDoses !== animals) {
-    lines.push(`${totalDoses} ${copy(pageContract, totalDoses === 1 ? "schedule.unit.dose" : "schedule.unit.doses")}`);
-  }
-  if (driveCount > 1) {
-    lines.push(`${driveCount} ${copy(pageContract, "schedule.load.batches")}`);
-  }
   if (deferred > 0) {
-    lines.push(`${deferred} ${copy(pageContract, "schedule.load.deferred_short")}`);
-  } else if (scheduled > 0) {
-    lines.push(`${scheduled} ${copy(pageContract, "schedule.load.scheduled_short")}`);
+    metrics.push({
+      key: "deferred",
+      label: copy(pageContract, "schedule.load.deferred_label"),
+      value: deferred,
+      tone: "warn",
+    });
   }
-  return lines;
+  return metrics;
 }
 
 function dateEyebrow(date: string): string {
@@ -147,13 +248,12 @@ function dateEyebrow(date: string): string {
   return new Intl.DateTimeFormat("en", { weekday: "short", timeZone: "Asia/Kolkata" }).format(new Date(`${date}T00:00:00+05:30`));
 }
 
-async function loadFullSchedule(scope: Scope, year: number, month: number, cursor?: string): Promise<ApiResult<CalendarEventListResponse>> {
+async function loadFullSchedule(scope: Scope, year: number, month: number, cursor?: string): Promise<ApiResult<VaccinationOperationsResponse>> {
   const { parkId } = backendScope(scope);
-  const { from, to } = monthWindowKeys(year, month);
-  return getCalendarVaccinationEvents({
+  return getVaccinationSchedule({
     parkId,
-    dateFrom: from,
-    dateTo: to,
+    year,
+    month,
     cursor,
     limit: PAGE_LIMIT,
   });
@@ -232,26 +332,18 @@ export async function VaccinationFullSchedule({
   searchParams?: RouteSearchParams;
   scope: Scope;
   pageContract: AdminUiPageContract;
-  scheduleResult?: ApiResult<CalendarEventListResponse>;
+  scheduleResult?: ApiResult<VaccinationOperationsResponse>;
 }) {
   const year = selectedScheduleYear(searchParams);
   const month = selectedScheduleMonth(searchParams);
   const cursor = selectedScheduleCursor(searchParams);
   const selectedEventId = selectedScheduleEvent(searchParams);
   const result = scheduleResult ?? (await loadFullSchedule(scope, year, month, cursor));
-  const rows = result.ok
-    ? result.data.items
-        .filter((event) => event.event_type === "vaccination_drive" || (event.drive_summary?.total_count ?? 0) > 0)
-        .sort((a, b) =>
-          [eventDate(a), a.drive_summary?.park_name ?? a.park_code ?? "", a.title, a.event_id]
-            .join("|")
-            .localeCompare([eventDate(b), b.drive_summary?.park_name ?? b.park_code ?? "", b.title, b.event_id].join("|")),
-      )
-    : [];
-  const uniqueParks = new Set(rows.map((row) => row.park_id ?? row.drive_summary?.park_name ?? row.park_code).filter(Boolean));
-  const totalSheds = rows.reduce((sum, row) => sum + (row.drive_summary?.shed_count ?? row.shed_count ?? 0), 0);
-  const totalAnimals = rows.reduce((sum, row) => sum + (row.drive_summary?.total_animals ?? row.target_count ?? 0), 0);
-  const overdueDrives = rows.filter((row) => eventDriveState(row, pageContract).state === "overdue").length;
+  const rows = result.ok ? scheduleRows(result.data) : [];
+  const uniqueParks = new Set(rows.map((row) => row.parkId).filter(Boolean));
+  const totalSheds = rows.reduce((sum, row) => sum + row.sheds.length, 0);
+  const totalAnimals = rows.reduce((sum, row) => sum + row.animals, 0);
+  const overdueDrives = rows.filter((row) => rowDriveState(row, pageContract).state === "overdue").length;
   const scheduleTable = table(pageContract, "full-vaccine-schedule");
   const fixedColumns = scheduleTable.columns.filter((column) => column.visible);
   const legend = optionGroup(pageContract, "schedule_status_legend");
@@ -261,7 +353,7 @@ export async function VaccinationFullSchedule({
     schedule_month: String(month),
     schedule_cursor: cursor,
   });
-  const staleSchedule = Boolean(result.ok && (result.data.projection?.stale || result.data.projection?.partial_coverage));
+  const staleSchedule = Boolean(result.ok && (result.data.freshness?.stale || result.data.freshness?.rebuildRequired));
   const nextScheduleHref =
     result.ok && result.data.next_cursor
       ? scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month), schedule_cursor: result.data.next_cursor })
@@ -275,35 +367,30 @@ export async function VaccinationFullSchedule({
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(nextMonth) });
   }
 
-  function shedDrawerHref(row: CalendarEvent): string {
-    return `${currentScheduleHref}#schedule_event=${encodeURIComponent(row.event_id)}`;
+  function shedDrawerHref(row: FullScheduleRow): string {
+    return `${currentScheduleHref}#schedule_event=${encodeURIComponent(row.eventId)}`;
   }
 
   const drawerRows: ScheduleDrawerRow[] = rows.map((row) => {
-    const summary = row.drive_summary;
-    const date = eventDate(row);
+    const date = row.date;
     const drawerHref = shedDrawerHref(row);
-    const summarySheds = scheduleShedGroups(row);
-    const sheds: ScheduleShedGroup[] = summarySheds.length > 0
-      ? summarySheds
-      : uniqueSorted(row.shed_labels ?? []).map((shed) => ({ shed, count: 0 }));
     return {
-      eventId: row.event_id,
+      eventId: row.eventId,
       date,
-      parkName: summary?.park_name ?? row.park_code ?? copy(pageContract, "label.placeholder"),
-      totalSheds: sheds.length || row.shed_count || 0,
-      totalAnimals: summary?.total_animals ?? row.target_count ?? 0,
-      vaccines: uniqueSorted([...(summary?.vaccine_labels ?? []), ...(row.vaccine_labels ?? [])]),
-      sheds: sheds.map((group) => ({
+      parkName: row.parkName || copy(pageContract, "label.placeholder"),
+      totalSheds: row.sheds.length,
+      totalAnimals: row.animals,
+      vaccines: row.vaccines,
+      sheds: row.sheds.map((group) => ({
         label: group.shed,
         count: group.count,
         href: group.shedId
           ? scopeHref(
               `/vaccination/execution/sheds/${encodeURIComponent(group.shedId)}`,
               scope,
-              { mode: "park", park: row.park_id ?? scope.parkId },
+              { mode: "park", park: row.parkId ?? scope.parkId },
               {
-                drive_due_date: (summary?.due_date ?? date) || undefined,
+                drive_due_date: date || undefined,
                 ret: drawerHref,
               },
             ) + "#animals"
@@ -412,30 +499,29 @@ export async function VaccinationFullSchedule({
                   <th>{fixedColumns.find((column) => column.key === "date")?.label ?? copy(pageContract, "schedule.column.date")}</th>
                   <th>{fixedColumns.find((column) => column.key === "park")?.label ?? copy(pageContract, "schedule.column.park")}</th>
                   <th>{copy(pageContract, "schedule.column.sheds")}</th>
-                  <th>{fixedColumns.find((column) => column.key === "animals")?.label ?? copy(pageContract, "schedule.column.animals")}</th>
+                  <th>{copy(pageContract, "schedule.column.workload")}</th>
                   <th>{copy(pageContract, "schedule.column.vaccines")}</th>
                   <th>{copy(pageContract, "schedule.column.status")}</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const summary = row.drive_summary;
-                  const view = eventDriveState(row, pageContract);
-                  const vaccines = uniqueSorted([...(summary?.vaccine_labels ?? []), ...(row.vaccine_labels ?? [])]);
-                  const sheds = uniqueSorted(row.shed_labels ?? []);
-                  const shedCount = summary?.shed_count ?? row.shed_count ?? 0;
-                  const animals = summary?.total_animals ?? row.target_count ?? 0;
+                  const view = rowDriveState(row, pageContract);
+                  const vaccines = row.vaccines;
+                  const sheds = uniqueSorted(row.sheds.map((shed) => shed.shed));
+                  const shedCount = row.sheds.length;
+                  const animals = row.animals;
                   const statusLabel = legend.find((item) => item.key === view.state)?.label ?? view.state;
-                  const date = eventDate(row);
-                  const shedTitle = sheds.join(", ") || row.shed_name || "";
+                  const date = row.date;
+                  const shedTitle = sheds.join(", ");
                   const previewSheds = sheds.slice(0, SHED_CHIP_PREVIEW_LIMIT);
                   const hiddenShedCount = Math.max(0, shedCount - previewSheds.length);
                   const vaccineTitle = vaccines.join(", ");
                   const previewVaccines = vaccines.slice(0, VACCINE_CHIP_PREVIEW_LIMIT);
                   const hiddenVaccineCount = Math.max(0, vaccines.length - previewVaccines.length);
-                  const loadLines = scheduleLoadLines(row, animals, pageContract);
+                  const loadMetrics = scheduleLoadMetrics(row, pageContract);
                   return (
-                    <tr key={row.event_id} className="schedule-click-row">
+                    <tr key={row.eventId} className="schedule-click-row">
                       <td className={`schedule-date-cell state-${view.state}`} title={view.title}>
                         <LocalOverlayLink href={shedDrawerHref(row)} className="celllink schedule-date-link">
                           <span className="schedule-date-stack">
@@ -446,7 +532,7 @@ export async function VaccinationFullSchedule({
                       </td>
                       <td>
                         <LocalOverlayLink href={shedDrawerHref(row)} className="celllink">
-                          <ClipText title={summary?.park_name ?? row.park_code ?? ""}>{summary?.park_name ?? row.park_code ?? copy(pageContract, "label.placeholder")}</ClipText>
+                          <ClipText title={row.parkName}>{row.parkName || copy(pageContract, "label.placeholder")}</ClipText>
                         </LocalOverlayLink>
                       </td>
                       <td>
@@ -463,14 +549,18 @@ export async function VaccinationFullSchedule({
                         </LocalOverlayLink>
                       </td>
                       <td className="muted num">
-                        <LocalOverlayLink href={shedDrawerHref(row)} className="celllink num schedule-animals-link" title={loadLines.join(" · ")}>
-                          <span className="schedule-load-stack">
-                            <b>{animals}</b>
-                            <span className="schedule-load-meta">
-                              {(loadLines.slice(1).length > 0 ? loadLines.slice(1) : [copy(pageContract, "schedule.load.single_drive")]).map((line) => (
-                                <span key={line}>{line}</span>
-                              ))}
-                            </span>
+                        <LocalOverlayLink
+                          href={shedDrawerHref(row)}
+                          className="celllink num schedule-animals-link"
+                          title={loadMetrics.map((metric) => `${metric.label}: ${metric.value}`).join(" · ")}
+                        >
+                          <span className="schedule-load-card" aria-label={loadMetrics.map((metric) => `${metric.value} ${metric.label}`).join(", ")}>
+                            {loadMetrics.map((metric) => (
+                              <span key={metric.key} className={`schedule-load-metric${metric.tone ? ` tone-${metric.tone}` : ""}`}>
+                                <span className="schedule-load-value">{metric.value}</span>
+                                <span className="schedule-load-label">{metric.label}</span>
+                              </span>
+                            ))}
                           </span>
                         </LocalOverlayLink>
                       </td>
