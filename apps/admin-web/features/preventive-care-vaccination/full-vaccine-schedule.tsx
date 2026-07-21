@@ -510,7 +510,6 @@ export async function VaccinationFullSchedule({
                   const vaccines = row.vaccines;
                   const sheds = uniqueSorted(row.sheds.map((shed) => shed.shed));
                   const shedCount = row.sheds.length;
-                  const animals = row.animals;
                   const statusLabel = legend.find((item) => item.key === view.state)?.label ?? view.state;
                   const date = row.date;
                   const shedTitle = sheds.join(", ");
