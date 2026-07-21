@@ -635,11 +635,11 @@
   .vaccination-schedule-legend{padding:8px 16px;border-bottom:1px solid var(--line2);gap:7px}
   .vaccination-schedule-legend .chip{cursor:default;padding:4px 8px;font-size:11.5px;border-radius:999px;display:inline-flex;align-items:center;gap:5px}
   .schedule-dot{width:8px;height:8px;border-radius:2px;display:inline-block;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 38%,transparent)}
-  .schedule-dot.state-overdue,.schedule-cell.state-overdue,.schedule-date-cell.state-overdue{background:var(--dangerx);color:var(--danger-tag-ink)}
-  .schedule-dot.state-due_soon,.schedule-cell.state-due_soon,.schedule-date-cell.state-due_soon{background:var(--warnx);color:var(--warn)}
-  .schedule-dot.state-scheduled,.schedule-cell.state-scheduled,.schedule-date-cell.state-scheduled{background:var(--infox);color:var(--info)}
-  .schedule-dot.state-up_to_date,.schedule-cell.state-up_to_date,.schedule-date-cell.state-up_to_date{background:var(--okx);color:var(--brand-d)}
-  .schedule-dot.state-no_record,.schedule-cell.state-no_record,.schedule-date-cell.state-no_record{background:var(--bg);color:var(--faint)}
+  .schedule-dot.state-overdue,.schedule-cell.state-overdue{background:var(--dangerx);color:var(--danger-tag-ink)}
+  .schedule-dot.state-due_soon,.schedule-cell.state-due_soon{background:var(--warnx);color:var(--warn)}
+  .schedule-dot.state-scheduled,.schedule-cell.state-scheduled{background:var(--infox);color:var(--info)}
+  .schedule-dot.state-up_to_date,.schedule-cell.state-up_to_date{background:var(--okx);color:var(--brand-d)}
+  .schedule-dot.state-no_record,.schedule-cell.state-no_record{background:var(--bg);color:var(--faint)}
   .main table.full-vaccine-schedule-table{table-layout:fixed;min-width:1180px;width:100%}
   .main table.full-vaccine-schedule-table th,.main table.full-vaccine-schedule-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.full-vaccine-schedule-table th{padding:9px 12px}
@@ -656,8 +656,8 @@
   .main table.full-vaccine-schedule-table .schedule-date-cell,.main table.full-vaccine-schedule-table .schedule-status-cell,.main table.full-vaccine-schedule-table .schedule-cell{box-shadow:inset 1px 0 0 var(--line2);font-weight:750}
   .main table.full-vaccine-schedule-table .schedule-date-link,.main table.full-vaccine-schedule-table .schedule-status-link{justify-content:center;color:inherit}
   .schedule-date-stack{display:grid;gap:2px;text-align:center;line-height:1.1}
-  .schedule-date-main{font-size:15px;font-weight:850}
-  .schedule-date-sub{font-size:10.5px;text-transform:uppercase;color:color-mix(in srgb,currentColor 70%,var(--muted));letter-spacing:.4px}
+  .schedule-date-main{font-size:13px;font-weight:700;color:var(--warn)}
+  .schedule-date-sub{font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.4px}
   .main table.full-vaccine-schedule-table .schedule-status-link .tag{margin:0}
   .main table.full-vaccine-schedule-table .schedule-wrap-link{align-items:center;white-space:normal;overflow:visible;text-overflow:clip;min-height:58px}
   .main table.full-vaccine-schedule-table .schedule-shed-cell{overflow:hidden}
