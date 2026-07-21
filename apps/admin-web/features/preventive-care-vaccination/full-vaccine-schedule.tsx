@@ -222,9 +222,13 @@ function scheduleRows(response: VaccinationOperationsResponse): FullScheduleRow[
 }
 
 function scheduleLoadModel(row: FullScheduleRow, pageContract: AdminUiPageContract): ScheduleLoadModel {
-  const scheduled = row.counts.scheduled > 0 ? row.counts.scheduled : row.animals;
   const deferred = row.counts.deferred;
   const overdue = row.counts.overdue;
+  // Fall back to the cohort headcount ONLY when no status bucket is populated;
+  // otherwise the fallback would be summed on top of deferred/overdue and
+  // double-count the row total.
+  const bucketed = row.counts.scheduled + deferred + overdue;
+  const scheduled = bucketed > 0 ? row.counts.scheduled : row.animals;
   const doses = row.counts.total || row.animals;
   const candidates: ScheduleLoadSegment[] = [
     { key: "scheduled", label: copy(pageContract, "schedule.load.scheduled_label"), value: scheduled, tone: "ok" },
