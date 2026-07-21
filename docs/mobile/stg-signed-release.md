@@ -7,7 +7,9 @@ API:     https://stg-api.dashboard.mesha.sg/
 Package: sg.mesha.goatos.stg
 ```
 
-Do not commit keystores or passwords to Git.
+Do not commit keystores or passwords to Git. The staging upload key is scoped
+to the `stg` product flavor only; a future prod build must use separate prod
+signing secrets and the prod package.
 
 ## Secret source of truth
 
@@ -22,6 +24,9 @@ Secret: android-stg-upload-key-password
 ```
 
 Only release builders should have Secret Manager access.
+
+Grant access through IAM on the secrets or an approved release-builder Google
+group. Do not send the `.jks` or passwords through chat, tickets, or email.
 
 ## Restore local signing files
 
@@ -100,3 +105,25 @@ verify:
 5. Firebase Analytics/Crashlytics show the backend workforce member id as the
    user id after bootstrap.
 
+## Stg signing is not prod signing
+
+`assembleStgRelease` uses:
+
+```text
+Package: sg.mesha.goatos.stg
+Secrets: android-stg-upload-*
+Firebase project/app: goatos-stg / sg.mesha.goatos.stg
+```
+
+Prod must use its own package, Firebase app, Play/App Signing setup, and Secret
+Manager names, for example:
+
+```text
+Package: sg.mesha.goatos
+Secrets: android-prod-upload-*
+Firebase/Play: prod-owned app registration
+```
+
+Never load the stg signing env vars and build a prod release. The Gradle
+configuration intentionally attaches the stg signing config only to the `stg`
+flavor so the stg upload key cannot silently sign `prodRelease`.

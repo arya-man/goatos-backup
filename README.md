@@ -105,24 +105,37 @@ Use `docs/ai/README.md` for the full setup and routing guide. In short:
 
 ## Android Staging Release Signing
 
-The staging Android release key is **not stored in Git**. It is stored in
-Google Secret Manager under the `goatos-stg` project, and developers with
-release-builder access restore it into the gitignored local path
-`.local/android-signing/goatos-stg-upload.jks`.
+Staging Android release builds are signed with a **staging-only** upload key.
+The key material is stored in Google Secret Manager under the Mesha/VGoats
+`goatos-stg` project, never in Git.
+
+```text
+Package: sg.mesha.goatos.stg
+API:     https://stg-api.dashboard.mesha.sg/
+Runbook: docs/mobile/stg-signed-release.md
+```
+
+Developers who need to build or upload a stg release must have Secret Manager
+access to:
+
+```text
+android-stg-upload-keystore-jks
+android-stg-upload-keystore-password
+android-stg-upload-key-alias
+android-stg-upload-key-password
+```
+
+Restore the `.jks` into the local, gitignored path `.local/android-signing/`
+and export the signing passwords from Secret Manager before running
+`assembleStgRelease` or Firebase App Distribution upload. Do not paste
+keystores or passwords into commits, docs, Slack, tickets, or screenshots.
 
 Use [`docs/mobile/stg-signed-release.md`](docs/mobile/stg-signed-release.md)
 for the exact Secret Manager restore, signed build, Firebase App Distribution,
 and post-install SSO/bootstrap verification steps.
 
-Environment separation is intentional:
-
-- stg release: package `sg.mesha.goatos.stg`, Firebase project `goatos-stg`,
-  API `https://stg-api.dashboard.mesha.sg/`, stg upload key.
-- prod release: package `sg.mesha.goatos`, production Firebase/API, separate
-  production upload key.
-
-Never commit `.jks` files, signing passwords, Firebase private keys, or local
-signing env files.
+Production release signing must use a separate production package/key/Secret
+Manager set. Do not reuse the stg upload key for prod.
 
 ## Operational Kernel
 
