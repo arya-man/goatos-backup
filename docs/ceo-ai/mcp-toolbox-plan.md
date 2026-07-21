@@ -117,21 +117,44 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA ceo_ai
 Do not grant `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `USAGE` on
 sequences, or direct access to `public` tables.
 
-## Reporting Schema
+## Reporting Schema Coverage Contract
 
-Expose stable `ceo_ai.*` views. The model should see business-language columns,
-not raw normalized tables.
+Expose stable `ceo_ai.*` views for every leadership-relevant data surface in
+Mesha. This is not a small fixed analytics pack. It is the contract that makes
+the assistant understand the whole product now, and stay updated as the product
+grows.
 
-Recommended initial views:
+The model should see business-language columns, not raw normalized tables. Every
+current and future module must be covered by exactly one of these paths:
+
+- existing Mesha read API mapped into the assistant tool catalog
+- named MCP Toolbox business tool over a curated reporting view
+- governed read-only SQL fallback over `ceo_ai.*`
+- explicit documented exclusion explaining why the feature must not be visible
+  to the leadership assistant
+
+No leadership-relevant feature is complete until this assistant coverage is
+updated in the same PR. That applies to all developers and all coding agents.
+
+Required coverage areas include every current Mesha operating domain:
 
 ```text
 ceo_ai.animal_current_scope
   tenant_id, animal_id, park_id, park_label, shed_id, shed_label,
-  management_stage, lifecycle_status, sex, breed, age_days
+  species, management_stage, lifecycle_status, sex, breed, age_days
+
+ceo_ai.shed_capacity_current
+  tenant_id, park_label, shed_label, animals, capacity, variance,
+  status, owner_label, backup_label
 
 ceo_ai.vaccination_shed_status
   tenant_id, park_label, shed_label, animals, due, done, planned_sessions,
   next_due_date, manager_label, backup_label, status
+
+ceo_ai.vaccination_dose_pickup
+  tenant_id, business_date, park_label, shed_label, vaccine_label,
+  doses_to_pick, animals_due, animals_overdue, owner_label, backup_label,
+  next_action
 
 ceo_ai.feed_direction_current
   tenant_id, feed_day, park_label, shed_label, workflow, session_no,
@@ -145,6 +168,10 @@ ceo_ai.procurement_pipeline
   tenant_id, source_label, batch_label, current_stage, animals,
   vaccination_pending, rejected, entered_at
 
+ceo_ai.source_entry_health_status
+  tenant_id, load_label, source_label, animals_expected, animals_received,
+  animals_accepted, animals_rejected, health_blockers, evidence_status
+
 ceo_ai.ops_exception_queue
   tenant_id, area, severity, status, park_label, shed_label, title,
   opened_at, owner_label, source_id
@@ -153,9 +180,25 @@ ceo_ai.sop_execution_status
   tenant_id, area, park_label, shed_label, task_label, status,
   due_at, completed_at, verifier_label
 
+ceo_ai.verification_queue_status
+  tenant_id, area, park_label, shed_label, pending, rejected, accepted,
+  oldest_pending_at, owner_label
+
 ceo_ai.inventory_stock_position
   tenant_id, item_label, category, stock_on_hand, unit, park_label,
   reorder_flag, last_reconciled_at
+
+ceo_ai.workforce_coverage_status
+  tenant_id, park_label, role_label, owner_label, backup_label,
+  coverage_status, active_work_count, overdue_work_count
+
+ceo_ai.action_center_current
+  tenant_id, area, severity, park_label, shed_label, title, owner_label,
+  backup_label, due_at, status
+
+ceo_ai.audit_activity_summary
+  tenant_id, business_date, area, actor_label, action_label, result,
+  count, last_activity_at
 ```
 
 These views can be ordinary views first. Convert hot summaries to materialized
@@ -165,14 +208,23 @@ views or projection tables only after query-plan checks show a real need.
 
 Use `docs/ceo-ai/mcp-toolbox-tools.yaml` as the starter Toolbox config.
 
-Initial toolset:
+Minimum always-on toolset:
 
 ```text
 mesha_ceo_toolset
   mesha_count_by_scope
+  mesha_capacity_summary
   mesha_vaccination_due_summary
+  mesha_vaccination_dose_pickup
   mesha_feed_direction_summary
+  mesha_shifting_summary
+  mesha_procurement_summary
   mesha_ops_exceptions
+  mesha_workforce_coverage
+  mesha_verification_queue
+  mesha_inventory_stock
+  mesha_action_center
+  mesha_audit_summary
   mesha_readonly_sql
 ```
 
@@ -184,7 +236,9 @@ Tool rules:
   detail tool exists.
 - Every tool must require `tenant_id` from server-side context.
 - Limit rows at the SQL level.
-- Add one new business tool per recurring leadership question cluster, not per API.
+- Add one new business tool per recurring leadership question cluster.
+- Future modules must add their assistant tool mapping before the feature is
+  considered done.
 
 ## Read-Only SQL Fallback
 
@@ -295,7 +349,8 @@ Log:
 
 ## Rollout
 
-1. Add `ceo_ai` schema, views, grants, and read-only role migration.
+1. Add `ceo_ai` schema, grants, read-only role migration, and coverage views for
+   all current leadership-relevant modules.
 2. Add Secret Manager entries for Toolbox config and DB credential.
 3. Deploy Toolbox Cloud Run with Cloud SQL connector and strict
    `allowed-hosts` / `allowed-origins`.
@@ -309,7 +364,27 @@ Log:
    - "Show current feed blocked gaps."
    - "What approvals are pending?"
    - "What changed in counts yesterday?"
-9. Promote only after SQL fallback rejection tests and role permission tests pass.
+9. Add a CI guard that fails when a new read API, reporting table, module route,
+   or operational feature is added without assistant coverage or an explicit
+   exclusion.
+10. Promote only after SQL fallback rejection tests, role permission tests, and
+    coverage guard tests pass.
+
+## Future-Work Enforcement
+
+Every future feature PR must answer this checklist:
+
+- What leadership question should the assistant answer for this feature?
+- Which Mesha read API, MCP tool, or `ceo_ai.*` view exposes it?
+- What words should the assistant use in business language?
+- What internal/backend fields must be hidden from the answer?
+- What tenant, park, shed, date, role, and row-limit guards apply?
+- What source/freshness metadata should the answer carry internally?
+
+If the answer is "this feature is not for leadership," the PR must document that
+exclusion. Silence is not allowed. This rule belongs in agent instructions,
+Claude/Codex skill context, PR checks, and local CI so future work keeps the
+assistant current automatically.
 
 ## References
 

@@ -21,6 +21,10 @@
           {
             "type": "command",
             "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/agent-hooks/ai-setup-guard.sh\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/agent-hooks/ai-setup-guard.sh\"; if [ -f \"$script\" ]; then bash \"$script\"; fi"
+          },
+          {
+            "type": "command",
+            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/ci/check-git-identity.mjs\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/ci/check-git-identity.mjs\"; if [ -f \"$script\" ]; then node \"$script\"; fi"
           }
         ]
       },

@@ -8,6 +8,16 @@
   },
   "guards": [
     {
+      "id": "git-identity",
+      "script": "tools/ci/check-git-identity.mjs",
+      "makeTarget": "git-identity-guard",
+      "realCheck": "node tools/ci/check-git-identity.mjs",
+      "selfTest": "node tools/ci/check-git-identity.mjs --self-test",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "git-identity-guard"
+    },
+    {
       "id": "guardrail-registration",
       "script": "tools/ci/check-guardrail-registration.mjs",
       "makeTarget": "guardrail-registration-guard",
@@ -76,6 +86,16 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "requiredInCI": true,
       "ciStep": "domain-event-architecture-guard"
+    },
+    {
+      "id": "leadership-assistant-coverage",
+      "script": "tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "makeTarget": "leadership-assistant-coverage-guard",
+      "realCheck": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "selfTest": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test",
+      "owningDoc": "docs/ceo-ai/mcp-toolbox-plan.md",
+      "requiredInCI": true,
+      "ciStep": "leadership-assistant-coverage-guard"
     },
     {
       "id": "stg-promotion",

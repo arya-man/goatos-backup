@@ -51,6 +51,22 @@ For direct SQL, the server generates and validates `SELECT`-only SQL, blocks
 comments/multiple statements/DML/DDL, injects `tenant_id = $1`, applies a small
 limit, and returns totals/aggregates by default.
 
+## Always-On Coverage Rule
+
+The assistant context must cover all leadership-relevant Mesha features, not
+only the first dashboard screens. Every current and future module must expose an
+assistant read path through one of:
+
+1. Mesha read API.
+2. MCP Toolbox business tool over a curated reporting view.
+3. Governed read-only SQL fallback over approved `ceo_ai.*` views.
+4. Explicit exclusion saying why leadership should not see it.
+
+When a developer or coding agent adds a new read API, backend module, reporting
+view, dashboard route, mobile workflow, operational table, or domain event, the
+same PR must update this context and the MCP/toolbox plan. Silent gaps are not
+allowed.
+
 ## Safe Domains
 
 ### Counts / Herd Census
@@ -267,19 +283,25 @@ Every answer should include or internally carry:
 - scope: company, park, shed, or filtered domain.
 - caveat: exploratory/raw if not a governed metric.
 
-## Initial Tool Catalog
+## Required Tool Catalog
 
-These are the first tools the CEO bot should know:
+These are the minimum always-on tools the assistant should know. Future modules
+must add a business tool or documented read path in the same change that adds
+the feature.
 
 | Tool | Type | Backing source |
 | --- | --- | --- |
 | `counts_summary` | read API | `/counts/breakdown`, `/herd-register/summary` |
 | `vaccination_shed_summary` | read API | `/vaccination/execution`, shed summary/read model |
 | `vaccination_action_center` | read API | `/vaccination/action-center`, `/control-tower/vaccination` |
+| `vaccination_dose_pickup` | MCP/read API | vaccine names, doses to pick, sheds affected, due/overdue |
 | `feed_direction_summary` | read API | `/feed-direction/preview`, `/feed-packing/worklist` |
 | `shifting_pending_summary` | read API | `/app/counts/shifting-events/pending-execution` |
 | `procurement_load_summary` | read API | `/procurement/source-entry/loads` |
 | `workforce_coverage_summary` | read API | `/admin/roster/positions`, backup, coverage |
+| `inventory_stock_summary` | MCP/read API | stock on hand, reorder gaps, last reconciliation |
+| `verification_queue_summary` | read API | `/verification/queue` |
+| `action_center_summary` | read API | `/action-center/obligations` |
 | `operations_audit_summary` | read API | `/operations/audit/summary` |
 | `sql_analytics` | read-only SQL | allowlisted tables above |
 
