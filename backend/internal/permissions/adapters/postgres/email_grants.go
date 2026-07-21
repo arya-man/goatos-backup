@@ -173,8 +173,8 @@ INSERT INTO workforce_members (
 )
 SELECT $1, $2, $3, $4, 'active', $5, $6, jsonb_build_object(
   'source', 'auth_pending_email_grant',
-  'normalized_email', $7,
-  'role', $8
+  'normalized_email', $7::text,
+  'role', $8::text
 )
 WHERE NOT EXISTS (
   SELECT 1
