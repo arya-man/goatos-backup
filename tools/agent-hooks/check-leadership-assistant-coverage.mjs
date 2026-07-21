@@ -8,13 +8,6 @@ const COVERAGE_FILES = [
   "docs/ceo-ai/mcp-toolbox-plan.md",
   "docs/ceo-ai/mcp-toolbox-tools.yaml",
   "context/agents/ceo-bot-analytics-context.md",
-  ".agents/skills/goatos-build/SKILL.md",
-  ".agents/skills/goatos-build/references/analytics-infra.md",
-  ".agents/skills/goatos-build/references/backend-impl.md",
-  ".agents/skills/goatos-build/references/contracts-events.md",
-  ".agents/skills/goatos-build/references/frontend-mobile.md",
-  "AGENTS.md",
-  "SKILLS.md",
 ];
 
 const TRIGGER_PREFIXES = [
@@ -106,6 +99,12 @@ function selfTest() {
     () => "typo fix only",
   );
   if (weak.length === 0) throw new Error("self-test: weak coverage update was not blocked");
+
+  const genericDocs = evaluateChangedFiles(
+    ["backend/internal/newmodule/service.go", "AGENTS.md", "SKILLS.md", ".agents/skills/goatos-build/SKILL.md"],
+    () => "MCP Vertex read API leadership assistant",
+  );
+  if (genericDocs.length === 0) throw new Error("self-test: generic agent docs satisfied assistant coverage");
 
   console.log("leadership-assistant-coverage guard self-test passed");
 }
