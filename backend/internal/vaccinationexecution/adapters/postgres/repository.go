@@ -106,7 +106,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
 	// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
 	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
-	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL,
+	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
 		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
 	if err != nil {
