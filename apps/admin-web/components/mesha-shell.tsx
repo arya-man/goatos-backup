@@ -26,6 +26,7 @@ import {
   Zap,
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { CEOAIChat } from "@/components/ceo-ai-chat";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
@@ -619,6 +620,7 @@ export function MeshaShell({
           </div>
         </main>
       </div>
+      <CEOAIChat displayName={actor.display_name} subtitle={actor.subtitle} />
     </>
   );
 }
