@@ -80,9 +80,15 @@ class ShedsViewModel @Inject constructor(
     ) { resource, isRefreshing, isOffline, isLoadingMore ->
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
-        val isInitialLoading = dto == null && !resource.hasData && resource.error == null
+        val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !isOffline
         val base = dto?.toShedsUiState()
-            ?: if (resource.hasData) shedsPlaceholder("No sheds scheduled today") else shedsPlaceholder("Loading…")
+            ?: if (resource.hasData) {
+                shedsPlaceholder("No sheds scheduled today")
+            } else if (isOffline) {
+                shedsPlaceholder("Couldn't load vaccination drives. Pull to refresh or try again.")
+            } else {
+                shedsPlaceholder("Loading…")
+            }
         base.copy(
             isRefreshing = isRefreshing,
             isInitialLoading = isInitialLoading,
@@ -298,7 +304,7 @@ private fun String.readableState(): String =
     replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 internal data class OperatorWorkWindow(
-    val asOf: String,
+    val asOf: String?,
     val dueBefore: String,
     val todayLabel: String,
     val windowLabel: String,
@@ -308,7 +314,11 @@ internal data class OperatorWorkWindow(
             val today = now.toLocalDate()
             val lastDay = today.plusDays((OPERATOR_WINDOW_DAYS - 1).toLong())
             return OperatorWorkWindow(
-                asOf = now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                // Live operator work is a current-view read. Do not send a phone-generated
+                // as_of timestamp: by the time it reaches the API it is already historical,
+                // and the backend correctly rejects historical point-in-time execution reads.
+                // Omitting as_of lets the server anchor the query to its own current clock.
+                asOf = null,
                 dueBefore = now.plusDays(OPERATOR_WINDOW_DAYS.toLong())
                     .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 todayLabel = "Today · ${shortDateLabel(today)}",
