@@ -44,6 +44,19 @@ system concerns rather than per-screen polish.
   `title`, `description`, UUID `scope_id`, and other transport facts are not display fallbacks.
   Omit summary rows whose label or value is empty; constrain both columns so long localized text
   wraps inside the card instead of pushing its peer off-screen.
+- Never render raw vaccination config/protocol tokens as API presentation copy
+  or user copy. Values such as
+  `et_tt`, `et_tt_adult_w2`, `ppr_booster`, `blue_tongue_first`, `goat_pox`,
+  `Preventive Care Vaccination Matrix`, or any other backend/config key are
+  identifiers, not labels. Android screens, cards, rows, chips, empty states,
+  alerts, Paparazzi screenshot fixtures, screenshot galleries, and logs visible
+  to an operator must map them to human labels first: `ET+TT`, `PPR · Booster`,
+  `Blue Tongue`, `Goat Pox`, etc. Backend endpoints must do the same for
+  presentation fields such as `driveName`, `vaccineLabel`, `vaccine_labels`,
+  card titles/subtitles, and alerts. Raw tokens may appear only in backend
+  config, raw storage/contracts, DTOs, non-UI tests, or a dedicated
+  display-mapping function.
+  `make ui-vaccine-labels-guard` enforces this and runs through local CI.
 - Keep each scan-proof row as one responsive information/action group: animal identity and vaccine
   copy together, then proof state and its Material action. Compact widths stack the action; wider
   widths may align it beside status. `MISSING`, `UPLOADING`, `SYNCED`, and `FAILED` all require
@@ -66,6 +79,7 @@ Run from the repository root:
 ```bash
 node tools/agent-hooks/check-android-ui-foundations.mjs --self-test
 node tools/agent-hooks/check-android-ui-foundations.mjs
+make ui-vaccine-labels-guard
 make mobile-guard
 make ci-local JOB=android
 ```

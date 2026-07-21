@@ -40,6 +40,7 @@ import sg.mesha.goatos.feature.record.VaccineGroupRow
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
+import sg.mesha.goatos.feature.sheds.ShedDayTab
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsUiState
@@ -99,26 +100,38 @@ fun sampleCalendarState(): CalendarUiState = CalendarUiState(
 
 fun sampleShedsState(): ShedsUiState = ShedsUiState(
     moduleLabel = "Vaccination",
-    scopeLabel = "CBE · all sheds",
-    title = "Today's sheds",
-    date = "Thu 9 Jul",
-    window = "6:00–11:00",
-    shedCountLabel = "4 sheds",
-    dueLabel = "128 due",
+    scopeLabel = "",
+    title = "Vaccination sheds",
+    date = "Today · Wed 22 Jul",
+    window = "Wed 22 Jul → Tue 28 Jul",
+    shedCountLabel = "20 sheds",
+    dueLabel = "147 due",
     dayProgressLabel = "42%",
     dayProgressFraction = 0.42f,
-    daySummary = "54 / 128 done",
+    daySummary = "54 / 147 done",
+    shedCount = 20,
+    dueCount = 93,
+    doneCount = 54,
+    dayTabs = listOf(
+        ShedDayTab("2026-07-22", "TODAY", "22", "147", isSelected = true),
+        ShedDayTab("2026-07-23", "THU", "23", "100", isSelected = false),
+        ShedDayTab("2026-07-24", "FRI", "24", "102", isSelected = false),
+        ShedDayTab("2026-07-25", "SAT", "25", "70", isSelected = false),
+        ShedDayTab("2026-07-26", "SUN", "26", "101", isSelected = false),
+        ShedDayTab("2026-07-27", "MON", "27", "81", isSelected = false),
+        ShedDayTab("2026-07-28", "TUE", "28", "97", isSelected = false),
+    ),
     rows = listOf(
         ShedRow(
-            id = "s1", name = "Gandhi 1", animalStage = "Milking does",
+            id = "s1", name = "Gandhi 1", animalStage = "Adult",
             status = ShedStatus.DONE, statusLabel = "Done",
-            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("PPR", "40/40", true)),
+            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("ET+TT · Dose 2", "40/40", true)),
             inShed = "40", due = "40", done = "40", progressLabel = "100%", progressFraction = 1f,
         ),
         ShedRow(
-            id = "s2", name = "Sumathi 1", animalStage = "Kids",
+            id = "s2", name = "Sumathi 1", animalStage = "Adult",
             status = ShedStatus.DELAYED, statusLabel = "Delayed · not started",
-            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("FMD", "0/32", false)),
+            vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("Blue Tongue", "0/32", false)),
             inShed = "32", due = "32", done = "0", progressLabel = "0%", progressFraction = 0f,
             actionLabel = "Chase the team ›",
         ),

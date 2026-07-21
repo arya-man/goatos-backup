@@ -9,7 +9,7 @@ func VaccinationDoseDisplayLabel(protocolName, doseCode string) string {
 	protocolName = strings.TrimSpace(protocolName)
 	doseCode = strings.TrimSpace(doseCode)
 	if doseCode == "" {
-		return protocolName
+		return protocolDisplayLabel(protocolName)
 	}
 
 	normalized := strings.ToUpper(strings.ReplaceAll(doseCode, " ", "_"))
@@ -18,6 +18,10 @@ func VaccinationDoseDisplayLabel(protocolName, doseCode string) string {
 		return "ET+TT · First dose"
 	case "ET_TT_7W", "ET_TT_3W":
 		return "ET+TT · Booster"
+	}
+
+	if label := matrixDoseDisplayLabel(normalized); label != "" {
+		return label
 	}
 
 	antigenCode := normalized
@@ -39,7 +43,44 @@ func VaccinationDoseDisplayLabel(protocolName, doseCode string) string {
 	if protocolName == "" {
 		return strings.ReplaceAll(doseCode, "_", " ")
 	}
-	return protocolName + " · " + doseCode
+	return protocolDisplayLabel(protocolName) + " · " + strings.ReplaceAll(doseCode, "_", " ")
+}
+
+func matrixDoseDisplayLabel(code string) string {
+	parts := strings.Split(code, "_")
+	if len(parts) == 0 {
+		return ""
+	}
+	for length := len(parts); length > 0; length-- {
+		prefix := strings.Join(parts[:length], "_")
+		antigen := vaccinationAntigenLabel(prefix)
+		if antigen == "" {
+			continue
+		}
+		rest := parts[length:]
+		if len(rest) == 0 {
+			return antigen
+		}
+		for _, part := range rest {
+			switch {
+			case part == "BOOSTER" || part == "REVAC":
+				return antigen + " · Booster"
+			case strings.HasPrefix(part, "W") && len(part) > 1:
+				return antigen + " · Dose " + strings.TrimPrefix(part, "W")
+			}
+		}
+		return antigen
+	}
+	return ""
+}
+
+func protocolDisplayLabel(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if strings.EqualFold(trimmed, "Preventive Care Vaccination Matrix") ||
+		strings.EqualFold(trimmed, "Preventive Care vaccination matrix") {
+		return "Vaccination"
+	}
+	return trimmed
 }
 
 func vaccinationAntigenLabel(code string) string {
