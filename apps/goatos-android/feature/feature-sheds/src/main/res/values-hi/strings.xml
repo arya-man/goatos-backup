@@ -2,7 +2,7 @@
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">ताज़ा करें</string>
-    <string name="sheds_title">टीकाकरण अभियान</string>
+    <string name="sheds_title">टीकाकरण शेड</string>
     <string name="sheds_count_fmt">%1$d शेड</string>
     <string name="sheds_due_fmt">%1$d खुले</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d पूर्ण</string>

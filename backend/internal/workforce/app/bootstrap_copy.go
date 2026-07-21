@@ -70,7 +70,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		priority:    1,
 		contributions: []moduleNavContribution{
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},

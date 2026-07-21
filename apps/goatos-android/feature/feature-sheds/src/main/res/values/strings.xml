@@ -8,7 +8,7 @@
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">Refresh</string>
-    <string name="sheds_title">Vaccination drives</string>
+    <string name="sheds_title">Vaccination sheds</string>
 
     <!-- Header count/summary chrome. NOTE: ShedsUiState currently exposes these only as
          VM-baked label strings (shedCountLabel/dueLabel/daySummary), not raw Int fields, so
