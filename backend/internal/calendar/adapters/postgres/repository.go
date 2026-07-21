@@ -300,8 +300,16 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	// projection) is no longer resolvable by detail lookup -- an accepted simplification for this
 	// envelope (see docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
 	from, to := canonicalUnboundedWindow(time.Now())
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: begin detail: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, "SET LOCAL goatos.include_drive_summary = 'true'"); err != nil {
+		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: enable drive summary detail: %w", err)
+	}
 	event, err := scanCalendarEventWithDetail(
-		r.pool.QueryRow(ctx, calendarCanonicalDetailSQL, q.TenantID, from, to, q.EventID, tenantWide, parkIDs, shedIDs),
+		tx.QueryRow(ctx, calendarCanonicalDetailSQL, q.TenantID, from, to, q.EventID, tenantWide, parkIDs, shedIDs),
 		&detailRaw,
 		&linksRaw,
 	)
