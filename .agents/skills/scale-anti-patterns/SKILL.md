@@ -12,6 +12,10 @@ description: >-
 
 # Scale anti-patterns — lens entrypoint
 
+Hot API/SSR serving reads have a hard sub-500ms budget. Seconds-class responses
+are a production bug, not a review note: fix the query/API shape, endpoint grain,
+projection/read model, or batching before pushing.
+
 Rule underneath all of them: **compute-on-write (projections), never
 compute-on-read.** Fast at ~1k rows, fatal at scale. Machine-blocked by
 `make scale-guard`.
@@ -35,6 +39,9 @@ summary below — open the canonical chapters and read the live detail.
 - Any staging deploy or E2E handoff after backend, admin-web, worker, job, seed,
   migration, or read-model changes. A mixed-SHA STG environment is a scale and
   correctness anti-pattern, not a valid debug target.
+- Any measured API/SSR page load at or above 500ms, or any "fix" that keeps a
+  narrow screen on a broad catch-all endpoint and depends on loading UI to mask
+  the delay.
 
 ## Canonical detail (read these — do NOT duplicate here)
 - **Review chapter:** [`.agents/skills/goatos-code-review/references/kernel-and-scale.md`](../goatos-code-review/references/kernel-and-scale.md) — scale + idempotency review checklist.
@@ -47,9 +54,15 @@ summary below — open the canonical chapters and read the live detail.
 - `make scale-guard` — must FAIL on new debt; `tools/scale-guard/baseline.txt` is
   grandfathered debt, not a pass. Registered in `tools/ci/guardrail-manifest.json`.
 - `make validate-sqlc-plans` — EXPLAIN proof: no Seq Scan on large tables.
+- `node tools/perf/api-latency-policy.test.mjs` and the API latency gate — hard
+  budget is p90 <= 300ms and p95/p99 <= 500ms for hot serving reads; do not
+  relax manifests above that ceiling.
 - `make admin-web-request-reads-guard` — the admin-web SSR twin (full-table walk).
 - `make admin-web-prefetch-guard` — blocks implicit admin-web request reads from
   direct `next/link` route prefetch or `prefetch={true}`.
+- `make calendar-endpoint-grain-guard` — blocks backend/admin-web/mobile/contract/
+  DB wiring that feeds a narrow vaccination schedule/full-schedule surface from
+  the broad Calendar events endpoint.
 - `tools/deploy/stg-clouddeploy-release.sh` — for break-glass local STG repair,
   waits for Cloud Deploy and verifies API, admin-web, worker, migration, DLQ, and
   analytics images all match the same current main SHA. Never skip rollout/image
@@ -70,6 +83,9 @@ summary below — open the canonical chapters and read the live detail.
 9. admin-web route prefetch of heavy SSR/API-read pages → use
    `@/components/no-prefetch-link`; reads happen after click, not on link
    visibility/hover.
+10. broad endpoint reused for narrow screen → call/build the endpoint whose
+    contract matches the screen grain/window. Example: Full Schedule reads
+    `/vaccination/schedule`, not the broad Calendar events union.
 
 Genuinely-bounded case → annotate the exact line `// scale-guard:ignore: <reason>`;
 never disable the guard. The five named canonical screen reads are the ONLY

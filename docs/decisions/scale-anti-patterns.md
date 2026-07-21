@@ -22,6 +22,40 @@ release invariant. New request paths, workers, importers, projectors,
 dashboards, and reporting paths must be tenant scoped, indexed, bounded,
 resumable, and measurable.
 
+Seed/provisioning drift is a scale anti-pattern too: do not create extra
+parallel business roles for the same authority. CEO/CXO full access is a single
+`ceo_internal` grant with a `cxo` workforce hint; adding an additional admin
+person role creates duplicate authorization branches, duplicated test matrices,
+and stale UI labels.
+
+## Sub-500ms serving-read budget
+
+Every operator-facing API, SSR page load, dashboard read, schedule/calendar
+view, and drawer/list bootstrap is a hot serving read unless this document names
+it as an offline/export/background exception. A hot serving read must stay under
+500ms at the enforced percentile budget; seconds-class responses are a
+production bug, not an acceptable "slow path." The executable policy lives in
+`tools/perf/api-latency-policy.mjs`: default p90 <= 300ms and p95/p99 <= 500ms.
+
+Do not hide a seconds-class read by raising a timeout, increasing a limit,
+adding a spinner, doing a frontend-only cache, or saying "the data is small
+today." Change the shape:
+
+- use the narrow endpoint that owns the screen's exact grain/window;
+- add or fix the natural indexed predicate/keyset cursor;
+- batch N+1 reads into one set-based query;
+- use the accepted projection/read-model pattern where the ADR requires it; or
+- split a broad "everything calendar" contract from a narrow schedule/worklist
+  contract instead of making every screen pay for the broad union.
+
+Concrete recurrence: a month-wise Full Schedule screen must not call a broad
+Calendar events endpoint that reconstructs unrelated event sources and then
+filters/massages them into schedule rows. The screen should read the canonical
+vaccination schedule contract for the selected month/window; the Calendar screen
+can keep its broader endpoint only when it truly renders calendar-specific event
+types. Reusing a broad endpoint for a narrow UI and producing >500ms hot loads is
+a scale anti-pattern even if both endpoints are "correct."
+
 `make scale-guard` blocks new static offenders for the highest-risk patterns:
 
 - compute-on-read god CTEs on request paths
@@ -45,6 +79,14 @@ resumable, and measurable.
 - business-calendar hardcodes that derive operational month/year/window state
   from the server/browser default timezone instead of the Goat OS business
   timezone
+
+`make calendar-endpoint-grain-guard` blocks the adjacent endpoint-grain
+recurrence across backend/admin-web/mobile/contracts/DB: a narrow vaccination
+schedule/full-schedule/read-model surface must not call, alias, or derive from
+the broad `/calendar/vaccination/events` Calendar presentation endpoint. The
+Calendar endpoint remains valid for Calendar event presentation; narrow screens
+must use `/vaccination/schedule` or another grain-owned API/read path with its
+own contract and latency evidence.
 
 ## Indexed predicates and guard-authoring safety
 

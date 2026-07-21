@@ -255,8 +255,9 @@ func TestApproveShiftingRejectsStoredPayloadNamingNoAnimals(t *testing.T) {
 // that quietly changes who may approve fails here.
 //
 // Maintainer decision 2026-07-21: approve/reject moved off the park head onto the four org tiers
-// (director/head/manager/am, each across every vertical) plus admin and ceo_internal, on the
-// admin-web Approvals page. All four tiers decide every type; park_head now decides nothing.
+// (director/head/manager/am, each across every vertical) plus ceo_internal, on the admin-web
+// Approvals page. All four tiers decide every type; park_head now decides nothing. (The flat
+// `admin` role was removed from main, so it is no longer part of the approver set.)
 func TestDecidableApprovalRequestTypesPerRole(t *testing.T) {
 	all := []string{"birth", "death", "shifting"}
 	cases := []struct {
@@ -269,7 +270,6 @@ func TestDecidableApprovalRequestTypesPerRole(t *testing.T) {
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth), all},
 		{permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalBreeding), all},
 		{permissions.RoleCEOInternal, all},
-		{permissions.RoleAdmin, all},
 		// Park head no longer holds ANY approval permission.
 		{permissions.RoleParkHead, nil},
 		// Operators capture; capture is not approval.

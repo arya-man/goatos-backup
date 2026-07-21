@@ -1,7 +1,7 @@
 export const API_LATENCY_POLICY_MS = Object.freeze({
   p90_ms: 300,
   p95_ms: 500,
-  p99_ms: 1000,
+  p99_ms: 500,
 });
 
 export const API_RESPONSE_BYTES_CEILING = 1024 * 1024;

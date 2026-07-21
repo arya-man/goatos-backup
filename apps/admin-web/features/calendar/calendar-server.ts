@@ -33,6 +33,7 @@ export interface CalendarListParams {
   limit?: number;
   includeDateMarkers?: boolean;
   markersOnly?: boolean;
+  includeDriveSummary?: boolean;
 }
 
 export async function getCalendarVaccinationEvents(params: CalendarListParams = {}): Promise<ApiResult<CalendarEventListResponse>> {
@@ -53,6 +54,7 @@ export async function getCalendarVaccinationEvents(params: CalendarListParams = 
         limit: Math.min(params.limit ?? DEFAULT_LIMIT, MAX_LIMIT),
         include_date_markers: params.includeDateMarkers ? true : undefined,
         markers_only: params.markersOnly ? true : undefined,
+        include_drive_summary: params.includeDriveSummary ? true : undefined,
       }),
     }),
   );

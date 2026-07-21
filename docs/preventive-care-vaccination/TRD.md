@@ -397,7 +397,7 @@ later drive optimizer uses the same stored policy fields only for operational
 partitioning.
 
 **Audit metadata, not a source-review UI:** the Config UI is visible only to
-CEO/COO/superadmin in V1. Do not add source-system/reviewer/approved-by fields
+CEO/CXO in V1. Do not add source-system/reviewer/approved-by fields
 to the authoring surface or persisted rule JSON. The rule version is audited by
 the protocol tables: `version`, `created_at`, `drafted_by`/creator,
 `published_by`, `published_at`, `effective_from`, `effective_to`, `retired_at`,

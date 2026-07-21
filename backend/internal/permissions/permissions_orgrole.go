@@ -6,11 +6,9 @@ import "strings"
 //
 // See context/architecture/org-role-model.md (the derived target model) and
 // context/architecture/staff-org-data.md (the source staff/org data) for the
-// full write-up. This file is purely additive: the existing flat roles
-// (RoleAdmin, RoleVerifier, RoleParkHead, RolePCDirector, RoleOperator,
-// RoleCEOInternal) declared in permissions.go, and their entries in
-// rolePermissions, are untouched and continue to authorize exactly as they do
-// today -- no regression to current permission checks.
+// full write-up. This file composes vertical-scoped org roles alongside the
+// remaining flat roles (RoleVerifier, RoleParkHead, RolePCDirector,
+// RoleOperator, RoleCEOInternal) declared in permissions.go.
 //
 // The real org is a 3-axis matrix: TIER (CEO/CxO -> Director -> Head ->
 // Manager -> Assistant Manager) x VERTICAL (9 business departments) x PARK.
@@ -90,8 +88,8 @@ func RoleKey(tier Tier, vertical Vertical) string {
 
 // ParseRoleKey decomposes a composite role key produced by RoleKey back into
 // its tier and vertical. It returns ok=false for anything that is not a
-// composite key -- including the flat legacy roles (admin, verifier,
-// park_head, pc_director, operator, ceo_internal), which do not carry a
+// composite key -- including the flat legacy roles (verifier, park_head,
+// pc_director, operator, ceo_internal), which do not carry a
 // vertical.
 func ParseRoleKey(role string) (tier Tier, vertical Vertical, ok bool) {
 	for _, t := range AllTiers {
@@ -118,7 +116,7 @@ func IsOrgRoleKey(role string) bool {
 }
 
 // IsKnownRole reports whether role is any grantable role this backend
-// recognizes: a flat legacy role (RoleAdmin, RoleVerifier, RoleParkHead,
+// recognizes: a flat legacy role (RoleVerifier, RoleParkHead,
 // RolePCDirector, RoleOperator, RoleCEOInternal) or a composite tier x
 // vertical org role key (RoleKey). Callers that provision grants (seed CLIs,
 // future admin operator-management APIs) should use this instead of a
@@ -139,8 +137,8 @@ func IsKnownRole(role string) bool {
 // on", the vertical analog of the park-scope hard filter ScopeIDsForPermission
 // provides for ActiveGrant.ScopeType == "park".
 //
-// Flat legacy/cross-vertical roles (RoleVerifier, RoleCEOInternal, RoleAdmin,
-// and today's RoleParkHead/RolePCDirector/RoleOperator) are cross-vertical by
+// Flat legacy/cross-vertical roles (RoleVerifier, RoleCEOInternal, and today's
+// RoleParkHead/RolePCDirector/RoleOperator) are cross-vertical by
 // definition -- see org-role-model.md's "Current RBAC vs this model" gap
 // table, which calls out that these roles have no vertical scope yet -- so
 // this function returns true for any vertical when role does not parse as a
@@ -282,7 +280,7 @@ var tierPermissions = map[Tier]map[string]struct{}{
 // and RolesAuthorize (both declared in permissions.go, unmodified) work for
 // the new composite role keys with zero changes to their implementation.
 // Panics on any collision with a pre-existing role key: this must never
-// silently overwrite one of the 6 flat legacy roles' permission sets.
+// silently overwrite one of the remaining flat legacy roles' permission sets.
 func init() {
 	for _, tier := range AllTiers {
 		perms, ok := tierPermissions[tier]

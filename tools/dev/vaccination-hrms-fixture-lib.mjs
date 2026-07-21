@@ -190,6 +190,8 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.contracts?.local_trigger_primary_rfid_fixture === "CBE-RFID-0001", "manifest must bind the local trigger primary RFID fixture used by emulator scan E2E", problems);
   expect(manifest.contracts?.protocol_route_site === "subcutaneous", "manifest must bind vaccination matrix route_site=subcutaneous", problems);
   expect(manifest.contracts?.protocol_route_site_is_not_operator_form_field === true, "manifest route_site must remain protocol metadata, not an operator form field", problems);
+  expect(manifest.contracts?.full_access_grant_role === "ceo_internal", "manifest must bind CEO/CXO full-access grants to ceo_internal", problems);
+  expect(manifest.contracts?.full_access_workforce_hint === "cxo", "manifest must bind CEO/CXO workforce hint to cxo", problems);
 
   if (checkHashes) {
     for (const file of REQUIRED_DATA_FILES) {

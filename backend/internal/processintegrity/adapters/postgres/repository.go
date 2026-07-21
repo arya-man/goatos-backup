@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -67,7 +68,7 @@ func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]do
 }
 
 func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
-	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsSQL, args...)
+	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsSQL, append([]any{pgx.QueryExecModeExec}, args...)...)
 	if err != nil {
 		return domain.ListResult{}, fmt.Errorf("processintegrity: list canonical rows: %w", err)
 	}
@@ -98,7 +99,7 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 	if q.RowID != nil {
 		totalCount = int64(len(out))
 	} else if q.IncludeAdherenceSummary {
-		summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, countQueryArgs(args)...)
+		summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, append([]any{pgx.QueryExecModeExec}, countQueryArgs(args)...)...)
 		if err := summaryRows.Scan(
 			&summary.ExpectedCount,
 			&summary.CompletedCount,
@@ -143,7 +144,7 @@ func canonicalProjectionMetadata(q domain.Query) domain.ProjectionMetadata {
 }
 
 func (r *Repository) countByWorkStateCanonical(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
-	countRows, err := r.pool.Query(ctx, processIntegrityCanonicalCountsSQL, args...)
+	countRows, err := r.pool.Query(ctx, processIntegrityCanonicalCountsSQL, append([]any{pgx.QueryExecModeExec}, args...)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("processintegrity: count canonical rows: %w", err)
 	}

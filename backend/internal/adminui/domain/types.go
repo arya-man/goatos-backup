@@ -102,7 +102,7 @@ type RoleLensContract struct {
 	AuditShort  string `json:"audit_short"`
 	Scope       string `json:"scope"`
 	Description string `json:"description"`
-	Superadmin  bool   `json:"superadmin"`
+	FullAccess  bool   `json:"full_access"`
 }
 
 type PageContract struct {

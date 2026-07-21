@@ -83,6 +83,12 @@ The static guard cannot see "does this list actually paginate on scroll" or "doe
 markers vs events" — those are enforced by the mobile-vaccine E2E and code review; the guard catches
 the cheap, unambiguous shapes.
 
+`make calendar-endpoint-grain-guard` is the cross-surface companion. It blocks
+mobile/API/contract code that labels a narrow vaccination schedule surface but
+wires it to `/calendar/vaccination/events`. Calendar event presentation may keep
+that endpoint; schedule/full-schedule/mobile drive-list surfaces need a
+grain-owned API/read path with its own contract and latency evidence.
+
 ## Known backlog at introduction (2026-07-12)
 
 The guard's `--all` audit flags the current calendar + scan screens: `CalendarViewModel` /

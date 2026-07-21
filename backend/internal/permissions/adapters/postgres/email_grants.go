@@ -173,8 +173,8 @@ INSERT INTO workforce_members (
 )
 SELECT $1, $2, $3, $4, 'active', $5, $6, jsonb_build_object(
   'source', 'auth_pending_email_grant',
-  'normalized_email', $7,
-  'role', $8
+  'normalized_email', $7::text,
+  'role', $8::text
 )
 WHERE NOT EXISTS (
   SELECT 1
@@ -227,8 +227,10 @@ func pendingEmailGrantRoleHint(role string) string {
 		return "park_head"
 	case permissions.RoleVerifier:
 		return "verifier"
-	case permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RolePCDirector:
-		return "admin"
+	case permissions.RoleCEOInternal:
+		return "cxo"
+	case permissions.RolePCDirector:
+		return "supervisor"
 	default:
 		if tier, _, ok := permissions.ParseRoleKey(role); ok {
 			if tier == permissions.TierAssistantManager {

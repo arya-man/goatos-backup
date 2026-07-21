@@ -2708,7 +2708,7 @@ export interface components {
             audit_short: string;
             scope: string;
             description: string;
-            superadmin: boolean;
+            full_access: boolean;
         };
         AdminWebPageContract: {
             route_id: string;
@@ -6997,6 +6997,8 @@ export interface operations {
                 vaccine?: string;
                 /** @description Include caller-scoped park, shed, vaccine, status, month, and year choices on the first page. */
                 include_filter_options?: boolean;
+                /** @description Include rich park-day vaccination drive summary JSON. Omit for fast mobile/month list cards. */
+                include_drive_summary?: boolean;
                 cursor?: string;
                 limit?: number;
             };

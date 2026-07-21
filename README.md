@@ -103,6 +103,40 @@ Use `docs/ai/README.md` for the full setup and routing guide. In short:
 - `make ai-doctor` verifies the clone is portable and graph artifacts remain
   local-only.
 
+## Android Staging Release Signing
+
+Staging Android release builds are signed with a **staging-only** upload key.
+The key material is stored in Google Secret Manager under the Mesha/VGoats
+`goatos-stg` project, never in Git.
+
+```text
+Package: sg.mesha.goatos.stg
+API:     https://stg-api.dashboard.mesha.sg/
+Runbook: docs/mobile/stg-signed-release.md
+```
+
+Developers who need to build or upload a stg release must have Secret Manager
+access to:
+
+```text
+android-stg-upload-keystore-jks
+android-stg-upload-keystore-password
+android-stg-upload-key-alias
+android-stg-upload-key-password
+```
+
+Restore the `.jks` into the local, gitignored path `.local/android-signing/`
+and export the signing passwords from Secret Manager before running
+`assembleStgRelease` or Firebase App Distribution upload. Do not paste
+keystores or passwords into commits, docs, Slack, tickets, or screenshots.
+
+Use [`docs/mobile/stg-signed-release.md`](docs/mobile/stg-signed-release.md)
+for the exact Secret Manager restore, signed build, Firebase App Distribution,
+and post-install SSO/bootstrap verification steps.
+
+Production release signing must use a separate production package/key/Secret
+Manager set. Do not reuse the stg upload key for prod.
+
 ## Operational Kernel
 
 Goat OS is built around a shared operational kernel. Preventive Care (PC) vaccination is the

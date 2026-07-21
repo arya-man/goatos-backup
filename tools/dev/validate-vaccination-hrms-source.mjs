@@ -54,6 +54,10 @@ const MANAGER_HEADER = ["shed_code", "shed_name", "park_code", "manager_code", "
 const TIMETABLE_HEADER = ["", "Shift", "CBE", "CPT", "Week OFFs", "Backup"];
 const SAFE_ATTENDANCE_HEADERS = new Set(["Name", "Type", "Designation Type", "Designation", "Location", ...Array.from({ length: 30 }, (_, index) => String(index + 1))]);
 const RAW_ATTENDANCE_EXTRA_HEADERS = new Set(["Basic Salary", "Incentive", "DOJ", "Total Days", "Adv", "PTAX", "TDS", "Salary to Pay", "IFSC Code", "Bank Account Number"]);
+// Full-access humans are CEO/CXO only. Source validation and the committed fixture
+// must not introduce a parallel admin business/person role.
+const FULL_ACCESS_GRANT_ROLE = "ceo_internal";
+const FULL_ACCESS_WORKFORCE_HINT = "cxo";
 
 function arraysEqual(left, right) {
   return left.length === right.length && left.every((value, index) => String(value ?? "").trim() === String(right[index] ?? "").trim());

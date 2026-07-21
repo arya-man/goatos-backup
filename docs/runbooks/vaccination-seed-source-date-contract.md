@@ -44,6 +44,10 @@ leave windows, timetable-backed positions, strict shed-manager mapping, and
 position duties, the system cannot know who owns a drive, who covers leave, or
 whether a shed is executable.
 
+HRMS role normalization is mandatory. CEO/CXO/full-access people use the
+`ceo_internal` grant role and `cxo` workforce hint. Do not create a separate
+admin person role when seeding local, staging, or developer fixtures.
+
 The seed is also responsible for publishing the reviewed vaccination config.
 Goat/vaccination source rows without the active `vaccination.matrix`, capacity
 defaults, ownership duties, recomputed surviving summaries, and canonical-read

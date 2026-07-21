@@ -950,7 +950,7 @@ func traceID(r *http.Request) string {
 }
 
 // GetCapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen. Read
-// authority is enforced at the permission layer (config authority: CEO/COO/superadmin).
+// authority is enforced at the permission layer (config authority: CEO/CXO).
 func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := h.reader.CapacityConfig(r.Context(), tenantID(r))
 	if err != nil {

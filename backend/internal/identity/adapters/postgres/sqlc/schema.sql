@@ -3601,7 +3601,7 @@ CREATE TABLE public.obligation_escalations (
     acknowledgement_note text DEFAULT ''::text NOT NULL,
     resolution_note text DEFAULT ''::text NOT NULL,
     CONSTRAINT obligation_escalations_level_check CHECK ((level >= 1)),
-    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
+    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
     CONSTRAINT obligation_escalations_status_check CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'resolved'::text, 'expired'::text])))
 );
 
@@ -5163,7 +5163,7 @@ CREATE TABLE public.workforce_members (
     CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
     CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
     CONSTRAINT workforce_members_hr_designation_grade_check CHECK (((hr_designation_grade IS NULL) OR (hr_designation_grade = ANY (ARRAY['cxo'::text, 'director'::text, 'manager'::text, 'assistant_manager'::text])))),
-    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
+    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'cxo'::text, 'other'::text]))),
     CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
 );

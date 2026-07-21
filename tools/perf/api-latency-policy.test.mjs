@@ -20,11 +20,11 @@ test("accepts exact and stricter percentile thresholds", () => {
   assert.deepEqual(
     normalizeApiLatencyEndpoints([
       { name: "exact", ...API_LATENCY_POLICY_MS },
-      { name: "stricter", p90_ms: 200, p95_ms: 400, p99_ms: 800 },
+      { name: "stricter", p90_ms: 200, p95_ms: 400, p99_ms: 400 },
     ]).map(({ p90_ms, p95_ms, p99_ms }) => ({ p90_ms, p95_ms, p99_ms })),
     [
       API_LATENCY_POLICY_MS,
-      { p90_ms: 200, p95_ms: 400, p99_ms: 800 },
+      { p90_ms: 200, p95_ms: 400, p99_ms: 400 },
     ],
   );
 });
@@ -45,7 +45,7 @@ for (const [key, ceilingMs] of Object.entries(API_LATENCY_POLICY_MS)) {
 
 test("rejects non-monotonic percentile thresholds", () => {
   assert.throws(
-    () => normalizeApiLatencyEndpoint({ name: "invalid", p90_ms: 300, p95_ms: 250, p99_ms: 1000 }),
+    () => normalizeApiLatencyEndpoint({ name: "invalid", p90_ms: 300, p95_ms: 250, p99_ms: 400 }),
     /p90 <= p95 <= p99/,
   );
 });

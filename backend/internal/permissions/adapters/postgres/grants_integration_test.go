@@ -51,13 +51,13 @@ func TestGrantSourceReadsOnlyLiveTenantScopeGrants(t *testing.T) {
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to)
 VALUES
   ('`+meshaTenant+`', '`+activeUser+`', 'verifier', 'tenant', '`+meshaTenant+`', 'active', now() - interval '1 hour', NULL),
-  ('`+meshaTenant+`', '`+revokedUser+`', 'admin', 'tenant', '`+meshaTenant+`', 'revoked', now() - interval '1 hour', NULL),
-  ('`+meshaTenant+`', '`+inactiveUser+`', 'admin', 'tenant', '`+meshaTenant+`', 'inactive', now() - interval '1 hour', NULL),
-  ('`+meshaTenant+`', '`+expiredUser+`', 'admin', 'tenant', '`+meshaTenant+`', 'active', now() - interval '2 hours', now() - interval '1 hour'),
-  ('`+meshaTenant+`', '`+futureUser+`', 'admin', 'tenant', '`+meshaTenant+`', 'active', now() + interval '1 hour', NULL),
+  ('`+meshaTenant+`', '`+revokedUser+`', 'ceo_internal', 'tenant', '`+meshaTenant+`', 'revoked', now() - interval '1 hour', NULL),
+  ('`+meshaTenant+`', '`+inactiveUser+`', 'ceo_internal', 'tenant', '`+meshaTenant+`', 'inactive', now() - interval '1 hour', NULL),
+  ('`+meshaTenant+`', '`+expiredUser+`', 'ceo_internal', 'tenant', '`+meshaTenant+`', 'active', now() - interval '2 hours', now() - interval '1 hour'),
+  ('`+meshaTenant+`', '`+futureUser+`', 'ceo_internal', 'tenant', '`+meshaTenant+`', 'active', now() + interval '1 hour', NULL),
   ('`+meshaTenant+`', '`+unionUser+`', 'operator', 'tenant', '`+meshaTenant+`', 'active', now() - interval '1 hour', NULL),
   ('`+meshaTenant+`', '`+unionUser+`', 'verifier', 'tenant', '`+meshaTenant+`', 'active', now() - interval '1 hour', NULL),
-  ('`+meshaTenant+`', '`+parkScopeUser+`', 'admin', 'park', '`+cbeLocation+`', 'active', now() - interval '1 hour', NULL);
+  ('`+meshaTenant+`', '`+parkScopeUser+`', 'ceo_internal', 'park', '`+cbeLocation+`', 'active', now() - interval '1 hour', NULL);
 `)
 
 	pool := openPool(t, ctx, container)
@@ -84,7 +84,7 @@ VALUES
 	if err != nil {
 		t.Fatalf("ActiveTenantGrants(parkScopeUser): %v", err)
 	}
-	if len(grants) != 1 || grants[0] != (permissions.ActiveGrant{Role: permissions.RoleAdmin, ScopeType: "park", ScopeID: cbeLocation}) {
+	if len(grants) != 1 || grants[0] != (permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "park", ScopeID: cbeLocation}) {
 		t.Fatalf("park scoped grants = %#v", grants)
 	}
 
@@ -132,8 +132,8 @@ FROM workforce_members
 WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'`, meshaTenant, emailGrantUser).Scan(&memberCount, &roleHint, &designationGrade); err != nil {
 		t.Fatalf("count claimed email workforce member rows: %v", err)
 	}
-	if memberCount != 1 || roleHint != "admin" || designationGrade == nil || *designationGrade != "cxo" {
-		t.Fatalf("claimed email workforce profile count=%d roleHint=%q designationGrade=%v, want one admin/cxo profile", memberCount, roleHint, designationGrade)
+	if memberCount != 1 || roleHint != "cxo" || designationGrade == nil || *designationGrade != "cxo" {
+		t.Fatalf("claimed email workforce profile count=%d roleHint=%q designationGrade=%v, want one CEO/CXO profile", memberCount, roleHint, designationGrade)
 	}
 	result, err = claimer.ClaimPendingEmailGrant(ctx, permissions.PendingEmailGrantClaim{
 		TenantID:        meshaTenant,

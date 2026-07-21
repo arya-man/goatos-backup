@@ -141,41 +141,35 @@ function PlannedSessionsCard({ detail, pageContract }: { detail: VaccinationShed
           <span className="muted small">{copy(pageContract, "section.planned_sessions.empty")}</span>
         </div>
       ) : (
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-          <table>
-            <thead>
-              <tr>
-                {cols.map((col) => (
-                  <th key={col.key}>
-                    {col.key === "capacity" ? (
-                      <span style={{ display: "inline-flex", alignItems: "center" }}>
-                        {col.label}
-                        <InfoTooltip label={copy(pageContract, "tooltip.capacity.label")}>
-                          {copy(pageContract, "tooltip.capacity.body")}
-                        </InfoTooltip>
-                      </span>
-                    ) : (
-                      col.label
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s, idx) => (
-                <tr key={`${s.date}-${idx}`}>
-                  <td>{fmtDate(s.date)}</td>
-                  <td>{s.vaccinations}</td>
-                  <td className="muted">{s.dailyLimit}</td>
-                  <td>
-                    <Tag tone={optionTone(pageContract, "capacity_chips", s.capacity) as Tone}>
-                      {optionLabel(pageContract, "capacity_chips", s.capacity)}
-                    </Tag>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bd planned-sessions-list">
+          <div className="planned-sessions-head" aria-hidden="true">
+            {cols.map((col) => (
+              <span key={col.key}>
+                {col.key === "capacity" ? (
+                  <>
+                    {col.label}
+                    <InfoTooltip label={copy(pageContract, "tooltip.capacity.label")}>
+                      {copy(pageContract, "tooltip.capacity.body")}
+                    </InfoTooltip>
+                  </>
+                ) : (
+                  col.label
+                )}
+              </span>
+            ))}
+          </div>
+          {sessions.map((s, idx) => (
+            <div className="planned-session-row" key={`${s.date}-${idx}`}>
+              <span className="planned-session-date">{fmtDate(s.date)}</span>
+              <span>{s.vaccinations}</span>
+              <span className="muted">{s.dailyLimit}</span>
+              <span>
+                <Tag tone={optionTone(pageContract, "capacity_chips", s.capacity) as Tone}>
+                  {optionLabel(pageContract, "capacity_chips", s.capacity)}
+                </Tag>
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </section>
@@ -430,24 +424,26 @@ export async function VaccinationShedDetailPage({
           <Tag tone={statusTone}>{shedStatusLabel(pageContract, detail.status)}</Tag>
           <Tag tone={capacityTone}>{optionLabel(pageContract, "capacity_chips", detail.capacity as VaccinationCapacityStatus)}</Tag>
         </div>
-        <div className="bd">
-          <div className="metagrid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 14 }}>
-            <Stat label={copy(pageContract, "label.animals")} value={detail.animals} />
-            <Stat label={copy(pageContract, "label.due")} value={detail.due} />
-            <Stat label={copy(pageContract, "label.done_stat")} value={detail.done} />
-            <Stat label={copy(pageContract, "label.sessions")} value={detail.sessions} />
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginTop: 14 }}>
-            <div>
-              <div className="k">{copy(pageContract, "label.manager")}</div>
-              <div className="v">
-                {detail.manager?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.manager_unassigned")}</Tag>}
-              </div>
+        <div className="bd shed-overview-body">
+          <div className="shed-overview-grid">
+            <div className="shed-overview-stats">
+              <Stat label={copy(pageContract, "label.animals")} value={detail.animals} />
+              <Stat label={copy(pageContract, "label.due")} value={detail.due} />
+              <Stat label={copy(pageContract, "label.done_stat")} value={detail.done} />
+              <Stat label={copy(pageContract, "label.sessions")} value={detail.sessions} />
             </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.backup")}</div>
-              <div className="v">
-                {detail.backup?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.backup_unassigned")}</Tag>}
+            <div className="shed-overview-owners">
+              <div className="shed-owner-cell">
+                <div className="k">{copy(pageContract, "label.manager")}</div>
+                <div className="v">
+                  {detail.manager?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.manager_unassigned")}</Tag>}
+                </div>
+              </div>
+              <div className="shed-owner-cell">
+                <div className="k">{copy(pageContract, "label.backup")}</div>
+                <div className="v">
+                  {detail.backup?.displayName ?? <Tag tone="dng">{copy(pageContract, "label.backup_unassigned")}</Tag>}
+                </div>
               </div>
             </div>
           </div>

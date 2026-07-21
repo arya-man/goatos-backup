@@ -220,15 +220,15 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 }
 
 // TestIsLeadershipPrincipal covers every valid workforce grant role (see
-// validRole in service.go): admin, park_head, pc_director, and ceo_internal
-// are leadership tiers. Verifier owns the standalone verification app; operator
+// validRole in service.go): ceo_internal, park_head, and pc_director are
+// leadership tiers. Verifier owns the standalone verification app; operator
 // owns field execution. Neither is leadership navigation.
 func TestIsLeadershipPrincipal(t *testing.T) {
 	tests := []struct {
 		role string
 		want bool
 	}{
-		{role: permissions.RoleAdmin, want: true},
+		{role: permissions.RoleCEOInternal, want: true},
 		{role: permissions.RoleCEOInternal, want: true},
 		{role: permissions.RolePCDirector, want: true},
 		{role: permissions.RoleParkHead, want: true},
@@ -633,7 +633,6 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 //	role          | census | birth/death | shifting | module in drawer
 //	operator      |   -    |      x      |    x     | yes
 //	park_head     |   -    |      x      |    x     | yes
-//	admin         |   x    |      x      |    x     | yes
 //	ceo_internal  |   x    |      x      |    x     | yes
 //	pc_director   |   -    |      -      |    -     | NO
 //	verifier      |   -    |      -      |    -     | NO
@@ -644,7 +643,6 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 	}{
 		{permissions.RoleOperator, []string{"birth_death", "shifting"}},
 		{permissions.RoleParkHead, []string{"birth_death", "shifting"}},
-		{permissions.RoleAdmin, []string{"counts", "birth_death", "shifting"}},
 		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
@@ -733,7 +731,7 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	// No role gets an "approval" or a "You" tab from Counts on mobile.
 	for _, role := range []string{
 		permissions.RoleOperator, permissions.RoleParkHead,
-		permissions.RoleAdmin, permissions.RoleCEOInternal,
+		permissions.RoleCEOInternal, permissions.RoleCEOInternal,
 	} {
 		for _, key := range countsBar(role) {
 			if key == "you" || key == "approval" {
