@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -249,10 +248,11 @@ fun ShedsScreen(
         ) {
             if (state.dayTabs.isNotEmpty()) {
                 item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
+                item { VaccineCarryCard(rows = state.rows) }
             } else {
                 item { DriveMeta(state) }
+                item { DayProgress(state) }
             }
-            item { DayProgress(state) }
             state.roleNote?.let { note -> item { RoleNote(note) } }
             if (state.isInitialLoading && state.rows.isEmpty()) {
                 item(key = "initial-skeleton") {
@@ -305,19 +305,20 @@ fun ShedsScreen(
 
 @Composable
 private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(tabs, key = { it.dateKey }) { tab ->
+        tabs.take(7).forEach { tab ->
             val bg = if (tab.isSelected) Brand else Surf2
             val edge = if (tab.isSelected) Brand else Hair
             val labelColor = if (tab.isSelected) PageBg else Muted
             val dateColor = if (tab.isSelected) PageBg else Ink
             Column(
                 modifier = Modifier
-                    .width(72.dp)
+                    .weight(1f)
                     .height(86.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(bg)
@@ -332,6 +333,79 @@ private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun VaccineCarryCard(rows: List<ShedRow>) {
+    val totals = vaccineCarryTotals(rows)
+    if (totals.isEmpty()) return
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Surf),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Hair),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Vaccines to carry",
+                    color = Ink,
+                    fontSize = 15.5f.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${totals.values.sum()} doses",
+                    color = BrandD,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Selected day · all sheds below",
+                color = Muted,
+                fontSize = 11.5f.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.height(12.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                totals.forEach { (label, count) ->
+                    VaccineChip(VaccineGroup(label = label, countLabel = "$count doses"))
+                }
+            }
+        }
+    }
+}
+
+private fun vaccineCarryTotals(rows: List<ShedRow>): Map<String, Int> {
+    return rows
+        .asSequence()
+        .flatMap { row ->
+            row.vaccineGroups.asSequence().mapNotNull { group ->
+                val remaining = remainingDoseCount(group.countLabel)
+                if (remaining > 0) group.label to remaining else null
+            }
+        }
+        .groupingBy { it.first }
+        .fold(0) { total, (_, remaining) -> total + remaining }
+}
+
+private fun remainingDoseCount(countLabel: String): Int {
+    val parts = countLabel.split("/", limit = 2)
+    if (parts.size == 2) {
+        val done = parts[0].filter(Char::isDigit).toIntOrNull() ?: 0
+        val total = parts[1].filter(Char::isDigit).toIntOrNull() ?: return 0
+        return (total - done).coerceAtLeast(0)
+    }
+    return countLabel.filter(Char::isDigit).toIntOrNull() ?: 0
 }
 
 // ---------------------------------------------------------------------------
@@ -827,7 +901,7 @@ private fun previewState(): ShedsUiState = ShedsUiState(
             statusLabel = "Done",
             vaccineGroups = listOf(VaccineGroup("FMD + HS", "40/40", full = true)),
             inShed = "71",
-            due = "40",
+            due = "0",
             done = "40",
             progressLabel = "40/40 done",
             progressFraction = 1f,

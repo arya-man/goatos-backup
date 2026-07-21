@@ -154,6 +154,7 @@ type ExecutionQuery struct {
 	AsOf           time.Time
 	DueBefore      time.Time
 	HistoricalAsOf bool
+	OpenOnly       bool
 	Limit          int
 }
 

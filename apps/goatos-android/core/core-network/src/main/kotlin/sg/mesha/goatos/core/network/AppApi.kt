@@ -223,6 +223,7 @@ interface AppApi {
         workState: String? = null,
         asOf: String? = null,
         dueBefore: String? = null,
+        openOnly: Boolean? = null,
         limit: Int? = null,
         cursor: String? = null,
     ): VaccinationExecutionResponseDto
@@ -614,6 +615,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
         cursor: String?,
     ): VaccinationExecutionResponseDto = VaccinationExecutionResponseDto()

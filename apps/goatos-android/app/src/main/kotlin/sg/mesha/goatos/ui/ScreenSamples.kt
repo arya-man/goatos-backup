@@ -113,7 +113,7 @@ fun sampleShedsState(): ShedsUiState = ShedsUiState(
     dueCount = 93,
     doneCount = 54,
     dayTabs = listOf(
-        ShedDayTab("2026-07-22", "TODAY", "22", "147", isSelected = true),
+        ShedDayTab("2026-07-22", "WED", "22", "147", isSelected = true),
         ShedDayTab("2026-07-23", "THU", "23", "100", isSelected = false),
         ShedDayTab("2026-07-24", "FRI", "24", "102", isSelected = false),
         ShedDayTab("2026-07-25", "SAT", "25", "70", isSelected = false),
@@ -126,7 +126,7 @@ fun sampleShedsState(): ShedsUiState = ShedsUiState(
             id = "s1", name = "Gandhi 1", animalStage = "Adult",
             status = ShedStatus.DONE, statusLabel = "Done",
             vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("ET+TT · Dose 2", "40/40", true)),
-            inShed = "40", due = "40", done = "40", progressLabel = "100%", progressFraction = 1f,
+            inShed = "40", due = "0", done = "40", progressLabel = "100%", progressFraction = 1f,
         ),
         ShedRow(
             id = "s2", name = "Sumathi 1", animalStage = "Adult",
