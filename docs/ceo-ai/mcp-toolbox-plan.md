@@ -1,11 +1,11 @@
-# Mesha CEO Assistant MCP Toolbox Plan
+# Mesha Leadership Assistant MCP Toolbox Plan
 
 Status: production-ready plan and starter config. This document does not deploy
 cloud resources by itself.
 
 ## Goal
 
-The CEO/CXO assistant should answer broad Mesha operating questions from real
+The leadership assistant should answer broad Mesha operating questions from real
 data without exposing write paths or raw production tables to the model.
 
 The production shape is:
@@ -19,9 +19,9 @@ Mesha dashboard bubble
   -> Mesha assistant API formats and audits the answer
 ```
 
-The CEO role is top-level, but the bot still stays read-only. Operational writes
-must continue through normal Mesha APIs, domain events, idempotency, audit, and
-approval flows.
+The leadership role is top-level, but the bot still stays read-only.
+Operational writes must continue through normal Mesha APIs, domain events,
+idempotency, audit, and approval flows.
 
 ## What MCP Toolbox Does Here
 
@@ -30,7 +30,7 @@ tools instead of letting it hold a database password or invent unsafe queries.
 
 Use it for:
 
-- Cross-module CEO questions that do not map cleanly to one dashboard API.
+- Cross-module leadership questions that do not map cleanly to one dashboard API.
 - Fast analytics over curated reporting views.
 - A last-resort read-only SQL tool over a locked `ceo_ai` schema.
 - Central tool descriptions, parameters, pooling, auth, and observability.
@@ -53,7 +53,7 @@ but with its own service account, read-only database user, and config secret.
 
 ## Required Cloud Resources
 
-Create one Toolbox service per environment that needs the CEO assistant:
+Create one Toolbox service per environment that needs the leadership assistant:
 
 ```text
 Service:          mesha-mcp-toolbox-stg / mesha-mcp-toolbox-prod
@@ -66,7 +66,7 @@ Secret access:    Toolbox config + read-only DB credential only
 ```
 
 The dashboard should not call Toolbox directly from the browser. The Mesha
-assistant API calls Toolbox server-side after verifying CEO/CXO role and tenant
+assistant API calls Toolbox server-side after verifying leadership role and tenant
 scope.
 
 ## Environment Variables
@@ -92,7 +92,7 @@ MESHA_DATABASE_NAME=<database name>
 ```
 
 Keep existing legacy-prefixed runtime variables until the app is migrated, but
-new CEO assistant config should use Mesha names.
+new leadership assistant config should use Mesha names.
 
 ## Database Role
 
@@ -184,11 +184,11 @@ Tool rules:
   detail tool exists.
 - Every tool must require `tenant_id` from server-side context.
 - Limit rows at the SQL level.
-- Add one new business tool per recurring CEO question cluster, not per API.
+- Add one new business tool per recurring leadership question cluster, not per API.
 
 ## Read-Only SQL Fallback
 
-The fallback exists so the CEO can ask questions not yet covered by a specific
+The fallback exists so leadership can ask questions not yet covered by a specific
 tool. It must be guarded twice:
 
 1. Model prompt: generate only one `SELECT` over `ceo_ai.*` with `LIMIT <= 100`.
@@ -263,9 +263,14 @@ Server responsibilities:
 
 The browser should only know about the Mesha assistant endpoint.
 
-## Observability
+## Internal Tracking
 
-Track:
+This is not a user-facing feature. The chat UI should not expose an agent
+trace, chain of thought, tool timeline, or debug transcript. Internal tracking
+exists only for the small Mesha admin/engineering group to debug wrong answers,
+latency, cost, tool failures, retry behavior, and permission issues.
+
+Track internally:
 
 ```text
 assistant_requests_total{tool,status}
