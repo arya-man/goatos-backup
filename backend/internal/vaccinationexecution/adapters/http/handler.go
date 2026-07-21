@@ -371,6 +371,14 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.Severity = &severity
 	}
+	if raw := query.Get("open_only"); raw != "" {
+		openOnly, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_open_only", "open_only must be true or false")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.OpenOnly = openOnly
+	}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := vaccexecd.DecodeExecutionCursor(raw)
 		if err != nil {

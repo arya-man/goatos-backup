@@ -62,7 +62,12 @@ class ShedsViewModel @Inject constructor(
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<VaccinationExecutionResponseDto>> =
-        repo.observeRows(asOf = workWindow.asOf, dueBefore = workWindow.dueBefore, limit = PAGE_LIMIT).stateIn(
+        repo.observeRows(
+            asOf = workWindow.asOf,
+            dueBefore = workWindow.dueBefore,
+            openOnly = true,
+            limit = PAGE_LIMIT,
+        ).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             Resource(data = null)
@@ -115,7 +120,12 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
-        val result = repo.refreshRows(asOf = workWindow.asOf, dueBefore = workWindow.dueBefore, limit = PAGE_LIMIT)
+        val result = repo.refreshRows(
+            asOf = workWindow.asOf,
+            dueBefore = workWindow.dueBefore,
+            openOnly = true,
+            limit = PAGE_LIMIT,
+        )
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         result.exceptionOrNull()?.let {
@@ -131,6 +141,7 @@ class ShedsViewModel @Inject constructor(
             cursor = cursor,
             asOf = workWindow.asOf,
             dueBefore = workWindow.dueBefore,
+            openOnly = true,
             limit = PAGE_LIMIT,
         )
         _isLoadingMore.value = false
@@ -162,7 +173,9 @@ class ShedsViewModel @Inject constructor(
         val weekRows = rows
         val rowsForSelectedDay = weekRows.filter { row ->
             val dueDate = row.dueDate?.let(::parseExecutionDate)
+            val hasOpenWork = row.openCount > 0
             when {
+                !hasOpenWork -> false
                 dueDate == null -> selectedDay == workWindow.today
                 selectedDay == workWindow.today -> !dueDate.isAfter(workWindow.today)
                 else -> dueDate == selectedDay
@@ -179,8 +192,8 @@ class ShedsViewModel @Inject constructor(
                     val driveCounts = executionCounts(driveRows)
                     VaccineGroup(
                         label = label,
-                        countLabel = "${driveCounts.done}/${driveCounts.target}",
-                        full = driveCounts.target > 0 && driveCounts.done >= driveCounts.target,
+                        countLabel = "${driveCounts.open} doses",
+                        full = driveCounts.open == 0,
                     )
                 }
             ShedRow(
@@ -360,20 +373,18 @@ private fun buildOperatorDayTabs(
     val countsByDate = rows.groupBy { it.dueDate?.let(::parseExecutionDate) }
         .filterKeys { it != null }
         .mapKeys { it.key!! }
-        .mapValues { (_, dueRows) -> executionCounts(dueRows).target }
+        .mapValues { (_, dueRows) -> executionCounts(dueRows).open }
     val todayBacklogCount = rows
-        .filter { row -> row.dueDate?.let(::parseExecutionDate)?.isAfter(window.today) != true }
+        .filter { row ->
+            row.openCount > 0 && row.dueDate?.let(::parseExecutionDate)?.isAfter(window.today) != true
+        }
         .let(::executionCounts)
-        .target
+        .open
     return (0 until OPERATOR_WINDOW_DAYS).map { offset ->
         val date = window.today.plusDays(offset.toLong())
         ShedDayTab(
             dateKey = date.toString(),
-            dayLabel = if (date == window.today) {
-                "TODAY"
-            } else {
-                date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH).uppercase(Locale.ENGLISH)
-            },
+            dayLabel = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH).uppercase(Locale.ENGLISH),
             dateLabel = date.dayOfMonth.toString(),
             countLabel = (if (date == window.today) todayBacklogCount else countsByDate[date])
                 ?.takeIf { it > 0 }

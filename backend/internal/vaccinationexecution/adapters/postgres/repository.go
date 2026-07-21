@@ -108,7 +108,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
-		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
+		q.OpenOnly, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
 	if err != nil {
 		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
 	}
@@ -1117,6 +1117,19 @@ filtered AS (
   FROM classified
   WHERE ($6::text = '' OR classified.work_state = $6::text)
     AND ($9::text = '' OR classified.severity = $9::text)
+    AND (
+      NOT $10::boolean
+      OR (
+        classified.obligation_count
+        - GREATEST(
+            classified.completed_count,
+            classified.completion_recorded + classified.completion_accepted + classified.completion_rejected
+          )
+        - classified.deferred_count
+        - classified.missed_count
+        - classified.canceled_count
+      ) > 0
+    )
 )
 SELECT
   grouped.park_uuid::text AS park_id,
@@ -1187,8 +1200,8 @@ LEFT JOIN LATERAL (
            wm.updated_at DESC, wm.workforce_member_id DESC
   LIMIT 1
 ) verifier ON true
-WHERE NOT $10::boolean
-   OR (grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key) > ($11::int, $12::bigint, $13::text)
+WHERE NOT $11::boolean
+   OR (grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key) > ($12::int, $13::bigint, $14::text)
 ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
 LIMIT ($5::int + 1);
 `

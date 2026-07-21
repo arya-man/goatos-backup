@@ -103,6 +103,7 @@ interface AppApiService {
         @Query("work_state") workState: String?,
         @Query("as_of") asOf: String?,
         @Query("due_before") dueBefore: String?,
+        @Query("open_only") openOnly: Boolean?,
         @Query("limit") limit: Int?,
         @Query("cursor") cursor: String?,
     ): VaccinationExecutionResponseDto
@@ -394,10 +395,11 @@ class RetrofitAppApi(
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
         cursor: String?,
     ): VaccinationExecutionResponseDto =
-        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, limit, cursor)
+        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor)
 
     override suspend fun getVaccinationExecutionShed(
         shedId: String,
