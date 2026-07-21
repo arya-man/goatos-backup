@@ -785,6 +785,9 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 	if detail.Event.EventID != wantID || detail.Event.TargetCount != 2 || detail.Event.ShedCount != 2 {
 		t.Fatalf("GetEventDetail aggregated park drive=%#v, want id=%s targets=2 sheds=2", detail.Event, wantID)
 	}
+	if detail.Event.DriveSummary == nil || detail.Event.DriveSummary.TotalCount != 2 || len(detail.Event.DriveSummary.Sheds) != 2 {
+		t.Fatalf("GetEventDetail aggregated park drive_summary=%#v, want total=2 sheds=2", detail.Event.DriveSummary)
+	}
 	assertDriveTargets(t, ctx, repo, wantID, []string{animalA, animalB})
 	assertDriveTargetSheds(t, ctx, repo, wantID, map[string]string{
 		animalA: "Test Shed 0711",

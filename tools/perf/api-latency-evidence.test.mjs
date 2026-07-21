@@ -59,6 +59,15 @@ test("rejects a policy-only or stale-SHA false green", () => {
   assert.ok(failures.some((failure) => failure.includes("control_tower is missing")));
 });
 
+test("requires the mobile calendar hot paths that caught the seconds-class month click", () => {
+  assert.ok(REQUIRED_HOT_PATHS.includes("calendar_mobile_month_filter_options"));
+  const report = passingReport();
+  report.results = report.results.filter((result) => !result.name.startsWith("calendar_mobile_"));
+  const failures = validateApiLatencyEvidence(report, sha);
+  assert.ok(failures.some((failure) => failure.includes("calendar_mobile_month_page_20 is missing")));
+  assert.ok(failures.some((failure) => failure.includes("calendar_mobile_month_filter_options is missing")));
+});
+
 test("rejects percentile breaches even when a forged passed flag says true", () => {
   const report = passingReport();
   report.results[0].p90_ms = 301;

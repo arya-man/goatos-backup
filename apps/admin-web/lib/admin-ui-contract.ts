@@ -69,8 +69,13 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "schedule.unit.scheduled": "scheduled",
     "schedule.load.single_drive": "single drive",
     "schedule.load.scheduled_label": "scheduled",
+    "schedule.load.todo_label": "to do",
     "schedule.load.doses_label": "doses",
     "schedule.load.deferred_label": "deferred",
+    "schedule.load.overdue_label": "overdue",
+    "schedule.load.done_label": "done",
+    "schedule.load.tasks_label": "vaccine tasks",
+    "schedule.load.goats_label": "goats",
     "schedule.drawer.title": "Drive sheds",
     "schedule.drawer.open_sheds": "Open shed list",
     "schedule.drawer.more": "more",
@@ -185,7 +190,7 @@ const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
     "full-vaccine-schedule": {
       id: "full-vaccine-schedule",
       title: "Full vaccine schedule",
-      data_source: "/calendar/vaccination/events",
+      data_source: "/vaccination/schedule",
       columns: [
         { key: "date", label: "Date", sortable: false, visible: true },
         { key: "park", label: "Park", sortable: false, visible: true },

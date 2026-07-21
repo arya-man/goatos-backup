@@ -416,6 +416,7 @@ type Query struct {
 	IncludeDateMarkers   bool
 	MarkersOnly          bool
 	IncludeFilterOptions bool
+	IncludeDriveSummary  bool
 	// IncludeReminderRail requests the whole-week reminder/escalation rail summary. It is a
 	// SEPARATE trigger from IncludeDateMarkers: the week view needs the rail but not the month
 	// date-markers, so gating the rail on IncludeDateMarkers left it null on the week list.
