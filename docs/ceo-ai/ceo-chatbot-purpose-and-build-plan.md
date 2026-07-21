@@ -1,6 +1,25 @@
 # Mesha CEO Chatbot Purpose And Build Plan
 
-Status: source of truth for why the CEO chatbot exists and how Mesha builds it.
+Status: source of truth for why the leadership assistant exists and how Mesha
+will build it. This is not an implementation-complete document.
+
+Implemented now:
+
+- dashboard bubble/chat shell
+- server-side leadership gate
+- safe read-only API demo routing
+- assistant coverage docs/skills/hooks/local-CI guardrails
+
+Not implemented yet:
+
+- Google ADK agent runtime
+- Vertex/Gemini production planner in the Mesha backend
+- persisted memory/session store
+- MCP Toolbox runtime service
+- complete `ceo_ai.*` reporting schema
+- safe SQL fallback executor
+- production retry/fallback orchestration
+- assistant audit/metrics persistence
 
 ## Purpose
 
