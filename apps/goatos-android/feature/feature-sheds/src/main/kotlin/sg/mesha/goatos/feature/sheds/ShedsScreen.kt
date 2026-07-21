@@ -247,9 +247,10 @@ fun ShedsScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item { DriveMeta(state) }
             if (state.dayTabs.isNotEmpty()) {
                 item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
+            } else {
+                item { DriveMeta(state) }
             }
             item { DayProgress(state) }
             state.roleNote?.let { note -> item { RoleNote(note) } }
@@ -310,24 +311,24 @@ private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(tabs, key = { it.dateKey }) { tab ->
-            val bg = if (tab.isSelected) BrandTint else Surf2
+            val bg = if (tab.isSelected) Brand else Surf2
             val edge = if (tab.isSelected) Brand else Hair
-            val fg = if (tab.isSelected) BrandD else Muted
+            val labelColor = if (tab.isSelected) PageBg else Muted
+            val dateColor = if (tab.isSelected) PageBg else Ink
             Column(
                 modifier = Modifier
+                    .width(72.dp)
+                    .height(86.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(bg)
                     .border(1.dp, edge, RoundedCornerShape(14.dp))
                     .clickable { onSelect(tab.dateKey) }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(text = tab.dayLabel, color = fg, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-                Text(text = tab.dateLabel, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-                if (tab.countLabel.isNotBlank()) {
-                    Text(text = tab.countLabel, color = Muted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                }
+                Text(text = tab.dayLabel, color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                Text(text = tab.dateLabel, color = dateColor, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
     }
