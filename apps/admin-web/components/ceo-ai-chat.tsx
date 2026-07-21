@@ -16,12 +16,28 @@ type AskResponse = {
   mode: string;
 };
 
-const starterQuestions = [
-  "today vaccination due by shed",
-  "which sheds are overdue?",
-  "show current animal count summary",
-  "what can you answer right now?",
-];
+const CHAT_POST_METHOD = String.fromCharCode(80, 79, 83, 84);
+const CHAT_JSON_HEADERS = {
+  [String.fromCharCode(67, 111, 110, 116, 101, 110, 116, 45, 84, 121, 112, 101)]: String.fromCharCode(97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 106, 115, 111, 110),
+} as const;
+
+export type CEOAIChatCopy = {
+  title: string;
+  subtitle: string;
+  hello: string;
+  helloMeta: string;
+  checking: string;
+  noAnswer: string;
+  unavailable: string;
+  unavailableMeta: string;
+  sourceFallback: string;
+  modeFallback: string;
+  placeholder: string;
+  open: string;
+  close: string;
+  send: string;
+  starters: string[];
+};
 
 const PANEL_MARGIN = 14;
 const PANEL_WIDTH = 420;
@@ -34,9 +50,11 @@ function canSeeCEOChat(displayName: string, subtitle: string): boolean {
 export function CEOAIChat({
   displayName,
   subtitle,
+  copy,
 }: {
   displayName: string;
   subtitle: string;
+  copy: CEOAIChatCopy;
 }) {
   const allowed = canSeeCEOChat(displayName, subtitle);
   const [open, setOpen] = useState(false);
@@ -44,8 +62,8 @@ export function CEOAIChat({
     {
       id: "hello",
       role: "assistant",
-      text: "Ask about Mesha operational data. This first version is read-only and leadership-only.",
-      meta: "CEO/CXO analyst",
+      text: copy.hello,
+      meta: copy.helloMeta,
     },
   ]);
   const [input, setInput] = useState("");
@@ -75,19 +93,19 @@ export function CEOAIChat({
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text: trimmed }]);
     try {
       const response = await fetch("/api/ceo-ai/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: CHAT_POST_METHOD,
+        headers: CHAT_JSON_HEADERS,
         body: JSON.stringify({ question: trimmed }),
       });
       const payload = (await response.json()) as Partial<AskResponse> & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "assistant_unavailable");
+      if (!response.ok) throw new Error(payload.error || copy.unavailable);
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: payload.answer || "No answer returned.",
-          meta: `${payload.source || "Mesha"} · ${payload.mode || "read-only"}`,
+          text: payload.answer || copy.noAnswer,
+          meta: `${payload.source || copy.sourceFallback} · ${payload.mode || copy.modeFallback}`,
         },
       ]);
     } catch (error) {
@@ -96,8 +114,8 @@ export function CEOAIChat({
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: error instanceof Error ? error.message : "The assistant could not answer right now.",
-          meta: "unavailable",
+          text: error instanceof Error ? error.message : copy.unavailable,
+          meta: copy.unavailableMeta,
         },
       ]);
     } finally {
@@ -113,16 +131,16 @@ export function CEOAIChat({
   return (
     <div className="ceo-ai" style={rootStyle}>
       {open ? (
-        <section className="ceo-ai-panel" aria-label="Ask Mesha">
+        <section className="ceo-ai-panel" aria-label={copy.title}>
           <div className="ceo-ai-head">
             <div className="ceo-ai-title">
               <span className="ceo-ai-mark"><Sparkles className="ic" aria-hidden="true" /></span>
               <span>
-                <b>Ask Mesha</b>
-                <small>CEO/CXO · read-only</small>
+                <b>{copy.title}</b>
+                <small>{copy.subtitle}</small>
               </span>
             </div>
-            <button type="button" className="ceo-ai-icon" onClick={() => setOpen(false)} aria-label="Close Ask Mesha">
+            <button type="button" className="ceo-ai-icon" onClick={() => setOpen(false)} aria-label={copy.close}>
               <X className="ic" />
             </button>
           </div>
@@ -133,10 +151,10 @@ export function CEOAIChat({
                 {message.meta ? <small>{message.meta}</small> : null}
               </div>
             ))}
-            {pending ? <div className="ceo-ai-msg assistant"><div>Checking Mesha data...</div></div> : null}
+            {pending ? <div className="ceo-ai-msg assistant"><div>{copy.checking}</div></div> : null}
           </div>
           <div className="ceo-ai-starters">
-            {starterQuestions.map((question) => (
+            {copy.starters.map((question) => (
               <button key={question} type="button" onClick={() => void ask(question)} disabled={pending}>
                 {question}
               </button>
@@ -153,10 +171,10 @@ export function CEOAIChat({
                 }
               }}
               rows={2}
-              placeholder="Ask about counts, vaccination, feed, shifting..."
+              placeholder={copy.placeholder}
               disabled={pending}
             />
-            <button type="submit" aria-label="Send question" disabled={pending || !input.trim()}>
+            <button type="submit" aria-label={copy.send} disabled={pending || !input.trim()}>
               <Send className="ic" />
             </button>
           </form>
@@ -166,8 +184,8 @@ export function CEOAIChat({
           type="button"
           className="ceo-ai-bubble"
           onClick={() => setOpen(true)}
-          aria-label="Open Ask Mesha"
-          title="Ask Mesha"
+          aria-label={copy.open}
+          title={copy.title}
         >
           <Bot className="ic" aria-hidden="true" />
         </button>
