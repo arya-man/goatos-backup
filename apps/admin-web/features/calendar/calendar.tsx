@@ -223,6 +223,7 @@ export async function VaccinationCalendarPage({
       dateFrom: listWindow.dateFrom,
       dateTo: listWindow.dateTo,
       cursor: listCursor,
+      includeDriveSummary: true,
     }),
     markerRequest,
     selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),

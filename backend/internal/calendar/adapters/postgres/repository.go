@@ -85,7 +85,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	if !q.MarkersOnly {
 		var err error
 		items, err = r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
-			ownerKey, status, parkID, shedID, vaccine, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
+			ownerKey, status, parkID, shedID, vaccine, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, q.IncludeDriveSummary)
 		if err != nil {
 			return domain.CalendarEventListResponse{}, err
 		}

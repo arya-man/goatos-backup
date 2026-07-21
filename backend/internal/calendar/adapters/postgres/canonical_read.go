@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 )
 
@@ -909,6 +911,7 @@ obligation_drive_summary AS (
       count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
+    WHERE current_setting('goatos.include_drive_summary', true) = 'true'
     GROUP BY m.park_id, m.due_date
   ) g
   LEFT JOIN obligation_drive_shed_complete sc
@@ -1052,7 +1055,7 @@ park_drive_events AS (
         'read_only', grouped.has_catch_up
       ),
       'links', jsonb_build_object('vaccination', '/vaccination'),
-      'drive_summary', CASE WHEN obl_summary.total_count > 0 THEN jsonb_build_object(
+      'drive_summary', CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND obl_summary.total_count > 0 THEN jsonb_build_object(
         'park_name', COALESCE(obl_summary.park_code, grouped.park_code, 'Vaccination drive'),
         'due_date', grouped.due_day,
         'shed_count', obl_summary.shed_count,
@@ -1433,7 +1436,7 @@ canonical_selected AS (
          COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
-         CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
+         CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
   FROM source_events
   WHERE due_at IS NOT NULL
     AND event_type <> 'vaccination_dose_due'
@@ -1519,7 +1522,9 @@ LIMIT 1`
 // listEventsCanonical runs the canonical read-through page for ListEvents. Params mirror the projector
 // window ($1 tenant, $2 dateFrom, $3 dateToExclusive) plus the list filters ($4 owner, $5 status,
 // $6 park, $7 shed, $8/$9 keyset cursor, $10 fetch limit, $11 tenantWide,
-// $12/$13 park/shed scope, $14 vaccine).
+// $12/$13 park/shed scope, $14 vaccine). includeDriveSummary is carried as a
+// transaction-local Postgres setting so the shared canonical CTE remains reusable by detail,
+// markers, reminder, and escalation queries without growing every caller's parameter list.
 func (r *Repository) listEventsCanonical(
 	ctx context.Context,
 	tenantID string,
@@ -1528,10 +1533,31 @@ func (r *Repository) listEventsCanonical(
 	cursorDue any, cursorEventID string,
 	fetchLimit int,
 	tenantWide bool, parkIDs, shedIDs []string,
+	includeDriveSummary bool,
 ) ([]domain.CalendarEvent, error) {
-	rows, err := r.pool.Query(ctx, calendarCanonicalListSQL,
-		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
-		cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, vaccine)
+	type queryer interface {
+		Query(context.Context, string, ...any) (pgx.Rows, error)
+	}
+	run := func(q queryer) (pgx.Rows, error) {
+		return q.Query(ctx, calendarCanonicalListSQL,
+			tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
+			cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, vaccine)
+	}
+	var rows pgx.Rows
+	var err error
+	if includeDriveSummary {
+		tx, txErr := r.pool.Begin(ctx)
+		if txErr != nil {
+			return nil, fmt.Errorf("calendar: begin rich canonical list: %w", txErr)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err = tx.Exec(ctx, "SET LOCAL goatos.include_drive_summary = 'true'"); err != nil {
+			return nil, fmt.Errorf("calendar: enable drive summary: %w", err)
+		}
+		rows, err = run(tx)
+	} else {
+		rows, err = run(r.pool)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("calendar: canonical list events: %w", err)
 	}

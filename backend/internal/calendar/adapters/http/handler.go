@@ -262,6 +262,7 @@ func (h *Handler) listQuery(w stdhttp.ResponseWriter, r *stdhttp.Request) (domai
 		MarkersOnly:          query.Get("markers_only") == "true",
 		IncludeReminderRail:  query.Get("include_reminder_rail") == "true",
 		IncludeFilterOptions: query.Get("include_filter_options") == "true",
+		IncludeDriveSummary:  query.Get("include_drive_summary") == "true",
 		Scope:                calendarScope(r, permissions.CalendarRead),
 	}
 	if raw := query.Get("park_id"); raw != "" {
