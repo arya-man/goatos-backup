@@ -684,6 +684,31 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     for (const label of ["Planned sessions", "Vaccine breakdown", "Animals in shed"]) {
       await page.getByText(label, { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
     }
+    const plannedSessionsMetrics = await page.getByText("Planned sessions", { exact: true }).first().evaluate((heading) => {
+      const card = heading.closest("section.card");
+      if (!(card instanceof HTMLElement)) throw new Error("Planned sessions heading is not inside a card");
+      const body = card.querySelector(".planned-sessions-list");
+      const row = card.querySelector(".planned-session-row");
+      if (!(body instanceof HTMLElement) || !(row instanceof HTMLElement)) {
+        throw new Error("Planned sessions card is missing its purpose-built session list");
+      }
+      const cardRect = card.getBoundingClientRect();
+      const bodyRect = body.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const bodyStyle = window.getComputedStyle(body);
+      return {
+        cardHeight: cardRect.height,
+        bodyHeight: bodyRect.height,
+        rowHeight: rowRect.height,
+        overflowY: bodyStyle.overflowY,
+      };
+    });
+    if (plannedSessionsMetrics.cardHeight < 150 || plannedSessionsMetrics.bodyHeight < 100 || plannedSessionsMetrics.rowHeight < 56) {
+      throw new Error(`${routeName} Planned sessions renders as a cramped widget: ${JSON.stringify(plannedSessionsMetrics)}`);
+    }
+    if (plannedSessionsMetrics.overflowY !== "visible") {
+      throw new Error(`${routeName} Planned sessions must not become a one-row scroll trap: ${JSON.stringify(plannedSessionsMetrics)}`);
+    }
     await page.goto(`${appBaseUrl}${appPath("/vaccination?scope_mode=company")}`, { waitUntil: "networkidle", timeout: 30_000 });
   }
 
