@@ -103,6 +103,27 @@ Use `docs/ai/README.md` for the full setup and routing guide. In short:
 - `make ai-doctor` verifies the clone is portable and graph artifacts remain
   local-only.
 
+## Android Staging Release Signing
+
+The staging Android release key is **not stored in Git**. It is stored in
+Google Secret Manager under the `goatos-stg` project, and developers with
+release-builder access restore it into the gitignored local path
+`.local/android-signing/goatos-stg-upload.jks`.
+
+Use [`docs/mobile/stg-signed-release.md`](docs/mobile/stg-signed-release.md)
+for the exact Secret Manager restore, signed build, Firebase App Distribution,
+and post-install SSO/bootstrap verification steps.
+
+Environment separation is intentional:
+
+- stg release: package `sg.mesha.goatos.stg`, Firebase project `goatos-stg`,
+  API `https://stg-api.dashboard.mesha.sg/`, stg upload key.
+- prod release: package `sg.mesha.goatos`, production Firebase/API, separate
+  production upload key.
+
+Never commit `.jks` files, signing passwords, Firebase private keys, or local
+signing env files.
+
 ## Operational Kernel
 
 Goat OS is built around a shared operational kernel. Preventive Care (PC) vaccination is the
