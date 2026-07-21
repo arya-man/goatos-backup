@@ -39,11 +39,21 @@ type ScheduleCellView = {
   title: string;
 };
 
-type ScheduleLoadMetric = {
+type ScheduleLoadTone = "ok" | "warn" | "danger";
+
+type ScheduleLoadSegment = {
   key: string;
   label: string;
   value: number;
-  tone?: "primary" | "warn";
+  tone: ScheduleLoadTone;
+};
+
+type ScheduleLoadModel = {
+  total: number;
+  totalLabel: string;
+  doses: number;
+  dosesLabel: string;
+  segments: ScheduleLoadSegment[];
 };
 
 type ScheduleShedGroup = {
@@ -211,34 +221,25 @@ function scheduleRows(response: VaccinationOperationsResponse): FullScheduleRow[
   );
 }
 
-function scheduleLoadMetrics(row: FullScheduleRow, pageContract: AdminUiPageContract): ScheduleLoadMetric[] {
-  const scheduled = row.counts.scheduled;
+function scheduleLoadModel(row: FullScheduleRow, pageContract: AdminUiPageContract): ScheduleLoadModel {
+  const scheduled = row.counts.scheduled > 0 ? row.counts.scheduled : row.animals;
   const deferred = row.counts.deferred;
-  const totalDoses = row.counts.total || row.animals;
-  const scheduledAnimals = scheduled > 0 ? scheduled : row.animals;
-  const metrics: ScheduleLoadMetric[] = [
-    {
-      key: "scheduled",
-      label: copy(pageContract, "schedule.load.scheduled_label"),
-      value: scheduledAnimals,
-      tone: "primary",
-    },
-    {
-      key: "doses",
-      label: copy(pageContract, "schedule.load.doses_label"),
-      value: totalDoses,
-      tone: "primary",
-    },
+  const overdue = row.counts.overdue;
+  const doses = row.counts.total || row.animals;
+  const candidates: ScheduleLoadSegment[] = [
+    { key: "scheduled", label: copy(pageContract, "schedule.load.scheduled_label"), value: scheduled, tone: "ok" },
+    { key: "deferred", label: copy(pageContract, "schedule.load.deferred_label"), value: deferred, tone: "warn" },
+    { key: "overdue", label: copy(pageContract, "schedule.load.overdue_label"), value: overdue, tone: "danger" },
   ];
-  if (deferred > 0) {
-    metrics.push({
-      key: "deferred",
-      label: copy(pageContract, "schedule.load.deferred_label"),
-      value: deferred,
-      tone: "warn",
-    });
-  }
-  return metrics;
+  const segments = candidates.filter((segment) => segment.value > 0);
+  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  return {
+    total,
+    totalLabel: copy(pageContract, "schedule.load.due_label"),
+    doses,
+    dosesLabel: copy(pageContract, "schedule.load.doses_label"),
+    segments,
+  };
 }
 
 function dateEyebrow(date: string): string {
@@ -518,7 +519,7 @@ export async function VaccinationFullSchedule({
                   const vaccineTitle = vaccines.join(", ");
                   const previewVaccines = vaccines.slice(0, VACCINE_CHIP_PREVIEW_LIMIT);
                   const hiddenVaccineCount = Math.max(0, vaccines.length - previewVaccines.length);
-                  const loadMetrics = scheduleLoadMetrics(row, pageContract);
+                  const load = scheduleLoadModel(row, pageContract);
                   return (
                     <tr key={row.eventId} className="schedule-click-row">
                       <td className={`schedule-date-cell state-${view.state}`} title={view.title}>
@@ -551,15 +552,35 @@ export async function VaccinationFullSchedule({
                         <LocalOverlayLink
                           href={shedDrawerHref(row)}
                           className="celllink num schedule-animals-link"
-                          title={loadMetrics.map((metric) => `${metric.label}: ${metric.value}`).join(" · ")}
+                          title={[`${load.total} ${load.totalLabel}`, ...load.segments.map((segment) => `${segment.value} ${segment.label}`), `${load.doses} ${load.dosesLabel}`].join(" · ")}
                         >
-                          <span className="schedule-load-card" aria-label={loadMetrics.map((metric) => `${metric.value} ${metric.label}`).join(", ")}>
-                            {loadMetrics.map((metric) => (
-                              <span key={metric.key} className={`schedule-load-metric${metric.tone ? ` tone-${metric.tone}` : ""}`}>
-                                <span className="schedule-load-value">{metric.value}</span>
-                                <span className="schedule-load-label">{metric.label}</span>
-                              </span>
-                            ))}
+                          <span
+                            className="schedule-load-card"
+                            aria-label={[`${load.total} ${load.totalLabel}`, ...load.segments.map((segment) => `${segment.value} ${segment.label}`), `${load.doses} ${load.dosesLabel}`].join(", ")}
+                          >
+                            <span className="schedule-load-head">
+                              <span className="schedule-load-total">{load.total}</span>
+                              <span className="schedule-load-total-label">{load.totalLabel}</span>
+                            </span>
+                            <span className="schedule-load-bar" aria-hidden="true">
+                              {load.segments.map((segment) => (
+                                <span
+                                  key={segment.key}
+                                  className={`schedule-load-seg tone-${segment.tone}`}
+                                  style={{ width: `${load.total > 0 ? (segment.value / load.total) * 100 : 0}%` }}
+                                />
+                              ))}
+                            </span>
+                            <span className="schedule-load-legend">
+                              {load.segments.map((segment) => (
+                                <span key={segment.key} className={`schedule-load-item tone-${segment.tone}`}>
+                                  <span className="schedule-load-dot" aria-hidden="true" />
+                                  <span className="schedule-load-count">{segment.value}</span>
+                                  <span className="schedule-load-name">{segment.label}</span>
+                                </span>
+                              ))}
+                              <span className="schedule-load-doses">{load.doses} {load.dosesLabel}</span>
+                            </span>
                           </span>
                         </LocalOverlayLink>
                       </td>
