@@ -786,7 +786,10 @@ Do:
     `CalendarDateMarkerDto`). Never fetch or parse a day's events to draw the grid.
   - **Every drill level paginates** — L1 day list, L2 sheds, L3 vaccine-capture
     (done/pending/skipped animals) are each a keyset page of **~20** with infinite
-    scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page.
+    scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page,
+    and never show a tappable "Load more" row/button for normal mobile work
+    queues. Pagination is app-owned viewport behavior; users should see only the
+    work list plus a passive loading footer while the next page is already in flight.
   - **A vaccination drive is a park visit with a mix of SHEDS, never grouped by
     vaccine** — one drive can contain one or many sheds. Coverage-by-vaccine is a
     metric, not the drive grouping.

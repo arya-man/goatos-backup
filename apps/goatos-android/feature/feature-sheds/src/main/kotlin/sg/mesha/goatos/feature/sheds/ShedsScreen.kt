@@ -23,14 +23,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -235,6 +239,18 @@ fun ShedsScreen(
     onEvent: (ShedsEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
+        if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                val firstShedIndex = if (state.dayTabs.isNotEmpty()) 2 else 2
+                val lastShedIndex = firstShedIndex + state.rows.lastIndex
+                if (lastVisibleIndex >= lastShedIndex - 3 && state.hasMore && !state.isLoadingMore) {
+                    onEvent(ShedsEvent.LoadMore)
+                }
+            }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -242,6 +258,7 @@ fun ShedsScreen(
     ) {
         ShedsHeader(state = state, onRefresh = { onEvent(ShedsEvent.Refresh) }, onBack = { onEvent(ShedsEvent.Back) })
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -274,24 +291,9 @@ fun ShedsScreen(
             items(state.rows, key = { it.id }) { row ->
                 ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
             }
-            if (state.hasMore) {
-                item(key = "load-more") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .border(1.dp, Hair, RoundedCornerShape(14.dp))
-                            .clickable(enabled = !state.isLoadingMore) { onEvent(ShedsEvent.LoadMore) }
-                            .padding(vertical = 13.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(if (state.isLoadingMore) R.string.sheds_loading_more else R.string.sheds_load_more),
-                            color = if (state.isLoadingMore) MeshaColors.Muted else MeshaColors.Brand,
-                            fontWeight = FontWeight.W700,
-                        )
-                    }
+            if (state.isLoadingMore) {
+                item(key = "loading-more") {
+                    InlineLoadingFooter()
                 }
             }
             if (state.rosterChanges.isNotEmpty()) {
@@ -300,6 +302,22 @@ fun ShedsScreen(
             }
             state.kernelInfo?.let { info -> item { InfoBox(info) } }
         }
+    }
+}
+
+@Composable
+private fun InlineLoadingFooter() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            color = Muted,
+            strokeWidth = 2.dp,
+        )
     }
 }
 

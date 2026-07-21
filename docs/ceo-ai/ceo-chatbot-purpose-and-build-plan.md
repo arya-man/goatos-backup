@@ -327,6 +327,18 @@ module, the leadership assistant context must be reviewed.
 The PR must either add the assistant read path or explicitly document why the
 feature is excluded from leadership visibility. Silent gaps are not allowed.
 
+### Vaccination Navigation And Operator Feed Coverage
+
+The role-wise Android navigation graph, Paparazzi role screenshots, and
+operator shed-first work feed are leadership-assistant covered by the existing
+vaccination read paths. They do not create a new CEO chatbot tool. The assistant
+should continue to answer vaccination questions through the vaccination shed
+summary, action-center, and dose-pickup read APIs/MCP Toolbox tools using
+business labels only: vaccine family/name, open dose count, shed, park, due date,
+status, and route. Raw protocol/config identifiers such as internal ET/TT week
+codes are implementation details and must not appear in leadership answers or
+operator UI.
+
 Canonical files:
 
 - `docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md`

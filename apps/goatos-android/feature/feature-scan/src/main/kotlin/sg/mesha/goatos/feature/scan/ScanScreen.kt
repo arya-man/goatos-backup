@@ -23,10 +23,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,7 +38,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -111,6 +115,7 @@ data class RosterRow(
     val vaccineLabel: String,      // "FMD · 1st", "due · FMD", or a skip reason
     val status: ScanStatus,
     val unsynced: Boolean = false, // local, not-yet-synced draft scan overlay
+    val scannedAtLabel: String? = null,
     val goatId: String = "",
     val obligationId: String = "",
     val proofClipCount: Int = 0,
@@ -962,24 +967,36 @@ fun ScanListSheet(
                         .padding(vertical = 26.dp),
                 )
             } else {
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                val rosterListState = rememberLazyListState()
+                LaunchedEffect(rosterListState, hasMore, isLoadingMore, filtered.size, query) {
+                    if (!hasMore || isLoadingMore || query.isNotBlank() || filtered.isEmpty()) return@LaunchedEffect
+                    snapshotFlow { rosterListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+                        .collect { lastVisibleIndex ->
+                            if (lastVisibleIndex >= filtered.lastIndex - 3 && hasMore && !isLoadingMore) {
+                                onEvent(ScanEvent.LoadMore)
+                            }
+                        }
+                }
+                LazyColumn(
+                    state = rosterListState,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder
                     items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag }, contentType = { "scan_row" }) { row ->
                         ScanListRow(row, captureEnabled, onEvent)
                     }
-                    if (hasMore && query.isBlank()) {
+                    if (isLoadingMore && query.isBlank()) {
                         item {
-                            Button(
-                                onClick = { onEvent(ScanEvent.LoadMore) },
-                                enabled = !isLoadingMore,
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Text(
-                                    stringResource(
-                                        if (isLoadingMore) R.string.scan_loading_more else R.string.scan_load_more,
-                                    ),
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = ScanTokens.muted,
+                                    strokeWidth = 2.dp,
                                 )
                             }
                         }
@@ -1035,6 +1052,16 @@ private fun ScanListRow(
                     lineHeight = 15.sp,
                     modifier = Modifier.padding(top = 3.dp),
                 )
+                row.scannedAtLabel?.takeIf { it.isNotBlank() }?.let { label ->
+                    Text(
+                        text = label,
+                        color = ScanTokens.brandD,
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
             }
         }
         if (row.status == ScanStatus.DONE) {

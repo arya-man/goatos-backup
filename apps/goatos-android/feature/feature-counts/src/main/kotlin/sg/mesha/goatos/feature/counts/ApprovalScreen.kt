@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -152,12 +153,18 @@ fun ApprovalScreen(
 
             if (rows.loadState.append is LoadState.Loading) {
                 item(key = "appending") {
-                    Text(
-                        text = stringResource(R.string.counts_approval_loading_more),
-                        color = MeshaColors.Faint,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MeshaColors.Faint,
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 }
             }
 
