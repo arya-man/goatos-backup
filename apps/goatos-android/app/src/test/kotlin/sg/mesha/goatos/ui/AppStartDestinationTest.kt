@@ -21,6 +21,20 @@ class AppStartDestinationTest {
     }
 
     @Test
+    fun `vaccination operator starts on shed queue when backend does not expose calendar`() {
+        assertEquals(
+            Routes.VACCINATION,
+            startDestinationFor(
+                navState(
+                    NavItem("vaccination", "Drives", Routes.VACCINATION),
+                    NavItem("alerts", "Alerts", Routes.ALERTS),
+                    NavItem("you", "You", Routes.YOU),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `verifier starts on standalone verification root`() {
         assertEquals(
             Routes.VERIFY,

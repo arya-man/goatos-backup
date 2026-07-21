@@ -2,7 +2,7 @@
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">రిఫ్రెష్</string>
-    <string name="sheds_title">టీకా కార్యక్రమాలు</string>
+    <string name="sheds_title">టీకా షెడ్‌లు</string>
     <string name="sheds_count_fmt">%1$d షెడ్‌లు</string>
     <string name="sheds_due_fmt">%1$d తెరిచి ఉన్నాయి</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d పూర్తయింది</string>

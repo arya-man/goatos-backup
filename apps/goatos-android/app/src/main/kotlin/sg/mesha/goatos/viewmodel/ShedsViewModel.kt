@@ -22,7 +22,18 @@ import sg.mesha.goatos.feature.sheds.ShedsUiState
 import sg.mesha.goatos.feature.sheds.VaccineGroup
 import sg.mesha.goatos.ui.sampleShedsState
 import sg.mesha.goatos.ui.shedsPlaceholder
+import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 import javax.inject.Inject
+
+private const val PAGE_LIMIT = 20
+private const val OPERATOR_WINDOW_DAYS = 7
+private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /**
  * Today's-sheds / drive-status state holder — the offline-first pattern for the sheds
@@ -44,15 +55,12 @@ class ShedsViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
-    private companion object {
-        const val PAGE_LIMIT = 20
-    }
-
     private var nextCursor: String? = null
+    private val workWindow = OperatorWorkWindow.today()
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<VaccinationExecutionResponseDto>> =
-        repo.observeRows(limit = PAGE_LIMIT).stateIn(
+        repo.observeRows(asOf = workWindow.asOf, dueBefore = workWindow.dueBefore, limit = PAGE_LIMIT).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             Resource(data = null)
@@ -98,7 +106,7 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
-        val result = repo.refreshRows(limit = PAGE_LIMIT)
+        val result = repo.refreshRows(asOf = workWindow.asOf, dueBefore = workWindow.dueBefore, limit = PAGE_LIMIT)
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         result.exceptionOrNull()?.let {
@@ -110,7 +118,12 @@ class ShedsViewModel @Inject constructor(
         val cursor = nextCursor ?: return@launch
         if (_isLoadingMore.value) return@launch
         _isLoadingMore.value = true
-        val result = repo.appendRows(cursor = cursor, limit = PAGE_LIMIT)
+        val result = repo.appendRows(
+            cursor = cursor,
+            asOf = workWindow.asOf,
+            dueBefore = workWindow.dueBefore,
+            limit = PAGE_LIMIT,
+        )
         _isLoadingMore.value = false
         _isOffline.value = result.isFailure
         result.exceptionOrNull()?.let {
@@ -132,6 +145,7 @@ class ShedsViewModel @Inject constructor(
         val base = sampleShedsState()
         val shedRows = rows.groupBy { it.executionIdentity() }.map { (identity, group) ->
             val first = group.first()
+            val scheduleDate = group.mapNotNull { it.dueDate?.let(::parseExecutionDate) }.minOrNull()
             val status = shedStatusFor(group)
             val counts = executionCounts(group)
             val vaccineGroups = group.groupBy { it.driveName.orEmpty() }
@@ -150,6 +164,8 @@ class ShedsViewModel @Inject constructor(
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,
+                scheduleDateKey = scheduleDate?.toString().orEmpty(),
+                scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
                 statusLabel = first.workState.ifBlank { status.readable() }.let { it.readableState() },
                 vaccineGroups = vaccineGroups,
@@ -165,16 +181,21 @@ class ShedsViewModel @Inject constructor(
                 sopVersionId = identity.sopVersionId,
                 taskRowVersion = identity.taskRowVersion,
             )
-        }
+        }.sortedWith(
+            compareBy<ShedRow> { row ->
+                row.scheduleDateKey.takeIf { it.isNotBlank() }?.let(::parseExecutionDate) ?: LocalDate.MAX
+            }
+                .thenBy { it.name.lowercase() }
+        )
         val totals = executionCounts(rows)
         return base.copy(
-            title = "Today's sheds",
-            // Header scope + the drive date/window are not carried by the execution
-            // list endpoint — leave them blank (the screen skips blank meta) rather
-            // than inheriting the sample's fabricated values.
+            title = "Next 7 days",
+            // Vaccination operators do not need the executive Calendar's week/month/history
+            // drive cards. This screen is their shed-first work queue: today is the landing
+            // anchor, and the backend query is scoped to today → today+1 week.
             scopeLabel = "",
-            date = "",
-            window = "",
+            date = workWindow.todayLabel,
+            window = workWindow.windowLabel,
             // Raw counts — the screen formats + localizes these via *_fmt resources
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
@@ -275,6 +296,36 @@ private fun ShedStatus.readable(): String = name.lowercase().replaceFirstChar { 
 
 private fun String.readableState(): String =
     replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+internal data class OperatorWorkWindow(
+    val asOf: String,
+    val dueBefore: String,
+    val todayLabel: String,
+    val windowLabel: String,
+) {
+    companion object {
+        fun today(now: ZonedDateTime = ZonedDateTime.now(KOLKATA)): OperatorWorkWindow {
+            val today = now.toLocalDate()
+            val lastDay = today.plusDays((OPERATOR_WINDOW_DAYS - 1).toLong())
+            return OperatorWorkWindow(
+                asOf = now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                dueBefore = now.plusDays(OPERATOR_WINDOW_DAYS.toLong())
+                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                todayLabel = "Today · ${shortDateLabel(today)}",
+                windowLabel = "${shortDateLabel(today)} → ${shortDateLabel(lastDay)}",
+            )
+        }
+    }
+}
+
+internal fun parseExecutionDate(raw: String): LocalDate? =
+    runCatching { LocalDate.parse(raw) }.getOrNull()
+        ?: runCatching { OffsetDateTime.parse(raw).atZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
+        ?: runCatching { ZonedDateTime.parse(raw).withZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
+
+private fun shortDateLabel(date: LocalDate): String =
+    "${date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${date.dayOfMonth} " +
+        date.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
 
 /**
  * Humanize raw driveName strings for display in vaccine group chips.

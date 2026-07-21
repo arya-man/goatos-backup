@@ -473,13 +473,14 @@ func TestGetShedDetailNotFound(t *testing.T) {
 
 func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	asOf := time.Date(2026, time.July, 21, 23, 59, 59, 0, biztime.DefaultLocation())
+	serverNow := asOf.Add(-time.Minute)
 	reader := &fakeReader{
 		shedFound:   true,
 		shedDetail:  domain.ShedDetailResponse{ParkID: "30000000-0000-4000-8000-000000000001"},
 		shedAnimals: domain.ShedAnimalPage{Rows: []domain.ShedAnimalRow{{GoatID: "g1", DisplayID: "G-1", Status: "due"}}},
 	}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(reader, &fakeWriter{}))
+	Register(mux, NewHandler(reader, &fakeWriter{}).WithClock(func() time.Time { return serverNow }))
 	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50&as_of=2026-07-21T23:59:59%2B05:30&drive_due_date=2026-07-22", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()

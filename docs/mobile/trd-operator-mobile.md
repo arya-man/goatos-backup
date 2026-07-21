@@ -405,6 +405,15 @@ the nav entry. Execution screens (Scan / Submit) do not offer refresh — they a
 local-first and reconcile via the sync engine. Demonstrated in the mock
 (pull gesture + header refresh on the four read screens).
 
+For the vaccination operator shed queue, refresh is specifically a scoped read
+refresh, not full-device sync: it re-pulls
+`GET /app/vaccination/execution?as_of=<now>&due_before=<now+7d>&limit=<page>`
+and upserts the Room cache for the currently rendered 7-day shed work queue.
+It updates shed rows, planned dates, open/done counts, task/drive identifiers,
+and status. It does not upload pending proof/videos, drain the outbox, change
+the logged-in principal, reseed data, or recompute mock fixtures. Pending
+operator writes continue through the outbox/WorkManager sync path.
+
 ### Server→client push for live screens (DECIDED: A is the default; B is ADR-gated)
 
 Today client reads are **pull** (bootstrap + on-demand GETs) and the only
