@@ -53,6 +53,8 @@ chapters below; do not review from the summary.
 - `make admin-web-local-overlay-guard` — zero route-driven same-page overlays;
   no Next/native open, close, veil, or schedule-drawer navigation baseline.
 - `node tools/agent-hooks/check-refresh-binding.mjs` — selected-window binding.
+- `make calendar-endpoint-grain-guard` — no narrow schedule/full-schedule surface
+  wired to the broad Calendar events endpoint.
   All registered in `tools/ci/guardrail-manifest.json`.
 - `npm --prefix apps/admin-web run lint && npm --prefix apps/admin-web run typecheck && npm --prefix apps/admin-web run test` — framework and unit baseline.
 - `GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build` — production build with the token-leak check actually exercised.

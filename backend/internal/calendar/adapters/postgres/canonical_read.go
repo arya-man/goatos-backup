@@ -39,7 +39,7 @@ import (
 // SCALE-OPTIMIZATION (migration 000190): The original OR predicate combining three date/status branches
 // caused seq-scans at scale (100k+ obligations). Refactored as UNION ALL of three indexed branches:
 // - Branch 1: window-bound (index: idx_obligation_instances_calendar_window on (tenant_id, due_at))
-// - Branch 2: exception catch-up (index: idx_obligation_instances_calendar_exceptions on (tenant_id, status))
+// - Branch 2: bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due on (tenant_id, status, due_at))
 // - Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue on (tenant_id, status, due_at))
 // This ensures the planner uses index scans for each branch and stays sub-second at 500k obligations.
 //
@@ -58,15 +58,19 @@ const calendarCanonicalEventsCTE = `obligation_events AS (
       AND status NOT IN ('waived', 'canceled', 'superseded', 'completed')
       AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
     UNION
-    -- Branch 2: exception catch-up (index: idx_obligation_instances_calendar_exceptions)
+    -- Branch 2: bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('missed', 'in_progress', 'deferred')
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
     UNION
     -- Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('scheduled', 'due') AND due_at < now()
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
   )
   SELECT
     'obligation:' || oi.obligation_id::text AS event_id,
@@ -669,15 +673,19 @@ obligation_drive_membership AS (
       AND status NOT IN ('superseded', 'canceled', 'waived')
       AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
     UNION
-    -- Unbatched exception catch-up (index: idx_obligation_instances_calendar_exceptions)
+    -- Unbatched bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('missed', 'in_progress', 'deferred')
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
     UNION
     -- Unbatched overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
     SELECT * FROM obligation_instances
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('scheduled', 'due') AND due_at < now()
+      AND due_at >= $2::timestamptz - interval '45 days'
+      AND due_at < $3::timestamptz
     UNION
     -- Batched drives in-window (obligation_batches window joined to obligation_instances via
     -- obligation_instances_batch_idx). obligation_batches stays a cheap scan (low cardinality).
@@ -1431,18 +1439,17 @@ canonical_selected AS (
     AND event_type <> 'vaccination_dose_due'
     AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending',
                    'verification_pending', 'rejected', 'rework_due', 'deferred', 'blocked', 'completed')
-    -- Mirrors the missed/in_progress/deferred/overdue OR-bypass already applied inside
-    -- catchup_drive_events'/obligation_events' own WHERE clauses (and the pre-cutover projector's
-    -- catch-up branch): a park-day drive whose aggregated status is still open catch-up work must
-    -- stay visible in the list regardless of how far its own due_at sits outside the requested
-    -- [dateFrom, dateToExclusive) window -- otherwise an old missed/overdue exception silently
-    -- disappears the moment the calendar's requested window moves past it, even though the
-    -- underlying obligation is still unresolved. event_type is scoped to vaccination_drive here
-    -- because only park_drive_events ever projects these aggregated statuses into source_events;
-    -- sop_events/config_events have no catch-up concept and stay strictly window-bound.
+    -- Calendar catch-up is intentionally bounded to the requested operating window plus the same
+    -- 45-day lookback used by obligation_events. The old unbounded bypass made every month/mobile
+    -- click inspect historical tenant work before paging the requested window.
     AND (
       (due_at >= $2::timestamptz AND due_at < $3::timestamptz)
-      OR (event_type = 'vaccination_drive' AND status IN ('missed', 'in_progress', 'deferred', 'overdue'))
+      OR (
+        event_type = 'vaccination_drive'
+        AND status IN ('missed', 'in_progress', 'deferred', 'overdue')
+        AND due_at >= $2::timestamptz - interval '45 days'
+        AND due_at < $3::timestamptz
+      )
     )
     AND ($4::text = '' OR owner_key = $4::text)
     AND ($5::text = '' OR status = $5::text)

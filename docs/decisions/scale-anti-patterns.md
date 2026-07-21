@@ -74,6 +74,14 @@ a scale anti-pattern even if both endpoints are "correct."
   from the server/browser default timezone instead of the Goat OS business
   timezone
 
+`make calendar-endpoint-grain-guard` blocks the adjacent endpoint-grain
+recurrence across backend/admin-web/mobile/contracts/DB: a narrow vaccination
+schedule/full-schedule/read-model surface must not call, alias, or derive from
+the broad `/calendar/vaccination/events` Calendar presentation endpoint. The
+Calendar endpoint remains valid for Calendar event presentation; narrow screens
+must use `/vaccination/schedule` or another grain-owned API/read path with its
+own contract and latency evidence.
+
 ## Indexed predicates and guard-authoring safety
 
 Two recurrence classes are prohibited on every hot path:

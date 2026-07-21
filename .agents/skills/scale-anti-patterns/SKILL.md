@@ -60,6 +60,9 @@ summary below — open the canonical chapters and read the live detail.
 - `make admin-web-request-reads-guard` — the admin-web SSR twin (full-table walk).
 - `make admin-web-prefetch-guard` — blocks implicit admin-web request reads from
   direct `next/link` route prefetch or `prefetch={true}`.
+- `make calendar-endpoint-grain-guard` — blocks backend/admin-web/mobile/contract/
+  DB wiring that feeds a narrow vaccination schedule/full-schedule surface from
+  the broad Calendar events endpoint.
 - `tools/deploy/stg-clouddeploy-release.sh` — for break-glass local STG repair,
   waits for Cloud Deploy and verifies API, admin-web, worker, migration, DLQ, and
   analytics images all match the same current main SHA. Never skip rollout/image
