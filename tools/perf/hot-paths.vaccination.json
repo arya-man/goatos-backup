@@ -8,6 +8,11 @@
       "calendar_vaccination",
       "calendar_vaccination_completed_history",
       "calendar_vaccination_date_markers",
+      "calendar_mobile_month_page_20",
+      "calendar_mobile_month_filter_options",
+      "calendar_mobile_month_status_filter",
+      "calendar_mobile_month_vaccine_filter",
+      "calendar_mobile_history_page_20",
       "vaccination_schedule",
       "vaccination_execution",
       "vaccination_operations",
@@ -26,6 +31,11 @@
       "local_nonempty_latency_only": [
         "calendar_vaccination_completed_history",
         "calendar_vaccination_date_markers",
+        "calendar_mobile_month_page_20",
+        "calendar_mobile_month_filter_options",
+        "calendar_mobile_month_status_filter",
+        "calendar_mobile_month_vaccine_filter",
+        "calendar_mobile_history_page_20",
         "vaccination_execution",
         "vaccination_operations"
       ]
@@ -109,6 +119,56 @@
       "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "date_markers", "min": 1 }
+    },
+    {
+      "name": "calendar_mobile_month_page_20",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from={today_start_month}&date_to={today_end_month}&limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "calendar_mobile_month_filter_options",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from={today_start_month}&date_to={today_end_month}&include_filter_options=true&limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "calendar_mobile_month_status_filter",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from={today_start_month}&date_to={today_end_month}&status=due&limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "calendar_mobile_month_vaccine_filter",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from={today_start_month}&date_to={today_end_month}&vaccine=ETEC&limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 0 }
+    },
+    {
+      "name": "calendar_mobile_history_page_20",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from={today_minus_30}&date_to={today_plus_1}&status=completed&limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
     {
       "name": "vaccination_schedule",

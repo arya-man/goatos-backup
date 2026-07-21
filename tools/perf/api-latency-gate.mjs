@@ -231,6 +231,8 @@ function trimTrailingSlash(value) {
 function expandPath(path) {
   const today = new Date();
   return String(path)
+    .replaceAll("{today_start_month}", formatDate(startOfUTCMonth(today)))
+    .replaceAll("{today_end_month}", formatDate(endOfUTCMonth(today)))
     .replaceAll("{today}", formatDate(today))
     .replaceAll("{today_minus_30}", formatDate(addDays(today, -30)))
     .replaceAll("{today_plus_1}", formatDate(addDays(today, 1)))
@@ -246,6 +248,14 @@ function addDays(date, days) {
 
 function formatDate(date) {
   return date.toISOString().slice(0, 10);
+}
+
+function startOfUTCMonth(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+function endOfUTCMonth(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
 }
 
 function sha256File(path) {
