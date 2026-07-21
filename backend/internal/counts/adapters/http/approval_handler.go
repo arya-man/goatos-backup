@@ -36,6 +36,18 @@ const (
 
 	appApprovalApproveCommand = "counts.app.approval_approve"
 	appApprovalRejectCommand  = "counts.app.approval_reject"
+
+	// The admin-web Approvals page is served by the SAME approval service and handler logic; only
+	// the route prefix and the caller's session differ (maintainer decision 2026-07-21, after
+	// approvals were removed from mobile). Authority is still enforced against the request's stored
+	// TYPE via permissions.DecidableApprovalRequestTypes, and the coarse route gate is still
+	// CountsApproveAccess -- now held by the four org tiers + admin + ceo_internal, not park_head.
+	adminWebApprovalsRoute       = "/admin-web/counts/approvals"
+	adminWebApprovalApproveRoute = "/admin-web/counts/approvals/{request_id}/approve"
+	adminWebApprovalRejectRoute  = "/admin-web/counts/approvals/{request_id}/reject"
+
+	adminWebApprovalApproveCommand = "counts.adminweb.approval_approve"
+	adminWebApprovalRejectCommand  = "counts.adminweb.approval_reject"
 )
 
 // ApprovalWorkflow is the slice of counts/app.ApprovalService this handler needs.
@@ -45,11 +57,21 @@ type ApprovalWorkflow interface {
 	Decide(ctx context.Context, in countsapp.DecisionInput) (domain.ApprovalRequest, bool, error)
 }
 
-// RegisterApprovals wires the approval decision surface.
+// RegisterApprovals wires the mobile/app approval decision surface.
 func RegisterApprovals(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appApprovalsRoute, h.ListApprovals)
 	mux.HandleFunc("POST "+appApprovalApproveRoute, h.ApproveRequest)
 	mux.HandleFunc("POST "+appApprovalRejectRoute, h.RejectRequest)
+}
+
+// RegisterAdminWebApprovals wires the admin-web Approvals page onto the SAME approval service and
+// list/decide logic under the /admin-web/* prefix. The handler reads tenant, roles, and park scope
+// from the request context, so it is identical whether the caller arrived via the app or admin-web
+// session middleware; only the telemetry route/command labels differ.
+func RegisterAdminWebApprovals(mux *http.ServeMux, h *AppWriteHandler) {
+	mux.HandleFunc("GET "+adminWebApprovalsRoute, h.ListApprovals)
+	mux.HandleFunc("POST "+adminWebApprovalApproveRoute, h.ApproveRequestAdminWeb)
+	mux.HandleFunc("POST "+adminWebApprovalRejectRoute, h.RejectRequestAdminWeb)
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +185,17 @@ func (h *AppWriteHandler) ApproveRequest(w http.ResponseWriter, r *http.Request)
 // RejectRequest rejects a pending request. A reason is required, and NO effect is applied.
 func (h *AppWriteHandler) RejectRequest(w http.ResponseWriter, r *http.Request) {
 	h.decide(w, r, false, appApprovalRejectCommand, appApprovalRejectRoute)
+}
+
+// ApproveRequestAdminWeb is the admin-web counterpart of ApproveRequest: identical decision logic,
+// distinct telemetry route/command labels so app and admin-web decisions are separable in traces.
+func (h *AppWriteHandler) ApproveRequestAdminWeb(w http.ResponseWriter, r *http.Request) {
+	h.decide(w, r, true, adminWebApprovalApproveCommand, adminWebApprovalApproveRoute)
+}
+
+// RejectRequestAdminWeb is the admin-web counterpart of RejectRequest.
+func (h *AppWriteHandler) RejectRequestAdminWeb(w http.ResponseWriter, r *http.Request) {
+	h.decide(w, r, false, adminWebApprovalRejectCommand, adminWebApprovalRejectRoute)
 }
 
 func (h *AppWriteHandler) decide(w http.ResponseWriter, r *http.Request, approve bool, command, route string) {

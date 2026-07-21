@@ -65,14 +65,15 @@ enum class BirthDeathMode { BIRTH, DEATH }
 @Immutable
 data class BirthDeathUiState(
     val mode: BirthDeathMode = BirthDeathMode.BIRTH,
-    // Birth — identity + dates (free text)
+    // Birth — identity + dates
     val tag: String = "",
-    val secondTag: String = "",
     val species: String = "goat",
     val sex: String = "female",
+    // Breed is CHOSEN from the herd's own backend-supplied breed vocabulary (the same Room-cached
+    // Counts facet the census filter uses), never typed. [breed] holds the selected facet key.
     val breed: String = "",
+    val breedOptions: List<CountsFilterOptionUi> = emptyList(),
     val dob: String = "",
-    val entryDate: String = "",
     // Birth — placement (park -> shed cascade, ids chosen from the destinations catalog)
     val destinationParks: List<ShiftingParkUi> = emptyList(),
     val parkId: String = "",
@@ -116,9 +117,13 @@ sealed interface BirthDeathEvent {
     data object Back : BirthDeathEvent
 }
 
-/** The remaining free-text fields. Placement and the death target are NOT here — they are chosen. */
+/**
+ * Editable birth/death fields. Placement, the death target, and breed are NOT free text — they are
+ * chosen from backend-owned vocabularies. Entry date is not here either: it is stamped
+ * automatically to the day the entry is recorded (see [BirthDeathViewModel]).
+ */
 enum class BirthDeathField {
-    TAG, SECOND_TAG, SPECIES, SEX, BREED, DOB, ENTRY_DATE, DAM_ID, REASON,
+    TAG, SPECIES, SEX, BREED, DOB, DAM_ID, REASON,
 }
 
 // ---------------------------------------------------------------------------
@@ -204,11 +209,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 label = stringResource(R.string.counts_field_tag1),
                 required = true,
             )
-            CountsTextField(
-                value = state.secondTag,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.SECOND_TAG, it)) },
-                label = stringResource(R.string.counts_field_tag2),
-            )
             CountsSegmented(
                 options = listOf(
                     "goat" to stringResource(R.string.counts_species_goat),
@@ -225,30 +225,32 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 selectedKey = state.sex,
                 onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.SEX, it)) },
             )
-            CountsTextField(
-                value = state.breed,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, it)) },
+            // Breed is chosen from the herd's own backend breed vocabulary (never typed). The list is
+            // the same Room-cached Counts facet the census filter uses; the facet key is submitted.
+            val selectedBreedLabel = state.breedOptions.firstOrNull { it.key == state.breed }?.label
+            CountsDropdownField(
                 label = stringResource(R.string.counts_field_breed),
+                selectedLabel = selectedBreedLabel,
+                placeholder = stringResource(R.string.counts_select_breed),
+                options = state.breedOptions.map { CountsDropdownOption(it.key, it.label, it.count) },
+                onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, it)) },
+                // Disabled until the vocabulary is cached so an operator cannot open an empty menu.
+                enabled = state.breedOptions.isNotEmpty(),
             )
         }
     }
     item(key = "birth-dates") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             CountsFieldGroupTitle(text = stringResource(R.string.counts_group_dates))
-            // The backend requires dob <= entry_date and rejects a violation; the hint states the
-            // rule so an operator can fix it before submitting, but the server stays the authority.
+            // Only the date of birth is entered. The entry date (the day this record is made) is
+            // stamped automatically to today's business date, so it is never typed. The backend
+            // still enforces dob <= entry_date as the authority.
             CountsTextField(
                 value = state.dob,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, it)) },
                 label = stringResource(R.string.counts_field_dob),
                 required = true,
                 supporting = stringResource(R.string.counts_hint_dob),
-            )
-            CountsTextField(
-                value = state.entryDate,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, it)) },
-                label = stringResource(R.string.counts_field_entry_date),
-                required = true,
             )
         }
     }

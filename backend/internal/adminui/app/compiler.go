@@ -1089,6 +1089,11 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.ProtocolRead}
 	case "sop-library":
 		return []string{permissions.SOPRead}
+	case "approvals":
+		// Coarse surface gate for the Approvals page (maintainer decision 2026-07-21). Held by the
+		// four org tiers + admin + ceo_internal; park_head no longer holds it, so its nav item is
+		// disabled. Matches the /admin-web/counts/approvals route gate.
+		return []string{permissions.CountsApproveAccess}
 	default:
 		return nil
 	}

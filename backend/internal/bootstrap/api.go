@@ -564,6 +564,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countshttp.Register(protectedMux, herdRegisterHandler)
 	countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)
 	countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
 	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)

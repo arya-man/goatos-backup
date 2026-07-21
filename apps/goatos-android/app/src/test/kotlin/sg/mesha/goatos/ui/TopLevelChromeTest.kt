@@ -94,8 +94,8 @@ class TopLevelChromeTest {
             NavItem(key = "counts", label = "Counts", href = "/counts"),
             NavItem(key = "birth_death", label = "Birth/Death", href = "/counts/birth-death"),
             NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
-            // Counts contributes Approval in the trailing slot other modules give to You.
-            NavItem(key = "approval", label = "Approval", href = Routes.COUNTS_APPROVALS),
+            // Approvals were removed from mobile (maintainer decision 2026-07-21): the Counts bar is
+            // capture-only now, with no trailing Approval tab.
         ),
     )
 
@@ -143,10 +143,11 @@ class TopLevelChromeTest {
             listOf(Routes.VACCINATION, Routes.CALENDAR, Routes.ALERTS, Routes.YOU),
             twoModules.barItems("vaccination", Routes.VACCINATION).map { it.href },
         )
-        // The trailing tab DIFFERS by module: Counts ends in Approval, not You. This is the
-        // assertion that would fail if the client ever went back to appending a fixed tab.
+        // The trailing tab DIFFERS by module: the vaccination bar ends in You, while Counts is
+        // capture-only (no You, and no Approval since approvals were removed from mobile). This is
+        // the assertion that would fail if the client ever went back to appending a fixed tab.
         assertEquals(
-            listOf("/counts", "/counts/birth-death", "/counts/shifting", Routes.COUNTS_APPROVALS),
+            listOf("/counts", "/counts/birth-death", "/counts/shifting"),
             twoModules.barItems("counts", "/counts").map { it.href },
         )
     }
@@ -277,11 +278,11 @@ class TopLevelChromeTest {
         // ...and no You route sneaks into the operator's L0 set.
         val operatorRoots = rootsFor(operatorState, "counts", "/counts/birth-death")
         assertFalse(isTopLevelRoute(Routes.YOU, operatorRoots))
-        assertFalse(isTopLevelRoute(Routes.COUNTS_APPROVALS, operatorRoots))
 
-        // An approver on the same module DOES get Approval as a real L0 root.
-        val approverRoots = rootsFor(twoModules, "counts", "/counts")
-        assertTrue(isTopLevelRoute(Routes.COUNTS_APPROVALS, approverRoots))
+        // Approvals were removed from mobile (maintainer decision 2026-07-21): no Counts bar — for
+        // any role — carries an approval route. The Counts L0 set is capture-only.
+        val countsRoots = rootsFor(twoModules, "counts", "/counts")
+        assertFalse(isTopLevelRoute("/counts/approvals", countsRoots))
     }
 
     @Test

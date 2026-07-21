@@ -555,8 +555,16 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 5 {
+	if len(resp.Navigation.Primary) != 6 {
 		t.Fatalf("primary command-lens items must stay present, got %d", len(resp.Navigation.Primary))
+	}
+	// Approvals is present but RBAC-disabled for an operator, who holds no counts.approve_access.
+	approvals := primaryNavByID(t, resp.Navigation.Primary, "approvals")
+	if approvals.Enabled {
+		t.Fatalf("approvals nav must be RBAC-disabled for an operator: %#v", approvals)
+	}
+	if approvals.DisabledReason == "" {
+		t.Fatalf("approvals RBAC disable reason must be published: %#v", approvals)
 	}
 	leaf := navLeafByID(t, resp.Navigation.Groups, "preventive-care-vaccination")
 	if leaf.Enabled {

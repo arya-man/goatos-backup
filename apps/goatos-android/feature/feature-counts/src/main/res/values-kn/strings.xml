@@ -83,10 +83,8 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 1</string>
-    <string name="counts_field_tag2">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 2</string>
     <string name="counts_field_breed">ತಳಿ</string>
     <string name="counts_field_dob">ಜನ್ಮ ದಿನಾಂಕ (YYYY-MM-DD)</string>
-    <string name="counts_field_entry_date">ಪ್ರವೇಶ ದಿನಾಂಕ (YYYY-MM-DD)</string>
     <string name="counts_field_park">ಪಾರ್ಕ್</string>
     <string name="counts_field_farm">ಫಾರ್ಮ್</string>
     <string name="counts_field_current_location">ಪ್ರಸ್ತುತ ಸ್ಥಳ</string>
@@ -96,12 +94,12 @@
     <string name="counts_field_sex">ಲಿಂಗ</string>
     <string name="counts_field_status">ಸ್ಥಿತಿ</string>
     <string name="counts_field_goat">ಮೇಕೆ</string>
-    <string name="counts_field_row_version">ದಾಖಲೆ ಆವೃತ್ತಿ</string>
     <string name="counts_field_reason">ಕಾರಣ</string>
     <string name="counts_field_animal_lookup">RFID ಮೂಲಕ ಹುಡುಕಿ</string>
     <string name="counts_select_farm">ಒಂದು ಫಾರ್ಮ್ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_select_farm_first">ಮೊದಲು ಒಂದು ಫಾರ್ಮ್ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_select_shed">ಒಂದು ಶೆಡ್ ಆಯ್ಕೆಮಾಡಿ</string>
+    <string name="counts_select_breed">ಒಂದು ತಳಿ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_location_unknown">ದಾಖಲಿಸಿಲ್ಲ</string>
 
     <!-- Animal picker (shifting) -->
@@ -116,8 +114,7 @@
     <string name="counts_sex_male">ಗಂಡು</string>
 
     <!-- Hints -->
-    <string name="counts_hint_dob">ಪ್ರವೇಶ ದಿನಾಂಕದ ನಂತರ ಇರಬಾರದು.</string>
-    <string name="counts_hint_row_version">ಪ್ರಾಣಿಯ ಪ್ರಸ್ತುತ ದಾಖಲೆ ಆವೃತ್ತಿ.</string>
+    <string name="counts_hint_dob">ಭವಿಷ್ಯದ ದಿನಾಂಕವಾಗಿರಬಾರದು.</string>
     <string name="counts_hint_reason">3 ಮತ್ತು 500 ಅಕ್ಷರಗಳ ನಡುವೆ.</string>
     <string name="counts_hint_animal_lookup">ಈ ಸ್ಥಳಾಂತರವನ್ನು ಅನುಮೋದಿಸಿದರೆ ನೀವು ಇಲ್ಲಿ ಆಯ್ಕೆಮಾಡಿದ ನಿಖರ ಪ್ರಾಣಿಯನ್ನೇ ಸ್ಥಳಾಂತರಿಸಲಾಗುತ್ತದೆ.</string>
     <string name="counts_hint_death_lookup">ಮರಣವನ್ನು ದಾಖಲಿಸಿದರೆ ನೀವು ಇಲ್ಲಿ ಆಯ್ಕೆಮಾಡಿದ ನಿಖರ ಪ್ರಾಣಿಯನ್ನೇ ನಿರ್ಗಮಿಸಲಾಗುತ್ತದೆ.</string>

@@ -86,6 +86,12 @@ func navigation() domain.NavigationContract {
 			navItem("calendar", "Calendar", "/calendar", "calendar-days", ""),
 			navItem("protocol-adherence", "Protocol Adherence", "/protocol-adherence", "clipboard-check", ""),
 			navItem("workflows", "Workflows", "/workflows", "workflow", ""),
+			// Approvals is a top-level decision surface (maintainer decision 2026-07-21): the queue of
+			// pending birth/death/shifting requests, approved or rejected here. Moved off mobile;
+			// access is gated server-side by counts.approve_access (the four org tiers + admin +
+			// ceo_internal). The nav contract is static — like /verification and /config, an
+			// unauthorized caller's decision/list calls fail closed at the route.
+			navItem("approvals", "Approvals", "/approvals", "gavel", "approvals_open_queue"),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -117,9 +123,9 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "feed", Label: "Feed", Icon: "wheat", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
+					navLeaf("feed-config", "Feed Config", "/feed/config", nil),
 					navLeaf("feed-direction", "Feed Direction", "/feed/direction", nil),
 					navLeaf("feed-packing", "Feed Packing", "/feed/packing", nil),
-					navLeaf("feed-config", "Feed Config", "/feed/config", nil),
 				},
 			},
 			{
@@ -145,6 +151,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/protocol-adherence", Label: "Protocol Adherence", Match: "exact"},
 		{Pattern: "/workflows/{row_id}", Label: "Workflow record", Match: "pattern"},
 		{Pattern: "/workflows", Label: "Workflows", Match: "exact"},
+		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},

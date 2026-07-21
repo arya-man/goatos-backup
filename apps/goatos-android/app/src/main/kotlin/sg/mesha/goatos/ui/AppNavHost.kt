@@ -28,8 +28,6 @@ import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
 import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
-import sg.mesha.goatos.feature.counts.ApprovalEvent
-import sg.mesha.goatos.feature.counts.ApprovalScreen
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
@@ -62,7 +60,6 @@ import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.viewmodel.AlertsViewModel
-import sg.mesha.goatos.viewmodel.ApprovalViewModel
 import sg.mesha.goatos.viewmodel.BirthDeathViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
@@ -130,7 +127,6 @@ object Routes {
      * operator never receives it and this route is simply not an L0 root for them. Hiding it is
      * not the access control: `/app/counts/approvals` requires the same permission server-side.
      */
-    const val COUNTS_APPROVALS = "/counts/approvals"
 
     // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). A verifier's
     // bootstrap nav contains ONLY this — see MeshaIcons.forNavKey/GoatOsShell.navItemLabel's
@@ -753,36 +749,10 @@ fun AppNavHost(
             )
         }
 
-        // The approver's queue. An L0 root like the other counts destinations — the backend gates
-        // the nav item on the approval permissions, so an operator never receives it and never
-        // reaches this route (and `/app/counts/approvals` 403s them server-side regardless).
-        composable(Routes.COUNTS_APPROVALS) {
-            val vm: ApprovalViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            // Room-backed Paging window: one bounded page at a time, next page prefetched on
-            // scroll. No manual load-more, and no whole-backlog pull.
-            val rows = vm.rows.collectAsLazyPagingItems()
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
-            val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
-                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
-            }
-            ApprovalScreen(
-                state = state,
-                rows = rows,
-                onEvent = { event ->
-                    when (event) {
-                        // Refresh re-runs the mediator against the backend; the VM only clears
-                        // its banner state.
-                        ApprovalEvent.Refresh -> {
-                            vm.onEvent(event)
-                            rows.refresh()
-                        }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
+        // Approvals were REMOVED from mobile (maintainer decision 2026-07-21): the birth/death/
+        // shifting approval queue and approve/reject actions now live only on the admin-web
+        // Approvals page, gated to the four org tiers + admin + ceo_internal. There is no mobile
+        // route, screen, or nav entry for approvals any more.
 
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md): a
         // verifier's bootstrap nav contains ONLY VERIFY, so this is their entire app. A row

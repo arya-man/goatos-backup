@@ -83,10 +83,8 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">జంతువు గుర్తింపుదారు 1</string>
-    <string name="counts_field_tag2">జంతువు గుర్తింపుదారు 2</string>
     <string name="counts_field_breed">జాతి</string>
     <string name="counts_field_dob">పుట్టిన తేదీ (YYYY-MM-DD)</string>
-    <string name="counts_field_entry_date">ప్రవేశ తేదీ (YYYY-MM-DD)</string>
     <string name="counts_field_park">పార్క్</string>
     <string name="counts_field_farm">ఫారం</string>
     <string name="counts_field_current_location">ప్రస్తుత స్థానం</string>
@@ -96,12 +94,12 @@
     <string name="counts_field_sex">లింగం</string>
     <string name="counts_field_status">స్థితి</string>
     <string name="counts_field_goat">మేక</string>
-    <string name="counts_field_row_version">రికార్డ్ వెర్షన్</string>
     <string name="counts_field_reason">కారణం</string>
     <string name="counts_field_animal_lookup">RFID ద్వారా వెతకండి</string>
     <string name="counts_select_farm">ఒక ఫారంను ఎంచుకోండి</string>
     <string name="counts_select_farm_first">ముందుగా ఒక ఫారంను ఎంచుకోండి</string>
     <string name="counts_select_shed">ఒక షెడ్‌ను ఎంచుకోండి</string>
+    <string name="counts_select_breed">ఒక జాతిని ఎంచుకోండి</string>
     <string name="counts_location_unknown">నమోదు చేయలేదు</string>
 
     <!-- Animal picker (shifting) -->
@@ -116,8 +114,7 @@
     <string name="counts_sex_male">మగ</string>
 
     <!-- Hints -->
-    <string name="counts_hint_dob">ప్రవేశ తేదీ తర్వాత ఉండకూడదు.</string>
-    <string name="counts_hint_row_version">జంతువు యొక్క ప్రస్తుత రికార్డ్ వెర్షన్.</string>
+    <string name="counts_hint_dob">భవిష్యత్ తేదీ కావద్దు.</string>
     <string name="counts_hint_reason">3 మరియు 500 అక్షరాల మధ్య.</string>
     <string name="counts_hint_animal_lookup">ఈ తరలింపును ఆమోదిస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే తరలిస్తారు.</string>
     <string name="counts_hint_death_lookup">మరణాన్ని నమోదు చేస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే నిష్క్రమిస్తుంది.</string>

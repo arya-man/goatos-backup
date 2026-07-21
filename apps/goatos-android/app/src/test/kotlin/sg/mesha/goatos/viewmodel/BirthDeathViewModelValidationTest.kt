@@ -30,8 +30,10 @@ import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsBreakdownFacetsDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownRowDto
+import sg.mesha.goatos.core.network.dto.CountsBreakdownSeriesPointDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationShedDto
@@ -96,8 +98,7 @@ class BirthDeathViewModelValidationTest {
         advanceUntilIdle() // let the destinations catalog emit
 
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2026-01-01"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, "2026-01-15"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
 
         assertFalse(
             "Placement is required — submit stays disabled with no park/shed chosen",
@@ -117,8 +118,7 @@ class BirthDeathViewModelValidationTest {
         advanceUntilIdle()
 
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2026-01-01"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, "2026-01-15"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
 
@@ -129,6 +129,76 @@ class BirthDeathViewModelValidationTest {
         assertTrue("A birth was enqueued", request != null)
         assertEquals(PARK_ID, request!!.parkId)
         assertEquals(SHED_ID, request.shedId)
+    }
+
+    // --- Birth: single identifier, auto entry date, chosen breed ------------------------------
+
+    @Test
+    fun `birth needs only one identifier and auto-stamps today's entry date`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        // A single identifier is entered; there is no second-identifier or entry-date field to fill.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        assertTrue("One identifier + dob + placement is enough to submit", vm.state.value.canSubmit)
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals("Only the primary identifier is sent", "Goat001", request!!.animalIdentifier1)
+        assertEquals("No second identifier is collected any more", null, request.animalIdentifier2)
+        // Entry date is stamped automatically to today's business date (Asia/Kolkata), never typed.
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+            .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        assertEquals("Entry date is auto-stamped to today", today, request.entryDate)
+    }
+
+    @Test
+    fun `breed options come from the herd's backend facet, and the chosen key is submitted`() =
+        runTest(dispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle() // let the breed facet emit from the cached breakdown envelope
+
+            assertEquals(
+                "Breed options are the backend breed facet, not a hardcoded list",
+                listOf(BREED_KEY),
+                vm.state.value.breedOptions.map { it.key },
+            )
+
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+            vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+            vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+
+            vm.onEvent(BirthDeathEvent.Submit)
+            advanceUntilIdle()
+
+            assertEquals(
+                "The selected breed facet key is submitted verbatim",
+                BREED_KEY,
+                syncRepository.lastBirth?.breed,
+            )
+        }
+
+    @Test
+    fun `future date of birth blocks submit`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        // A dob after today's auto entry date must fail closed — the backend rule dob <= entry_date
+        // reduces to dob <= today once entry date is auto-stamped.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2999-01-01"))
+
+        assertFalse("A future date of birth cannot be submitted", vm.state.value.canSubmit)
     }
 
     @Test
@@ -203,6 +273,7 @@ class BirthDeathViewModelValidationTest {
         const val SHED_ID = "33333333-3333-3333-3333-333333333333"
         const val GOAT_ID = "44444444-4444-4444-4444-444444444444"
         const val ANIMAL_ROW_VERSION = 7
+        const val BREED_KEY = "beetal"
     }
 }
 
@@ -258,7 +329,19 @@ private class FakeBirthDeathCountsRepository : CountsRepository {
     override fun observeBreakdownTotals(
         query: CountsBreakdownQuery,
     ): Flow<Resource<CountsBreakdownResponseDto>> =
-        MutableStateFlow(Resource(data = CountsBreakdownResponseDto()))
+        MutableStateFlow(
+            Resource(
+                data = CountsBreakdownResponseDto(
+                    // Mirrors the census breakdown facets envelope: the birth breed dropdown reuses
+                    // the herd's OWN breed vocabulary, so the fake supplies one breed facet.
+                    facets = CountsBreakdownFacetsDto(
+                        breeds = listOf(
+                            CountsBreakdownSeriesPointDto(key = "beetal", label = "Beetal", count = 12),
+                        ),
+                    ),
+                ),
+            ),
+        )
 
     override fun breakdownRows(query: CountsBreakdownQuery): Flow<PagingData<CountsBreakdownRowDto>> =
         flowOf(PagingData.empty<CountsBreakdownRowDto>()).map { it }

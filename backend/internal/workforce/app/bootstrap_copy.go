@@ -92,14 +92,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// two-tab Counts module while Admin/CEO get all three.
 			{key: "birth_death", labelKey: "nav.birth_death", href: "/counts/birth-death", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
-			// Counts takes the trailing bar slot for the APPROVER's queue instead of the global
-			// You tab (maintainer decision 2026-07-19). The Counts module is where lifecycle
-			// requests are raised, so it is where they are decided; an operator holding no
-			// approval permission simply does not receive this item and gets a two-tab module.
-			// CountsApproveAccess is the coarse surface gate -- WHICH request types the caller
-			// may actually decide is resolved server-side per row
-			// (permissions.DecidableApprovalRequestTypes), never re-derived on the phone.
-			{key: "approval", labelKey: "nav.approval", href: "/counts/approvals", shared_key: "", priority: 4, requiredPermission: permissions.CountsApproveAccess}, //nav-composition:ignore: registry entry
+			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
+			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
+			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
+			// its bar is capture-only (birth_death + shifting, plus census for Admin/CEO).
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the

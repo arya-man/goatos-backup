@@ -245,10 +245,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite: {},
-		// A park head authorizes MOVEMENTS on their ground -- and nothing else. They deliberately
-		// do NOT hold CountsApproveLifecycle, so they cannot approve a birth or a death.
-		CountsApproveShifting: {},
-		CountsApproveAccess:   {},
+		// Approvals moved off the park head (maintainer decision 2026-07-21): approve/reject now
+		// belongs to the four org tiers (director/head/manager/am) plus admin and ceo_internal, on
+		// the admin-web Approvals page only. A park head no longer holds ANY counts.approve_*
+		// permission, so they can neither list nor decide birth/death/shifting requests.
 		// A park head dispatches feed on their own ground, so they read the packing worklist. They
 		// still hold no feed_config.* grant: executing a ration is not authoring one.
 		FeedPackingRead: {},

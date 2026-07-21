@@ -213,7 +213,7 @@ var tierPermissions = map[Tier]map[string]struct{}{
 	// Assistant Manager supervises ground execution. The separate Operator role
 	// owns RFID/camera capture and submit.
 	TierAssistantManager: {
-		GoatRead: {}, AppBootstrap: {},
+		GoatRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		TaskRead:       {},
 		ObligationRead: {}, VaccinationRead: {},
 		CalendarRead:    {},
@@ -221,11 +221,16 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		// Ground capture includes recording the three count-moving events from the phone
 		// (shifting/birth/death) -- see CountsWrite's doc comment in permissions.go.
 		CountsWrite: {},
+		// Approvals (maintainer decision 2026-07-21): all four org tiers approve/reject every
+		// request type -- birth, death, AND shifting -- on the admin-web Approvals page.
+		// AdminWebBootstrap above lets them load admin-web; CountsApproveAccess is the coarse route
+		// gate and Lifecycle/Shifting are the per-type decision authorities.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 	// Manager tier -- run the vertical's daily ops at a park, supervise AMs,
 	// manages the local roster without capturing.
 	TierManager: {
-		GoatRead: {}, AppBootstrap: {},
+		GoatRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		TaskRead: {}, TaskAssign: {},
 		ObligationRead: {}, VaccinationRead: {},
 		CalendarRead: {}, CalendarAction: {},
@@ -233,6 +238,8 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		RosterRead: {}, RosterManage: {},
 		ProcurementRead: {}, ProcurementWrite: {},
 		CountsWrite: {},
+		// Approvals (maintainer decision 2026-07-21): approve/reject birth, death, and shifting.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 	// Head (Ops-Head) tier -- park/vertical oversight + standards; act on
 	// verified items. No capture, no verify.
@@ -247,6 +254,8 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		ProcurementRead: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		VerificationAct: {},
+		// Approvals (maintainer decision 2026-07-21): approve/reject birth, death, and shifting.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 	// Director tier -- owns the vertical: plan/logistics/oversee execution,
 	// set SOPs/protocols, act, penalise. No capture, no verify.
@@ -262,6 +271,8 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
+		// Approvals (maintainer decision 2026-07-21): approve/reject birth, death, and shifting.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 }
 

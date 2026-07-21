@@ -2067,3 +2067,92 @@ export function compactQuery(values: Record<string, string | number | boolean | 
   }
   return query;
 }
+
+// ---------------------------------------------------------------------------
+// Counts Approvals (admin-web) — maintainer decision 2026-07-21.
+//
+// The pending birth/death/shifting approval queue, moved off mobile onto the admin-web Approvals
+// page. Served by the SAME approval service as the (now web-only) decision surface, under the
+// /admin-web/* prefix so it rides the admin session. Access is gated server-side by
+// counts.approve_access (the four org tiers + admin + ceo_internal); park_head no longer holds it.
+//
+// The approvals endpoints predate the OpenAPI contract (mobile consumed them via hand-written DTOs),
+// so these shapes are declared here rather than pulled from the generated client — the one
+// documented exception, mirroring how procurement/verification bootstrapped before their codegen.
+export type AdminWebApprovalRequestType = "birth" | "death" | "shifting";
+export type AdminWebApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export type AdminWebApprovalItem = {
+  approval_request_id: string;
+  request_type: AdminWebApprovalRequestType;
+  status: AdminWebApprovalStatus;
+  raised_by_user_id: string;
+  raised_at: string;
+  shifting_event_id?: string;
+  subject_goat_id?: string;
+  summary: unknown;
+  decided_by_user_id?: string;
+  decided_at?: string;
+  decision_reason?: string;
+};
+
+export type AdminWebApprovalListResponse = {
+  items: AdminWebApprovalItem[];
+  next_cursor?: string;
+};
+
+export type AdminWebApprovalDecisionResponse = {
+  approval_request_id: string;
+  request_type: AdminWebApprovalRequestType;
+  status: AdminWebApprovalStatus;
+  idempotent_replay: boolean;
+};
+
+export type AdminWebApprovalListParams = {
+  status?: string;
+  cursor?: string;
+  page_size?: number;
+};
+
+/** One keyset page of approval requests the caller may decide (GET /admin-web/counts/approvals). */
+export async function listAdminWebApprovals(
+  params: AdminWebApprovalListParams,
+): Promise<ApiResult<AdminWebApprovalListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/admin-web/counts/approvals" as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<AdminWebApprovalListResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({ status: params.status, cursor: params.cursor, page_size: params.page_size }),
+    }),
+  );
+}
+
+/**
+ * Approve or reject one request (POST /admin-web/counts/approvals/{id}/approve|reject). Carries the
+ * mandatory Idempotency-Key so a retry cannot double-apply; the backend re-checks the caller's
+ * authority against the request's STORED type, so an out-of-authority decision fails closed there.
+ */
+export async function decideAdminWebApproval(args: {
+  requestId: string;
+  approve: boolean;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<ApiResult<AdminWebApprovalDecisionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const verb = args.approve ? "approve" : "reject";
+  const path =
+    `/admin-web/counts/approvals/${encodeURIComponent(args.requestId)}/${verb}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<AdminWebApprovalDecisionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": args.idempotencyKey },
+      body: { reason: args.reason },
+    }),
+  );
+}

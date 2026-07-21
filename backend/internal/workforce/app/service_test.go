@@ -623,30 +623,29 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 }
 
 // TestCountsModuleRoleMatrix pins the maintainer-approved Counts access matrix
-// (2026-07-18, extended 2026-07-19 with the Approval tab). The Counts module exposes four
-// pages; who sees which is decided by permission (counts.read / counts.write /
-// counts.approve_access), never by a per-role nav template.
+// (2026-07-18; the mobile Approval tab was REMOVED 2026-07-21 — approvals moved to admin-web only).
+// The Counts module exposes capture pages on the phone; who sees which is decided by permission
+// (counts.read / counts.write), never by a per-role nav template.
 //
-// The Approval tab occupies the TRAILING bar slot that other modules give to "You", so a
-// principal with no approval permission gets a strictly shorter bar rather than a disabled
-// row — most importantly, an Operator's Counts bar is exactly [birth_death, shifting].
+// The mobile Counts bar no longer carries an approval tab for anyone: an Operator/Park Head gets
+// exactly [birth_death, shifting], and Admin/CEO additionally get the census page.
 //
-//	role          | census | birth/death | shifting | approval | module in drawer
-//	operator      |   -    |      x      |    x     |    -     | yes
-//	park_head     |   -    |      x      |    x     |    x     | yes   (shifting only, server-side)
-//	admin         |   x    |      x      |    x     |    x     | yes
-//	ceo_internal  |   x    |      x      |    x     |    x     | yes
-//	pc_director   |   -    |      -      |    -     |    -     | NO
-//	verifier      |   -    |      -      |    -     |    -     | NO
+//	role          | census | birth/death | shifting | module in drawer
+//	operator      |   -    |      x      |    x     | yes
+//	park_head     |   -    |      x      |    x     | yes
+//	admin         |   x    |      x      |    x     | yes
+//	ceo_internal  |   x    |      x      |    x     | yes
+//	pc_director   |   -    |      -      |    -     | NO
+//	verifier      |   -    |      -      |    -     | NO
 func TestCountsModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
 		wantItems []string // nav item keys inside the counts module, "" => module absent
 	}{
 		{permissions.RoleOperator, []string{"birth_death", "shifting"}},
-		{permissions.RoleParkHead, []string{"birth_death", "shifting", "approval"}},
-		{permissions.RoleAdmin, []string{"counts", "birth_death", "shifting", "approval"}},
-		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "approval"}},
+		{permissions.RoleParkHead, []string{"birth_death", "shifting"}},
+		{permissions.RoleAdmin, []string{"counts", "birth_death", "shifting"}},
+		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
 	}
@@ -691,16 +690,15 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 	}
 }
 
-// TestCountsModuleReplacesYouTabWithApproval pins the maintainer decision (2026-07-19) that the
-// Counts module owns its trailing bottom-bar slot: it contributes the Approval queue there, and
-// deliberately does NOT contribute the global "You" tab that vaccination and leadership do.
+// TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab pins that the mobile Counts module contributes
+// only capture tabs and no trailing action tab. The Approval queue was REMOVED from mobile
+// (maintainer decision 2026-07-21) — approve/reject is admin-web only — and Counts never
+// contributed the global "You" tab that vaccination and leadership do.
 //
-// This is the backend half of removing the client's hardcoded trailing tab. The Android shell now
-// renders the composed bar verbatim with nothing appended, so these assertions are what actually
-// decide how many tabs an operator sees. If "you" ever leaked into the counts contributions, the
-// Counts module would silently grow a fifth tab; if "approval" were ungated, an operator would be
-// shown a queue they cannot act on and whose route 403s.
-func TestCountsModuleReplacesYouTabWithApproval(t *testing.T) {
+// This is the backend authority for how many tabs an operator sees: the Android shell renders the
+// composed bar verbatim. If "approval" ever re-appeared here, the phone would show a queue that no
+// longer has a mobile route; if "you" leaked in, Counts would grow a tab it does not own.
+func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 	countsBar := func(role string) []string {
 		grants := []domain.GrantSummary{grantWithRole(role)}
 		items := composeNavigationFromModules([]string{"counts"}, grants, "")
@@ -722,24 +720,24 @@ func TestCountsModuleReplacesYouTabWithApproval(t *testing.T) {
 		return true
 	}
 
-	// The headline requirement: an operator's Counts bar is exactly two tabs.
+	// The headline requirement: an operator's Counts bar is exactly two capture tabs.
 	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth_death", "shifting"}) {
 		t.Fatalf("operator counts bar=%v want exactly [birth_death shifting]", got)
 	}
 
-	// An approver gets the same two capture tabs plus Approval in the trailing slot.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth_death", "shifting", "approval"}) {
-		t.Fatalf("park_head counts bar=%v want [birth_death shifting approval]", got)
+	// A park head no longer gets an approval tab — its Counts bar is the same two capture tabs.
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth_death", "shifting"}) {
+		t.Fatalf("park_head counts bar=%v want [birth_death shifting] (no approval on mobile)", got)
 	}
 
-	// No role gets a "You" tab from Counts -- it is not a counts contribution at all.
+	// No role gets an "approval" or a "You" tab from Counts on mobile.
 	for _, role := range []string{
 		permissions.RoleOperator, permissions.RoleParkHead,
 		permissions.RoleAdmin, permissions.RoleCEOInternal,
 	} {
 		for _, key := range countsBar(role) {
-			if key == "you" {
-				t.Fatalf("%s counts bar contains a 'you' tab; Counts contributes Approval in that slot", role)
+			if key == "you" || key == "approval" {
+				t.Fatalf("%s counts bar contains a %q tab; Counts is capture-only on mobile", role, key)
 			}
 		}
 	}

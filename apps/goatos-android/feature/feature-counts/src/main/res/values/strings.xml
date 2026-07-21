@@ -98,10 +98,8 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">Animal identifier 1</string>
-    <string name="counts_field_tag2">Animal identifier 2</string>
     <string name="counts_field_breed">Breed</string>
     <string name="counts_field_dob">Date of birth (YYYY-MM-DD)</string>
-    <string name="counts_field_entry_date">Entry date (YYYY-MM-DD)</string>
     <string name="counts_field_park">Park</string>
     <string name="counts_field_farm">Farm</string>
     <string name="counts_field_current_location">Current location</string>
@@ -111,12 +109,12 @@
     <string name="counts_field_sex">Sex</string>
     <string name="counts_field_status">Status</string>
     <string name="counts_field_goat">Goat</string>
-    <string name="counts_field_row_version">Record version</string>
     <string name="counts_field_reason">Reason</string>
     <string name="counts_field_animal_lookup">Search by RFID</string>
     <string name="counts_select_farm">Select a farm</string>
     <string name="counts_select_farm_first">Select a farm first</string>
     <string name="counts_select_shed">Select a shed</string>
+    <string name="counts_select_breed">Select a breed</string>
     <string name="counts_location_unknown">Not recorded</string>
 
     <!-- Animal picker (shifting) -->
@@ -131,8 +129,7 @@
     <string name="counts_sex_male">Male</string>
 
     <!-- Hints -->
-    <string name="counts_hint_dob">Must not be after the entry date.</string>
-    <string name="counts_hint_row_version">The animal\'s current record version.</string>
+    <string name="counts_hint_dob">Cannot be a future date.</string>
     <string name="counts_hint_reason">Between 3 and 500 characters.</string>
     <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animal you select here.</string>
     <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>

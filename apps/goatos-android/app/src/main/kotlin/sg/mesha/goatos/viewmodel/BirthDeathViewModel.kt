@@ -19,6 +19,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.CountsBreakdownQuery
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
@@ -30,7 +31,11 @@ import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
+import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /**
@@ -87,6 +92,7 @@ class BirthDeathViewModel @Inject constructor(
         outboxItemId.value?.let(::observeOutboxItem)
         observeDestinations()
         refreshDestinations()
+        observeBreedOptions()
         recomputeSubmitGate()
     }
 
@@ -136,12 +142,10 @@ class BirthDeathViewModel @Inject constructor(
         _state.update { current ->
             when (field) {
                 BirthDeathField.TAG -> current.copy(tag = value)
-                BirthDeathField.SECOND_TAG -> current.copy(secondTag = value)
                 BirthDeathField.SPECIES -> current.copy(species = value)
                 BirthDeathField.SEX -> current.copy(sex = value)
                 BirthDeathField.BREED -> current.copy(breed = value)
                 BirthDeathField.DOB -> current.copy(dob = value)
-                BirthDeathField.ENTRY_DATE -> current.copy(entryDate = value)
                 BirthDeathField.DAM_ID -> current.copy(damId = value)
                 BirthDeathField.REASON -> current.copy(reason = value)
             }
@@ -174,6 +178,32 @@ class BirthDeathViewModel @Inject constructor(
                         parkId = parkId,
                         shedId = if (shedStillOffered) current.shedId else "",
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
+                    )
+                }
+                recomputeSubmitGate()
+            }
+        }
+    }
+
+    /**
+     * Breed is chosen, not typed. The option list is the herd's OWN breed vocabulary — the same
+     * backend-owned, Room-cached Counts breakdown facet the census filter renders — so the app never
+     * invents a breed vocabulary of its own. Cache-first and reactive: it emits from Room immediately
+     * (the Counts landing screen keeps this envelope warm) and re-emits on any background refresh. A
+     * refresh that drops the currently-selected breed clears it so submit can never name a breed the
+     * vocabulary no longer offers. The facet's own `key` is what submits.
+     */
+    private fun observeBreedOptions() {
+        viewModelScope.launch {
+            countsRepository.observeBreakdownTotals(CountsBreakdownQuery()).collect { resource ->
+                val options = resource.data?.facets?.breeds
+                    ?.map { CountsFilterOptionUi(it.key, it.label, it.count) }
+                    .orEmpty()
+                _state.update { current ->
+                    val breedStillOffered = options.any { it.key == current.breed }
+                    current.copy(
+                        breedOptions = options,
+                        breed = if (breedStillOffered) current.breed else "",
                     )
                 }
                 recomputeSubmitGate()
@@ -337,15 +367,20 @@ class BirthDeathViewModel @Inject constructor(
         idempotencyKey = key,
         request = CountsBirthEventRequestDto(
             animalIdentifier1 = current.tag.trim(),
-            animalIdentifier2 = current.secondTag.trim().ifBlank { null },
+            // A single identifier is enough for a newborn; the secondary tag field was removed.
+            animalIdentifier2 = null,
             species = current.species,
             // Placement ids come from the destinations catalog, not free text — never a typed UUID.
             parkId = current.parkId.ifBlank { null },
             shedId = current.shedId.ifBlank { null },
+            // Breed is the selected facet key from the herd's own vocabulary, never typed.
             breed = current.breed.trim().ifBlank { null },
             sex = current.sex,
             dob = current.dob.trim(),
-            entryDate = current.entryDate.trim(),
+            // Entry date is not typed: it is the day this record is made, stamped to today's
+            // business date (Asia/Kolkata). Stamped at capture so an offline entry keeps its real
+            // recording date, not the later sync date. The backend still enforces dob <= entry_date.
+            entryDate = todayBusinessDate(),
             damId = current.damId.trim().ifBlank { null },
             evidenceRefs = evidence,
         ),
@@ -434,10 +469,10 @@ class BirthDeathViewModel @Inject constructor(
     private fun birthValidation(state: BirthDeathUiState): String? = when {
         state.tag.isBlank() -> "Enter the newborn's identifier."
         !isIsoDate(state.dob) -> "Enter the date of birth as YYYY-MM-DD."
-        !isIsoDate(state.entryDate) -> "Enter the entry date as YYYY-MM-DD."
-        // Mirrors the backend rule so the operator sees it before the round trip; the server
-        // still enforces it independently.
-        state.dob > state.entryDate -> "Date of birth cannot be after the entry date."
+        // Entry date is auto-stamped to today's business date, so dob <= entry_date reduces to
+        // dob <= today. Mirrors the backend rule so the operator sees it before the round trip; the
+        // server still enforces it independently. String compare is safe on ISO YYYY-MM-DD dates.
+        state.dob.trim() > todayBusinessDate() -> "Date of birth cannot be in the future."
         // Placement is REQUIRED and chosen from the catalog — a newborn is never recorded into no
         // shed, and the ids can only ever be real park/shed ids the picker offered.
         state.parkId.isBlank() -> "Choose the park the newborn is placed in."
@@ -456,6 +491,14 @@ class BirthDeathViewModel @Inject constructor(
 
     /** Shape-only check; the backend parses and validates the calendar date itself. */
     private fun isIsoDate(value: String): Boolean = ISO_DATE.matches(value.trim())
+
+    /**
+     * Today's business date in India-business-calendar terms (Asia/Kolkata), as ISO `YYYY-MM-DD`.
+     * Per AGENTS.md time semantics, a Goat OS business day is never defined by UTC. Used both as the
+     * auto entry date on the birth write and as the "not in the future" ceiling for the date of birth.
+     */
+    private fun todayBusinessDate(): String =
+        LocalDate.now(ZoneId.of("Asia/Kolkata")).format(DateTimeFormatter.ISO_LOCAL_DATE)
 
     private companion object {
         const val KEY_IDEMPOTENCY = "countsBirthDeath.idempotencyKey"

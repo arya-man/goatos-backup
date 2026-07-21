@@ -83,10 +83,8 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">पशु पहचानकर्ता 1</string>
-    <string name="counts_field_tag2">पशु पहचानकर्ता 2</string>
     <string name="counts_field_breed">नस्ल</string>
     <string name="counts_field_dob">जन्म तिथि (YYYY-MM-DD)</string>
-    <string name="counts_field_entry_date">प्रवेश तिथि (YYYY-MM-DD)</string>
     <string name="counts_field_park">पार्क</string>
     <string name="counts_field_farm">फ़ार्म</string>
     <string name="counts_field_current_location">वर्तमान स्थान</string>
@@ -96,12 +94,12 @@
     <string name="counts_field_sex">लिंग</string>
     <string name="counts_field_status">स्थिति</string>
     <string name="counts_field_goat">बकरी</string>
-    <string name="counts_field_row_version">रिकॉर्ड संस्करण</string>
     <string name="counts_field_reason">कारण</string>
     <string name="counts_field_animal_lookup">RFID से खोजें</string>
     <string name="counts_select_farm">एक फ़ार्म चुनें</string>
     <string name="counts_select_farm_first">पहले एक फ़ार्म चुनें</string>
     <string name="counts_select_shed">एक शेड चुनें</string>
+    <string name="counts_select_breed">एक नस्ल चुनें</string>
     <string name="counts_location_unknown">दर्ज नहीं</string>
 
     <!-- Animal picker (shifting) -->
@@ -116,8 +114,7 @@
     <string name="counts_sex_male">नर</string>
 
     <!-- Hints -->
-    <string name="counts_hint_dob">प्रवेश तिथि के बाद की नहीं होनी चाहिए।</string>
-    <string name="counts_hint_row_version">पशु का वर्तमान रिकॉर्ड संस्करण।</string>
+    <string name="counts_hint_dob">भविष्य की तिथि नहीं हो सकती।</string>
     <string name="counts_hint_reason">3 से 500 वर्णों के बीच।</string>
     <string name="counts_hint_animal_lookup">इस स्थानांतरण को स्वीकृत करने पर ठीक वही पशु स्थानांतरित होता है जिसे आप यहाँ चुनते हैं।</string>
     <string name="counts_hint_death_lookup">मृत्यु दर्ज करने पर ठीक वही पशु बाहर होता है जिसे आप यहाँ चुनते हैं।</string>

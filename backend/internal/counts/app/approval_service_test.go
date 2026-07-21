@@ -30,6 +30,12 @@ const (
 	svcShed     = "66666666-6666-4666-8666-666666666666"
 )
 
+// shiftingApproverRole is a role that holds shifting-approval authority under the maintainer
+// decision 2026-07-21 (approvals moved to the four org tiers + admin + ceo_internal). A manager
+// grant is the direct analog of the retired park_head shifting approver, and when scoped to a park
+// it exercises the same P0-2 park-scope path the park_head tests used to cover.
+var shiftingApproverRole = permissions.RoleKey(permissions.TierManager, permissions.VerticalPreventiveCare)
+
 // ---------------------------------------------------------------------------
 // Fakes
 // ---------------------------------------------------------------------------
@@ -153,9 +159,10 @@ func pendingRequest(requestType string) domain.ApprovalRequest {
 // Authority
 // ---------------------------------------------------------------------------
 
-// A park_head owns MOVEMENTS, not herd composition. Reaching a birth request by its id must be
-// refused before anything is prepared or applied -- the route-level permission cannot catch this,
-// because the request type lives in the row, not the URL.
+// A park_head holds NO approval authority (maintainer decision 2026-07-21). Reaching a birth
+// request by its id must be refused before anything is prepared or applied -- the route-level
+// permission cannot catch this, because the request type lives in the row, not the URL. With an
+// empty decidable set the decision fails closed.
 func TestParkHeadCannotApproveABirth(t *testing.T) {
 	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeBirth)}
 	preparer := &fakePreparer{}
@@ -211,7 +218,7 @@ func TestApproveShiftingRejectsStoredPayloadNamingNoAnimals(t *testing.T) {
 			`{"destination_park_id":"` + svcPark + `","destination_shed_id":"` + svcShed + `","goat_ids":[]}`)
 		return req
 	}
-	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
 
 	t.Run("approve is refused", func(t *testing.T) {
 		repo := &fakeApprovalRepo{request: storedWithoutGoats()}
@@ -245,15 +252,26 @@ func TestApproveShiftingRejectsStoredPayloadNamingNoAnimals(t *testing.T) {
 }
 
 // The permission table is the contract these tests rely on; assert it directly so a future edit
-// that quietly hands a park_head birth approval fails here.
+// that quietly changes who may approve fails here.
+//
+// Maintainer decision 2026-07-21: approve/reject moved off the park head onto the four org tiers
+// (director/head/manager/am, each across every vertical) plus admin and ceo_internal, on the
+// admin-web Approvals page. All four tiers decide every type; park_head now decides nothing.
 func TestDecidableApprovalRequestTypesPerRole(t *testing.T) {
+	all := []string{"birth", "death", "shifting"}
 	cases := []struct {
 		role string
 		want []string
 	}{
-		{permissions.RoleParkHead, []string{"shifting"}},
-		{permissions.RoleCEOInternal, []string{"birth", "death", "shifting"}},
-		{permissions.RoleAdmin, []string{"birth", "death", "shifting"}},
+		// The four org tiers each approve everything (any vertical composes the same tier caps).
+		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalPreventiveCare), all},
+		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), all},
+		{permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth), all},
+		{permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalBreeding), all},
+		{permissions.RoleCEOInternal, all},
+		{permissions.RoleAdmin, all},
+		// Park head no longer holds ANY approval permission.
+		{permissions.RoleParkHead, nil},
 		// Operators capture; capture is not approval.
 		{permissions.RoleOperator, nil},
 		// Separation of duty: the verifier reviews media and must not gain lifecycle authority.
@@ -415,17 +433,20 @@ func TestApproveDoesNotPrepareAnAlreadyDecidedRequest(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // The list's type filter must come from the caller's authority. If it were client-supplied, a
-// park_head could ask for births and page through work they cannot act on.
+// caller could ask for types they cannot act on and page through work outside their authority.
 func TestListPendingPassesCallerAuthorityAsTheTypeFilter(t *testing.T) {
 	repo := &fakeApprovalRepo{}
 	svc := NewApprovalService(repo, &fakePreparer{}, nil)
 
-	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	// A caller whose authority is shifting-only must get a shifting-only list filter. Passed
+	// explicitly rather than derived from a role, because every current approver role decides all
+	// three types -- the contract under test is that ListPending forwards the caller's authority verbatim.
+	decidable := []string{"shifting"}
 	if _, err := svc.ListPending(context.Background(), svcTenant, "", decidable, "", 20, ""); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(repo.listQuery.RequestTypes) != 1 || repo.listQuery.RequestTypes[0] != domain.ApprovalRequestTypeShifting {
-		t.Fatalf("request types=%v, want only shifting for a park_head", repo.listQuery.RequestTypes)
+		t.Fatalf("request types=%v, want only shifting", repo.listQuery.RequestTypes)
 	}
 	// An absent status must default to pending, which is the queue an approver opens.
 	if repo.listQuery.Status != domain.ApprovalStatusPending {
@@ -458,15 +479,15 @@ func TestListPendingRejectsAMalformedCursor(t *testing.T) {
 	}
 }
 
-// P0-2 scope escalation: a park head may decide a shifting request ONLY inside the park they
-// manage. The route-level permission checks the request TYPE, not the park SCOPE, so without this
-// the same park head could approve a movement in a park they do not manage. The park lives in the
-// stored payload (destination_park_id, which equals the source park by P0-1), never in the URL.
-func TestParkHeadCannotApproveShiftingOutsideTheirPark(t *testing.T) {
+// P0-2 scope escalation: a park-scoped approver may decide a shifting request ONLY inside the park
+// they manage. The route-level permission checks the request TYPE, not the park SCOPE, so without
+// this the same approver could authorize a movement in a park they do not manage. The park lives in
+// the stored payload (destination_park_id, which equals the source park by P0-1), never in the URL.
+func TestParkScopedApproverCannotApproveShiftingOutsideTheirPark(t *testing.T) {
 	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)} // dest park = svcPark
 	svc := NewApprovalService(repo, &fakePreparer{}, nil)
 
-	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
 	in := newDecisionInput("request-1", true, decidable)
 	in.CallerParkID = "77777777-7777-4777-8777-777777777777" // a DIFFERENT park than the request's
 
@@ -479,13 +500,13 @@ func TestParkHeadCannotApproveShiftingOutsideTheirPark(t *testing.T) {
 	}
 }
 
-// The in-scope case must still succeed: a park head deciding a shifting request in their OWN park
-// passes the scope check and the decision is recorded.
-func TestParkHeadCanApproveShiftingInTheirPark(t *testing.T) {
+// The in-scope case must still succeed: a park-scoped approver deciding a shifting request in their
+// OWN park passes the scope check and the decision is recorded.
+func TestParkScopedApproverCanApproveShiftingInTheirPark(t *testing.T) {
 	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)} // dest park = svcPark
 	svc := NewApprovalService(repo, &fakePreparer{}, nil)
 
-	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
 	in := newDecisionInput("request-1", true, decidable)
 	in.CallerParkID = svcPark // the SAME park as the request
 
@@ -503,7 +524,7 @@ func TestNoScopeCallerBypassesParkScopeCheck(t *testing.T) {
 	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)}
 	svc := NewApprovalService(repo, &fakePreparer{}, nil)
 
-	decidable := permissions.DecidableApprovalRequestTypes([]string{permissions.RoleParkHead})
+	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
 	in := newDecisionInput("request-1", true, decidable)
 	in.CallerParkID = "" // no park scope
 

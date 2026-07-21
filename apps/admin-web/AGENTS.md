@@ -552,7 +552,15 @@ Only these routes are current implemented product routes:
 /sops
 /goats/{goat_id}
 /verification               Verification — authority review (Admin / Data Ops authority screen)
+/approvals                  Approvals — birth/death/shifting decision queue (top-level; moved off
+                            mobile 2026-07-21; RBAC: director/head/manager/am + admin + ceo_internal)
 ```
+
+Scope note (maintainer decision 2026-07-21): `/approvals` is a NEW top-level decision surface. The
+birth/death/shifting approval queue was removed from the mobile app and now lives ONLY here, gated
+server-side by `counts.approve_access` (the four org tiers + admin + ceo_internal; park_head no
+longer holds it). It renders from local literal copy until a backend `approvals` page contract
+lands (same documented exception as `/verification`).
 
 `/verification` is the AUTHORITY act screen for the generic Verification vertical
 (`context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`):
