@@ -26,7 +26,7 @@ import {
   Zap,
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { CEOAIChat } from "@/components/ceo-ai-chat";
+import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
@@ -184,6 +184,28 @@ export function MeshaShell({
   const currentPageLabel = labelForPath(pathname, contract);
   const parkScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "park");
   const actor = contract.top_bar.role_preview;
+  const ceoAIChatCopy: CEOAIChatCopy = {
+    title: shellCopy(contract, "ceo_ai.title"),
+    subtitle: shellCopy(contract, "ceo_ai.subtitle"),
+    hello: shellCopy(contract, "ceo_ai.hello"),
+    helloMeta: shellCopy(contract, "ceo_ai.hello_meta"),
+    checking: shellCopy(contract, "ceo_ai.checking"),
+    noAnswer: shellCopy(contract, "ceo_ai.no_answer"),
+    unavailable: shellCopy(contract, "ceo_ai.unavailable"),
+    unavailableMeta: shellCopy(contract, "ceo_ai.unavailable_meta"),
+    sourceFallback: shellCopy(contract, "ceo_ai.source_fallback"),
+    modeFallback: shellCopy(contract, "ceo_ai.mode_fallback"),
+    placeholder: shellCopy(contract, "ceo_ai.placeholder"),
+    open: shellCopy(contract, "ceo_ai.open"),
+    close: shellCopy(contract, "ceo_ai.close"),
+    send: shellCopy(contract, "ceo_ai.send"),
+    starters: [
+      shellCopy(contract, "ceo_ai.starter_due"),
+      shellCopy(contract, "ceo_ai.starter_overdue"),
+      shellCopy(contract, "ceo_ai.starter_counts"),
+      shellCopy(contract, "ceo_ai.starter_help"),
+    ],
+  };
   const alertDisplayRules = contract.display_rules.filter((rule) => rule.id.includes("error"));
 
   useEffect(() => {
@@ -620,7 +642,7 @@ export function MeshaShell({
           </div>
         </main>
       </div>
-      <CEOAIChat displayName={actor.display_name} subtitle={actor.subtitle} />
+      <CEOAIChat displayName={actor.display_name} subtitle={actor.subtitle} copy={ceoAIChatCopy} />
     </>
   );
 }
