@@ -1,6 +1,17 @@
 # Mesha CEO Bot Analytics Context
 
-Status: working context for the CEO/CXO-only Mesha assistant.
+Status: target context for the leadership-only Mesha assistant. This file
+defines how the finished agent must reason about Mesha data. It does not mean
+the ADK/Vertex runtime, persisted memory, MCP Toolbox service, complete
+`ceo_ai.*` schema, or safe SQL fallback are implemented yet.
+
+Implemented now: dashboard bubble, server-side leadership gate, safe read-only
+API demo routing, and guardrails requiring future assistant coverage updates.
+
+Not implemented yet: Google ADK runtime, production Vertex planner, persisted
+memory/session store, MCP Toolbox runtime, complete reporting schema, SQL
+fallback executor, retry/fallback orchestration, and assistant audit/metrics
+persistence.
 
 This file is the concise source map for the CEO bot. It tells the model and the
 tool layer which Mesha data surfaces are safe to use, which domains are

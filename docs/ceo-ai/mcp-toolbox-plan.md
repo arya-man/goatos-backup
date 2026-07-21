@@ -1,7 +1,27 @@
 # Mesha Leadership Assistant MCP Toolbox Plan
 
-Status: production-ready plan and starter config. This document does not deploy
-cloud resources by itself.
+Status: target architecture and implementation plan. This document does not
+claim the ADK/Vertex agent runtime, persisted memory, MCP Toolbox service,
+`ceo_ai.*` reporting schema, or SQL fallback are already implemented.
+
+Currently implemented on `main`:
+
+- leadership-only dashboard bubble and safe assistant endpoint shell
+- read-only responses through existing Mesha APIs for the first demo paths
+- server-side role/scope gate
+- docs, skills, hooks, and local CI guardrails that force future assistant
+  coverage updates
+
+Not implemented yet:
+
+- Google ADK agent service
+- Vertex/Gemini production planner behind the Mesha backend
+- persisted memory/session store
+- production tool orchestration, retries, and fallback execution
+- MCP Toolbox Cloud Run service
+- dedicated read-only database role and `ceo_ai.*` reporting schema
+- validated safe SQL fallback
+- assistant audit/metrics tables
 
 ## Goal
 
