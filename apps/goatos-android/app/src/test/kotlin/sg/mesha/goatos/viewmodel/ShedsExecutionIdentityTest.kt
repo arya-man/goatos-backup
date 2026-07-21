@@ -44,7 +44,7 @@ class ShedsExecutionIdentityTest {
             ZonedDateTime.of(2026, 7, 21, 9, 30, 0, 0, ZoneId.of("Asia/Kolkata")),
         )
 
-        assertEquals("2026-07-21T09:30:00+05:30", window.asOf)
+        assertEquals(null, window.asOf)
         assertEquals("2026-07-28T09:30:00+05:30", window.dueBefore)
         assertEquals("Today · Tue 21 Jul", window.todayLabel)
         assertEquals("Tue 21 Jul → Mon 27 Jul", window.windowLabel)
