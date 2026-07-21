@@ -16,6 +16,19 @@ CEO/CXO full access is represented by the `ceo_internal` grant role and `cxo`
 workforce hint. Product route/package names such as `/admin/*` or `admin-web`
 are not grant roles.
 
+Git identity rule: Goat OS commits must use a Mesha identity. Before committing
+or landing, verify `git config user.email` ends in `@mesha.sg`; never commit or
+push with Heva, Slice, gmail, or personal identities. `make git-identity-guard`
+and `make ci-local` enforce this.
+
+Leadership assistant coverage rule: every current or future
+leadership-relevant backend module, migration, OpenAPI contract, admin-web
+route, mobile workflow, reporting table, or domain event must update the
+leadership assistant read path in the same change. Update a Mesha read API
+mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
+document an explicit exclusion. `make leadership-assistant-coverage-guard`
+enforces this in local CI.
+
 ## Required First Step — 4-Layer Lookup
 
 Work layers in order. Stop when the question is answered. Never jump to files first.

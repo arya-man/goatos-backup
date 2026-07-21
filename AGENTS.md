@@ -346,6 +346,11 @@ Organization boundaries:
   remote URL for direct remote/CI verification. Do not rely on whatever `gh`
   account is active; this workspace may also have Heva and Slice GitHub
   accounts configured, and those must not be used for Goat OS repo authority.
+- Git commits from this repo must use a Mesha identity only. Before committing
+  or landing, `git config user.email` must end in `@mesha.sg`; Heva, Slice,
+  gmail, or personal identities are blocked by `make git-identity-guard` and
+  the local CI common gate. The expected maintainer identity is
+  `Raviteja <ravi@mesha.sg>`.
 - **Staging promotion is PR-only (always on).** Never push any local ref, local
   `stg`, `main`, `HEAD`, agent branch, or refspec directly to remote `stg`.
   The only authorized staging branch update is GitHub merging a same-repository

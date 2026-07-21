@@ -140,19 +140,30 @@ Generated SQL must obey all rules:
 
 Unsafe SQL must be rejected by the server even if Gemini produced it.
 
-## Required Reporting Views
+## Required Reporting Coverage
 
-The long-term stable interface for the CEO bot is `ceo_ai.*`, not raw normalized
-tables. Initial view set:
+The long-term stable interface for the leadership assistant is complete Mesha
+coverage through read APIs, MCP business tools, and `ceo_ai.*` reporting views.
+This is not a starter-only list. The assistant must cover every current and
+future leadership-relevant module.
+
+Required coverage includes:
 
 - `ceo_ai.animal_current_scope`
+- `ceo_ai.shed_capacity_current`
 - `ceo_ai.vaccination_shed_status`
+- `ceo_ai.vaccination_dose_pickup`
 - `ceo_ai.feed_direction_current`
 - `ceo_ai.counts_movement_daily`
 - `ceo_ai.procurement_pipeline`
+- `ceo_ai.source_entry_health_status`
 - `ceo_ai.ops_exception_queue`
 - `ceo_ai.sop_execution_status`
+- `ceo_ai.verification_queue_status`
 - `ceo_ai.inventory_stock_position`
+- `ceo_ai.workforce_coverage_status`
+- `ceo_ai.action_center_current`
+- `ceo_ai.audit_activity_summary`
 
 These views should expose business-language columns such as `park_label`,
 `shed_label`, `animal_count`, `due`, `done`, `blocked_reason`, `status`, and
@@ -161,7 +172,7 @@ These views should expose business-language columns such as `park_label`,
 ## Future Developer Rule
 
 Any new Mesha feature that creates leadership-relevant operational data must
-update the CEO chatbot context in the same pull request.
+update the leadership assistant context in the same pull request.
 
 The required update is one of:
 
@@ -171,9 +182,13 @@ The required update is one of:
 - document why the feature should not be visible to the CEO chatbot
 
 This applies to all developers and all coding agents, including Claude and
-Codex. If a feature affects counts, vaccination, feed, shifting, procurement,
-inventory, SOP execution, verification, workforce, action center, or audit
-visibility, the CEO chatbot context must be reviewed.
+Codex. If a feature affects counts, vaccination, dose pickup, feed, shifting,
+procurement, source entry, inventory, SOP execution, verification, workforce,
+action center, audit visibility, health/exception state, or any future operating
+module, the leadership assistant context must be reviewed.
+
+The PR must either add the assistant read path or explicitly document why the
+feature is excluded from leadership visibility. Silent gaps are not allowed.
 
 Canonical files:
 
@@ -213,7 +228,8 @@ Phase 4: automatic feature coverage
 - CI check for leadership-relevant feature changes
 - agent instructions for Claude/Codex
 - PR checklist requiring CEO chatbot context updates
-- stale-context check when new read APIs or reporting tables are added
+- stale-context check when new read APIs, routes, modules, reporting tables, or
+  operating workflows are added
 
 ## Definition Of Done
 
@@ -227,4 +243,3 @@ A CEO chatbot capability is done only when:
 - SQL, if used, is read-only and validated
 - the relevant docs/context are updated
 - local typecheck and guardrail checks pass
-

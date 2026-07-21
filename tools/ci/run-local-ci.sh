@@ -87,10 +87,12 @@ run_sqlc_static_checks() {
 }
 
 run_common() {
+  step "git-identity-guard" make git-identity-guard
   step "guardrail-registration-guard" make guardrail-registration-guard
   step "local-stack-service-guard" make local-stack-service-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "domain-event-architecture-guard" make domain-event-architecture-guard
+  step "leadership-assistant-coverage-guard" make leadership-assistant-coverage-guard
   step "agent: ai-doctor"          make ai-doctor
   step "agent: stg-promotion"      make stg-promotion-guard
   step "agent: boundaries self-test" bash tools/agent-hooks/check-boundaries.sh --self-test
