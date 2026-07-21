@@ -42,7 +42,7 @@ let baselineUpdated = 0;
 // typo (or a selection that matches nothing) fails immediately, not after an unrelated network lookup.
 const KNOWN_ROUTE_NAMES = [
   "login", "control-tower", "action-center", "calendar", "protocol-adherence", "workflows",
-  "vaccination", "vaccination-execution", "procurement-source-entry", "config", "sops",
+  "vaccination", "vaccination-schedule", "vaccination-execution", "procurement-source-entry", "config", "sops",
   "sops-builder", "counts-herd", "counts-breakdown", "operations-audit", "operations-dlq",
   "goat-passport", "procurement-load-detail",
 ];
@@ -81,6 +81,11 @@ const routes = [
   { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
   { name: "workflows", path: "/workflows?scope_mode=company" },
   { name: "vaccination", path: "/vaccination?scope_mode=company" },
+  {
+    name: "vaccination-schedule",
+    path: `/vaccination?scope_mode=company&view=schedule&schedule_year=${new Date().getFullYear()}`,
+    viewports: ["desktop"],
+  },
   { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
   { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
   { name: "config", path: "/config?scope_mode=company&category=vaccination" },
@@ -136,6 +141,7 @@ try {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     const page = await context.newPage();
     for (const route of selectedRoutes) {
+      if (route.viewports && !route.viewports.includes(viewport.label)) continue;
       const url = `${appBaseUrl}${appPath(route.path)}`;
       const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
       if (!response) {
@@ -444,8 +450,10 @@ async function settleAtTop(page) {
   await page.waitForTimeout(80);
 }
 
-async function assertA11y(page, routeName, viewportLabel) {
-  const results = await new AxeBuilder({ page }).analyze();
+async function assertA11y(page, routeName, viewportLabel, includeSelector) {
+  const builder = new AxeBuilder({ page });
+  if (includeSelector) builder.include(includeSelector);
+  const results = await builder.analyze();
   const violations = results.violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious");
   if (violations.length === 0) return;
   const summary = violations.slice(0, 5).map((violation) => ({
@@ -678,6 +686,72 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     }
     await page.goto(`${appBaseUrl}${appPath("/vaccination?scope_mode=company")}`, { waitUntil: "networkidle", timeout: 30_000 });
   }
+
+  if (routeName === "vaccination-schedule") {
+    const overflowToggle = page.locator(".schedule-vaccine-toggle").first();
+    await overflowToggle.waitFor({ state: "visible", timeout: 10_000 });
+    const collapsedLabel = (await overflowToggle.innerText()).replace(/\s+/g, " ").trim();
+    if (!/^\+\d+ more$/.test(collapsedLabel)) {
+      throw new Error(`${routeName} collapsed vaccine overflow label is ${JSON.stringify(collapsedLabel)}; expected "+N more"`);
+    }
+    if ((await overflowToggle.getAttribute("aria-expanded")) !== "false") {
+      throw new Error(`${routeName} vaccine overflow must start collapsed`);
+    }
+
+    const before = await overflowToggle.evaluate((element) => {
+      const row = element.closest("tr");
+      if (!(row instanceof HTMLElement)) throw new Error("vaccine overflow toggle is not inside a table row");
+      return { rowHeight: row.getBoundingClientRect().height, url: window.location.href };
+    });
+    await overflowToggle.click();
+    await page.waitForFunction(
+      (element) => element instanceof HTMLElement && element.getAttribute("aria-expanded") === "true",
+      await overflowToggle.elementHandle(),
+      { timeout: 5_000 },
+    );
+
+    const expanded = await overflowToggle.evaluate((element) => {
+      const row = element.closest("tr");
+      const cell = element.closest("td");
+      const control = element.closest(".schedule-vaccine-control");
+      const expandedChips = control?.querySelector(".schedule-vaccine-expanded-chips");
+      if (!(row instanceof HTMLElement) || !(cell instanceof HTMLElement) || !(control instanceof HTMLElement)) {
+        throw new Error("vaccine overflow control is not inside the expected schedule cell");
+      }
+      return {
+        cellBackground: getComputedStyle(cell).backgroundColor,
+        controlBackground: getComputedStyle(control).backgroundColor,
+        expandedChipCount: expandedChips?.querySelectorAll(".vaccine-chip").length ?? 0,
+        expandedChipsHidden: expandedChips instanceof HTMLElement ? expandedChips.hidden : true,
+        label: element.textContent?.replace(/\s+/g, " ").trim() ?? "",
+        rowHeight: row.getBoundingClientRect().height,
+        url: window.location.href,
+      };
+    });
+    if (expanded.label !== "Show less") {
+      throw new Error(`${routeName} expanded vaccine overflow label is ${JSON.stringify(expanded.label)}; expected "Show less"`);
+    }
+    if (expanded.expandedChipsHidden || expanded.expandedChipCount < 1) {
+      throw new Error(`${routeName} did not reveal its hidden vaccine chips`);
+    }
+    if (!isTransparentBackground(expanded.cellBackground) || !isTransparentBackground(expanded.controlBackground)) {
+      throw new Error(
+        `${routeName} paints an expanded-state background (cell=${expanded.cellBackground}, control=${expanded.controlBackground})`,
+      );
+    }
+    if (Math.abs(expanded.rowHeight - before.rowHeight) > 1) {
+      throw new Error(`${routeName} vaccine overflow changes row height by ${Math.abs(expanded.rowHeight - before.rowHeight).toFixed(2)}px`);
+    }
+    if (expanded.url !== before.url) {
+      throw new Error(`${routeName} vaccine overflow changed the page URL`);
+    }
+    await assertLayoutHealthy(page, `${routeName}-expanded`, viewportLabel);
+    await assertA11y(page, `${routeName}-expanded`, viewportLabel, ".schedule-vaccine-control");
+  }
+}
+
+function isTransparentBackground(value) {
+  return value === "transparent" || value === "rgba(0, 0, 0, 0)";
 }
 
 async function openCalendarDriveDetail(page, trigger, routeName) {

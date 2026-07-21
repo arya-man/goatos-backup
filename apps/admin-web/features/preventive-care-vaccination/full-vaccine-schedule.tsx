@@ -9,6 +9,7 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
 import { getCalendarVaccinationEvents, type CalendarEvent, type CalendarEventListResponse } from "@/features/calendar";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
+import { VaccineChipOverflow } from "./vaccine-chip-overflow";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -475,31 +476,13 @@ export async function VaccinationFullSchedule({
                       </td>
                       <td className="schedule-vaccine-cell">
                         {hiddenVaccineCount > 0 ? (
-                          <details className="schedule-vaccine-overflow">
-                            <summary
-                              className="celllink schedule-wrap-link"
-                              title={vaccineTitle}
-                              aria-label={`${copy(pageContract, "schedule.column.vaccines")}: ${vaccineTitle}`}
-                            >
-                              <span className="schedule-chip-list vaccine-chip-list schedule-chip-list-compact">
-                                {previewVaccines.map((vaccine) => (
-                                  <span key={vaccine} className="schedule-mini-chip vaccine-chip">{vaccine}</span>
-                                ))}
-                                <span className="schedule-mini-chip schedule-more-chip">
-                                  +{hiddenVaccineCount} {copy(pageContract, "schedule.drawer.more")}
-                                </span>
-                              </span>
-                            </summary>
-                            <div
-                              className="schedule-vaccine-overflow-list"
-                              role="list"
-                              aria-label={copy(pageContract, "schedule.column.vaccines")}
-                            >
-                              {vaccines.slice(VACCINE_CHIP_PREVIEW_LIMIT).map((vaccine) => (
-                                <span key={vaccine} className="schedule-mini-chip vaccine-chip" role="listitem">{vaccine}</span>
-                              ))}
-                            </div>
-                          </details>
+                          <VaccineChipOverflow
+                            vaccines={vaccines}
+                            previewLimit={VACCINE_CHIP_PREVIEW_LIMIT}
+                            moreLabel={copy(pageContract, "schedule.drawer.more")}
+                            lessLabel={copy(pageContract, "schedule.drawer.less")}
+                            ariaLabel={`${copy(pageContract, "schedule.column.vaccines")}: ${vaccineTitle}`}
+                          />
                         ) : (
                           <div className="celllink schedule-wrap-link" title={vaccineTitle}>
                             <span className="schedule-chip-list vaccine-chip-list schedule-chip-list-compact">

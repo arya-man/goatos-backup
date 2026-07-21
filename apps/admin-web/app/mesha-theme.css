@@ -667,12 +667,14 @@
   .schedule-count-chip{flex:0 0 auto;max-width:none!important;color:var(--brand-d);border-color:color-mix(in srgb,var(--brand) 36%,var(--line));background:var(--brand-soft)}
   .schedule-more-chip{flex:0 0 auto;max-width:none!important;border-color:color-mix(in srgb,var(--info) 36%,var(--line2));background:var(--infox);color:var(--info);font-weight:850}
   .schedule-vaccine-cell{overflow:visible}
-  .schedule-vaccine-overflow{display:block;min-width:0;width:100%}
-  .schedule-vaccine-overflow>summary{list-style:none;cursor:pointer}
-  .schedule-vaccine-overflow>summary::-webkit-details-marker{display:none}
-  .schedule-vaccine-overflow>summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:6px}
-  .schedule-vaccine-overflow[open]>summary{background:var(--infox)}
-  .schedule-vaccine-overflow-list{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0 12px 10px}
+  .schedule-vaccine-control{display:flex;align-items:center;min-height:58px;padding:10px 12px}
+  .schedule-vaccine-control .schedule-chip-list{flex-wrap:wrap;overflow:visible}
+  .schedule-vaccine-expanded-chips:not([hidden]){display:contents}
+  .schedule-vaccine-toggle{appearance:none;gap:4px;cursor:pointer;font:inherit;transition:background .14s ease,border-color .14s ease,color .14s ease}
+  .schedule-vaccine-toggle .ic{width:12px;height:12px;flex:0 0 auto;stroke-width:2.4}
+  .schedule-vaccine-toggle:hover{border-color:color-mix(in srgb,var(--info) 62%,var(--line2));background:color-mix(in srgb,var(--info) 18%,var(--panel))}
+  .schedule-vaccine-toggle.is-expanded{border-color:var(--line2);background:color-mix(in srgb,var(--panel) 82%,var(--bg));color:var(--muted)}
+  .schedule-vaccine-toggle:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
   .vaccine-chip{color:var(--ink);border-color:color-mix(in srgb,var(--info) 32%,var(--line));background:var(--infox)}
   .schedule-animals-link{justify-content:center;text-align:center}
   .schedule-load-stack{display:grid;justify-items:center;gap:4px;line-height:1.08;width:100%;min-width:0}

@@ -70,6 +70,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "schedule.drawer.title": "Drive sheds",
     "schedule.drawer.open_sheds": "Open shed list",
     "schedule.drawer.more": "more",
+    "schedule.drawer.less": "Show less",
     "schedule.drawer.close": "Close shed list",
     "schedule.drawer.search": "Search sheds...",
     "schedule.drawer.search_action": "Search",

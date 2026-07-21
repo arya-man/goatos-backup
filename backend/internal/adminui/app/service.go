@@ -1081,6 +1081,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.drawer.open_sheds":                  "Open shed list",
 			"schedule.drawer.open_roster":                 "Open roster",
 			"schedule.drawer.more":                        "more",
+			"schedule.drawer.less":                        "Show less",
 			"schedule.drawer.close":                       "Close shed list",
 			"schedule.drawer.search":                      "Search sheds...",
 			"schedule.drawer.search_action":               "Search",
