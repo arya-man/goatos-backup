@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -32,12 +33,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
@@ -85,8 +88,39 @@ fun CalendarScreen(
     val selected = state.segments.firstOrNull { it.id == state.selectedSegmentId }
         ?: state.segments.firstOrNull()
     var showMonthFilters by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(
+        listState,
+        selected?.kind,
+        state.weekHasMore,
+        state.weekLoadingMore,
+        state.weekItems.size,
+        state.historyHasMore,
+        state.historyLoadingMore,
+        state.historyRows.size,
+    ) {
+        val shouldAutoLoad = when (selected?.kind) {
+            CalendarSegmentKind.Week -> state.weekHasMore && !state.weekLoadingMore && state.weekItems.isNotEmpty()
+            CalendarSegmentKind.History -> state.historyHasMore && !state.historyLoadingMore && state.historyRows.isNotEmpty()
+            else -> false
+        }
+        if (!shouldAutoLoad) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= listState.layoutInfo.totalItemsCount - 4) {
+                    when (selected?.kind) {
+                        CalendarSegmentKind.Week ->
+                            if (state.weekHasMore && !state.weekLoadingMore) onEvent(CalendarEvent.LoadMoreWeek)
+                        CalendarSegmentKind.History ->
+                            if (state.historyHasMore && !state.historyLoadingMore) onEvent(CalendarEvent.LoadMoreHistory)
+                        else -> Unit
+                    }
+                }
+            }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .background(MeshaColors.PageBg)
@@ -314,13 +348,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
         items(state.weekItems, key = { it.id }) { item ->
             EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target)) })
         }
-        if (state.weekHasMore) {
+        if (state.weekLoadingMore) {
             item {
-                LoadMoreButton(
-                    label = stringResource(R.string.calendar_load_more_day),
-                    loading = state.weekLoadingMore,
-                    onClick = { onEvent(CalendarEvent.LoadMoreWeek) },
-                )
+                InlineLoadingFooter()
             }
         }
     }
@@ -930,7 +960,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
 
     when (monthItems.loadState.append) {
         is LoadState.Loading -> item {
-            MonthPagingMessage(label = stringResource(R.string.calendar_loading_more), loading = true)
+            MonthPagingMessage(label = "", loading = true)
         }
         is LoadState.Error -> item {
             MonthPagingMessage(
@@ -957,14 +987,18 @@ private fun MonthPagingMessage(
     ) {
         if (loading) {
             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.size(8.dp))
+            if (label.isNotBlank()) {
+                Spacer(Modifier.size(8.dp))
+            }
         }
-        Text(
-            text = label,
-            color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
-        )
+        if (label.isNotBlank()) {
+            Text(
+                text = label,
+                color = MeshaColors.Muted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W700,
+            )
+        }
         if (actionLabel != null) {
             Spacer(Modifier.size(8.dp))
             TextButton(onClick = onAction) { Text(actionLabel) }
@@ -1152,6 +1186,16 @@ fun CalendarDayScreen(
     onLoadMore: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.items.size) {
+        if (!state.hasMore || state.isLoadingMore || state.items.isEmpty()) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= listState.layoutInfo.totalItemsCount - 4 && state.hasMore && !state.isLoadingMore) {
+                    onLoadMore()
+                }
+            }
+    }
     Column(
         modifier
             .fillMaxSize()
@@ -1183,7 +1227,7 @@ fun CalendarDayScreen(
                 )
             }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             if (state.items.isEmpty()) {
                 item {
                     EmptyState(
@@ -1199,13 +1243,9 @@ fun CalendarDayScreen(
                 items(state.items, key = { it.id }) { item ->
                     EventCard(item = item, onClick = { onItemTap(item.id) })
                 }
-                if (state.hasMore) {
+                if (state.isLoadingMore) {
                     item {
-                        LoadMoreButton(
-                            label = stringResource(R.string.calendar_load_more_day),
-                            loading = state.isLoadingMore,
-                            onClick = onLoadMore,
-                        )
+                        InlineLoadingFooter()
                     }
                 }
             }
@@ -1240,13 +1280,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
         items(state.historyRows, key = { it.id }) { row ->
             HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id, row.target)) })
         }
-        if (state.historyHasMore) {
+        if (state.historyLoadingMore) {
             item {
-                LoadMoreButton(
-                    label = stringResource(R.string.calendar_load_more_history),
-                    loading = state.historyLoadingMore,
-                    onClick = { onEvent(CalendarEvent.LoadMoreHistory) },
-                )
+                InlineLoadingFooter()
             }
         }
     }
@@ -1319,23 +1355,17 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun LoadMoreButton(label: String, loading: Boolean, onClick: () -> Unit) {
+private fun InlineLoadingFooter() {
     Box(
         Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Surf2)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
-            .clickable(enabled = !loading, onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(top = 8.dp, bottom = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = if (loading) stringResource(R.string.calendar_loading_more) else label,
-            color = if (loading) MeshaColors.Muted else MeshaColors.Brand2,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.W700,
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            color = MeshaColors.Muted,
+            strokeWidth = 2.dp,
         )
     }
 }
