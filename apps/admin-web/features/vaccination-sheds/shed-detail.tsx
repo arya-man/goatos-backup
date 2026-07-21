@@ -141,41 +141,35 @@ function PlannedSessionsCard({ detail, pageContract }: { detail: VaccinationShed
           <span className="muted small">{copy(pageContract, "section.planned_sessions.empty")}</span>
         </div>
       ) : (
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-          <table>
-            <thead>
-              <tr>
-                {cols.map((col) => (
-                  <th key={col.key}>
-                    {col.key === "capacity" ? (
-                      <span style={{ display: "inline-flex", alignItems: "center" }}>
-                        {col.label}
-                        <InfoTooltip label={copy(pageContract, "tooltip.capacity.label")}>
-                          {copy(pageContract, "tooltip.capacity.body")}
-                        </InfoTooltip>
-                      </span>
-                    ) : (
-                      col.label
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s, idx) => (
-                <tr key={`${s.date}-${idx}`}>
-                  <td>{fmtDate(s.date)}</td>
-                  <td>{s.vaccinations}</td>
-                  <td className="muted">{s.dailyLimit}</td>
-                  <td>
-                    <Tag tone={optionTone(pageContract, "capacity_chips", s.capacity) as Tone}>
-                      {optionLabel(pageContract, "capacity_chips", s.capacity)}
-                    </Tag>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bd planned-sessions-list">
+          <div className="planned-sessions-head" aria-hidden="true">
+            {cols.map((col) => (
+              <span key={col.key}>
+                {col.key === "capacity" ? (
+                  <>
+                    {col.label}
+                    <InfoTooltip label={copy(pageContract, "tooltip.capacity.label")}>
+                      {copy(pageContract, "tooltip.capacity.body")}
+                    </InfoTooltip>
+                  </>
+                ) : (
+                  col.label
+                )}
+              </span>
+            ))}
+          </div>
+          {sessions.map((s, idx) => (
+            <div className="planned-session-row" key={`${s.date}-${idx}`}>
+              <span className="planned-session-date">{fmtDate(s.date)}</span>
+              <span>{s.vaccinations}</span>
+              <span className="muted">{s.dailyLimit}</span>
+              <span>
+                <Tag tone={optionTone(pageContract, "capacity_chips", s.capacity) as Tone}>
+                  {optionLabel(pageContract, "capacity_chips", s.capacity)}
+                </Tag>
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </section>

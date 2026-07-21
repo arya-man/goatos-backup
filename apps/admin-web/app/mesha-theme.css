@@ -722,6 +722,23 @@
   .main table.vaccination-status-matrix-table th:not(:first-child),.main table.vaccination-status-matrix-table td:not(:first-child){min-width:132px}
   .main table.vaccination-cohort-detail-table{min-width:980px}
   .main table.vaccination-cohort-detail-table th:nth-child(6),.main table.vaccination-cohort-detail-table td:nth-child(6){min-width:132px}
+  .card .bd.planned-sessions-list{display:grid;gap:0;padding:0;overflow:visible}
+  .planned-sessions-head,.planned-session-row{display:grid;grid-template-columns:minmax(132px,1.3fr) minmax(88px,.7fr) minmax(98px,.8fr) minmax(140px,1fr);align-items:center;column-gap:18px}
+  .planned-sessions-head{min-height:42px;padding:0 16px;border-bottom:1px solid var(--line2);color:var(--muted);font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase}
+  .planned-sessions-head > span{display:inline-flex;align-items:center;gap:4px;min-width:0}
+  .planned-session-row{min-height:64px;padding:0 16px;border-bottom:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 58%,var(--bg))}
+  .planned-session-row:last-child{border-bottom:0}
+  .planned-session-row > span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .planned-session-date{font-size:15.5px;color:var(--ink)}
+  @media(max-width:720px){
+    .planned-sessions-head{display:none}
+    .card .bd.planned-sessions-list{padding:10px 12px;gap:8px}
+    .planned-session-row{grid-template-columns:1fr auto;grid-template-areas:"date status" "vaccinations limit";gap:7px 12px;min-height:86px;padding:12px;border:1px solid var(--line2);border-radius:8px;background:color-mix(in srgb,var(--panel) 70%,var(--bg))}
+    .planned-session-row > span:nth-child(1){grid-area:date}
+    .planned-session-row > span:nth-child(2){grid-area:vaccinations}
+    .planned-session-row > span:nth-child(3){grid-area:limit}
+    .planned-session-row > span:nth-child(4){grid-area:status;justify-self:end}
+  }
   .main table.shed-animal-roster-table{min-width:1600px;table-layout:auto}
   /* The mock makes an animal record one tap target. Keep a single semantic/deep-linkable anchor
      stretched over the row instead of eleven text-sized cell links; non-interactive cell content
