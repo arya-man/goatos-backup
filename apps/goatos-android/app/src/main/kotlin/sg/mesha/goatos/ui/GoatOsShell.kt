@@ -62,6 +62,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
@@ -330,7 +331,8 @@ fun GoatOsShellChrome(
                     null
                 }
             CompositionLocalProvider(
-                LocalDrawerOpener provides drawerOpener
+                LocalDrawerOpener provides drawerOpener,
+                LocalIsTopLevelRoot provides isTopLevel,
             ) {
                 Column(
                     modifier = Modifier

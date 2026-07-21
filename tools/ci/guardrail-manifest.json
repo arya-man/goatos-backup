@@ -228,6 +228,17 @@
       "ciStep": "config-validate-guard"
     },
     {
+      "id": "ui-vaccine-labels",
+      "script": "tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "makeTarget": "ui-vaccine-labels-guard",
+      "realCheck": "node tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "selfTest": "node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "ui-vaccine-labels-guard",
+      "notes": "Raw vaccination config/protocol tokens are allowed in config/contracts/DTOs/tests only. User-facing admin-web/mobile UI must render human labels."
+    },
+    {
       "id": "seed-migration-coupling",
       "script": "tools/agent-hooks/check-seed-migration-coupling.mjs",
       "makeTarget": "seed-migration-guard",

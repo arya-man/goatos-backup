@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -96,6 +97,15 @@ data class RosterChange(
     val text: String,
 )
 
+@Immutable
+data class ShedDayTab(
+    val dateKey: String,
+    val dayLabel: String,
+    val dateLabel: String,
+    val countLabel: String,
+    val isSelected: Boolean,
+)
+
 /**
  * One shed card. Domain values come from the backend payload while localized labels
  * and count captions are app chrome;
@@ -152,6 +162,7 @@ data class ShedsUiState(
     val doneCount: Int = 0,
     val caption: String? = null,
     val roleNote: String? = null,
+    val dayTabs: List<ShedDayTab> = emptyList(),
     val rows: List<ShedRow> = emptyList(),
     val rosterChanges: List<RosterChange> = emptyList(),
     val kernelInfo: String? = null,
@@ -169,6 +180,7 @@ data class ShedsUiState(
 
 sealed interface ShedsEvent {
     data class OpenShedRecord(val shedId: String) : ShedsEvent
+    data class SelectDay(val dateKey: String) : ShedsEvent
     data object Refresh : ShedsEvent
     data object LoadMore : ShedsEvent
     data object Back : ShedsEvent
@@ -236,6 +248,9 @@ fun ShedsScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item { DriveMeta(state) }
+            if (state.dayTabs.isNotEmpty()) {
+                item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
+            }
             item { DayProgress(state) }
             state.roleNote?.let { note -> item { RoleNote(note) } }
             if (state.isInitialLoading && state.rows.isEmpty()) {
@@ -283,6 +298,37 @@ fun ShedsScreen(
                 item { ChangeCard(state.rosterChanges) }
             }
             state.kernelInfo?.let { info -> item { InfoBox(info) } }
+        }
+    }
+}
+
+@Composable
+private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(tabs, key = { it.dateKey }) { tab ->
+            val bg = if (tab.isSelected) BrandTint else Surf2
+            val edge = if (tab.isSelected) Brand else Hair
+            val fg = if (tab.isSelected) BrandD else Muted
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(bg)
+                    .border(1.dp, edge, RoundedCornerShape(14.dp))
+                    .clickable { onSelect(tab.dateKey) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(text = tab.dayLabel, color = fg, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                Text(text = tab.dateLabel, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                if (tab.countLabel.isNotBlank()) {
+                    Text(text = tab.countLabel, color = Muted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

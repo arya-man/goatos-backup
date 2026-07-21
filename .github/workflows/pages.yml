@@ -76,7 +76,7 @@ jobs:
         run: |
           {
             echo "### Mobile screenshot gallery"
-            echo "12 screens + 6 role-chrome variants (CEO, CEO w/ drawer, Director, Park Head, Park Manager, Operator) rendered — see the Pages artifact \`screenshot-gallery\` below once deployed."
+            echo "Paparazzi screen and role-chrome variants rendered fresh — see the Pages artifact \`screenshot-gallery\` below once deployed."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
@@ -94,7 +94,7 @@ jobs:
         run: |
           {
             echo "### Mobile nav-graph"
-            echo "Regenerated from AppNavHost.kt's hand-verified routes/edges."
+            echo "Regenerated route graph plus role-wise navigation contract."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:

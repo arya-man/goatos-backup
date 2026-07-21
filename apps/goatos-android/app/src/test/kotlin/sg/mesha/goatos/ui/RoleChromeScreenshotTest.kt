@@ -187,7 +187,7 @@ class RoleChromeScreenshotTest {
             currentRoute = Routes.VACCINATION,
             onNavigate = {},
         ) {
-            ShedsScreen(state = sampleShedsState().copy(title = "Next 7 days"))
+            ShedsScreen(state = sampleShedsState())
         }
     }
 
@@ -203,7 +203,7 @@ class RoleChromeScreenshotTest {
             currentRoute = Routes.VACCINATION,
             onNavigate = {},
         ) {
-            ShedsScreen(state = sampleShedsState().copy(title = "Next 7 days"))
+            ShedsScreen(state = sampleShedsState())
         }
     }
 }

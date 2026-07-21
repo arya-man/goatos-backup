@@ -545,6 +545,19 @@ Do:
   acceptance case. Do not push a frontend fix until the changed screen has been
   opened locally and visually checked, or until you explicitly report why local
   rendering is blocked.
+- Raw vaccination config/protocol tokens are never API presentation copy or
+  user-facing UI copy. Codes
+  such as `et_tt`, `et_tt_adult_w2`, `ppr_booster`, `blue_tongue_first`,
+  `goat_pox`, the protocol family name `Preventive Care Vaccination Matrix`,
+  and similar backend/config identifiers may exist in backend config,
+  raw storage/contracts/DTOs, non-UI tests, or a dedicated display mapper only.
+  Backend display fields (`driveName`, `vaccineLabel`, `vaccine_labels`, card
+  titles/subtitles, alerts), admin-web, Android screens, Paparazzi screenshot
+  fixtures, cards, rows, chips, alerts, logs visible to operators, and generated
+  UI galleries must render human labels such as `ET+TT`, `PPR · Booster`,
+  `Blue Tongue`, and `Goat Pox`.
+  `make ui-vaccine-labels-guard` is part of the standard guardrail/local-CI
+  path and must fail any direct UI leak.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`
