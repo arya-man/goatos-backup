@@ -8,6 +8,7 @@ import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
+import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.auth.LoginScreen
@@ -34,6 +35,7 @@ import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
+import androidx.compose.runtime.CompositionLocalProvider
 
 /**
  * Screenshot tests for every screen in the gallery (item 7). Each test renders the EXACT same
@@ -73,31 +75,37 @@ class ScreenshotTest {
     fun calendar() = shot("calendar") { CalendarScreen(state = sampleCalendarState()) }
 
     @Test
-    fun sheds() = shot("sheds") { ShedsScreen(state = sampleShedsState()) }
+    fun sheds() = shot("sheds") {
+        CompositionLocalProvider(LocalIsTopLevelRoot provides true) {
+            ShedsScreen(state = sampleShedsState())
+        }
+    }
 
     @Test
     fun vaccination_sheds_initial_loading_uses_skeleton() = shot("vaccination_sheds_initial_loading_uses_skeleton") {
-        ShedsScreen(
-            state = sampleShedsState().copy(
-                date = "",
-                window = "",
-                shedCountLabel = "",
-                dueLabel = "",
-                dayProgressLabel = "",
-                dayProgressFraction = 0f,
-                daySummary = "",
-                shedCount = 0,
-                dueCount = 0,
-                doneCount = 0,
-                caption = "Loading…",
-                rows = emptyList(),
-                rosterChanges = emptyList(),
-                kernelInfo = null,
-                lastSyncedAt = null,
-                isInitialLoading = true,
-                isRefreshing = true,
-            ),
-        )
+        CompositionLocalProvider(LocalIsTopLevelRoot provides true) {
+            ShedsScreen(
+                state = sampleShedsState().copy(
+                    date = "",
+                    window = "",
+                    shedCountLabel = "",
+                    dueLabel = "",
+                    dayProgressLabel = "",
+                    dayProgressFraction = 0f,
+                    daySummary = "",
+                    shedCount = 0,
+                    dueCount = 0,
+                    doneCount = 0,
+                    caption = "Loading…",
+                    rows = emptyList(),
+                    rosterChanges = emptyList(),
+                    kernelInfo = null,
+                    lastSyncedAt = null,
+                    isInitialLoading = true,
+                    isRefreshing = true,
+                ),
+            )
+        }
     }
 
     @Test
