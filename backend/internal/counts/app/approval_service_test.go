@@ -253,7 +253,6 @@ func TestDecidableApprovalRequestTypesPerRole(t *testing.T) {
 	}{
 		{permissions.RoleParkHead, []string{"shifting"}},
 		{permissions.RoleCEOInternal, []string{"birth", "death", "shifting"}},
-		{permissions.RoleAdmin, []string{"birth", "death", "shifting"}},
 		// Operators capture; capture is not approval.
 		{permissions.RoleOperator, nil},
 		// Separation of duty: the verifier reviews media and must not gain lifecycle authority.

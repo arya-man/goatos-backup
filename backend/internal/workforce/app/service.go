@@ -598,12 +598,11 @@ func hasCapability(items []domain.CapabilityAssignment, code string) bool {
 // leadershipGrantRoles are the workforce grant roles that see the fixed
 // leadership mobile nav (Calendar / Overview / Alerts). Mirrors the role-lens
 // tiers already used for the admin-web bootstrap (see roleLensForRole in
-// internal/adminui/app/compiler.go): ceo_internal/admin fold to CEO/COO,
-// pc_director is the health director and park_head is the park manager.
+// internal/adminui/app/compiler.go): ceo_internal is CEO/CXO, pc_director is
+// the health director and park_head is the park manager.
 // Verifier is deliberately excluded: it owns a standalone evidence-review app,
 // not leadership action navigation. permissions.RoleOperator is also not leadership.
 var leadershipGrantRoles = map[string]bool{
-	permissions.RoleAdmin:       true,
 	permissions.RoleCEOInternal: true,
 	permissions.RolePCDirector:  true,
 	permissions.RoleParkHead:    true,

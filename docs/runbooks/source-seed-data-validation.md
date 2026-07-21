@@ -41,6 +41,11 @@ land exact green commit on main
 reset/reseed from that exact main commit
 ```
 
+Role normalization is part of the seed contract. Full-access humans are
+CEO/CXO only: grants use `ceo_internal`, workforce/member hints use `cxo`, and
+a parallel admin person role must not be created from source sheets or local
+provisioning.
+
 ## Commands
 
 Normalize spreadsheet tabs into the six canonical files, then run:

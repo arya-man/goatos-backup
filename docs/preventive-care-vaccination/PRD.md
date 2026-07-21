@@ -75,7 +75,7 @@ Role = **Vertical × Tier**, park-scoped (committed `user_scope_grants`: roles `
 
 | Actor | Does | Authority |
 |---|---|---|
-| **COO / CEO / superadmin** | Creates, edits, previews, and publishes the vaccine ruleset. Published version is immutable + effective-dated. | `protocol.publish.vaccination` capability (category-specific) plus top-level Config route access |
+| **CEO/CXO** | Creates, edits, previews, and publishes the vaccine ruleset. Published version is immutable + effective-dated. | `protocol.publish.vaccination` capability (category-specific) plus top-level Config route access |
 | **Preventive Care (PC) Director** | Sees effective operational instructions, coverage, exceptions, and escalations only. | No raw Config visibility in V1 unless the product owner later grants a separate read-only config capability |
 | **Park Head / Manager** | Sees their park's drives & overdue; assigns/approves | scoped |
 | **Health worker (field)** | Executes the drive via SOP: scan, administer, record dose, upload proof | `vaccination.execute` |
@@ -83,7 +83,7 @@ Role = **Vertical × Tier**, park-scoped (committed `user_scope_grants`: roles `
 | **System (engine)** | Generates obligations, batches drives, fires reminders, moves stock via the inventory ledger, surfaces anomalies — **never invents rules** | — |
 
 **Correction:** it is **not** "Preventive Care (PC) Director drafts and CEO/COO reviews."
-For V1, the Config screen is visible only to CEO/COO/superadmin. The durable
+For V1, the Config screen is visible only to CEO/CXO. The durable
 audit is normal protocol version audit: `version`, `created_by`/`created_at`,
 `published_by`/`published_at`, `retired_by`/`retired_at`, and the generated
 impact preview reviewed before publish. A rule change = a new version, never an

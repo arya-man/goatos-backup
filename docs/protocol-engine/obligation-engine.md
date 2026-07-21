@@ -55,7 +55,7 @@ admin rule (protocol_version, published)  →  trigger fires (animal born / cron
 ## 2. Authority model (CEO/COO-only Config in V1)
 
 Protocol rules are business-critical operational policy. In V1, the raw Config
-screen is visible only to CEO/COO/superadmin users. Directors, park users,
+screen is visible only to CEO/CXO users. Directors, park users,
 field workers, and verifiers see generated instructions, obligations, tasks,
 proof requirements, escalations, and dashboards; they do not see or edit raw
 rule JSON.
@@ -68,14 +68,14 @@ rule JSON.
 - These fit the committed `capability_code` regex (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`).
 - The API resolves the target `protocol_definitions.category` and requires the matching `protocol.publish.<category>` capability at the relevant tenant/park scope for V1 config changes.
 - Until an author/publish split is deliberately reopened, vaccination edit,
-  preview, publish, and retire all require the CEO/COO/superadmin publish
+  preview, publish, and retire all require the CEO/CXO publish
   capability and top-level Config route access.
 - *(Acceptable fallback if you must keep generic codes: a generic `protocol.publish` **plus** an explicit API authorization check that the actor's allowed categories include the target category. Per-category codes are preferred — the boundary is then enforceable from the capability model alone.)*
 
 | Action | Required capability (category-specific, scoped tenant or park) | Effect |
 |---|---|---|
 | Draft / edit a `protocol_version` (status=`draft`) | `protocol.publish.<category>` in V1 vaccination | mutable draft visible only inside Config |
-| **Publish** (`draft→published`, set `effective_from`) | **`protocol.publish.<category>`** (COO/CEO/superadmin) | immutable; new effective window opens |
+| **Publish** (`draft→published`, set `effective_from`) | **`protocol.publish.<category>`** (CEO/CXO) | immutable; new effective window opens |
 | Retire | `protocol.publish.<category>` | `effective_to` set (closes the window) |
 
 Capability is checked via `workforce_member_capabilities` (same mechanism as `vaccination.execute`); `user_scope_grants.role` still gates the surface. Every transition writes `audit_log`. A rule change = a **new version**, never an in-place edit of a published one.
@@ -106,7 +106,7 @@ vaccination's single-active rule into the generic engine.
 
 ### 2.1 Config UI contract (CEO/COO authoring surface)
 
-`protocol_rules` are **real business/medical/operations config — not public, not user-editable.** Only approved CEO/COO/superadmin users create, edit, preview, and publish real rules in V1. Field/verifier/park users **never see or edit raw config** — they see generated obligations, SOP tasks, proof requirements, and their Action Center work.
+`protocol_rules` are **real business/medical/operations config — not public, not user-editable.** Only approved CEO/CXO users create, edit, preview, and publish real rules in V1. Field/verifier/park users **never see or edit raw config** — they see generated obligations, SOP tasks, proof requirements, and their Action Center work.
 
 **Config screen (CEO/COO):** choose category/family → choose company or park
 scope → create/edit a *draft* ruleset version → link an `sop_version_id` →
@@ -118,7 +118,7 @@ activate/publish version.
 **Activation behavior:** production obligations generate **only** from active
 versions resolved by the category scope policy. Drafts and inactive historical
 versions generate **no** new work. Active versions are **immutable** (a change =
-a new version); old versions stay auditable. Only CEO/COO/superadmin users can
+a new version); old versions stay auditable. Only CEO/CXO users can
 activate/publish (`protocol.publish.<category>` in V1 wording).
 
 **Impact preview (required before activation — computed from the scoped ruleset):** affected animals/sheds/cohorts (from eligibility); **obligations per cycle** (= affected × non-recurring doses); **annual-repeat count** (rows with `repeat:yearly`); **catch-up count** and **existing-history count** (animals with prior accepted completions → next-due from last completion, not DOB); expected stock required; expected SOP tasks/batches; and **risks** — missing stock, no assigned operator, missing executable `sop_version_id` (a free-text `sop_label` does not count), conflicting rule, effective-date overlap, open obligations to supersede, and in-progress batches that need explicit operator choice. Activation is gated on the operator reviewing this.
@@ -126,13 +126,13 @@ activate/publish (`protocol.publish.<category>` in V1 wording).
 **Config visibility matrix:**
 | Role | Config access |
 |---|---|
-| CEO/COO/superadmin | full config + **publish** |
+| CEO/CXO | full config + **publish** |
 | Director | no raw Config visibility in V1; sees effective instructions, exceptions, and dashboards |
 | Park Head / Manager | view *effective instructions/tasks*, not raw config (unless explicitly granted) |
 | Field worker | **no config** — Action Center + SOP execution only |
 | Verifier | **no config** — proof queue only |
 
-**Activation/publish gate:** a version activates only when the actor has CEO/COO/superadmin
+**Activation/publish gate:** a version activates only when the actor has CEO/CXO
 Config authority, JSON-schema validation passes, a real published SOP version
 is bound where execution needs it, effective dates do not overlap, and the
 impact preview has been generated. Source documents are committed engineering

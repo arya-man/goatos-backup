@@ -22,6 +22,12 @@ release invariant. New request paths, workers, importers, projectors,
 dashboards, and reporting paths must be tenant scoped, indexed, bounded,
 resumable, and measurable.
 
+Seed/provisioning drift is a scale anti-pattern too: do not create extra
+parallel business roles for the same authority. CEO/CXO full access is a single
+`ceo_internal` grant with a `cxo` workforce hint; adding an additional admin
+person role creates duplicate authorization branches, duplicated test matrices,
+and stale UI labels.
+
 ## Sub-500ms serving-read budget
 
 Every operator-facing API, SSR page load, dashboard read, schedule/calendar

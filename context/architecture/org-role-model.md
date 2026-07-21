@@ -141,7 +141,7 @@ permissions:
 not** — the flat roles keep their broader vaccination-only-era sets per the gap table
 above. Treat the Head column as the target; `park_head` is the legacy flat role.
 
-‡ In today's flat RBAC, `counts.read` is held by exactly **`admin` + `ceo_internal`**.
+‡ In flat RBAC, `counts.read` is held by exactly **`ceo_internal`**.
 No composed tier role holds it. `pc_director` and `verifier` hold **neither** counts
 permission, so the Counts module is omitted from their nav entirely. `pc_director`
 previously held `counts.write` and lost it in this decision — which moves the flat
