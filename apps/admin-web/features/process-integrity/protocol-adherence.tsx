@@ -112,7 +112,7 @@ function readableAdherenceExpected(pageContract: AdminUiPageContract, raw: strin
   const bits = [vaccine, path, timing].filter(Boolean);
   return {
     title: `${bits.join(" ")}${dueCount ? ` - ${dueCount} ${copy(pageContract, "label.due_lower")}` : ""}`,
-    detail: withoutPrefix || raw,
+    detail: bits.join(" "),
   };
 }
 

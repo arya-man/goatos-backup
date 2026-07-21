@@ -70,6 +70,10 @@ function isProbablyUserFacingLine(line) {
   return /["'`][^"'`]*(?:preventive\s+care\s+vaccination\s+matrix|et_tt|blue_tongue|goat_pox|sheep_pox|adult_w\d+|kid_w\d+|_adult_w\d+|_kid_w\d+|_booster|_first)[^"'`]*["'`]/i.test(line);
 }
 
+function isRawUiFallbackLine(line) {
+  return /\b(?:title|label|detail|subtitle|description|text)\s*:\s*(?:[^,\n]*\|\|\s*)?(?:raw|withoutPrefix)\b/.test(line);
+}
+
 function allowedMapperLines(source) {
   const allowed = new Set();
   const lines = source.split(/\r?\n/);
@@ -99,7 +103,10 @@ export function findingsForFiles(files, root = repo) {
     const mapperLines = allowedMapperLines(source);
     source.split(/\r?\n/).forEach((line, index) => {
       const lineNumber = index + 1;
-      if (TOKEN_RE.test(line) && isProbablyUserFacingLine(line) && !mapperLines.has(lineNumber)) {
+      if (
+        ((TOKEN_RE.test(line) && isProbablyUserFacingLine(line)) || isRawUiFallbackLine(line)) &&
+        !mapperLines.has(lineNumber)
+      ) {
         findings.push(`${rel}:${lineNumber}: raw vaccine token may render in UI; map it to a human label first`);
       }
     });
@@ -130,13 +137,17 @@ function selfTest() {
     writeFileSync(badWithConfigWord, 'export const title = "Config says et_tt_adult_w2";\n');
     writeFileSync(goodConfig, 'export const code = "et_tt_adult_w2";\n');
     writeFileSync(goodMapper, 'export const VACCINE_LABELS = { et_tt: "ET+TT" };\n');
-    const findings = findingsForFiles([bad, badWithConfigWord, goodConfig, goodMapper], dir);
+    const badFallback = join(dir, "apps/admin-web/features/vaccination/z.tsx");
+    execFileSync("mkdir", ["-p", dirname(badFallback)]);
+    writeFileSync(badFallback, "return { detail: withoutPrefix || raw };\n");
+    const findings = findingsForFiles([bad, badWithConfigWord, goodConfig, goodMapper, badFallback], dir);
     if (
-      findings.length !== 2 ||
+      findings.length !== 3 ||
       !findings.some((finding) => finding.includes("X.kt:1")) ||
-      !findings.some((finding) => finding.includes("y.tsx:1"))
+      !findings.some((finding) => finding.includes("y.tsx:1")) ||
+      !findings.some((finding) => finding.includes("z.tsx:1"))
     ) {
-      throw new Error(`self-test expected exactly two UI leak findings, got:\n${findings.join("\n")}`);
+      throw new Error(`self-test expected exactly three UI leak findings, got:\n${findings.join("\n")}`);
     }
     console.log("check-ui-vaccine-labels self-test: PASS");
   } finally {
