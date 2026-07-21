@@ -14,6 +14,7 @@ Not implemented yet:
 
 - Google ADK agent runtime
 - Vertex/Gemini production planner in the Mesha backend
+- Cube Core metric service
 - persisted memory/session store
 - MCP Toolbox runtime service
 - complete `ceo_ai.*` reporting schema
@@ -75,12 +76,13 @@ CEO/CXO dashboard bubble
 
 Read paths are used in this order:
 
-1. Existing Mesha read APIs and read models when they can answer the question.
-2. MCP Toolbox business tools over curated `ceo_ai.*` reporting views.
-3. Governed read-only SQL fallback when no API/tool exists yet.
+1. Cube governed metrics when the question asks for an official KPI.
+2. Existing Mesha read APIs and read models when they can answer the question.
+3. MCP Toolbox business tools over curated `ceo_ai.*` reporting views.
+4. Governed read-only SQL fallback when no metric/API/tool exists yet.
 
-The browser never talks directly to Gemini, MCP Toolbox, or Postgres. The Mesha
-assistant API owns auth, tenant scope, tool choice, execution, validation,
+The browser never talks directly to Gemini, Cube, MCP Toolbox, or Postgres. The
+Mesha assistant API owns auth, tenant scope, tool choice, execution, validation,
 formatting, and audit.
 
 ## Vertex AI Role
@@ -97,10 +99,52 @@ Gemini's job is planning and extraction:
 Gemini must not hold database credentials. Gemini must not execute SQL. Gemini
 must not decide permissions.
 
+## Cube Role
+
+Cube is the governed metric service. It is not Gen AI and it is not Vertex AI.
+It is the official formula layer for business numbers such as active animals,
+vaccination overdue, mortality rate, feed cost, procurement cost, and operator
+completion rate.
+
+Cube still queries data. In local and early staging it should query Postgres
+through a read-only database user. As BigQuery/dbt marts become available, Cube
+can point official historical metrics to those marts. The important rule is that
+official KPI definitions live in Cube, not in dashboard components, prompts, or
+one-off SQL.
+
+Use Cube when the question is asking for a leadership KPI, trend, comparison, or
+slice that has an approved metric:
+
+```text
+User asks: "How many vaccinations are overdue by park?"
+Gemini plans: metric = vaccination_overdue, dimension = park
+Mesha assistant API calls Cube
+Cube runs the approved SQL against Postgres or BigQuery
+Mesha assistant API reviews, formats, and returns the answer
+```
+
+Cube does not replace APIs, MCP Toolbox, Postgres, BigQuery, or Vertex AI:
+
+- Vertex/Gemini understands the English question and chooses the route.
+- Cube calculates official metrics.
+- Mesha APIs return app/workflow-shaped operational reads.
+- MCP Toolbox exposes controlled database tools and curated reporting reads.
+- Read-only SQL is fallback when no governed metric or read tool exists.
+
 ## API, MCP, And SQL Split
 
 Existing Mesha APIs stay as APIs. Do not wrap every REST endpoint as an MCP
 tool. That creates duplicate contracts and noisy model choices.
+
+Use Cube for official governed metrics:
+
+- active animal count
+- vaccination due and overdue
+- vaccination compliance
+- mortality and deaths by period
+- procurement cost and load metrics
+- feed cost and consumption metrics
+- operator completion and backlog metrics
 
 Use APIs for app-shaped reads that already exist:
 
@@ -122,9 +166,82 @@ Use MCP Toolbox for business analytics tools and direct database reads:
 - operations exceptions
 - safe read-only SQL over `ceo_ai.*`
 
-Use SQL fallback only when no existing API or MCP business tool can answer the
-question. SQL fallback must remain read-only, tenant-scoped, bounded, and
-audited.
+Use SQL fallback only when no Cube metric, existing API, or MCP business tool can
+answer the question. SQL fallback must remain read-only, tenant-scoped, bounded,
+and audited.
+
+## Local And Staging Cube Setup
+
+Local development should prove the full path before staging:
+
+```text
+local dashboard on :3300
+  -> local Mesha assistant API
+  -> local or mocked Vertex/Gemini planner
+  -> local Cube Core on a configured local port, for example 127.0.0.1:4000
+  -> local Postgres read-only user
+```
+
+Local requirements:
+
+- Cube runs as a separate service, not inside the browser. The local port is
+  just configuration through `MESHA_CUBE_URL`; `127.0.0.1:4000` is only the
+  recommended default for laptop testing.
+- Cube connects to the developer's local Postgres through a read-only user.
+- The assistant API calls Cube server-side after leadership/tenant checks.
+- If Cube has no metric for a question, the assistant tries Mesha read APIs,
+  then MCP/reporting tools, then validated read-only SQL fallback.
+
+Staging should mirror production shape:
+
+```text
+stg dashboard
+  -> stg Mesha assistant API
+  -> Vertex AI / Gemini in the stg GCP project
+  -> mesha-cube-stg on Cloud Run
+  -> stg Cloud SQL Postgres read-only user
+  -> BigQuery/dbt marts later for historical governed metrics
+```
+
+Recommended staging services:
+
+```text
+mesha-assistant-stg:
+  Mesha backend route that owns auth, tenant scope, planning, orchestration,
+  memory, retries, fallback, answer review, and audit.
+
+mesha-cube-stg:
+  Cube Core Cloud Run service for governed metrics.
+
+mesha-mcp-toolbox-stg:
+  MCP Toolbox Cloud Run service for curated database tools and fallback views.
+
+stg Cloud SQL Postgres:
+  live operational data, accessed by Cube and Toolbox through dedicated
+  read-only users only.
+
+Secret Manager:
+  Cube DB password, Cube API secret/JWT secret, Toolbox config, assistant
+  service credentials, and Vertex configuration.
+```
+
+Only the Mesha backend should call Cube in staging. The browser should call only
+the Mesha assistant endpoint.
+
+Initial environment variables:
+
+```text
+MESHA_CUBE_URL=http://127.0.0.1:4000
+MESHA_CUBE_API_SECRET=<local secret>
+MESHA_CUBE_DB_USER=mesha_cube_readonly
+MESHA_CUBE_DB_PASSWORD=<local/stg secret>
+MESHA_CUBE_DB_NAME=<database name>
+MESHA_CUBE_DB_HOST=<local or Cloud SQL host>
+MESHA_CUBE_DB_PORT=5432
+```
+
+For staging, store secrets in Secret Manager and run Cube on Cloud Run with
+authenticated internal service-to-service access.
 
 ## Database Access Model
 
@@ -134,6 +251,7 @@ It does not use GORM.
 The CEO chatbot does not need an ORM. It needs a controlled read layer:
 
 - a dedicated read-only database role
+- Cube metrics for official KPIs
 - stable `ceo_ai.*` reporting views
 - MCP Toolbox tools over those views
 - server-side SQL validation for fallback queries

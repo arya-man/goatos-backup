@@ -8,15 +8,15 @@ the ADK/Vertex runtime, persisted memory, MCP Toolbox service, complete
 Implemented now: dashboard bubble, server-side leadership gate, safe read-only
 API demo routing, and guardrails requiring future assistant coverage updates.
 
-Not implemented yet: Google ADK runtime, production Vertex planner, persisted
-memory/session store, MCP Toolbox runtime, complete reporting schema, SQL
-fallback executor, retry/fallback orchestration, and assistant audit/metrics
-persistence.
+Not implemented yet: Google ADK runtime, production Vertex planner, Cube Core
+metric service, persisted memory/session store, MCP Toolbox runtime, complete
+reporting schema, SQL fallback executor, retry/fallback orchestration, and
+assistant audit/metrics persistence.
 
 This file is the concise source map for the CEO bot. It tells the model and the
 tool layer which Mesha data surfaces are safe to use, which domains are
-covered, and how common leadership questions should map to existing read APIs
-or read-only SQL.
+covered, and how common leadership questions should map to Cube metrics,
+existing read APIs, MCP tools, or read-only SQL.
 
 ## Access Model
 
@@ -26,8 +26,9 @@ The bot may answer from three tiers, in this order:
 
 1. Governed metrics through Cube when the metric exists.
 2. Existing Mesha read APIs and read models.
-3. Read-only Postgres SQL against allowlisted operational tables when no API or
-   governed metric exists yet.
+3. MCP Toolbox business tools over curated reporting views.
+4. Read-only Postgres SQL against allowlisted operational tables when no API,
+   MCP tool, or governed metric exists yet.
 
 The bot must not run writes, mutations, repair actions, DLQ replays, imports,
 status changes, approvals, or proof verdicts. Read-only SQL must always be
@@ -43,6 +44,10 @@ views. Do not wrap every application API one-by-one. Existing APIs remain normal
 Mesha APIs; MCP is useful as a tool protocol for the model and for direct
 database read tools where a specific API does not exist.
 
+Cube is the governed metric service. It owns official formulas and queries
+Postgres or BigQuery using read-only credentials. Vertex/Gemini chooses when a
+question should use Cube, but Cube calculates the official number.
+
 ## Tooling Pattern
 
 ```text
@@ -50,13 +55,19 @@ CEO/CXO chat
   -> Mesha chat route
   -> Vertex AI / Gemini planner
   -> allowlisted tool
-  -> Mesha read API or read-only SQL
+  -> Cube, Mesha read API, MCP Toolbox, or read-only SQL
   -> concise answer with source and freshness
 ```
 
 Gemini chooses the tool and extracts arguments such as shed, park, date, status,
 or domain. Mesha executes the tool. Gemini must not directly execute arbitrary
 SQL.
+
+For official KPI questions, Gemini should plan a Cube metric call first. Cube is
+the route for governed numbers such as active animals, vaccination due/overdue,
+vaccination compliance, mortality, feed cost, procurement cost, and operator
+completion. If Cube has no metric yet, the assistant can use APIs, MCP tools, or
+SQL fallback and mark the answer as non-governed/exploratory.
 
 For direct SQL, the server generates and validates `SELECT`-only SQL, blocks
 comments/multiple statements/DML/DDL, injects `tenant_id = $1`, applies a small
@@ -69,9 +80,10 @@ only the first dashboard screens. Every current and future module must expose an
 assistant read path through one of:
 
 1. Mesha read API.
-2. MCP Toolbox business tool over a curated reporting view.
-3. Governed read-only SQL fallback over approved `ceo_ai.*` views.
-4. Explicit exclusion saying why leadership should not see it.
+2. Cube governed metric.
+3. MCP Toolbox business tool over a curated reporting view.
+4. Governed read-only SQL fallback over approved `ceo_ai.*` views.
+5. Explicit exclusion saying why leadership should not see it.
 
 When a developer or coding agent adds a new read API, backend module, reporting
 view, dashboard route, mobile workflow, operational table, or domain event, the
