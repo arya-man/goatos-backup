@@ -16,6 +16,7 @@ Not implemented yet:
 
 - Google ADK agent service
 - Vertex/Gemini production planner behind the Mesha backend
+- Cube Core metric service
 - persisted memory/session store
 - production tool orchestration, retries, and fallback execution
 - MCP Toolbox Cloud Run service
@@ -34,14 +35,77 @@ The production shape is:
 Mesha dashboard bubble
   -> Mesha assistant API
   -> Gemini/Vertex AI plans the answer
-  -> MCP Toolbox exposes approved read tools
-  -> Cloud SQL Postgres read-only views
+  -> Cube for governed metrics when the metric exists
+  -> Mesha APIs or MCP Toolbox for operational/detail reads
+  -> Cloud SQL Postgres read-only views for fallback
   -> Mesha assistant API formats and audits the answer
 ```
 
 The leadership role is top-level, but the bot still stays read-only.
 Operational writes must continue through normal Mesha APIs, domain events,
 idempotency, audit, and approval flows.
+
+## Where Cube Fits
+
+Cube is the governed metric service for official leadership numbers. It is not
+Vertex AI and it is not MCP Toolbox.
+
+```text
+Vertex/Gemini:
+  understands the English question, extracts filters, and chooses the route.
+
+Cube:
+  owns approved metric formulas and runs SQL against Postgres or BigQuery.
+
+MCP Toolbox:
+  exposes curated database tools and safe fallback reads.
+
+Mesha APIs:
+  expose app/workflow-shaped operational reads.
+```
+
+Use Cube first for official KPI questions:
+
+- active animals
+- vaccination due and overdue
+- vaccination compliance
+- mortality/deaths
+- procurement cost and pipeline metrics
+- feed cost/consumption
+- operator completion and backlog
+
+If Cube has the metric, the assistant must call Cube instead of asking Gemini to
+invent SQL. If Cube does not have the metric, the assistant can use a Mesha read
+API, then MCP Toolbox, then validated read-only SQL fallback.
+
+Local testing should run Cube as a separate service:
+
+```text
+local dashboard :3300
+  -> local assistant API
+  -> local Cube Core on a configured local port, for example 127.0.0.1:4000
+  -> local Postgres read-only user
+```
+
+The `127.0.0.1:4000` value is only the recommended laptop default. The actual
+local URL is controlled by `MESHA_CUBE_URL`.
+
+Staging should run Cube as its own Cloud Run service:
+
+```text
+Service:          mesha-cube-stg / mesha-cube-prod
+Region:           asia-south1
+Runtime:          Cloud Run
+Ingress:          internal or authenticated service-to-service only
+Service account:  mesha-cube-stg / mesha-cube-prod
+Cloud SQL role:   Cloud SQL Client
+Secret access:    Cube API secret/JWT secret + read-only DB credential only
+```
+
+In early staging, Cube should query stg Cloud SQL Postgres through
+`mesha_cube_readonly`. As BigQuery/dbt marts land, Cube can point historical
+official metrics to BigQuery while operational current-state metrics can remain
+on Postgres/read models.
 
 ## What MCP Toolbox Does Here
 
@@ -98,6 +162,11 @@ MESHA_AI_PROVIDER=vertex
 MESHA_VERTEX_PROJECT=<env project>
 MESHA_VERTEX_LOCATION=asia-south1
 MESHA_VERTEX_MODEL=gemini-2.5-flash
+
+MESHA_CUBE_URL=<Cube Cloud Run URL or http://127.0.0.1:4000>
+MESHA_CUBE_API_SECRET=<Secret Manager>
+MESHA_CUBE_DB_USER=mesha_cube_readonly
+MESHA_CUBE_DB_PASSWORD=<Secret Manager>
 
 MESHA_MCP_TOOLBOX_URL=<Cloud Run Toolbox URL>
 MESHA_MCP_TOOLSET=mesha_ceo_toolset
@@ -405,6 +474,15 @@ If the answer is "this feature is not for leadership," the PR must document that
 exclusion. Silence is not allowed. This rule belongs in agent instructions,
 Claude/Codex skill context, PR checks, and local CI so future work keeps the
 assistant current automatically.
+
+### Explicit exclusion: role navigation visuals
+
+Android role chrome, Paparazzi screenshots, GitHub Pages navigation graphs, and
+UI-only display-label cleanup do not add a leadership assistant read API, MCP
+Toolbox tool, SQL fallback surface, or `ceo_ai.*` coverage view. They are still
+guarded by the visual regression suite and UI label guard, but assistant
+coverage is unchanged unless the underlying backend module, reporting contract,
+or leadership question changes.
 
 ## References
 
