@@ -37,7 +37,7 @@ Visual source: `mock/goatos-dashboard-mock.html`.
   without an active override.
 - **Config UX is generic Admin / Data Ops authority.** The visible Config screen
   is `/config` (`Admin / Data Ops -> Config — Protocol Rules`), CEO/COO/
-  superadmin only. Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`,
+  CEO/CXO only. Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`,
   but Config is not a Vaccination-owned screen.
 - **Eligibility stage comes from the animal's current shed/tag**, never a free-text
   field:

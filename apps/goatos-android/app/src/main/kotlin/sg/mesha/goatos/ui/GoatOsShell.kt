@@ -257,7 +257,22 @@ fun GoatOsShellChrome(
     // Exact membership only — a drill (L1+) must never inherit root chrome, so no
     // prefix/substring matching here. See docs/decisions/android-navigation-stack.md.
     val topLevelRoutes = barItems.map { it.href }
+    val topLevelRouteKey = topLevelRoutes.joinToString(separator = "\u001F")
     val isTopLevel = isTopLevelRoute(currentRoute, topLevelRoutes)
+
+    // A process/activity restore can resurrect ModalNavigationDrawer in an open or partially
+    // offset state while the sheet is not actually visible yet. On real phones that makes the
+    // screen look blank because the page content is translated almost entirely off the right
+    // edge. Shell entry and route changes must therefore start from a closed drawer; users can
+    // still open it explicitly from the L0 hamburger after the route has settled.
+    LaunchedEffect(navState.chrome, currentRoute, topLevelRouteKey, initialDrawerValue) {
+        if (
+            initialDrawerValue == DrawerValue.Closed &&
+            (drawerState.currentValue != DrawerValue.Closed || drawerState.targetValue != DrawerValue.Closed)
+        ) {
+            drawerState.close()
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,

@@ -7,16 +7,16 @@ import { createHash } from "node:crypto";
 import { normalizeApiLatencyEndpoints } from "./api-latency-policy.mjs";
 
 const defaultEndpoints = [
-  { name: "control_tower", method: "GET", path: "/control-tower/vaccination?category=vaccination", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "action_center", method: "GET", path: "/vaccination/action-center?category=vaccination&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "protocol_adherence", method: "GET", path: "/vaccination/adherence?category=vaccination&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "calendar_vaccination", method: "GET", path: "/calendar/vaccination/events?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "calendar_vaccination_completed_history", method: "GET", path: "/calendar/vaccination/events?status=completed&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "calendar_vaccination_date_markers", method: "GET", path: "/calendar/vaccination/events?include_date_markers=true&limit=1", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "vaccination_schedule", method: "GET", path: "/vaccination/schedule?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "vaccination_execution", method: "GET", path: "/vaccination/execution?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "vaccination_operations", method: "GET", path: "/vaccination/operations?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
-  { name: "vaccination_shed_summary", method: "GET", path: "/vaccination/sheds?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "control_tower", method: "GET", path: "/control-tower/vaccination?category=vaccination", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "action_center", method: "GET", path: "/vaccination/action-center?category=vaccination&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "protocol_adherence", method: "GET", path: "/vaccination/adherence?category=vaccination&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "calendar_vaccination", method: "GET", path: "/calendar/vaccination/events?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "calendar_vaccination_completed_history", method: "GET", path: "/calendar/vaccination/events?status=completed&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "calendar_vaccination_date_markers", method: "GET", path: "/calendar/vaccination/events?include_date_markers=true&limit=1", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "vaccination_schedule", method: "GET", path: "/vaccination/schedule?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "vaccination_execution", method: "GET", path: "/vaccination/execution?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "vaccination_operations", method: "GET", path: "/vaccination/operations?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
+  { name: "vaccination_shed_summary", method: "GET", path: "/vaccination/sheds?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
 ];
 
 const args = parseArgs(process.argv.slice(2));
@@ -231,6 +231,8 @@ function trimTrailingSlash(value) {
 function expandPath(path) {
   const today = new Date();
   return String(path)
+    .replaceAll("{today_start_month}", formatDate(startOfUTCMonth(today)))
+    .replaceAll("{today_end_month}", formatDate(endOfUTCMonth(today)))
     .replaceAll("{today}", formatDate(today))
     .replaceAll("{today_minus_30}", formatDate(addDays(today, -30)))
     .replaceAll("{today_plus_1}", formatDate(addDays(today, 1)))
@@ -246,6 +248,14 @@ function addDays(date, days) {
 
 function formatDate(date) {
   return date.toISOString().slice(0, 10);
+}
+
+function startOfUTCMonth(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+function endOfUTCMonth(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
 }
 
 function sha256File(path) {

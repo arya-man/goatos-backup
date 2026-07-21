@@ -59,7 +59,7 @@ Vaccination PRD/TRD for the current target before implementing from this plan.
   driven from accepted completions.
 - **Feed ration VALUES** + session clock times per park.
 - **CUTOVER_DATE** + vaccination-history-trust decision (migration-and-cutover §6).
-- The **4 superadmin mail IDs** + capability grants (`protocol.publish.<category>`).
+- The **CEO/CXO mail IDs** + capability grants (`protocol.publish.<category>`).
 - **K2 age band** — closed for local/dev at 42 days / six weeks; any later Preventive Care (PC)
   override must land as evidence-derived `animal_stage_lookup` data/config, not a
   frontend hardcode.
@@ -107,7 +107,7 @@ Adherence = **computed**: expected (rule) vs actual (completion + proof + timing
 
 ## F. Seed / draft test data
 - **Allowed:** structural seeds — `animal_stage_lookup` bands, park/shed profiles from **real `locations`**, vaccination SOP `form_dsl`/`proof_policy` (from wiki §6 + Preventive Care (PC) handbook), capability seeds, and draft test `protocol_rules` that are never published and generate no obligations.
-- **Evidence-derived real config (dev):** rule values taken from tracked vaccination rules source docs may be loaded in `goatos-dev` and published there by CEO/COO/superadmin authority after JSON-schema validation, SOP binding, impact preview, and effective-date checks. The UI must not ask for source-system/reviewer/approval fields.
+- **Evidence-derived real config (dev):** rule values taken from tracked vaccination rules source docs may be loaded in `goatos-dev` and published there by CEO/CXO authority after JSON-schema validation, SOP binding, impact preview, and effective-date checks. The UI must not ask for source-system/reviewer/approval fields.
 - **NOT allowed:** **hand-invented** vaccine/feed schedule values as production logic. Experimental local drafts never generate production obligations and cannot be treated as approved business policy.
 
 ## G. Order of implementation

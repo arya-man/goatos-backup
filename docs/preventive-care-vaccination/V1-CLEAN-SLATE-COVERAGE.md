@@ -40,7 +40,7 @@ Current evidence:
 
 | Checklist area | V1 demo status | Evidence | Separate scope |
 | --- | --- | --- | --- |
-| Users and role setup | Closed for local demo | `seed-dev-grant` in `VACCINATION-RULES-20260703-V1-MATRIX`; UI runs as Superadmin / CEO / COO. | Business-facing user-management setup UI is not claimed. |
+| Users and role setup | Closed for local demo | `seed-dev-grant` in `VACCINATION-RULES-20260703-V1-MATRIX`; UI runs as CEO / CXO. | Business-facing user-management setup UI is not claimed. |
 | Park and shed setup | Closed for local demo | `seed-vaccination-trigger` plus proof-created local sheds feed generated work. | Full admin UI for park/shed creation is not claimed. |
 | Animal setup | Closed for local demo | `vaccination-chain-proof.log` creates an animal, emits `animal.created`, generates obligations; visual smoke captures Animal Passport. | Full browser validation matrix for every animal field remains production-hardening. |
 | Animal entry paths | Closed for V1 demo | Manual animal API path and procurement accepted-intake matrix proof pass in `VACCINATION-RULES-20260703-V1-MATRIX`; Herd Register visual route is captured. | Full browser CSV/import negative matrix is production hardening. |

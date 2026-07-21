@@ -741,7 +741,7 @@ from a clean tenant/state, not isolated page checks.
 
 ### 1. Users and role setup
 
-- [ ] Seed or create admin/superadmin user.
+- [ ] Seed or create CEO/CXO user.
 - [ ] Seed or create Preventive Care (PC) director/author user.
 - [ ] Seed or create vaccination operator user.
 - [ ] Seed or create park head/manager user.

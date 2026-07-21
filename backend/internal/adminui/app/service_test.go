@@ -182,7 +182,7 @@ func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
 	if got := resp.TopBar.ParkSelector.Options; len(got) != 1 || got[0].Key != "park-1" || got[0].Label != "P1" {
@@ -226,7 +226,7 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
 	config := pageByRouteID(t, resp.Pages, "config")
@@ -329,7 +329,7 @@ func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
 	publishControl := controlByID(t, pageByRouteID(t, publisher.Pages, "config").Controls, "publish_protocol_version")
@@ -343,7 +343,7 @@ func TestBootstrapConfigPublishesReopenedRuleAuthoringGroups(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
 	config := pageByRouteID(t, resp.Pages, "config")
@@ -378,7 +378,7 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
 
@@ -435,7 +435,7 @@ func TestBootstrapCacheKeyIncludesDBFamilyRevisionInputs(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	}
 
@@ -453,7 +453,7 @@ func TestBootstrapCacheKeyIncludesDBFamilyRevisionInputs(t *testing.T) {
 
 func TestBootstrapContractRevisionCanonicalizesGrantOrder(t *testing.T) {
 	grants := []permissions.ActiveGrant{
-		{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		{Role: permissions.RolePCDirector, ScopeType: "park", ScopeID: "park-1"},
 	}
 	reversed := []permissions.ActiveGrant{grants[1], grants[0]}
@@ -484,7 +484,7 @@ func TestBootstrapUsesRevisionCacheBeforeFullFamilyLoad(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	}
 
@@ -521,7 +521,7 @@ func TestBootstrapCacheIsBoundedAndSweepsExpiredEntries(t *testing.T) {
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 		Grants: []permissions.ActiveGrant{
-			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	}
 

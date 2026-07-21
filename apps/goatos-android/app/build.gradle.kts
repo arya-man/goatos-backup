@@ -43,8 +43,8 @@ android {
         applicationId = "sg.mesha.goatos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 5
+        versionName = "0.1.4"
 
         // Local dev bearer token (a minted HS256 dev token), injected from a gradle
         // property so it's NEVER committed: -PgoatosDevBearerToken=... or in
@@ -96,6 +96,7 @@ android {
             dimension = "env"
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
+            signingConfig = signingConfigs.getByName("stgRelease")
             buildConfigField("String", "API_BASE_URL", "\"https://stg-api.dashboard.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://stg.dashboard.mesha.sg/login\"")
             // Telemetry (docs/TELEMETRY.md): stg has a CONFIRMED real Firebase project
@@ -138,10 +139,6 @@ android {
         release {
             isMinifyEnabled = false
             manifestPlaceholders["appLabel"] = "Mesha"
-            val stgReleaseSigning = signingConfigs.getByName("stgRelease")
-            if (stgReleaseSigning.storeFile != null) {
-                signingConfig = stgReleaseSigning
-            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         create("benchmark") {

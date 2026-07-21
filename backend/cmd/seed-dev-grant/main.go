@@ -44,7 +44,7 @@ func main() {
 	flag.StringVar(&userID, "user-id", "", "user UUID for the grant")
 	flag.StringVar(&externalSubject, "external-subject", "", "non-UUID IdP subject to map into the grant user UUID")
 	flag.StringVar(&authIssuer, "auth-issuer", os.Getenv("GOATOS_AUTH_ISSUER"), "issuer used when mapping an external IdP subject")
-	flag.StringVar(&role, "role", "", "required role: a flat legacy role (admin, verifier, park_head, pc_director, operator, ceo_internal) or a composite tier x vertical org role key such as manager_feed, director_health, am_preventive_care (see context/architecture/org-role-model.md and permissions.RoleKey)")
+	flag.StringVar(&role, "role", "", "required role: a flat legacy role (verifier, park_head, pc_director, operator, ceo_internal) or a composite tier x vertical org role key such as manager_feed, director_health, am_preventive_care (see context/architecture/org-role-model.md and permissions.RoleKey)")
 	flag.StringVar(&department, "department", "", "optional HR department code; provisions/attaches a workforce_member so department-driven nav works for this dev identity")
 	flag.StringVar(&modules, "modules", defaultDevModules, "comma-separated module keys granted to -department (e.g. \"vaccination,counts\"); requires -department, since department_module_grants is department-scoped. Pass \"\" to skip module granting. Keys are matched against moduleNavRegistry in backend/internal/workforce/app/bootstrap_copy.go -- an unknown key is stored and simply contributes no nav")
 	flag.StringVar(&parkID, "park-id", "", "optional park location UUID; when set, also seeds a scope_type='park' grant row for role (use -park-only to omit the tenant-wide grant)")
@@ -272,8 +272,10 @@ func devMemberRoleHint(role string) string {
 		return "park_head"
 	case permissions.RoleVerifier:
 		return "verifier"
-	case permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RolePCDirector:
-		return "admin"
+	case permissions.RoleCEOInternal:
+		return "cxo"
+	case permissions.RolePCDirector:
+		return "supervisor"
 	default:
 		// Composite tier x vertical org role keys (e.g. "manager_feed",
 		// "director_health") are not individually listed in
