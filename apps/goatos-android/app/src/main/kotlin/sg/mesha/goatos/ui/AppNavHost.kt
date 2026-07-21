@@ -845,9 +845,7 @@ fun AppNavHost(
  * Unknown future roots fail safely to Calendar until the app graph learns the new destination.
  */
 internal fun startDestinationFor(navState: NavState): String =
-    Routes.CALENDAR.takeIf { calendar -> navState.items.any { it.href == calendar } }
-        ?: navState.items.firstOrNull()?.href
-        ?.takeIf { it in supportedRootDestinations }
+    navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
         ?: Routes.CALENDAR
 
 private val supportedRootDestinations = setOf(
