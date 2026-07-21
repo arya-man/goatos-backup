@@ -16,6 +16,7 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { VaccineChipOverflow } from "./vaccine-chip-overflow";
+import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -39,7 +40,7 @@ type ScheduleCellView = {
   title: string;
 };
 
-type ScheduleLoadTone = "ok" | "warn" | "danger";
+type ScheduleLoadTone = "ok" | "warn" | "danger" | "done";
 
 type ScheduleLoadSegment = {
   key: string;
@@ -51,8 +52,8 @@ type ScheduleLoadSegment = {
 type ScheduleLoadModel = {
   total: number;
   totalLabel: string;
-  doses: number;
-  dosesLabel: string;
+  goats: number;
+  goatsLabel: string;
   segments: ScheduleLoadSegment[];
 };
 
@@ -221,27 +222,28 @@ function scheduleRows(response: VaccinationOperationsResponse): FullScheduleRow[
   );
 }
 
+const SCHEDULE_LOAD_LABEL_KEY: Record<ScheduleLoadBucket["key"], string> = {
+  scheduled: "schedule.load.scheduled_label",
+  deferred: "schedule.load.deferred_label",
+  overdue: "schedule.load.overdue_label",
+  done: "schedule.load.done_label",
+};
+
 function scheduleLoadModel(row: FullScheduleRow, pageContract: AdminUiPageContract): ScheduleLoadModel {
-  const deferred = row.counts.deferred;
-  const overdue = row.counts.overdue;
-  // Fall back to the cohort headcount ONLY when no status bucket is populated;
-  // otherwise the fallback would be summed on top of deferred/overdue and
-  // double-count the row total.
-  const bucketed = row.counts.scheduled + deferred + overdue;
-  const scheduled = bucketed > 0 ? row.counts.scheduled : row.animals;
-  const doses = row.counts.total || row.animals;
-  const candidates: ScheduleLoadSegment[] = [
-    { key: "scheduled", label: copy(pageContract, "schedule.load.scheduled_label"), value: scheduled, tone: "ok" },
-    { key: "deferred", label: copy(pageContract, "schedule.load.deferred_label"), value: deferred, tone: "warn" },
-    { key: "overdue", label: copy(pageContract, "schedule.load.overdue_label"), value: overdue, tone: "danger" },
-  ];
-  const segments = candidates.filter((segment) => segment.value > 0);
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  const { total, goats, buckets } = scheduleLoadBuckets(row.counts, row.animals);
+  const segments: ScheduleLoadSegment[] = buckets
+    .filter((bucket) => bucket.value > 0)
+    .map((bucket) => ({
+      key: bucket.key,
+      label: copy(pageContract, SCHEDULE_LOAD_LABEL_KEY[bucket.key]),
+      value: bucket.value,
+      tone: bucket.tone,
+    }));
   return {
     total,
-    totalLabel: copy(pageContract, "schedule.load.due_label"),
-    doses,
-    dosesLabel: copy(pageContract, "schedule.load.doses_label"),
+    totalLabel: copy(pageContract, "schedule.load.tasks_label"),
+    goats,
+    goatsLabel: copy(pageContract, "schedule.load.goats_label"),
     segments,
   };
 }
@@ -556,15 +558,16 @@ export async function VaccinationFullSchedule({
                         <LocalOverlayLink
                           href={shedDrawerHref(row)}
                           className="celllink num schedule-animals-link"
-                          title={[`${load.total} ${load.totalLabel}`, ...load.segments.map((segment) => `${segment.value} ${segment.label}`), `${load.doses} ${load.dosesLabel}`].join(" · ")}
+                          title={[`${load.total} ${load.totalLabel}`, `${load.goats} ${load.goatsLabel}`, ...load.segments.map((segment) => `${segment.value} ${segment.label}`)].join(" · ")}
                         >
                           <span
                             className="schedule-load-card"
-                            aria-label={[`${load.total} ${load.totalLabel}`, ...load.segments.map((segment) => `${segment.value} ${segment.label}`), `${load.doses} ${load.dosesLabel}`].join(", ")}
+                            aria-label={[`${load.total} ${load.totalLabel}`, `${load.goats} ${load.goatsLabel}`, ...load.segments.map((segment) => `${segment.value} ${segment.label}`)].join(", ")}
                           >
                             <span className="schedule-load-head">
                               <span className="schedule-load-total">{load.total}</span>
                               <span className="schedule-load-total-label">{load.totalLabel}</span>
+                              <span className="schedule-load-goats">{load.goats} {load.goatsLabel}</span>
                             </span>
                             <span className="schedule-load-bar" aria-hidden="true">
                               {load.segments.map((segment) => (
@@ -583,7 +586,6 @@ export async function VaccinationFullSchedule({
                                   <span className="schedule-load-name">{segment.label}</span>
                                 </span>
                               ))}
-                              <span className="schedule-load-doses">{load.doses} {load.dosesLabel}</span>
                             </span>
                           </span>
                         </LocalOverlayLink>

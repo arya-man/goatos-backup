@@ -681,20 +681,22 @@
   .schedule-load-head{display:flex;align-items:baseline;gap:6px;line-height:1.05}
   .schedule-load-total{font-size:16px;font-weight:900;color:var(--ink);font-variant-numeric:tabular-nums}
   .schedule-load-total-label{color:var(--muted);font-size:11px;font-weight:700}
+  .schedule-load-goats{margin-left:auto;color:var(--faint);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
   .schedule-load-bar{display:flex;gap:1px;height:8px;border-radius:5px;overflow:hidden;background:var(--line2)}
   .schedule-load-seg{display:block;height:100%;min-width:2px}
   .schedule-load-seg.tone-ok{background:var(--ok)}
   .schedule-load-seg.tone-warn{background:var(--warn)}
   .schedule-load-seg.tone-danger{background:var(--danger)}
+  .schedule-load-seg.tone-done{background:var(--faint)}
   .schedule-load-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
   .schedule-load-item{display:inline-flex;align-items:center;gap:4px;min-width:0}
   .schedule-load-dot{width:7px;height:7px;border-radius:2px;flex:0 0 auto}
   .schedule-load-item.tone-ok .schedule-load-dot{background:var(--ok)}
   .schedule-load-item.tone-warn .schedule-load-dot{background:var(--warn)}
   .schedule-load-item.tone-danger .schedule-load-dot{background:var(--danger)}
+  .schedule-load-item.tone-done .schedule-load-dot{background:var(--faint)}
   .schedule-load-count{font-weight:850;color:var(--ink)}
   .schedule-load-name{color:var(--muted)}
-  .schedule-load-doses{margin-left:auto;color:var(--faint);white-space:nowrap}
   .schedule-drawer-backdrop{position:fixed;inset:0;z-index:219;background:linear-gradient(90deg,transparent 0%,transparent 55%,color-mix(in srgb,var(--bg) 58%,transparent));backdrop-filter:blur(2px)}
   .schedule-drawer-close-layer{position:fixed;inset:0;z-index:219;display:block;border:0;background:transparent;padding:0;text-align:left;cursor:default}
   .schedule-side-drawer{position:fixed;top:0;right:0;width:min(460px,calc(100vw - 28px));height:100vh;display:flex;flex-direction:column;pointer-events:auto;background:color-mix(in srgb,var(--panel) 96%,var(--bg));border-left:1px solid var(--line);box-shadow:-18px 0 50px rgba(0,0,0,.32);z-index:220}
