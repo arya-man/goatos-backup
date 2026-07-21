@@ -592,6 +592,16 @@ Do:
   tenant/run scoped, indexed, chunked or paginated, bounded in memory/
   goroutines, idempotent for retries, and covered by query-plan validation when
   it touches large tables.
+- Treat hot API/SSR latency as part of scale safety, not polish. Every
+  operator-facing API read, admin-web SSR page bootstrap, dashboard, schedule,
+  calendar, worklist, and drawer/list load has a hard sub-500ms budget under the
+  API latency policy (`tools/perf/api-latency-policy.mjs`: p90 <= 300ms,
+  p95/p99 <= 500ms). A seconds-class load is a bug even when `make ci-local`
+  passes; `ci-local` is not latency evidence unless the live latency gate ran
+  and recorded samples. Do not fix this with bigger limits, longer timeouts,
+  skeletons, prefetch, or frontend caches. Fix the serving shape: narrow endpoint
+  for the screen grain/window, indexed/keyset query, batched read, or accepted
+  projection/read model.
 - NEVER write these scale anti-patterns in `backend/internal/**` (request paths,
   app services, worker repo methods). They are fast at ~1k rows and fatal at 1M.
   Each is machine-blocked by `make scale-guard` (CI `guardrails` job); named,

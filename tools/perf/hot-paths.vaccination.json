@@ -46,7 +46,7 @@
       "path": "/control-tower/vaccination?category=vaccination",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "alerts", "min": 1 }
     },
@@ -56,7 +56,7 @@
       "path": "/vaccination/action-center?category=vaccination&limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
@@ -66,7 +66,7 @@
       "path": "/vaccination/action-center/counts?category=vaccination",
       "p90_ms": 250,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 65536,
       "assertion": { "type": "number_min", "path": "total_count", "min": 1 }
     },
@@ -76,7 +76,7 @@
       "path": "/vaccination/adherence?category=vaccination&limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "rows", "min": 1 }
     },
@@ -86,7 +86,7 @@
       "path": "/calendar/vaccination/events?date_from={today}&date_to={today_plus_7}&limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
@@ -96,7 +96,7 @@
       "path": "/calendar/vaccination/events?date_from={today_minus_30}&date_to={today_plus_1}&status=completed&limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
     },
@@ -106,7 +106,7 @@
       "path": "/calendar/vaccination/events?date_from={today}&date_to={today_plus_30}&include_date_markers=true&markers_only=true&limit=1",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "date_markers", "min": 1 }
     },
@@ -116,7 +116,7 @@
       "path": "/vaccination/schedule?limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "cohorts", "min": 1 }
     },
@@ -126,7 +126,7 @@
       "path": "/vaccination/execution?limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "rows", "min": 1 }
     },
@@ -136,7 +136,7 @@
       "path": "/vaccination/operations?limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "cohorts", "min": 1 }
     },
@@ -146,7 +146,7 @@
       "path": "/vaccination/sheds?limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
-      "p99_ms": 1000,
+      "p99_ms": 500,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "rows", "min": 1 }
     }

@@ -18,6 +18,15 @@ idempotency/migration/timezone bars, and the kernel golden lens below stay in
 force. When the two disagree on the *present* release bar, the ADR wins; on
 *correctness shape* (indexing, boundedness, idempotency), both agree.
 
+**Hot serving-read latency is a merge gate.** Operator-facing API reads, SSR
+page bootstraps, dashboards, calendars, schedules, and local drawers must stay
+below the hard budget in `tools/perf/api-latency-policy.mjs` (default p90 <=
+300ms and p95/p99 <= 500ms). A seconds-class response is a bug even when the
+query is "bounded" or the UI shows a skeleton. Do not approve a broad
+calendar/worklist/read-model endpoint as the data source for a narrower screen
+when a narrower contract exists; fix the endpoint grain/window or add the
+correct serving read.
+
 Law: `context/architecture/operational-kernel.md` (golden rule),
 `context/architecture/operational-kernel-system-design.md` (system design),
 `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` (current 5k-50k

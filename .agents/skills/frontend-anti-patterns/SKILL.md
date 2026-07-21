@@ -17,6 +17,12 @@ description: >-
 Admin-web is a RENDERER, not a product-truth owner. The backend contract owns
 what is visible; the client owns layout and local UI state.
 
+Every operator-facing admin-web route has a hard sub-500ms hot-load budget when
+served from the local/perf stack. A seconds-class SSR/API read is not solved by a
+skeleton, spinner, prefetch, or client cache. Repoint the page to the narrow
+backend contract that matches the screen grain/window, or fix the backend
+serving read before pushing.
+
 This skill is a **table of contents**, not the rulebook. Open the canonical
 chapters below; do not review from the summary.
 
@@ -25,6 +31,8 @@ chapters below; do not review from the summary.
   drawers, dashboards) or `packages/ui` / `packages/rbac` / `packages/forms-dsl`.
 - Any date-range / week / month picker feeding a fetch and a render.
 - Any dashboard that slices by month/date/breed/farm/shed/status/etc.
+- Any route/load measurement at or above 500ms, especially when a narrow page is
+  fed by a broad catch-all endpoint.
 
 ## Canonical detail (read these — do NOT duplicate here)
 - **Review chapter:** [`.agents/skills/goatos-code-review/references/frontend.md`](../goatos-code-review/references/frontend.md) (+ [`.agents/skills/goatos-code-review/references/mobile.md`](../goatos-code-review/references/mobile.md) for the mobile twin).
@@ -39,6 +47,9 @@ chapters below; do not review from the summary.
 - `npm --prefix apps/admin-web run check:mock-fidelity` — mandatory before any
   frontend push (IA guard, UI-contract literals, serial-await, request-plan, mock).
 - `make admin-web-request-reads-guard` — no SSR full-table request read.
+- API/SSR latency evidence when a page data read changes — p90 <= 300ms and
+  p95/p99 <= 500ms. A green `ci-local` build is not latency evidence unless the
+  latency gate ran against a live stack and recorded samples.
 - `make admin-web-local-overlay-guard` — zero route-driven same-page overlays;
   no Next/native open, close, veil, or schedule-drawer navigation baseline.
 - `node tools/agent-hooks/check-refresh-binding.mjs` — selected-window binding.
@@ -53,6 +64,9 @@ chapters below; do not review from the summary.
   reasons, summary-vs-detail — never hardcoded in a page.
 - **No SSR full-table request reads:** don't drain a paginated endpoint cursor-by-
   cursor into one array (the `searchAllGoats` walk); read a projection/summary.
+- **No broad endpoint for a narrow screen:** a month schedule page must not call
+  a broad calendar/events union and then reshape it. Use the endpoint whose
+  contract owns that screen's grain/window.
 - **Selected-window drives fetch AND render:** one window for both; no implicit
   `now`/`today` substituted server-side; render the actual-returned window.
 - **Reminder/candidate completeness:** a paginated reminder loop must reach every
