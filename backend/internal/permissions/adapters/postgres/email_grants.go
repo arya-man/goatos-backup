@@ -227,8 +227,10 @@ func pendingEmailGrantRoleHint(role string) string {
 		return "park_head"
 	case permissions.RoleVerifier:
 		return "verifier"
-	case permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RolePCDirector:
-		return "admin"
+	case permissions.RoleCEOInternal:
+		return "cxo"
+	case permissions.RolePCDirector:
+		return "supervisor"
 	default:
 		if tier, _, ok := permissions.ParseRoleKey(role); ok {
 			if tier == permissions.TierAssistantManager {

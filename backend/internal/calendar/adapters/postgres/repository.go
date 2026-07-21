@@ -1516,7 +1516,7 @@ func escalationRoleRank(role string) (int, bool) {
 		return 20, true
 	case permissions.RolePCDirector:
 		return 30, true
-	case permissions.RoleCEOInternal, permissions.RoleAdmin:
+	case permissions.RoleCEOInternal:
 		return 40, true
 	default:
 		return 0, false

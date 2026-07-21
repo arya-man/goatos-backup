@@ -209,7 +209,6 @@ roster import.
 | `pc_director` | `…000103` | leadership follow-up in app; close + post verification on admin-web | **none — module not in drawer** |
 | `ceo_internal` | `…000104` | leadership follow-up in app; close + post verification on admin-web | full — census + Birth/Death + Shifting |
 | `verifier` | `…000105` | post verification on admin-web. **Cannot use the mobile app at all** (see below) | **none — module not in drawer** |
-| `admin` | (as needed) | full admin surface on admin-web | full — census + Birth/Death + Shifting |
 
 (`…` = `90000000-0000-4000-8000-0000000001`.) The current business rule: **Director / CEO / CxO / Park Head /
 verifier can close + verify vaccination drives through admin-web. Operators do not close or verify —
@@ -223,18 +222,17 @@ The Counts module's three pages are gated **individually**, so one module shows 
 different bar to different jobs. The distinction being enforced: **field capture and
 tenant-wide census visibility are different authorities.** An Operator or Park Head
 records births/deaths/shiftings as their own ground truth but does **not** get a
-tenant-wide population view; Admin/CEO do.
+tenant-wide population view; CEO/CXO does.
 
 | role | census `/counts` | `/counts/birth-death` | `/counts/shifting` | module in drawer |
 |---|---|---|---|---|
 | `operator` | NO | yes | yes | yes |
 | `park_head` | NO | yes | yes | yes |
-| `admin` | yes | yes | yes | yes |
 | `ceo_internal` | yes | yes | yes | yes |
 | `pc_director` | NO | NO | NO | **NO — excluded entirely** |
 | `verifier` | NO | NO | NO | **NO — excluded entirely** |
 
-- The census page requires **`counts.read`** (Admin + CEO only); the two capture pages
+- The census page requires **`counts.read`** (`ceo_internal` only); the two capture pages
   require **`counts.write`**. `counts.read` is split off `goat.read` on purpose —
   `goat.read` is held by nearly every role, so reusing it would have made the census
   effectively public.
@@ -295,12 +293,13 @@ not the admin API — `POST /app/counts/{shifting,birth,death}-events`
 Birth delegates to identity's `CreateAdminGoat` and death to `CriticalDeathExit`, so the domain
 rules and the guardrail are reused, never re-implemented. `counts.write` is held by the ground
 capture roles — flat `operator` and `park_head`, plus the Assistant Manager and Manager tiers —
-and by `admin` / `ceo_internal` for oversight. It is held by **neither `verifier`** (which keeps
+and by `ceo_internal` for oversight. It is held by **neither `verifier`** (which keeps
 capture and verification separate) **nor `pc_director` / the Head and Director tiers**, which act
 on verified work rather than capturing it. `pc_director` previously held `counts.write` and lost
 it in the 2026-07-18 decision above.
 
-Valid roles (from `seed-dev-grant`): `admin`, `verifier`, `park_head`, `pc_director`, `operator`,
+Valid flat roles (from `seed-dev-grant`): `verifier`, `park_head`, `pc_director`, `operator`,
+`ceo_internal`. There is no separate grantable full-access alias; CEO/CXO/full access is
 `ceo_internal`.
 
 ## Emulator stability (why it ANRs) + recording

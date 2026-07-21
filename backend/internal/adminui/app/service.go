@@ -187,13 +187,13 @@ func topBar() domain.TopBarContract {
 			},
 		},
 		Notifications: domain.TopBarControl{Label: "Notifications", Enabled: false, DisabledReason: "Notifications are not wired in this admin-web slice yet.", Options: []domain.TopBarOption{}},
-		RolePreview:   domain.RolePreviewActor{DisplayName: "Signed-in admin", Initials: "AD", Subtitle: "Role and park scope resolved by backend RBAC"},
+		RolePreview:   domain.RolePreviewActor{DisplayName: "Signed-in CEO/CXO", Initials: "CX", Subtitle: "Role and park scope resolved by backend RBAC"},
 	}
 }
 
 func roleLenses() []domain.RoleLensContract {
 	return []domain.RoleLensContract{
-		{ID: "coo", Name: "Superadmin / CEO / COO", AuditShort: "COO", Scope: "all · deep", Description: "Central Command · all parks", Superadmin: true},
+		{ID: "coo", Name: "CEO / CXO", AuditShort: "CXO", Scope: "all · deep", Description: "Central Command · all parks", FullAccess: true},
 		{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health vertical · all parks", Description: "Preventive Care (PC) / health governance view"},
 		{ID: "park-head", Name: "Park Head", AuditShort: "Park Head", Scope: "all verticals · assigned park", Description: "Assigned park leadership view"},
 		{ID: "health-manager", Name: "Health Manager", AuditShort: "Health Mgr", Scope: "health vertical · assigned park", Description: "Assigned-park Preventive Care (PC) manager view"},

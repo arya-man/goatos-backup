@@ -19,7 +19,7 @@ func TestBootstrapSetsCacheHeadersAndPassesRequestContext(t *testing.T) {
 	}}
 	handler := NewHandler(service)
 
-	grants := []permissions.ActiveGrant{{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "tenant-1"}}
+	grants := []permissions.ActiveGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "tenant-1"}}
 	ctx := httpmiddleware.WithAuthGrants(
 		httpmiddleware.WithActorID(
 			httpmiddleware.WithTenantID(context.Background(), "tenant-1"),

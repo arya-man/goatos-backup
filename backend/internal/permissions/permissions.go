@@ -3,7 +3,6 @@ package permissions
 import "context"
 
 const (
-	RoleAdmin       = "admin"
 	RoleVerifier    = "verifier"
 	RoleParkHead    = "park_head"
 	RolePCDirector  = "pc_director"
@@ -71,7 +70,7 @@ const (
 	// It is deliberately SEPARATE from CountsWrite and NARROWER than goat.read. Per the
 	// maintainer decision (2026-07-18), field capture and census visibility are different
 	// authorities: an Operator or Park Head records births/deaths/shiftings for their own
-	// ground truth but does not get a tenant-wide population view, while Admin/CEO do.
+	// ground truth but does not get a tenant-wide population view, while CEO/CXO does.
 	// Splitting it off goat.read is what makes that enforceable — goat.read is held by
 	// nearly every role, so reusing it would have made the census effectively public.
 	//
@@ -104,7 +103,7 @@ const (
 	// each named animal's canonical location and re-scoping its shed-scoped vaccination
 	// obligations to the destination shed.
 	//
-	// Granted to RoleParkHead and the admin tier. RoleCEOInternal holds it too because the
+	// Granted to RoleParkHead and the CEO/CXO tier. RoleCEOInternal holds it because the
 	// platform-owner cohort must be able to unblock any queue, but that is a separate grant from
 	// CountsApproveLifecycle by design -- the two authorities are independent, and holding one
 	// never implies the other. Never granted to RoleOperator or RoleVerifier.
@@ -136,7 +135,7 @@ const (
 	// would make that impossible to express.
 	//
 	// It is also narrower than a generic config-read: the grid is commercially meaningful
-	// (it encodes the farm's whole feeding economics), which is why it sits with the Admin/CEO tier
+	// (it encodes the farm's whole feeding economics), which is why it sits with the CEO/CXO tier
 	// rather than being handed to every authenticated principal the way /app/bootstrap is.
 	//
 	// Nav consequence: the Feed Config screen declares this permission, so a principal without it
@@ -151,7 +150,7 @@ const (
 	// (park, ration_group, shed_tag) key. One edit silently changes what hundreds of animals are fed
 	// every day until someone notices. Unlike a vaccination obligation -- which surfaces as visible,
 	// dated, chaseable work when it goes wrong -- an incorrect ration produces no alert at all; it
-	// produces thinner animals a month later. So the authority to change it sits with the Admin/CEO
+	// produces thinner animals a month later. So the authority to change it sits with the CEO/CXO
 	// tier that owns farm economics, NOT with the ground roles that execute feeding.
 	//
 	// Deliberately NOT granted to RoleOperator or RoleParkHead: an operator packs and delivers what
@@ -177,7 +176,7 @@ const (
 	// the vaccination protocol surface. Granting a distinct permission now costs nothing and keeps
 	// that door open.
 	//
-	// It is granted to the tiers that own park execution and farm oversight: Admin, ParkHead, and
+	// It is granted to the tiers that own park execution and farm oversight: CEO/CXO, ParkHead, and
 	// RoleCEOInternal (founder/builder visibility invariant -- the platform-owner cohort holds the
 	// grants for every built visible module). Deliberately NOT granted to RoleVerifier: the verifier
 	// checks captured work against a standard and has no role in dispatching feed.
@@ -196,31 +195,6 @@ const (
 )
 
 var rolePermissions = map[string]map[string]struct{}{
-	RoleAdmin: {
-		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
-		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
-		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
-		OperatorsManageDevice: {}, OperatorsManageCapability: {},
-		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
-		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
-		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
-		CalendarRead: {}, CalendarAction: {},
-		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
-		RosterRead: {}, RosterManage: {},
-		CountsWrite:            {},
-		CountsRead:             {},
-		CountsApproveLifecycle: {},
-		CountsApproveShifting:  {},
-		CountsApproveAccess:    {},
-		// Authored feed configuration (the ration grid + dispatch clock). Admin/CEO tier only: a
-		// ration rate is a standing feeding instruction for every animal matching its key, and a bad
-		// one produces no alert, just thinner animals a month later.
-		FeedConfigRead:     {},
-		FeedConfigWrite:    {},
-		FeedPackingRead:    {},
-		VerificationReview: {},
-		VerificationAct:    {},
-	},
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
 		LocationsRead: {}, LocationsReview: {},
@@ -394,5 +368,5 @@ func RolesAuthorize(roles []string, required []string, adminOnly bool) bool {
 }
 
 func isProductAdminRole(role string) bool {
-	return role == RoleAdmin || role == RoleCEOInternal
+	return role == RoleCEOInternal
 }

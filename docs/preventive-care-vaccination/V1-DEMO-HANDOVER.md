@@ -63,7 +63,7 @@ Outside this V1 demo contract:
 - Login route: `http://127.0.0.1:3300/login`
 - Tenant: `00000000-0000-4000-8000-000000000001`
 - Local user: `90000000-0000-4000-8000-000000000101`
-- Role shown: `Superadmin / CEO / COO`
+- Role shown: `CEO / CXO`
 
 ## Demo Order
 

@@ -2708,7 +2708,7 @@ export interface components {
             audit_short: string;
             scope: string;
             description: string;
-            superadmin: boolean;
+            full_access: boolean;
         };
         AdminWebPageContract: {
             route_id: string;

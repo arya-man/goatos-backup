@@ -220,15 +220,15 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 }
 
 // TestIsLeadershipPrincipal covers every valid workforce grant role (see
-// validRole in service.go): admin, park_head, pc_director, and ceo_internal
-// are leadership tiers. Verifier owns the standalone verification app; operator
+// validRole in service.go): ceo_internal, park_head, and pc_director are
+// leadership tiers. Verifier owns the standalone verification app; operator
 // owns field execution. Neither is leadership navigation.
 func TestIsLeadershipPrincipal(t *testing.T) {
 	tests := []struct {
 		role string
 		want bool
 	}{
-		{role: permissions.RoleAdmin, want: true},
+		{role: permissions.RoleCEOInternal, want: true},
 		{role: permissions.RoleCEOInternal, want: true},
 		{role: permissions.RolePCDirector, want: true},
 		{role: permissions.RoleParkHead, want: true},
@@ -645,7 +645,7 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 	}{
 		{permissions.RoleOperator, []string{"birth_death", "shifting"}},
 		{permissions.RoleParkHead, []string{"birth_death", "shifting", "approval"}},
-		{permissions.RoleAdmin, []string{"counts", "birth_death", "shifting", "approval"}},
+		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "approval"}},
 		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "approval"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
@@ -735,7 +735,7 @@ func TestCountsModuleReplacesYouTabWithApproval(t *testing.T) {
 	// No role gets a "You" tab from Counts -- it is not a counts contribution at all.
 	for _, role := range []string{
 		permissions.RoleOperator, permissions.RoleParkHead,
-		permissions.RoleAdmin, permissions.RoleCEOInternal,
+		permissions.RoleCEOInternal, permissions.RoleCEOInternal,
 	} {
 		for _, key := range countsBar(role) {
 			if key == "you" {

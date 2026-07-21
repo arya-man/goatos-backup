@@ -11,6 +11,11 @@ argument-hint: "[area: backend|forms|mobile|dashboard|analytics|infra|contracts|
 Use this skill for Goat OS engineering work. This file is the single entry point
 for references. Do not route from memory alone.
 
+RBAC vocabulary rule: do not introduce a separate admin person/business role.
+CEO/CXO full access is represented by the `ceo_internal` grant role and `cxo`
+workforce hint. Product route/package names such as `/admin/*` or `admin-web`
+are not grant roles.
+
 ## Required First Step — 4-Layer Lookup
 
 Work layers in order. Stop when the question is answered. Never jump to files first.

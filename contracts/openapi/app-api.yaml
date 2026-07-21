@@ -7149,7 +7149,7 @@ components:
     AdminWebRoleLens:
       type: object
       additionalProperties: false
-      required: [id, name, audit_short, scope, description, superadmin]
+      required: [id, name, audit_short, scope, description, full_access]
       properties:
         id:
           type: string
@@ -7161,7 +7161,7 @@ components:
           type: string
         description:
           type: string
-        superadmin:
+        full_access:
           type: boolean
     AdminWebPageContract:
       type: object

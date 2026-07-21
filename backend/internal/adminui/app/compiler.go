@@ -713,7 +713,7 @@ func compileRoleLenses(input BootstrapInput) []domain.RoleLensContract {
 	if len(roles) == 0 {
 		return roleLenses()
 	}
-	if hasAnyRole(roles, permissions.RoleAdmin, permissions.RoleCEOInternal) {
+	if hasAnyRole(roles, permissions.RoleCEOInternal) {
 		return roleLenses()
 	}
 	out := make([]domain.RoleLensContract, 0, len(roles))
@@ -1005,7 +1005,7 @@ func hasAnyRole(roles []string, targets ...string) bool {
 }
 
 func highestRole(roles []string) string {
-	for _, role := range []string{permissions.RoleCEOInternal, permissions.RoleAdmin, permissions.RolePCDirector, permissions.RoleParkHead, permissions.RoleVerifier, permissions.RoleOperator} {
+	for _, role := range []string{permissions.RoleCEOInternal, permissions.RolePCDirector, permissions.RoleParkHead, permissions.RoleVerifier, permissions.RoleOperator} {
 		for _, got := range roles {
 			if got == role {
 				return role
@@ -1013,15 +1013,15 @@ func highestRole(roles []string) string {
 		}
 	}
 	if len(roles) == 0 {
-		return permissions.RoleAdmin
+		return permissions.RoleCEOInternal
 	}
 	return roles[0]
 }
 
 func roleLensForRole(role string) domain.RoleLensContract {
 	switch role {
-	case permissions.RoleCEOInternal, permissions.RoleAdmin:
-		return domain.RoleLensContract{ID: "coo", Name: "Superadmin / CEO / COO", AuditShort: "COO", Scope: "all · deep", Description: "Central Command · all parks", Superadmin: true}
+	case permissions.RoleCEOInternal:
+		return domain.RoleLensContract{ID: "coo", Name: "CEO / CXO", AuditShort: "CXO", Scope: "all · deep", Description: "Central Command · all parks", FullAccess: true}
 	case permissions.RolePCDirector:
 		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health vertical · all parks", Description: "PC / health governance view"}
 	case permissions.RoleParkHead:
@@ -1041,8 +1041,8 @@ func roleLensName(role string) string {
 
 func roleInitials(role string) string {
 	switch role {
-	case permissions.RoleCEOInternal, permissions.RoleAdmin:
-		return "AD"
+	case permissions.RoleCEOInternal:
+		return "CX"
 	case permissions.RolePCDirector:
 		return "HD"
 	case permissions.RoleParkHead:
