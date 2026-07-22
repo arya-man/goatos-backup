@@ -2,11 +2,14 @@
 
 ## Implementation Status
 
-**2026-07-22**: Wired real data readers into tool executors (counts_breakdown, vaccination_shed_summary, 
-vaccination_execution, feed_direction_today). Executors now call actual read services 
-(`countsService.ProjectedCountFor`, etc.) instead of returning placeholder status strings. 
-Gracefully degrades to empty results when data readers unavailable or on error.
-API tier routing now returns real data from the Mesha read APIs listed in section A below.
+**2026-07-22**: Fixed critical readtools findings:
+1. Deleted broken ProjectedCountFor call (was using wrong method signature with missing ParkID + TargetDate).
+2. Routed animal species counts (counts_breakdown) to Cube tier instead of API tier (Cube has correct active_animal_count metric).
+3. Fixed error swallowing: toolexecutors now propagate reader errors instead of silently returning empty facts.
+4. Vaccination/feed executors return errors when not wired, preventing silent empty results.
+5. Added comprehensive toolexecutors_test.go with error-propagation + species-split assertions.
+API tier routing now returns real data from the Mesha read APIs listed in section A below,
+with errors properly surfaced for fallback orchestration.
 
 One-time full sweep of every leadership-relevant table, read API, and feature in
 the repo against the assistant's read path. Each row resolves to exactly one
@@ -168,7 +171,7 @@ scoped-refusal exclusion so the bot says "not covered yet" rather than inventing
 | G10 | Conversation thread titles unpopulated | Title-derivation on conversation create (planner summary or truncated first message) + rename path |
 | G11 | Identity-resolution / data-quality backlog uncovered | Surface via `ops_exception_queue` (location-review + escalations); dedicated identity-conflict view deferred, documented here |
 | G12 | Transit/holding, proof artifacts, device fleet | EXCLUDED for now: transit/holding deferred (draft when volume matters); proof artifacts surfaced via per-module "evidence present" derivation; device fleet is ops-admin telemetry, not a leadership KPI |
-| G13 | API-tier tool executors (in-process adapters) | CLOSED: tier-2 in-process `ToolExecutor` adapters registered in `ceoai/adapters/readtools/` for all planner-routed API tools (counts_breakdown, vaccination_shed_summary, vaccination_execution, feed_direction_today). Prevents "no read-service executor" errors; degrades to SQL fallback or informational response. Resolves `backend/internal/ceoai/app/registry.go:106` routing error when planner invokes API-tier tools. |
+| G13 | API-tier tool executors (in-process adapters) | CLOSED: tier-2 in-process `ToolExecutor` adapters registered in `ceoai/adapters/readtools/` for planner-routed API tools (vaccination_shed_summary, vaccination_execution, feed_direction_today). Species counts routed to Cube tier (active_animal_count metric) instead of API. Executors propagate errors via `ToolResult.Err` instead of swallowing them; toolexecutors_test.go covers error-propagation + species-split assertions. Resolves `backend/internal/ceoai/app/registry.go:106` routing error + P0-critical error-swallowing bug. |
 
 ## E. Rule
 
