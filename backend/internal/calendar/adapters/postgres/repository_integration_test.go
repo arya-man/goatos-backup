@@ -4083,6 +4083,116 @@ func TestCalendarHeldDriveTargetsReturnPlannedDateNotStaleDueAt(t *testing.T) {
 	}
 }
 
+func TestCalendarDriveUsesOperatorAssignmentDateInsteadOfStaleBatchDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	const (
+		protocolID   = "86000000-0000-4000-8000-00000000db01"
+		versionID    = "86000000-0000-4000-8000-00000000db02"
+		ruleID       = "86000000-0000-4000-8000-00000000db03"
+		batchID      = "86000000-0000-4000-8000-00000000db04"
+		obligationID = "86000000-0000-4000-8000-00000000db05"
+	)
+	loc := biztime.DefaultLocation()
+	batchDay := stableSameLocalDayDueAt(time.Now().In(loc))
+	assignmentDay := batchDay.Add(24 * time.Hour)
+	laterAssignmentDay := batchDay.Add(7 * 24 * time.Hour)
+	batchKey := batchDay.In(loc).Format("2006-01-02")
+	assignmentKey := assignmentDay.In(loc).Format("2006-01-02")
+	laterAssignmentKey := laterAssignmentDay.In(loc).Format("2006-01-02")
+	if batchKey == assignmentKey {
+		t.Fatalf("test setup: batch day %s must differ from assignment day %s", batchKey, assignmentKey)
+	}
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, batchDay)
+	attachObligationToGoatScope(t, ctx, pool, obligationID, obligationID, "shed", testShedA)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, batchDay, obligationID)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, partition_label,
+  animal_count, total_doses, vaccine_rule_ids
+) VALUES (
+  $1::uuid, $2::uuid, ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+  $4::uuid, $5::uuid, 'Gandhi', 'Part 1', 1, 1, ARRAY[$6::uuid]
+)`, testTenantID, batchID, assignmentDay, testParkA, testShedA, ruleID); err != nil {
+		t.Fatalf("seed drive assignment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, partition_label,
+  animal_count, total_doses, vaccine_rule_ids
+) VALUES (
+  $1::uuid, $2::uuid, ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+  $4::uuid, $5::uuid, 'Gandhi', 'Part 2', 1, 1, ARRAY[$6::uuid]
+)`, testTenantID, batchID, laterAssignmentDay, testParkA, testShedA, ruleID); err != nil {
+		t.Fatalf("seed later drive assignment: %v", err)
+	}
+
+	assignedID := parkDriveEventID(testParkA, assignmentDay)
+	laterAssignedID := parkDriveEventID(testParkA, laterAssignmentDay)
+	assignedList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: assignmentDay.Add(-25 * time.Hour), DateTo: assignmentDay.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents assignment window: %v", err)
+	}
+	var foundAssigned bool
+	for _, item := range assignedList.Items {
+		if item.EventID == assignedID {
+			foundAssigned = true
+			if got := item.DueAt.In(loc).Format("2006-01-02"); got != assignmentKey {
+				t.Fatalf("assignment-backed drive due day=%s, want %s", got, assignmentKey)
+			}
+			if item.VaccineCount != 1 {
+				t.Fatalf("assignment-backed drive vaccine_count=%d, want only assigned rule", item.VaccineCount)
+			}
+		}
+	}
+	if !foundAssigned {
+		t.Fatalf("assignment-backed drive %s missing from assignment-day window list=%#v", assignedID, assignedList.Items)
+	}
+	wideList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: assignmentDay.Add(-25 * time.Hour), DateTo: laterAssignmentDay.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents wide assignment window: %v", err)
+	}
+	seenAssignments := map[string]string{}
+	for _, item := range wideList.Items {
+		if item.EventID == assignedID || item.EventID == laterAssignedID {
+			seenAssignments[item.EventID] = item.DueAt.In(loc).Format("2006-01-02")
+		}
+	}
+	if seenAssignments[assignedID] != assignmentKey {
+		t.Fatalf("wide list first assignment day=%q, want %s; list=%#v", seenAssignments[assignedID], assignmentKey, wideList.Items)
+	}
+	if seenAssignments[laterAssignedID] != laterAssignmentKey {
+		t.Fatalf("wide list later assignment day=%q, want %s; list=%#v", seenAssignments[laterAssignedID], laterAssignmentKey, wideList.Items)
+	}
+
+	staleID := parkDriveEventID(testParkA, batchDay)
+	staleList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: batchDay.Add(-25 * time.Hour), DateTo: batchDay.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents stale batch window: %v", err)
+	}
+	for _, item := range staleList.Items {
+		if item.EventID == staleID {
+			t.Fatalf("stale batch-day drive %s leaked despite operator assignment on %s", staleID, assignmentKey)
+		}
+	}
+}
+
 // LIFE-005: park-drive summary_primary copy must come from the scheduled status bucket, never from
 // the total roster target_count. Completed-only, completed+deferred, and canceled+deferred drives
 // must not claim their whole roster as "scheduled doses".

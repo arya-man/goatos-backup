@@ -44,7 +44,7 @@ function looksLikeVaccinationOperator(pos: Position): boolean {
 
 function isCptSeat(pos: Position): boolean {
   const haystack = `${pos.center_label ?? ''} ${pos.position_code ?? ''}`.toLowerCase();
-  return haystack.includes('cpt');
+  return haystack.includes('cpt') || haystack.includes('channapatna') || haystack.includes('vaccination_operator_');
 }
 
 function isFieldOperator(pos: Position): boolean {
