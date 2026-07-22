@@ -216,6 +216,22 @@ RETURNING
   source_record_id,
   COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence;
 
+-- name: GetActiveTemporaryIdentifierForGoat :one
+-- The goat's current active temporary_tag, if any. Backs promote: the operator supplies the goat
+-- and the permanent RFID, and the server finds the temp tag to retire. LIMIT 1 with the
+-- primary-per-type partial-unique index guaranteeing at most one active temporary_tag primary.
+SELECT
+  identifier_id::text AS identifier_id,
+  identifier_value,
+  normalized_value
+FROM goat_identifiers
+WHERE tenant_id = @tenant_id
+  AND goat_id = @goat_id
+  AND identifier_type = 'temporary_tag'
+  AND status = 'active'
+ORDER BY is_primary_for_goat DESC, valid_from DESC
+LIMIT 1;
+
 -- name: GetIdentifierByID :one
 SELECT
   identifier_id::text AS identifier_id,

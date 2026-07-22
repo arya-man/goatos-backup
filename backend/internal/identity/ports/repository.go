@@ -14,6 +14,7 @@ var (
 	ErrIdempotencyConflict            = errors.New("idempotency key reused with different request")
 	ErrIdempotencyPending             = errors.New("idempotency key is not completed")
 	ErrWriteConflict                  = errors.New("identity write conflict")
+	ErrNoTemporaryIdentifier          = errors.New("identity goat has no active temporary identifier to promote")
 	ErrInvalidReference               = errors.New("identity referenced record is invalid")
 	ErrInvalidCursor                  = errors.New("invalid pagination cursor")
 	ErrGuardrailRequired              = errors.New("identity critical transition requires guardrail")
@@ -123,6 +124,27 @@ type RetireGoatIdentifierCommand struct {
 	Reason               string
 	EvidenceRefs         []domain.EvidenceRef
 	RowVersion           int
+}
+
+// PromoteTemporaryIdentifierCommand atomically retires a goat's active temporary_tag and attaches
+// the supplied permanent animal_identifier_1 as its primary identity, in ONE transaction. The temp
+// identifier is found server-side (the operator supplies only the goat and the permanent RFID).
+type PromoteTemporaryIdentifierCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	// PermanentValue is the RFID to attach as animal_identifier_1 (primary). NormalizedValue is its
+	// normalized form for the uniqueness check.
+	PermanentValue  string
+	NormalizedValue string
+	EvidenceRefs    []domain.EvidenceRef
+	RowVersion      int
+	Reason          string
 }
 
 type MoveGoatCommand struct {
@@ -339,6 +361,7 @@ type Repository interface {
 	GetGoatTimeline(ctx context.Context, params GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
+	PromoteTemporaryIdentifier(ctx context.Context, cmd PromoteTemporaryIdentifierCommand) (*AdminGoatMutationResult, error)
 	MoveGoat(ctx context.Context, cmd MoveGoatCommand) (*AdminGoatMutationResult, error)
 	ExitGoat(ctx context.Context, cmd ExitGoatCommand) (*AdminGoatMutationResult, error)
 	StageGoat(ctx context.Context, cmd StageGoatCommand) (*AdminGoatMutationResult, error)

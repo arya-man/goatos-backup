@@ -1308,6 +1308,20 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 	}, nil
 }
 
+func (f *fakeRepo) PromoteTemporaryIdentifier(_ context.Context, cmd ports.PromoteTemporaryIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	return &ports.AdminGoatMutationResult{
+		Goat: summary(cmd.GoatID, "G-000001", "clean"),
+		Identifiers: []domain.GoatIdentifier{{
+			IdentifierType:   "animal_identifier_1",
+			IdentifierValue:  cmd.PermanentValue,
+			ScopeKey:         "global",
+			Status:           "active",
+			IsPrimaryForGoat: true,
+		}},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000103", EventType: "goat.identifier.added"}},
+	}, nil
+}
+
 func (f *fakeRepo) MoveGoat(_ context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	f.lastMoveGoatCmd = cmd
 	if f.moveGoatErr != nil {
