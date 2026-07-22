@@ -69,9 +69,16 @@ test("vaccination schedule and operator labels are backend-contract owned", () =
 test("vaccination schedule opens the local drawer from operator-day rows", () => {
   assert.match(source, /LocalOverlayLink/);
   assert.match(source, /ScheduleLocalDrawer/);
-  assert.match(source, /drawerRows\(operatorDayRows, pageContract\)/);
+  assert.match(source, /drawerRows\(operatorDayRows, pageContract, scope\)/);
   assert.match(source, /#schedule_event=/);
   assert.equal(source.includes("VaccineChipOverflow"), false);
+});
+
+test("vaccination schedule drawer shed rows deep-link to the execution goat list", () => {
+  assert.match(source, /id:\s*row\.shedId/);
+  assert.match(source, /const href = shed\.id/);
+  assert.match(source, /scopeHref\(`\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(shed\.id\)\}`/);
+  assert.match(source, /park:\s*row\.parkId/);
 });
 
 test("vaccination schedule renders one visible row per operator day", () => {
