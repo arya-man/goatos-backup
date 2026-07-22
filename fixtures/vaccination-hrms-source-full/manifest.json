@@ -116,6 +116,11 @@
       "date": "2026-07-22",
       "change": "CPT operator-drive rehearsal maps Amit, Darshan, and Sagar as equal manager-tier vaccination operators with source week-offs",
       "vaccination_hrms_source_impact": "raw fixture bytes unchanged. The full source fixture still preserves the reviewed timetable seat names, but CPT-only rehearsal seeding must convert Amit, Darshan, and Sagar into vaccination_operator_* positions with execute duty and week-offs Amit=Friday, Darshan=Sunday, Sagar=Saturday. Operator availability is then read from DB HRMS rows before drive assignment splitting."
+    },
+    {
+      "date": "2026-07-23",
+      "change": "seed-roster-real consumes the cpt-operator-roster.json contract via an operator-roster overlay: when a source dir ships that file, the park's resolved seats are recast into per-person vaccination_operator_<name> positions (manager tier, not backup) with contract-owned week-offs, the strict PC-manager/backup/park-head requirement is waived for that contract-covered center, and seed-vaccination-source-full skips shed-manager seat seeding for the operator-roster park (ownership derives from the operator roster).",
+      "vaccination_hrms_source_impact": "none to the committed jun-26 fixture (it ships no cpt-operator-roster.json, so the overlay is a no-op and the generic timetable seat model + shed-manager seeding are unchanged). The validator gains an operator_roster_contract check that only triggers when the contract file is present; committed-fixture and adversarial self-test runs are unaffected."
     }
   ]
 }
