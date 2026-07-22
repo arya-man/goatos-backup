@@ -12,7 +12,6 @@ const COVERAGE_FILES = [
 
 const TRIGGER_PREFIXES = [
   "backend/internal/",
-  "backend/migrations/",
   "backend/db/",
   "contracts/openapi/",
   "contracts/schemas/",
@@ -87,6 +86,9 @@ function selfTest() {
 
   const apiBad = evaluateChangedFiles(["contracts/openapi/app-api.yaml"], () => "paths:\n  /new-module:\n    get: {}\n");
   if (apiBad.length === 0) throw new Error("self-test: API contract change without assistant coverage was not blocked");
+
+  const migrationOnly = evaluateChangedFiles(["backend/migrations/postgres/000999_vaccination_schema.sql"], () => "CREATE TABLE vaccination_example ();");
+  if (migrationOnly.length !== 0) throw new Error(`self-test: migration-only change was incorrectly blocked: ${migrationOnly.join("; ")}`);
 
   const good = evaluateChangedFiles(
     ["backend/internal/newmodule/service.go", "docs/ceo-ai/mcp-toolbox-plan.md"],
