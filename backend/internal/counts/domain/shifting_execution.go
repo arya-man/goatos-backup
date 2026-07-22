@@ -156,6 +156,15 @@ type ShiftingExecutionQuery struct {
 	// roster data exists.
 	SourceParkID string
 
+	// SourceShedID optionally narrows the queue further to movements whose animals currently stand
+	// in one shed WITHIN the park filter -- the second half of the operator's farm -> shed cascade.
+	// Empty means every shed in the (optionally park-filtered) set.
+	//
+	// SOURCE shed, matching SourceParkID: an operator executing a movement goes to the shed the
+	// animals are IN to collect them. It is a client-supplied filter on the same terms as
+	// SourceParkID; the queue is drained by whoever holds CountsWrite, not scoped by shed authority.
+	SourceShedID string
+
 	PageSize int
 	Cursor   *ShiftingExecutionCursor
 }

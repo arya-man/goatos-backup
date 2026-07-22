@@ -18,9 +18,13 @@ import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
@@ -497,6 +501,47 @@ interface AppApi {
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
 
     /**
+     * GET /app/counts/shifting-events/pending-execution — the operator's Pending tab: movements
+     * that were APPROVED in web (event_status='authorized') and whose animals have NOT moved yet.
+     * Keyset-paginated and server-capped at 20 rows. [parkId]/[shedId] are the operator's farm ->
+     * shed cascade filter, matching the movement's SOURCE location (where the animals stand now);
+     * both optional, [shedId] normally sent with [parkId]. The app renders what arrives and never
+     * re-derives the authorized filter locally.
+     */
+    suspend fun listCountsShiftingPendingExecution(
+        parkId: String? = null,
+        shedId: String? = null,
+        pageSize: Int? = null,
+        cursor: String? = null,
+    ): CountsShiftingPendingExecutionResponseDto
+
+    /**
+     * POST /app/counts/shifting-events/{id}/complete — confirms an authorized movement physically
+     * happened. THIS is the "Mark done" call that relocates the animals in `goats`, flips
+     * event_status to 'applied', and publishes goat.location.changed / goat.stage_changed. Drained
+     * through the offline outbox with a stable [idempotencyKey]: a server-committed-but-client-
+     * unrecorded retry returns the ORIGINAL relocation (idempotent_replay=true) instead of moving
+     * the herd twice. The body is optional; the mobile flow sends an empty [destinationTag] and
+     * lets the server derive the destination cohort.
+     */
+    suspend fun completeCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        destinationTag: String? = null,
+    ): CountsShiftingExecutionResponseDto
+
+    /**
+     * POST /app/counts/shifting-events/{id}/cancel — retires an authorized movement that will never
+     * be walked. Moves NOTHING. A [reason] is REQUIRED server-side. Same stable-key replay contract
+     * as complete.
+     */
+    suspend fun cancelCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): CountsShiftingExecutionResponseDto
+
+    /**
      * GET /feed-direction/preview — one park's generated feed sheet for one Asia/Kolkata business
      * day (projected head count x authored grams/head x shed factor, split across sessions). Only
      * `items` is a page ([limit]/[offset], paged by SHED); `summary` rolls up the FULL filtered
@@ -871,6 +916,31 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         CountsShiftingDestinationsResponseDto()
+
+    override suspend fun listCountsShiftingPendingExecution(
+        parkId: String?,
+        shedId: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsShiftingPendingExecutionResponseDto = CountsShiftingPendingExecutionResponseDto()
+
+    override suspend fun completeCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        destinationTag: String?,
+    ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
+        shiftingEventId = shiftingEventId,
+        eventStatus = "applied",
+    )
+
+    override suspend fun cancelCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
+        shiftingEventId = shiftingEventId,
+        eventStatus = "canceled",
+    )
 
     override suspend fun getFeedDirectionPreview(
         parkId: String,

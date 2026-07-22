@@ -46,6 +46,22 @@ enum class OutboxOpType {
      */
     COUNTS_APPROVAL_APPROVE,
     COUNTS_APPROVAL_REJECT,
+
+    /**
+     * Shifting EXECUTION from the operator's Pending tab
+     * (`POST /app/counts/shifting-events/{id}/{complete,cancel}`).
+     *
+     * `SHIFTING_COMPLETE` is the "Mark done" that RELOCATES the animals — it flips the movement to
+     * applied, rewrites their shed/stage, and publishes goat.location.changed / goat.stage_changed.
+     * Completing twice would be a double relocation, so its caller derives a STABLE idempotency key
+     * from the movement id (never a timestamp-suffixed one); under that key a
+     * server-committed-but-client-unrecorded retry returns the original relocation instead of moving
+     * the herd onward. The SHIFTING EVENT ID is the outbox group key so two actions on the same
+     * movement can never drain concurrently or out of order. `SHIFTING_CANCEL` retires an authorized
+     * movement and moves nothing; same stable-key + group-key contract.
+     */
+    SHIFTING_COMPLETE,
+    SHIFTING_CANCEL,
 }
 
 /**

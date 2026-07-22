@@ -1600,7 +1600,7 @@ export interface paths {
         };
         /**
          * List authorized shiftings waiting to be physically executed.
-         * @description The operator's execution queue: movements that have been APPROVED but whose animals have not moved yet (event_status='authorized'). Each row carries what an operator needs in order to act - where the animals are now, where they are going, the category and priority, who approved it and when - plus the movement's full animal_count and a bounded preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. PARK SCOPE: park_id is an OPTIONAL filter matching the movement's SOURCE park (where the animals currently are - an operator has to go there to collect them). Omitting it returns every park. It is a client filter today rather than a per-operator scope derived from the caller, because no per-operator park assignment data exists yet; deriving it now would return an empty queue for every operator.
+         * @description The operator's execution queue: movements that have been APPROVED but whose animals have not moved yet (event_status='authorized'). Each row carries what an operator needs in order to act - where the animals are now, where they are going, the category and priority, who approved it and when - plus the movement's full animal_count and a bounded preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. PARK SCOPE: park_id is an OPTIONAL filter matching the movement's SOURCE park (where the animals currently are - an operator has to go there to collect them). Omitting it returns every park. It is a client filter today rather than a per-operator scope derived from the caller, because no per-operator park assignment data exists yet; deriving it now would return an empty queue for every operator. SHED SCOPE: shed_id is an OPTIONAL filter matching the movement's SOURCE shed, the second half of the operator's farm -> shed cascade. It is normally supplied together with park_id (the shed narrows a park), but may be sent alone. Omitting it returns every shed.
          */
         get: operations["listAppCountsShiftingPendingExecution"];
         put?: never;
@@ -8010,6 +8010,8 @@ export interface operations {
             query?: {
                 /** @description Optional. Filters to movements whose SOURCE park is this park. Omit for all parks. */
                 park_id?: string;
+                /** @description Optional. Filters to movements whose SOURCE shed is this shed (the farm -> shed cascade). Normally sent with park_id. Omit for all sheds. */
+                shed_id?: string;
                 /** @description Server-capped at 20. */
                 page_size?: number;
                 /** @description Opaque keyset cursor from a previous page's next_cursor. */

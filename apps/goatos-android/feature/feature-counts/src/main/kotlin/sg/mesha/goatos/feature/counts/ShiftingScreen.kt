@@ -182,13 +182,18 @@ fun ShiftingScreen(
     state: ShiftingUiState,
     onEvent: (ShiftingEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    // When false, the caller (the Shifting tab host) already renders the screen header + tab bar, so
+    // the Raise form must not render a second header of its own.
+    showHeader: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
-        CountsFormHeader(
-            title = stringResource(R.string.counts_shifting_title),
-            subtitle = stringResource(R.string.counts_shifting_subtitle),
-            onBack = { onEvent(ShiftingEvent.Back) },
-        )
+        if (showHeader) {
+            CountsFormHeader(
+                title = stringResource(R.string.counts_shifting_title),
+                subtitle = stringResource(R.string.counts_shifting_subtitle),
+                onBack = { onEvent(ShiftingEvent.Back) },
+            )
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             contentPadding = PaddingValues(bottom = 28.dp),

@@ -40,6 +40,8 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.DefaultCountsApprovalRepository
+import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
+import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
 import sg.mesha.goatos.core.data.DefaultFeedRepository
 import sg.mesha.goatos.core.data.FeedRepository
@@ -302,6 +304,13 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
     ): CountsApprovalRepository = DefaultCountsApprovalRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun provideShiftingPendingRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): ShiftingPendingRepository = DefaultShiftingPendingRepository(api, database)
 
     @Provides
     @Singleton

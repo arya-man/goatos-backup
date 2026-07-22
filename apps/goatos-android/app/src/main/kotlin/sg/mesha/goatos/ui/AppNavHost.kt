@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -37,7 +38,13 @@ import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
+import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
+import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
+import sg.mesha.goatos.feature.counts.ShiftingHomeScreen
+import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
+import sg.mesha.goatos.feature.counts.ShiftingPendingScreen
 import sg.mesha.goatos.feature.counts.ShiftingScreen
+import sg.mesha.goatos.feature.counts.ShiftingTab
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.LeadershipScreen
 import sg.mesha.goatos.feature.leadership.OverdueScreen
@@ -79,6 +86,8 @@ import sg.mesha.goatos.viewmodel.RescheduleViewModel
 import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
 import sg.mesha.goatos.viewmodel.ShedsViewModel
+import sg.mesha.goatos.viewmodel.ShiftingExecuteViewModel
+import sg.mesha.goatos.viewmodel.ShiftingPendingViewModel
 import sg.mesha.goatos.viewmodel.ShiftingViewModel
 import sg.mesha.goatos.viewmodel.SubmitViewModel
 import sg.mesha.goatos.viewmodel.TimetableViewModel
@@ -126,6 +135,14 @@ object Routes {
     const val COUNTS = "/counts"
     const val COUNTS_BIRTH_DEATH = "/counts/birth-death"
     const val COUNTS_SHIFTING = "/counts/shifting"
+
+    // The L1 execute destination for one approved movement from the Shifting "Pending" tab. A
+    // distinct hosted destination with Up/Back and no root chrome (Android navigation-stack
+    // invariant) — NOT a prefix of COUNTS_SHIFTING reused as a drill target.
+    const val COUNTS_SHIFTING_EXECUTE_ARG = "shifting_event_id"
+    const val COUNTS_SHIFTING_EXECUTE = "/counts/shifting/execute/{$COUNTS_SHIFTING_EXECUTE_ARG}"
+    fun shiftingExecuteRoute(shiftingEventId: String): String =
+        "/counts/shifting/execute/$shiftingEventId"
 
     // Feed module bar (backend module `feed_direction`). Both are L0 roots and match the
     // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
@@ -759,18 +776,87 @@ fun AppNavHost(
             )
         }
 
+        // Shifting home: two client-local tabs (Raise | Pending) inside ONE L0 route. Raise is the
+        // existing operator-reports-a-movement form; Pending is the web-approved execution queue.
+        // Switching tabs is local UI state, not navigation; only opening a pending movement (the
+        // execute screen below) is a hosted destination.
         composable(Routes.COUNTS_SHIFTING) {
-            val vm: ShiftingViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            ShiftingScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        ShiftingEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
+            var selectedTab by rememberSaveable { mutableStateOf(ShiftingTab.RAISE) }
+
+            val raiseVm: ShiftingViewModel = hiltViewModel()
+            val raiseState by raiseVm.state.collectAsStateWithLifecycle()
+
+            val pendingVm: ShiftingPendingViewModel = hiltViewModel()
+            val pendingState by pendingVm.state.collectAsStateWithLifecycle()
+            val pendingRows = pendingVm.rows.collectAsLazyPagingItems()
+            val refreshState = pendingRows.loadState.refresh
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Error -> pendingVm.onRowsLoadFailed(refreshState.error)
+                    is LoadState.NotLoading -> pendingVm.onRowsLoaded()
+                    else -> Unit
+                }
+            }
+            val appendError = (pendingRows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(appendError) { appendError?.let(pendingVm::onRowsLoadFailed) }
+
+            ShiftingHomeScreen(
+                selectedTab = selectedTab,
+                onSelectTab = { selectedTab = it },
+                onBack = { navController.popBackStack() },
+                raiseContent = {
+                    ShiftingScreen(
+                        state = raiseState,
+                        showHeader = false,
+                        onEvent = { event ->
+                            when (event) {
+                                ShiftingEvent.Back -> navController.popBackStack()
+                                else -> raiseVm.onEvent(event)
+                            }
+                        },
+                    )
+                },
+                pendingContent = {
+                    ShiftingPendingScreen(
+                        state = pendingState,
+                        rows = pendingRows,
+                        onEvent = { event ->
+                            when (event) {
+                                is ShiftingPendingEvent.OpenMovement ->
+                                    navController.navigate(Routes.shiftingExecuteRoute(event.shiftingEventId)) {
+                                        launchSingleTop = true
+                                    }
+                                ShiftingPendingEvent.Refresh -> {
+                                    pendingVm.onEvent(event)
+                                    pendingRows.refresh()
+                                }
+                                else -> pendingVm.onEvent(event)
+                            }
+                        },
+                    )
                 },
             )
+        }
+
+        // L1 execute destination: do the physical move, optionally record a video, Mark done.
+        composable(
+            route = Routes.COUNTS_SHIFTING_EXECUTE,
+            arguments = listOf(navArgument(Routes.COUNTS_SHIFTING_EXECUTE_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: ShiftingExecuteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val onEvent: (ShiftingExecuteEvent) -> Unit = { event ->
+                when (event) {
+                    ShiftingExecuteEvent.Back -> navController.popBackStack()
+                    else -> vm.onEvent(event)
+                }
+            }
+            // Bind the live camera only while this screen is composed (operator capture role gated),
+            // so the optional "Record a video" works and the camera releases on leave.
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                ShiftingExecuteScreen(state = state, onEvent = onEvent)
+            }
         }
 
         // Feed module bar: two L0 read screens. Both render a bounded Room-backed Paging window

@@ -30,9 +30,13 @@ import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
@@ -328,6 +332,28 @@ interface AppApiService {
 
     @GET("app/counts/shifting/destinations")
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    @GET("app/counts/shifting-events/pending-execution")
+    suspend fun listCountsShiftingPendingExecution(
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+    ): CountsShiftingPendingExecutionResponseDto
+
+    @POST("app/counts/shifting-events/{shifting_event_id}/complete")
+    suspend fun completeCountsShiftingEvent(
+        @Path("shifting_event_id") shiftingEventId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsShiftingCompleteRequestDto,
+    ): CountsShiftingExecutionResponseDto
+
+    @POST("app/counts/shifting-events/{shifting_event_id}/cancel")
+    suspend fun cancelCountsShiftingEvent(
+        @Path("shifting_event_id") shiftingEventId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsShiftingCancelRequestDto,
+    ): CountsShiftingExecutionResponseDto
 
     @GET("feed-direction/preview")
     suspend fun getFeedDirectionPreview(
@@ -660,6 +686,36 @@ class RetrofitAppApi(
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         service.getCountsShiftingDestinations()
+
+    override suspend fun listCountsShiftingPendingExecution(
+        parkId: String?,
+        shedId: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsShiftingPendingExecutionResponseDto =
+        service.listCountsShiftingPendingExecution(parkId, shedId, pageSize, cursor)
+
+    override suspend fun completeCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        destinationTag: String?,
+    ): CountsShiftingExecutionResponseDto =
+        service.completeCountsShiftingEvent(
+            shiftingEventId,
+            idempotencyKey,
+            CountsShiftingCompleteRequestDto(destinationTag = destinationTag),
+        )
+
+    override suspend fun cancelCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): CountsShiftingExecutionResponseDto =
+        service.cancelCountsShiftingEvent(
+            shiftingEventId,
+            idempotencyKey,
+            CountsShiftingCancelRequestDto(reason = reason),
+        )
 
     override suspend fun getFeedDirectionPreview(
         parkId: String,

@@ -64,6 +64,22 @@ object AnalyticsEvents {
     /** An operator queued a shifting/movement event. */
     const val COUNTS_SHIFTING_SUBMITTED = "counts_shifting_submitted"
 
+    /** The operator opened the Shifting "Pending" tab (the web-approved execution queue). */
+    const val COUNTS_SHIFTING_PENDING_VIEWED = "counts_shifting_pending_viewed"
+
+    /** The operator changed a farm/shed filter on the Pending tab. [Params.DIMENSION] =
+     *  farm/shed/all; [Params.ACTION] = set/cleared. */
+    const val COUNTS_SHIFTING_PENDING_FILTER_APPLIED = "counts_shifting_pending_filter_applied"
+
+    /** The operator opened one approved movement to execute it (the execute screen). */
+    const val COUNTS_SHIFTING_EXECUTE_OPENED = "counts_shifting_execute_opened"
+
+    /** The operator attached (or re-recorded) the optional video on a movement being executed. */
+    const val COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED = "counts_shifting_execute_video_captured"
+
+    /** The operator pressed "Mark done": the completion (relocation) write was queued. */
+    const val COUNTS_SHIFTING_EXECUTE_COMPLETED = "counts_shifting_execute_completed"
+
     /** A Counts write could not be queued at all. [Params.KIND] distinguishes
      *  birth/death/shifting; [Params.REASON] carries a coarse, non-PII cause. */
     const val COUNTS_WRITE_FAILURE = "counts_write_failure"

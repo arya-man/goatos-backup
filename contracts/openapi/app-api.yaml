@@ -4100,12 +4100,24 @@ paths:
         every park. It is a client filter today rather than a per-operator scope derived from the
         caller, because no per-operator park assignment data exists yet; deriving it now would
         return an empty queue for every operator.
+        SHED SCOPE: shed_id is an OPTIONAL filter matching the movement's SOURCE shed, the second
+        half of the operator's farm -> shed cascade. It is normally supplied together with park_id
+        (the shed narrows a park), but may be sent alone. Omitting it returns every shed.
       parameters:
         - name: park_id
           in: query
           required: false
           description: >-
             Optional. Filters to movements whose SOURCE park is this park. Omit for all parks.
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          description: >-
+            Optional. Filters to movements whose SOURCE shed is this shed (the farm -> shed cascade).
+            Normally sent with park_id. Omit for all sheds.
           schema:
             type: string
             format: uuid

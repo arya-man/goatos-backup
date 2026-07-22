@@ -50,6 +50,8 @@ import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.ShiftingPendingItemEntity
+import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
@@ -110,6 +112,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_14_15,
                 MIGRATION_15_16,
                 MIGRATION_16_17,
+                MIGRATION_17_18,
             )
             .build()
         try {
@@ -393,6 +396,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_14_15,
                 MIGRATION_15_16,
                 MIGRATION_16_17,
+                MIGRATION_17_18,
             )
             .build()
         try {
@@ -486,9 +490,36 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 6. The six v17 Feed tables (MIGRATION_16_17) exist and round-trip post-upgrade.
             assertFeedTablesRoundTrip(upgraded, base = 40L)
+
+            // 7. The two v18 shifting pending-execution tables (MIGRATION_17_18) exist and round-trip.
+            assertShiftingPendingTablesRoundTrip(upgraded, base = 60L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the v18 shifting pending-execution queue pair so a missing/mismatched CREATE in
+     *  MIGRATION_17_18 fails here — the MOB-007 upgrade-crash class — rather than on a user's phone. */
+    private suspend fun assertShiftingPendingTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        val scope = cacheKey("shifting-pending", "park-1", "shed-1")
+        upgraded.shiftingPendingItemDao().upsertAll(
+            listOf(
+                ShiftingPendingItemEntity(
+                    queryKey = scope,
+                    shiftingEventId = "move-1",
+                    sortIndex = 0,
+                    raisedAt = "2026-07-22T04:00:00Z",
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.shiftingPendingItemDao().countFor(scope))
+        assertNotNull(upgraded.shiftingPendingItemDao().findById("move-1"))
+        upgraded.shiftingPendingRemoteKeyDao().upsert(
+            ShiftingPendingRemoteKeyEntity(queryKey = scope, nextCursor = "cursor-2", endReached = false, updatedAt = base + 1),
+        )
+        assertEquals("cursor-2", upgraded.shiftingPendingRemoteKeyDao().get(scope)?.nextCursor)
     }
 
     private companion object {
