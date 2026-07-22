@@ -354,6 +354,10 @@ business labels only: vaccine family/name, open dose count, shed, park, due date
 status, and route. Raw protocol/config identifiers such as internal ET/TT week
 codes are implementation details and must not appear in leadership answers or
 operator UI.
+UI-only schedule drawer click-layer fixes do not change assistant coverage or
+MCP Toolbox tool contracts, but they protect access to the same backend-owned
+vaccination read APIs by ensuring closed overlays cannot block operator schedule
+navigation.
 
 Canonical files:
 

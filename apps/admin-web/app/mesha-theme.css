@@ -801,6 +801,7 @@
   .schedule-load-count{font-weight:850;color:var(--ink)}
   .schedule-load-name{color:var(--muted)}
   .schedule-drawer-backdrop{position:fixed;inset:0;z-index:219;background:linear-gradient(90deg,transparent 0%,transparent 55%,color-mix(in srgb,var(--bg) 58%,transparent));backdrop-filter:blur(2px)}
+  .schedule-drawer-backdrop[aria-hidden="true"]{pointer-events:none;visibility:hidden}
   .schedule-drawer-close-layer{position:fixed;inset:0;z-index:219;display:block;border:0;background:transparent;padding:0;text-align:left;cursor:default}
   .schedule-side-drawer{position:fixed;top:0;right:0;width:min(460px,calc(100vw - 28px));height:100vh;display:flex;flex-direction:column;pointer-events:auto;background:color-mix(in srgb,var(--panel) 96%,var(--bg));border-left:1px solid var(--line);box-shadow:-18px 0 50px rgba(0,0,0,.32);z-index:220}
   .schedule-drawer-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:18px 18px 14px;border-bottom:1px solid var(--line2)}
