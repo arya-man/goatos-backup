@@ -60,13 +60,21 @@ const (
 	testVaccinationSOPVer  = "b0000000-0000-4000-8000-000000000002"
 )
 
-func TestListVaccinationExecutionProjection(t *testing.T) {
+func TestListVaccinationExecutionProjectionOneToManyPageBoundaryScheduledDateScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "duplicate drive assignment same shed first partition",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', '1', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "duplicate drive assignment same shed second partition",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-25', $3, $4, $5, 'K1 Shed', '2', 1)`,
+		testTenant, testBatch, testParkHead, testPark, testShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
@@ -241,6 +249,10 @@ WHERE tenant_id=$1 AND sop_version_id=$2`, testTenant, testVaccinationSOPVer)
 	execProjectionSQL(t, ctx, pool, "drive assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'Castro', 'whole', 2)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "second drive assignment row must not duplicate roster",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-25', $3, $4, $5, 'Castro', 'Part 2', 2)`,
 		testTenant, testBatch, testOperator, testPark, testShed)
 	execProjectionSQL(t, ctx, pool, "primary tag", `
 INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)

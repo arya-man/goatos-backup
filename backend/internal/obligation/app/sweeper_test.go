@@ -42,6 +42,19 @@ func TestSweeperSkipsSideEffectsWhenAttachClaimsNoRows(t *testing.T) {
 	}
 }
 
+func strPtr(value string) *string {
+	return &value
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T) {
 	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	operatorID := "operator-1"
@@ -119,6 +132,56 @@ func TestDistributeVaccinationDriveAssignmentsBalancesAvailableOperators(t *test
 		if !seen[operatorID] {
 			t.Fatalf("operator %s got no work; assignments=%#v", operatorID, got)
 		}
+	}
+}
+
+func TestDistributeVaccinationDriveAssignmentsSplitsOversizedPartitionWithPlanner(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2"}}
+	svc := NewSweeperService(repo, nil, nil)
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		ShedID:         strPtr("shed-1"),
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "1",
+		AnimalCount:    120,
+		CapacityStatus: "within_cap",
+	}}
+
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, 50, assignments)
+	if err != nil {
+		t.Fatalf("distribute assignments: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("assignments = %d, want two operator chunks for oversized partition: %#v", len(got), got)
+	}
+	totals := map[string]int32{}
+	overCapSeen := false
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			t.Fatalf("assignment missing operator: %#v", assignment)
+		}
+		if assignment.PhysicalShed != "Gandhi" || assignment.PartitionLabel != "1" {
+			t.Fatalf("assignment lost partition grain: %#v", assignment)
+		}
+		totals[*assignment.OperatorID] += assignment.AnimalCount
+		if !containsString(assignment.Warnings, "partition split because one partition exceeded available operator capacity") {
+			t.Fatalf("assignment missing split warning: %#v", assignment)
+		}
+		if assignment.CapacityStatus == "over_cap_required" {
+			overCapSeen = true
+		}
+	}
+	if totals["op-1"] != 70 || totals["op-2"] != 50 {
+		t.Fatalf("operator totals = %#v, want op-1 over cap by 20 and op-2 at cap", totals)
+	}
+	if !overCapSeen {
+		t.Fatalf("expected one over-cap assignment for latest-safe residual: %#v", got)
 	}
 }
 

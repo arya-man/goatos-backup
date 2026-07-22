@@ -115,6 +115,10 @@ Permanent scale and guard-authoring rules:
   operator/shed/partition assignments set-wise; if the safe buffer would be
   breached, mark the drive over-cap required and finish instead of silently
   pushing animals beyond the latest-safe date.
+- Operator drive assignments are generated metadata, not obligation membership.
+  Review SQL joins at exact assignment grain so multiple operators, planned
+  dates, or partitions cannot multiply counts or expose another operator's
+  partition work.
 - The local vaccination trigger fixture has one reviewed synthetic primary RFID
   (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
   with the source fixture validator/runbooks when changed.

@@ -11,6 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 )
 
 // TaskCreator spawns one SOP task per batch. Implemented by a thin adapter over the SOP module
@@ -273,17 +274,7 @@ func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Conte
 	if len(operators) == 0 {
 		return assignments, nil
 	}
-	loads := make(map[string]int32, len(operators))
-	for i := range assignments {
-		chosen := leastLoadedDriveOperator(operators, loads)
-		assignments[i].OperatorID = &chosen
-		loads[chosen] += assignments[i].AnimalCount
-		if capPerOperator > 0 && loads[chosen] > capPerOperator && assignments[i].CapacityStatus == "within_cap" {
-			assignments[i].CapacityStatus = "over_cap_required"
-			assignments[i].Warnings = append(assignments[i].Warnings, "operator animal cap exceeded to keep latest safe vaccination window")
-		}
-	}
-	return assignments, nil
+	return planVaccinationDriveAssignments(*batch.PlannedDate, capPerOperator, operators, assignments)
 }
 
 func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, parkID string, date *time.Time, planner domain.DrivePlannerSettings) (domain.DrivePlannerSettings, error) {
@@ -332,6 +323,127 @@ func leastLoadedDriveOperator(operators []string, loads map[string]int32) string
 		}
 	}
 	return chosen
+}
+
+func planVaccinationDriveAssignments(plannedDate time.Time, capPerOperator int32, operators []string, assignments []domain.DriveAssignment) ([]domain.DriveAssignment, error) {
+	if len(assignments) == 0 || len(operators) == 0 {
+		return assignments, nil
+	}
+	capacity := int(capPerOperator)
+	if capacity <= 0 {
+		capacity = int(^uint(0) >> 1)
+	}
+	blocks := make([]vaccexecapp.DriveWorkBlock, 0, len(assignments))
+	byID := make(map[string]domain.DriveAssignment, len(assignments))
+	for i, assignment := range assignments {
+		id := strconv.Itoa(i)
+		physicalShed := strings.TrimSpace(assignment.PhysicalShed)
+		if physicalShed == "" {
+			physicalShed = "park"
+		}
+		partition := strings.TrimSpace(assignment.PartitionLabel)
+		if partition == "" {
+			partition = "whole"
+		}
+		byID[id] = assignment
+		blocks = append(blocks, vaccexecapp.DriveWorkBlock{
+			ID:             id,
+			Park:           strings.TrimSpace(assignment.ParkID),
+			PhysicalShed:   physicalShed,
+			Partition:      partition,
+			Animals:        int(assignment.AnimalCount),
+			DueDate:        plannedDate,
+			LatestSafeDate: plannedDate,
+		})
+	}
+	ops := make([]vaccexecapp.DriveOperator, 0, len(operators))
+	for _, operatorID := range operators {
+		operatorID = strings.TrimSpace(operatorID)
+		if operatorID == "" {
+			continue
+		}
+		ops = append(ops, vaccexecapp.DriveOperator{
+			ID:        operatorID,
+			Name:      operatorID,
+			Cap:       capacity,
+			Available: true,
+		})
+	}
+	if len(ops) == 0 {
+		return assignments, nil
+	}
+	plan, err := (vaccexecapp.OperatorDrivePlanner{}).Plan(vaccexecapp.DrivePlanRequest{
+		StartDate: plannedDate,
+		Availability: []vaccexecapp.DriveDateAvailability{{
+			Date:      plannedDate,
+			Operators: ops,
+		}},
+		WorkBlocks: blocks,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.DriveAssignment, 0, len(assignments)+len(blocks))
+	for _, day := range plan.Days {
+		for _, planned := range day.Assignments {
+			operatorID := strings.TrimSpace(planned.OperatorID)
+			uniqueBlockIDs := uniqueStrings(planned.BlockIDs)
+			for _, blockID := range uniqueBlockIDs {
+				base, ok := byID[blockID]
+				if !ok {
+					continue
+				}
+				next := base
+				next.PlannedDate = plannedDate
+				if operatorID != "" {
+					next.OperatorID = &operatorID
+				}
+				if len(uniqueBlockIDs) == 1 && planned.Animals > 0 && int32(planned.Animals) < next.AnimalCount {
+					next.AnimalCount = int32(planned.Animals)
+				}
+				if hasDrivePlanWarning(planned.Warnings, "over_cap_required_latest_safe") && next.CapacityStatus == "within_cap" {
+					next.CapacityStatus = "over_cap_required"
+					next.Warnings = append(next.Warnings, "operator animal cap exceeded to keep latest safe vaccination window")
+				}
+				if hasDrivePlanWarning(planned.Warnings, "forced_partition_split") {
+					next.Warnings = append(next.Warnings, "partition split because one partition exceeded available operator capacity")
+				}
+				out = append(out, next)
+			}
+		}
+	}
+	for _, block := range plan.Unassigned {
+		if base, ok := byID[block.ID]; ok {
+			base.AnimalCount = int32(block.Animals)
+			out = append(out, base)
+		}
+	}
+	if len(out) == 0 {
+		return assignments, nil
+	}
+	return out, nil
+}
+
+func uniqueStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func hasDrivePlanWarning(warnings []string, needle string) bool {
+	for _, warning := range warnings {
+		if warning == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // hwmUnbatchedDueLister is implemented by the production Postgres repo (RV-05): the real-sweep-path

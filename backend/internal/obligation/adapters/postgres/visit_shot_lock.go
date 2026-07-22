@@ -144,7 +144,7 @@ func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant 
 		warningsJSON = append(warningsJSON, string(warningsJSONBytes))
 	}
 	if _, err := tx.Exec(ctx, `
--- projection-review: membership=one generated DriveAssignment row per batch/date/operator/park/shed/physical_shed/partition; group_key=conflict key (tenant_id,batch_id,planned_date,park_id,shed_id,physical_shed,partition_label); join_cardinality=no joins, UNNEST arrays are positional one-to-one inputs from the planner; pagination=single generated batch write, no paging or truncation; scope=explicit assignment park_id/shed_id.
+	-- projection-review: membership=one generated DriveAssignment row per batch/date/operator/park/shed/physical_shed/partition; group_key=conflict key (tenant_id,batch_id,planned_date,park_id,shed_id,physical_shed,partition_label,operator_id); join_cardinality=no joins, UNNEST arrays are positional one-to-one inputs from the planner; pagination=single generated batch write, no paging or truncation; scope=explicit assignment park_id/shed_id.
 INSERT INTO vaccination_drive_assignments (
   tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
   physical_shed, partition_label, animal_count, capacity_status, warnings
@@ -173,8 +173,17 @@ FROM unnest(
   $10::text[],
   $11::text[]
 ) AS u(batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings)
-ON CONFLICT (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label)
-DO UPDATE SET
+	ON CONFLICT (
+	  tenant_id,
+	  batch_id,
+	  planned_date,
+	  park_id,
+	  COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+	  physical_shed,
+	  partition_label,
+	  COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
+	)
+	DO UPDATE SET
   operator_id = EXCLUDED.operator_id,
   animal_count = EXCLUDED.animal_count,
   capacity_status = EXCLUDED.capacity_status,

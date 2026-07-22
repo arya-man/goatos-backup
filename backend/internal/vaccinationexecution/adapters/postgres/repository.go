@@ -871,18 +871,33 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
-  LEFT JOIN vaccination_drive_assignments vda
-    ON vda.tenant_id = oi.tenant_id
-   AND vda.batch_id = oi.batch_id
-   AND (
-     vda.shed_id IS NULL
-     OR vda.shed_id = g.shed_id
-     OR vda.shed_id = CASE
-       WHEN oi.target_type = 'shed' THEN oi.target_id
-       WHEN oi.scope_type = 'shed' THEN oi.scope_id
-       ELSE NULL
-     END
-   )
+  LEFT JOIN LATERAL (
+    SELECT assignment.operator_id
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = CASE
+        WHEN g.shed_id IS NOT NULL THEN g.shed_id
+        WHEN oi.target_type = 'shed' THEN oi.target_id
+        WHEN oi.scope_type = 'shed' THEN oi.scope_id
+        ELSE NULL
+      END
+      AND (
+        $15::text = ''
+        OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+      )
+    ORDER BY
+      CASE
+        WHEN assignment.shed_id = g.shed_id THEN 0
+        WHEN assignment.shed_id IS NOT NULL THEN 1
+        ELSE 2
+      END,
+      assignment.planned_date ASC,
+      assignment.partition_label ASC,
+      assignment.operator_id ASC NULLS LAST,
+      assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
@@ -931,7 +946,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -1616,10 +1631,6 @@ JOIN goats g
  AND oi.target_type = 'goat'
  AND g.merged_into_goat_id IS NULL
  AND g.lifecycle_status = 'alive'
-LEFT JOIN vaccination_drive_assignments vda
-  ON vda.tenant_id = oi.tenant_id
- AND vda.batch_id = oi.batch_id
- AND (vda.shed_id IS NULL OR vda.shed_id = g.shed_id)
 LEFT JOIN goat_identifiers aid1
   ON aid1.tenant_id = g.tenant_id
  AND aid1.goat_id = g.goat_id
@@ -1654,7 +1665,14 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND (
     $9::text = ''
-    OR vda.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    OR EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignments assignment
+      WHERE assignment.tenant_id = oi.tenant_id
+        AND assignment.batch_id = oi.batch_id
+        AND assignment.shed_id = g.shed_id
+        AND assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
   )
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid

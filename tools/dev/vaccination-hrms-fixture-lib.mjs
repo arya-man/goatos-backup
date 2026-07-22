@@ -22,6 +22,7 @@ export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seed
 // they must be derived from validated animals/vaccination rows plus timetable-backed
 // operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
 export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
+export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
 
 export const VACCINE_COLUMNS = SEED_SOURCE_POLICY.source_columns.map((column) => ({
   index: column.index,
