@@ -40,9 +40,11 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 // Counts module's form kit so the two verticals read and behave identically; feature modules may not
 // depend on one another, so the shape is duplicated rather than imported.
 
-/** A backend-supplied option for one of the feed filter dropdowns (farm / shed / workflow). */
+/** A backend-supplied option for one of the feed filter dropdowns (farm / shed / workflow).
+ *  Public because the public [FeedFilterUi] carries a `List<FeedDropdownOption>`, and a public
+ *  type may not expose an internal one (explicit-api). */
 @Immutable
-internal data class FeedDropdownOption(
+data class FeedDropdownOption(
     val key: String,
     val label: String,
 )
