@@ -1397,7 +1397,7 @@ export function RuleEditorModal({
         vaccine_item_id: vaccineItemId || undefined,
         dose_rows: scheduleRows,
         // Impact preview uses the DRAFT capacity (authored in this editor), before publish — not the
-        // persisted operational cap. estimated_days = ceil(vaccination_cells / this cap); the draft
+        // persisted operational cap. estimated_days = ceil(eligible_animals / this cap); the draft
         // buffer classifies it (within_cap / split / needs-review) so the editor shows the real outcome.
         // A cleared field (blank) omits the cap so the backend applies its default; an explicit value
         // — including an invalid 0 — is sent verbatim so the backend validates/rejects it rather than

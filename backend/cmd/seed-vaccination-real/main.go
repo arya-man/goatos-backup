@@ -3511,7 +3511,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"max_shots_per_animal_per_drive": 2,
 		},
 		"capacity": map[string]any{
-			"max_per_day":     100,
+			"max_per_day":     200,
 			"max_buffer_days": 7,
 			"capacity_scope":  "tenant",
 			"overflow_policy": "split_within_safe_window_last_safe_may_exceed_cap",

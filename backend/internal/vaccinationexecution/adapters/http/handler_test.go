@@ -226,6 +226,34 @@ func TestVaccinationExecutionDefaultsAndRejectsScopedPark(t *testing.T) {
 	}
 }
 
+func TestAppVaccinationExecutionRequiresAndCarriesOperatorScope(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const actorID = "30000000-0000-4000-8000-000000000077"
+	reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	missing := httptest.NewRecorder()
+	missingReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+	missingReq = missingReq.WithContext(httpmiddleware.WithTenantID(missingReq.Context(), tenantID))
+	mux.ServeHTTP(missing, missingReq)
+	if missing.Code != http.StatusBadRequest {
+		t.Fatalf("missing actor status = %d want 400 body=%s", missing.Code, missing.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	req = req.WithContext(ctx)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.last.OperatorScopeActorID != actorID {
+		t.Fatalf("operator scope actor = %q want %q", reader.last.OperatorScopeActorID, actorID)
+	}
+}
+
 func TestVaccinationScheduleParsesMonthWindow(t *testing.T) {
 	reader := &fakeReader{schedule: domain.OperationsResponse{Source: domain.SourceAPI}}
 	mux := http.NewServeMux()
@@ -291,6 +319,7 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	const (
 		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "30000000-0000-4000-8000-000000000077"
 		shedID   = "30000000-0000-4000-8000-000000000001"
 		taskID   = "40000000-0000-4000-8000-000000000001"
 		goatID   = "50000000-0000-4000-8000-000000000001"
@@ -308,11 +337,18 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
 
-	// task_id is OPTIONAL: absent -> shed-wide roster (200), not 400. Keeps the current app,
-	// which does not yet send task_id, working.
+	missingScope := httptest.NewRecorder()
+	missingScopeReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster", nil)
+	missingScopeReq = missingScopeReq.WithContext(httpmiddleware.WithTenantID(missingScopeReq.Context(), tenantID))
+	mux.ServeHTTP(missingScope, missingScopeReq)
+	if missingScope.Code != http.StatusBadRequest {
+		t.Fatalf("missing operator scope status=%d want 400", missingScope.Code)
+	}
+
+	// task_id is OPTIONAL after operator auth: absent -> shed-wide roster (200), not 400.
 	shedWide := httptest.NewRecorder()
 	shedWideReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster", nil)
-	shedWideReq = shedWideReq.WithContext(httpmiddleware.WithTenantID(shedWideReq.Context(), tenantID))
+	shedWideReq = shedWideReq.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(shedWideReq.Context(), tenantID), actorID))
 	mux.ServeHTTP(shedWide, shedWideReq)
 	if shedWide.Code != http.StatusOK {
 		t.Fatalf("missing task_id (shed-wide) status=%d want 200", shedWide.Code)
@@ -320,13 +356,15 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 
 	// A MALFORMED task_id is still rejected.
 	badTask := httptest.NewRecorder()
-	mux.ServeHTTP(badTask, httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id=not-a-uuid", nil))
+	badTaskReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id=not-a-uuid", nil)
+	badTaskReq = badTaskReq.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(badTaskReq.Context(), tenantID), actorID))
+	mux.ServeHTTP(badTask, badTaskReq)
 	if badTask.Code != http.StatusBadRequest {
 		t.Fatalf("malformed task_id status=%d want 400", badTask.Code)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&limit=1", nil)
-	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -334,6 +372,9 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	}
 	if reader.lastRoster.TaskID != taskID || reader.lastRoster.ShedID != shedID {
 		t.Fatalf("query=%#v", reader.lastRoster)
+	}
+	if reader.lastRoster.OperatorScopeActorID != actorID {
+		t.Fatalf("operator scope actor=%q want %q", reader.lastRoster.OperatorScopeActorID, actorID)
 	}
 	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {

@@ -34,7 +34,7 @@ type Repository interface {
 	// ShedAnimals returns the shed's alive animals (Display ID + the two tag identities + an animal-level
 	// status), keyset-paginated by goat_id, for the shed-detail roster.
 	ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) ([]domain.ShedAnimalRow, error)
-	// CapacityConfig returns the tenant's daily vaccination cap config (falls back to the code default
-	// when no row is authored). Drives session-splitting in ShedSummary and the shed-detail plan.
+	// CapacityConfig returns the tenant's daily operator animal cap config (falls back to the code
+	// default when no row is authored). Drives session-splitting in ShedSummary and the shed-detail plan.
 	CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error)
 }

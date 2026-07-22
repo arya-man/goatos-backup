@@ -26,6 +26,7 @@
     <string name="sheds_num_cell_in_shed">TARGETED</string>
     <string name="sheds_num_cell_due">OPEN</string>
     <string name="sheds_num_cell_done">DONE</string>
+    <string name="sheds_partition_fmt">Part %1$s</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">Roster changes · since this drive was scheduled</string>

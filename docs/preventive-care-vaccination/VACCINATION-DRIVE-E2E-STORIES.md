@@ -41,6 +41,47 @@ prove that contract during closeout.
   filtered-empty screens say the filters matched no rows rather than giving a
   false "everything is healthy" signal.
 
+## New Required Story: Operator-Based Drive Assignment
+
+Status: required for the operator-drive scheduling kernel.
+
+Scenario:
+
+The vaccination rule engine has already generated due obligations for animals
+across sheds and partitions. The drive planner must assign those due animals to
+available vaccination operators using each operator's animal cap for that
+business date.
+
+Expected behavior:
+
+1. The vaccination rule engine stays the medical source of truth for kid/adult
+   eligibility, boosters, repeat cycles, buffers, vaccine compatibility, and
+   animal-state deferrals.
+2. Capacity is counted as unique animals per available operator per day, not as
+   vaccine doses or obligation cells. One animal with a same-day vaccine bundle
+   consumes one slot.
+3. Operators are included only when their timetable/leave/day-off/role/scope
+   makes them available for that date.
+4. Physical sheds and partitions are normalized from source labels such as
+   `Gandhi 1` and `Godel 1 - Part 4`.
+5. The planner keeps physical shed and partition blocks together where possible,
+   splits by partition when a shed is above cap, splits within a partition only
+   when the partition itself is above cap, and spills remaining work to later
+   dates when daily capacity is exhausted.
+6. Work distribution must be fair enough that an available operator is not left
+   at zero while other operators are carrying large assignments and meaningful
+   movable shed/partition work exists.
+
+Concrete CPT proof slice:
+
+| Date | Operators | Cap | Clean animals | Expected assignment |
+|---|---|---:|---:|---|
+| 2026-07-23 | Amit, Darshan, Sagar | 200 each | 321 | Gandhi 114, Godel 1 118, Godel 2 + Mandela 2 + Old Yashoda 89 |
+
+Proof:
+
+- `(cd backend && go test ./internal/vaccinationexecution/app -run 'TestOperatorDrivePlanner' -count=1)`
+
 ## Story 1: CEO Publishes One Matrix, Not One Rule Per Vaccine
 
 Scenario:

@@ -69,6 +69,7 @@ Use Cube first for official KPI questions:
 - active animals
 - vaccination due and overdue
 - vaccination compliance
+- vaccination drive operator-capacity breaches and assigned operator/shed load
 - mortality/deaths
 - procurement cost and pipeline metrics
 - feed cost/consumption
@@ -123,6 +124,13 @@ Do not use it to wrap every REST API. REST APIs are still the correct surface fo
 business commands and app-shaped reads. Wrapping each API as MCP creates duplicate
 contracts, duplicate auth rules, noisy tools, and worse model selection. The bot
 needs business-capability tools, not one tool per endpoint.
+
+For vaccination drive planning, leadership assistant coverage should read the
+existing vaccination, Action Center, Protocol Adherence, and Control Tower APIs
+first. Those APIs expose animal-count operator capacity, available operator
+count, over-cap-required flags, and persisted shed/partition assignments. MCP
+Toolbox/SQL fallback may summarize those same read models, but it must not
+reinterpret dose counts as operator capacity.
 
 ## Current Backend Context
 

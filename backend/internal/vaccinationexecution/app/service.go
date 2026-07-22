@@ -17,6 +17,10 @@ type Service struct {
 	ownership ports.ShedOwnershipReader
 }
 
+type plannedDriveSessionsReader interface {
+	PlannedDriveSessionsForShed(ctx context.Context, tenantID, shedID string) ([]domain.PlannedSession, error)
+}
+
 // NewService builds the vaccination-execution read service. An optional ShedOwnershipReader attaches
 // each shed's Manager/Backup (from the workforce roster, cross-module). When omitted/nil, every shed
 // reads as a manager/backup seed gap (NoopShedOwnership) — the honest default, never a fabricated owner.
@@ -315,11 +319,14 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		workState = workStateFromProjection(p, q)
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
+	physicalShed, partition := NormalizeDriveShed(p.ShedName)
 	return domain.ExecutionRow{
 		ParkID:             p.ParkID,
 		ParkName:           p.ParkName,
 		ShedID:             p.ShedID,
 		ShedName:           p.ShedName,
+		PhysicalShed:       physicalShed,
+		Partition:          partition,
 		AnimalStage:        p.AnimalStage,
 		TargetCount:        targetCount,
 		OpenCount:          openCount,
@@ -731,9 +738,10 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 
 // ShedDetail returns one shed's header (the same animal-level counts + Manager/Backup + Sessions +
 // Capacity + merged Status as the list row, so detail and list agree), the per-day Planned sessions
-// (re-planned deterministically from the shed's open cells via PlanSessions — mirrors the SQL sessions
-// count), and the per-vaccine obligation breakdown. found=false when the shed has no alive animals / is
-// not an active shed. The per-shed animal roster is a separate keyset endpoint (ShedAnimals).
+// (re-planned deterministically from the shed's due animal count via PlanSessions — mirrors the SQL
+// sessions count), and the per-vaccine obligation breakdown. found=false when the shed has no alive
+// animals / is not an active shed. The per-shed animal roster is a separate keyset endpoint
+// (ShedAnimals).
 func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.OperationsQuery) (domain.ShedDetailResponse, bool, error) {
 	projections, err := s.repo.ShedSummary(ctx, domain.ShedSummaryQuery{
 		TenantID:       q.TenantID,
@@ -760,15 +768,7 @@ func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.Operat
 		return domain.ShedDetailResponse{}, false, err
 	}
 
-	cfg, err := s.repo.CapacityConfig(ctx, q.TenantID)
-	if err != nil {
-		return domain.ShedDetailResponse{}, false, err
-	}
-	start := at
-	if p.NextDue != nil {
-		start = *p.NextDue
-	}
-	_, _, planned, err := PlanSessions(p.OpenCells, cfg, start)
+	planned, err := s.plannedSessionsForShed(ctx, q.TenantID, shedID, p.DueAnimals, p.NextDue, at)
 	if err != nil {
 		return domain.ShedDetailResponse{}, false, err
 	}
@@ -799,6 +799,28 @@ func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.Operat
 	}, true, nil
 }
 
+func (s *Service) plannedSessionsForShed(ctx context.Context, tenantID, shedID string, dueAnimals int, nextDue *time.Time, at time.Time) ([]domain.PlannedSession, error) {
+	if reader, ok := s.repo.(plannedDriveSessionsReader); ok {
+		planned, err := reader.PlannedDriveSessionsForShed(ctx, tenantID, shedID)
+		if err != nil {
+			return nil, err
+		}
+		if len(planned) > 0 {
+			return planned, nil
+		}
+	}
+	cfg, err := s.repo.CapacityConfig(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	start := at
+	if nextDue != nil {
+		start = *nextDue
+	}
+	_, _, planned, err := PlanSessions(dueAnimals, cfg, start)
+	return planned, err
+}
+
 // ShedAnimals returns the shed's keyset-paginated alive-animal roster (Display ID + two tag identities +
 // status). NextCursor is the last goat_id when a full page is returned, nil when the shed is exhausted.
 func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (domain.ShedAnimalPage, error) {
@@ -825,8 +847,8 @@ func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (do
 	return domain.ShedAnimalPage{Rows: rows, NextCursor: next}, nil
 }
 
-// CapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen (falls back
-// to the code default when no row is authored).
+// CapacityConfig returns the tenant's daily operator animal cap config for the admin Config screen (falls
+// back to the code default when no row is authored).
 func (s *Service) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
 	return s.repo.CapacityConfig(ctx, tenantID)
 }

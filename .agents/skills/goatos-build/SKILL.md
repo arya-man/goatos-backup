@@ -110,6 +110,11 @@ Permanent scale and guard-authoring rules:
   days after adult ET+TT dose 1. Do not treat `ET+TT Booster` as kid-only,
   optional, or as the 182-day repeat; the repeat starts only after ET+TT dose 2
   / course completion.
+- Vaccination drive capacity is per available operator per business date and
+  counts unique animals, not doses or vaccine obligation rows. Persist generated
+  operator/shed/partition assignments set-wise; if the safe buffer would be
+  breached, mark the drive over-cap required and finish instead of silently
+  pushing animals beyond the latest-safe date.
 - The local vaccination trigger fixture has one reviewed synthetic primary RFID
   (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
   with the source fixture validator/runbooks when changed.

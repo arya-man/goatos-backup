@@ -16,6 +16,7 @@ type fakeRepo struct {
 	gapsRows    []domain.GapProjectionRow
 	shedRows    []domain.ShedSummaryProjection
 	shedAnimals []domain.ShedAnimalRow
+	planned     []domain.PlannedSession
 	capacityCfg domain.CapacityConfig
 	err         error
 }
@@ -35,6 +36,13 @@ func (r fakeRepo) CapacityConfig(_ context.Context, _ string) (domain.CapacityCo
 		return domain.DefaultCapacityConfig(), nil
 	}
 	return r.capacityCfg, nil
+}
+
+func (r fakeRepo) PlannedDriveSessionsForShed(_ context.Context, _, _ string) ([]domain.PlannedSession, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.planned, nil
 }
 
 func (r fakeRepo) ShedAnimals(_ context.Context, _ domain.ShedAnimalQuery) ([]domain.ShedAnimalRow, error) {

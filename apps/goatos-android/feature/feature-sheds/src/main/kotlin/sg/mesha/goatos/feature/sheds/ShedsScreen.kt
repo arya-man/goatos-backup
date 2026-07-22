@@ -122,6 +122,9 @@ data class ShedDayTab(
 data class ShedRow(
     val id: String,
     val name: String,
+    val operatorName: String = "",
+    val physicalShed: String = "",
+    val partition: String = "",
     val animalStage: String,
     val scheduleDateKey: String = "",
     val scheduleDateLabel: String = "",
@@ -618,6 +621,7 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
             ShedCardTop(row = row, tone = tone)
             Spacer(Modifier.height(12.dp))
             VaccineChips(row.vaccineGroups)
+            DriveAssignmentStrip(row)
             Spacer(Modifier.height(14.dp))
             NumsRow(row)
             Spacer(Modifier.height(12.dp))
@@ -626,6 +630,40 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 ActionFooter(label = label, status = row.status)
             }
+        }
+    }
+}
+
+@Composable
+private fun DriveAssignmentStrip(row: ShedRow) {
+    val parts = listOfNotNull(
+        row.scheduleDateLabel.takeIf { it.isNotBlank() },
+        row.operatorName.takeIf { it.isNotBlank() },
+        row.physicalShed.takeIf { it.isNotBlank() },
+        row.partition.takeIf { it.isNotBlank() }?.let { partition ->
+            if (partition.startsWith("Part ", ignoreCase = true)) partition else stringResource(R.string.sheds_partition_fmt, partition)
+        },
+    )
+    if (parts.isEmpty()) return
+    Spacer(Modifier.height(10.dp))
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Surf2)
+            .border(1.dp, Hair, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        parts.forEach { label ->
+            Text(
+                text = label,
+                color = Muted,
+                fontSize = 10.5f.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
         }
     }
 }

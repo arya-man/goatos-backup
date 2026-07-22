@@ -14,6 +14,7 @@
     <string name="sheds_num_cell_in_shed">ಗುರಿ</string>
     <string name="sheds_num_cell_due">ಬಾಕಿ</string>
     <string name="sheds_num_cell_done">ಮುಗಿದಿದೆ</string>
+    <string name="sheds_partition_fmt">ಭಾಗ %1$s</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">ಸಿಬ್ಬಂದಿ ಪರಿವರ್ತನೆಗಳು · ಈ ಡ್ರೈವ್ ಅನುಸೂಚಿತವಾದ ನಂತರ</string>

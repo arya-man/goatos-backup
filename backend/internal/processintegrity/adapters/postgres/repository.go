@@ -188,8 +188,10 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	var row domain.Row
 	var batchID, taskID, submissionID, completionID, cohortID, goatID, driveName, sopVersionID pgtype.Text
 	var taskRowVersion pgtype.Int4
-	var windowStart, windowEnd, latestEvidenceAt pgtype.Timestamptz
+	var windowStart, windowEnd, latestEvidenceAt, driveLatestSafeDate pgtype.Timestamptz
 	var batchStatus, submissionState, completionState, blockerReason, latestRejection, auditRef pgtype.Text
+	var driveCapacityState, driveMedicalDeferReason pgtype.Text
+	var driveAnimalsRequired, driveAnimalsAssigned, driveOperatorCap, driveAvailableOperators pgtype.Int4
 	var operatorID, operatorName, parkHeadID, parkHeadName, verifierID, verifierName, escalationOwnerID, escalationOwnerName pgtype.Text
 	var dueAt pgtype.Timestamptz
 	var proofIDsCSV string
@@ -225,6 +227,13 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 		&windowStart,
 		&windowEnd,
 		&row.ExpectedCount,
+		&driveCapacityState,
+		&driveAnimalsRequired,
+		&driveAnimalsAssigned,
+		&driveOperatorCap,
+		&driveAvailableOperators,
+		&driveLatestSafeDate,
+		&driveMedicalDeferReason,
 		&row.ObligationStatus,
 		&batchStatus,
 		&sopState,
@@ -271,6 +280,15 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.DueAt = dueAt.Time
 	row.WindowStart = timePtr(windowStart)
 	row.WindowEnd = timePtr(windowEnd)
+	if driveCapacityState.Valid {
+		row.DriveCapacityState = domain.DriveCapacityState(driveCapacityState.String)
+	}
+	row.DriveAnimalsRequired = int32Value(driveAnimalsRequired)
+	row.DriveAnimalsAssigned = int32Value(driveAnimalsAssigned)
+	row.DriveOperatorCap = int32Value(driveOperatorCap)
+	row.DriveAvailableOperators = int32Value(driveAvailableOperators)
+	row.DriveLatestSafeDate = timePtr(driveLatestSafeDate)
+	row.DriveMedicalDeferReason = textPtr(driveMedicalDeferReason)
 	row.BatchStatus = textPtr(batchStatus)
 	row.SOPTaskState = domain.SOPState(sopState)
 	row.SubmissionState = textPtr(submissionState)
@@ -419,6 +437,13 @@ func int32Ptr(v pgtype.Int4) *int32 {
 	return &i
 }
 
+func int32Value(v pgtype.Int4) int {
+	if !v.Valid {
+		return 0
+	}
+	return int(v.Int32)
+}
+
 func splitCSV(v string) []string {
 	if strings.TrimSpace(v) == "" {
 		return []string{}
@@ -503,6 +528,10 @@ asof_terminal AS (
     AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
+capacity_cfg AS (
+  SELECT COALESCE((SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = $1::uuid), 200)::int AS max_per_day
+),
+-- projection-review: membership=obligation_instances after tenant/category/date filtering, optionally decorated with one generated drive-assignment row for the same batch+shed; group_key=obligation_id at raw grain before grouped CTE collapses to park/shed/batch/rule/date; join_cardinality=vaccination_drive_assignments is keyed by batch plus exact shed/partition, so it decorates the obligation's own shed assignment without multiplying obligation membership; pagination=raw feeds grouped/all_rows keyset and full-window aggregates, no page-local count; scope=park/shed/protocol/owner/category filters remain explicit downstream.
 raw AS (
   SELECT
     oi.obligation_id,
@@ -528,7 +557,7 @@ raw AS (
     ob.planned_date::timestamptz AS batch_planned_at,
     ob.status AS batch_status,
     ob.sop_task_id AS batch_sop_task_id,
-    ob.conducted_by,
+    COALESCE(vda.operator_id, ob.conducted_by) AS conducted_by,
     ob.created_at AS batch_created_at,
     st.task_id,
     st.row_version AS task_row_version,
@@ -585,6 +614,18 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
+  LEFT JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = oi.tenant_id
+   AND vda.batch_id = oi.batch_id
+   AND (
+     vda.shed_id IS NULL
+     OR vda.shed_id = g.shed_id
+     OR vda.shed_id = CASE
+       WHEN oi.target_type = 'shed' THEN oi.target_id
+       WHEN oi.scope_type = 'shed' THEN oi.scope_id
+       ELSE NULL
+     END
+   )
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
@@ -679,6 +720,7 @@ grouped AS (
     MIN(COALESCE(located.batch_planned_at, located.window_start)) AS window_start,
     MAX(located.window_end) AS window_end,
     COUNT(*)::int AS expected_count,
+    COUNT(DISTINCT located.goat_id)::int AS expected_animals,
     -- Representative status + bucket counts use the as_of-effective status, not the stored status.
     (ARRAY_AGG(located.eff_status ORDER BY
       CASE located.eff_status
@@ -773,7 +815,7 @@ grouped AS (
 enriched AS (
   SELECT
     grouped.*,
-    COALESCE(grouped.explicit_conducted_by, default_operator.workforce_member_id::text) AS conducted_by,
+    grouped.explicit_conducted_by AS conducted_by,
     COALESCE(loa.usable_for_vaccination, true) AS usable_for_vaccination,
     COALESCE(loa.is_quarantine, false) AS is_quarantine,
     COALESCE(loa.is_icu, false) AS is_icu
@@ -781,17 +823,6 @@ enriched AS (
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = $1::uuid
    AND loa.location_id = grouped.shed_uuid
-  LEFT JOIN LATERAL (
-    SELECT wm.workforce_member_id, wm.primary_location_id, wm.updated_at
-    FROM workforce_members wm
-    WHERE wm.tenant_id = $1::uuid
-      AND wm.status = 'active'
-      AND wm.primary_role_hint = 'operator'
-      AND wm.primary_location_id IN (grouped.shed_uuid, grouped.park_uuid)
-    ORDER BY CASE WHEN wm.primary_location_id = grouped.shed_uuid THEN 0 WHEN wm.primary_location_id = grouped.park_uuid THEN 1 ELSE 2 END,
-             wm.updated_at DESC, wm.workforce_member_id DESC
-    LIMIT 1
-  ) default_operator ON grouped.explicit_conducted_by IS NULL
 ),
 stateful AS (
   SELECT
@@ -1139,6 +1170,23 @@ all_rows AS (
     window_start,
     window_end,
     expected_count,
+    CASE
+      WHEN work_state = 'deferred' THEN 'medical_defer'
+      WHEN work_state IN ('completed', 'ok') THEN 'within_cap'
+      WHEN COALESCE(window_end, due_at) <= $10::timestamptz
+       AND expected_animals > (SELECT max_per_day FROM capacity_cfg) THEN 'over_cap_required'
+      WHEN expected_animals > 0 THEN 'within_cap'
+      ELSE 'not_planned'
+    END AS drive_capacity_state,
+    expected_animals::int AS drive_animals_required,
+    CASE WHEN conducted_by IS NOT NULL OR assigned_to IS NOT NULL THEN expected_animals::int ELSE 0 END AS drive_animals_assigned,
+    (SELECT max_per_day FROM capacity_cfg)::int AS drive_operator_cap,
+    CASE WHEN conducted_by IS NOT NULL OR assigned_to IS NOT NULL THEN 1 ELSE 0 END::int AS drive_available_operators,
+    COALESCE(window_end, due_at) AS drive_latest_safe_date,
+    CASE
+      WHEN work_state = 'deferred' THEN COALESCE(blocker_reason, 'medical_defer')
+      ELSE NULL
+    END AS drive_medical_defer_reason,
     obligation_status,
     batch_status,
     sop_state,
@@ -1207,6 +1255,13 @@ all_rows AS (
     window_start,
     window_end,
     expected_count,
+    NULL::text AS drive_capacity_state,
+    NULL::int AS drive_animals_required,
+    NULL::int AS drive_animals_assigned,
+    NULL::int AS drive_operator_cap,
+    NULL::int AS drive_available_operators,
+    NULL::timestamptz AS drive_latest_safe_date,
+    NULL::text AS drive_medical_defer_reason,
     obligation_status,
     batch_status,
     sop_state,
@@ -1285,6 +1340,13 @@ SELECT
   window_start,
   window_end,
   expected_count,
+  drive_capacity_state,
+  drive_animals_required,
+  drive_animals_assigned,
+  drive_operator_cap,
+  drive_available_operators,
+  drive_latest_safe_date,
+  drive_medical_defer_reason,
   obligation_status,
   batch_status,
   sop_state,

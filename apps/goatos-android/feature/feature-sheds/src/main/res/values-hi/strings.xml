@@ -14,6 +14,7 @@
     <string name="sheds_num_cell_in_shed">लक्षित</string>
     <string name="sheds_num_cell_due">शेष</string>
     <string name="sheds_num_cell_done">पूर्ण</string>
+    <string name="sheds_partition_fmt">भाग %1$s</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">रोस्टर में बदलाव · इस ड्राइव के शेड्यूल होने के बाद से</string>

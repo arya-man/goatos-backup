@@ -2,14 +2,17 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
@@ -20,8 +23,8 @@ import (
 const visitShotLockNamespace = "goatos:obligation:visit-shot:"
 
 // driveCapacityLockNamespace serializes the whole park/date vaccination drive capacity ledger.
-// The unit is vaccine administrations/dose cells for one tenant+park+planned_date, across all
-// sheds, vaccines, and planner paths.
+// The unit is eligible animal slots for one tenant+park+planned_date, across all sheds, vaccines,
+// operators, and planner paths.
 const driveCapacityLockNamespace = "goatos:obligation:drive-capacity:"
 
 // canonicalUUID parses id and re-renders it in Postgres's canonical lowercase-hex form (RV-03).
@@ -43,6 +46,144 @@ func canonicalUUID(id string) (string, error) {
 		return "", fmt.Errorf("empty or nil uuid %q", id)
 	}
 	return canon, nil
+}
+
+func (r *Repository) UpsertVaccinationDriveAssignments(ctx context.Context, tenantID string, assignments []domain.DriveAssignment) error {
+	if len(assignments) == 0 {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("obligation: begin drive assignment tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if err := upsertVaccinationDriveAssignmentsTx(ctx, tx, tenant, assignments); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("obligation: commit drive assignments: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, assignments []domain.DriveAssignment) error {
+	batchIDs := make([]pgtype.UUID, 0, len(assignments))
+	plannedDates := make([]time.Time, 0, len(assignments))
+	operatorIDs := make([]pgtype.UUID, 0, len(assignments))
+	parkIDs := make([]pgtype.UUID, 0, len(assignments))
+	shedIDs := make([]pgtype.UUID, 0, len(assignments))
+	physicalSheds := make([]string, 0, len(assignments))
+	partitions := make([]string, 0, len(assignments))
+	animalCounts := make([]int32, 0, len(assignments))
+	statuses := make([]string, 0, len(assignments))
+	warningsJSON := make([]string, 0, len(assignments))
+	for _, assignment := range assignments {
+		batchID, err := pgconv.UUID(assignment.BatchID)
+		if err != nil {
+			return fmt.Errorf("obligation: drive assignment batch id: %w", err)
+		}
+		parkID, err := pgconv.UUID(assignment.ParkID)
+		if err != nil {
+			return fmt.Errorf("obligation: drive assignment park id: %w", err)
+		}
+		shedID := pgtype.UUID{}
+		if assignment.ShedID != nil && strings.TrimSpace(*assignment.ShedID) != "" {
+			shedID, err = pgconv.UUID(*assignment.ShedID)
+			if err != nil {
+				return fmt.Errorf("obligation: drive assignment shed id: %w", err)
+			}
+		}
+		operatorID := pgtype.UUID{}
+		if assignment.OperatorID != nil && strings.TrimSpace(*assignment.OperatorID) != "" {
+			operatorID, err = pgconv.UUID(*assignment.OperatorID)
+			if err != nil {
+				return fmt.Errorf("obligation: drive assignment operator id: %w", err)
+			}
+		}
+		warnings := assignment.Warnings
+		if warnings == nil {
+			warnings = []string{}
+		}
+		warningsJSONBytes, err := json.Marshal(warnings)
+		if err != nil {
+			return fmt.Errorf("obligation: drive assignment warnings: %w", err)
+		}
+		status := strings.TrimSpace(assignment.CapacityStatus)
+		if status == "" {
+			status = "within_cap"
+		}
+		physicalShed := strings.TrimSpace(assignment.PhysicalShed)
+		if physicalShed == "" {
+			physicalShed = "park"
+		}
+		partition := strings.TrimSpace(assignment.PartitionLabel)
+		if partition == "" {
+			partition = "whole"
+		}
+		batchIDs = append(batchIDs, batchID)
+		plannedDates = append(plannedDates, biztime.BusinessDayStart(assignment.PlannedDate))
+		operatorIDs = append(operatorIDs, operatorID)
+		parkIDs = append(parkIDs, parkID)
+		shedIDs = append(shedIDs, shedID)
+		physicalSheds = append(physicalSheds, physicalShed)
+		partitions = append(partitions, partition)
+		animalCounts = append(animalCounts, assignment.AnimalCount)
+		statuses = append(statuses, status)
+		warningsJSON = append(warningsJSON, string(warningsJSONBytes))
+	}
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=one generated DriveAssignment row per batch/date/operator/park/shed/physical_shed/partition; group_key=conflict key (tenant_id,batch_id,planned_date,park_id,shed_id,physical_shed,partition_label); join_cardinality=no joins, UNNEST arrays are positional one-to-one inputs from the planner; pagination=single generated batch write, no paging or truncation; scope=explicit assignment park_id/shed_id.
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+  physical_shed, partition_label, animal_count, capacity_status, warnings
+)
+SELECT
+  $1,
+  u.batch_id,
+  u.planned_date,
+  u.operator_id,
+  u.park_id,
+  u.shed_id,
+  u.physical_shed,
+  u.partition_label,
+  u.animal_count,
+  u.capacity_status,
+  u.warnings::jsonb
+FROM unnest(
+  $2::uuid[],
+  $3::date[],
+  $4::uuid[],
+  $5::uuid[],
+  $6::uuid[],
+  $7::text[],
+  $8::text[],
+  $9::int[],
+  $10::text[],
+  $11::text[]
+) AS u(batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings)
+ON CONFLICT (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label)
+DO UPDATE SET
+  operator_id = EXCLUDED.operator_id,
+  animal_count = EXCLUDED.animal_count,
+  capacity_status = EXCLUDED.capacity_status,
+  warnings = EXCLUDED.warnings,
+  updated_at = now()`,
+		tenant, batchIDs, plannedDates, operatorIDs, parkIDs, shedIDs, physicalSheds, partitions, animalCounts, statuses, warningsJSON); err != nil {
+		return fmt.Errorf("obligation: upsert drive assignments: %w", err)
+	}
+	return nil
 }
 
 // visitShotLockKeyArg is the stable advisory-lock key argument for one (tenant, target, date)
@@ -158,6 +299,7 @@ func (r *Repository) CountVisitShotsForTargets(ctx context.Context, tenantID str
 // second caller's own LockVisitShots call for an overlapping key blocks on pg_advisory_lock until
 // this caller's release() runs, so it always observes the first caller's committed write in its
 // own fresh count read.
+// projection-review: membership=explicit targetIDs for one tenant/date lock+count request; group_key=target_id in countVisitShots; join_cardinality=lock keys are deduplicated in memory and countVisitShots semijoins each obligation to one batch; pagination=bounded caller-provided target list, no page-local aggregate; scope=explicit target-id list.
 func (r *Repository) LockVisitShots(ctx context.Context, tenantID string, targetIDs []string, date time.Time) (map[string]int32, func(context.Context) error, error) {
 	noop := func(context.Context) error { return nil }
 	keys := dedupNonBlank(targetIDs)
@@ -214,12 +356,9 @@ func countDriveCellsForParkDate(ctx context.Context, q pgxQuerier, tenantID, par
 	}
 	day := biztime.BusinessDayStart(date)
 	rows, err := q.Query(ctx, `
-WITH batch_cells AS (
-  SELECT ob.batch_id,
-         GREATEST(
-           COALESCE(ob.planned_quantity, 0)::int,
-           count(*)::int
-         ) AS cells
+WITH drive_animals AS (
+  -- projection-review: membership=scheduled obligation_instances attached to non-canceled batches on one planned_date, collapsed to DISTINCT target_id before counting; group_key=target_id for one tenant+park+date animal-cap ledger; join_cardinality=obligation_batches is keyed by (tenant_id,batch_id), goats/location are 1:1 lookup dimensions, and DISTINCT target_id prevents multi-vaccine obligation rows from consuming extra operator slots; pagination=full single park/date ledger count, no UI page or LIMIT can truncate capacity truth; scope=park scope accepts direct park batches, shed children, and goat park fallback under the explicit park_id.
+  SELECT DISTINCT oi.target_id
   FROM obligation_instances oi
   JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
@@ -239,28 +378,27 @@ WITH batch_cells AS (
       OR (ob.scope_type = 'shed' AND scope_loc.parent_location_id = $2)
       OR g.park_id = $2
     )
-  GROUP BY ob.batch_id, ob.planned_quantity
 )
-SELECT COALESCE(sum(cells), 0)::int FROM batch_cells`, tenant, park, pgconv.Date(&day))
+SELECT COALESCE(count(*), 0)::int FROM drive_animals`, tenant, park, pgconv.Date(&day))
 	if err != nil {
-		return 0, fmt.Errorf("obligation: count drive cells: %w", err)
+		return 0, fmt.Errorf("obligation: count drive animals: %w", err)
 	}
 	defer rows.Close()
 	var count int32
 	if rows.Next() {
 		if err := rows.Scan(&count); err != nil {
-			return 0, fmt.Errorf("obligation: scan drive cell count: %w", err)
+			return 0, fmt.Errorf("obligation: scan drive animal count: %w", err)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("obligation: drive cell count rows: %w", err)
+		return 0, fmt.Errorf("obligation: drive animal count rows: %w", err)
 	}
 	return count, nil
 }
 
-// CountDriveCellsForParkDate returns the persisted planned vaccination cell count for one
-// park/date drive, across all shed/park batch rows. This is the read-only proof path; writers use
-// LockDriveCapacity so they cannot race between the count and attach/update.
+// CountDriveCellsForParkDate returns persisted planned animal slots for one park/date drive, across all
+// shed/park batch rows. The historical method name is kept for interface compatibility; stock/proof dose
+// cells remain in planned_quantity and are not the operator-capacity unit.
 func (r *Repository) CountDriveCellsForParkDate(ctx context.Context, tenantID, parkID string, date time.Time) (int32, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -292,6 +430,125 @@ func (r *Repository) LockDriveCapacity(ctx context.Context, tenantID, parkID str
 		return 0, nil, err
 	}
 	return count, release, nil
+}
+
+// PickVaccinationOperatorForDrive returns the currently least-loaded active vaccination operator for
+// the park/date. The planner uses the returned member as the durable batch conducted_by assignment;
+// when every available operator is already at cap, the least-loaded operator is still returned so
+// last-safe work is recorded as over-cap/overtime instead of being silently pushed later.
+func (r *Repository) PickVaccinationOperatorForDrive(ctx context.Context, tenantID, parkID string, date time.Time, capPerOperator int32) (*string, error) {
+	operators, err := r.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, date, capPerOperator)
+	if err != nil {
+		return nil, err
+	}
+	if len(operators) == 0 {
+		return nil, nil
+	}
+	return &operators[0], nil
+}
+
+func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, date time.Time, capPerOperator int32) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	park, err := pgconv.UUID(parkID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: park id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH candidate AS (
+  SELECT DISTINCT wm.workforce_member_id, wm.updated_at
+  FROM workforce_members wm
+  JOIN locations park_loc
+    ON park_loc.tenant_id = $1
+   AND park_loc.location_id = $2
+   AND park_loc.status = 'active'
+  JOIN workforce_positions wp
+    ON wp.tenant_id = wm.tenant_id
+   AND wp.workforce_member_id = wm.workforce_member_id
+   AND wp.status = 'active'
+   AND wp.valid_from <= $3::date + interval '1 day'
+   AND (wp.valid_to IS NULL OR wp.valid_to > $3::date)
+   AND wp.position_tier <> 'director'
+   AND (
+     (wp.scope_type = 'center' AND wp.scope_id IN ($2, park_loc.parent_location_id))
+     OR (wp.scope_type = 'shed' AND wp.scope_id IN (
+       SELECT location_id FROM locations WHERE tenant_id = $1 AND parent_location_id = $2 AND location_type = 'shed' AND status = 'active'
+     ))
+   )
+  JOIN position_module_duties pmd
+    ON pmd.tenant_id = wp.tenant_id
+   AND pmd.position_code = wp.position_code
+   AND pmd.status = 'active'
+   AND pmd.effective_from <= $3::date + interval '1 day'
+   AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
+   AND pmd.duty_type IN ('execute', 'support')
+   AND pmd.module_code IN ('preventive_care', 'vaccination')
+  WHERE wm.tenant_id = $1
+    AND wm.status = 'active'
+    AND wm.primary_role_hint = 'operator'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM workforce_absences wa
+      WHERE wa.tenant_id = wm.tenant_id
+        AND wa.workforce_member_id = wm.workforce_member_id
+        AND wa.status IN ('approved', 'escalation_required')
+        AND wa.starts_at < $3::date + interval '1 day'
+        AND wa.ends_at > $3::date
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM workforce_positions offpos
+      WHERE offpos.tenant_id = wm.tenant_id
+        AND offpos.workforce_member_id = wm.workforce_member_id
+        AND offpos.status = 'active'
+        AND offpos.valid_from <= $3::date + interval '1 day'
+        AND (offpos.valid_to IS NULL OR offpos.valid_to > $3::date)
+        AND offpos.week_off_weekday = lower(to_char($3::date, 'FMDay'))
+    )
+), load AS (
+  -- projection-review: membership=active planned/in-progress vaccination obligations for one park/date with conducted_by set; group_key=conducted_by workforce_member_id; join_cardinality=obligation_batches to obligation_instances is 1:N but collapsed with COUNT(DISTINCT oi.target_id) so multi-vaccine rows do not inflate operator animal load; pagination=full available-operator candidate set for one park/date, no page boundary; scope=explicit park scope only.
+  SELECT ob.conducted_by AS workforce_member_id, count(DISTINCT oi.target_id)::int AS animals
+  FROM obligation_batches ob
+  JOIN obligation_instances oi
+    ON oi.tenant_id = ob.tenant_id
+   AND oi.batch_id = ob.batch_id
+  WHERE ob.tenant_id = $1
+    AND ob.scope_type = 'park'
+    AND ob.scope_id = $2
+    AND ob.planned_date = $3::date
+    AND ob.status IN ('planned', 'in_progress')
+    AND ob.conducted_by IS NOT NULL
+    AND oi.status IN ('scheduled', 'due', 'in_progress')
+  GROUP BY ob.conducted_by
+)
+SELECT c.workforce_member_id::text
+FROM candidate c
+LEFT JOIN load l ON l.workforce_member_id = c.workforce_member_id
+ORDER BY
+  CASE WHEN $4::int <= 0 THEN 0 WHEN COALESCE(l.animals, 0) < $4::int THEN 0 ELSE 1 END,
+  COALESCE(l.animals, 0) ASC,
+  c.updated_at ASC NULLS FIRST,
+  c.workforce_member_id ASC`, tenant, park, biztime.BusinessDayStart(date), capPerOperator)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list vaccination operators: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var operatorID string
+		if err := rows.Scan(&operatorID); err != nil {
+			return nil, fmt.Errorf("obligation: scan vaccination operator: %w", err)
+		}
+		out = append(out, operatorID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: vaccination operator rows: %w", err)
+	}
+	return out, nil
 }
 
 // tenantSweepLockNamespace prefixes the single per-tenant whole-sweep advisory-lock key so it

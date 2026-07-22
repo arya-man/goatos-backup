@@ -112,15 +112,15 @@ func TestKernelStoryAB_CapacityPublishPlannerParity(t *testing.T) {
 
 	start := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 
-	// within_cap: 10 cells at cap 10 = 1 session (fits in a single day).
+	// within_cap: 10 animals at cap 10 = 1 session (fits in a single day).
 	story.Step("Within cap → one day",
-		"A shed with 10 open vaccination cells fits in a single day at the 10/day cap: within_cap.")
+		"A shed with 10 eligible animals fits in a single day at the 10/day cap: within_cap.")
 	nWithin, statusWithin, _, errWithin := vaccexecapp.PlanSessions(10, cfg, start)
 	story.Assert("within-cap planner returns no error", errWithin == nil, "err=%v", errWithin)
 	story.Assert("within-cap load is one session", nWithin == 1, "sessions=%d", nWithin)
 	story.Assert("within-cap classified within_cap", statusWithin == vaccexecdomain.CapacityWithinCap, "status=%q", statusWithin)
 
-	// over_cap (split): 80 cells at cap 10 = 8 sessions == exactly the 8-day safe window (buffer 7 + 1).
+	// over_cap (split): 80 animals at cap 10 = 8 sessions == exactly the 8-day safe window (buffer 7 + 1).
 	story.Step("Over cap but inside the window → split",
 		"80 cells split into 8 daily sessions — exactly the safe window for buffer 7 (7 + 1). This boundary "+
 			"is bound to the PUBLISHED buffer: a smaller buffer would push this same load to Needs review.")
@@ -131,7 +131,7 @@ func TestKernelStoryAB_CapacityPublishPlannerParity(t *testing.T) {
 	story.Assert("every split day stays within the safe window", allWithinWindow(sessionsSplit),
 		"sessions=%+v", sessionsSplit)
 
-	// capacity_breach (needs review): 90 cells at cap 10 = 9 sessions > 8-day window.
+	// capacity_breach (needs review): 90 animals at cap 10 = 9 sessions > 8-day window.
 	story.Step("Past the window → Needs review",
 		"90 cells need 9 daily sessions — one past the 8-day safe window — so the planner flags capacity_breach "+
 			"(Needs review). Same cap, one dose more than Split: the window edge is exactly buffer 7.")

@@ -124,12 +124,14 @@ fun sampleShedsState(): ShedsUiState = ShedsUiState(
     rows = listOf(
         ShedRow(
             id = "s1", name = "Gandhi 1", animalStage = "Adult",
+            operatorName = "Amit Kumar", physicalShed = "Gandhi", partition = "1",
             status = ShedStatus.DONE, statusLabel = "Done",
             vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("ET+TT · Dose 2", "40/40", true)),
             inShed = "40", due = "0", done = "40", progressLabel = "100%", progressFraction = 1f,
         ),
         ShedRow(
             id = "s2", name = "Sumathi 1", animalStage = "Adult",
+            operatorName = "Darshan Talwar", physicalShed = "Sumathi", partition = "1",
             status = ShedStatus.DELAYED, statusLabel = "Delayed · not started",
             vaccineGroups = listOf(sg.mesha.goatos.feature.sheds.VaccineGroup("Blue Tongue", "0/32", false)),
             inShed = "32", due = "32", done = "0", progressLabel = "0%", progressFraction = 0f,

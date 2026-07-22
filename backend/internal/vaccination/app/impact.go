@@ -69,15 +69,15 @@ func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (
 	}
 
 	cells := agg.EligibleAnimals * int64(doseRows)
-	estimatedDays := ceilDiv(cells, cap)
+	estimatedDays := ceilDiv(agg.EligibleAnimals, cap)
 	out := domain.ImpactPreview{
 		EligibleAnimals:  agg.EligibleAnimals,
 		VaccinationCells: cells,
 		AffectedSheds:    agg.AffectedSheds,
 		EstimatedDays:    estimatedDays,
 		DailyCap:         cap,
-		CapacityStatus:   classifyCapacity(cells, estimatedDays, req.MaxBufferDays),
-		PlannedSessions:  planImpactSessions(cells, cap, estimatedDays, req.MaxBufferDays, filter.AsOf),
+		CapacityStatus:   classifyCapacity(agg.EligibleAnimals, estimatedDays, req.MaxBufferDays),
+		PlannedSessions:  planImpactSessions(agg.EligibleAnimals, cap, estimatedDays, req.MaxBufferDays, filter.AsOf),
 		SourceRevision:   agg.SourceRevision,
 		RecomputedAt:     agg.RecomputedAt,
 	}
@@ -126,8 +126,8 @@ const maxImpactPlannedSessions = 366
 // classifyCapacity mirrors the session-splitting planner headline (PlanSessions /
 // shedSummaryCanonicalReadSQL):
 // sessions = estimatedDays; within_cap fits one day, over_cap fits the safe window (buffer + 1 days),
-// capacity_breach spills beyond it. Empty when there are no cells to plan. Returns the machine value; the
-// UI renders the CEO label (within_cap→"Within cap", over_cap→"Split", capacity_breach→"Needs review").
+// capacity_breach means the safe window needs added operator capacity or over-cap completion. Empty when
+// there are no animals to plan. Returns the machine value; the UI renders the CEO label.
 func classifyCapacity(cells, estimatedDays int64, maxBufferDays *int64) string {
 	if cells <= 0 {
 		return ""

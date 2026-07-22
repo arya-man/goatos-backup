@@ -46,6 +46,12 @@ CEO/CXO only: grants use `ceo_internal`, workforce/member hints use `cxo`, and
 a parallel admin person role must not be created from source sheets or local
 provisioning.
 
+Vaccination drive assignments are not a seventh source file. They are derived
+after validation from the accepted animal/vaccination rows, shed/partition
+placement, active vaccination rules, and HRMS timetable/leave availability. A
+source bundle that tries to provide manual operator assignments must be rejected
+or transformed into normal timetable/role facts before any database write.
+
 ## Commands
 
 Normalize spreadsheet tabs into the six canonical files, then run:

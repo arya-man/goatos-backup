@@ -1738,6 +1738,7 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 			ScopeType:                row.ScopeType,
 			ScopeID:                  row.ScopeID,
 			ParkID:                   row.ParkID,
+			ShedName:                 row.ShedName,
 			TargetID:                 row.TargetID,
 			TargetSpecies:            row.TargetSpecies,
 			TargetAnimalStage:        row.TargetAnimalStage,
@@ -1783,6 +1784,7 @@ WITH candidates AS (
          oi.scope_type AS scope_type,
          oi.scope_id AS scope_id_key,
          COALESCE(g.park_id::text, '')::text AS park_id,
+         COALESCE(shed.name, '')::text AS shed_name,
          oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
@@ -1798,6 +1800,10 @@ WITH candidates AS (
    AND pr.rule_id = oi.rule_id
   LEFT JOIN goats g
     ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+  LEFT JOIN locations shed
+    ON shed.tenant_id = oi.tenant_id
+   AND shed.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+   AND shed.location_type = 'shed'
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = g.tenant_id AND loa.location_id = g.current_location_id
   LEFT JOIN shed_profiles sp
@@ -1828,6 +1834,7 @@ SELECT obligation_id_key::text AS obligation_id,
        scope_type,
        scope_id_key::text AS scope_id,
        park_id,
+       shed_name,
        target_id_key::text AS target_id,
        target_species, target_animal_stage,
        target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
@@ -1919,7 +1926,7 @@ func (r *Repository) listUnbatchedDueForVersionKeysetSnapshot(ctx context.Contex
 		var u domain.UnbatchedDue
 		var windowStart, windowEnd, firstHold *time.Time
 		if err := rows.Scan(
-			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.TargetID,
+			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.ShedName, &u.TargetID,
 			&u.TargetSpecies, &u.TargetAnimalStage, &u.TargetReproductiveStatus,
 			&u.DueAt, &windowStart, &windowEnd, &u.BatchingHoldCount, &firstHold,
 		); err != nil {
@@ -2039,6 +2046,7 @@ WITH candidates AS (
 SELECT o.obligation_id::text,
        o.rule_id::text,
        COALESCE(o.scope_id::text, '')::text AS shed_id,
+       COALESCE(shed.name, '')::text AS shed_name,
        COALESCE(o.target_id::text, '')::text AS target_id,
        o.due_at,
        o.window_start,
@@ -2108,6 +2116,7 @@ SELECT
   obligation_id,
   rule_id,
   shed_id,
+  shed_name,
   target_id,
   due_at,
   window_start,
@@ -2138,6 +2147,7 @@ LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzO
 			&row.ObligationID,
 			&row.RuleID,
 			&row.ShedID,
+			&row.ShedName,
 			&row.TargetID,
 			&row.DueAt,
 			&windowStart,
@@ -3082,6 +3092,15 @@ WHERE oi.tenant_id = $1
 	  AND oi.batch_id = $4
 	  AND oi.obligation_id = selected.obligation_id`, tenant, attachedUUIDs, pgconv.Timestamptz(*in.BatchingHoldUntil), batch); err != nil {
 			return "", nil, fmt.Errorf("obligation: record batching hold in batch attach tx: %w", err)
+		}
+	}
+	if len(in.DriveAssignments) > 0 {
+		assignments := append([]domain.DriveAssignment(nil), in.DriveAssignments...)
+		for i := range assignments {
+			assignments[i].BatchID = batchID
+		}
+		if err := upsertVaccinationDriveAssignmentsTx(ctx, tx, tenant, assignments); err != nil {
+			return "", nil, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

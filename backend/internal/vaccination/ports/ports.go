@@ -62,8 +62,8 @@ type Repository interface {
 	// docs/decisions/operational-kernel-5k-50k-scale-envelope.md). Scoped by tenant + the eligibility
 	// filter dims (usable animals only).
 	SumEligibilityRollup(ctx context.Context, f domain.ImpactFilter) (domain.EligibilityRollupAggregate, error)
-	// CapacityMaxPerDay returns the tenant's configured vaccinations/day cap (default when unset). Used
-	// to compute estimated_days = ceil(vaccination_cells / cap).
+	// CapacityMaxPerDay returns the tenant's configured animals/operator/day cap (default when unset).
+	// Used to compute estimated_days = ceil(eligible_animals / cap).
 	CapacityMaxPerDay(ctx context.Context, tenantID string) (int64, error)
 	// SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
 	SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (available string, earliestExpiry *time.Time, err error)

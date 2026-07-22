@@ -18,6 +18,11 @@ const seedSourcePolicyBytes = fs.readFileSync(SEED_SOURCE_POLICY_PATH);
 export const SEED_SOURCE_POLICY = JSON.parse(seedSourcePolicyBytes.toString("utf8"));
 export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seedSourcePolicyBytes).digest("hex");
 
+// Vaccination drive assignments are generated planner output, not another source file:
+// they must be derived from validated animals/vaccination rows plus timetable-backed
+// operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
+export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
+
 export const VACCINE_COLUMNS = SEED_SOURCE_POLICY.source_columns.map((column) => ({
   index: column.index,
   vaccine: column.vaccine,
