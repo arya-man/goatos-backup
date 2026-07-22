@@ -282,11 +282,15 @@ type PreviewPage struct {
 	Lifecycle Lifecycle `json:"lifecycle"`
 	// Draft is true only for the deliberate live-compute escape hatch (draft=true). An issued,
 	// amended, locked, pending or not_issued response is never draft.
-	Draft      bool   `json:"draft"`
-	TargetDate string `json:"target_date"`
-	Limit      int32  `json:"limit"`
-	Offset     int32  `json:"offset"`
-	HasMore    bool   `json:"has_more"`
+	Draft bool `json:"draft"`
+	// Filters is the backend-owned park/shed filter vocabulary plus the served park id. Present on
+	// every response so a client can render the farm/shed pickers without holding its own location
+	// list and can show which park it is currently viewing.
+	Filters    FeedFilterOptions `json:"filters"`
+	TargetDate string            `json:"target_date"`
+	Limit      int32             `json:"limit"`
+	Offset     int32             `json:"offset"`
+	HasMore    bool              `json:"has_more"`
 }
 
 // SummaryScopeFiltered is the only scope this module reports.
@@ -376,6 +380,35 @@ type PackingSummary struct {
 	BlockedLineCount int32 `json:"blocked_line_count"`
 }
 
+// FeedFilterPark is one park a caller may generate a sheet for. The park is REQUIRED on every feed
+// read (one park per sheet, never mixed), so a client needs this vocabulary to offer a farm filter
+// and to know which park it is currently looking at.
+type FeedFilterPark struct {
+	ParkID string `json:"park_id"`
+	Label  string `json:"label"`
+}
+
+// FeedFilterShed is one shed within the served park. Carries ParkID so a client that caches several
+// parks' sheds can still narrow the shed picker to the selected park.
+type FeedFilterShed struct {
+	ShedID string `json:"shed_id"`
+	Label  string `json:"label"`
+	ParkID string `json:"park_id"`
+}
+
+// FeedFilterOptions is the backend-owned filter vocabulary for the feed screens, so the client
+// holds no park/shed list of its own (the golden frontend rule). It is bounded by physical
+// infrastructure — parks and one park's shed catalog — never by herd size.
+//
+// ServedParkID is the park this response was actually generated for. It equals the requested
+// park_id, or — when the request omitted park_id — the default park the server selected, so the
+// client can show the right park as active without guessing.
+type FeedFilterOptions struct {
+	ServedParkID string           `json:"served_park_id"`
+	Parks        []FeedFilterPark `json:"parks"`
+	Sheds        []FeedFilterShed `json:"sheds"`
+}
+
 // FeedItemTotal is one feed item's page total. A slice of pairs rather than a map so the order is
 // the authored catalog display order and a client renders columns consistently across pages.
 type FeedItemTotal struct {
@@ -435,10 +468,13 @@ type PackingPage struct {
 	Items   []PackingRow   `json:"items"`
 	Summary PackingSummary `json:"summary"`
 	// Lifecycle and Draft carry the same issue-state metadata as PreviewPage.
-	Lifecycle  Lifecycle `json:"lifecycle"`
-	Draft      bool      `json:"draft"`
-	TargetDate string    `json:"target_date"`
-	Limit      int32     `json:"limit"`
-	Offset     int32     `json:"offset"`
-	HasMore    bool      `json:"has_more"`
+	Lifecycle Lifecycle `json:"lifecycle"`
+	Draft     bool      `json:"draft"`
+	// Filters is the backend-owned park/shed filter vocabulary plus the served park id, on the same
+	// terms as PreviewPage.Filters.
+	Filters    FeedFilterOptions `json:"filters"`
+	TargetDate string            `json:"target_date"`
+	Limit      int32             `json:"limit"`
+	Offset     int32             `json:"offset"`
+	HasMore    bool              `json:"has_more"`
 }

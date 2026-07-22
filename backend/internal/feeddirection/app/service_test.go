@@ -24,8 +24,10 @@ const (
 // ---------------------------------------------------------------------------
 
 type fakeConfigRepo struct {
-	snapshot domain.ConfigSnapshot
-	sheds    []ports.Shed
+	snapshot  domain.ConfigSnapshot
+	sheds     []ports.Shed
+	parks     []ports.Park
+	parkCalls int
 
 	// Call counters. These are the assertion for the read shape: the orchestration must issue a
 	// CONSTANT number of reads regardless of how many sheds or grains are on the page. A counter
@@ -35,8 +37,21 @@ type fakeConfigRepo struct {
 	shedCalls     int
 
 	lastShedQuery ports.ShedScopeQuery
+	shedQueries   []ports.ShedScopeQuery
 	lastAsOf      time.Time
 	err           error
+}
+
+func (f *fakeConfigRepo) ListParks(_ context.Context, _ string) ([]ports.Park, error) {
+	f.parkCalls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.parks != nil {
+		return f.parks, nil
+	}
+	// Default single-park tenant so an explicit-park request and default-park resolution both work.
+	return []ports.Park{{ParkID: testPark, Label: "CPT"}}, nil
 }
 
 func (f *fakeConfigRepo) LoadConfigSnapshot(_ context.Context, _, _ string, asOf time.Time) (domain.ConfigSnapshot, error) {
@@ -51,6 +66,7 @@ func (f *fakeConfigRepo) LoadConfigSnapshot(_ context.Context, _, _ string, asOf
 func (f *fakeConfigRepo) ListShedScope(_ context.Context, q ports.ShedScopeQuery) (ports.ShedScope, error) {
 	f.shedCalls++
 	f.lastShedQuery = q
+	f.shedQueries = append(f.shedQueries, q)
 	if f.err != nil {
 		return ports.ShedScope{}, f.err
 	}
@@ -170,8 +186,11 @@ func TestPreviewIssuesAConstantNumberOfReadsRegardlessOfPageSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if config.shedCalls != 1 {
-		t.Fatalf("shed page reads = %d, want exactly 1", config.shedCalls)
+	// Two shed-scope reads, both page-size-independent: one inside generate (the filtered scope the
+	// sheet is built from) and one in buildFilters (the park's UNFILTERED shed catalog, the farm/shed
+	// filter vocabulary). Neither scales with page size, which is what this test guards against.
+	if config.shedCalls != 2 {
+		t.Fatalf("shed reads = %d, want exactly 2 (generate scope + filter vocabulary)", config.shedCalls)
 	}
 	if config.snapshotCalls != 1 {
 		t.Fatalf("config snapshot reads = %d, want exactly 1 (once per request, never per shed)", config.snapshotCalls)
@@ -418,8 +437,17 @@ func TestShedFilterNarrowsToOneShed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if config.lastShedQuery.ShedID != shedB {
-		t.Fatalf("shed filter was not pushed into the shed scope read: %+v", config.lastShedQuery)
+	// The GENERATION shed-scope read must carry the shed filter. buildFilters issues a second,
+	// deliberately UNFILTERED shed read afterwards (the farm/shed filter vocabulary must list every
+	// shed, not just the selected one), so assert against the set of reads rather than the last one.
+	pushedFilter := false
+	for _, q := range config.shedQueries {
+		if q.ShedID == shedB {
+			pushedFilter = true
+		}
+	}
+	if !pushedFilter {
+		t.Fatalf("shed filter was not pushed into any shed scope read: %+v", config.shedQueries)
 	}
 	for _, row := range page.Items {
 		if row.ShedID != shedB {
@@ -477,13 +505,6 @@ func TestQueryValidationFailsClosed(t *testing.T) {
 		{
 			name:  "missing tenant",
 			query: domain.PreviewQuery{Draft: true, ParkID: testPark, TargetDate: targetDate()},
-			want:  ports.ErrParkRequired,
-		},
-		{
-			// The ration grid, the session split and the dispatch clock are ALL park-scoped, so a
-			// tenant-wide generation would mix two parks' rations into one document.
-			name:  "missing park",
-			query: domain.PreviewQuery{Draft: true, TenantID: testTenant, TargetDate: targetDate()},
 			want:  ports.ErrParkRequired,
 		},
 		{
@@ -552,6 +573,40 @@ func TestRepositoryErrorsPropagateRatherThanReturningAnEmptyPage(t *testing.T) {
 		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
 	}); !errors.Is(err, sentinel) {
 		t.Fatalf("err = %v, want the repository error to propagate", err)
+	}
+}
+
+// TestMissingParkDefaultsToTenantsFirstPark pins the mobile-first behavior: an omitted park_id is
+// resolved to the tenant's first park (never a tenant-wide sheet, which would mix parks), so the
+// client's first load has a sheet to render instead of a park-required error. The served park is
+// echoed back in the filter options so the client shows the right park as active.
+func TestMissingParkDefaultsToTenantsFirstPark(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview with no park should default to the first park, got: %v", err)
+	}
+	if page.Filters.ServedParkID != testPark {
+		t.Fatalf("served park = %q, want the defaulted first park %q", page.Filters.ServedParkID, testPark)
+	}
+	if len(page.Filters.Parks) == 0 {
+		t.Fatal("filter options must carry the farm vocabulary")
+	}
+}
+
+// TestMissingParkWithNoParksFailsClosed keeps the closed-fail for a tenant that genuinely has no
+// parks: there is no park to default to, so a sheet must not be fabricated.
+func TestMissingParkWithNoParksFailsClosed(t *testing.T) {
+	t.Parallel()
+	config := &fakeConfigRepo{parks: []ports.Park{}}
+	service := NewService(config, &fakeCountsReader{}).WithNowFunc(func() time.Time { return targetDate() })
+	if _, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, TargetDate: targetDate(),
+	}); !errors.Is(err, ports.ErrParkRequired) {
+		t.Fatalf("err = %v, want ErrParkRequired when the tenant has no parks", err)
 	}
 }
 

@@ -132,14 +132,33 @@ func (s *Service) WithGeneratedBy(by string) *Service {
 // path that live-computes is Draft=true, the deliberate config-authoring what-if escape hatch, and
 // that path alone carries the past-date regeneration guard.
 func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error) {
+	// Resolve the park BEFORE normalize's park-required check: an omitted park_id defaults to the
+	// tenant's first park so the client's first load has a sheet to show, rather than a 400 it must
+	// recover from. This never mixes parks — exactly one park is selected.
+	resolvedPark, err := s.resolveParkID(ctx, q.TenantID, q.ParkID)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	q.ParkID = resolvedPark
 	normalized, err := s.normalizePreviewQuery(q)
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
+	var page domain.PreviewPage
 	if normalized.Draft {
-		return s.previewDraft(ctx, normalized)
+		page, err = s.previewDraft(ctx, normalized)
+	} else {
+		page, err = s.servePreview(ctx, normalized)
 	}
-	return s.servePreview(ctx, normalized)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	page.Filters = filters
+	return page, nil
 }
 
 // previewDraft LIVE-COMPUTES a what-if sheet without touching any issue. It is stamped Draft so a
@@ -176,14 +195,80 @@ func (s *Service) previewDraft(ctx context.Context, normalized domain.PreviewQue
 // Read-only: no proof capture, no video, no packing status is recorded anywhere. The status field
 // is derived from the generation result.
 func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error) {
+	resolvedPark, err := s.resolveParkID(ctx, q.TenantID, q.ParkID)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	q.ParkID = resolvedPark
 	normalized, err := s.normalizePackingQuery(q)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
+	var page domain.PackingPage
 	if normalized.Draft {
-		return s.packingDraft(ctx, normalized)
+		page, err = s.packingDraft(ctx, normalized)
+	} else {
+		page, err = s.servePacking(ctx, normalized)
 	}
-	return s.servePacking(ctx, normalized)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	page.Filters = filters
+	return page, nil
+}
+
+// resolveParkID selects the park a feed read serves. A non-empty park_id is returned as-is (trimmed)
+// and validated downstream; an empty park_id defaults to the tenant's FIRST park so the client's
+// first load has a sheet to render instead of a park-required error. It never selects more than one
+// park, so the one-park-per-sheet invariant holds. A tenant with no parks still yields
+// ErrParkRequired, the same closed-fail as before.
+func (s *Service) resolveParkID(ctx context.Context, tenantID, parkID string) (string, error) {
+	if trimmed := strings.TrimSpace(parkID); trimmed != "" {
+		return trimmed, nil
+	}
+	if strings.TrimSpace(tenantID) == "" {
+		return "", ports.ErrParkRequired
+	}
+	parks, err := s.config.ListParks(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	if len(parks) == 0 {
+		return "", ports.ErrParkRequired
+	}
+	return parks[0].ParkID, nil
+}
+
+// buildFilters assembles the backend-owned farm/shed filter vocabulary for the served park. Two
+// bounded reads: the tenant park catalog (order-of two parks) and the served park's active shed
+// catalog (bounded by physical infrastructure, the same read the generation already trusts). The
+// client renders its farm/shed pickers from this and holds no location list of its own.
+func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID string) (domain.FeedFilterOptions, error) {
+	parks, err := s.config.ListParks(ctx, tenantID)
+	if err != nil {
+		return domain.FeedFilterOptions{}, err
+	}
+	scope, err := s.config.ListShedScope(ctx, ports.ShedScopeQuery{TenantID: tenantID, ParkID: servedParkID})
+	if err != nil {
+		return domain.FeedFilterOptions{}, err
+	}
+	parkOptions := make([]domain.FeedFilterPark, 0, len(parks))
+	for _, p := range parks {
+		parkOptions = append(parkOptions, domain.FeedFilterPark{ParkID: p.ParkID, Label: p.Label})
+	}
+	shedOptions := make([]domain.FeedFilterShed, 0, len(scope.Items))
+	for _, sh := range scope.Items {
+		shedOptions = append(shedOptions, domain.FeedFilterShed{ShedID: sh.ShedID, Label: sh.Label, ParkID: servedParkID})
+	}
+	return domain.FeedFilterOptions{
+		ServedParkID: servedParkID,
+		Parks:        parkOptions,
+		Sheds:        shedOptions,
+	}, nil
 }
 
 // packingDraft LIVE-COMPUTES the worklist without touching any issue. See previewDraft.

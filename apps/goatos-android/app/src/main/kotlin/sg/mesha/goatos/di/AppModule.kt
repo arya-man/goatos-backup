@@ -41,9 +41,13 @@ import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.DefaultCountsApprovalRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
+import sg.mesha.goatos.core.data.DefaultFeedRepository
+import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheDao
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.DefaultRosterRepository
@@ -171,6 +175,17 @@ object AppModule {
     fun provideCountsShiftingDestinationsCacheDao(db: GoatDatabase): CountsShiftingDestinationsCacheDao =
         db.countsShiftingDestinationsCacheDao()
 
+    // Feed read models. Like the Counts breakdown, each screen's paged rows are read through
+    // GoatDatabase directly by its RemoteMediator (it needs a transaction across the item +
+    // remote-key DAOs), so only the two fixed-size summary DAOs are injected here.
+    @Provides
+    fun provideFeedDirectionMetaCacheDao(db: GoatDatabase): FeedDirectionMetaCacheDao =
+        db.feedDirectionMetaCacheDao()
+
+    @Provides
+    fun provideFeedPackingMetaCacheDao(db: GoatDatabase): FeedPackingMetaCacheDao =
+        db.feedPackingMetaCacheDao()
+
     @Provides
     fun provideRosterCoverageCacheDao(db: GoatDatabase): RosterCoverageCacheDao = db.rosterCoverageCacheDao()
 
@@ -283,6 +298,16 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
     ): CountsApprovalRepository = DefaultCountsApprovalRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun provideFeedRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        directionMetaDao: FeedDirectionMetaCacheDao,
+        packingMetaDao: FeedPackingMetaCacheDao,
+    ): FeedRepository =
+        DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao)
 
     @Provides
     @Singleton

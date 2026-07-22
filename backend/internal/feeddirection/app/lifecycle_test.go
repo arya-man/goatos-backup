@@ -260,10 +260,18 @@ func TestServeIssuedReturnsStoredRowsWithPageInvariantSummary(t *testing.T) {
 	if reference.TotalKgByFeedItem[0].QuantityKg != draft.Summary.TotalKgByFeedItem[0].QuantityKg {
 		t.Fatalf("served total %s != draft total %s", reference.TotalKgByFeedItem[0].QuantityKg, draft.Summary.TotalKgByFeedItem[0].QuantityKg)
 	}
-	// SERVING A FROZEN SHEET LIVE-COMPUTES NOTHING: no config snapshot, no shed scope, no counts read.
-	if config.shedCalls != shedCallsBefore || config.snapshotCalls != snapCallsBefore || counts.calls != countCallsBefore {
-		t.Fatalf("serving an issued sheet issued generation reads (shed %d->%d, snap %d->%d, counts %d->%d)",
-			shedCallsBefore, config.shedCalls, snapCallsBefore, config.snapshotCalls, countCallsBefore, counts.calls)
+	// A serve RE-GENERATES nothing (no config snapshot, no counts read), whatever the page size.
+	// The only reads a serve makes are the backend-owned filter vocabulary: one park-catalog + one
+	// shed-catalog read per request, both page-size-independent — a picker vocabulary, not a
+	// generation read.
+	const servedTimes = 3 // limits {1, 2, 50}
+	if config.snapshotCalls != snapCallsBefore || counts.calls != countCallsBefore {
+		t.Fatalf("serving an issued sheet RE-GENERATED (snap %d->%d, counts %d->%d)",
+			snapCallsBefore, config.snapshotCalls, countCallsBefore, counts.calls)
+	}
+	if config.shedCalls != shedCallsBefore+servedTimes {
+		t.Fatalf("serving %d times should add exactly %d filter-vocabulary shed reads, got shed %d->%d",
+			servedTimes, servedTimes, shedCallsBefore, config.shedCalls)
 	}
 }
 

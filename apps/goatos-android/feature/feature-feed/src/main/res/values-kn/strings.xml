@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feed_direction_caption">ರಚಿಸಿದ ಆಹಾರ ಹಾಳೆ — ಪ್ರತಿ ಶೆಡ್ ಮತ್ತು ಸೆಷನ್ ಪ್ರಮಾಣ</string>
+    <string name="feed_packing_caption">ಈ ಆಹಾರ ದಿನಕ್ಕೆ ಪ್ರತಿ-ಶೆಡ್ ಚೀಲಗಳು</string>
+    <string name="feed_refresh_description">ರಿಫ್ರೆಶ್</string>
+
+    <string name="feed_filters_title">ಫಿಲ್ಟರ್‌ಗಳು</string>
+    <string name="feed_filters_clear">ತೆರವುಗೊಳಿಸಿ</string>
+    <string name="feed_filter_farm">ಫಾರ್ಮ್</string>
+    <string name="feed_filter_shed">ಶೆಡ್</string>
+    <string name="feed_filter_all_sheds">ಎಲ್ಲಾ ಶೆಡ್‌ಗಳು</string>
+    <string name="feed_filter_park_first">ಮೊದಲು ಫಾರ್ಮ್ ಆರಿಸಿ</string>
+    <string name="feed_filter_workflow">ಆಹಾರ ಪ್ರಕಾರ</string>
+    <string name="feed_filter_workflow_all">ಸಾಮಾನ್ಯ + ಪ್ರಯೋಗ</string>
+    <string name="feed_workflow_normal">ಸಾಮಾನ್ಯ</string>
+    <string name="feed_workflow_experiment">ಪ್ರಯೋಗ</string>
+
+    <string name="feed_totals_title">ಒಟ್ಟು (ಇಡೀ ಫಾರ್ಮ್)</string>
+    <string name="feed_stat_sheds">ಶೆಡ್‌ಗಳು</string>
+    <string name="feed_stat_rows">ಸಾಲುಗಳು</string>
+    <string name="feed_stat_lines">ಲೈನ್‌ಗಳು</string>
+    <string name="feed_stat_blocked">ನಿರ್ಬಂಧಿತ</string>
+
+    <string name="feed_kg_fmt">%1$s ಕೆಜಿ</string>
+    <string name="feed_head_count_fmt">%1$d ಪ್ರಾಣಿಗಳು (ಅಂದಾಜು)</string>
+    <string name="feed_session_total">ಸೆಷನ್ ಒಟ್ಟು</string>
+    <string name="feed_pack_total">ಪ್ಯಾಕ್ ಒಟ್ಟು</string>
+    <string name="feed_blocked_label">ನಿರ್ಬಂಧಿತ</string>
+</resources>

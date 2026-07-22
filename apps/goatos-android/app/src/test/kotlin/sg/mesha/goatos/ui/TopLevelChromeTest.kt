@@ -99,9 +99,21 @@ class TopLevelChromeTest {
         ),
     )
 
-    private val soon = NavModule(
+    // The Feed module: two L0 read screens on its own bottom bar (Feed Direction + Feed Packing).
+    private val feed = NavModule(
         key = "feed_direction",
-        label = "Feed direction",
+        label = "Feed",
+        href = Routes.FEED_DIRECTION,
+        status = NavModuleStatus.AVAILABLE,
+        navItems = listOf(
+            NavItem(key = "feed_direction", label = "Feed Direction", href = Routes.FEED_DIRECTION),
+            NavItem(key = "feed_packing", label = "Feed Packing", href = Routes.FEED_PACKING),
+        ),
+    )
+
+    private val soon = NavModule(
+        key = "breeding",
+        label = "Breeding",
         href = "",
         status = NavModuleStatus.SOON,
         navItems = emptyList(),
@@ -110,7 +122,7 @@ class TopLevelChromeTest {
     private val twoModules = NavState(
         chrome = NavChrome.EXPANDED,
         items = vaccination.navItems,
-        modules = listOf(vaccination, counts, soon),
+        modules = listOf(vaccination, counts, feed, soon),
     )
 
     /**
@@ -167,8 +179,24 @@ class TopLevelChromeTest {
         // No explicit selection yet: the first available module wins, and the "soon" module
         // is never selectable.
         assertEquals(vaccination, twoModules.resolveModule(null, null))
-        assertEquals(vaccination, twoModules.resolveModule("feed_direction", null))
-        assertEquals(listOf(vaccination, counts), twoModules.availableModules())
+        // The "soon" (breeding) module is never selectable, so it resolves to the default.
+        assertEquals(vaccination, twoModules.resolveModule("breeding", null))
+        assertEquals(listOf(vaccination, counts, feed), twoModules.availableModules())
+    }
+
+    @Test
+    fun `the feed module owns a two-tab bar and both feed screens are L0 roots`() {
+        val feedRoots = rootsFor(twoModules, "feed_direction", Routes.FEED_DIRECTION)
+        assertTrue(isTopLevelRoute(Routes.FEED_DIRECTION, feedRoots))
+        assertTrue(isTopLevelRoute(Routes.FEED_PACKING, feedRoots))
+        // A drill under a feed root never inherits chrome (exact membership, not prefix).
+        assertFalse(isTopLevelRoute("${Routes.FEED_DIRECTION}/detail", feedRoots))
+        // Another module's route is not an L0 root while Feed is open.
+        assertFalse(isTopLevelRoute(Routes.VACCINATION, feedRoots))
+        assertEquals(
+            listOf(Routes.FEED_DIRECTION, Routes.FEED_PACKING),
+            twoModules.barItems("feed_direction", Routes.FEED_DIRECTION).map { it.href },
+        )
     }
 
     @Test

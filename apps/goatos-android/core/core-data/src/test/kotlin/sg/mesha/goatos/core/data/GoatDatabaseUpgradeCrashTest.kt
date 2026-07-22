@@ -36,6 +36,12 @@ import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionItemEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingItemEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
@@ -102,6 +108,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
+                MIGRATION_15_16,
             )
             .build()
         try {
@@ -269,9 +276,60 @@ class GoatDatabaseUpgradeCrashTest {
                 ),
             )
             assertEquals(17L, destinationsDao.observe("shifting-destinations").first()?.updatedAt)
+
+            // 11. The six v16 FEED tables (MIGRATION_15_16). Same MOB-007 proof as the Counts
+            //     tables: open-without-crash only proves Room accepted the migrated schema; a
+            //     write+read round-trip on each of the six proves it actually exists with the shape
+            //     its @Entity declares — both summary blobs, both normalized paged-row tables, and
+            //     both remote-key tables.
+            assertFeedTablesRoundTrip(upgraded, base = 40L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips all six Feed read-model tables so a missing/mismatched CREATE in MIGRATION_15_16
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a user's phone. */
+    private suspend fun assertFeedTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.feedDirectionMetaCacheDao()
+            .upsert(FeedDirectionMetaCacheEntity(cacheKey = "fd", dtoJson = "{}", updatedAt = base))
+        assertEquals(base, upgraded.feedDirectionMetaCacheDao().observe("fd").first()?.updatedAt)
+
+        upgraded.feedDirectionItemDao().upsertAll(
+            listOf(
+                FeedDirectionItemEntity(
+                    queryKey = "fd",
+                    grainKey = "shed|normal|group|arm|tag|1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 1,
+                ),
+            ),
+        )
+        upgraded.feedDirectionRemoteKeyDao().upsert(
+            FeedDirectionRemoteKeyEntity(queryKey = "fd", nextOffset = 20, endReached = false, updatedAt = base + 2),
+        )
+        assertEquals(20, upgraded.feedDirectionRemoteKeyDao().get("fd")?.nextOffset)
+
+        upgraded.feedPackingMetaCacheDao()
+            .upsert(FeedPackingMetaCacheEntity(cacheKey = "fp", dtoJson = "{}", updatedAt = base + 3))
+        assertEquals(base + 3, upgraded.feedPackingMetaCacheDao().observe("fp").first()?.updatedAt)
+
+        upgraded.feedPackingItemDao().upsertAll(
+            listOf(
+                FeedPackingItemEntity(
+                    queryKey = "fp",
+                    grainKey = "shed|normal|1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 4,
+                ),
+            ),
+        )
+        upgraded.feedPackingRemoteKeyDao().upsert(
+            FeedPackingRemoteKeyEntity(queryKey = "fp", nextOffset = 20, endReached = true, updatedAt = base + 5),
+        )
+        assertEquals(true, upgraded.feedPackingRemoteKeyDao().get("fp")?.endReached)
     }
 
     /**
@@ -286,7 +344,7 @@ class GoatDatabaseUpgradeCrashTest {
      * crash the operator's phone on first launch after the update.
      */
     @Test
-    fun `installed v10 db upgrades to v15 without crashing and keeps its data`() = runTest {
+    fun `installed v10 db upgrades to current without crashing and keeps its data`() = runTest {
         // 1. A shipped v10 APK's on-disk file, written by a real Room database pinned to the v10
         //    entity set, so it carries Room's own identity metadata just like a user's phone would.
         val oldDb = Room.databaseBuilder(context, OldGoatDatabaseV10::class.java, DB_NAME).build()
@@ -332,6 +390,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
+                MIGRATION_15_16,
             )
             .build()
         try {
@@ -422,6 +481,9 @@ class GoatDatabaseUpgradeCrashTest {
                 27L,
                 upgraded.countsShiftingDestinationsCacheDao().observe("shifting-destinations").first()?.updatedAt,
             )
+
+            // 6. The six v16 Feed tables (MIGRATION_15_16) exist and round-trip post-upgrade.
+            assertFeedTablesRoundTrip(upgraded, base = 40L)
         } finally {
             upgraded.close()
         }
