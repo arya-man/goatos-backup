@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { revalidatePath } from "next/cache";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {
@@ -12,6 +13,7 @@ import { fmtDate, todayIso } from "@/lib/format";
 import { backendScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag } from "@/components/ui-primitives";
+import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -85,6 +87,25 @@ function workloadTone(capacity: string): string {
 function workloadWidth(totalDoses: number, maxTotalDoses: number): string {
   const percentage = Math.round((Math.max(0, totalDoses) / Math.max(1, maxTotalDoses)) * 100);
   return `${Math.max(4, Math.min(100, percentage))}%`;
+}
+
+function scheduleDrawerHref(closeHref: string, row: OperatorDayScheduleRow): string {
+  return `${closeHref}#schedule_event=${encodeURIComponent(row.key)}`;
+}
+
+function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract): ScheduleDrawerRow[] {
+  return rows.map((row) => ({
+    eventId: row.key,
+    date: row.plannedDate,
+    parkName: row.parkName,
+    totalSheds: row.sheds.length,
+    totalAnimals: row.animals,
+    vaccines: row.vaccineNames,
+    sheds: row.sheds.map((shed) => ({
+      label: shedPartitionTitle(pageContract, shed),
+      count: shed.animals,
+    })),
+  }));
 }
 
 function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRow[] {
@@ -249,6 +270,9 @@ export async function VaccinationFullSchedule({
   const sheds = new Set(rows.map((row) => `${row.parkId}|${row.physicalShed}`).filter(Boolean));
   const animals = rows.reduce((sum, row) => sum + row.animals, 0);
   const maxOperatorDayDoses = Math.max(1, ...operatorDayRows.map((row) => row.totalDoses));
+  const closeHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
+  const selectedScheduleEvent = one(searchParams ?? {}, "schedule_event");
+  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract);
 
   function yearHref(nextYear: number) {
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(month) });
@@ -348,49 +372,59 @@ export async function VaccinationFullSchedule({
               </tr>
             </thead>
             <tbody>
-              {operatorDayRows.map((row) => (
+              {operatorDayRows.map((row) => {
+                const drawerHref = scheduleDrawerHref(closeHref, row);
+                return (
                 <tr key={row.key} className="schedule-click-row">
                   <td className="schedule-date-cell state-scheduled">
-                    <span className="schedule-date-stack">
+                    <LocalOverlayLink href={drawerHref} className="celllink schedule-date-link" scroll={false}>
+                      <span className="schedule-date-stack">
                       <span className="schedule-date-main">{fmtDate(row.plannedDate)}</span>
                       <span className="schedule-date-sub">{dateEyebrow(row.plannedDate)}</span>
                     </span>
+                    </LocalOverlayLink>
                   </td>
-                  <td><b>{row.operatorName}</b></td>
-                  <td><ClipText title={row.parkName}>{row.parkName}</ClipText></td>
+                  <td><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><b>{row.operatorName}</b></LocalOverlayLink></td>
+                  <td><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><ClipText title={row.parkName}>{row.parkName}</ClipText></LocalOverlayLink></td>
                   <td className="schedule-shed-cell">
-                    <div className="operator-day-sheds">
-                      {row.sheds.map((shed) => (
-                        <span key={shed.name} className="operator-day-shed" title={shedPartitionTitle(pageContract, shed)}>
-                          <b>{shed.name}</b>
-                          <span className="muted">{shed.animals}</span>
-                        </span>
-                      ))}
-                    </div>
+                    <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false} title={row.sheds.map((shed) => shedPartitionTitle(pageContract, shed)).join(", ")}>
+                      <span className="operator-day-sheds">
+                        {row.sheds.map((shed) => (
+                          <span key={shed.name} className="operator-day-shed" title={shedPartitionTitle(pageContract, shed)}>
+                            <b>{shed.name}</b>
+                            <span className="muted">{shed.animals}</span>
+                          </span>
+                        ))}
+                      </span>
+                    </LocalOverlayLink>
                   </td>
                   <td>
-                    <div className="operator-day-vaccines">
+                    <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false}>
+                    <span className="operator-day-vaccines">
                       {row.vaccineNames.map((vaccineName) => (
                         <Tag key={vaccineName} tone="teal" title={vaccineName}>{vaccineName}</Tag>
                       ))}
-                    </div>
+                    </span>
+                    </LocalOverlayLink>
                   </td>
                   <td>
-                    <div className="schedule-load-card operator-workload-card">
-                      <div className="schedule-load-head">
+                    <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                    <span className="schedule-load-card operator-workload-card">
+                      <span className="schedule-load-head">
                         <span className="schedule-load-total">{row.totalDoses}</span>
                         <span className="schedule-load-total-label">{copy(pageContract, "schedule.unit.doses")}</span>
                         <span className="schedule-load-goats">{row.animals} {copy(pageContract, "schedule.unit.animals")}</span>
-                      </div>
-                      <div className="schedule-load-bar" aria-hidden="true">
+                      </span>
+                      <span className="schedule-load-bar" aria-hidden="true">
                         <span
                           className={`schedule-load-seg ${workloadTone(row.capacity)}`}
                           style={{ flexBasis: workloadWidth(row.totalDoses, maxOperatorDayDoses) }}
                         />
-                      </div>
-                    </div>
+                      </span>
+                    </span>
+                    </LocalOverlayLink>
                   </td>
-                  <td><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></td>
+                  <td><LocalOverlayLink href={drawerHref} className="celllink schedule-status-link" scroll={false}><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></LocalOverlayLink></td>
                   <td>
                     <form action={postponeDriveDateAction} className="schedule-postpone-form">
                       <input type="hidden" name="park_id" value={row.parkId} />
@@ -406,9 +440,16 @@ export async function VaccinationFullSchedule({
                     </form>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
+          <ScheduleLocalDrawer
+            rows={scheduleDrawerRows}
+            initialSelectedEventId={selectedScheduleEvent}
+            closeHref={closeHref}
+            pageContract={pageContract}
+          />
         </div>
       )}
     </section>
