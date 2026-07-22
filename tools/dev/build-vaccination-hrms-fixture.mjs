@@ -451,10 +451,10 @@ let manifest = {
   contracts: {
     vaccination_protocol_code: "vaccination.matrix",
     vaccination_sop_code: "vaccination.drive",
-    video_proof_subject_scope: "goat",
+    video_proof_subject_scope: "shed",
     video_capture_source: "in_app_camera",
-    minimum_video_count_per_goat: 1,
-    maximum_video_count_per_goat: 5,
+    minimum_video_count_per_shed: 1,
+    maximum_video_count_per_shed: 5,
     verifier_approval_required: true,
     shed_completion: "acknowledgement_only",
     protocol_route_site: SEED_SOURCE_POLICY.protocol_schedule_policy.route_site,
