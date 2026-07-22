@@ -8,6 +8,7 @@ const nativeDateInputSource = readFileSync(new URL("./native-date-input.tsx", im
 const operationsSource = readFileSync(new URL("./operations.tsx", import.meta.url), "utf8");
 const shedBoardSource = readFileSync(new URL("../vaccination-sheds/shed-board.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const adminUiContractFallbackSource = readFileSync(new URL("../../lib/admin-ui-contract.ts", import.meta.url), "utf8");
 const adminUiContractSource = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
 
 test("vaccination schedule is driven by persisted operator assignments", () => {
@@ -71,6 +72,7 @@ test("vaccination schedule and operator labels are backend-contract owned", () =
     "schedule.move.missing_title",
   ]) {
     assert.match(adminUiContractSource, new RegExp(`"${key.replaceAll(".", "\\.")}"\\s*:`), `${key} missing from backend UI contract`);
+    assert.match(adminUiContractFallbackSource, new RegExp(`"${key.replaceAll(".", "\\.")}"\\s*:`), `${key} missing from admin-web fallback contract`);
   }
 });
 
