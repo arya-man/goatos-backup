@@ -198,10 +198,6 @@ type batchCellsCreator interface {
 	CreateBatchWithObligationCells(ctx context.Context, in domain.NewBatch, obligationIDs []string, cellsByObligation map[string]int32) (batchID string, attachedIDs []string, err error)
 }
 
-type vaccinationOperatorAssigner interface {
-	PickVaccinationOperatorForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32) (*string, error)
-}
-
 type vaccinationOperatorLister interface {
 	AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]string, error)
 }
@@ -227,20 +223,37 @@ func (s *SweeperService) createBatchWithAttachedIDs(ctx context.Context, in doma
 	return batchID, nil, fmt.Errorf("obligation: repository attached %d/%d rows but did not return exact attached IDs; refusing to guess sweep claims", attached, len(obligationIDs))
 }
 
-func (s *SweeperService) assignVaccinationOperator(ctx context.Context, in *domain.NewBatch, capPerOperator int32) error {
+func (s *SweeperService) availableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32, session *SweepSession) ([]string, error) {
+	if strings.TrimSpace(parkID) == "" {
+		return nil, nil
+	}
+	if cached, ok := session.cachedVaccinationOperators(tenantID, parkID, plannedDate, capPerOperator); ok {
+		return cached, nil
+	}
+	lister, ok := s.repo.(vaccinationOperatorLister)
+	if !ok {
+		session.rememberVaccinationOperators(tenantID, parkID, plannedDate, capPerOperator, nil)
+		return nil, nil
+	}
+	operators, err := lister.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, plannedDate, capPerOperator)
+	if err != nil {
+		return nil, err
+	}
+	session.rememberVaccinationOperators(tenantID, parkID, plannedDate, capPerOperator, operators)
+	return cloneOperatorIDs(operators), nil
+}
+
+func (s *SweeperService) assignVaccinationOperator(ctx context.Context, in *domain.NewBatch, capPerOperator int32, session *SweepSession) error {
 	if in == nil || in.PlannedDate == nil || in.ConductedBy != nil || strings.TrimSpace(in.ScopeType) != "park" || strings.TrimSpace(in.ScopeID) == "" {
 		return nil
 	}
-	assigner, ok := s.repo.(vaccinationOperatorAssigner)
-	if !ok {
-		return nil
-	}
-	operatorID, err := assigner.PickVaccinationOperatorForDrive(ctx, in.TenantID, in.ScopeID, *in.PlannedDate, capPerOperator)
+	operators, err := s.availableVaccinationOperatorsForDrive(ctx, in.TenantID, in.ScopeID, *in.PlannedDate, capPerOperator, session)
 	if err != nil {
 		return err
 	}
-	if operatorID != nil && strings.TrimSpace(*operatorID) != "" {
-		in.ConductedBy = operatorID
+	if len(operators) > 0 && strings.TrimSpace(operators[0]) != "" {
+		operatorID := strings.TrimSpace(operators[0])
+		in.ConductedBy = &operatorID
 	}
 	return nil
 }
@@ -256,17 +269,13 @@ func (s *SweeperService) writeVaccinationDriveAssignments(ctx context.Context, t
 	return writer.UpsertVaccinationDriveAssignments(ctx, tenantID, assignments)
 }
 
-func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Context, tenantID string, batch domain.NewBatch, capPerOperator int32, assignments []domain.DriveAssignment) ([]domain.DriveAssignment, error) {
+func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Context, tenantID string, batch domain.NewBatch, capPerOperator int32, assignments []domain.DriveAssignment, session *SweepSession) ([]domain.DriveAssignment, error) {
 	if len(assignments) == 0 || batch.PlannedDate == nil || strings.TrimSpace(batch.ScopeID) == "" {
 		return assignments, nil
 	}
-	operators := []string{}
-	if lister, ok := s.repo.(vaccinationOperatorLister); ok {
-		listed, err := lister.AvailableVaccinationOperatorsForDrive(ctx, tenantID, batch.ScopeID, *batch.PlannedDate, capPerOperator)
-		if err != nil {
-			return nil, err
-		}
-		operators = append(operators, listed...)
+	operators, err := s.availableVaccinationOperatorsForDrive(ctx, tenantID, batch.ScopeID, *batch.PlannedDate, capPerOperator, session)
+	if err != nil {
+		return nil, err
 	}
 	if len(operators) == 0 && batch.ConductedBy != nil && strings.TrimSpace(*batch.ConductedBy) != "" {
 		operators = append(operators, strings.TrimSpace(*batch.ConductedBy))
@@ -277,15 +286,11 @@ func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Conte
 	return planVaccinationDriveAssignments(*batch.PlannedDate, capPerOperator, operators, assignments)
 }
 
-func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, parkID string, date *time.Time, planner domain.DrivePlannerSettings) (domain.DrivePlannerSettings, error) {
+func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, parkID string, date *time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.DrivePlannerSettings, error) {
 	if planner.MaxGoatsPerDrive <= 0 || date == nil || strings.TrimSpace(parkID) == "" {
 		return planner, nil
 	}
-	lister, ok := s.repo.(vaccinationOperatorLister)
-	if !ok {
-		return planner, nil
-	}
-	operators, err := lister.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, planner.MaxGoatsPerDrive)
+	operators, err := s.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, planner.MaxGoatsPerDrive, session)
 	if err != nil {
 		return planner, err
 	}
@@ -297,15 +302,11 @@ func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, 
 	return scaled, nil
 }
 
-func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantID, parkID string, date *time.Time, capPerOperator int32) (int32, error) {
+func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantID, parkID string, date *time.Time, capPerOperator int32, session *SweepSession) (int32, error) {
 	if capPerOperator <= 0 || date == nil || strings.TrimSpace(parkID) == "" {
 		return capPerOperator, nil
 	}
-	lister, ok := s.repo.(vaccinationOperatorLister)
-	if !ok {
-		return capPerOperator, nil
-	}
-	operators, err := lister.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, capPerOperator)
+	operators, err := s.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, capPerOperator, session)
 	if err != nil {
 		return capPerOperator, err
 	}
@@ -858,7 +859,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 		return false, 0, nil
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, firstUnbatchedParkID(g.rows), plannedDate, planner)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, firstUnbatchedParkID(g.rows), plannedDate, planner, session)
 	if err != nil {
 		_ = release(ctx)
 		return false, 0, err
@@ -922,12 +923,12 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			QuantityUnit:      "dose",
 			BatchingHoldUntil: batchingHoldUntilForUnbatched(selectedRows, plannedDate),
 		}
-		if assignErr := s.assignVaccinationOperator(ctx, &newBatch, planner.MaxGoatsPerDrive); assignErr != nil {
+		if assignErr := s.assignVaccinationOperator(ctx, &newBatch, planner.MaxGoatsPerDrive, session); assignErr != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, assignErr
 		}
 		driveAssignments := driveAssignmentsForUnbatched("pending", newBatch, selectedRows)
-		driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments)
+		driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments, session)
 		if assignErr != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, assignErr
@@ -984,7 +985,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 			if err != nil {
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner)
+			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
 			if err != nil {
 				_ = visitRelease(ctx)
 				return plannedDate, nil, nil, noopRelease, err
@@ -1030,7 +1031,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 	if err != nil {
 		return bestDate, nil, nil, noopRelease, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner, session)
 	if err != nil {
 		_ = visitRelease(ctx)
 		return bestDate, nil, nil, noopRelease, err

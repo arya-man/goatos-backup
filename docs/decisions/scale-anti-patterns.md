@@ -66,6 +66,14 @@ a scale anti-pattern even if both endpoints are "correct."
   still slow" class (one round trip per row): a 25-row page becomes 51 serial
   reads. Fix by batching to a single `*ByIDs` / `= ANY($1)` read, as `ShedSummary`
   now does with `ShedOwnerships`.
+  Concrete recurrence: vaccination operator availability/capacity must be
+  loaded once per sweep session at `(tenant, park, business_date,
+  cap_per_operator)` grain and reused by date scoring, `ConductedBy` selection,
+  effective-cap calculation, and drive-assignment splitting. Do not call
+  `AvailableVaccinationOperatorsForDrive` independently from date loops,
+  preflight loops, assignment distribution, and combo alignment; that re-creates
+  park x candidate-date x helper fan-out and hides the cost behind "only three
+  operators."
 - infinite paging loops without cursor/progress proof
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds
@@ -131,6 +139,13 @@ written with one batched upsert for the generated batch, never one database
 round trip per partition. Operator capacity is counted as unique animals per
 available operator per business date; multi-vaccine animals do not multiply the
 assignment write volume.
+
+Vaccination operator availability is the same scale boundary on the read side:
+one sweep/preflight session may probe many dates and may call separate helpers
+for capacity, operator choice, and partition assignment. Those helpers must share
+the session-scoped `(tenant, park, business_date, cap_per_operator)` availability
+cache. A direct repo/port call from any one of those helpers is a recurrence of
+the N+1 fan-out bug, even when the seed fixture has only three operators.
 
 Do not model raw partition-bearing shed names as separate canonical buildings.
 `Gandhi 1/2/3` are partitions under `Gandhi`; `Godel 1 - Part 3` is partition

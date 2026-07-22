@@ -133,7 +133,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		_ = visitRelease(ctx)
 		return remaining, 0, plannedDate, false, true, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
 	if err != nil {
 		session.releaseClaims(shotClaims)
 		_ = visitRelease(ctx)
@@ -199,12 +199,12 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		QuantityUnit:      "dose",
 		BatchingHoldUntil: batchingHoldUntil,
 	}
-	if assignErr := s.assignVaccinationOperator(ctx, &newBatch, planner.MaxGoatsPerDrive); assignErr != nil {
+	if assignErr := s.assignVaccinationOperator(ctx, &newBatch, planner.MaxGoatsPerDrive, session); assignErr != nil {
 		session.releaseClaims(shotClaims)
 		return remaining, 0, plannedDate, animalCapReached, true, assignErr
 	}
 	driveAssignments := driveAssignmentsForParkConsolidation("pending", newBatch, selectedRows)
-	driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments)
+	driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments, session)
 	if assignErr != nil {
 		session.releaseClaims(shotClaims)
 		return remaining, 0, plannedDate, animalCapReached, true, assignErr
@@ -495,7 +495,7 @@ func (s *SweeperService) selectBestParkDriveDateWithCapacity(ctx context.Context
 		if err != nil {
 			return nil, err
 		}
-		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner)
+		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
 		if err != nil {
 			_ = visitRelease(ctx)
 			return nil, err

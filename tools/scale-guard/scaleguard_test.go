@@ -167,6 +167,36 @@ func (s *S) f(ctx context.Context, ids []string) {
 	}
 }
 
+func TestVaccinationOperatorAvailabilityFanoutIsBlocked(t *testing.T) {
+	src := `package p
+
+import (
+	"context"
+	"time"
+)
+
+type repo interface {
+	AvailableVaccinationOperatorsForDrive(context.Context, string, string, time.Time, int32) ([]string, error)
+}
+
+type S struct{ repo repo }
+
+func (s *S) scoreDates(ctx context.Context, tenantID, parkID string, dates []time.Time) error {
+	for _, day := range dates {
+		if _, err := s.repo.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, day, 200); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+`
+	repo, path := writeGo(t, src)
+	got := rules(scanFile(repo, path))
+	if got["n-plus-one-fanout"] != 1 {
+		t.Fatalf("vaccination operator availability in a date loop must be blocked, got %+v", got)
+	}
+}
+
 func TestNoFalsePositiveOnOffsetErrorString(t *testing.T) {
 	// An "offset must be..." validation message is not a SQL OFFSET clause.
 	src := `package p
