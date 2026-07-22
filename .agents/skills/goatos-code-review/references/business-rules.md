@@ -41,6 +41,13 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   the code reads the gap from config, not a hardcoded literal that can silently
   diverge from the doc. "Two live same day" is NOT a shortcut for the live→live
   gap — verify the gap is still enforced.
+- **ET+TT adult booster is mandatory schedule work:** ET+TT is a two-dose course
+  for adults too. Adult dose 2 / booster is due 21 days after adult dose 1 and
+  must be counted in drive planning as eligible work when its window opens. Do
+  not classify `ET+TT Booster` as kid-only, optional, or the 182-day repeat.
+  Review seed/import/schedule changes against the matrix rows
+  `et_tt_adult_w1` and `et_tt_adult_w2`; the 182-day repeat starts only after
+  dose 2/course completion.
 - **Per-animal shot cap per drive/visit + explicit allowed same-drive combos.**
   The combo list here is non-exhaustive; the allowed set is whatever the active
   doc + `drive_planner_config.go` define. Never approve/reject a combo from this
@@ -101,6 +108,25 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   earliest member animal `due_at`. Required guard:
   `make vaccination-drive-clubbing-guard`; post-reseed proof:
   `make vaccination-drive-clubbing-db-proof`.
+- **Operator drive capacity:** medical obligation generation still decides kid,
+  adult, booster, repeat, buffer, compatibility, and defer rules. Capacity in
+  the drive scheduling layer is NOT vaccine doses, shots, source cells, or
+  obligation rows. It is unique animals per available vaccination operator per
+  business date. One animal receiving a same-day bundle consumes one operator
+  animal slot. REJECT new or retained planner/config/UI behavior that calculates
+  drive capacity as `eligible animals * dose rows`, `vaccination_cells / cap`,
+  or `COUNT(obligation_instances)` without first collapsing to unique animals and
+  operator availability. Drive output must be date-wise, operator-wise,
+  physical-shed/partition-wise, and vaccine-bundle aware; unavailable operators
+  contribute zero capacity and spillover dates must recompute availability.
+  When a medically eligible animal will cross its latest safe date (including the
+  +1 week buffer where applicable), do not approve logic that quietly pushes it
+  later or treats escalation as resolution. The planner must add capacity,
+  approve explicit over-cap/overtime, or schedule the eligible animal over cap
+  before the hard medical deadline. This override never bypasses medical hard
+  blocks: sick, ICU, quarantine, under-treatment, blocked pregnancy windows,
+  dead/sold/culled/lost, and terminal/unsafe animals remain deferred, closed, or
+  review-held per the vaccination rule engine.
 - **Seed/import placement is not optional:** every accepted live goat must have
   `park_id`, `shed_id`, and `current_location_id = shed_id` by the end of
   seed/import/closeout. During this build phase, missing source placement is

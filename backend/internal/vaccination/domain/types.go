@@ -153,7 +153,7 @@ type ImpactRequest struct {
 	VaccineItemID *string
 	LocationID    *string
 	DoseRows      int32 // number of selected dose/schedule rows (vaccination cells per eligible animal)
-	// DailyCap is the DRAFT daily vaccination cap authored in the rule editor, used to compute
+	// DailyCap is the DRAFT animals/operator/day cap authored in the rule editor, used to compute
 	// estimated_days before publish. 0 = fall back to the published/operational cap (CapacityMaxPerDay).
 	DailyCap int64
 	// MaxBufferDays is the DRAFT safe-window buffer authored in the rule editor. nil = fall back to the
@@ -267,11 +267,11 @@ type ImpactPreview struct {
 	EligibleAnimals  int64 // SUM(animal_count) WHERE usable_for_vaccination
 	VaccinationCells int64 // eligible_animals × selected dose rows
 	AffectedSheds    int64 // distinct sheds with usable animals
-	EstimatedDays    int64 // ceil(vaccination_cells / daily_cap)
-	DailyCap         int64 // configured vaccinations/day used for estimated_days
-	// CapacityStatus classifies the draft under the daily cap + buffer window, mirroring the planner:
+	EstimatedDays    int64 // ceil(eligible_animals / daily_cap)
+	DailyCap         int64 // configured animals/operator/day used for estimated_days
+	// CapacityStatus classifies the draft under the operator animal cap + buffer window, mirroring the planner:
 	// within_cap (fits one day), over_cap (fits the safe window = buffer + 1 days), capacity_breach
-	// (beyond the window → needs review). Empty when there are no cells to plan.
+	// (beyond the window -> needs review). Empty when there are no eligible animals to plan.
 	CapacityStatus  string
 	PlannedSessions []ImpactPlannedSession
 	// Optional stock check — populated only when a vaccine item is set. Kept because the lookup is a
@@ -290,8 +290,8 @@ type ImpactPreview struct {
 // source of truth for total duration.
 type ImpactPlannedSession struct {
 	Date         string `json:"date"`         // Asia/Kolkata business date, YYYY-MM-DD
-	Vaccinations int64  `json:"vaccinations"` // cells planned that day
-	DailyLimit   int64  `json:"dailyLimit"`   // daily cap used for the preview
+	Vaccinations int64  `json:"vaccinations"` // eligible animals planned that day
+	DailyLimit   int64  `json:"dailyLimit"`   // operator animal cap used for the preview
 	Capacity     string `json:"capacity"`     // within_cap | capacity_breach
 }
 
@@ -332,6 +332,7 @@ type ShedCompletionSummary struct {
 	ExpectedCount    int64
 	HandledCount     int64
 	ProofReadyCount  int64
+	ProofMode        string
 	VaccineBreakdown []VaccineBreakdownItem
 	SubmitEnabled    bool
 	BlockingReason   *string

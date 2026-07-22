@@ -104,10 +104,10 @@ export interface PregnancyPolicy {
   postDeliveryCatchUpDays: number;
 }
 
-// CapacityPolicy is the daily vaccination throughput knob that now lives INSIDE the versioned config
+// CapacityPolicy is the operator animal-throughput knob that now lives INSIDE the versioned config
 // (rule_dsl.capacity), authored + published with the rule — not a separate tenant setting. On publish
-// the backend syncs these values into vaccination_capacity_config (the operational read model the
-// session-splitting planner reads). Counts VACCINATIONS (cells), not animals.
+// the backend syncs these values into vaccination_capacity_config for the operator-drive planner.
+// Capacity is unique animals per available operator per business date, not vaccine doses/cells.
 export interface CapacityPolicy {
   // number | "" so a CLEARED field is distinguishable from an explicit 0 (0 is a valid buffer). A blank
   // field publishes the declared default; an explicit out-of-range value is rejected by the backend.
@@ -258,11 +258,12 @@ export function newPregnancyPolicy(): PregnancyPolicy {
   };
 }
 
-// Default capacity authored into a new vaccination draft. max_buffer_days defaults to 7 (business rule,
-// 2026-07-11); overflow_policy is the only value the planner honors today.
+// Default capacity authored into a new vaccination draft. max_per_day is animals per operator per day.
+// max_buffer_days defaults to 7 (business rule, 2026-07-11); overflow_policy is the only value the
+// planner honors today.
 export function newCapacityPolicy(): CapacityPolicy {
   return {
-    maxPerDay: 100,
+    maxPerDay: 200,
     maxBufferDays: 7,
     capacityScope: "tenant",
     overflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap",
@@ -273,12 +274,12 @@ export function newCapacityPolicy(): CapacityPolicy {
 // builders so every published vaccination version carries capacity.
 function capacityDsl(input: RuleInput): Record<string, unknown> {
   const { maxPerDay, maxBufferDays } = input.capacityPolicy;
-  // A blank field publishes the DECLARED DEFAULT (100 / 7). An explicit value — including an out-of-range
+  // A blank field publishes the DECLARED DEFAULT (200 / 7). An explicit value — including an out-of-range
   // one — is sent verbatim so the backend validates it (max_per_day >= 1, max_buffer_days >= 0) and
   // returns a clear error, instead of the UI silently rewriting the admin's input. An explicit 0 buffer
   // (a valid same-day window) is preserved, never coerced to the default.
   return {
-    max_per_day: maxPerDay === "" ? 100 : Number(maxPerDay),
+    max_per_day: maxPerDay === "" ? 200 : Number(maxPerDay),
     max_buffer_days: maxBufferDays === "" ? 7 : Number(maxBufferDays),
     capacity_scope: input.capacityPolicy.capacityScope || "tenant",
     overflow_policy:

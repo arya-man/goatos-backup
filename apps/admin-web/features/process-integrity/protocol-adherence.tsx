@@ -11,6 +11,7 @@ import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity
 import { ClipText, Tag } from "@/components/ui-primitives";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { ProtocolAdherenceLocalDrawer, type ProtocolAdherenceDrawerRecord } from "./protocol-adherence-local-drawer";
+import { fmtDate } from "@/lib/format";
 
 type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
 const accentVar: Record<Tone4, string> = {
@@ -67,6 +68,14 @@ function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string
 }
 
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
+  switch (row.drive_capacity_state) {
+    case "over_cap_required":
+      return "over-cap required";
+    case "medical_defer":
+      return row.drive_medical_defer_reason ? `medical defer: ${row.drive_medical_defer_reason}` : "medical defer";
+    case "terminal_animal_closed":
+      return row.drive_medical_defer_reason ? `terminal closed: ${row.drive_medical_defer_reason}` : "terminal animal closed";
+  }
   switch (row.gap) {
     case "proof_missing":
       return copyOr(pageContract, "gap.proof_missing", "proof missing");
@@ -85,6 +94,14 @@ function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string 
     default:
       return row.gap.replaceAll("_", " ");
   }
+}
+
+function driveCapacityDetail(row: AdherenceRow): string | null {
+  if (row.drive_capacity_state !== "over_cap_required") return null;
+  const slots = (row.drive_available_operators ?? 0) * (row.drive_operator_cap ?? 0);
+  const animals = row.drive_animals_assigned ?? row.drive_animals_required ?? 0;
+  const latest = row.drive_latest_safe_date ? fmtDate(row.drive_latest_safe_date) : undefined;
+  return `${animals.toLocaleString("en-IN")} animals / ${slots.toLocaleString("en-IN")} operator slots${latest ? ` · latest safe ${latest}` : ""}`;
 }
 
 const VACCINE_CODE_COPY_KEYS: Array<[needle: string, copyKey: string]> = [
@@ -112,7 +129,7 @@ function readableAdherenceExpected(pageContract: AdminUiPageContract, raw: strin
   const bits = [vaccine, path, timing].filter(Boolean);
   return {
     title: `${bits.join(" ")}${dueCount ? ` - ${dueCount} ${copy(pageContract, "label.due_lower")}` : ""}`,
-    detail: withoutPrefix || raw,
+    detail: bits.join(" "),
   };
 }
 
@@ -347,6 +364,7 @@ export async function ProtocolAdherencePage({
                   const href = rowDrawerHref(row);
                   const expected = readableAdherenceExpected(pageContract, row.expected);
                   const actual = readableAdherenceActual(pageContract, row.actual);
+                  const driveDetail = driveCapacityDetail(row);
                   return (
                     <tr key={row.row_id}>
                       <td>
@@ -364,7 +382,8 @@ export async function ProtocolAdherencePage({
                       </td>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-	                          <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
+                          <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{gapLabel(pageContract, row)}</Tag>
+                          {driveDetail ? <span className="mt">{driveDetail}</span> : null}
                         </LocalOverlayLink>
                       </td>
                       <td>

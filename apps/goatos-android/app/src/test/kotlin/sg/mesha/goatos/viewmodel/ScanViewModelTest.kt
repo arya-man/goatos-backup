@@ -631,19 +631,19 @@ private class FakeScanExecutionRepository(
     }
 
     override suspend fun rows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?, cursor: String?,
+        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?, cursor: String?,
     ): VaccinationExecutionResponseDto = error("unused")
 
     override fun observeRows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,
     ): Flow<Resource<VaccinationExecutionResponseDto>> = error("unused")
 
     override suspend fun refreshRows(
-        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,
     ): Result<Unit> = error("unused")
 
     override suspend fun appendRows(
-        cursor: String, parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?,
+        cursor: String, parkId: String?, workState: String?, asOf: String?, dueBefore: String?, openOnly: Boolean?, limit: Int?,
     ): Result<Unit> = error("unused")
 
     override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
@@ -668,9 +668,9 @@ private class FakeTaskRepository(
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
         taskDetail.value = Resource(data = TaskDetail(task = task, form = form), lastSyncedAt = 1L)
     }
-    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
         MutableStateFlow(null)
-    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = Result.success(Unit)
 }
 
 private class CapturingSubmitSyncRepository : SyncRepository {

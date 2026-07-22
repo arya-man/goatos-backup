@@ -25,9 +25,11 @@ import sg.mesha.goatos.core.network.dto.SopVersionDto
 data class ProofPolicy(
     val types: List<String> = listOf("video"),
     val required: Boolean = true,
+    val proofMode: String = "per_goat_video",
     val subjectScope: String = "goat",
     val expectedSubjects: List<String> = listOf("goat"),
     val minimumCount: Int = 0,
+    val maximumCount: Int = MAX_PROOFS_PER_GOAT,
     val minimumCountPerSubject: Int = 0,
     /** Falls back to the historical hardcoded cap ([MAX_PROOFS_PER_GOAT]) when the backend has
      *  not published this field yet. */
@@ -35,6 +37,7 @@ data class ProofPolicy(
     /** Falls back to the historical hardcoded value the client always sent before this policy
      *  existed. */
     val captureSource: String = "in_app_camera",
+    val allowedCaptureSources: List<String> = listOf("in_app_camera"),
 ) {
     /** The subject a capture defaults to when the caller does not pick one explicitly (e.g. a
      *  per-goat "Capture proof" button) — [subjectScope] when it names a known subject,
@@ -47,6 +50,15 @@ data class ProofPolicy(
     companion object {
         val Default = ProofPolicy()
     }
+
+    val isPerGoatVideo: Boolean
+        get() = proofMode == "per_goat_video" || subjectScope == "goat"
+
+    val isShedLevelVideo: Boolean
+        get() = proofMode == "shed_level_video" || subjectScope == "shed"
+
+    val allowsGalleryPicker: Boolean
+        get() = "gallery_picker" in allowedCaptureSources
 }
 
 /** Parses this SOP version's `proof_policy` into a [ProofPolicy]; malformed/absent policy falls
@@ -63,15 +75,24 @@ fun Map<String, JsonElement>.toProofPolicy(): ProofPolicy {
         ?.mapNotNull { it.asStringOrNull() }
         ?.takeIf { it.isNotEmpty() }
         ?: ProofPolicy.Default.expectedSubjects
+    val allowedSources = (this["allowed_capture_sources"] as? JsonArray)
+        ?.mapNotNull { it.asStringOrNull() }
+        ?.takeIf { it.isNotEmpty() }
+        ?: listOf(this["capture_source"].asStringOrEmpty().ifBlank { ProofPolicy.Default.captureSource })
     return ProofPolicy(
         types = types,
         required = this["required"]?.asBool() ?: ProofPolicy.Default.required,
+        proofMode = this["proof_mode"].asStringOrEmpty().ifBlank {
+            if (this["subject_scope"].asStringOrEmpty() == "shed") "shed_level_video" else ProofPolicy.Default.proofMode
+        },
         subjectScope = this["subject_scope"].asStringOrEmpty().ifBlank { ProofPolicy.Default.subjectScope },
         expectedSubjects = expectedSubjects,
         minimumCount = this["minimum_count"].asIntOrDefault(ProofPolicy.Default.minimumCount),
+        maximumCount = this["maximum_count"].asIntOrDefault(ProofPolicy.Default.maximumCount),
         minimumCountPerSubject = this["minimum_count_per_subject"].asIntOrDefault(ProofPolicy.Default.minimumCountPerSubject),
         maximumCountPerSubject = this["maximum_count_per_subject"].asIntOrDefault(ProofPolicy.Default.maximumCountPerSubject),
         captureSource = this["capture_source"].asStringOrEmpty().ifBlank { ProofPolicy.Default.captureSource },
+        allowedCaptureSources = allowedSources,
     )
 }
 

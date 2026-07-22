@@ -112,7 +112,9 @@ function runSelfTest() {
   mutate("missing backup", (b) => { b.shedManagers[1][b.shedManagers[0].indexOf("backup_manager_code")] = ""; }, "unknown backup");
   mutate("provisional owner", (b) => { b.shedManagers[1][b.shedManagers[0].indexOf("needs_review")] = "true"; }, "needs_review must be false");
   mutate("PII header", (b) => { b.attendance.values[0][1] = "Bank Account Number"; }, "forbidden PII/payroll header");
-  mutate("proof grain", (b) => { b.manifest.contracts.video_proof_subject_scope = "shed"; }, "video proof must be per goat");
+  mutate("proof mode", (b) => { b.manifest.contracts.proof_mode = "per_goat_video"; }, "proof_mode must be shed_level_video");
+  mutate("proof grain", (b) => { b.manifest.contracts.video_proof_subject_scope = "goat"; }, "video proof subject must be shed");
+  mutate("proof capture source", (b) => { b.manifest.contracts.video_capture_sources = ["in_app_camera"]; }, "camera and gallery picker");
   mutate("stale days in stage", (b) => {
     const headers = b.goats.values[0];
     const index = b.goats.values.findIndex((row, i) => i > 0 && row[headers.indexOf("stage_entry_date")] && row[headers.indexOf("days_in_stage")]);

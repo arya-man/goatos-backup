@@ -102,6 +102,12 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * options when the phone is offline in a shed). Renumbered from the branch's original v13 so
  * main's proof-capture (v13) and scan-roster SSOT (v14) migrations keep their numbers as the
  * integration baseline.
+ * v16 (see [MIGRATION_15_16]) persists backend scan timestamps on scan_roster_row so reopened
+ * vaccination tasks show the real done state and exact IST scan time.
+ * v17 (see [MIGRATION_16_17]) adds the six Feed read-model tables — the Feed Direction sheet and
+ * the Feed Packing worklist, each as a summary-envelope blob + normalized paged rows + per-scope
+ * remote keys, so both Feed screens are offline-first and bounded from day one. Renumbered from the
+ * branch's original v16 so main's scan-timestamp migration keeps v16 as the integration baseline.
  */
 @Database(
     entities = [
@@ -138,7 +144,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         FeedPackingItemEntity::class,
         FeedPackingRemoteKeyEntity::class,
     ],
-    version = 16,
+    version = 17,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -154,9 +160,8 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // shed scan screen: adds `seq` (backend roster order) so the UI renders a bounded keyset window
     // instead of a whole-collection JSON blob, and DROPS the now-unused scan_roster_cache blob table.
     // v15 (see [MIGRATION_14_15]) adds the seven Counts read-model tables.
-    // v16 (see [MIGRATION_15_16]) adds the six Feed read-model tables — the Feed Direction sheet
-    // and the Feed Packing worklist, each as a summary-envelope blob + normalized paged rows +
-    // per-scope remote keys, so both Feed screens are offline-first and bounded from day one.
+    // v16 (see [MIGRATION_15_16]) adds nullable backend scan timestamp to scan_roster_row.
+    // v17 (see [MIGRATION_16_17]) adds the six Feed read-model tables (Direction + Packing).
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

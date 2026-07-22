@@ -42,6 +42,100 @@ func TestSweeperSkipsSideEffectsWhenAttachClaimsNoRows(t *testing.T) {
 	}
 }
 
+func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	operatorID := "operator-1"
+	assignments := driveAssignmentsForUnbatched("batch-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+		ConductedBy: &operatorID,
+	}, []domain.UnbatchedDue{
+		{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi 1", TargetID: "goat-1"},
+		{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi 1", TargetID: "goat-2"},
+		{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-1", ShedName: "Gandhi 2", TargetID: "goat-3"},
+		{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-3", ParkID: "park-1", ShedName: "Old Yashoda", TargetID: "goat-4"},
+	})
+	if len(assignments) != 3 {
+		t.Fatalf("assignments = %d, want 3: %#v", len(assignments), assignments)
+	}
+	got := map[string]int32{}
+	for _, assignment := range assignments {
+		got[assignment.PhysicalShed+"|"+assignment.PartitionLabel] = assignment.AnimalCount
+	}
+	want := map[string]int32{
+		"Gandhi|1":          2,
+		"Gandhi|2":          1,
+		"Old Yashoda|whole": 1,
+	}
+	for key, count := range want {
+		if got[key] != count {
+			t.Fatalf("assignment %s = %d, want %d; all=%#v", key, got[key], count, got)
+		}
+	}
+}
+
+func TestDriveAssignmentsForParkConsolidationPersistPartSuffixPartitions(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	assignments := driveAssignmentsForParkConsolidation("batch-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-1", ShedID: "shed-1", ShedName: "Godel 1 - Part 4", ParkID: "park-1", TargetID: "goat-1"},
+		{ObligationID: "obl-2", ShedID: "shed-1", ShedName: "Godel 1 - Part 4", ParkID: "park-1", TargetID: "goat-1"},
+	})
+	if len(assignments) != 1 {
+		t.Fatalf("assignments = %d, want 1: %#v", len(assignments), assignments)
+	}
+	if assignments[0].PhysicalShed != "Godel 1" || assignments[0].PartitionLabel != "4" || assignments[0].AnimalCount != 1 {
+		t.Fatalf("assignment = %#v, want Godel 1 part 4 with one distinct animal", assignments[0])
+	}
+}
+
+func TestDistributeVaccinationDriveAssignmentsBalancesAvailableOperators(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+	assignments := []domain.DriveAssignment{
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 90, CapacityStatus: "within_cap"},
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "2", AnimalCount: 80, CapacityStatus: "within_cap"},
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "3", AnimalCount: 90, CapacityStatus: "within_cap"},
+	}
+
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, 200, assignments)
+	if err != nil {
+		t.Fatalf("distribute assignments: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			t.Fatalf("assignment missing operator: %#v", assignment)
+		}
+		seen[*assignment.OperatorID] = true
+	}
+	for _, operatorID := range repo.operators {
+		if !seen[operatorID] {
+			t.Fatalf("operator %s got no work; assignments=%#v", operatorID, got)
+		}
+	}
+}
+
+func TestOperatorCapacityPlannerScalesByAvailableOperators(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200})
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 600 {
+		t.Fatalf("effective animal cap = %d, want 600 for 3 operators at 200 each", planner.MaxGoatsPerDrive)
+	}
+}
+
 func TestSweeperRollsBackShotCapClaimWhenAttachNoOps(t *testing.T) {
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
@@ -1599,6 +1693,15 @@ type fakeDateVisitShotLockerRepo struct {
 	persisted map[string]int32
 }
 
+type fakeVaccinationOperatorListRepo struct {
+	*fakeSweepRepo
+	operators []string
+}
+
+func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(context.Context, string, string, time.Time, int32) ([]string, error) {
+	return append([]string(nil), f.operators...), nil
+}
+
 func (f *fakeDateVisitShotLockerRepo) CountVisitShotsForTargets(_ context.Context, _ string, targetIDs []string, date time.Time) (map[string]int32, error) {
 	out := make(map[string]int32, len(targetIDs))
 	for _, targetID := range targetIDs {
@@ -2027,7 +2130,7 @@ func TestLimitUnbatchedSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveCells(planned, rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, NewSweepSession(), 1)
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
@@ -2045,8 +2148,25 @@ func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveCells(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession(), 1)
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession())
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
+	}
+}
+
+func TestLimitUnbatchedSelectionCountsDistinctAnimals(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-ettt", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-ppr", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-goat-2", TargetID: "goat-2", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 2
+
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, &planned, planner, NewSweepSession())
+	if len(out) != 3 {
+		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
 	}
 }

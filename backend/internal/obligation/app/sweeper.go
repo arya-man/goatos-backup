@@ -197,6 +197,18 @@ type batchCellsCreator interface {
 	CreateBatchWithObligationCells(ctx context.Context, in domain.NewBatch, obligationIDs []string, cellsByObligation map[string]int32) (batchID string, attachedIDs []string, err error)
 }
 
+type vaccinationOperatorAssigner interface {
+	PickVaccinationOperatorForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32) (*string, error)
+}
+
+type vaccinationOperatorLister interface {
+	AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]string, error)
+}
+
+type vaccinationDriveAssignmentWriter interface {
+	UpsertVaccinationDriveAssignments(ctx context.Context, tenantID string, assignments []domain.DriveAssignment) error
+}
+
 func (s *SweeperService) createBatchWithAttachedIDs(ctx context.Context, in domain.NewBatch, obligationIDs []string, cellsByObligation map[string]int32) (string, []string, error) {
 	if creator, ok := s.repo.(batchCellsCreator); ok && cellsByObligation != nil {
 		return creator.CreateBatchWithObligationCells(ctx, in, obligationIDs, cellsByObligation)
@@ -212,6 +224,114 @@ func (s *SweeperService) createBatchWithAttachedIDs(ctx context.Context, in doma
 		return batchID, append([]string(nil), obligationIDs...), nil
 	}
 	return batchID, nil, fmt.Errorf("obligation: repository attached %d/%d rows but did not return exact attached IDs; refusing to guess sweep claims", attached, len(obligationIDs))
+}
+
+func (s *SweeperService) assignVaccinationOperator(ctx context.Context, in *domain.NewBatch, capPerOperator int32) error {
+	if in == nil || in.PlannedDate == nil || in.ConductedBy != nil || strings.TrimSpace(in.ScopeType) != "park" || strings.TrimSpace(in.ScopeID) == "" {
+		return nil
+	}
+	assigner, ok := s.repo.(vaccinationOperatorAssigner)
+	if !ok {
+		return nil
+	}
+	operatorID, err := assigner.PickVaccinationOperatorForDrive(ctx, in.TenantID, in.ScopeID, *in.PlannedDate, capPerOperator)
+	if err != nil {
+		return err
+	}
+	if operatorID != nil && strings.TrimSpace(*operatorID) != "" {
+		in.ConductedBy = operatorID
+	}
+	return nil
+}
+
+func (s *SweeperService) writeVaccinationDriveAssignments(ctx context.Context, tenantID string, assignments []domain.DriveAssignment) error {
+	if len(assignments) == 0 {
+		return nil
+	}
+	writer, ok := s.repo.(vaccinationDriveAssignmentWriter)
+	if !ok {
+		return nil
+	}
+	return writer.UpsertVaccinationDriveAssignments(ctx, tenantID, assignments)
+}
+
+func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Context, tenantID string, batch domain.NewBatch, capPerOperator int32, assignments []domain.DriveAssignment) ([]domain.DriveAssignment, error) {
+	if len(assignments) == 0 || batch.PlannedDate == nil || strings.TrimSpace(batch.ScopeID) == "" {
+		return assignments, nil
+	}
+	operators := []string{}
+	if lister, ok := s.repo.(vaccinationOperatorLister); ok {
+		listed, err := lister.AvailableVaccinationOperatorsForDrive(ctx, tenantID, batch.ScopeID, *batch.PlannedDate, capPerOperator)
+		if err != nil {
+			return nil, err
+		}
+		operators = append(operators, listed...)
+	}
+	if len(operators) == 0 && batch.ConductedBy != nil && strings.TrimSpace(*batch.ConductedBy) != "" {
+		operators = append(operators, strings.TrimSpace(*batch.ConductedBy))
+	}
+	if len(operators) == 0 {
+		return assignments, nil
+	}
+	loads := make(map[string]int32, len(operators))
+	for i := range assignments {
+		chosen := leastLoadedDriveOperator(operators, loads)
+		assignments[i].OperatorID = &chosen
+		loads[chosen] += assignments[i].AnimalCount
+		if capPerOperator > 0 && loads[chosen] > capPerOperator && assignments[i].CapacityStatus == "within_cap" {
+			assignments[i].CapacityStatus = "over_cap_required"
+			assignments[i].Warnings = append(assignments[i].Warnings, "operator animal cap exceeded to keep latest safe vaccination window")
+		}
+	}
+	return assignments, nil
+}
+
+func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, parkID string, date *time.Time, planner domain.DrivePlannerSettings) (domain.DrivePlannerSettings, error) {
+	if planner.MaxGoatsPerDrive <= 0 || date == nil || strings.TrimSpace(parkID) == "" {
+		return planner, nil
+	}
+	lister, ok := s.repo.(vaccinationOperatorLister)
+	if !ok {
+		return planner, nil
+	}
+	operators, err := lister.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, planner.MaxGoatsPerDrive)
+	if err != nil {
+		return planner, err
+	}
+	if len(operators) <= 1 {
+		return planner, nil
+	}
+	scaled := planner
+	scaled.MaxGoatsPerDrive = planner.MaxGoatsPerDrive * int32(len(operators))
+	return scaled, nil
+}
+
+func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantID, parkID string, date *time.Time, capPerOperator int32) (int32, error) {
+	if capPerOperator <= 0 || date == nil || strings.TrimSpace(parkID) == "" {
+		return capPerOperator, nil
+	}
+	lister, ok := s.repo.(vaccinationOperatorLister)
+	if !ok {
+		return capPerOperator, nil
+	}
+	operators, err := lister.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, capPerOperator)
+	if err != nil {
+		return capPerOperator, err
+	}
+	if len(operators) <= 1 {
+		return capPerOperator, nil
+	}
+	return capPerOperator * int32(len(operators)), nil
+}
+
+func leastLoadedDriveOperator(operators []string, loads map[string]int32) string {
+	chosen := operators[0]
+	for _, operatorID := range operators[1:] {
+		if loads[operatorID] < loads[chosen] {
+			chosen = operatorID
+		}
+	}
+	return chosen
 }
 
 // hwmUnbatchedDueLister is implemented by the production Postgres repo (RV-05): the real-sweep-path
@@ -597,7 +717,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 }
 
 // batchDueGroup plans a drive date and selects one dueGroup's obligations under the shared visit
-// shot cap and park/date dose-cell cap, then creates the resulting park drive batch. It seeds
+// shot cap and park/date animal-slot cap, then creates the resulting park drive batch. It seeds
 // session with persisted cross-pass claims before selecting (VAX-REV-01), and -- when the repo
 // supports it -- holds advisory locks across the select+create sequence so a concurrent sweeper
 // worker cannot commit a conflicting claim in between. If every row rejects on a candidate date, the
@@ -626,7 +746,12 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 		return false, 0, nil
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveCells(operationalAsOf, g.rows, selectedIDs, plannedDate, planner, session, cellsPerObligation)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, firstUnbatchedParkID(g.rows), plannedDate, planner)
+	if err != nil {
+		_ = release(ctx)
+		return false, 0, err
+	}
+	cappedIDs := limitUnbatchedSelectionByDriveAnimals(operationalAsOf, g.rows, selectedIDs, plannedDate, capPlanner, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -644,8 +769,8 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 	}()
 
-	// MaxGoatsPerDrive carries the published park/date dose-cell cap in the vaccination planner.
-	// Selection above has already limited by cells and allowed only last-safe-day overflow; splitting
+	// MaxGoatsPerDrive carries the published park/date animal-slot cap in the vaccination planner.
+	// Selection above has already limited by animals and allowed only last-safe-day overflow; splitting
 	// again by row count would turn one valid park drive into fake micro-drives.
 	idChunks := [][]string{selectedIDs}
 	claimChunks := splitShotCapReservations(shotClaims, selectedIDs, idChunks)
@@ -661,6 +786,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			session.releaseClaims(claimChunk)
 			return batched, obligations, scopeErr
 		}
+		animalCount := uniqueUnbatchedTargetCount(selectedRows)
 		windowStart, windowEnd := unbatchedDriveWindow(selectedRows)
 		// VAXCAP-003: one rule per unbatched group, so every row carries the same per-rule cell
 		// count -- but the persisted total must still come from the rows ACTUALLY attached.
@@ -669,7 +795,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		for _, id := range chunk {
 			cellsByObligation[id] = cellsPerRow
 		}
-		_, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, domain.NewBatch{
+		newBatch := domain.NewBatch{
 			TenantID:          tenantID,
 			ProtocolVersionID: versionID,
 			ScopeType:         batchScopeType,
@@ -679,11 +805,23 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			WindowStart:       windowStart,
 			WindowEnd:         windowEnd,
 			Status:            "planned",
-			EstimatedTargets:  int32(len(chunk)),
+			EstimatedTargets:  int32(animalCount),
 			PlannedQuantity:   strconv.FormatInt(int64(len(chunk))*int64(normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)), 10),
 			QuantityUnit:      "dose",
 			BatchingHoldUntil: batchingHoldUntilForUnbatched(selectedRows, plannedDate),
-		}, chunk, cellsByObligation)
+		}
+		if assignErr := s.assignVaccinationOperator(ctx, &newBatch, planner.MaxGoatsPerDrive); assignErr != nil {
+			session.releaseClaims(claimChunk)
+			return batched, obligations, assignErr
+		}
+		driveAssignments := driveAssignmentsForUnbatched("pending", newBatch, selectedRows)
+		driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments)
+		if assignErr != nil {
+			session.releaseClaims(claimChunk)
+			return batched, obligations, assignErr
+		}
+		newBatch.DriveAssignments = driveAssignments
+		_, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, newBatch, chunk, cellsByObligation)
 		if createErr != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, createErr
@@ -692,9 +830,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			session.releaseClaims(claimChunk)
 			continue
 		}
-		for _, row := range selectedUnbatchedRows(g.rows, attachedIDs) {
-			session.claimDriveCapacity(row.ParkID, *plannedDate, row.ObligationID, cellsPerObligation)
-		}
+		claimUnbatchedDriveAnimals(session, selectedUnbatchedRows(g.rows, attachedIDs), *plannedDate)
 		session.releaseClaims(claimsOutsideSelection(claimChunk, attachedIDs))
 		batched = true
 		obligations += int64(len(attachedIDs))
@@ -736,7 +872,12 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 			if err != nil {
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, &day, planner.MaxGoatsPerDrive, session)
+			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner)
+			if err != nil {
+				_ = visitRelease(ctx)
+				return plannedDate, nil, nil, noopRelease, err
+			}
+			driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, &day, capPlanner.MaxGoatsPerDrive, session)
 			if err != nil {
 				_ = visitRelease(ctx)
 				return plannedDate, nil, nil, noopRelease, err
@@ -748,7 +889,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 				_ = release(ctx)
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, &day, planner, session, cellsPerObligation)
+			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, session)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, cappedIDs))
@@ -777,7 +918,12 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 	if err != nil {
 		return bestDate, nil, nil, noopRelease, err
 	}
-	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, bestDate, planner.MaxGoatsPerDrive, session)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner)
+	if err != nil {
+		_ = visitRelease(ctx)
+		return bestDate, nil, nil, noopRelease, err
+	}
+	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, bestDate, capPlanner.MaxGoatsPerDrive, session)
 	if err != nil {
 		_ = visitRelease(ctx)
 		return bestDate, nil, nil, noopRelease, err
@@ -788,7 +934,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 		_ = release(ctx)
 		return bestDate, nil, nil, noopRelease, err
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, bestDate, planner, session, cellsPerObligation)
+	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -884,17 +1030,14 @@ func uniqueUnbatchedTargetCount(rows []domain.UnbatchedDue) int {
 	return len(seen)
 }
 
-// limitUnbatchedSelectionByDriveCells enforces the park/date dose-cell cap with two-pass
-// admission (VAXCAP-006): pass 1 reserves cells for IMMOVABLE rows (no later feasible date inside
+// limitUnbatchedSelectionByDriveAnimals enforces the park/date animal-slot cap with two-pass
+// admission (VAXCAP-006): pass 1 reserves slots for IMMOVABLE rows (no later feasible date inside
 // the goat's own safe window / due+7 hold), which are admitted even beyond cap; pass 2 fills the
 // remaining capacity with movable rows. Overflow beyond cap is legitimate only when the immovable
-// cells alone exceed it -- a movable row can never displace a last-safe row into overflow.
-func limitUnbatchedSelectionByDriveCells(now time.Time, rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, session *SweepSession, cellsPerObligation int32) []string {
+// animals alone exceed it -- a movable row can never displace a last-safe row into overflow.
+func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, session *SweepSession) []string {
 	if planner.MaxGoatsPerDrive <= 0 || plannedDate == nil || len(selected) == 0 {
 		return selected
-	}
-	if cellsPerObligation <= 0 {
-		cellsPerObligation = 1
 	}
 	selectedSet := make(map[string]struct{}, len(selected))
 	for _, id := range selected {
@@ -915,6 +1058,7 @@ func limitUnbatchedSelectionByDriveCells(now time.Time, rows []domain.UnbatchedD
 		}, planner)
 	}
 	admitted := make(map[string]struct{}, len(selected))
+	admittedTargets := make(map[string]struct{}, len(selected))
 	// Pass 1: immovable rows reserve capacity first (admitted unconditionally -- last-safe overflow).
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
@@ -923,8 +1067,12 @@ func limitUnbatchedSelectionByDriveCells(now time.Time, rows []domain.UnbatchedD
 		if canMove(row) {
 			continue
 		}
+		targetKey := unbatchedTargetKey(row)
+		if _, ok := admittedTargets[targetKey]; !ok {
+			admittedTargets[targetKey] = struct{}{}
+			used++
+		}
 		admitted[row.ObligationID] = struct{}{}
-		used += cellsPerObligation
 	}
 	// Pass 2: movable rows fill only the remaining capacity, never pushing past the cap.
 	for _, row := range rows {
@@ -934,11 +1082,15 @@ func limitUnbatchedSelectionByDriveCells(now time.Time, rows []domain.UnbatchedD
 		if _, ok := admitted[row.ObligationID]; ok {
 			continue
 		}
-		if used+cellsPerObligation > planner.MaxGoatsPerDrive {
-			continue
+		targetKey := unbatchedTargetKey(row)
+		if _, ok := admittedTargets[targetKey]; !ok {
+			if used+1 > planner.MaxGoatsPerDrive {
+				continue
+			}
+			admittedTargets[targetKey] = struct{}{}
+			used++
 		}
 		admitted[row.ObligationID] = struct{}{}
-		used += cellsPerObligation
 	}
 	out := make([]string, 0, len(admitted))
 	for _, row := range rows {
@@ -947,6 +1099,134 @@ func limitUnbatchedSelectionByDriveCells(now time.Time, rows []domain.UnbatchedD
 		}
 	}
 	return out
+}
+
+func unbatchedTargetKey(row domain.UnbatchedDue) string {
+	targetID := strings.TrimSpace(row.TargetID)
+	if targetID != "" {
+		return targetID
+	}
+	return strings.TrimSpace(row.ObligationID)
+}
+
+func claimUnbatchedDriveAnimals(session *SweepSession, rows []domain.UnbatchedDue, plannedDate time.Time) {
+	if session == nil {
+		return
+	}
+	seenTargets := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		targetKey := unbatchedTargetKey(row)
+		if _, ok := seenTargets[targetKey]; ok {
+			continue
+		}
+		seenTargets[targetKey] = struct{}{}
+		session.claimDriveCapacity(row.ParkID, plannedDate, row.ObligationID, 1)
+	}
+}
+
+func driveAssignmentsForUnbatched(batchID string, batch domain.NewBatch, rows []domain.UnbatchedDue) []domain.DriveAssignment {
+	if strings.TrimSpace(batchID) == "" || batch.PlannedDate == nil || strings.TrimSpace(batch.ScopeID) == "" || len(rows) == 0 {
+		return nil
+	}
+	type assignmentBucket struct {
+		parkID       string
+		shedID       *string
+		physicalShed string
+		partition    string
+		targets      map[string]struct{}
+	}
+	buckets := make(map[string]*assignmentBucket)
+	for _, row := range rows {
+		parkID := strings.TrimSpace(row.ParkID)
+		if parkID == "" {
+			parkID = batch.ScopeID
+		}
+		var shedID *string
+		if row.ScopeType == "shed" && strings.TrimSpace(row.ScopeID) != "" {
+			s := strings.TrimSpace(row.ScopeID)
+			shedID = &s
+		}
+		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
+		if physicalShed == "" {
+			physicalShed = "park"
+		}
+		key := parkID + "\x00" + stringPtrValue(shedID) + "\x00" + physicalShed + "\x00" + partition
+		bucket := buckets[key]
+		if bucket == nil {
+			bucket = &assignmentBucket{parkID: parkID, shedID: shedID, physicalShed: physicalShed, partition: partition, targets: map[string]struct{}{}}
+			buckets[key] = bucket
+		}
+		targetKey := unbatchedTargetKey(row)
+		if targetKey != "" {
+			bucket.targets[targetKey] = struct{}{}
+		}
+	}
+	out := make([]domain.DriveAssignment, 0, len(buckets))
+	for _, bucket := range buckets {
+		out = append(out, domain.DriveAssignment{
+			BatchID:        batchID,
+			PlannedDate:    *batch.PlannedDate,
+			OperatorID:     batch.ConductedBy,
+			ParkID:         bucket.parkID,
+			ShedID:         bucket.shedID,
+			PhysicalShed:   bucket.physicalShed,
+			PartitionLabel: bucket.partition,
+			AnimalCount:    int32(len(bucket.targets)),
+			CapacityStatus: "within_cap",
+		})
+	}
+	return out
+}
+
+func stringPtrValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v)
+}
+
+func normalizeAssignmentShed(raw string) (string, string) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", "whole"
+	}
+	name = strings.Join(strings.Fields(name), " ")
+	if physical, partition, ok := splitAssignmentPartSuffix(name); ok {
+		return physical, partition
+	}
+	parts := strings.Fields(name)
+	if len(parts) >= 2 {
+		last := parts[len(parts)-1]
+		if _, err := strconv.Atoi(last); err == nil {
+			physical := strings.TrimSpace(strings.Join(parts[:len(parts)-1], " "))
+			if physical != "" {
+				return physical, last
+			}
+		}
+	}
+	return name, "whole"
+}
+
+func splitAssignmentPartSuffix(name string) (string, string, bool) {
+	lower := strings.ToLower(name)
+	marker := " - part "
+	idx := strings.LastIndex(lower, marker)
+	if idx < 0 {
+		marker = " part "
+		idx = strings.LastIndex(lower, marker)
+	}
+	if idx < 0 {
+		return "", "", false
+	}
+	physical := strings.TrimSpace(name[:idx])
+	partition := strings.TrimSpace(name[idx+len(marker):])
+	if physical == "" || partition == "" {
+		return "", "", false
+	}
+	if _, err := strconv.Atoi(partition); err != nil {
+		return "", "", false
+	}
+	return physical, partition, true
 }
 
 func firstUnbatchedParkID(rows []domain.UnbatchedDue) string {

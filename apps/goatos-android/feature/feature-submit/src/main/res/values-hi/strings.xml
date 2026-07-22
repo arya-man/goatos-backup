@@ -9,6 +9,7 @@
     <string name="submit_summary_expected">अपेक्षित पशु</string>
     <string name="submit_summary_handled">स्कैन किए गए</string>
     <string name="submit_summary_proof_ready">प्रमाण तैयार</string>
+    <string name="submit_summary_shed_videos_ready">शेड वीडियो तैयार</string>
     <string name="submit_vaccine_breakdown_label">टीका टूटना</string>
     <string name="submit_dose_label">खुराक</string>
     <string name="submit_goat_proof_title">बकरी का कैमरा प्रमाण</string>

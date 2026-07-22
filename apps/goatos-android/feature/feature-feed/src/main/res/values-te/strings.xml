@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
     <string name="feed_direction_caption">రూపొందించిన ఫీడ్ షీట్ — ప్రతి షెడ్ మరియు సెషన్ పరిమాణం</string>
     <string name="feed_packing_caption">ఈ ఫీడ్ రోజుకు ప్రతి-షెడ్ సంచులు</string>
     <string name="feed_refresh_description">రిఫ్రెష్</string>

@@ -15,6 +15,7 @@
     <string name="submit_summary_expected">Expected animals</string>
     <string name="submit_summary_handled">Scanned</string>
     <string name="submit_summary_proof_ready">Proof ready</string>
+    <string name="submit_summary_shed_videos_ready">Shed videos ready</string>
     <string name="submit_vaccine_breakdown_label">Vaccine breakdown</string>
     <string name="submit_dose_label">Dose</string>
     <string name="submit_goat_proof_title">Goat camera proof</string>

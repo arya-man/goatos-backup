@@ -23,14 +23,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -96,6 +100,15 @@ data class RosterChange(
     val text: String,
 )
 
+@Immutable
+data class ShedDayTab(
+    val dateKey: String,
+    val dayLabel: String,
+    val dateLabel: String,
+    val countLabel: String,
+    val isSelected: Boolean,
+)
+
 /**
  * One shed card. Domain values come from the backend payload while localized labels
  * and count captions are app chrome;
@@ -109,7 +122,12 @@ data class RosterChange(
 data class ShedRow(
     val id: String,
     val name: String,
+    val operatorName: String = "",
+    val physicalShed: String = "",
+    val partition: String = "",
     val animalStage: String,
+    val scheduleDateKey: String = "",
+    val scheduleDateLabel: String = "",
     val status: ShedStatus,
     val statusLabel: String,
     val vaccineGroups: List<VaccineGroup>,
@@ -150,6 +168,7 @@ data class ShedsUiState(
     val doneCount: Int = 0,
     val caption: String? = null,
     val roleNote: String? = null,
+    val dayTabs: List<ShedDayTab> = emptyList(),
     val rows: List<ShedRow> = emptyList(),
     val rosterChanges: List<RosterChange> = emptyList(),
     val kernelInfo: String? = null,
@@ -167,6 +186,7 @@ data class ShedsUiState(
 
 sealed interface ShedsEvent {
     data class OpenShedRecord(val shedId: String) : ShedsEvent
+    data class SelectDay(val dateKey: String) : ShedsEvent
     data object Refresh : ShedsEvent
     data object LoadMore : ShedsEvent
     data object Back : ShedsEvent
@@ -222,6 +242,18 @@ fun ShedsScreen(
     onEvent: (ShedsEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
+        if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                val firstShedIndex = if (state.dayTabs.isNotEmpty()) 2 else 2
+                val lastShedIndex = firstShedIndex + state.rows.lastIndex
+                if (lastVisibleIndex >= lastShedIndex - 3 && state.hasMore && !state.isLoadingMore) {
+                    onEvent(ShedsEvent.LoadMore)
+                }
+            }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -229,12 +261,18 @@ fun ShedsScreen(
     ) {
         ShedsHeader(state = state, onRefresh = { onEvent(ShedsEvent.Refresh) }, onBack = { onEvent(ShedsEvent.Back) })
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item { DriveMeta(state) }
-            item { DayProgress(state) }
+            if (state.dayTabs.isNotEmpty()) {
+                item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
+                item { VaccineCarryCard(rows = state.rows) }
+            } else {
+                item { DriveMeta(state) }
+                item { DayProgress(state) }
+            }
             state.roleNote?.let { note -> item { RoleNote(note) } }
             if (state.isInitialLoading && state.rows.isEmpty()) {
                 item(key = "initial-skeleton") {
@@ -256,24 +294,9 @@ fun ShedsScreen(
             items(state.rows, key = { it.id }) { row ->
                 ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
             }
-            if (state.hasMore) {
-                item(key = "load-more") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .border(1.dp, Hair, RoundedCornerShape(14.dp))
-                            .clickable(enabled = !state.isLoadingMore) { onEvent(ShedsEvent.LoadMore) }
-                            .padding(vertical = 13.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(if (state.isLoadingMore) R.string.sheds_loading_more else R.string.sheds_load_more),
-                            color = if (state.isLoadingMore) MeshaColors.Muted else MeshaColors.Brand,
-                            fontWeight = FontWeight.W700,
-                        )
-                    }
+            if (state.isLoadingMore) {
+                item(key = "loading-more") {
+                    InlineLoadingFooter()
                 }
             }
             if (state.rosterChanges.isNotEmpty()) {
@@ -283,6 +306,127 @@ fun ShedsScreen(
             state.kernelInfo?.let { info -> item { InfoBox(info) } }
         }
     }
+}
+
+@Composable
+private fun InlineLoadingFooter() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            color = Muted,
+            strokeWidth = 2.dp,
+        )
+    }
+}
+
+@Composable
+private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        tabs.take(7).forEach { tab ->
+            val bg = if (tab.isSelected) Brand else Surf2
+            val edge = if (tab.isSelected) Brand else Hair
+            val labelColor = if (tab.isSelected) PageBg else Muted
+            val dateColor = if (tab.isSelected) PageBg else Ink
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(86.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(bg)
+                    .border(1.dp, edge, RoundedCornerShape(14.dp))
+                    .clickable { onSelect(tab.dateKey) }
+                    .padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(text = tab.dayLabel, color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                Text(text = tab.dateLabel, color = dateColor, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VaccineCarryCard(rows: List<ShedRow>) {
+    val totals = vaccineCarryTotals(rows)
+    if (totals.isEmpty()) return
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Surf),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Hair),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Vaccines to carry",
+                    color = Ink,
+                    fontSize = 15.5f.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${totals.values.sum()} doses",
+                    color = BrandD,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Selected day · all sheds below",
+                color = Muted,
+                fontSize = 11.5f.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.height(12.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                totals.forEach { (label, count) ->
+                    VaccineChip(VaccineGroup(label = label, countLabel = "$count doses"))
+                }
+            }
+        }
+    }
+}
+
+private fun vaccineCarryTotals(rows: List<ShedRow>): Map<String, Int> {
+    return rows
+        .asSequence()
+        .flatMap { row ->
+            row.vaccineGroups.asSequence().mapNotNull { group ->
+                val remaining = remainingDoseCount(group.countLabel)
+                if (remaining > 0) group.label to remaining else null
+            }
+        }
+        .groupingBy { it.first }
+        .fold(0) { total, (_, remaining) -> total + remaining }
+}
+
+private fun remainingDoseCount(countLabel: String): Int {
+    val parts = countLabel.split("/", limit = 2)
+    if (parts.size == 2) {
+        val done = parts[0].filter(Char::isDigit).toIntOrNull() ?: 0
+        val total = parts[1].filter(Char::isDigit).toIntOrNull() ?: return 0
+        return (total - done).coerceAtLeast(0)
+    }
+    return countLabel.filter(Char::isDigit).toIntOrNull() ?: 0
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +621,7 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
             ShedCardTop(row = row, tone = tone)
             Spacer(Modifier.height(12.dp))
             VaccineChips(row.vaccineGroups)
+            DriveAssignmentStrip(row)
             Spacer(Modifier.height(14.dp))
             NumsRow(row)
             Spacer(Modifier.height(12.dp))
@@ -485,6 +630,40 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 ActionFooter(label = label, status = row.status)
             }
+        }
+    }
+}
+
+@Composable
+private fun DriveAssignmentStrip(row: ShedRow) {
+    val parts = listOfNotNull(
+        row.scheduleDateLabel.takeIf { it.isNotBlank() },
+        row.operatorName.takeIf { it.isNotBlank() },
+        row.physicalShed.takeIf { it.isNotBlank() },
+        row.partition.takeIf { it.isNotBlank() }?.let { partition ->
+            if (partition.startsWith("Part ", ignoreCase = true)) partition else stringResource(R.string.sheds_partition_fmt, partition)
+        },
+    )
+    if (parts.isEmpty()) return
+    Spacer(Modifier.height(10.dp))
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Surf2)
+            .border(1.dp, Hair, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        parts.forEach { label ->
+            Text(
+                text = label,
+                color = Muted,
+                fontSize = 10.5f.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
         }
     }
 }
@@ -505,8 +684,12 @@ private fun ShedCardTop(row: ShedRow, tone: StatusTone) {
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = row.name, color = Ink, fontSize = 15.5f.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            row.animalStage.takeIf { it.isNotBlank() }?.let { stage ->
-                Text(text = stage, color = Muted, fontSize = 12.sp, maxLines = 1)
+            val subtitle = listOfNotNull(
+                row.scheduleDateLabel.takeIf { it.isNotBlank() },
+                row.animalStage.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
+            subtitle.takeIf { it.isNotBlank() }?.let {
+                Text(text = it, color = Muted, fontSize = 12.sp, maxLines = 1)
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -774,7 +957,7 @@ private fun previewState(): ShedsUiState = ShedsUiState(
             statusLabel = "Done",
             vaccineGroups = listOf(VaccineGroup("FMD + HS", "40/40", full = true)),
             inShed = "71",
-            due = "40",
+            due = "0",
             done = "40",
             progressLabel = "40/40 done",
             progressFraction = 1f,

@@ -259,15 +259,15 @@ func TestComboAlignmentSettingsForPlansUsesStrictestPolicy(t *testing.T) {
 		},
 	}
 
-	alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells := ComboAlignmentSettingsForPlans(plans)
+	alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveAnimals := ComboAlignmentSettingsForPlans(plans)
 	if alignWindowDays != 3 {
 		t.Fatalf("align window = %d, want strictest 3", alignWindowDays)
 	}
 	if maxShotsPerAnimalPerDrive != 1 {
 		t.Fatalf("max shots = %d, want strictest 1", maxShotsPerAnimalPerDrive)
 	}
-	if maxDriveCells != 50 {
-		t.Fatalf("max drive cells = %d, want strictest 50", maxDriveCells)
+	if maxDriveAnimals != 50 {
+		t.Fatalf("max drive animals = %d, want strictest 50", maxDriveAnimals)
 	}
 }
 

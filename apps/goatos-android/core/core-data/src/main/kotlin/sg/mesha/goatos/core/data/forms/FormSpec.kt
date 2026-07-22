@@ -73,6 +73,9 @@ data class FormField(
     val optionSource: String? = null,
     /** Backend-authored reason the entire source cannot currently be selected. */
     val disabledReason: String? = null,
+    /** Optional backend proof subject for media fields, e.g. `shed` for shed-level vaccination
+     *  proof. When absent, the app falls back to the SOP proof policy. */
+    val proofSubject: String? = null,
 )
 
 /** A conditional rule (`when` a [conditionField] [operator]s [value], apply the rule to [field]). */
@@ -126,6 +129,7 @@ private fun JsonElement.toFormField(): FormField? {
         helpText = obj["help_text"].asStringOrNull() ?: obj["description"].asStringOrNull(),
         options = (obj["options"] as? JsonArray).orEmpty().mapNotNull { it.toFormOption() },
         optionSource = obj["option_source"].asStringOrNull(),
+        proofSubject = obj["proof_subject"].asStringOrNull(),
     )
 }
 

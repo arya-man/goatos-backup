@@ -172,6 +172,18 @@ drawer, modal, table, form, and navigation surface:
   every state and viewport;
 - tables own horizontal overflow and stable column widths; values must not wrap
   character-by-character or escape cards;
+- raw vaccination config/protocol tokens must never be sent as backend
+  presentation copy or shown as visible UI copy.
+  Strings such as `et_tt`, `et_tt_adult_w2`, `ppr_booster`, `blue_tongue_first`,
+  `Preventive Care Vaccination Matrix`, and similar backend keys are valid
+  inside backend config, raw storage/API contracts, non-UI tests, and dedicated
+  display-mapping helpers only. Backend display fields (`driveName`,
+  `vaccineLabel`, `vaccine_labels`, card titles/subtitles, alerts), admin-web
+  pages, drawers, chips, tables, schedules, alerts, action rows, visual
+  fixtures, and generated galleries must render human labels such as `ET+TT`,
+  `PPR · Booster`, `Blue Tongue`, and `Goat Pox`. Run
+  `make ui-vaccine-labels-guard`; it is wired into `make guardrails` and local
+  CI.
 - tables, chip groups, drawers, popovers, and side panels must be reviewed at the
   exact route/viewport being changed. Verify no right-edge clipping, no accidental
   whole-page horizontal scroll, no clipped status/actions column, working outside

@@ -2,7 +2,7 @@
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">ರಿಫ್ರೆಶ್</string>
-    <string name="sheds_title">ಲಸಿಕಾ ಅಭಿಯಾನಗಳು</string>
+    <string name="sheds_title">ಲಸಿಕಾ ಶೆಡ್‌ಗಳು</string>
     <string name="sheds_count_fmt">%1$d ಶೆಡ್‌ಗಳು</string>
     <string name="sheds_due_fmt">%1$d ತೆರೆದಿವೆ</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d ಮುಗಿದಿದೆ</string>
@@ -14,6 +14,7 @@
     <string name="sheds_num_cell_in_shed">ಗುರಿ</string>
     <string name="sheds_num_cell_due">ಬಾಕಿ</string>
     <string name="sheds_num_cell_done">ಮುಗಿದಿದೆ</string>
+    <string name="sheds_partition_fmt">ಭಾಗ %1$s</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">ಸಿಬ್ಬಂದಿ ಪರಿವರ್ತನೆಗಳು · ಈ ಡ್ರೈವ್ ಅನುಸೂಚಿತವಾದ ನಂತರ</string>

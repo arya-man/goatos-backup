@@ -67,7 +67,7 @@ func TestAppBootstrapLocalizesBackendOwnedStringsFromLocaleHeader(t *testing.T) 
 		t.Fatalf("decode response: %v", err)
 	}
 	assertNavigationLabel(t, got.VisibleNavigation, "vaccination", "ड्राइव")
-	assertNavigationLabel(t, got.VisibleNavigation, "calendar", "कैलेंडर")
+	assertNavigationMissing(t, got.VisibleNavigation, "calendar")
 	assertQueueLabel(t, got.TaskQueueDescriptors, "assigned", "सौंपा गया काम")
 	assertQueueLabel(t, got.TaskQueueDescriptors, "shifting", "शिफ्टिंग")
 }
@@ -83,6 +83,15 @@ func assertNavigationLabel(t *testing.T, items []domain.BootstrapNavigationItem,
 		}
 	}
 	t.Fatalf("navigation %q missing from %#v", key, items)
+}
+
+func assertNavigationMissing(t *testing.T, items []domain.BootstrapNavigationItem, key string) {
+	t.Helper()
+	for _, item := range items {
+		if item.Key == key {
+			t.Fatalf("navigation %q must be absent for vaccination-only operator, got %#v", key, items)
+		}
+	}
 }
 
 func assertQueueLabel(t *testing.T, items []domain.BootstrapTaskQueue, key, want string) {

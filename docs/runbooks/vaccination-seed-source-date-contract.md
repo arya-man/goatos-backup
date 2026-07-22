@@ -53,6 +53,14 @@ Goat/vaccination source rows without the active `vaccination.matrix`, capacity
 defaults, ownership duties, recomputed surviving summaries, and canonical-read
 APIs that serve the vaccination screens are not a usable Goat OS environment.
 
+Capacity defaults are operator animal capacity defaults, not dose limits. The
+seeded default is the number of unique animals one available operator can handle
+on one business date; one animal due for multiple vaccines consumes one slot.
+Drive assignment rows are generated from this default plus timetable/leave
+availability. When the safe buffer would be missed, the generated work is marked
+over-cap required so the drive is finished by available staff instead of being
+quietly pushed beyond the latest-safe date.
+
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
 into an explicit seed-intake park/shed instead of leaving a live animal without a
@@ -528,6 +536,11 @@ stale for this data until reseeded with `-null-false-dob`.
 
 At minimum, this contract is guarded by:
 
+- Fixture manifest proof contract: the committed source bundle declares
+  `proof_mode=shed_level_video`, shed proof subject, one required shed video
+  with a maximum of five, and camera + gallery capture sources. This does not
+  change source vaccination dates; per-goat scan timestamps remain the
+  administration-time truth.
 - `backend/cmd/seed-vaccination-real/main_test.go`: source dates on or before
   the business date import as trusted anchor history, while future business
   dates do not; open work materialized by the seed is strictly future-only.

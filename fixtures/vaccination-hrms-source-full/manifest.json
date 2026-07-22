@@ -7,10 +7,11 @@
   "contracts": {
     "vaccination_protocol_code": "vaccination.matrix",
     "vaccination_sop_code": "vaccination.drive",
-    "video_proof_subject_scope": "goat",
-    "video_capture_source": "in_app_camera",
-    "minimum_video_count_per_goat": 1,
-    "maximum_video_count_per_goat": 5,
+    "proof_mode": "shed_level_video",
+    "video_proof_subject_scope": "shed",
+    "video_capture_sources": ["in_app_camera", "gallery_picker"],
+    "minimum_video_count_per_shed": 1,
+    "maximum_video_count_per_shed": 5,
     "verifier_approval_required": true,
     "shed_completion": "acknowledgement_only",
     "local_trigger_primary_rfid_fixture": "CBE-RFID-0001",
@@ -89,6 +90,11 @@
       "date": "2026-07-20",
       "change": "counts approval + department_module_grants + feed_direction migrations (000009-000015) and the seed-roster-real department-module-grants write",
       "vaccination_hrms_source_impact": "none: the counts and feed tables are orthogonal to the vaccination HRMS roster source. This fixture's data is unchanged, minimum_migration stays 000008, and validateFixture still passes. Recorded to satisfy the seed/config/SOP coupling review."
+    },
+    {
+      "date": "2026-07-22",
+      "change": "vaccination_drive_assignments migration and operator animal-cap planner",
+      "vaccination_hrms_source_impact": "none: the raw source files stay unchanged. The new table is derived planner output from active vaccination obligations plus HRMS availability/timetable rows at generation time; the fixture contract still validates the same animal, vaccination, roster, timetable, and shed-manager inputs."
     }
   ]
 }

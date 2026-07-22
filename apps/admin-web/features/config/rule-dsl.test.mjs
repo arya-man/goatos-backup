@@ -10,6 +10,12 @@ import {
   newProcurementPolicy,
 } from "./rule-dsl.ts";
 
+test("new vaccination capacity defaults to 200 animals per operator per day", () => {
+  const policy = newCapacityPolicy();
+  assert.strictEqual(policy.maxPerDay, 200);
+  assert.strictEqual(policy.maxBufferDays, 7);
+});
+
 test("buildVaccinationMatrixPreview omits wrapper course_type", () => {
   const dose = newDose(1);
   const input = {

@@ -1,29 +1,29 @@
 package domain
 
-// ---- Vaccination capacity / session-splitting planner ----
+// ---- Vaccination drive capacity / planner status vocabulary ----
 //
-// A shed's due vaccination work is split into planned SESSIONS (visits/days) when the daily vaccination
-// cap is exceeded. Capacity counts VACCINATIONS (obligation cells), not animals: one goat receiving FMD
-// + HS = 2 vaccinations. The planner is deterministic: sessions = ceil(open cells / cap), spread over
-// consecutive days from the shed's next due date; work that cannot fit within (maxBufferDays + 1) days
-// is CapacityBreach ("Needs review").
+// The medical obligation kernel decides which vaccine obligations are due. Drive planning capacity is an
+// operations concept: it is consumed by unique animals handled by available operators on a business date,
+// not by vaccine doses or obligation cells. One animal with a same-day vaccine bundle consumes one
+// operator animal slot. See app.OperatorDrivePlanner for the assignment model.
 
 // CapacityStatus is the INTERNAL machine vocabulary. It must never be shown raw in the CEO UI — the
 // frontend renders the backend-provided CEO label (within_cap -> "Within cap", over_cap -> "Split",
-// capacity_breach -> "Needs review").
+// capacity_breach -> "Capacity action" (add operators or finish over cap inside the safe window).
 type CapacityStatus string
 
 const (
 	CapacityWithinCap CapacityStatus = "within_cap"      // fits in a single day (sessions <= 1)
 	CapacityOverCap   CapacityStatus = "over_cap"        // safely split across multiple days within the window
-	CapacityBreach    CapacityStatus = "capacity_breach" // cannot fit within the safe window -> needs manager review
+	CapacityBreach    CapacityStatus = "capacity_breach" // cannot fit within the authored cap/safe window; add operators or finish over cap
 )
 
-// CapacityConfig is the backend-owned daily cap config (vaccination_capacity_config). CapacityScope is
-// where the cap number is defined (tenant now; center/shed later). OverflowPolicy documents what the
-// planner does past the cap. RowVersion is the optimistic-concurrency token for admin edits (bumped on
-// each update); a stale RowVersion on update is rejected as a conflict so concurrent admins never
-// silently clobber each other.
+// CapacityConfig is the backend-owned drive cap config (vaccination_capacity_config). MaxPerDay is the
+// animal cap used by an available vaccination operator on one business date. CapacityScope is where the
+// cap number is defined (tenant now; center/shed later). OverflowPolicy documents what the planner does
+// past the cap. RowVersion is the optimistic-concurrency token for admin edits (bumped on each update);
+// a stale RowVersion on update is rejected as a conflict so concurrent admins never silently clobber each
+// other.
 type CapacityConfig struct {
 	MaxPerDay      int    `json:"maxPerDay"`
 	CapacityScope  string `json:"capacityScope"`
@@ -46,7 +46,7 @@ var (
 // value returns a clean 400 instead of a raw constraint-violation 500. Returns a machine code + message.
 func (c CapacityConfig) Validate() (code, message string, ok bool) {
 	if c.MaxPerDay < 1 || c.MaxPerDay > MaxPerDayCeiling {
-		return "invalid_max_per_day", "max vaccinations per day must be between 1 and 100000", false
+		return "invalid_max_per_day", "max animals per operator per day must be between 1 and 100000", false
 	}
 	if c.MaxBufferDays < 0 || c.MaxBufferDays > MaxBufferDaysCeil {
 		return "invalid_max_buffer_days", "max buffer days must be between 0 and 60", false
@@ -73,20 +73,19 @@ func contains(set []string, v string) bool {
 // existing tenants; this covers tenants created afterward). Matches the maintainer-set seed.
 func DefaultCapacityConfig() CapacityConfig {
 	return CapacityConfig{
-		MaxPerDay:      100,
+		MaxPerDay:      200,
 		CapacityScope:  "tenant",
 		MaxBufferDays:  7,
 		OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap",
 	}
 }
 
-// PlannedSession is one planned vaccination day for a shed: the date, how many vaccinations (cells) are
-// planned that day (<= DailyLimit), the daily cap, and whether that day sits within the safe window
-// (within_cap) or spills past it (capacity_breach). Per-session Capacity is never over_cap — "split" is
-// a shed-level headline, not a single-day state.
+// PlannedSession is the legacy shed-level session shape still returned by older read paths. New drive
+// planning should prefer operator/date assignments from OperatorDrivePlanner because sessions alone cannot
+// express operator availability, shed/partition ownership, or animal-bundle capacity.
 type PlannedSession struct {
 	Date         string         `json:"date"`         // Asia/Kolkata business date, YYYY-MM-DD
-	Vaccinations int            `json:"vaccinations"` // cells planned that day
-	DailyLimit   int            `json:"dailyLimit"`   // the configured cap
+	Vaccinations int            `json:"vaccinations"` // legacy field name; use as animal work count in new paths
+	DailyLimit   int            `json:"dailyLimit"`   // the configured animal cap
 	Capacity     CapacityStatus `json:"capacity"`     // within_cap | capacity_breach
 }

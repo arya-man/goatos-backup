@@ -109,6 +109,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_13_14,
                 MIGRATION_14_15,
                 MIGRATION_15_16,
+                MIGRATION_16_17,
             )
             .build()
         try {
@@ -277,7 +278,7 @@ class GoatDatabaseUpgradeCrashTest {
             )
             assertEquals(17L, destinationsDao.observe("shifting-destinations").first()?.updatedAt)
 
-            // 11. The six v16 FEED tables (MIGRATION_15_16). Same MOB-007 proof as the Counts
+            // 11. The six v17 FEED tables (MIGRATION_16_17). Same MOB-007 proof as the Counts
             //     tables: open-without-crash only proves Room accepted the migrated schema; a
             //     write+read round-trip on each of the six proves it actually exists with the shape
             //     its @Entity declares — both summary blobs, both normalized paged-row tables, and
@@ -288,7 +289,7 @@ class GoatDatabaseUpgradeCrashTest {
         }
     }
 
-    /** Round-trips all six Feed read-model tables so a missing/mismatched CREATE in MIGRATION_15_16
+    /** Round-trips all six Feed read-model tables so a missing/mismatched CREATE in MIGRATION_16_17
      *  fails here — the MOB-007 upgrade-crash class — rather than on a user's phone. */
     private suspend fun assertFeedTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
         upgraded.feedDirectionMetaCacheDao()
@@ -391,6 +392,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_13_14,
                 MIGRATION_14_15,
                 MIGRATION_15_16,
+                MIGRATION_16_17,
             )
             .build()
         try {
@@ -482,7 +484,7 @@ class GoatDatabaseUpgradeCrashTest {
                 upgraded.countsShiftingDestinationsCacheDao().observe("shifting-destinations").first()?.updatedAt,
             )
 
-            // 6. The six v16 Feed tables (MIGRATION_15_16) exist and round-trip post-upgrade.
+            // 6. The six v17 Feed tables (MIGRATION_16_17) exist and round-trip post-upgrade.
             assertFeedTablesRoundTrip(upgraded, base = 40L)
         } finally {
             upgraded.close()

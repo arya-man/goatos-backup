@@ -538,7 +538,8 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	shedCompletionAck := false
 	proofPolicy := version.ProofPolicy
 	if submissionFanoutNeeded(task) {
-		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID)
+		gate := vaccinationCompletionProofGate(version.ProofPolicy)
+		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, gate.MinimumCount, gate.MaximumCount)
 		if err != nil {
 			return nil, mapRepoErr(err)
 		}
@@ -549,12 +550,13 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 			}
 			return nil, BadRequest("shed_completion_not_ready", reason)
 		}
-		// Vaccination shed completion is an acknowledgement. The per-animal proof gate is the
-		// backend shed summary above (expected == scanned == proof-ready), not the generic SOP
-		// proof_refs field, so do not require a duplicated task-level proof attachment here.
+		// Vaccination shed completion is an acknowledgement. The proof gate is backend-owned and
+		// SOP-mode aware: per-goat video gates on every scanned goat; shed-level video gates on
+		// the required shed proof count. Do not require a duplicated generic task-level proof
+		// attachment here.
 		proofPolicy = map[string]any{"required": false, "subject_scope": "task", "types": []any{"video"}, "minimum_count": 0}
 		if len(cmd.Body.ProofRefs) == 0 {
-			proofRefs, err := s.repo.CompletedTaskGoatProofRefs(ctx, cmd.TenantID, cmd.TaskID)
+			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType)
 			if err != nil {
 				return nil, mapRepoErr(err)
 			}
@@ -1716,26 +1718,141 @@ func validateVaccinationDriveSOPContract(report *domain.ValidationReport, sopCod
 	default:
 		return
 	}
-	if stringValue(proofPolicy, "subject_scope") != "goat" {
-		addError(report, "proof_policy.subject_scope", "invalid", "vaccination SOP proof must be captured per goat")
-	}
 	types, ok := proofPolicyTypes(proofPolicy)
 	if !ok || len(types) != 1 || types[0] != "video" {
 		addError(report, "proof_policy.types", "invalid", "vaccination SOP proof must be video")
 	}
-	if minimum, ok := proofPolicyInteger(proofPolicy, "minimum_count_per_subject"); !ok || minimum < 1 {
-		addError(report, "proof_policy.minimum_count_per_subject", "invalid", "vaccination SOP requires at least one completed proof per goat")
-	}
-	if maximum, ok := proofPolicyInteger(proofPolicy, "maximum_count_per_subject"); !ok || maximum < 1 || maximum > 5 {
-		addError(report, "proof_policy.maximum_count_per_subject", "invalid", "vaccination SOP allows at most five completed proofs per goat")
-	}
 	if !boolValue(proofPolicy, "verify_before_apply") {
 		addError(report, "proof_policy.verify_before_apply", "invalid", "vaccination SOP proof must be verified before completion")
 	}
-	config, ok := formDSL["goat_row_proof"].(map[string]any)
-	if !ok || stringValue(config, "subject_scope") != "goat" || stringValue(config, "capture_source") != "in_app_camera" {
-		addError(report, "form_dsl.goat_row_proof", "required", "vaccination SOP requires in-app camera proof for each goat")
+	switch vaccinationProofMode(proofPolicy) {
+	case "per_goat_video":
+		if stringValue(proofPolicy, "subject_scope") != "goat" {
+			addError(report, "proof_policy.subject_scope", "invalid", "per-goat vaccination proof must use subject_scope=goat")
+		}
+		if minimum, ok := proofPolicyInteger(proofPolicy, "minimum_count_per_subject"); !ok || minimum < 1 {
+			addError(report, "proof_policy.minimum_count_per_subject", "invalid", "per-goat vaccination proof requires at least one completed proof per goat")
+		}
+		if maximum, ok := proofPolicyInteger(proofPolicy, "maximum_count_per_subject"); !ok || maximum < 1 || maximum > 5 {
+			addError(report, "proof_policy.maximum_count_per_subject", "invalid", "per-goat vaccination proof allows at most five completed proofs per goat")
+		}
+		config, ok := formDSL["goat_row_proof"].(map[string]any)
+		if !ok || stringValue(config, "subject_scope") != "goat" || stringValue(config, "capture_source") != "in_app_camera" {
+			addError(report, "form_dsl.goat_row_proof", "required", "per-goat vaccination proof requires in-app camera proof for each goat")
+		}
+	case "shed_level_video":
+		if stringValue(proofPolicy, "subject_scope") != "shed" {
+			addError(report, "proof_policy.subject_scope", "invalid", "shed-level vaccination proof must use subject_scope=shed")
+		}
+		minimum, ok := proofPolicyInteger(proofPolicy, "minimum_count")
+		if !ok || minimum < 1 {
+			addError(report, "proof_policy.minimum_count", "invalid", "shed-level vaccination proof requires at least one completed shed video")
+		}
+		maximum := 5
+		if value, ok := proofPolicyInteger(proofPolicy, "maximum_count"); ok {
+			maximum = value
+		} else if value, ok := proofPolicyInteger(proofPolicy, "maximum_count_per_subject"); ok {
+			maximum = value
+		}
+		if maximum < 1 || maximum > 5 || (ok && maximum < minimum) {
+			addError(report, "proof_policy.maximum_count", "invalid", "shed-level vaccination proof allows one to five completed shed videos")
+		}
+		if !stringSliceContains(proofPolicyStringSlice(proofPolicy, "allowed_capture_sources"), "in_app_camera") ||
+			!stringSliceContains(proofPolicyStringSlice(proofPolicy, "allowed_capture_sources"), "gallery_picker") {
+			addError(report, "proof_policy.allowed_capture_sources", "invalid", "shed-level vaccination proof must allow camera and gallery picker")
+		}
+		if !formHasShedVideoProofField(formDSL) {
+			addError(report, "form_dsl.shed_video", "required", "shed-level vaccination proof requires a required shed video field")
+		}
+	default:
+		addError(report, "proof_policy.proof_mode", "invalid", "vaccination proof_mode must be per_goat_video or shed_level_video")
 	}
+}
+
+type vaccinationProofGate struct {
+	SubjectType  string
+	MinimumCount int
+	MaximumCount int
+}
+
+func vaccinationCompletionProofGate(policy map[string]any) vaccinationProofGate {
+	if vaccinationProofMode(policy) == "shed_level_video" {
+		minimum := 1
+		if value, ok := proofPolicyInteger(policy, "minimum_count"); ok && value > 0 {
+			minimum = value
+		}
+		maximum := 5
+		if value, ok := proofPolicyInteger(policy, "maximum_count"); ok && value > 0 {
+			maximum = value
+		} else if value, ok := proofPolicyInteger(policy, "maximum_count_per_subject"); ok && value > 0 {
+			maximum = value
+		}
+		return vaccinationProofGate{SubjectType: "shed", MinimumCount: minimum, MaximumCount: maximum}
+	}
+	return vaccinationProofGate{SubjectType: "goat", MinimumCount: 1, MaximumCount: 5}
+}
+
+func vaccinationProofMode(policy map[string]any) string {
+	mode := strings.TrimSpace(stringValue(policy, "proof_mode"))
+	if mode != "" {
+		return mode
+	}
+	switch stringValue(policy, "subject_scope") {
+	case "shed":
+		return "shed_level_video"
+	default:
+		return "per_goat_video"
+	}
+}
+
+func proofPolicyStringSlice(policy map[string]any, key string) []string {
+	raw, ok := policy[key]
+	if !ok {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	case []string:
+		return typed
+	default:
+		return nil
+	}
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func formHasShedVideoProofField(formDSL map[string]any) bool {
+	if config, ok := formDSL["shed_video"].(map[string]any); ok &&
+		stringValue(config, "subject_scope") == "shed" &&
+		stringValue(config, "capture_source") != "" {
+		return true
+	}
+	fields, _ := formDSL["fields"].([]any)
+	for _, field := range fields {
+		item, ok := field.(map[string]any)
+		if !ok {
+			continue
+		}
+		fieldType, _ := normalizeFieldType(stringValue(item, "type"))
+		if fieldType == "video_proof" && stringValue(item, "proof_subject") == "shed" && boolValue(item, "required") {
+			return true
+		}
+	}
+	return false
 }
 
 func validProofSubjectScope(v string) bool {

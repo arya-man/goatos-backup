@@ -20,7 +20,10 @@ the shared rule the CI guard enforces.
 2. **Every drill level paginates.** Tapping a day opens the L1 day list; L2 (sheds in a drive) and
    L3 (vaccine capture: done / pending / skipped animals) are lists too. Each is a **keyset page of
    ~20** with **infinite scroll** — prefetch the next page when the user scrolls to item ~17-18.
-   **Never request more than ~20 rows in a single page**, at any level.
+   **Never request more than ~20 rows in a single page**, at any level. The list must not expose a
+   tappable **"Load more"** row/button for normal operator or leadership work queues. The screen owns
+   continuation from viewport visibility (`LazyListState`/Paging append); the user owns the work, not
+   pagination mechanics. A passive spinner/skeleton while the next page is already fetching is fine.
 
 3. **A vaccination drive is a park visit with a mix of SHEDS, never grouped by vaccine.** One drive
    may contain one shed or many sheds, and may bundle the same or different vaccines. "Coverage by
@@ -50,6 +53,13 @@ reads bounded windows, the VM exposes `Flow<PagingData<T>>.cachedIn(viewModelSco
 `LazyColumn { items(lazyPagingItems, key = { it.id }) }`. Both layers page identically and automatically;
 nothing ever holds the whole cohort.
 
+Do not make the operator tap a visible **Load more** row/button in normal mobile work queues. Cursor
+pagination is still required, but it is app-owned viewport behavior: when the lazy list reaches the
+prefetch threshold (roughly item 17 in a 20-row page), the next page is fetched and upserted into Room.
+The only visible pagination chrome allowed on these work lists is a passive loading footer/spinner while
+the next Room-backed page is already in flight. Manual pagination buttons belong to admin/reporting
+surfaces only when the product explicitly asks for page navigation.
+
 There is no legitimate "growing blob". A JSON-blob-per-scope cache is only bounded while it holds exactly
 one page; if load-more MERGES pages into that one blob it balloons — but that merge-on-append is itself
 the anti-pattern, not an unavoidable nuance. The same keyset pagination applies to Room: store PER-ITEM
@@ -73,6 +83,9 @@ subset:
 - `on2-date-scan` — re-parsing every event inside `.find` / `.any` (O(n²)).
 - `unbounded-db-read` — an `@Query` that `ORDER BY`s with no `LIMIT` (e.g. `observeAll()` `SELECT *`);
   Room is the UI's source of truth, so the observed read must be a bounded ~20-row keyset window too.
+- `manual-load-more-mobile-ui` — visible/manual "Load more" mobile UI in Kotlin work-list surfaces.
+  Use viewport-triggered continuation instead; keep only a passive loading footer while a request is
+  in flight.
 
 **It is diff-scoped in CI**: it only scans mobile `.kt` files changed vs the base, so a commit with
 no mobile code passes instantly (nothing to check). `make mobile-guard` runs the whole-tree audit
@@ -171,11 +184,10 @@ Re-verified against `origin/main` 05889b83 on 2026-07-20:
   is an UNREACHABLE safety bound, not a silent truncation: a task's proofs are bounded by
   `MAX_PROOFS_PER_GOAT=5` × the shed's animals (hundreds at most) — orders of magnitude below 10k.
   It is not a live data-loss bug.
-- **Crash-recovery re-enqueue uses `ProofPolicy.Default`** (`reconcileRecoverableUploadsNow` →
-  `enqueueRegistrationNow` with no policy). The only field this affects is `capture_source`, which is
-  camera-only-enforced and effectively constant (`in_app_camera`), so the "loss" is a no-op. If a
-  non-default `capture_source` is ever introduced, persist the policy on the proof row (Room bump +
-  MigrationTest + UpgradeCrashTest) and use it in recovery — until then this is not a live bug.
+- **Crash-recovery re-enqueue must preserve proof capture source.** `capture_source` is now
+  SOP-controlled: per-goat proof remains `in_app_camera`, while shed-level proof may use
+  `gallery_picker`. Any recovery/outbox path must persist and replay the capture source from Room;
+  it must not silently rebuild upload metadata from `ProofPolicy.Default`.
 - **`minimumCountPerSubject`** is enforced server-side at SOP submission
   (`backend/internal/sop/app/service.go` `validatePerGoatProofRefs`), the correct boundary. The Android
   client parses it for display only; that is not a missing-enforcement bug.

@@ -1,14 +1,19 @@
 package sg.mesha.goatos.capture
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.channels.Channel
+import java.io.File
 
 /**
  * Binds [source] to a real, LIVE in-app camera recording for as long as the composable calling
@@ -18,21 +23,35 @@ import kotlinx.coroutines.channels.Channel
  * control (e.g. inside `SubmitScreen`'s host in `:app`); [ProofCaptureSource.captureVideo] then
  * works from the ViewModel without it ever touching camera/composition APIs directly.
  *
- * Camera-only capture (anti-fraud, docs/mobile/proof-capture-sync-and-e2e.md): this shows
- * [InAppVideoRecorderOverlay] — a full-screen live CameraX preview + record button — and
- * NOTHING else. There is no gallery/file-picker path anywhere in this bridge; the only way a
- * `CapturedVideo` is ever produced is a live recording that just happened.
+ * SOP-controlled capture (docs/mobile/proof-capture-sync-and-e2e.md): camera capture still shows
+ * [InAppVideoRecorderOverlay] — a full-screen live CameraX preview + record button. When the
+ * backend SOP permits shed-level gallery proof, [ProofCaptureSource.pickVideo] uses Android's
+ * picker and immediately copies the selected clip into app-private storage before Room/GCS sync.
  */
 @Composable
 fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
+    val context = LocalContext.current
     var recorderRequested by remember { mutableStateOf(false) }
     val resultChannel = remember { Channel<CapturedVideo?>(capacity = 1) }
+    val pickerChannel = remember { Channel<CapturedVideo?>(capacity = 1) }
+    val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        pickerChannel.trySend(uri?.let { selected ->
+            val now = System.currentTimeMillis()
+            copyPickedVideoToPrivateCache(context, selected, now)
+        })
+    }
 
     DisposableEffect(source) {
-        source.bind {
-            recorderRequested = true
-            resultChannel.receive()
-        }
+        source.bind(
+            launch = {
+                recorderRequested = true
+                resultChannel.receive()
+            },
+            pick = {
+                pickerLauncher.launch("video/*")
+                pickerChannel.receive()
+            },
+        )
         onDispose { source.unbind() }
     }
 
@@ -62,3 +81,22 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
         }
     }
 }
+
+private fun copyPickedVideoToPrivateCache(
+    context: android.content.Context,
+    sourceUri: Uri,
+    nowMs: Long,
+): CapturedVideo? = runCatching {
+    val dir = File(context.cacheDir, "proof-videos").apply { mkdirs() }
+    val out = File(dir, "gallery-$nowMs.mp4")
+    context.contentResolver.openInputStream(sourceUri)?.use { input ->
+        out.outputStream().use { output -> input.copyTo(output) }
+    } ?: return@runCatching null
+    CapturedVideo(
+        localUri = out.toURI().toString(),
+        mimeType = context.contentResolver.getType(sourceUri) ?: "video/mp4",
+        startedAtMs = nowMs,
+        endedAtMs = nowMs,
+        captureSource = "gallery_picker",
+    )
+}.getOrNull()

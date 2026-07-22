@@ -460,7 +460,8 @@ fun AppNavHost(
                     when (event) {
                         ScanEvent.Submit -> navController.navigate(
                             Routes.submitRoute(
-                                shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG),
+                                shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG)?.takeIf { it.isNotBlank() }
+                                    ?: state.shedId,
                                 driveId = entry.arguments?.getString(Routes.EXECUTION_DRIVE_ARG),
                                 batchId = entry.arguments?.getString(Routes.EXECUTION_BATCH_ARG),
                                 taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG)?.takeIf { it.isNotBlank() }
@@ -878,9 +879,7 @@ fun AppNavHost(
  * Unknown future roots fail safely to Calendar until the app graph learns the new destination.
  */
 internal fun startDestinationFor(navState: NavState): String =
-    Routes.CALENDAR.takeIf { calendar -> navState.items.any { it.href == calendar } }
-        ?: navState.items.firstOrNull()?.href
-        ?.takeIf { it in supportedRootDestinations }
+    navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
         ?: Routes.CALENDAR
 
 private val supportedRootDestinations = setOf(

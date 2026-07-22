@@ -84,10 +84,12 @@ type capacityConfigSyncer interface {
 
 const defaultMaxBufferDays = 7
 
+const defaultOperatorAnimalCapPerDay = 200
+
 // parseVersionedCapacity reads rule_dsl.capacity. ok is false when the block is absent. ABSENT numeric
-// fields fall back to safe defaults (max_per_day 100, max_buffer_days 7 — the business default), but a
-// field that is PRESENT and out of range (max_per_day < 1, max_buffer_days < 0) is rejected rather than
-// silently rewritten to a default the admin never authored.
+// fields fall back to safe defaults (max_per_day 200 animals/operator/day, max_buffer_days 7 — the
+// business default), but a field that is PRESENT and out of range (max_per_day < 1, max_buffer_days < 0)
+// is rejected rather than silently rewritten to a default the admin never authored.
 func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool, error) {
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
 		return domain.PublishedCapacity{}, false, nil
@@ -102,7 +104,7 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 		return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity must be a JSON object: %v", ErrInvalidRuleDSL, err)
 	}
 	out := domain.PublishedCapacity{
-		MaxPerDay:      100,
+		MaxPerDay:      defaultOperatorAnimalCapPerDay,
 		MaxBufferDays:  defaultMaxBufferDays,
 		CapacityScope:  strings.TrimSpace(body.CapacityScope),
 		OverflowPolicy: strings.TrimSpace(body.OverflowPolicy),

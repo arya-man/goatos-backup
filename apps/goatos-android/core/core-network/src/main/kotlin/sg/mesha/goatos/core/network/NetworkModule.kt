@@ -105,6 +105,7 @@ interface AppApiService {
         @Query("work_state") workState: String?,
         @Query("as_of") asOf: String?,
         @Query("due_before") dueBefore: String?,
+        @Query("open_only") openOnly: Boolean?,
         @Query("limit") limit: Int?,
         @Query("cursor") cursor: String?,
     ): VaccinationExecutionResponseDto
@@ -170,7 +171,10 @@ interface AppApiService {
     suspend fun getTaskOptionValues(@Path("task_id") taskId: String): TaskOptionValuesResponseDto
 
     @GET("app/tasks/{task_id}/shed-completion-summary")
-    suspend fun getShedCompletionSummary(@Path("task_id") taskId: String): ShedCompletionSummaryDto
+    suspend fun getShedCompletionSummary(
+        @Path("task_id") taskId: String,
+        @Query("shed_id") shedId: String?,
+    ): ShedCompletionSummaryDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -416,10 +420,11 @@ class RetrofitAppApi(
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
         cursor: String?,
     ): VaccinationExecutionResponseDto =
-        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, limit, cursor)
+        service.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor)
 
     override suspend fun getVaccinationExecutionShed(
         shedId: String,
@@ -491,8 +496,8 @@ class RetrofitAppApi(
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         service.getTaskOptionValues(taskId)
 
-    override suspend fun getShedCompletionSummary(taskId: String): ShedCompletionSummaryDto =
-        service.getShedCompletionSummary(taskId)
+    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
+        service.getShedCompletionSummary(taskId, shedId)
 
     override suspend fun submitAppTask(
         taskId: String,

@@ -377,17 +377,31 @@ val MIGRATION_14_15: Migration = object : Migration(14, 15) {
     }
 }
 
+/** v15 -> v16: cache backend scan timestamps on scan_roster_row.
+ *
+ * The server is the source of truth for RFID captures once they sync. The scan screen previously
+ * showed exact scan times only from the phone-local scanned_goat_capture table, so a refreshed or
+ * reinstalled operator device could reopen a shed and see 0/N even though the backend had accepted
+ * the captures. This nullable column lets the roster refresh carry the server's `scannedAt`
+ * timestamp into Room; the UI then renders DONE plus the exact IST timestamp from the row itself.
+ */
+val MIGRATION_15_16: Migration = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `scannedAtMs` INTEGER")
+    }
+}
+
 /**
- * v15 -> v16: adds the six Feed read-model tables — the Feed Direction sheet and the Feed Packing
+ * v16 -> v17: adds the six Feed read-model tables — the Feed Direction sheet and the Feed Packing
  * worklist, each as a summary-envelope blob + normalized paged rows + per-scope remote keys
  * (docs/decisions/android-offline-first.md). Purely additive; no existing table changes.
  *
  * As in [MIGRATION_14_15], each CREATE spells its table name out as a literal (never an
- * interpolated loop) so `make room-migration-guard` can statically match every new v16 @Entity
+ * interpolated loop) so `make room-migration-guard` can statically match every new v17 @Entity
  * table against a CREATE here — an interpolated name would be invisible to the very check that
  * exists to catch the upgrade-crash defect (docs/decisions/room-migration-safety.md).
  */
-val MIGRATION_15_16: Migration = object : Migration(15, 16) {
+val MIGRATION_16_17: Migration = object : Migration(16, 17) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `feed_direction_meta_cache` " +

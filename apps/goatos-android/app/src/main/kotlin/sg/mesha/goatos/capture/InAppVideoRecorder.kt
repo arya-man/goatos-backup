@@ -64,12 +64,10 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import java.io.File
 
 /**
- * LIVE, in-app camera video recording — the ONLY way to produce a `video_proof` capture
- * (docs/mobile/proof-capture-sync-and-e2e.md "Camera-only capture", anti-fraud business rule).
- * No gallery import, no `ACTION_GET_CONTENT`/`ACTION_PICK`, no chooser: this composable owns
- * the camera preview + record button end to end and writes straight to this app's OWN private
- * storage ([Context.filesDir], never [Context.getExternalFilesDir]/MediaStore) so the resulting
- * file can never be swapped for an old/unrelated recording.
+ * LIVE, in-app camera video recording. Per-goat proof must use this path; shed-level proof may
+ * also use the gallery picker when backend SOP explicitly allows it. This composable owns the
+ * camera preview + record button end to end and writes straight to this app's OWN private storage
+ * ([Context.filesDir], never [Context.getExternalFilesDir]/MediaStore).
  *
  * The camera + its [ProcessCameraProvider] binding are released the moment this composable
  * leaves composition ([DisposableEffect]) — no leaked camera session once the operator backs
