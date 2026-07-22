@@ -1,6 +1,7 @@
 import com.android.build.api.variant.HasHostTestsBuilder
 import com.android.build.api.variant.HostTestBuilder
 import com.google.firebase.appdistribution.gradle.firebaseAppDistribution
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     alias(libs.plugins.android.application)
@@ -277,5 +278,14 @@ androidComponents {
             .hostTests
             .get(HostTestBuilder.UNIT_TEST_TYPE)
             ?.enable = true
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    if (name == "testStgReleaseUnitTest") {
+        // Paparazzi goldens are recorded/verified for devDebug only. Keep stgRelease unit tests
+        // enabled for Firebase/release wiring, but do not run screenshot classes there because
+        // Paparazzi looks for variant-specific snapshot resources and fails before comparing UI.
+        exclude("sg/mesha/goatos/ui/*ScreenshotTest*")
     }
 }
