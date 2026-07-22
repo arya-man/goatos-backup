@@ -227,8 +227,9 @@ func TestCalendarVaccineFilterOneToManyMultiPageDateShiftParkScopeStatusBuckets(
 
 func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t *testing.T) {
 	checks := map[string]string{
-		"date lower bound":         "due_at >= $2::timestamptz",
-		"date upper bound":         "due_at < $3::timestamptz",
+		"scheduled date source":    "SELECT due_at AS scheduled_at",
+		"date lower bound":         "scheduled_at >= $2::timestamptz",
+		"date upper bound":         "scheduled_at < $3::timestamptz",
 		"india date shift":         "AT TIME ZONE 'Asia/Kolkata'",
 		"park scope":               "park_id::text = nullif($6::text, '')",
 		"shed scope":               "shed_id::text = nullif($7::text, '')",
@@ -249,7 +250,7 @@ func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t 
 	if strings.Contains(calendarDateMarkersSQL, "LIMIT ") {
 		t.Fatalf("calendar date marker aggregation must not page inside the month; the caller pages event lists only")
 	}
-	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (due_at AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
+	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (scheduled_at AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
 		t.Fatalf("live marker branch must aggregate to one row per shifted date before UNION, got %d groupings", got)
 	}
 	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
