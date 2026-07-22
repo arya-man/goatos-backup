@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -104,18 +105,54 @@ func NewAssistant(cfg Config, d Deps) *Assistant {
 	if sem == nil {
 		sem = NewSemaphore(0)
 	}
+	// Session memory is what lets a follow-up ("and yesterday?", "why is that
+	// one behind?") bind the park/shed the prior turn resolved. A nil MemoryStore
+	// from the wiring (the default in bootstrap) would silently drop that scope
+	// on every follow-up, so default to the bounded in-process store here rather
+	// than leaving conversational context unwired.
+	memory := d.Memory
+	if memory == nil {
+		memory = NewInMemoryMemory(0, 0)
+	}
 	return &Assistant{
 		cfg: cfg.withDefaults(), provider: d.Provider, fallback: d.Fallback,
 		registry: d.Registry, metrics: d.Metrics, moderator: d.Moderator,
-		convo: d.Convo, memory: d.Memory, cache: d.Cache, limiter: d.Limiter,
+		convo: d.Convo, memory: memory, cache: d.Cache, limiter: d.Limiter,
 		budget: d.Budget, audit: d.Audit, critic: d.Critic, telemetry: d.Telemetry,
 		sem: sem, log: log,
 		now: time.Now,
 	}
 }
 
+// progressFn receives coarse pipeline phase labels for progressive streaming.
+// It is nil on the non-streaming path. phase is a stable enum ("planning",
+// "querying", "synthesizing"); label is a coarse, user-safe route tag
+// ("Consulting Cube · operator_vaccination_overdue") — NEVER chain-of-thought,
+// reasoning, or internal step traces.
+type progressFn func(phase, label string)
+
+func (p progressFn) emit(phase, label string) {
+	if p != nil {
+		p(phase, label)
+	}
+}
+
+// askOptions carries streaming-only knobs. The non-streaming Ask passes the zero
+// value; AskStream supplies a progress callback and skips the optional Gemini
+// critic (an extra Vertex round-trip) on the pre-first-frame path — the compose
+// step is grounded-by-construction and the synchronous heuristic reviewer still
+// runs, so groundedness is preserved without blocking the first frame.
+type askOptions struct {
+	progress        progressFn
+	skipModelCritic bool
+}
+
 // Ask is the single entry point: one leadership turn -> one grounded Answer.
-func (a *Assistant) Ask(ctx context.Context, q domain.Question) (ans domain.Answer, err error) {
+func (a *Assistant) Ask(ctx context.Context, q domain.Question) (domain.Answer, error) {
+	return a.ask(ctx, q, askOptions{})
+}
+
+func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions) (ans domain.Answer, err error) {
 	start := a.now()
 	requestID := uuid.NewString()
 
@@ -196,6 +233,10 @@ func (a *Assistant) Ask(ctx context.Context, q domain.Question) (ans domain.Answ
 
 	catalog := a.registry.Catalog(ctx)
 
+	// First meaningful frame: emit "planning" BEFORE the (slow) planner round-trip
+	// so the UI shows progressive status within <1s instead of a frozen blank.
+	opts.progress.emit("planning", "")
+
 	plan, planned, err := a.planWithFallback(ctx, q, mem, catalog)
 	if err != nil {
 		// A cancelled/expired context is the client disconnecting (or the wall
@@ -216,10 +257,29 @@ func (a *Assistant) Ask(ctx context.Context, q domain.Question) (ans domain.Answ
 	// is forced to route=cube regardless of what the planner proposed.
 	a.enforceCubeFirst(ctx, plan.SubQuestions)
 
+	// Leadership "how many do we have" means the LIVING herd. Deterministically
+	// prefer the active-animal census over the all-time total (which includes
+	// exited/dead animals) for a plain headcount/species-split question, unless the
+	// user explicitly asked for the all-time total. Without this, a planner that
+	// picks total_animals answers "goats 975 / sheep 336" (3 dead included) where
+	// leadership means "goats 972 / sheep 336" (active).
+	preferActiveCensus(q.Text, plan.SubQuestions)
+
+	// "Who is overloaded / at capacity" is answered by the operator UTILIZATION
+	// ratio (assigned ÷ daily capacity). A planner that picks only load/capacity
+	// leaves the answer as raw assigned-vs-capacity with no explicit over-capacity
+	// framing. Deterministically guarantee the utilization metric is queried (per
+	// operator) so the composer can state exactly which operators are OVER capacity
+	// and by how much (e.g. "155% of capacity").
+	plan.SubQuestions = ensureUtilizationForOverload(q.Text, plan.SubQuestions)
+
 	mode := domain.ModePlanned
 	if !planned {
 		mode = domain.ModeFallback
 	}
+
+	// "querying <route>" frame when tools run — a coarse route label, not reasoning.
+	opts.progress.emit("querying", queryLabel(plan.SubQuestions))
 
 	se := newStepExecutor(a.cfg.MaxSteps, a.cfg.WallClock)
 	results, traces, truncated := se.run(ctx, q.Actor, plan.SubQuestions, a.registry.Execute)
@@ -239,6 +299,9 @@ func (a *Assistant) Ask(ctx context.Context, q domain.Question) (ans domain.Answ
 		a.telemetry.RecordToolRows(ctx, resolvedTool, totalRows(results))
 	}
 
+	// Optional partial-synthesis frame before the (grounded) compose + review.
+	opts.progress.emit("synthesizing", "")
+
 	var comp composer
 	body, citations, _ := comp.compose(results)
 	for i := range citations {
@@ -246,7 +309,11 @@ func (a *Assistant) Ask(ctx context.Context, q domain.Question) (ans domain.Answ
 	}
 
 	var rvw reviewer
-	if a.cfg.ReviewEnabled {
+	// The optional Gemini critic adds a Vertex round-trip. Keep it on the
+	// non-streaming path, but skip it while streaming (compose is
+	// grounded-by-construction and the deterministic heuristic reviewer below
+	// still runs) so the first answer frame is not blocked on it.
+	if a.cfg.ReviewEnabled && !opts.skipModelCritic {
 		rvw.critic = a.critic
 	}
 	verdict := rvw.review(ctx, body, results, len(plan.SubQuestions))
@@ -255,7 +322,17 @@ func (a *Assistant) Ask(ctx context.Context, q domain.Question) (ans domain.Answ
 			a.telemetry.ReviewCorrection(ctx)
 		}
 		body = a.strictRecompose(results)
-		verdict = rvw.review(ctx, body, results, len(plan.SubQuestions))
+		// The strict recompose is grounded-by-CONSTRUCTION: every line is emitted
+		// verbatim from a Fact (label/scope/value), so the deterministic heuristic
+		// reviewer is authoritative here. Re-running the fuzzy Gemini critic on it is
+		// what turned a legitimately grounded per-operator figure into "couldn't
+		// verify" — the critic flagged incidental non-numeric prose (the draft-metric
+		// disclaimer, a source label) as an "unsupported claim" even though every
+		// NUMBER traced to a fact. Validate the fallback with the heuristic reviewer
+		// only (no model critic) so a grounded answer can never degrade to the
+		// generic refusal.
+		var strictRvw reviewer
+		verdict = strictRvw.review(ctx, body, results, len(plan.SubQuestions))
 		verdict.Downgraded = true
 		if !verdict.Grounded || !verdict.ScopeSafe {
 			body = "I could retrieve the underlying records but couldn't fully verify a figure for this answer. Please refine the question or check the source screens."
@@ -358,6 +435,57 @@ func (a *Assistant) enforceCubeFirst(ctx context.Context, subs []domain.SubQuest
 	}
 }
 
+// preferActiveCensus rewrites a total_animals sub-question to active_animals for
+// a plain headcount/species question. "How many goats vs sheep do we have" is a
+// living-herd question; total_animals includes exited/dead animals and is only
+// intended when the leader explicitly asks for the all-time total. It preserves
+// every other param (group_by species, park filter, …).
+func preferActiveCensus(questionText string, subs []domain.SubQuestion) {
+	low := strings.ToLower(questionText)
+	// Explicit all-time intent keeps total_animals: only then does the leader want
+	// exited/dead animals folded into the census.
+	for _, kw := range []string{"all-time", "all time", "including dead", "including exited", "ever ", "historical total", "total ever"} {
+		if strings.Contains(low, kw) {
+			return
+		}
+	}
+	for i := range subs {
+		if subs[i].ToolName == "total_animals" {
+			subs[i].ToolName = "active_animals"
+		}
+	}
+}
+
+// overloadIntent matches "who is overloaded / at capacity / over capacity /
+// stretched / maxed out" leadership questions.
+// No trailing \b: the stems are matched inside longer words ("overloaded",
+// "over capacity", "overstretched") where a word-boundary after the stem would
+// fail (e.g. "capacit|y").
+var overloadIntent = regexp.MustCompile(`(?i)(overload|over.?capacit|at capacity|over.?stretch|stretch|maxed|too many animals|over.?work)`)
+
+// ensureUtilizationForOverload appends an operator utilization sub-question (per
+// operator) when the question is an overload/capacity question and no
+// utilization sub-question is already planned. This makes the over-capacity
+// framing deterministic regardless of which operator metrics the planner picked.
+func ensureUtilizationForOverload(questionText string, subs []domain.SubQuestion) []domain.SubQuestion {
+	if !overloadIntent.MatchString(questionText) {
+		return subs
+	}
+	for _, s := range subs {
+		if s.ToolName == "operator_vaccination_utilization" {
+			return subs
+		}
+	}
+	return append(subs, domain.SubQuestion{
+		ID:          "util",
+		Text:        "operator utilization by operator",
+		IntentClass: "operator_vaccination_overloaded",
+		Route:       domain.RouteCube,
+		ToolName:    "operator_vaccination_utilization",
+		Params:      map[string]any{"group_by": "operator_label"},
+	})
+}
+
 func (a *Assistant) strictRecompose(results []domain.ToolResult) string {
 	var lines []string
 	for _, r := range results {
@@ -455,6 +583,35 @@ func telemetryStatus(ans domain.Answer, err error) string {
 	default:
 		return "ok"
 	}
+}
+
+// queryLabel builds the coarse, user-safe "querying" progress label from the
+// planned sub-questions: the primary route + tool (e.g. "Consulting Cube ·
+// operator_vaccination_overdue"). It carries NO reasoning or chain-of-thought —
+// only the route/tool tag the citation would already surface.
+func queryLabel(subs []domain.SubQuestion) string {
+	for _, s := range subs {
+		if s.ToolName == "" {
+			continue
+		}
+		verb := "Consulting"
+		src := string(s.Route)
+		switch s.Route {
+		case domain.RouteCube:
+			src = "Cube"
+		case domain.RouteAPI:
+			src = "Mesha read model"
+		case domain.RouteToolbox:
+			src = "Mesha toolbox"
+		case domain.RouteSQL:
+			src = "read-only SQL"
+		}
+		if src == "" {
+			return verb + " Mesha read models"
+		}
+		return verb + " " + src + " · " + s.ToolName
+	}
+	return "Consulting Mesha read models"
 }
 
 // primaryTool is the dominant read route grounding the answer, used as the

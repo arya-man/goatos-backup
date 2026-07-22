@@ -108,6 +108,7 @@ tracked as gaps below.
 | shed_capacity_current | draft | — |
 | vaccination_shed_status | draft | planned_sessions (park-level batches → shed derivation approx) |
 | vaccination_dose_pickup | draft | vaccine_label (needs display-label mapping — gap G2) |
+| vaccination_operator_status | draft | — (operator-grain drive load/capacity/overdue/utilization over `vaccination_drive_assignments`; migration 000026) |
 | feed_direction_current | draft | — (directive only; actuals → gap G7 feed_adherence) |
 | counts_movement_daily | draft | transfers_out (derived from terminal exits — partial) |
 | procurement_pipeline | draft | batch_label (no stored load label — gap) |
@@ -127,6 +128,7 @@ tracked as gaps below.
 | goats, herd_register_summary_projection | animal_current_scope, counts_movement_daily |
 | locations, park_profiles, shed_profiles, location_capacity_records | shed_capacity_current |
 | vaccination_eligibility_rollups, obligation_instances, obligation_batches, vaccination_completions | vaccination_shed_status, vaccination_dose_pickup |
+| vaccination_drive_assignments (operator-based drive model) | vaccination_operator_status (operator load / capacity / overdue / utilization) |
 | obligation_escalations | ops_exception_queue, action_center_current |
 | feed_direction_issues, feed_direction_issue_rows | feed_direction_current, ops_exception_queue |
 | feed_direction_completions | gap G7 (feed_adherence) |

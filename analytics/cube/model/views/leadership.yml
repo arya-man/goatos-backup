@@ -36,6 +36,29 @@ views:
           - shed_label
           - due_business_day
 
+  - name: kpi_vaccination_operator
+    description: >-
+      Operator-grain vaccination drive KPIs (all draft) — assigned load,
+      per-day capacity, overdue, and utilization for the operator-based drive
+      model. Group by operator_label + planned_business_day for capacity /
+      utilization (the ratio is per-operator-per-day).
+    cubes:
+      - join_path: vaccination_operator
+        includes:
+          - operator_assigned_animals
+          - operator_due
+          - operator_done
+          - operator_overdue
+          - operator_capacity
+          - operator_utilization
+          - tenant_id
+          - operator_id
+          - operator_label
+          - park_label
+          - shed_label
+          - next_action
+          - planned_business_day
+
   - name: kpi_feed
     description: Feed KPIs (feed_cost draft/blocked — no price source).
     cubes:

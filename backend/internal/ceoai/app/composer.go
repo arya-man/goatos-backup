@@ -39,7 +39,152 @@ func (composer) compose(results []domain.ToolResult) (body string, citations []d
 			})
 		}
 	}
-	return strings.Join(sections, "\n\n"), citations, groundValues
+	body = strings.Join(sections, "\n\n")
+	// Narrative synthesis: a short grounded lead sentence so a leadership answer
+	// reads as prose ("In short — goat 972, sheep 336.") instead of a raw metric
+	// dump. Every number and scope word in the lead is copied verbatim from a
+	// Fact, so it stays inside the grounding contract the reviewer enforces (no
+	// computed totals, no invented figures).
+	lead := synthesizeOverloadLead(results)
+	if lead == "" {
+		lead = synthesizeLead(results)
+	}
+	if lead != "" {
+		body = lead + "\n\n" + body
+	}
+	return body, citations, groundValues
+}
+
+// operatorUtilizationLabel is the business title of the operator utilization
+// metric (see cubeMetricBindings). Its fact values are rendered as a percent of
+// capacity ("155%"), so a value >= 100% means the operator is OVER capacity.
+const operatorUtilizationLabel = "Operator utilization"
+
+// synthesizeOverloadLead builds the "who is over capacity" lead from the
+// operator-utilization facts. The generic numeric lead only lists ratios; a
+// leader asking "who is overloaded / at capacity" needs the answer to say
+// explicitly WHICH operators are OVER capacity and by how much. It names each
+// operator whose utilization is >= 100% with its percent (grounded verbatim from
+// the fact value, e.g. "155%"), worst-first, and returns "" when there are no
+// utilization facts so the normal lead handles every other question shape.
+func synthesizeOverloadLead(results []domain.ToolResult) string {
+	type util struct {
+		name    string
+		pct     int
+		pctText string
+	}
+	var over []util
+	haveUtil := false
+	for _, r := range results {
+		if r.Err != nil {
+			continue
+		}
+		for _, f := range r.Facts {
+			if strings.TrimSpace(f.Label) != operatorUtilizationLabel {
+				continue
+			}
+			haveUtil = true
+			pctText := strings.TrimSpace(f.Value)
+			n, ok := parseNumber(pctText)
+			if !ok {
+				continue
+			}
+			if int(n) >= 100 {
+				name := strings.TrimSpace(f.Scope)
+				if name == "" {
+					name = strings.TrimSpace(f.Label)
+				}
+				over = append(over, util{name: name, pct: int(n), pctText: pctText})
+			}
+		}
+	}
+	if !haveUtil {
+		return ""
+	}
+	if len(over) == 0 {
+		return "In short — every operator is within capacity (no operator is over 100% utilization)."
+	}
+	sort.Slice(over, func(i, j int) bool { return over[i].pct > over[j].pct })
+	const maxNamed = 6
+	if len(over) > maxNamed {
+		over = over[:maxNamed]
+	}
+	var parts []string
+	for _, u := range over {
+		parts = append(parts, fmt.Sprintf("%s at %s of capacity", u.name, u.pctText))
+	}
+	noun := "operator is over capacity"
+	if len(parts) > 1 {
+		noun = "operators are over capacity"
+	}
+	return "In short — " + strconv.Itoa(len(parts)) + " " + noun + ": " + strings.Join(parts, ", ") + "."
+}
+
+// synthesizeLead builds one grounded lead sentence from the numeric facts. It
+// restates existing values (optionally with their scope) as prose and never
+// introduces a number that is not already a Fact. When several results share the
+// same metric label (the "goats vs sheep" shape, which the planner often emits
+// as two species-FILTERED sub-queries), their scoped figures are merged into a
+// single breakdown so the lead names every group, not just the first.
+func synthesizeLead(results []domain.ToolResult) string {
+	label := ""
+	var parts []string
+	for _, r := range results {
+		if r.Err != nil {
+			continue
+		}
+		l, p := numericLeadParts(r)
+		if len(p) == 0 {
+			continue
+		}
+		if label == "" || label == "the figure is" {
+			label = l
+		} else if l != label && l != "the figure is" {
+			// Different metrics in one answer: keep the lead to the first metric
+			// rather than mixing unlike figures into one misleading sentence.
+			break
+		}
+		parts = append(parts, p...)
+	}
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return "In short — " + label + " " + parts[0] + "."
+	default:
+		const maxParts = 6
+		if len(parts) > maxParts {
+			parts = parts[:maxParts]
+		}
+		return "In short — " + label + " breaks down as " + strings.Join(parts, ", ") + "."
+	}
+}
+
+// numericLeadParts extracts the label and the scoped "scope value" (or bare
+// value) phrases for the numeric facts of a result, in order.
+func numericLeadParts(r domain.ToolResult) (label string, parts []string) {
+	for _, f := range r.Facts {
+		if _, ok := parseNumber(f.Value); !ok {
+			continue
+		}
+		fl := strings.TrimSpace(f.Label)
+		if label == "" {
+			label = fl
+		} else if fl != label {
+			// A differently-labelled numeric fact is a different metric; don't
+			// fold it under this label or the lead would misattribute the figure.
+			continue
+		}
+		if s := strings.TrimSpace(f.Scope); s != "" {
+			parts = append(parts, s+" "+strings.TrimSpace(f.Value))
+		} else {
+			parts = append(parts, strings.TrimSpace(f.Value))
+		}
+	}
+	if label == "" {
+		label = "the figure is"
+	}
+	return label, parts
 }
 
 func renderFacts(r domain.ToolResult) string {

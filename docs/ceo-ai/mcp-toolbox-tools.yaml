@@ -219,6 +219,74 @@ tools:
         default: 10
 
   # ----------------------------------------------------------------------------
+  # 3b. Vaccination OPERATOR status -> ceo_ai.vaccination_operator_status
+  # Operator-based drive model: operator load / capacity / overdue / utilization.
+  # ----------------------------------------------------------------------------
+  mesha_vaccination_operator_status:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Operator-grain vaccination drive load: assigned animals, per-operator-per-day
+      capacity, overdue, utilization, and next action, by operator × park × shed ×
+      planned date. Use for "which operators are behind on vaccination", "who is
+      overloaded / operator capacity", "operator drive assignments today", "how
+      many animals is <operator> assigned". Counts are ANIMAL slots assigned to an
+      operator, not per-goat obligation doses. utilization > 1.0 = overloaded.
+      For the governed KPI the assistant should prefer Cube (kpi_vaccination_operator);
+      use this for the operator × shed breakdown and next action.
+    statement: |
+      SELECT
+        operator_label,
+        park_label,
+        shed_label,
+        planned_date,
+        assigned_animals,
+        due,
+        done,
+        overdue,
+        daily_capacity,
+        operator_day_assigned,
+        utilization,
+        next_action
+      FROM ceo_ai.vaccination_operator_status
+      WHERE tenant_id = $1::uuid
+        AND ($2::date IS NULL OR planned_date = $2)
+        AND ($3::text IS NULL OR operator_label ILIKE '%' || $3 || '%')
+        AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
+        AND ($5::boolean IS NULL OR ($5 = true AND overdue > 0) OR ($5 = false))
+      ORDER BY
+        overdue DESC,
+        utilization DESC NULLS LAST,
+        operator_label,
+        park_label,
+        shed_label
+      LIMIT LEAST($6::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: planned_date
+        type: string
+        description: Optional ISO date; use today (Asia/Kolkata) for "assignments today".
+        required: false
+      - name: operator_label
+        type: string
+        description: Optional operator name or partial name.
+        required: false
+      - name: park_label
+        type: string
+        description: Optional park name or partial park name.
+        required: false
+      - name: overdue_only
+        type: boolean
+        description: When true, only operators with overdue assigned animals ("who is behind").
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum operator rows.
+        default: 10
+
+  # ----------------------------------------------------------------------------
   # 4. Vaccination dose pickup -> ceo_ai.vaccination_dose_pickup
   # ----------------------------------------------------------------------------
   mesha_vaccination_dose_pickup:

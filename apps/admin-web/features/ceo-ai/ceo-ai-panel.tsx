@@ -48,32 +48,134 @@ const CHROME = {
   timedOut: "That took too long to answer. The assistant may be busy — please try again.",
   rateLimited: "You're asking a lot right now — please wait a moment and try again.",
   emptyReason: "No records found for the requested scope.",
+  liveData: "Live data",
+  planning: "Planning your answer…",
+  querying: "Consulting Mesha data…",
+  synthesizing: "Composing the answer…",
 } as const;
+
+// progressStatusLabel maps a coarse backend progress frame to a friendly status
+// line. It leads with the phase copy and, for the querying phase, appends the
+// coarse route label the backend supplied (e.g. "Consulting Cube ·
+// vaccination_overdue"). It never renders reasoning/chain-of-thought — the
+// backend frame carries only phase + a route tag.
+function progressStatusLabel(progress: { phase: string; label?: string }): string {
+  switch (progress.phase) {
+    case "planning":
+      return CHROME.planning;
+    case "querying":
+      return progress.label && progress.label.trim() ? progress.label : CHROME.querying;
+    case "synthesizing":
+      return CHROME.synthesizing;
+    default:
+      return CHROME.querying;
+  }
+}
 
 const PANEL_MARGIN = 14;
 const PANEL_WIDTH = 640;
 
+// modeLabel is the small footer provenance tag. It is CEO-facing, so it never
+// leaks the planner/route internals ("Planned by Gemini via Vertex AI", "Cube",
+// "MCP Toolbox", "read-only SQL") — those stay in the admin trace + audit only.
+// Every healthy grounded answer reads as a neutral "Live data" freshness tag;
+// only the degraded state carries its own message.
 function modeLabel(mode: string | undefined, copy: AssistantCopy): string {
   if (!mode) return copy.modeFallback;
   switch (mode) {
-    case "vertex":
-    case "gemini":
-    case "planned":
-      return "Planned by Gemini via Vertex AI";
-    case "cube":
-      return "Cube governed metric";
-    case "mesha-read-api":
-    case "api":
-      return "Mesha read API";
-    case "toolbox":
-      return "Mesha MCP Toolbox";
-    case "sql":
-      return "Governed read-only SQL";
     case "degraded":
       return CHROME.degraded;
+    case "refused":
+      return copy.modeFallback;
     default:
-      return mode;
+      return CHROME.liveData;
   }
+}
+
+// A raw metric id / plumbing-prefixed surface must never reach the CEO chip. The
+// backend now sends clean business labels, but stored conversations from before
+// that change (and any future adapter that forgets) may still carry
+// "Cube · active_animals" or a snake_case id — defensively strip the plumbing
+// prefix and humanize a residual snake_case token so the chip stays clean.
+const PLUMBING_PREFIX = /^(cube|mesha mcp toolbox|mesha read-only sql fallback|mesha read model|toolbox|sql)\s*·?\s*/i;
+function formatCitationSurface(surface: string | undefined): string {
+  const raw = (surface ?? "").trim();
+  if (!raw) return "Mesha operational data";
+  const stripped = raw.replace(PLUMBING_PREFIX, "").trim();
+  const base = stripped || raw;
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(base)) {
+    return base
+      .split("_")
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  }
+  return base;
+}
+
+// formatSource sanitizes the footer source string for the CEO. The backend now
+// emits clean business labels, but a stored history turn may still carry
+// "Cube · <id>" plumbing joined by " · "; strip the route tokens and humanize any
+// residual snake_case segment so the footer never leaks Cube/Toolbox/SQL/metric
+// ids. Returns "" when nothing business-meaningful survives.
+const PLUMBING_TOKENS = new Set([
+  "cube",
+  "mesha mcp toolbox",
+  "mesha read-only sql fallback",
+  "mesha read model",
+  "toolbox",
+  "sql",
+  "api",
+]);
+function humanizeToken(s: string): string {
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(s)) {
+    return s
+      .split("_")
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  }
+  return s;
+}
+function formatSource(source: string | undefined): string {
+  const raw = (source ?? "").trim();
+  if (!raw) return "";
+  const seen = new Set<string>();
+  const parts = raw
+    .split("·")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s) => !PLUMBING_TOKENS.has(s.toLowerCase())) // drop bare route tokens (old history)
+    .map(humanizeToken)
+    .filter((s) => {
+      const key = s.toLowerCase();
+      if (!s || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return parts.join(" · ");
+}
+
+// formatFreshness turns the raw ISO/microsecond as_of into a friendly short IST
+// phrase — "just now", "N min ago", "as of 3:10 PM" (today), or a short date —
+// so the CEO never sees an ISO timestamp, microseconds, or a +05:30 offset.
+function formatFreshness(asOf: string | undefined): string {
+  const raw = (asOf ?? "").trim();
+  if (!raw) return "";
+  const then = new Date(raw);
+  if (Number.isNaN(then.getTime())) return "";
+  const now = Date.now();
+  const diffMs = now - then.getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMs >= 0 && diffMin < 1) return "just now";
+  if (diffMs >= 0 && diffMin < 60) return `${diffMin} min ago`;
+  const ist = "Asia/Kolkata";
+  const sameDay =
+    new Intl.DateTimeFormat("en-CA", { timeZone: ist, year: "numeric", month: "2-digit", day: "2-digit" }).format(then) ===
+    new Intl.DateTimeFormat("en-CA", { timeZone: ist, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+  if (sameDay) {
+    const t = new Intl.DateTimeFormat("en-US", { timeZone: ist, hour: "numeric", minute: "2-digit", hour12: true }).format(then);
+    return `as of ${t}`;
+  }
+  return new Intl.DateTimeFormat("en-US", { timeZone: ist, month: "short", day: "numeric" }).format(then);
 }
 
 function newId(): string {
@@ -163,7 +265,18 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
           {
             onToken: (text) =>
               setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, text: m.text + text } : m)),
+                prev.map((m) =>
+                  // First token clears the coarse progress status; the answer body takes over.
+                  m.id === assistantId ? { ...m, text: m.text + text, progress: undefined } : m,
+                ),
+              ),
+            onProgress: (progress) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId && !m.text
+                    ? { ...m, progress: progressStatusLabel(progress) }
+                    : m,
+                ),
               ),
             onError: (message, status) => {
               if (status === 429) {
@@ -447,26 +560,36 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                       <CeoAiChart chart={message.chart} />
                     ) : null}
                     {message.state === "streaming" && !message.text ? (
-                      <div className="mzai-skel" aria-label={copy.checking}>
-                        <span />
-                        <span />
-                        <span />
+                      <div className="mzai-progress">
+                        <div className="mzai-skel" aria-label={copy.checking}>
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        {message.progress ? (
+                          <span className="mzai-progress-label" aria-live="polite">
+                            {message.progress}
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
                     {message.role === "assistant" && message.state === "complete" && message.citations?.length ? (
                       <div className="mzai-cites">
-                        {message.citations.map((cite, i) => (
-                          <span key={`${message.id}-c${i}`} className={`mzai-cite tier-${cite.tier ?? "api"}`}>
-                            <b>{cite.surface}</b>
-                            {cite.as_of ? ` · ${cite.as_of}` : ""}
-                          </span>
-                        ))}
+                        {message.citations.map((cite, i) => {
+                          const freshness = formatFreshness(cite.as_of);
+                          return (
+                            <span key={`${message.id}-c${i}`} className={`mzai-cite tier-${cite.tier ?? "api"}`}>
+                              <b>{formatCitationSurface(cite.surface)}</b>
+                              {freshness ? ` · ${freshness}` : ""}
+                            </span>
+                          );
+                        })}
                       </div>
                     ) : null}
                     {message.role === "assistant" && message.state === "complete" && message.id !== "hello" ? (
                       <div className="mzai-foot">
                         <span className={`mzai-mode${message.mode === "degraded" ? " degraded" : ""}`}>
-                          {message.source ? `${message.source} · ` : ""}
+                          {formatSource(message.source) ? `${formatSource(message.source)} · ` : ""}
                           {modeLabel(message.mode, copy)}
                         </span>
                         {message.messageId ? (

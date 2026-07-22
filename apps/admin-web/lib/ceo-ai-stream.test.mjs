@@ -80,6 +80,33 @@ test("assembles backend token frames and resolves the final envelope", async () 
   );
 });
 
+test("progress frames surface via onProgress before tokens and never as tokens", async () => {
+  const sse =
+    ": open\n\n" +
+    'event: progress\ndata: {"type":"progress","phase":"planning"}\n\n' +
+    'event: progress\ndata: {"type":"progress","phase":"querying","label":"Consulting Cube · operator_vaccination_overdue"}\n\n' +
+    'event: token\ndata: {"type":"token","text":"Answer"}\n\n' +
+    'event: final\ndata: {"type":"final","answer":"Answer","source":"s","mode":"planned","request_id":"r"}\n\n';
+  await withFetch(
+    async () => sseResponse(sse),
+    async () => {
+      const tokens = [];
+      const progress = [];
+      await readCeoAiStream(
+        { question: "which operators are behind" },
+        { onToken: (t) => tokens.push(t), onProgress: (p) => progress.push(p) },
+      );
+      // Progress frames are delivered, in order, and NOT as answer tokens.
+      assert.equal(tokens.join(""), "Answer");
+      assert.deepEqual(
+        progress.map((p) => p.phase),
+        ["planning", "querying"],
+      );
+      assert.equal(progress[1].label, "Consulting Cube · operator_vaccination_overdue");
+    },
+  );
+});
+
 test("keepalive and open comments never surface as tokens", async () => {
   const sse =
     ": open\n\n" +

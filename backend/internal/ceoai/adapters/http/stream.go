@@ -73,6 +73,16 @@ type tokenFrame struct {
 	Text string `json:"text"`
 }
 
+// progressFrame is a coarse pre-answer status frame (planning / querying /
+// synthesizing) so the client can render a progressive status line under the
+// streaming placeholder. It carries ONLY a stable phase enum + a coarse route
+// label — never chain-of-thought, reasoning, or step traces.
+type progressFrame struct {
+	Type  string `json:"type"` // always "progress"
+	Phase string `json:"phase"`
+	Label string `json:"label,omitempty"`
+}
+
 // finalFrame is the terminal metadata. The embedded domain.Answer inlines the
 // allowed envelope fields (answer/source/mode/request_id/conversation_id/
 // citations) alongside the `type` discriminator — nothing else.
@@ -298,6 +308,18 @@ func (s *sseWriter) Token(ctx context.Context, token string) error {
 		return err
 	}
 	return s.event("token", tokenFrame{Type: "token", Text: token})
+}
+
+// Progress implements app.ProgressSink by emitting a coarse status frame. It is
+// best-effort: a flush error (client gone) is surfaced so the app can stop.
+func (s *sseWriter) Progress(ctx context.Context, phase, label string) error {
+	if phase == "" {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.event("progress", progressFrame{Type: "progress", Phase: phase, Label: label})
 }
 
 // event writes a named SSE event with a single-line JSON data payload + flush.

@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -98,16 +100,27 @@ var cubeMetricBindings = map[string]metricBinding{
 	"vaccination_overdue":    {"kpi_vaccination", "vaccination_overdue", "due_business_day", domain.MetricDraft, "Vaccinations overdue"},
 	"vaccination_completed":  {"kpi_vaccination", "vaccination_completed", "due_business_day", domain.MetricDraft, "Vaccinations completed"},
 	"vaccination_compliance": {"kpi_vaccination", "vaccination_compliance", "due_business_day", domain.MetricDraft, "Vaccination compliance"},
+	// Operator-grain vaccination drive KPIs (operator-based drive model). These
+	// answer the operator questions the shed-grain metrics above cannot: which
+	// operators are behind, who is overloaded, operator drive load, assigned
+	// animals per operator. Source: kpi_vaccination_operator view over
+	// ceo_ai.vaccination_operator_status (migration 000026).
+	"operator_vaccination_load":        {"kpi_vaccination_operator", "operator_assigned_animals", "planned_business_day", domain.MetricDraft, "Animals assigned to operators"},
+	"operator_vaccination_overdue":     {"kpi_vaccination_operator", "operator_overdue", "planned_business_day", domain.MetricDraft, "Operator vaccination overdue"},
+	"operator_vaccination_capacity":    {"kpi_vaccination_operator", "operator_capacity", "planned_business_day", domain.MetricDraft, "Operator daily capacity"},
+	"operator_vaccination_utilization": {"kpi_vaccination_operator", "operator_utilization", "planned_business_day", domain.MetricDraft, "Operator utilization"},
 }
 
 // cubeDimensionMembers maps a plain dimension/filter key to its view member
 // suffix. park_label/shed_label/species exist on every leadership view.
 var cubeDimensionMembers = map[string]string{
-	"species":    "species",
-	"park_label": "park_label",
-	"shed_label": "shed_label",
-	"park":       "park_label",
-	"shed":       "shed_label",
+	"species":        "species",
+	"park_label":     "park_label",
+	"shed_label":     "shed_label",
+	"park":           "park_label",
+	"shed":           "shed_label",
+	"operator_label": "operator_label",
+	"operator":       "operator_label",
 }
 
 type cubeMetricService struct {
@@ -147,12 +160,25 @@ func (s *cubeMetricService) Metrics(_ context.Context) ([]ports.MetricSpec, erro
 		out = append(out, ports.MetricSpec{
 			Name:       name,
 			Status:     b.status,
-			Dimensions: []string{"species", "park_label", "shed_label"},
+			Dimensions: metricDimensions(b),
 			TimeGrains: grains,
 			Title:      b.title,
 		})
 	}
 	return out, nil
+}
+
+// metricDimensions is the group-by dimension menu a metric advertises to the
+// planner. Operator-grain drive metrics live on kpi_vaccination_operator, whose
+// canonical breakdown axis is the OPERATOR (operator_label), not species — so
+// "which operator is behind / who is overloaded / at capacity" can only be
+// answered per operator when operator_label is an advertised, groupable
+// dimension. Every other governed metric keeps the species/park/shed menu.
+func metricDimensions(b metricBinding) []string {
+	if b.view == "kpi_vaccination_operator" {
+		return []string{"operator_label", "park_label", "shed_label"}
+	}
+	return []string{"species", "park_label", "shed_label"}
 }
 
 func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req ports.MetricQuery) (domain.ToolResult, error) {
@@ -163,11 +189,19 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 	member := b.view + "." + b.measure
 
 	q := cubeclient.Query{Measures: []string{member}}
-	// Dimensions: group-by members (e.g. species split).
+	// Dimensions: group-by members (e.g. species split, operator breakdown).
 	for _, d := range req.Dimensions {
 		if suf, ok := cubeDimensionMembers[strings.ToLower(strings.TrimSpace(d))]; ok {
 			q.Dimensions = append(q.Dimensions, b.view+"."+suf)
 		}
+	}
+	// A grouped metric ("overdue by operator", "overdue by park") is asked so the
+	// answer can NAME and LEAD with the worst contributors. Order the rows by the
+	// measure descending so the composer's grounded lead reads "led by <worst> …"
+	// rather than an arbitrary Cube row order. This never changes any figure — only
+	// the row sequence — so it stays inside the grounding contract.
+	if len(q.Dimensions) > 0 {
+		q.Order = map[string]string{member: "desc"}
 	}
 	// TimeRange: a time-scoped or trend leadership question ("mortality this
 	// month", "vaccinations due this week", "mortality trend by month") MUST
@@ -183,7 +217,24 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 	}
 	// Filters: business (non-tenant) equality filters. Tenant is injected by
 	// Cube queryRewrite from the signed session context, never here.
-	for k, v := range req.Filters {
+	//
+	// filterScope captures the equality filter VALUES (e.g. "goat", "Coimbatore")
+	// so the resulting single-value fact is self-labelled. Root cause it fixes:
+	// "goats vs sheep" is frequently planned as two species-FILTERED sub-queries
+	// (species=goat / species=sheep) rather than one group_by; each returned a
+	// bare "Active animals: 972" with no scope, so the two rows were
+	// indistinguishable and the answer read as an ambiguous raw dump (and the
+	// grounding reviewer could not tell them apart). Threading the filter value
+	// into Fact.Scope labels each figure with the dimension it was filtered on.
+	var filterScopeParts []string
+	// Deterministic filter ordering so the scope label is stable across requests.
+	filterKeys := make([]string, 0, len(req.Filters))
+	for k := range req.Filters {
+		filterKeys = append(filterKeys, k)
+	}
+	sort.Strings(filterKeys)
+	for _, k := range filterKeys {
+		v := req.Filters[k]
 		suf, ok := cubeDimensionMembers[strings.ToLower(strings.TrimSpace(k))]
 		if !ok || strings.TrimSpace(v) == "" {
 			continue
@@ -193,7 +244,9 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 			Operator: "equals",
 			Values:   []string{v},
 		})
+		filterScopeParts = append(filterScopeParts, strings.TrimSpace(v))
 	}
+	filterScope := strings.Join(filterScopeParts, " / ")
 
 	res, err := s.client.Load(ctx, actor.TenantID, q)
 	if err != nil {
@@ -204,13 +257,17 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 		SubQuestionID: "",
 		Route:         domain.RouteCube,
 		ToolName:      req.Metric,
-		Surface:       "Cube · " + req.Metric,
-		MetricStatus:  b.status,
-		AsOf:          time.Now(),
+		// Surface is USER-FACING (it becomes the citation chip + source label). It
+		// must read as a clean business label — never the raw snake_case metric id
+		// or the internal "Cube ·" plumbing tag. The Cube route + raw metric id stay
+		// in the internal step trace / audit (ToolName + Route above), not here.
+		Surface:      b.title,
+		MetricStatus: b.status,
+		AsOf:         time.Now(),
 	}
 	for _, row := range res.Rows {
-		val := scalarString(row[member])
-		scope := cubeRowScope(row, b.view, q.Dimensions)
+		val := formatMetricValue(req.Metric, scalarString(row[member]))
+		scope := joinScope(filterScope, cubeRowScope(row, b.view, q.Dimensions))
 		tr.Facts = append(tr.Facts, domain.Fact{
 			Label: b.title,
 			Value: val,
@@ -218,9 +275,41 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 		})
 	}
 	if len(tr.Facts) == 0 {
-		tr.Facts = append(tr.Facts, domain.Fact{Label: b.title, Value: "0"})
+		tr.Facts = append(tr.Facts, domain.Fact{Label: b.title, Value: "0", Scope: filterScope})
 	}
 	return tr, nil
+}
+
+// formatMetricValue renders a raw Cube measure value as the user-facing figure.
+// Operator utilization comes back as a raw ratio (1.55, 0.40); leadership reads
+// it as a percent of capacity, so it is rendered "155%" / "40%". Rounding to a
+// whole percent also kills the "1.5500000000000000" decimal-noise leak. The
+// percent string keeps the figure groundable: the reviewer's number regex reads
+// 155 from "155%", and the composer frames "over capacity at 155%". Every other
+// metric passes through unchanged.
+func formatMetricValue(metric, raw string) string {
+	if metric != "operator_vaccination_utilization" {
+		return raw
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return raw
+	}
+	return strconv.FormatInt(int64(math.Round(f*100)), 10) + "%"
+}
+
+// joinScope combines the static filter scope (e.g. "goat") with the per-row
+// group-by scope (e.g. "Coimbatore") into one label, skipping empty parts, so a
+// filtered AND grouped query still reads cleanly.
+func joinScope(filterScope, rowScope string) string {
+	switch {
+	case filterScope == "":
+		return rowScope
+	case rowScope == "":
+		return filterScope
+	default:
+		return filterScope + " / " + rowScope
+	}
 }
 
 func cubeRowScope(row map[string]any, view string, dims []string) string {
@@ -282,8 +371,10 @@ func (a *sqlFallbackAdapter) Execute(ctx context.Context, actor domain.Actor, sq
 	tr := domain.ToolResult{
 		Route:    domain.RouteSQL,
 		ToolName: "sql_fallback",
-		Surface:  "Mesha read-only SQL fallback",
-		AsOf:     time.Now(),
+		// User-facing source label: a clean business phrase. The read-only SQL route
+		// stays in the audit (Route above), never in the leadership chip.
+		Surface: "Mesha operational data",
+		AsOf:    time.Now(),
 	}
 	for _, row := range rows {
 		for k, v := range row {
@@ -512,8 +603,11 @@ func (a *toolboxAdapter) Call(ctx context.Context, actor domain.Actor, tool stri
 	tr := domain.ToolResult{
 		Route:    domain.RouteToolbox,
 		ToolName: tool,
-		Surface:  "Mesha MCP Toolbox · " + tool,
-		AsOf:     time.Now(),
+		// User-facing source label: a clean business phrase, not the "MCP Toolbox ·
+		// <raw tool id>" plumbing. The tool id + toolbox route stay in the audit
+		// (ToolName + Route above).
+		Surface: "Mesha operational data",
+		AsOf:    time.Now(),
 	}
 	for _, row := range rows {
 		for k, v := range row {

@@ -33,6 +33,16 @@ func (rv reviewer) review(ctx context.Context, body string, results []domain.Too
 			for _, n := range numberRe.FindAllString(f.Label, -1) {
 				grounded[normalizeNum(n)] = true
 			}
+			// Fact.Scope is a real dimension value copied verbatim from a tool row
+			// (e.g. the operator display_name "Fixture Staff 012", a park label, a
+			// filter value). It is the SAME grounded evidence as Value/Label, and the
+			// composer prints it (as the per-row scope), so any digits inside it
+			// (operator codes, numbered labels) must ground the answer — otherwise a
+			// legitimately grounded per-operator breakdown is falsely flagged as an
+			// ungrounded number and downgraded to the generic "couldn't verify" reply.
+			for _, n := range numberRe.FindAllString(f.Scope, -1) {
+				grounded[normalizeNum(n)] = true
+			}
 		}
 		// NOTE: r.Summary is tool/model prose, NOT hard evidence — its numbers do
 		// NOT ground the answer. Only Fact values/labels are trusted. This is what
@@ -82,5 +92,11 @@ func (rv reviewer) review(ctx context.Context, body string, results []domain.Too
 }
 
 func normalizeNum(s string) string {
-	return strings.ReplaceAll(s, ",", "")
+	// Strip grouping commas and any trailing sentence period. The number regex
+	// greedily captures a trailing "." (e.g. a figure that ends a sentence:
+	// "… 1200."), which would otherwise fail to match the same figure stored
+	// without the period in the grounding set. A trailing dot is never part of a
+	// number, so trimming it keeps genuine decimals ("12.5") intact while making
+	// grounded prose match.
+	return strings.TrimRight(strings.ReplaceAll(s, ",", ""), ".")
 }

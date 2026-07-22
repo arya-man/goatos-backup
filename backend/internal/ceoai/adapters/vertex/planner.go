@@ -110,7 +110,7 @@ func (p *Planner) Critique(ctx context.Context, answer string, facts []domain.Fa
 		}
 	}
 	prompt := fmt.Sprintf(
-		"Facts (the ONLY allowed evidence):\n%s\nDrafted answer:\n%q\n\nReturn strict JSON {\"grounded\":bool,\"reason\":string}. grounded=false if ANY number or claim in the answer is not supported by the facts.",
+		"Facts (the ONLY allowed evidence):\n%s\nDrafted answer:\n%q\n\nReturn strict JSON {\"grounded\":bool,\"reason\":string}. Check that every NUMBER and DATA CLAIM (figure, count, rate, percent, named entity, scope) in the answer traces to a fact. Ignore narrative prose, restatements, draft-metric disclaimers, source labels, and framing words. grounded=false ONLY if a number or data claim is missing from or contradicts the facts.",
 		sb.String(), answer,
 	)
 	raw, err := p.generate(ctx, systemReviewerInstruction, prompt)
