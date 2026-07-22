@@ -196,8 +196,8 @@ func TestRecordCompletionsFromVaccinationSessionTask(t *testing.T) {
 		   'accepted')
 		 RETURNING submission_id::text`, impTenant, taskID, sopVersionID, impParty)
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO sop_submission_items (tenant_id, submission_id, task_id, goat_id, item_key, state)
-		 VALUES ($1, $2, $3, $4, 'dose', 'accepted')`,
+		`INSERT INTO sop_submission_items (tenant_id, submission_id, task_id, goat_id, item_key, state, result)
+		 VALUES ($1, $2, $3, $4, 'dose', 'accepted', '{"administered_at":"2026-06-24T04:35:12.345Z"}'::jsonb)`,
 		impTenant, submissionID, taskID, goatID); err != nil {
 		t.Fatalf("submission item: %v", err)
 	}
@@ -223,13 +223,22 @@ func TestRecordCompletionsFromVaccinationSessionTask(t *testing.T) {
 		t.Fatalf("completion rows = %d, want 1", got)
 	}
 	if got := scanText(t, ctx, pool,
+		`SELECT administered_at AT TIME ZONE 'UTC'
+		   FROM vaccination_completions
+		  WHERE tenant_id=$1
+		    AND sop_submission_item_id IN (
+		      SELECT item_id FROM sop_submission_items WHERE tenant_id=$1 AND submission_id=$2
+		    )`, impTenant, submissionID); !strings.HasPrefix(got, "2026-06-24 04:35:12.345") {
+		t.Fatalf("administered_at = %q, want scan timestamp", got)
+	}
+	if got := scanText(t, ctx, pool,
 		`SELECT COALESCE(withdrawal_until_date::text, '')
 		   FROM vaccination_completions
 		  WHERE tenant_id=$1
 		    AND sop_submission_item_id IN (
 		      SELECT item_id FROM sop_submission_items WHERE tenant_id=$1 AND submission_id=$2
-		    )`, impTenant, submissionID); got != "2026-06-28" {
-		t.Fatalf("withdrawal_until_date = %q, want 2026-06-28", got)
+		    )`, impTenant, submissionID); got != "2026-06-29" {
+		t.Fatalf("withdrawal_until_date = %q, want 2026-06-29", got)
 	}
 }
 

@@ -159,8 +159,9 @@ type RecordScanAttemptCommand struct {
 }
 
 type SubmissionItemInput struct {
-	GoatID  string
-	ItemKey string
+	GoatID         string
+	ItemKey        string
+	AdministeredAt string
 }
 
 type ShedCompletionReadiness struct {

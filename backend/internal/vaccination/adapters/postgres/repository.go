@@ -1531,14 +1531,14 @@ SELECT
   NULL::text,
   false,
   false,
-  ss.submitted_at,
+  COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at),
   'recorded',
   COALESCE(
     (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
     nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
     CASE
       WHEN pr.withdrawal_days IS NOT NULL THEN
-        (ss.submitted_at::date + pr.withdrawal_days)
+        (COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at)::date + pr.withdrawal_days)
       ELSE NULL
     END
   ),
@@ -1756,11 +1756,16 @@ proofed_shed AS (
   SELECT count(*) AS n
   FROM proof_artifacts p
   WHERE p.tenant_id = $1
-    AND p.scope_type = 'task'
-    AND p.scope_id = $2
+    AND p.scope_type = 'shed'
     AND p.subject_type = 'shed'
-    AND (NOT $3::boolean OR p.subject_id = $4)
     AND p.upload_state = 'completed'
+    AND EXISTS (
+      SELECT 1
+      FROM eligible e
+      WHERE e.shed_id = p.scope_id
+        AND (NOT $3::boolean OR e.shed_id = $4)
+    )
+    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
 ),
 verification_pending AS (
   SELECT count(*) AS n

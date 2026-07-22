@@ -59,6 +59,7 @@ interface ScanCaptureRepository {
         tag: String,
         goatId: String? = null,
         obligationId: String? = null,
+        capturedAtMs: Long? = null,
     )
 
     /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
@@ -91,10 +92,11 @@ class DefaultScanCaptureRepository(
         tag: String,
         goatId: String?,
         obligationId: String?,
+        capturedAtMs: Long?,
     ) {
         val trimmed = tag.trim()
         if (trimmed.isEmpty()) return
-        val capturedAtMs = clock()
+        val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
         val inserted = withContext(dispatchers.io) {
             dao.insert(
                 ScannedGoatEntity(
@@ -104,7 +106,7 @@ class DefaultScanCaptureRepository(
                     tag = trimmed,
                     goatId = goatId?.takeIf { it.isNotBlank() },
                     obligationId = obligationId?.takeIf { it.isNotBlank() },
-                    capturedAtMs = capturedAtMs,
+                    capturedAtMs = durableCapturedAtMs,
                     syncStatus = EntitySyncStatus.PENDING.name,
                 ),
             )
@@ -120,7 +122,7 @@ class DefaultScanCaptureRepository(
                 tag = trimmed,
                 goatId = goatId?.takeIf { it.isNotBlank() },
                 obligationId = obligationId?.takeIf { it.isNotBlank() },
-                capturedAtMs = capturedAtMs,
+                capturedAtMs = durableCapturedAtMs,
             ),
         )
     }
@@ -340,7 +342,12 @@ class DefaultProofCaptureRepository(
     }
 
     override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> =
-        dao.observeForTask(taskId).map { rows -> rows.map { it.toRow() } }.flowOn(dispatchers.default)
+        dao.observeForTask(taskId)
+            .map { rows ->
+                reconcileOutboxTerminalState(rows)
+                rows.map { it.toRow() }
+            }
+            .flowOn(dispatchers.io)
 
     override suspend fun capture(
         taskId: String,
@@ -361,10 +368,14 @@ class DefaultProofCaptureRepository(
         if (subject == ProofSubject.GOAT && effectiveSubjectId == null) {
             return@withContext AppResult.Err("Select a scanned goat before recording proof.")
         }
-        // R50-027: the per-subject cap is policy-driven (falls back to the historical hardcoded
-        // MAX_PROOFS_PER_GOAT constant via ProofPolicy.Default when no policy was supplied).
-        // Apply cap to ALL subject types (goat, shed, vial, admin), not just goat.
-        val maxPerSubject = proofPolicy.maximumCountPerSubject
+        // R50-027: caps are policy-driven. Per-goat mode uses the per-subject cap; shed-level
+        // mode uses the SOP's shed total cap (1 required, up to 5 videos) because the whole shed
+        // is the proof subject.
+        val maxPerSubject = if (proofPolicy.isShedLevelVideo && subject == ProofSubject.SHED) {
+            proofPolicy.maximumCount
+        } else {
+            proofPolicy.maximumCountPerSubject
+        }
         val existing = when {
             subject == ProofSubject.GOAT && effectiveSubjectId != null ->
                 dao.activeCountForSubject(taskId, effectiveSubjectId)
@@ -640,6 +651,37 @@ class DefaultProofCaptureRepository(
                     }
                 }
         }
+    }
+
+    /** Reconciles proof rows from durable outbox state when lifecycle churn missed the live
+     *  followOutboxItem() terminal emission. The UI remains Room-first: this only repairs
+     *  proof_capture from the persisted outbox result before readiness is calculated. */
+    private suspend fun reconcileOutboxTerminalState(rows: List<ProofCaptureEntity>) {
+        rows.asSequence()
+            .filter { it.syncStatus != EntitySyncStatus.SYNCED.name }
+            .mapNotNull { row -> row.outboxItemId?.takeIf(String::isNotBlank)?.let { row to it } }
+            .forEach { (row, outboxItemId) ->
+                when (val recovered = syncRepository.findOutboxItem(outboxItemId)) {
+                    is AppResult.Err -> Unit
+                    is AppResult.Ok -> {
+                        val item = recovered.value ?: return@forEach
+                        when {
+                            item.status == SyncItemStatus.SUCCEEDED -> {
+                                val proofId = decodeServerProofId(item.resultJson)
+                                if (proofId.isNullOrBlank()) {
+                                    dao.updateStatus(row.id, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
+                                } else {
+                                    dao.updateStatus(row.id, EntitySyncStatus.SYNCED.name, proofId, null)
+                                }
+                            }
+                            item.status == SyncItemStatus.IN_FLIGHT && row.syncStatus != EntitySyncStatus.IN_FLIGHT.name ->
+                                dao.updateStatus(row.id, EntitySyncStatus.IN_FLIGHT.name, null, null)
+                            item.isDeadLetter || item.conflict ->
+                                dao.updateStatus(row.id, EntitySyncStatus.FAILED.name, null, item.lastError)
+                        }
+                    }
+                }
+            }
     }
 }
 

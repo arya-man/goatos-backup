@@ -102,6 +102,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
+                MIGRATION_15_16,
             )
             .build()
         try {
@@ -311,11 +312,11 @@ class GoatDatabaseUpgradeCrashTest {
         )
         oldDb.close() // closes the file at user_version = 10
 
-        // 2. The app update: same file, current schema (v15), real migration chain. Room detects
+        // 2. The app update: same file, current schema (v16), real migration chain. Room detects
         //    user_version = 10 and runs MIGRATION_10_11 (scan_roster_row restructure), then
         //    MIGRATION_11_12 (shed-completion cache), MIGRATION_12_13 (proof_capture.captureSource),
-        //    MIGRATION_13_14 (scan_roster_row seq + scan_roster_cache drop), then MIGRATION_14_15
-        //    (seven Counts tables).
+        //    MIGRATION_13_14 (scan_roster_row seq + scan_roster_cache drop), MIGRATION_14_15
+        //    (seven Counts tables), then MIGRATION_15_16 (backend scan timestamp cache).
         val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
             .addMigrations(
                 MIGRATION_1_2,
@@ -332,6 +333,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
+                MIGRATION_15_16,
             )
             .build()
         try {

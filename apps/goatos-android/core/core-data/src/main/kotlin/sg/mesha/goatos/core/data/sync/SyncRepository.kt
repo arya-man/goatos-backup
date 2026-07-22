@@ -258,6 +258,11 @@ interface SyncRepository {
     suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
         AppResult.Err("Outbox recovery is not available.")
 
+    /** Finds one outbox row by id, including terminal rows. Used by local feature stores to
+     *  reconcile their Room SSOT after process/activity churn missed a live terminal emission. */
+    suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
+        AppResult.Err("Outbox item lookup is not available.")
+
     /** Forces an immediate drain pass (pull-to-refresh, a manual "sync now", or connectivity
      *  regained). `enqueue*` already triggers this automatically — call this directly only
      *  when nothing new was enqueued but a retry should still happen right away. */
@@ -682,6 +687,16 @@ class DefaultSyncRepository(
     ): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
         try {
             AppResult.Ok(store.findByIdempotencyKey(idempotencyKey)?.toSyncQueueItem())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't recover outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
+        try {
+            AppResult.Ok(store.findById(itemId)?.toSyncQueueItem())
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {

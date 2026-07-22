@@ -42,7 +42,7 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
     }
 
     DisposableEffect(source) {
-        source.bind(
+        val bindToken = source.bind(
             launch = {
                 recorderRequested = true
                 resultChannel.receive()
@@ -52,7 +52,7 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
                 pickerChannel.receive()
             },
         )
-        onDispose { source.unbind() }
+        onDispose { source.unbind(bindToken) }
     }
 
     if (recorderRequested) {

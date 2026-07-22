@@ -819,6 +819,148 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `shed-level SOP proof captures shed subject from camera or gallery and enforces five-video cap`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-proof",
+            sopVersionId = "sop-shed-proof",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-C",
+            title = "Shed C submit",
+            rowVersion = 1,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(
+                    key = "shed_video",
+                    label = "Shed vaccination video",
+                    type = FormFieldType.VIDEO_PROOF,
+                    required = true,
+                    repeat = true,
+                ),
+            ),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            maximumCountPerSubject = 1,
+            captureSource = "in_app_camera",
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy),
+            CapturingSyncRepository(),
+            task.taskId,
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val initialField = viewModel.state.value.formRunner?.fields?.single()
+        assertEquals("Shed vaccination video", initialField?.label)
+        assertTrue("shed-level SOP should expose gallery picker", initialField?.allowGalleryPicker == true)
+        assertEquals("Add at least 1 shed video before submitting.", viewModel.state.value.formRunner?.blockedReason)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://camera.mp4", startedAtMs = 1_000L, endedAtMs = 4_000L, captureSource = "in_app_camera"))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("shed_video"))
+        advanceUntilIdle()
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://gallery.mp4", startedAtMs = 5_000L, endedAtMs = 8_000L, captureSource = "gallery_picker"))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("shed_video", source = "gallery_picker"))
+        advanceUntilIdle()
+
+        assertEquals(2, proofCaptureRepository.captureCalls.size)
+        proofCaptureRepository.captureCalls.forEach { call ->
+            assertEquals(ProofSubject.SHED, call.subject)
+            assertEquals("shed-C", call.subjectId)
+        }
+        assertEquals("file://gallery.mp4", proofCaptureRepository.captureCalls.last().localUri)
+
+        proofCaptureRepository.captureCalls.takeLast(2).forEachIndexed { index, _ ->
+            val localId = viewModel.state.value.formRunner?.fields?.single()?.proofItems?.get(index)?.id
+            proofCaptureRepository.markSynced(localId!!, "server-shed-proof-${index + 1}")
+        }
+        advanceUntilIdle()
+        assertTrue("one synced shed video is enough for required shed proof", viewModel.state.value.canSubmit)
+
+        repeat(3) { index ->
+            proofCaptureSource.queue(CapturedVideo(localUri = "file://extra-$index.mp4", startedAtMs = 10_000L + index, endedAtMs = 11_000L + index))
+            viewModel.onEvent(SubmitEvent.CaptureVideoRequested("shed_video"))
+            advanceUntilIdle()
+        }
+        assertEquals(5, proofCaptureRepository.captureCalls.size)
+        assertFalse("five active shed-level videos hit the SOP cap", viewModel.state.value.formRunner?.fields?.single()?.canCaptureMore == true)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://sixth.mp4", startedAtMs = 20_000L, endedAtMs = 21_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("shed_video"))
+        advanceUntilIdle()
+        assertEquals("sixth shed video must be rejected by SOP cap", 5, proofCaptureRepository.captureCalls.size)
+    }
+
+    @Test
+    fun `backend-ready shed-level proof satisfies submit after local Room proof cache is empty`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-server-proof",
+            sopVersionId = "sop-shed-server-proof",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-D",
+            rowVersion = 1,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(FormField("shed_video", "Shed vaccination video", FormFieldType.VIDEO_PROOF, required = true)),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "shed_level_video",
+            subjectScope = "shed",
+            expectedSubjects = listOf("shed"),
+            minimumCount = 1,
+            maximumCount = 5,
+            allowedCaptureSources = listOf("in_app_camera", "gallery_picker"),
+        )
+        val readySummary = ShedCompletionSummaryDto(
+            taskId = "task-shed-server-proof",
+            shedName = "Shed D",
+            driveName = "Vaccination · July 2026",
+            expectedCount = 6,
+            handledCount = 6,
+            proofReadyCount = 1,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 6)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = readySummary),
+            sync,
+            task.taskId,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val field = viewModel.state.value.formRunner?.fields?.single()
+        assertTrue("backend proofReadyCount should render a server proof item after reinstall", field?.proofCaptured == true)
+        assertEquals("SYNCED", field?.proofItems?.single()?.syncStatus)
+        assertTrue("backend-ready shed proof should satisfy the required video field", viewModel.state.value.canSubmit)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNotNull(sync.lastRequest)
+    }
+
+    @Test
     fun `an approver-only principal with no operator profile is capture-role-blocked`() = runTest(dispatcher) {
         val task = TaskSummaryDto(taskId = "task-role", sopVersionId = "sop-role", scopeId = "shed-4", title = "Role shed", rowVersion = 1)
         val form = FormSpec(
