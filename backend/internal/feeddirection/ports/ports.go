@@ -128,6 +128,16 @@ type ConfigRepository interface {
 	//
 	// It FAILS with ErrScopeTooLarge rather than truncating -- see that error's contract.
 	ListShedScope(ctx context.Context, q ShedScopeQuery) (ShedScope, error)
+
+	// ListSessionTemplates returns ONLY the served park's active feeding-session split (session_no +
+	// label, in display order), effective on asOf. It is the backend-owned session-filter vocabulary.
+	//
+	// This is a DEDICATED bounded read (~2 sessions live), deliberately NOT LoadConfigSnapshot: the
+	// module's read-count invariant is that the full config snapshot is loaded exactly once per
+	// request, by generation. The filter vocabulary is a separate, tiny read on the same footing as
+	// ListParks/ListShedScope, and like them it runs even on the never-issued/beyond-horizon path so
+	// the session picker still renders.
+	ListSessionTemplates(ctx context.Context, tenantID, parkID string, asOf time.Time) ([]domain.SessionTemplate, error)
 }
 
 // ShedCountsReader is the projected-count input, expressed in this module's terms.

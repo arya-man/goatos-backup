@@ -1975,6 +1975,14 @@ export interface components {
             served_park_id: string;
             parks: components["schemas"]["FeedDirectionFilterPark"][];
             sheds: components["schemas"]["FeedDirectionFilterShed"][];
+            /** @description The served park's active feeding-session split (session 1, session 2, …), in display order — the backend-owned vocabulary the client renders its session picker from. The client sends session_no back as the `session` query param. */
+            sessions: components["schemas"]["FeedDirectionFilterSession"][];
+        };
+        FeedDirectionFilterSession: {
+            /** @description The session number sent back as the `session` filter param. */
+            session_no: number;
+            /** @description The authored session label (e.g. Morning / Evening). */
+            label: string;
         };
         FeedDirectionFilterPark: {
             park_id: string;
@@ -6679,6 +6687,8 @@ export interface operations {
                 park_id: string;
                 /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
                 target_date: string;
+                /** @description Narrow to one feeding session number. Absent means every session. Narrowing does NOT rescale: the morning batch stays the morning batch. Same contract as the preview. */
+                session?: number;
                 /** @description Narrow the served issue to one dispatch workflow. Absent unions both. See the preview. */
                 workflow?: "normal" | "experiment";
                 /** @description The only live-compute path; see the preview's `draft`. Absent/false serves the frozen issued worklist (or its pending/never-issued state). */

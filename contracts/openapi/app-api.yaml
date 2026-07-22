@@ -2176,6 +2176,16 @@ paths:
           schema:
             type: string
             format: date
+        - name: session
+          in: query
+          required: false
+          description: >-
+            Narrow to one feeding session number. Absent means every session. Narrowing does NOT
+            rescale: the morning batch stays the morning batch. Same contract as the preview.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 99
         - name: workflow
           in: query
           required: false
@@ -5267,6 +5277,7 @@ components:
         - served_park_id
         - parks
         - sheds
+        - sessions
       properties:
         served_park_id:
           type: string
@@ -5279,6 +5290,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedDirectionFilterShed"
+        sessions:
+          type: array
+          description: >-
+            The served park's active feeding-session split (session 1, session 2, …), in display
+            order — the backend-owned vocabulary the client renders its session picker from. The
+            client sends session_no back as the `session` query param.
+          items:
+            $ref: "#/components/schemas/FeedDirectionFilterSession"
+    FeedDirectionFilterSession:
+      type: object
+      additionalProperties: false
+      required: [session_no, label]
+      properties:
+        session_no:
+          type: integer
+          description: The session number sent back as the `session` filter param.
+        label:
+          type: string
+          description: The authored session label (e.g. Morning / Evening).
     FeedDirectionFilterPark:
       type: object
       additionalProperties: false

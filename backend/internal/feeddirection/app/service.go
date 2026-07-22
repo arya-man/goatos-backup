@@ -153,7 +153,7 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
-	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID)
+	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
@@ -213,7 +213,7 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
-	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID)
+	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
@@ -247,12 +247,22 @@ func (s *Service) resolveParkID(ctx context.Context, tenantID, parkID string) (s
 // bounded reads: the tenant park catalog (order-of two parks) and the served park's active shed
 // catalog (bounded by physical infrastructure, the same read the generation already trusts). The
 // client renders its farm/shed pickers from this and holds no location list of its own.
-func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID string) (domain.FeedFilterOptions, error) {
+func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID string, asOf time.Time) (domain.FeedFilterOptions, error) {
 	parks, err := s.config.ListParks(ctx, tenantID)
 	if err != nil {
 		return domain.FeedFilterOptions{}, err
 	}
 	scope, err := s.config.ListShedScope(ctx, ports.ShedScopeQuery{TenantID: tenantID, ParkID: servedParkID})
+	if err != nil {
+		return domain.FeedFilterOptions{}, err
+	}
+	// The session vocabulary is the served park's authored split, effective on the feed day. It is a
+	// dedicated bounded read (~10 rows), NOT the full config snapshot: the read-count invariant is
+	// that the snapshot is loaded exactly once per request, by generation, never here. The filter
+	// offers exactly the sessions the sheet can contain -- the client holds no session list of its
+	// own (the golden frontend rule). Consistent with the parks/sheds reads above, this runs even on
+	// the beyond-horizon/never-issued path so the picker still renders.
+	sessions, err := s.config.ListSessionTemplates(ctx, tenantID, servedParkID, asOf)
 	if err != nil {
 		return domain.FeedFilterOptions{}, err
 	}
@@ -264,10 +274,15 @@ func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID strin
 	for _, sh := range scope.Items {
 		shedOptions = append(shedOptions, domain.FeedFilterShed{ShedID: sh.ShedID, Label: sh.Label, ParkID: servedParkID})
 	}
+	sessionOptions := make([]domain.FeedFilterSession, 0, len(sessions))
+	for _, sess := range sessions {
+		sessionOptions = append(sessionOptions, domain.FeedFilterSession{SessionNo: sess.SessionNo, Label: sess.Label})
+	}
 	return domain.FeedFilterOptions{
 		ServedParkID: servedParkID,
 		Parks:        parkOptions,
 		Sheds:        shedOptions,
+		Sessions:     sessionOptions,
 	}, nil
 }
 
@@ -277,6 +292,7 @@ func (s *Service) packingDraft(ctx context.Context, normalized domain.PackingQue
 		tenantID:   normalized.TenantID,
 		parkID:     normalized.ParkID,
 		targetDate: normalized.TargetDate,
+		sessionNo:  normalized.SessionNo,
 		limit:      normalized.Limit,
 		offset:     normalized.Offset,
 	})
@@ -521,6 +537,9 @@ func (s *Service) normalizePackingQuery(q domain.PackingQuery) (domain.PackingQu
 		return domain.PackingQuery{}, ports.ErrPastDateRegenerationBlocked
 	}
 
+	if q.SessionNo < 0 {
+		return domain.PackingQuery{}, ports.ErrInvalidPaging
+	}
 	workflow, err := normalizeWorkflowFilter(q.Workflow)
 	if err != nil {
 		return domain.PackingQuery{}, err
