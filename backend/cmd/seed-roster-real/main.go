@@ -214,7 +214,20 @@ func run(args []string) error {
 		return fmt.Errorf("load attendance grid: %w", err)
 	}
 
+	operatorRoster, err := loadOperatorRoster(*sourcePath)
+	if err != nil {
+		return fmt.Errorf("load operator roster: %w", err)
+	}
+
 	members, assignments, st := normalizeAssignments(jun26Members, rosterMappings, weekOffs)
+	contractCenters, err := applyOperatorRosterOverlay(operatorRoster, assignments)
+	if err != nil {
+		return err
+	}
+	if operatorRoster != nil {
+		fmt.Printf("operator-roster overlay applied: park=%s operators=%d\n",
+			operatorRoster.SourceScope.ParkCode, len(operatorRoster.Operators))
+	}
 	leaves, st2 := normalizeLeaveWindows(grid, members, *attendanceYear, *attendanceMonth, loc)
 	st.AttendanceRowsTotal = st2.AttendanceRowsTotal
 	st.AttendanceMatchedNames = st2.AttendanceMatchedNames
@@ -235,7 +248,7 @@ func run(args []string) error {
 		fmt.Printf("WARNING: %d unresolved assignment(s) -- slots seeded with position but null member/grade\n", st.AssignmentsUnresolved)
 	}
 	if *strict {
-		if err := validateStrictRoster(rosterMappings, assignments, st); err != nil {
+		if err := validateStrictRoster(rosterMappings, assignments, st, contractCenters); err != nil {
 			return err
 		}
 	}
@@ -286,7 +299,7 @@ func run(args []string) error {
 	return nil
 }
 
-func validateStrictRoster(mappings []rosterMappingRow, assignments []rosterAssignment, st stats) error {
+func validateStrictRoster(mappings []rosterMappingRow, assignments []rosterAssignment, st stats, contractCenters map[string]bool) error {
 	problems := make([]string, 0)
 	if st.AssignmentsUnresolved != 0 {
 		problems = append(problems, fmt.Sprintf("unresolved assignments=%d", st.AssignmentsUnresolved))
@@ -299,6 +312,12 @@ func validateStrictRoster(mappings []rosterMappingRow, assignments []rosterAssig
 	for _, mapping := range mappings {
 		center := strings.TrimSpace(mapping.center)
 		if center == "" {
+			continue
+		}
+		// A center whose field capacity is declared by the operator-roster
+		// contract seats equal vaccination operators, not the generic
+		// PC-manager/backup/park-head trio, so the trio requirement is waived.
+		if contractCenters[center] {
 			continue
 		}
 		if _, ok := required[center]; !ok {
@@ -522,6 +541,120 @@ func loadRosterWeekOffs(sourcePath string) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// ---- operator-roster contract overlay (CPT operator-drive rehearsal packet) ----
+//
+// The jun-26 timetable model expresses field staff as shared operational seats
+// (Preventive Care Manager, Backup Manager, Park Head). A vaccination
+// operator-drive rehearsal source instead ships an authoritative operator
+// roster contract (`cpt-operator-roster.json`) that declares the field
+// operators as EQUAL vaccination operators with per-person position codes and
+// contract-owned week-offs. When that contract is present in the source dir it
+// is the source of truth for that center's field capacity: it recasts the
+// center's resolved seats into per-person `vaccination_operator_<name>`
+// positions (manager tier, not a backup slot) and supplies the week-off. This
+// removes the park-head/backup labelling the runbook forbids for these seeds
+// without disturbing the members, animals, vaccination history, or the generic
+// jun-26 model used by every other center/source.
+type operatorRosterOperator struct {
+	Code        string `json:"code"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role"`
+	Tier        string `json:"tier"`
+	WeekOff     string `json:"week_off"`
+}
+
+type operatorRosterContract struct {
+	Schema      string `json:"schema"`
+	SourceScope struct {
+		ParkCode string `json:"park_code"`
+	} `json:"source_scope"`
+	Operators []operatorRosterOperator `json:"operators"`
+}
+
+// loadOperatorRoster returns the parsed operator-roster contract when the source
+// dir contains `cpt-operator-roster.json`, or (nil, nil) when it is absent (the
+// normal jun-26 source has no such file).
+func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
+	raw, err := os.ReadFile(sourcePath + "/cpt-operator-roster.json")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read operator roster: %w", err)
+	}
+	var contract operatorRosterContract
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		return nil, fmt.Errorf("parse operator roster: %w", err)
+	}
+	if strings.TrimSpace(contract.SourceScope.ParkCode) == "" {
+		return nil, fmt.Errorf("operator roster missing source_scope.park_code")
+	}
+	if len(contract.Operators) == 0 {
+		return nil, fmt.Errorf("operator roster has no operators")
+	}
+	return &contract, nil
+}
+
+// operatorNameKey is the deterministic join key between a contract operator and
+// a resolved roster seat: the lowercased first token of the person's name,
+// which equals the `vaccination_operator_<name>` code suffix.
+func operatorNameKey(name string) string {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(name)))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+// applyOperatorRosterOverlay recasts the contract park's resolved seats into
+// per-person vaccination-operator positions. It returns the set of centers the
+// contract covers (so strict validation can waive the generic PC/Backup/Park
+// Head requirement for them) and errors if any declared operator could not be
+// matched to a resolved seat (a broken source, never a silent drop).
+func applyOperatorRosterOverlay(contract *operatorRosterContract, assignments []rosterAssignment) (map[string]bool, error) {
+	if contract == nil {
+		return map[string]bool{}, nil
+	}
+	park := strings.TrimSpace(contract.SourceScope.ParkCode)
+	byKey := make(map[string]operatorRosterOperator, len(contract.Operators))
+	for _, op := range contract.Operators {
+		byKey[operatorNameKey(op.DisplayName)] = op
+	}
+	matched := make(map[string]bool, len(byKey))
+	for i := range assignments {
+		a := &assignments[i]
+		if a.center != park || !a.isResolved {
+			continue
+		}
+		op, ok := byKey[operatorNameKey(a.jun26Name)]
+		if !ok {
+			continue
+		}
+		a.position = positionDef{
+			code:         op.Code,
+			tier:         op.Tier,
+			isBackupSlot: false,
+			backupGroup:  "",
+			deptGuess:    "preventive_care",
+		}
+		if wk := normalizeWeekday(op.WeekOff); wk != "" {
+			a.weekOffWeekday = wk
+		}
+		matched[operatorNameKey(a.jun26Name)] = true
+	}
+	var missing []string
+	for key, op := range byKey {
+		if !matched[key] {
+			missing = append(missing, op.Code)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return nil, fmt.Errorf("operator roster contract lists operators with no resolved %s seat: %s", park, strings.Join(missing, ", "))
+	}
+	return map[string]bool{park: true}, nil
 }
 
 // loadAttendanceGrid loads attendance grid keyed by June name.

@@ -25,6 +25,15 @@ export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seed
 // operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
 export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
 export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+// An operator-drive rehearsal source may ship an authoritative operator-roster
+// contract (cpt-operator-roster.json). When present it is the source of truth
+// for that park's field capacity: seed-roster-real recasts the resolved seats
+// into equal per-person vaccination_operator_<name> positions (manager tier,
+// not a backup slot) with contract-owned week-offs, instead of the generic
+// jun-26 PC-manager/backup/park-head trio. The generic timetable model still
+// governs every other center/source that ships no such contract.
+export const OPERATOR_ROSTER_CONTRACT_FILE = "cpt-operator-roster.json";
+export const OPERATOR_ROSTER_OVERLAY_IS_AUTHORITATIVE_FIELD_CAPACITY = true;
 export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
   "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
 export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
