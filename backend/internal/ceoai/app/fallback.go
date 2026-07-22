@@ -79,9 +79,23 @@ func (fa fallbackAlias) toolFor(route domain.Route) string {
 //     (docs/ceo-ai/coverage-matrix.md), so the only real fallback is the MCP
 //     Toolbox mesha_feed_direction_summary tool, which reads the same
 //     ceo_ai.feed_direction_current view the API executor is meant to read.
+//
+// Every RouteAPI intent whose in-process reader is not wired MUST have a
+// Toolbox (or Cube/SQL) alias here, so no leadership question dead-ends. Each
+// mesha_* Toolbox tool reads the same ceo_ai.* view the API executor targets
+// (see docs/ceo-ai/mcp-toolbox-tools.yaml). The route-closure guard + the
+// keywordplanner catalog_consistency_test enforce that this map covers every
+// unwired RouteAPI planner target.
 var fallbackAliases = map[string]fallbackAlias{
-	"counts_breakdown":     {cube: "active_animals", api: "counts_breakdown", toolbox: "mesha_count_by_scope"},
-	"feed_direction_today": {api: "feed_direction_today", toolbox: "mesha_feed_direction_summary"},
+	"counts_breakdown":               {cube: "active_animals", api: "counts_breakdown", toolbox: "mesha_count_by_scope"},
+	"feed_direction_today":           {api: "feed_direction_today", toolbox: "mesha_feed_direction_summary"},
+	"procurement_source_entry_loads": {api: "procurement_source_entry_loads", toolbox: "mesha_procurement_summary"},
+	"admin_roster_coverage":          {api: "admin_roster_coverage", toolbox: "mesha_workforce_coverage"},
+	"verification_queue":             {api: "verification_queue", toolbox: "mesha_verification_queue"},
+	"action_center_obligations":      {api: "action_center_obligations", toolbox: "mesha_action_center"},
+	"operations_kernel_health":       {api: "operations_kernel_health", toolbox: "mesha_ops_exceptions"},
+	"operations_audit_summary":       {api: "operations_audit_summary", toolbox: "mesha_audit_summary"},
+	"admin_location_usage":           {api: "admin_location_usage", toolbox: "mesha_capacity_summary"},
 }
 
 func fallbackAliasFor(toolName string) (fallbackAlias, bool) {

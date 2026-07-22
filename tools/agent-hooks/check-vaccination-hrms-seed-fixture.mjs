@@ -45,17 +45,37 @@ function changedFilesAndDiffs() {
   const files = [...new Set([...trackedChanges, ...untracked])];
   const diffs = new Map();
   for (const file of trackedChanges) {
-    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) continue;
+    // Capture diffs for migrations AND the Makefile so couplingProblems can
+    // decide whether the Makefile change actually touches the seed pipeline
+    // (vs an unrelated edit like registering a new CI guard target).
+    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file) && file !== "Makefile") continue;
     diffs.set(file, execFileSync("git", ["diff", "--unified=0", base, "--", file], { cwd: repo, encoding: "utf8" }));
   }
   return { files, diffs };
 }
 
+// A Makefile edit only couples to the vaccination-seed contract when it actually
+// touches the seed PIPELINE (a seed target's recipe/prereqs) — NOT when it merely
+// adds an unrelated name to the giant `.PHONY:` manifest line (which lists every
+// target, seed ones included) or registers a new CI guard target.
+const SEED_MAKEFILE_TERMS = /seed-vaccination|seed-roster|seed-shed-positions|seed-position-duties|vaccination-hrms|seed-closeout/;
+
+function makefileTouchesSeedPipeline(diff) {
+  return diff
+    .split("\n")
+    .filter((line) => /^\+/.test(line) && !/^\+\+\+/.test(line)) // added lines only
+    .filter((line) => !/^\+\s*\.PHONY\b/.test(line)) // ignore the .PHONY manifest line
+    .some((line) => SEED_MAKEFILE_TERMS.test(line));
+}
+
 export function couplingProblems(files, diffs = new Map()) {
-  const relevant = files.some((file) => CONTRACT_SOURCES.includes(file)) || files.some((file) => {
-    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) return false;
-    return RELEVANT_MIGRATION_TERMS.test(diffs.get(file) ?? "");
-  });
+  const relevant =
+    files.some((file) => file !== "Makefile" && CONTRACT_SOURCES.includes(file)) ||
+    (files.includes("Makefile") && makefileTouchesSeedPipeline(diffs.get("Makefile") ?? "")) ||
+    files.some((file) => {
+      if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) return false;
+      return RELEVANT_MIGRATION_TERMS.test(diffs.get(file) ?? "");
+    });
   if (!relevant) return [];
   return REQUIRED_COMPANIONS
     .filter((file) => !files.includes(file))

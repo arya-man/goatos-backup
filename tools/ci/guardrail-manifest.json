@@ -98,6 +98,17 @@
       "ciStep": "leadership-assistant-coverage-guard"
     },
     {
+      "id": "assistant-route-closure",
+      "script": "tools/agent-hooks/check-assistant-route-closure.mjs",
+      "makeTarget": "assistant-route-closure-guard",
+      "realCheck": "node tools/agent-hooks/check-assistant-route-closure.mjs",
+      "selfTest": "node tools/agent-hooks/check-assistant-route-closure.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-leadership-assistant/SKILL.md",
+      "requiredInCI": true,
+      "ciStep": "assistant-route-closure-guard",
+      "notes": "ROUTE-CLOSURE enforcement: planner tool names resolve in Cube/API/Toolbox/SQL catalog, RouteAPI targets are wired or have fallbacks, and coverage-matrix rows reference valid golden eval questions."
+    },
+    {
       "id": "stg-promotion",
       "script": "tools/ci/check-stg-promotion.mjs",
       "makeTarget": "stg-promotion-guard",
