@@ -10,7 +10,7 @@ import (
 
 func TestCountsBreakdownExecutor_ReturnsGoatsAndSheepWhenWired(t *testing.T) {
 	exec := &countsBreakdownExecutor{
-		countsBySpeciesReader: func(ctx context.Context, tenantID string) ([]domain.Fact, error) {
+		countsBySpeciesReader: func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
 			return []domain.Fact{
 				{Label: "Goats", Value: "972"},
 				{Label: "Sheep", Value: "336"},
@@ -100,7 +100,7 @@ func TestCountsBreakdownExecutor_ReturnsErrorWhenNotWired(t *testing.T) {
 func TestCountsBreakdownExecutor_PropagatReaderError(t *testing.T) {
 	readerErr := errors.New("database connection failed")
 	exec := &countsBreakdownExecutor{
-		countsBySpeciesReader: func(ctx context.Context, tenantID string) ([]domain.Fact, error) {
+		countsBySpeciesReader: func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
 			return nil, readerErr
 		},
 	}
@@ -123,6 +123,44 @@ func TestCountsBreakdownExecutor_PropagatReaderError(t *testing.T) {
 	}
 
 	t.Logf("✓ Reader error correctly propagated: %v", result.Err)
+}
+
+// TestCountsBreakdownExecutor_ThreadsScopeParams proves P1-4: the executor
+// must pass the sub-question's advertised scope params (dimension,
+// park_label, species, shed_id) through to the reader, not just tenantID.
+// Before the fix, Execute called e.countsBySpeciesReader(ctx, actor.TenantID)
+// only — a scoped question like "how many goats in Castro 1" silently lost
+// the park_label/species/dimension filters.
+func TestCountsBreakdownExecutor_ThreadsScopeParams(t *testing.T) {
+	var gotParams map[string]any
+	exec := &countsBreakdownExecutor{
+		countsBySpeciesReader: func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
+			gotParams = params
+			return []domain.Fact{{Label: "Castro 1", Value: "42"}}, nil
+		},
+	}
+
+	wantParams := map[string]any{
+		"dimension":  "breed",
+		"park_label": "Castro 1",
+		"species":    "goat",
+		"as_of":      "2026-07-21",
+	}
+	_, err := exec.Execute(context.Background(), domain.Actor{TenantID: "test-tenant"}, domain.SubQuestion{
+		ToolName: "counts_breakdown",
+		Params:   wantParams,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if gotParams == nil {
+		t.Fatal("reader never received params")
+	}
+	for k, want := range wantParams {
+		if got := gotParams[k]; got != want {
+			t.Errorf("param %q: got %v, want %v", k, got, want)
+		}
+	}
 }
 
 func TestVaccinationShedSummaryExecutor_ReturnsErrorWhenNotWired(t *testing.T) {
@@ -153,7 +191,7 @@ func TestVaccinationShedSummaryExecutor_ReturnsErrorWhenNotWired(t *testing.T) {
 func TestVaccinationExecutionExecutor_PropagatReaderError(t *testing.T) {
 	readerErr := errors.New("vaccination service error")
 	exec := &vaccinationExecutionExecutor{
-		vaccinationDataReader: func(ctx context.Context, tenantID string) ([]domain.Fact, error) {
+		vaccinationDataReader: func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
 			return nil, readerErr
 		},
 	}
@@ -206,7 +244,7 @@ func TestFeedDirectionTodayExecutor_ReturnsErrorWhenNotWired(t *testing.T) {
 func TestFeedDirectionTodayExecutor_PropagateReaderError(t *testing.T) {
 	readerErr := errors.New("feed service error")
 	exec := &feedDirectionTodayExecutor{
-		feedDataReader: func(ctx context.Context, tenantID string) ([]domain.Fact, error) {
+		feedDataReader: func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
 			return nil, readerErr
 		},
 	}
@@ -231,9 +269,36 @@ func TestFeedDirectionTodayExecutor_PropagateReaderError(t *testing.T) {
 	t.Logf("✓ Feed reader error correctly propagated: %v", result.Err)
 }
 
+// TestFeedDirectionTodayExecutor_ThreadsAsOf proves P1-4 for the feed
+// executor specifically: "feed ration today" needs the as_of business date
+// threaded through so a scoped/backdated question ("feed direction as of
+// yesterday") resolves against the right feed_day, not always "today".
+func TestFeedDirectionTodayExecutor_ThreadsAsOf(t *testing.T) {
+	var gotParams map[string]any
+	exec := &feedDirectionTodayExecutor{
+		feedDataReader: func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
+			gotParams = params
+			return []domain.Fact{{Label: "Feed", Value: "310"}}, nil
+		},
+	}
+	_, err := exec.Execute(context.Background(), domain.Actor{TenantID: "test-tenant"}, domain.SubQuestion{
+		ToolName: "feed_direction_today",
+		Params:   map[string]any{"as_of": "2026-07-20", "park_label": "Castro 1"},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if gotParams["as_of"] != "2026-07-20" {
+		t.Errorf("as_of not threaded to reader: got %v", gotParams["as_of"])
+	}
+	if gotParams["park_label"] != "Castro 1" {
+		t.Errorf("park_label not threaded to reader: got %v", gotParams["park_label"])
+	}
+}
+
 func TestWiringFunctions(t *testing.T) {
 	// Test that SetCountsDataReader correctly wires the counts executor.
-	countsReader := func(ctx context.Context, tenantID string) ([]domain.Fact, error) {
+	countsReader := func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
 		return []domain.Fact{{Label: "Test", Value: "123"}}, nil
 	}
 
@@ -247,7 +312,7 @@ func TestWiringFunctions(t *testing.T) {
 	}
 
 	// Test that SetVaccinationDataReader correctly wires vaccination executors.
-	vaccReader := func(ctx context.Context, tenantID string) ([]domain.Fact, error) {
+	vaccReader := func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
 		return []domain.Fact{{Label: "Due", Value: "5"}}, nil
 	}
 
@@ -266,7 +331,7 @@ func TestWiringFunctions(t *testing.T) {
 	}
 
 	// Test that SetFeedDataReader correctly wires the feed executor.
-	feedReader := func(ctx context.Context, tenantID string) ([]domain.Fact, error) {
+	feedReader := func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
 		return []domain.Fact{{Label: "Direction", Value: "Increase"}}, nil
 	}
 

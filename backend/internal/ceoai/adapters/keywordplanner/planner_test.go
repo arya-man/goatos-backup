@@ -112,6 +112,35 @@ func TestOperationalRoutesToAPI(t *testing.T) {
 	}
 }
 
+// TestFeedToolNameMatchesRegisteredExecutor is the P1-1 regression test: the
+// planner's feed tool name must be the EXACT name the readtools executor is
+// registered under (feed_direction_today), or registry.Execute's
+// RouteAPI lookup (r.executors[sub.ToolName]) misses and every feed question
+// dead-ends on "no read-service executor". This asserts the planner side of
+// that contract directly against the string readtools.feedDirectionTodayExecutor
+// advertises via Spec().Name, so a future rename on either side breaks the build.
+func TestFeedToolNameMatchesRegisteredExecutor(t *testing.T) {
+	const registeredFeedExecutorName = "feed_direction_today" // readtools.feedDirectionTodayExecutor.Spec().Name
+
+	for _, q := range []string{
+		"which feed directions are blocked",
+		"feed ration today",
+		"what feed is needed today",
+	} {
+		pl := plan(t, q)
+		if len(pl.SubQuestions) == 0 {
+			t.Fatalf("plan(%q): expected sub-questions, got none", q)
+		}
+		got := pl.SubQuestions[0]
+		if got.Route != domain.RouteAPI {
+			t.Fatalf("plan(%q): route=%q, want api", q, got.Route)
+		}
+		if got.ToolName != registeredFeedExecutorName {
+			t.Fatalf("plan(%q): tool=%q, want %q (must match the registered readtools executor name or the registry lookup dead-ends)", q, got.ToolName, registeredFeedExecutorName)
+		}
+	}
+}
+
 func TestWriteIntentRefused(t *testing.T) {
 	pl := plan(t, "approve the procurement load")
 	if pl.Refusal == "" {

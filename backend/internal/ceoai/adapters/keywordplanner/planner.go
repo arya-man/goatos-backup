@@ -51,7 +51,12 @@ var rules = []rule{
 	{regexp.MustCompile(`(?i)mortality|death`), "counts_movement_daily", "mortality_rate", domain.RouteCube, ""},
 	{regexp.MustCompile(`(?i)vaccinat|shot|dose|due`), "vaccination_due_today", "vaccination_due", domain.RouteCube, ""},
 	{regexp.MustCompile(`(?i)how many[\w\s]{0,25}(goat|sheep|animal)|(goat|sheep)s?\s+(and|vs\.?|versus|or)\s+(goat|sheep)|headcount|census|herd size|total animal|active (goat|sheep|animal)`), "total_animal_census", "active_animals", domain.RouteCube, ""},
-	{regexp.MustCompile(`(?i)feed|ration|packing`), "feed_direction_today", "feed_direction_preview", domain.RouteAPI, ""},
+	// tool MUST match the registered executor's Spec().Name
+	// (readtools.feedDirectionTodayExecutor = "feed_direction_today"). It
+	// previously said "feed_direction_preview", which no executor was ever
+	// registered under, so every feed question hit registry.go's
+	// "no read-service executor" dead end (P1-1).
+	{regexp.MustCompile(`(?i)feed|ration|packing`), "feed_direction_today", "feed_direction_today", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)procure|intake|source.?entry|load`), "procurement_open_loads", "procurement_source_entry_loads", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)coverage|backup|staff|roster|who owns`), "workforce_coverage", "admin_roster_coverage", domain.RouteAPI, ""},
 	{regexp.MustCompile(`(?i)verif|proof`), "verification_queue", "verification_queue", domain.RouteAPI, ""},

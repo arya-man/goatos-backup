@@ -459,10 +459,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	ceoTraceStore := ceoobs.NewPostgresTraceStore(pool, cfg.Postgres.QueryTimeout)
 	ceoVertex := ceoai.NewVertexProvider(ctx, log)
 
-	// Build read tool executors with wired data readers.
-	// Note: counts and vaccination/feed routes are NOT wired here; the planner
-	// routes these intents to Cube (which has the correct active_animal_count and
-	// vaccination_* metrics) or to other tiers, never to unwired API executors.
+	// Build read tool executors. counts_breakdown and feed_direction_today do
+	// NOT have a wired in-process reader here (no direct DB call from this
+	// tier yet); their planner-routed API tool name now matches the executor
+	// registered under it (fixed P1-1: planner and registry.go both agree on
+	// "feed_direction_today"), and when the reader is unwired the executor
+	// reports it via ToolResult.Err instead of silently returning empty. The
+	// orchestrator's runtime fallback (app/fallback.go) retries that same
+	// question through Cube (active_animals) or the MCP Toolbox
+	// (mesha_count_by_scope / mesha_feed_direction_summary) so a question
+	// never dead-ends on an unwired API executor (P1-2, P1-3).
 	readToolExecs := ceoreadtools.NewToolExecutors()
 
 	ceoOpts := ceoai.Options{
