@@ -495,7 +495,7 @@ WITH candidate AS (
    AND pmd.effective_from <= $3::date + interval '1 day'
    AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
    AND pmd.duty_type = 'execute'
-   AND pmd.module_code IN ('preventive_care', 'vaccination')
+   AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
   WHERE wm.tenant_id = $1
     AND wm.status = 'active'
     AND NOT EXISTS (

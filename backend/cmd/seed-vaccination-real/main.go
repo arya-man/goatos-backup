@@ -646,7 +646,7 @@ func writeStageCorrectionAudit(sourcePath string, runDate time.Time, seedRunID s
 
 type seedGoatUpsertRow struct {
 	goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
-	entryDate                                                                                                                                     string
+	entryDate, sourceShedName, partitionLabel                                                                                                     string
 	health                                                                                                                                        *string
 	reproductiveStatus                                                                                                                            *string
 }
@@ -705,7 +705,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 	if err := checkNoCrossParkMoves(ctx, tx, tenantID, rows); err != nil {
 		return err
 	}
-	return batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
+	if err := batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
 		b.Queue(`
 				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
 					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
@@ -718,6 +718,19 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 					custodian_party_id=EXCLUDED.custodian_party_id, reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
 			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
 			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
+	}); err != nil {
+		return err
+	}
+	return batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
+		b.Queue(`
+				INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+				VALUES ($1,$2,$3,$4,$5,now())
+				ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
+					shed_id=EXCLUDED.shed_id,
+					partition_label=EXCLUDED.partition_label,
+					source_shed_name=EXCLUDED.source_shed_name,
+					updated_at=now()`,
+			tenantID, gi.goatID, gi.shedID, gi.partitionLabel, gi.sourceShedName)
 	})
 }
 
@@ -1046,6 +1059,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 		species := deriveSeedSpecies(g.Species, g.Breed)
 		breed := normalizeBreed(g.Breed)
+		_, partitionLabel := normalizeSeedShedPartition(seedShed(g))
 		goatRows = append(goatRows, seedGoatUpsertRow{
 			goatID:            goatID,
 			animalKey:         animalKey,
@@ -1069,12 +1083,17 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			parkID:             parkID,
 			dob:                dobForRow,
 			entryDate:          entryDateValue,
+			sourceShedName:     seedShed(g),
+			partitionLabel:     partitionLabel,
 		})
 	}
 	if err := upsertSeedGoats(ctx, tx, tenantID, goatRows, custodianPartyID); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
 	}
 	if err := verifyActiveGoatsHaveShedInTx(ctx, tx, tenantID); err != nil {
+		return st, err
+	}
+	if err := verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx, tx, tenantID); err != nil {
 		return st, err
 	}
 	st.Animals = len(goatRows)
@@ -1477,6 +1496,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if err := verifyActiveGoatsHaveShed(ctx, pool, tenantID); err != nil {
 		return st, err
 	}
+	if err := verifyActiveGoatsUsePhysicalShedLocations(ctx, pool, tenantID); err != nil {
+		return st, err
+	}
 	if err := verifyVaccinationObligationsShedScoped(ctx, pool, tenantID); err != nil {
 		return st, err
 	}
@@ -1514,6 +1536,7 @@ type seedReconciliation struct {
 	MissingBreedForeignKeys      int64
 	MissingPrimaryIdentifiers    int64
 	MissingAnchorNormalWork      int64
+	MissingAdultETTTDose2        int64
 }
 
 // verifySeedReconciliation is the non-optional seed postflight. A seed command may
@@ -1583,8 +1606,8 @@ SELECT
   (SELECT count(*)
    FROM active
    WHERE status <> 'deferred'
-     AND (due_at AT TIME ZONE 'Asia/Kolkata')::date
-         <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date),
+     AND (COALESCE(window_end, due_at) AT TIME ZONE 'Asia/Kolkata')::date
+         < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date),
   (SELECT count(*)
    FROM goats g
    WHERE g.tenant_id = $1::uuid
@@ -1601,6 +1624,29 @@ SELECT
          AND gi.identifier_type = 'animal_identifier_1'
          AND gi.status = 'active'
          AND NULLIF(btrim(gi.identifier_value), '') IS NOT NULL
+     )),
+  (SELECT count(*)
+   FROM vaccination_completions dose1_vc
+   JOIN obligation_instances dose1_oi
+     ON dose1_oi.tenant_id = dose1_vc.tenant_id
+    AND dose1_oi.obligation_id = dose1_vc.obligation_id
+   JOIN protocol_rules dose1_pr
+     ON dose1_pr.tenant_id = dose1_oi.tenant_id
+    AND dose1_pr.rule_id = dose1_oi.rule_id
+    AND dose1_pr.dose_code = 'et_tt_adult_w1'
+   WHERE dose1_vc.tenant_id = $1::uuid
+     AND dose1_vc.status = 'accepted'
+     AND NOT EXISTS (
+       SELECT 1
+       FROM obligation_instances dose2_oi
+       JOIN protocol_rules dose2_pr
+         ON dose2_pr.tenant_id = dose2_oi.tenant_id
+        AND dose2_pr.rule_id = dose2_oi.rule_id
+        AND dose2_pr.dose_code = 'et_tt_adult_w2'
+       WHERE dose2_oi.tenant_id = dose1_oi.tenant_id
+         AND dose2_oi.target_type = 'goat'
+         AND dose2_oi.target_id = dose1_oi.target_id
+         AND dose2_oi.status NOT IN ('canceled', 'superseded', 'waived')
      ))
 `, tenantID, asOf).Scan(
 		&got.SourceAcceptedHistory,
@@ -1612,6 +1658,7 @@ SELECT
 		&got.SchedulableOpenWorkNotFuture,
 		&got.MissingBreedForeignKeys,
 		&got.MissingPrimaryIdentifiers,
+		&got.MissingAdultETTTDose2,
 	)
 	if err != nil {
 		return fmt.Errorf("vaccination seed reconciliation query: %w", err)
@@ -1633,7 +1680,7 @@ SELECT
 	if err := validateSeedReconciliation(got, int64(st.CompletionsHistory)); err != nil {
 		return fmt.Errorf("vaccination seed reconciliation failed: %w", err)
 	}
-	fmt.Printf("seed_reconciliation accepted_history=%d status_mismatches=0 duplicate_active_rule_targets=0 active_primary_after_history=0 seeded_pending_placeholders=0 repeat_not_future=0 schedulable_not_future=0 missing_breed_fks=0 missing_primary_identifiers=0 missing_anchor_normal_work=0\n", got.SourceAcceptedHistory)
+	fmt.Printf("seed_reconciliation accepted_history=%d status_mismatches=0 duplicate_active_rule_targets=0 active_primary_after_history=0 seeded_pending_placeholders=0 repeat_not_future=0 schedulable_not_future=0 missing_breed_fks=0 missing_primary_identifiers=0 missing_anchor_normal_work=0 missing_adult_ettt_dose2=0\n", got.SourceAcceptedHistory)
 	return nil
 }
 
@@ -1853,7 +1900,7 @@ func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) e
 		problems = append(problems, fmt.Sprintf("repeat obligations not strictly future=%d", got.RepeatObligationsNotFuture))
 	}
 	if got.SchedulableOpenWorkNotFuture != 0 {
-		problems = append(problems, fmt.Sprintf("schedulable open work not strictly future=%d", got.SchedulableOpenWorkNotFuture))
+		problems = append(problems, fmt.Sprintf("schedulable open work past latest safe date=%d", got.SchedulableOpenWorkNotFuture))
 	}
 	if got.MissingBreedForeignKeys != 0 {
 		problems = append(problems, fmt.Sprintf("goats missing species-owned breed foreign key=%d", got.MissingBreedForeignKeys))
@@ -1863,6 +1910,9 @@ func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) e
 	}
 	if got.MissingAnchorNormalWork != 0 {
 		problems = append(problems, fmt.Sprintf("missing trigger anchor goats with normal active work=%d", got.MissingAnchorNormalWork))
+	}
+	if got.MissingAdultETTTDose2 != 0 {
+		problems = append(problems, fmt.Sprintf("adult ET+TT dose 1 completions missing mandatory dose 2 obligations=%d", got.MissingAdultETTTDose2))
 	}
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
@@ -2016,6 +2066,7 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 	// Phase 4 — synthetic goats: delete every referencing child row, then the goats. Each DELETE is
 	// tenant-scoped via junkGoats; tables without a tenant_id column are scoped by goat_id membership.
 	goatChildren := []struct{ label, sql string }{
+		{"goat_shed_partitions", `DELETE FROM goat_shed_partitions WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
 		{"vaccination_completions (goat)", `DELETE FROM vaccination_completions WHERE tenant_id = $1 AND goat_id IN ` + junkGoats},
 		{"obligation_instances (goat target)", `DELETE FROM obligation_instances WHERE tenant_id = $1 AND target_type = 'goat' AND target_id IN ` + junkGoats},
 		{"identity_decision_events", `DELETE FROM identity_decision_events WHERE tenant_id = $1 AND event_id IN (SELECT event_id FROM goat_identity_events WHERE tenant_id = $1 AND goat_id IN ` + junkGoats + `)`},
@@ -2575,6 +2626,72 @@ WHERE g.tenant_id = $1::uuid
   )`
 }
 
+func verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	var offenders int64
+	if err := tx.QueryRow(ctx, activeGoatPhysicalShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify physical shed placement: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
+	}
+	if err := tx.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify shed partition lineage: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
+	}
+	return nil
+}
+
+func verifyActiveGoatsUsePhysicalShedLocations(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
+	var offenders int64
+	if err := pool.QueryRow(ctx, activeGoatPhysicalShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify physical shed placement: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
+	}
+	if err := pool.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify shed partition lineage: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
+	}
+	return nil
+}
+
+func activeGoatPhysicalShedInvariantSQL() string {
+	return `
+SELECT count(*)
+FROM goats g
+JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+  AND g.merged_into_goat_id IS NULL
+  AND shed.location_type = 'shed'
+  AND shed.name ~* ' - Part [0-9]+$'`
+}
+
+func activeGoatPartitionLineageInvariantSQL() string {
+	return `
+SELECT count(*)
+FROM goats g
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+  AND g.merged_into_goat_id IS NULL
+  AND (
+    gsp.goat_id IS NULL
+    OR btrim(gsp.partition_label) = ''
+    OR btrim(gsp.source_shed_name) = ''
+  )`
+}
+
 func verifyVaccinationObligationsShedScopedInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	var offenders int64
 	if err := tx.QueryRow(ctx, vaccinationObligationShedScopeInvariantSQL(), tenantID).Scan(&offenders); err != nil {
@@ -2778,7 +2895,7 @@ func distinctShedKeys(goats []goatRecord) []shedKey {
 }
 
 func seedPlacementKey(g goatRecord) shedKey {
-	return shedKey{farm: seedFarm(g), shed: seedShed(g)}
+	return shedKey{farm: seedFarm(g), shed: seedPhysicalShed(g)}
 }
 
 func seedFarm(g goatRecord) string {
@@ -2795,6 +2912,53 @@ func seedShed(g goatRecord) string {
 		return seedFallbackShed
 	}
 	return shed
+}
+
+func seedPhysicalShed(g goatRecord) string {
+	physical, _ := normalizeSeedShedPartition(seedShed(g))
+	if strings.TrimSpace(physical) == "" {
+		return seedFallbackShed
+	}
+	return physical
+}
+
+func normalizeSeedShedPartition(raw string) (physicalShed, partition string) {
+	name := strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+	if name == "" {
+		return "", "whole"
+	}
+	if physical, part, ok := splitSeedPartSuffix(name); ok {
+		return physical, part
+	}
+	parts := strings.Fields(name)
+	if len(parts) >= 2 {
+		last := parts[len(parts)-1]
+		if _, err := strconv.Atoi(last); err == nil {
+			physical := strings.TrimSpace(strings.Join(parts[:len(parts)-1], " "))
+			if physical != "" {
+				return physical, last
+			}
+		}
+	}
+	return name, "whole"
+}
+
+func splitSeedPartSuffix(name string) (string, string, bool) {
+	lower := strings.ToLower(name)
+	marker := " - part "
+	idx := strings.LastIndex(lower, marker)
+	if idx < 0 {
+		return "", "", false
+	}
+	physical := strings.TrimSpace(name[:idx])
+	partition := strings.TrimSpace(name[idx+len(marker):])
+	if physical == "" || partition == "" {
+		return "", "", false
+	}
+	if _, err := strconv.Atoi(partition); err != nil {
+		return "", "", false
+	}
+	return physical, "Part " + partition, true
 }
 
 func seedLocationCode(name string) string {

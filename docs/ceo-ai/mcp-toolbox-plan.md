@@ -509,6 +509,18 @@ slot even if the animal receives multiple vaccines in the same visit, and an
 over-cap latest-safe day means the operator cap was exceeded intentionally to
 finish required vaccination work.
 
+### Coverage update: vaccination shed partitions
+
+Vaccination shed names from seed data can encode partitions: `Gandhi 1` means
+physical shed `Gandhi`, partition `1`; `Godel 1 - Part 3` means physical shed
+`Godel 1`, partition `Part 3`. The seed now preserves that lineage in
+`goat_shed_partitions` while `goats.shed_id` points only to the physical shed.
+Leadership assistant read APIs, MCP Toolbox SQL fallback, and any future
+`ceo_ai.*` view must group vaccination drive answers by physical shed first and
+partition second. Do not count `goat_shed_partitions` as extra animals, do not
+split physical shed names ending in a number, and do not flatten partitioned
+sheds to `whole` when explaining operator assignments.
+
 ## References
 
 - MCP Toolbox source config supports environment-variable replacement for

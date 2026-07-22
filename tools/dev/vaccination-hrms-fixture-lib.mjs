@@ -23,6 +23,10 @@ export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seed
 // operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
 export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
 export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
+  "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
+export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
+  "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
 
 export const VACCINE_COLUMNS = SEED_SOURCE_POLICY.source_columns.map((column) => ({
   index: column.index,

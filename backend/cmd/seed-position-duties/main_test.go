@@ -17,8 +17,8 @@ func TestSeedFixtureVaccinationOwnerPositionsMapToVaccinationDuties(t *testing.T
 		if duty.moduleCode != "pc.vaccination" {
 			t.Fatalf("%s module=%s, want pc.vaccination", duty.positionCode, duty.moduleCode)
 		}
-		if duty.dutyType != "manage" {
-			t.Fatalf("%s duty=%s, want manage", duty.positionCode, duty.dutyType)
+		if duty.dutyType != "execute" {
+			t.Fatalf("%s duty=%s, want execute", duty.positionCode, duty.dutyType)
 		}
 		if duty.capability != vaccinationExecuteCapability {
 			t.Fatalf("%s capability=%s, want %s", duty.positionCode, duty.capability, vaccinationExecuteCapability)

@@ -78,6 +78,11 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 > Do not read the adult sheet's `ET+TT Booster` column as kid-only, optional, or
 > as the 182-day revaccination. The 182-day ET+TT repeat starts only after dose
 > 2/course completion.
+>
+> **Post-seed invariant:** if the DB contains accepted `et_tt_adult_w1`
+> completions but zero matching same-goat `et_tt_adult_w2` obligations or
+> completions, the seed/generation output is invalid. Reporting only later
+> generated drive rows while adult dose 2 is missing is a blocker.
 
 | Question | Source answer | V1 implication |
 |---|---|---|

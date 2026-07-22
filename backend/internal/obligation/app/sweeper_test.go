@@ -63,9 +63,9 @@ func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T)
 		PlannedDate: &planned,
 		ConductedBy: &operatorID,
 	}, []domain.UnbatchedDue{
-		{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi 1", TargetID: "goat-1"},
-		{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi 1", TargetID: "goat-2"},
-		{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-1", ShedName: "Gandhi 2", TargetID: "goat-3"},
+		{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-1"},
+		{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-2"},
+		{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-1", ShedName: "Gandhi - Part 2", TargetID: "goat-3"},
 		{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-3", ParkID: "park-1", ShedName: "Old Yashoda", TargetID: "goat-4"},
 	})
 	if len(assignments) != 3 {
@@ -76,8 +76,8 @@ func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T)
 		got[assignment.PhysicalShed+"|"+assignment.PartitionLabel] = assignment.AnimalCount
 	}
 	want := map[string]int32{
-		"Gandhi|1":          2,
-		"Gandhi|2":          1,
+		"Gandhi|Part 1":     2,
+		"Gandhi|Part 2":     1,
 		"Old Yashoda|whole": 1,
 	}
 	for key, count := range want {
@@ -99,8 +99,8 @@ func TestDriveAssignmentsForParkConsolidationPersistPartSuffixPartitions(t *test
 	if len(assignments) != 1 {
 		t.Fatalf("assignments = %d, want 1: %#v", len(assignments), assignments)
 	}
-	if assignments[0].PhysicalShed != "Godel 1" || assignments[0].PartitionLabel != "4" || assignments[0].AnimalCount != 1 {
-		t.Fatalf("assignment = %#v, want Godel 1 part 4 with one distinct animal", assignments[0])
+	if assignments[0].PhysicalShed != "Godel 1" || assignments[0].PartitionLabel != "Part 4" || assignments[0].AnimalCount != 1 {
+		t.Fatalf("assignment = %#v, want Godel 1 Part 4 with one distinct animal", assignments[0])
 	}
 }
 

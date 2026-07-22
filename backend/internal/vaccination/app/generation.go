@@ -94,7 +94,6 @@ type GenerationRunRecorder interface {
 	HeartbeatGenerationRun(ctx context.Context, tenantID, runID string) error
 }
 
-
 // CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
 // a matching post-arrival obligation. Only trusted evidence may suppress due work.
 type CompletionEvidenceReader interface {
@@ -304,7 +303,6 @@ func (s *GenerationService) requireEvidenceReader() error {
 	}
 	return nil
 }
-
 
 type genEligibility struct {
 	AnimalStage               genStringList `json:"animal_stage"`
@@ -1322,7 +1320,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// two co-due live vaccines (e.g., PPR and Goat Pox both due today) are spaced LiveToLiveGapDays
 		// apart, not left same-day because neither is in the other's history yet.
 		due = applyCrossVaccineGapFloorFromPending(due, ruleVaccine, pending, policies.Compatibility)
-		if skipNonFutureOpenWork(due, asOf, policies.MissedDose) {
+		if skipNonFutureOpenWork(rule, due, asOf, policies.MissedDose) {
 			continue
 		}
 		if limitsHistoricalCatchUp(rule, baseDue, due, asOf, opts) {
@@ -1818,8 +1816,11 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time, nearbyDri
 	}
 }
 
-func skipNonFutureOpenWork(due, asOf time.Time, policy genMissedDosePolicy) bool {
+func skipNonFutureOpenWork(rule protodomain.Rule, due, asOf time.Time, policy genMissedDosePolicy) bool {
 	if !policy.MaterializeOnlyFutureOpenWork {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(rule.Repeat), "none") || strings.TrimSpace(rule.Repeat) == "" {
 		return false
 	}
 	return !businessDayStart(due).After(businessDayStart(asOf))

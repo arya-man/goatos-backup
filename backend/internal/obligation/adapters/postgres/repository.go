@@ -1784,7 +1784,12 @@ WITH candidates AS (
          oi.scope_type AS scope_type,
          oi.scope_id AS scope_id_key,
          COALESCE(g.park_id::text, '')::text AS park_id,
-         COALESCE(shed.name, '')::text AS shed_name,
+         CASE
+           WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+           WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+           WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+           ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+         END::text AS shed_name,
          oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
@@ -1804,6 +1809,10 @@ WITH candidates AS (
     ON shed.tenant_id = oi.tenant_id
    AND shed.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
    AND shed.location_type = 'shed'
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = shed.location_id
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = g.tenant_id AND loa.location_id = g.current_location_id
   LEFT JOIN shed_profiles sp
@@ -2046,7 +2055,12 @@ WITH candidates AS (
 SELECT o.obligation_id::text,
        o.rule_id::text,
        COALESCE(o.scope_id::text, '')::text AS shed_id,
-       COALESCE(shed.name, '')::text AS shed_name,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
        COALESCE(o.target_id::text, '')::text AS target_id,
        o.due_at,
        o.window_start,
@@ -2082,6 +2096,10 @@ LEFT JOIN goats g
   ON g.tenant_id = o.tenant_id
  AND g.goat_id = o.target_id
  AND o.target_type = 'goat'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = shed.location_id
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = g.current_location_id
