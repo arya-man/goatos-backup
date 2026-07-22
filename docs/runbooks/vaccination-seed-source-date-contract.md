@@ -88,6 +88,17 @@ active sheds that contain live goats from the selected source. Empty baseline
 catalog sheds created by migrations are not vaccination drive truth and must not
 force unrelated owners/operators into the run.
 
+The committed CPT operator-drive rehearsal packet lives at
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/`. Its source start date is
+`2026-07-23`; any fresh local/dev/staging rehearsal seed from that packet must
+generate open drive work only on `2026-07-23` or later. The packet includes
+`cpt-operator-roster.json`, which explicitly seeds Amit Kumar, Darshan Talwar,
+and Sagar Mahoor as equal vaccination operators at `200` unique animals per
+operator per day, plus Chandrakant as director-only monitoring scope. It also
+reuses the founder/CXO `ceo_internal` grant cohort documented in
+`docs/runbooks/auth.md`: `ravi@mesha.sg`, `manohark@mesha.sg`,
+`manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
 into an explicit seed-intake park/shed instead of leaving a live animal without a

@@ -66,6 +66,43 @@ Adult ET+TT dose 2 is a post-seed hard gate. Accepted `et_tt_adult_w1` history
 without a same-goat `et_tt_adult_w2` obligation or completion is an invalid
 seed/generation output, even if later unrelated drive rows exist.
 
+## CPT Operator-Drive Rehearsal Packet
+
+The reviewed CPT-only rehearsal packet is committed at:
+
+```text
+fixtures/vaccination-cpt-operator-drive-2026-07-23/
+```
+
+It contains the exact supplied source files:
+
+- `raw/CPT-Adult-goats.json`
+- `raw/CPT-Adult-vaccination.json`
+- `raw/CPT_Nuanced Timetable.xlsx`
+- `cpt-operator-roster.json`
+
+For this packet, the seed/reseed business date is `2026-07-23`. Open
+vaccination drive work must start on `2026-07-23` or later; `2026-07-22` and
+older source dates are history anchors only. The source scope is CPT /
+Channapatna only. Do not synthesize CBE/Coimbatore operators, owners, sheds, or
+park menu rows from the full fixture while seeding this packet.
+
+The roster file is the source of truth for the rehearsal's field capacity:
+Amit Kumar, Darshan Talwar, and Sagar Mahoor are all equal vaccination
+operators with `200` unique animals/day/operator. Their week-offs are Amit =
+Friday, Darshan = Sunday, and Sagar = Saturday. Chandrakant is a Preventive
+Care Director and contributes no field capacity unless explicitly assigned as
+an operator.
+
+The five founder/CXO accounts remain tenant-scoped `ceo_internal` grants:
+`ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`,
+`abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+
+The `Adult` filename is not permission to bypass generic vaccination rules.
+Kids, adults, boosters, combo spacing, sick/ICU/pregnancy/terminal exclusions,
+safe start/end dates, and the `+1 week` buffer must all come from the backend
+vaccination rule engine after seed.
+
 ## Commands
 
 Normalize spreadsheet tabs into the six canonical files, then run:

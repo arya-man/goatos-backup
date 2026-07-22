@@ -1,0 +1,106 @@
+{
+  "schema": "goatos.cpt_operator_drive_roster.v1",
+  "business_date": "2026-07-23",
+  "source_scope": {
+    "tenant": "Mesha / Goat OS",
+    "park_code": "CPT",
+    "park_name": "Channapatna",
+    "centers_allowed": ["CPT"],
+    "centers_forbidden": ["CBE", "Coimbatore"],
+    "notes": [
+      "This is the CPT-only operator-drive rehearsal source packet.",
+      "Do not synthesize CBE/Coimbatore rows, owners, operators, or sheds from the full fixture."
+    ]
+  },
+  "operator_capacity": {
+    "unit": "unique_animals_per_operator_per_business_date",
+    "default_animals_per_day": 200,
+    "dose_count_is_not_capacity": true
+  },
+  "operators": [
+    {
+      "code": "vaccination_operator_amit",
+      "display_name": "Amit Kumar",
+      "email_hint": "amit797069@gmail.com",
+      "role": "vaccination_operator",
+      "tier": "manager",
+      "can_execute_vaccination": true,
+      "park_scope": ["CPT"],
+      "week_off": "friday",
+      "animal_cap_per_day": 200
+    },
+    {
+      "code": "vaccination_operator_darshan",
+      "display_name": "Darshan Talwar",
+      "email_hint": "darshantalawar033@gmail.com",
+      "role": "vaccination_operator",
+      "tier": "manager",
+      "can_execute_vaccination": true,
+      "park_scope": ["CPT"],
+      "week_off": "sunday",
+      "animal_cap_per_day": 200
+    },
+    {
+      "code": "vaccination_operator_sagar",
+      "display_name": "Sagar Mahoor",
+      "email_hint": "sagarmahoor143@gmail.com",
+      "role": "vaccination_operator",
+      "tier": "manager",
+      "can_execute_vaccination": true,
+      "park_scope": ["CPT"],
+      "week_off": "saturday",
+      "animal_cap_per_day": 200
+    }
+  ],
+  "directors": [
+    {
+      "code": "preventive_care_director_chandrakant",
+      "display_name": "Chandrakant",
+      "role": "preventive_care_director",
+      "can_execute_vaccination": false,
+      "park_scope": ["CPT", "CBE"],
+      "timetable_required": false,
+      "notes": [
+        "Director monitors across parks and does not add field capacity unless explicitly assigned as an execution operator."
+      ]
+    }
+  ],
+  "leadership_full_access": {
+    "grant_role": "ceo_internal",
+    "scope_type": "tenant",
+    "workforce_hint": "cxo",
+    "emails": [
+      "ravi@mesha.sg",
+      "manohark@mesha.sg",
+      "manju@mesha.sg",
+      "abhishek@mesha.sg",
+      "aryaman@mesha.sg"
+    ]
+  },
+  "weekly_capacity_examples": [
+    {
+      "weekday": "thursday",
+      "date": "2026-07-23",
+      "available_operators": ["Amit Kumar", "Darshan Talwar", "Sagar Mahoor"],
+      "total_capacity_animals": 600
+    },
+    {
+      "weekday": "friday",
+      "available_operators": ["Darshan Talwar", "Sagar Mahoor"],
+      "operator_off": ["Amit Kumar"],
+      "total_capacity_animals": 400
+    },
+    {
+      "weekday": "saturday",
+      "available_operators": ["Amit Kumar", "Darshan Talwar"],
+      "operator_off": ["Sagar Mahoor"],
+      "total_capacity_animals": 400
+    },
+    {
+      "weekday": "sunday",
+      "available_operators": ["Amit Kumar", "Sagar Mahoor"],
+      "operator_off": ["Darshan Talwar"],
+      "total_capacity_animals": 400
+    }
+  ]
+}
