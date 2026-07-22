@@ -106,6 +106,10 @@ Permanent scale and guard-authoring rules:
 - Vaccination seed/config changes must keep the committed fixture contract in
   sync. Matrix schedule rows require `route_site=subcutaneous` as protocol
   metadata only; do not add route/site back to vaccination SOP/operator forms.
+- ET+TT adult booster is mandatory schedule work: adult ET+TT dose 2 is due 21
+  days after adult ET+TT dose 1. Do not treat `ET+TT Booster` as kid-only,
+  optional, or as the 182-day repeat; the repeat starts only after ET+TT dose 2
+  / course completion.
 - The local vaccination trigger fixture has one reviewed synthetic primary RFID
   (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
   with the source fixture validator/runbooks when changed.

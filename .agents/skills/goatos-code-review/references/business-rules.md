@@ -41,6 +41,13 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   the code reads the gap from config, not a hardcoded literal that can silently
   diverge from the doc. "Two live same day" is NOT a shortcut for the live→live
   gap — verify the gap is still enforced.
+- **ET+TT adult booster is mandatory schedule work:** ET+TT is a two-dose course
+  for adults too. Adult dose 2 / booster is due 21 days after adult dose 1 and
+  must be counted in drive planning as eligible work when its window opens. Do
+  not classify `ET+TT Booster` as kid-only, optional, or the 182-day repeat.
+  Review seed/import/schedule changes against the matrix rows
+  `et_tt_adult_w1` and `et_tt_adult_w2`; the 182-day repeat starts only after
+  dose 2/course completion.
 - **Per-animal shot cap per drive/visit + explicit allowed same-drive combos.**
   The combo list here is non-exhaustive; the allowed set is whatever the active
   doc + `drive_planner_config.go` define. Never approve/reject a combo from this
