@@ -12019,6 +12019,8 @@ components:
       additionalProperties: false
       required:
         - plannedDate
+        - originalPlannedDate
+        - vaccineOriginalDates
         - operatorId
         - operatorName
         - parkId
@@ -12038,6 +12040,16 @@ components:
         plannedDate:
           type: string
           format: date
+        originalPlannedDate:
+          type: string
+          format: date
+          description: Persisted source drive date before any vaccine-level date override is applied.
+        vaccineOriginalDates:
+          type: object
+          additionalProperties:
+            type: string
+            format: date
+          description: Original drive date keyed by vaccine code, used when a mixed-vaccine operator row is moved one vaccine at a time.
         operatorId:
           type: string
           format: uuid

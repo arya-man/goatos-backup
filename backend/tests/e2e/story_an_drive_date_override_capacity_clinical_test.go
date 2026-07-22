@@ -159,6 +159,32 @@ WHERE tenant_id=$1 AND protocol_version_id IN ($2::uuid, $3::uuid)`, fxTenant, v
 	story.Assert("operator cap of one animal per operator is preserved at assignment row grain",
 		maxAssignmentAnimalsAN(fx, override, ruleByDose["ppr"]) <= 1,
 		"max_assignment_animals=%d", maxAssignmentAnimalsAN(fx, override, ruleByDose["ppr"]))
+
+	story.Step("Admin moves the already-overridden PPR drive back to Jul 23",
+		"The second move must use the original Jul 22 drive identity, restore rows from the current Aug 5 "+
+			"override date, and re-split them onto Jul 23. This is the exact CEO/CXO correction path from "+
+			"the UI after a vaccine has already been pushed out.")
+	backToToday := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	if _, err := fx.Obl.UpsertVaccinationDriveDateOverride(fx.Ctx, obldomain.VaccineDriveDateOverride{
+		TenantID:          fxTenant,
+		ParkID:            fxPark,
+		VaccineCode:       "PPR",
+		OriginalDriveDate: original,
+		OverrideDate:      backToToday,
+		Reason:            "CEO moved PPR back in E2E",
+		CreatedBy:         fxParty,
+	}); err != nil {
+		t.Fatalf("upsert second drive date override: %v", err)
+	}
+	story.Assert("PPR has no assignment membership left on the old Aug 5 override date after second move",
+		assignmentAnimalsAN(fx, override, ruleByDose["ppr"]) == 0,
+		"assignment_animals=%d", assignmentAnimalsAN(fx, override, ruleByDose["ppr"]))
+	story.Assert("PPR assignment membership moved back to Jul 23 for exactly three eligible goats",
+		assignmentAnimalsAN(fx, backToToday, ruleByDose["ppr"]) == 3,
+		"assignment_animals=%d", assignmentAnimalsAN(fx, backToToday, ruleByDose["ppr"]))
+	story.Assert("operator cap of one animal per operator is still preserved after the second move",
+		maxAssignmentAnimalsAN(fx, backToToday, ruleByDose["ppr"]) <= 1,
+		"max_assignment_animals=%d", maxAssignmentAnimalsAN(fx, backToToday, ruleByDose["ppr"]))
 }
 
 func seedVaccinationOperatorsAN(fx *Fixture, opA, opB, opC string) {

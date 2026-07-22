@@ -353,12 +353,15 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 	for rows.Next() {
 		var row domain.DriveAssignmentRow
 		var planned pgtype.Date
+		var originalPlanned pgtype.Date
 		var shedID pgtype.Text
 		var vaccineKeys []string
 		var vaccineCodes []string
+		var vaccineOriginalDates []byte
 		var capacity string
 		if err := rows.Scan(
 			&planned,
+			&originalPlanned,
 			&row.OperatorID,
 			&row.OperatorName,
 			&row.ParkID,
@@ -373,6 +376,7 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 			&row.OverdueAnimals,
 			&vaccineKeys,
 			&vaccineCodes,
+			&vaccineOriginalDates,
 			&row.TotalDoses,
 			&capacity,
 		); err != nil {
@@ -381,12 +385,23 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 		if planned.Valid {
 			row.PlannedDate = planned.Time.Format("2006-01-02")
 		}
+		if originalPlanned.Valid {
+			row.OriginalPlannedDate = originalPlanned.Time.Format("2006-01-02")
+		}
 		row.ShedID = textPtr(shedID)
 		row.VaccineNames = driveAssignmentVaccineLabels(vaccineKeys)
 		if vaccineCodes == nil {
 			vaccineCodes = []string{}
 		}
 		row.VaccineCodes = vaccineCodes
+		if len(vaccineOriginalDates) > 0 {
+			if err := json.Unmarshal(vaccineOriginalDates, &row.VaccineOriginalDates); err != nil {
+				return nil, fmt.Errorf("vaccination execution: decode vaccine original dates: %w", err)
+			}
+		}
+		if row.VaccineOriginalDates == nil {
+			row.VaccineOriginalDates = map[string]string{}
+		}
 		row.Capacity = domain.CapacityStatus(capacity)
 		out = append(out, row)
 	}
@@ -423,7 +438,7 @@ WITH assignment_vaccines AS (
   SELECT
     vda.tenant_id,
     vda.batch_id,
-    vda.planned_date AS original_planned_date,
+    COALESCE(override.original_drive_date, vda.planned_date) AS original_planned_date,
     COALESCE(override.override_date, vda.planned_date) AS effective_planned_date,
     vda.operator_id,
     vda.park_id,
@@ -456,7 +471,7 @@ WITH assignment_vaccines AS (
   LEFT JOIN vaccination_drive_date_overrides override
     ON override.tenant_id = vda.tenant_id
    AND override.park_id = vda.park_id
-   AND override.original_drive_date = vda.planned_date
+   AND (override.original_drive_date = vda.planned_date OR override.override_date = vda.planned_date)
    AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
    AND override.canceled_at IS NULL
   WHERE vda.tenant_id = $1::uuid
@@ -465,6 +480,7 @@ WITH assignment_vaccines AS (
 effective_assignments AS (
   SELECT
     effective_planned_date AS planned_date,
+    MIN(original_planned_date) AS original_planned_date,
     operator_id,
     park_id,
     shed_id,
@@ -475,6 +491,7 @@ effective_assignments AS (
     batch_status,
     ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
     ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
+    COALESCE(jsonb_object_agg(vaccine_code, original_planned_date::text) FILTER (WHERE vaccine_code IS NOT NULL), '{}'::jsonb) AS vaccine_original_dates,
     CASE
       WHEN COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) > 0
       THEN animal_count * COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL)
@@ -485,6 +502,7 @@ effective_assignments AS (
 )
 SELECT
   effective.planned_date,
+  effective.original_planned_date,
   effective.operator_id::text,
   wm.display_name,
   effective.park_id::text,
@@ -509,6 +527,7 @@ SELECT
   END AS overdue_animals,
   COALESCE(effective.vaccine_keys, ARRAY[]::text[]),
   COALESCE(effective.vaccine_codes, ARRAY[]::text[]),
+  effective.vaccine_original_dates,
   effective.total_doses,
   effective.capacity_status
 FROM effective_assignments effective
