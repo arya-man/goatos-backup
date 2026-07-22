@@ -4481,7 +4481,16 @@ export interface components {
             shedId?: string | null;
             physicalShed: string;
             partitionLabel: string;
+            /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
             animals: number;
+            /** @description Assigned animals still planned or in progress and not yet overdue. */
+            dueAnimals: number;
+            /** @description Assigned animals whose drive batch is completed. */
+            doneAnimals: number;
+            /** @description Assigned animals held/deferred from the drive. */
+            deferredAnimals: number;
+            /** @description Assigned animals still open after the planned drive date. */
+            overdueAnimals: number;
             /** @description Backend-owned vaccine display labels attached to this operator assignment row. */
             vaccineNames: string[];
             /** @description Backend-owned vaccine identity codes used for drive-date overrides. */

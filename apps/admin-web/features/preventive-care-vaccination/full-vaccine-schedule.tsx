@@ -13,6 +13,7 @@ import { fmtDate, todayIso } from "@/lib/format";
 import { backendScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag } from "@/components/ui-primitives";
+import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
@@ -29,6 +30,10 @@ type OperatorDayScheduleRow = {
   parkId: string;
   parkName: string;
   animals: number;
+  dueAnimals: number;
+  doneAnimals: number;
+  deferredAnimals: number;
+  overdueAnimals: number;
   totalDoses: number;
   vaccineNames: string[];
   vaccineCodes: string[];
@@ -85,9 +90,16 @@ function workloadTone(capacity: string): string {
   return "tone-ok";
 }
 
-function workloadWidth(totalDoses: number, maxTotalDoses: number): string {
-  const percentage = Math.round((Math.max(0, totalDoses) / Math.max(1, maxTotalDoses)) * 100);
-  return `${Math.max(4, Math.min(100, percentage))}%`;
+function workloadSegmentWidth(bucket: ScheduleLoadBucket, total: number): string {
+  const percentage = Math.round((Math.max(0, bucket.value) / Math.max(1, total)) * 100);
+  return `${Math.max(2, Math.min(100, percentage))}%`;
+}
+
+function workloadBucketLabel(pageContract: AdminUiPageContract, key: ScheduleLoadBucket["key"]): string {
+  if (key === "scheduled") return copy(pageContract, "schedule.load.scheduled_short");
+  if (key === "deferred") return copy(pageContract, "schedule.load.deferred_short");
+  if (key === "overdue") return copy(pageContract, "label.overdue");
+  return copy(pageContract, "label.done");
 }
 
 function scheduleDrawerHref(closeHref: string, row: OperatorDayScheduleRow): string {
@@ -130,6 +142,10 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
         parkId: row.parkId,
         parkName: row.parkName,
         animals: 0,
+        dueAnimals: 0,
+        doneAnimals: 0,
+        deferredAnimals: 0,
+        overdueAnimals: 0,
         totalDoses: 0,
         vaccineNames: [],
         vaccineCodes: [],
@@ -141,6 +157,10 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
     group = groups.get(key);
     if (!group) continue;
     group.animals += row.animals;
+    group.dueAnimals += row.dueAnimals;
+    group.doneAnimals += row.doneAnimals;
+    group.deferredAnimals += row.deferredAnimals;
+    group.overdueAnimals += row.overdueAnimals;
     group.totalDoses += row.totalDoses;
     for (const vaccineName of row.vaccineNames) {
       if (!group.vaccineNames.includes(vaccineName)) {
@@ -276,7 +296,6 @@ export async function VaccinationFullSchedule({
   const parks = new Set(rows.map((row) => row.parkId).filter(Boolean));
   const sheds = new Set(rows.map((row) => `${row.parkId}|${row.physicalShed}`).filter(Boolean));
   const animals = rows.reduce((sum, row) => sum + row.animals, 0);
-  const maxOperatorDayDoses = Math.max(1, ...operatorDayRows.map((row) => row.totalDoses));
   const closeHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
   const selectedScheduleEvent = one(searchParams ?? {}, "schedule_event");
   const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope);
@@ -381,6 +400,17 @@ export async function VaccinationFullSchedule({
             <tbody>
               {operatorDayRows.map((row) => {
                 const drawerHref = scheduleDrawerHref(closeHref, row);
+                const load = scheduleLoadBuckets({
+                  total: row.animals,
+                  scheduled: row.dueAnimals,
+                  due: 0,
+                  inProgress: 0,
+                  deferred: row.deferredAnimals,
+                  overdue: row.overdueAnimals,
+                  missed: 0,
+                }, row.animals);
+                const visibleBuckets = load.buckets.filter((bucket) => bucket.value > 0);
+                const segmentTotal = visibleBuckets.reduce((sum, bucket) => sum + bucket.value, 0) || load.total || row.animals || 1;
                 return (
                 <tr key={row.key} className="schedule-click-row">
                   <td className="schedule-date-cell state-scheduled">
@@ -418,15 +448,29 @@ export async function VaccinationFullSchedule({
                     <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                     <span className="schedule-load-card operator-workload-card">
                       <span className="schedule-load-head">
-                        <span className="schedule-load-total">{row.totalDoses}</span>
-                        <span className="schedule-load-total-label">{copy(pageContract, "schedule.unit.doses")}</span>
-                        <span className="schedule-load-goats">{row.animals} {copy(pageContract, "schedule.unit.animals")}</span>
+                        <span className="schedule-load-total">{row.animals}</span>
+                        <span className="schedule-load-total-label">{copy(pageContract, "schedule.unit.animals")}</span>
+                        <span className="schedule-load-goats">{row.totalDoses} {copy(pageContract, "schedule.unit.doses")}</span>
                       </span>
                       <span className="schedule-load-bar" aria-hidden="true">
-                        <span
-                          className={`schedule-load-seg ${workloadTone(row.capacity)}`}
-                          style={{ flexBasis: workloadWidth(row.totalDoses, maxOperatorDayDoses) }}
-                        />
+                        {visibleBuckets.length > 0 ? visibleBuckets.map((bucket) => (
+                          <span
+                            key={bucket.key}
+                            className={`schedule-load-seg tone-${bucket.tone}`}
+                            style={{ flexBasis: workloadSegmentWidth(bucket, segmentTotal) }}
+                          />
+                        )) : (
+                          <span className={`schedule-load-seg ${workloadTone(row.capacity)}`} style={{ flexBasis: "100%" }} />
+                        )}
+                      </span>
+                      <span className="schedule-load-legend" aria-label={copy(pageContract, "schedule.column.workload")}>
+                        {visibleBuckets.map((bucket) => (
+                          <span key={bucket.key} className={`schedule-load-item tone-${bucket.tone}`}>
+                            <span className="schedule-load-dot" aria-hidden="true" />
+                            <span className="schedule-load-count">{bucket.value}</span>
+                            <span className="schedule-load-name">{workloadBucketLabel(pageContract, bucket.key)}</span>
+                          </span>
+                        ))}
                       </span>
                     </span>
                     </LocalOverlayLink>

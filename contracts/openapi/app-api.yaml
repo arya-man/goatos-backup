@@ -12026,6 +12026,10 @@ components:
         - physicalShed
         - partitionLabel
         - animals
+        - dueAnimals
+        - doneAnimals
+        - deferredAnimals
+        - overdueAnimals
         - vaccineNames
         - vaccineCodes
         - totalDoses
@@ -12056,6 +12060,23 @@ components:
         animals:
           type: integer
           minimum: 0
+          description: Assigned operator-capacity animals for this operator/date/shed/partition row.
+        dueAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals still planned or in progress and not yet overdue.
+        doneAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals whose drive batch is completed.
+        deferredAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals held/deferred from the drive.
+        overdueAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals still open after the planned drive date.
         vaccineNames:
           type: array
           description: Backend-owned vaccine display labels attached to this operator assignment row.

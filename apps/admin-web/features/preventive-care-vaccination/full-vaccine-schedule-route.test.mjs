@@ -94,12 +94,21 @@ test("vaccination schedule keeps shed totals visible and partition detail out of
   assert.doesNotMatch(source, /className="operator-day-partitions"/);
 });
 
-test("vaccination schedule keeps workload bars on backend assignment rows", () => {
+test("vaccination schedule keeps workload bars animal-based on backend assignment rows", () => {
   assert.match(source, /schedule-load-card operator-workload-card/);
+  assert.match(source, /scheduleLoadBuckets/);
   assert.match(source, /schedule-load-bar/);
+  assert.match(source, /row\.dueAnimals/);
+  assert.match(source, /row\.deferredAnimals/);
+  assert.match(source, /row\.overdueAnimals/);
+  assert.match(source, /schedule-load-total">\{row\.animals\}/);
+  assert.match(source, /schedule-load-goats">\{row\.totalDoses\}/);
   assert.match(source, /row\.totalDoses/);
   assert.match(source, /row\.animals/);
   assert.match(css, /\.operator-workload-card/);
+  assert.match(css, /\.schedule-load-seg\.tone-danger/);
+  assert.match(css, /\.schedule-load-seg\.tone-warn/);
+  assert.match(css, /\.schedule-load-seg\.tone-done/);
 });
 
 test("full schedule action is hidden while already inside the schedule view", () => {
