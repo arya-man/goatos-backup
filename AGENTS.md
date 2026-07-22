@@ -1020,9 +1020,13 @@ Do not:
 - Local dev servers (`:3300` admin-web, `:8080` backend): the workspace owner has
   granted agents (Codex and Claude) STANDING authority to stop, restart, re-port,
   or `next build` over them WITHOUT asking — just do it when the work needs it
-  (clean build, or an expired local token making routes redirect to `/login`;
-  restart with `npm --prefix apps/admin-web run dev:local` to re-mint a fresh
-  token). Do not pause to ask permission for a restart/rebuild. The only
+  (clean build, or an expired local token making routes redirect to `/login`).
+  Admin-web must be restarted through the local wrapper:
+  `npm --prefix apps/admin-web run dev` / `dev:local`, including custom isolated
+  ports like `npm --prefix apps/admin-web run dev -- --port 3318`. Plain
+  `next dev` is forbidden because it bypasses `GOATOS_AUTH_*` env and makes
+  `/admin-web/bootstrap` fail with `invalid_bearer_token`. Do not pause to ask
+  permission for a restart/rebuild. The only
   discipline: restore the server on the SAME port, never silently change ports,
   don't run `next build` concurrently with a live `next dev` on the same `.next`
   (stop it first), and if you break it, restore it. See
