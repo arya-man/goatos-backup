@@ -358,6 +358,43 @@ func (r *Repository) PromoteTemporaryIdentifier(ctx context.Context, cmd ports.P
 		return nil, err
 	}
 
+	// Optionally attach a second permanent RFID (animal_identifier_2, non-primary) in the SAME
+	// transaction, exactly like the birth flow's optional animal_identifier_2. Empty means the
+	// promotion attaches only the primary.
+	var secondary *domain.GoatIdentifier
+	if cmd.SecondaryValue != "" {
+		secondaryPolicy, err := qtx.GetIdentifierPolicy(ctx, identitydb.GetIdentifierPolicyParams{
+			PolicyVersion:  identifierPolicyVersion,
+			IdentifierType: "animal_identifier_2",
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ports.ErrWriteConflict
+		}
+		if err != nil {
+			return nil, err
+		}
+		insertedSecondary, err := qtx.InsertGoatIdentifier(ctx, identitydb.InsertGoatIdentifierParams{
+			TenantID:          tenantUUID,
+			GoatID:            goatUUID,
+			IdentifierType:    "animal_identifier_2",
+			IdentifierValue:   cmd.SecondaryValue,
+			NormalizedValue:   cmd.SecondaryNormalized,
+			ScopeKey:          "global",
+			IsPrimaryForGoat:  false,
+			ValidFrom:         pgtype.Timestamptz{Time: now, Valid: true},
+			NormalizerVersion: secondaryPolicy.NormalizerVersion,
+			ApprovedBy:        actorUUID,
+		})
+		if isUniqueViolation(err) {
+			return nil, ports.ErrWriteConflict
+		}
+		if err != nil {
+			return nil, err
+		}
+		s := identifierFromInsertRow(insertedSecondary)
+		secondary = &s
+	}
+
 	envelope := identifierCommandEnvelope{
 		TenantID:             cmd.TenantID,
 		ActorID:              cmd.ActorID,
@@ -370,15 +407,17 @@ func (r *Repository) PromoteTemporaryIdentifier(ctx context.Context, cmd ports.P
 		EvidenceRefs:         cmd.EvidenceRefs,
 	}
 	return r.finishPromoteMutation(ctx, qtx, tx, &committed, promoteMutationFinish{
-		TenantUUID:         tenantUUID,
-		ActorUUID:          actorUUID,
-		GoatUUID:           goatUUID,
-		Command:            envelope,
-		RetiredIdentifier:  identifierFromRetireRow(retired),
-		RetiredNormalized:  retired.NormalizedValue,
-		AttachedIdentifier: identifierFromInsertRow(inserted),
-		AttachedNormalized: cmd.NormalizedValue,
-		OccurredAt:         now,
+		TenantUUID:          tenantUUID,
+		ActorUUID:           actorUUID,
+		GoatUUID:            goatUUID,
+		Command:             envelope,
+		RetiredIdentifier:   identifierFromRetireRow(retired),
+		RetiredNormalized:   retired.NormalizedValue,
+		AttachedIdentifier:  identifierFromInsertRow(inserted),
+		AttachedNormalized:  cmd.NormalizedValue,
+		SecondaryIdentifier: secondary,
+		SecondaryNormalized: cmd.SecondaryNormalized,
+		OccurredAt:          now,
 	})
 }
 
@@ -393,7 +432,21 @@ type promoteMutationFinish struct {
 	RetiredNormalized  string
 	AttachedIdentifier domain.GoatIdentifier
 	AttachedNormalized string
-	OccurredAt         time.Time
+	// SecondaryIdentifier is the OPTIONAL animal_identifier_2 attached in the same promotion, or nil.
+	SecondaryIdentifier *domain.GoatIdentifier
+	SecondaryNormalized string
+	OccurredAt          time.Time
+}
+
+// promoteIdentifierAction is one identifier touched by a promotion (retired temp, attached primary,
+// or the optional attached secondary). One list drives both the decision evidence and the per-action
+// event/outbox emission so a two-RFID promotion stays consistent across both.
+type promoteIdentifierAction struct {
+	identifierUUID pgtype.UUID
+	identifier     domain.GoatIdentifier
+	normalized     string
+	action         string
+	eventType      string
 }
 
 // finishPromoteMutation writes ONE decision covering both actions, emits an event + outbox message
@@ -408,6 +461,28 @@ func (r *Repository) finishPromoteMutation(ctx context.Context, qtx *identitydb.
 	retiredUUID, err := uuidParam(finish.RetiredIdentifier.IdentifierID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Every identifier action this promotion performed: the retired temp, the attached primary, and
+	// the OPTIONAL attached secondary. Built once, then used for the decision evidence AND the
+	// per-action event/outbox emission below.
+	actions := []promoteIdentifierAction{
+		{retiredUUID, finish.RetiredIdentifier, finish.RetiredNormalized, retireIdentifierAction, retireIdentifierEventType},
+		{attachedUUID, finish.AttachedIdentifier, finish.AttachedNormalized, attachIdentifierAction, attachIdentifierEventType},
+	}
+	if finish.SecondaryIdentifier != nil {
+		secondaryUUID, err := uuidParam(finish.SecondaryIdentifier.IdentifierID)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, promoteIdentifierAction{secondaryUUID, *finish.SecondaryIdentifier, finish.SecondaryNormalized, attachIdentifierAction, attachIdentifierEventType})
+	}
+	identifierActions := make([]map[string]any, 0, len(actions))
+	for _, act := range actions {
+		identifierActions = append(identifierActions, map[string]any{
+			"identifier_id": act.identifier.IdentifierID, "identifier_type": act.identifier.IdentifierType,
+			"identifier_value": act.identifier.IdentifierValue, "action": act.action,
+		})
 	}
 
 	decisionID, err := qtx.NewUUID(ctx)
@@ -426,11 +501,8 @@ func (r *Repository) finishPromoteMutation(ctx context.Context, qtx *identitydb.
 			"decision_type": attachIdentifierDecisionType,
 			// idempotency_key is load-bearing: replayIdentifierMutation matches a replay on
 			// decision_record->>'idempotency_key', so omitting it makes every replay read as pending.
-			"idempotency_key": finish.Command.StoredIdempotencyKey,
-			"identifier_actions": []map[string]any{
-				{"identifier_id": finish.RetiredIdentifier.IdentifierID, "identifier_type": finish.RetiredIdentifier.IdentifierType, "identifier_value": finish.RetiredIdentifier.IdentifierValue, "action": retireIdentifierAction},
-				{"identifier_id": finish.AttachedIdentifier.IdentifierID, "identifier_type": finish.AttachedIdentifier.IdentifierType, "identifier_value": finish.AttachedIdentifier.IdentifierValue, "action": attachIdentifierAction},
-			},
+			"idempotency_key":    finish.Command.StoredIdempotencyKey,
+			"identifier_actions": identifierActions,
 		}),
 	})
 	if err != nil {
@@ -455,17 +527,8 @@ func (r *Repository) finishPromoteMutation(ctx context.Context, qtx *identitydb.
 	}
 	decision := decisionSummaryFromInsertRow(decisionRow)
 
-	// Two identifier actions on the one decision, then an event + outbox per action.
-	actions := []struct {
-		identifierUUID pgtype.UUID
-		identifier     domain.GoatIdentifier
-		normalized     string
-		action         string
-		eventType      string
-	}{
-		{retiredUUID, finish.RetiredIdentifier, finish.RetiredNormalized, retireIdentifierAction, retireIdentifierEventType},
-		{attachedUUID, finish.AttachedIdentifier, finish.AttachedNormalized, attachIdentifierAction, attachIdentifierEventType},
-	}
+	// An event + outbox message per identifier action (retired temp, attached primary, optional
+	// attached secondary), all linked to the one decision above.
 	var attachedEventID string
 	// The goat summary is read once after both writes so both event envelopes carry the final state.
 	goatSummaryResult, err := adminGoatMutationResult(ctx, qtx, finish.TenantUUID, finish.Command.TenantID, finish.GoatUUID, decision, nil, false, nil)
@@ -498,7 +561,9 @@ func (r *Repository) finishPromoteMutation(ctx context.Context, qtx *identitydb.
 		if err != nil {
 			return nil, err
 		}
-		if act.action == attachIdentifierAction {
+		// Idempotency + the response tag against the PRIMARY (animal_identifier_1) added event — not
+		// the optional secondary, which also has the attach action.
+		if act.identifier.IdentifierType == "animal_identifier_1" {
 			attachedEventID = eventID
 		}
 	}
@@ -543,8 +608,14 @@ func (r *Repository) emitIdentifierEvent(ctx context.Context, qtx *identitydb.Qu
 	// that key; the retired event gets an action-suffixed key so the two events -- and their two
 	// outbox rows -- never collide on the outbox's unique idempotency_key.
 	perEventKey := finish.Command.StoredIdempotencyKey
-	if finish.Action != attachIdentifierAction {
+	switch {
+	case finish.Action != attachIdentifierAction:
 		perEventKey = finish.Command.StoredIdempotencyKey + ":" + finish.Action
+	case finish.Identifier.IdentifierType == "animal_identifier_2":
+		// A promotion can attach TWO identifiers, both with the attach action. The primary keeps the
+		// bare key (replayIdentifierMutation finds it there); the optional secondary gets a suffixed
+		// key so its event + outbox row never collide with the primary on the unique idempotency_key.
+		perEventKey = finish.Command.StoredIdempotencyKey + ":animal_identifier_2"
 	}
 	eventID, err := qtx.NewUUID(ctx)
 	if err != nil {

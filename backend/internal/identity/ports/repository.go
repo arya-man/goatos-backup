@@ -148,9 +148,14 @@ type PromoteTemporaryIdentifierCommand struct {
 	// normalized form for the uniqueness check.
 	PermanentValue  string
 	NormalizedValue string
-	EvidenceRefs    []domain.EvidenceRef
-	RowVersion      int
-	Reason          string
+	// SecondaryValue is an OPTIONAL second RFID attached as animal_identifier_2 (non-primary), exactly
+	// like the birth flow's optional animal_identifier_2. Empty means only the primary is attached.
+	// SecondaryNormalized is its normalized form.
+	SecondaryValue      string
+	SecondaryNormalized string
+	EvidenceRefs        []domain.EvidenceRef
+	RowVersion          int
+	Reason              string
 }
 
 type MoveGoatCommand struct {
