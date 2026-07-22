@@ -1229,6 +1229,10 @@ func (f *fakeRepo) SearchGoats(context.Context, ports.SearchGoatsParams) ([]doma
 	return nil, nil, nil
 }
 
+func (f *fakeRepo) ListTemporaryTaggedGoats(context.Context, ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	return nil, nil, nil
+}
+
 func (f *fakeRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {
 	return f.matches, nil
 }

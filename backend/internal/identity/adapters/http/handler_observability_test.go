@@ -32,6 +32,9 @@ func (r errRepo) GetGoatByDisplayID(context.Context, string, string) (*domain.Go
 func (r errRepo) SearchGoats(context.Context, ports.SearchGoatsParams) ([]domain.GoatSummary, *string, error) {
 	return nil, nil, r.err
 }
+func (r errRepo) ListTemporaryTaggedGoats(context.Context, ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	return nil, nil, r.err
+}
 func (r errRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {
 	return nil, r.err
 }

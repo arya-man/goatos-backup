@@ -75,6 +75,12 @@ type SearchGoatsParams struct {
 	Status         *string
 }
 
+type ListTemporaryTaggedGoatsParams struct {
+	TenantID string
+	Limit    int
+	Cursor   *string
+}
+
 type ResolveIdentifierParams struct {
 	TenantID        string
 	IdentifierType  string
@@ -356,6 +362,7 @@ type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
 	SearchGoats(ctx context.Context, params SearchGoatsParams) ([]domain.GoatSummary, *string, error)
+	ListTemporaryTaggedGoats(ctx context.Context, params ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error)
 	FindIdentifierMatches(ctx context.Context, params ResolveIdentifierParams) ([]domain.IdentifierMatch, error)
 	FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (*string, error)
 	GetGoatTimeline(ctx context.Context, params GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error)

@@ -1611,6 +1611,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/goats/temporary-tagged": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List goats awaiting a permanent RFID (still carrying an active temporary tag).
+         * @description The operator "Awaiting RFID" work list: goats that were tagged at birth with a provisional temporary tag and have not yet been promoted to a permanent RFID. Each row carries what the promote form needs -- the goat, its display id, the temporary tag being replaced, the animal's location, and its current row_version (echoed back verbatim to POST /app/counts/goats/{goat_id}/promote-identifier so a stale in-hand row is rejected). Keyset-paginated with a maximum page size of 20: this is read from a phone, so a client asking for more receives one screen of work, not the whole backlog. Gated on CountsWrite -- the operator who may promote is exactly the operator who sees the list. Tenant-scoped.
+         */
+        get: operations["listAppCountsTemporaryTaggedGoats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/shifting-events/pending-execution": {
         parameters: {
             query?: never;
@@ -4986,6 +5006,26 @@ export interface components {
             /** @description True when the movement had already reached this state and this call changed nothing. A replayed completion relocates nobody a second time. */
             idempotent_replay: boolean;
         };
+        TemporaryTaggedGoatsResponse: {
+            items: components["schemas"]["TemporaryTaggedGoat"][];
+            /** @description Present only when another page exists. The last row's display_id; pass back as ?cursor=. */
+            next_cursor?: string;
+        };
+        /** @description One goat awaiting a permanent RFID (it still carries an active temporary tag). */
+        TemporaryTaggedGoat: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id: string;
+            /** @description The active temporary tag value that promotion will retire. */
+            temporary_identifier: string;
+            /** @description The animal's own shed (then park) name. */
+            location_display: string;
+            /**
+             * Format: int32
+             * @description The goat's current optimistic-concurrency token. Sent back verbatim in the promote call so a stale in-hand row is rejected instead of clobbering a newer change.
+             */
+            row_version: number;
+        };
         CountsShiftingPendingExecutionResponse: {
             items: components["schemas"]["CountsShiftingPendingExecutionItem"][];
             /** @description Present only when another page exists. Opaque; pass back as ?cursor=. */
@@ -8072,6 +8112,35 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppCountsTemporaryTaggedGoats: {
+        parameters: {
+            query?: {
+                /** @description Server-capped at 20. */
+                page_size?: number;
+                /** @description Keyset cursor from a previous page's next_cursor (the last row's display_id). */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of goats awaiting a permanent RFID. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemporaryTaggedGoatsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

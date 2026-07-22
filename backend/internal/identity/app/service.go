@@ -146,6 +146,39 @@ func (s *Service) SearchGoats(ctx context.Context, params ports.SearchGoatsParam
 	return &domain.GoatSearchResult{Items: items, NextCursor: next, TraceID: traceID}, nil
 }
 
+// ListTemporaryTaggedGoatsInput is the operator "Awaiting RFID" list request. Cursor is the last
+// row's display_id (keyset); Limit is capped by the caller.
+type ListTemporaryTaggedGoatsInput struct {
+	TenantID string
+	Limit    int
+	Cursor   *string
+	TraceID  string
+}
+
+// ListTemporaryTaggedGoats returns one keyset page of goats carrying an active temporary tag so the
+// operator can promote each to a permanent RFID. Tenant-scoped; visibility is tenant-level exactly
+// like SearchGoats.
+func (s *Service) ListTemporaryTaggedGoats(ctx context.Context, in ListTemporaryTaggedGoatsInput) (*domain.TemporaryTaggedGoatsResult, error) {
+	if err := requireTenant(in.TenantID); err != nil {
+		return nil, err
+	}
+	if in.Limit < 1 || in.Limit > 100 {
+		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
+	}
+	items, next, err := s.repo.ListTemporaryTaggedGoats(ctx, ports.ListTemporaryTaggedGoatsParams{
+		TenantID: in.TenantID,
+		Limit:    in.Limit,
+		Cursor:   in.Cursor,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if items == nil {
+		items = []domain.TemporaryTaggedGoat{}
+	}
+	return &domain.TemporaryTaggedGoatsResult{Items: items, NextCursor: next, TraceID: in.TraceID}, nil
+}
+
 func (s *Service) ResolveIdentifier(ctx context.Context, params ports.ResolveIdentifierParams, traceID string) (*domain.ResolveIdentifierResult, error) {
 	if err := requireTenant(params.TenantID); err != nil {
 		return nil, err
