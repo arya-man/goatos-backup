@@ -63,10 +63,21 @@ func (se stepExecutor) run(
 			res.ToolName = sub.ToolName
 		}
 		results = append(results, res)
+		// Tool executors (readtools) report a failed step via ToolResult.Err
+		// while returning a nil Go error (so the step loop doesn't abort the
+		// whole turn) — e.g. "counts data reader not wired". Recording only
+		// `err` here dropped that failure from the internal step trace/admin
+		// audit entirely (P2-5): a failed tool step looked identical to a
+		// successful empty one. Prefer the Go error, then fall back to the
+		// ToolResult's own error so either failure mode is visible.
+		traceErr := err
+		if traceErr == nil {
+			traceErr = res.Err
+		}
 		traces = append(traces, domain.StepTrace{
 			SubQuestionID: sub.ID, Route: sub.Route, ToolName: sub.ToolName,
 			StartedAt: start, DurationMS: se.now().Sub(start).Milliseconds(),
-			RowCount: len(res.Facts), Err: errString(err),
+			RowCount: len(res.Facts), Err: errString(traceErr),
 		})
 	}
 	return results, traces, truncated

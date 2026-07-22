@@ -150,7 +150,9 @@ func cubeParams(params map[string]any) (dims []string, timeRange string, filters
 	}
 	for k, v := range params {
 		switch k {
-		case "dimensions", "group_by", "time_range", "sql", "args", "tenant_id":
+		// as_of is the orchestrator-injected business-date stamp (P1-4); it is
+		// not a Cube dimension member and must never become a Cube filter.
+		case "dimensions", "group_by", "time_range", "sql", "args", "tenant_id", "as_of":
 			continue
 		}
 		if s, ok := v.(string); ok && s != "" {

@@ -273,6 +273,13 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// and by how much (e.g. "155% of capacity").
 	plan.SubQuestions = ensureUtilizationForOverload(q.Text, plan.SubQuestions)
 
+	// Thread the resolved as-of business instant into every sub-question's
+	// params (P1-4). Question.AsOf was already resolved above but previously
+	// stopped at the top of the pipeline — SubQuestion/executor signatures
+	// never carried it, so a scoped/as-of question ("counts as of yesterday")
+	// could not reach the reader that would actually honor it.
+	injectAsOf(plan.SubQuestions, q.AsOf)
+
 	mode := domain.ModePlanned
 	if !planned {
 		mode = domain.ModeFallback
@@ -291,6 +298,13 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	if truncated && mode == domain.ModePlanned {
 		mode = domain.ModePartial
 	}
+
+	// Runtime fallback (P1-3): before composing, retry any errored/empty
+	// result at the next tier in Cube -> API -> Toolbox -> SQL order. This is
+	// what turns an unwired/mismatched API tool (e.g. feed, counts) into a
+	// real grounded answer instead of the pipeline silently composing from an
+	// empty/errored result.
+	a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results)
 
 	// The dominant read tier + rows grounding this answer are known now; label
 	// the terminal metric and record the row histogram.
@@ -317,10 +331,24 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		rvw.critic = a.critic
 	}
 	verdict := rvw.review(ctx, body, results, len(plan.SubQuestions))
-	if !verdict.Grounded || !verdict.ScopeSafe {
+	// Honor review.go's Complete verdict (previously ignored here — P1-3): an
+	// answer that is grounded/scope-safe but INCOMPLETE (some sub-questions
+	// never resolved) must not just fall straight to the generic
+	// strictRecompose re-render of the same (still-incomplete) results. Give
+	// the still-failed/empty results one more real fallback-tier retry first.
+	if !verdict.Grounded || !verdict.ScopeSafe || !verdict.Complete {
 		if a.telemetry != nil {
 			a.telemetry.ReviewCorrection(ctx)
 		}
+		if a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results) {
+			body, citations, _ = comp.compose(results)
+			for i := range citations {
+				citations[i].PlannedByModel = planned
+			}
+			verdict = rvw.review(ctx, body, results, len(plan.SubQuestions))
+		}
+	}
+	if !verdict.Grounded || !verdict.ScopeSafe || !verdict.Complete {
 		body = a.strictRecompose(results)
 		// The strict recompose is grounded-by-CONSTRUCTION: every line is emitted
 		// verbatim from a Fact (label/scope/value), so the deterministic heuristic
