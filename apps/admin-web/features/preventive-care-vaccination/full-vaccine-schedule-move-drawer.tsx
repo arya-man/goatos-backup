@@ -8,7 +8,7 @@ import {
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
-import { CalendarDays, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { ThemedDatePicker } from "./themed-date-picker";
 
@@ -137,7 +137,7 @@ export function ScheduleMoveDrawer({
             <span>{copy(pageContract, "schedule.postpone.new_date")}</span>
             <ThemedDatePicker
               name="override_date"
-              label={copy(pageContract, "schedule.postpone.new_date")}
+              label={copy(pageContract, "schedule.move.date_placeholder")}
               min={displayedRow.plannedDate}
               previousMonthLabel={copy(pageContract, "schedule.move.previous_month")}
               nextMonthLabel={copy(pageContract, "schedule.move.next_month")}
@@ -149,7 +149,6 @@ export function ScheduleMoveDrawer({
             {displayedRow.vaccineNames.map((name) => <Tag key={name} tone="teal">{name}</Tag>)}
           </div>
           <button className="btn" type="submit">
-            <CalendarDays className="ic" aria-hidden="true" />
             {copy(pageContract, "schedule.postpone.action")}
           </button>
         </form>

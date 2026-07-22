@@ -273,7 +273,7 @@ func TestListVaccinationExecutionDateShiftUsesBatchPlannedDateInsteadOfObligatio
 	}
 }
 
-func TestDriveAssignmentsOneToManyPageBoundaryDateShiftParkScopeStatusMatrixAppliesVaccineDateOverrideImmediatelyWithoutMovingSiblingVaccines(t *testing.T) {
+func TestDriveAssignmentsMoveAndClearVaccineDateOverrideRoundTripWithoutMovingSiblingVaccines(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -305,12 +305,33 @@ INSERT INTO vaccination_drive_assignments (
   tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses
 ) VALUES ($1,$2,DATE '2026-07-22',$3,$4,$5,'Gandhi','1',84,ARRAY[$6::uuid,$7::uuid],168)`,
 		testTenant, testBatch, testOperator, testPark, testShed, testRule, pprRule)
+
+	repo := NewRepository(pool, 5*time.Second)
+	julyBefore, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments(july before override): %v", err)
+	}
+	julyBeforeRow := driveAssignmentRowFor(julyBefore, "2026-07-22", "Gandhi")
+	if julyBeforeRow == nil {
+		t.Fatalf("july rows before override missing Gandhi: %#v", julyBefore)
+	}
+	if !containsString(julyBeforeRow.VaccineCodes, "PPR") || !containsString(julyBeforeRow.VaccineCodes, "ET_TT") {
+		t.Fatalf("july vaccine codes before override = %#v, want ET_TT and PPR", julyBeforeRow.VaccineCodes)
+	}
+	if julyBeforeRow.Animals != 84 || julyBeforeRow.TotalDoses != 168 {
+		t.Fatalf("july animals/doses before override = %d/%d, want 84/168", julyBeforeRow.Animals, julyBeforeRow.TotalDoses)
+	}
+
 	execProjectionSQL(t, ctx, pool, "move only ppr", `
 INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
 VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
 		testTenant, testPark, testOperator)
 
-	repo := NewRepository(pool, 5*time.Second)
 	july, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
 		TenantID:   testTenant,
 		ParkID:     strPtr(testPark),
@@ -348,6 +369,42 @@ VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
 	}
 	if augustRow.Animals != 84 || augustRow.TotalDoses != 84 {
 		t.Fatalf("august animals/doses = %d/%d, want 84/84 moved vaccine row", augustRow.Animals, augustRow.TotalDoses)
+	}
+
+	execProjectionSQL(t, ctx, pool, "clear ppr move", `
+DELETE FROM vaccination_drive_date_overrides
+WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date=DATE '2026-07-22'`,
+		testTenant, testPark)
+	julyAfterClear, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments(july after clear): %v", err)
+	}
+	augustAfterClear, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments(august after clear): %v", err)
+	}
+	julyRestoredRow := driveAssignmentRowFor(julyAfterClear, "2026-07-22", "Gandhi")
+	if julyRestoredRow == nil {
+		t.Fatalf("july rows after clear missing Gandhi: %#v", julyAfterClear)
+	}
+	if !containsString(julyRestoredRow.VaccineCodes, "PPR") || !containsString(julyRestoredRow.VaccineCodes, "ET_TT") {
+		t.Fatalf("july vaccine codes after clear = %#v, want ET_TT and PPR restored", julyRestoredRow.VaccineCodes)
+	}
+	if julyRestoredRow.Animals != 84 || julyRestoredRow.TotalDoses != 168 {
+		t.Fatalf("july animals/doses after clear = %d/%d, want 84/168 restored", julyRestoredRow.Animals, julyRestoredRow.TotalDoses)
+	}
+	if movedAfterClear := driveAssignmentRowFor(augustAfterClear, "2026-08-05", "Gandhi"); movedAfterClear != nil && containsString(movedAfterClear.VaccineCodes, "PPR") {
+		t.Fatalf("august rows after clear still contain moved PPR: %#v", movedAfterClear)
 	}
 }
 

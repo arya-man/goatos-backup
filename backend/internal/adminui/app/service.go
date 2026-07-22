@@ -1134,6 +1134,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.move.error_body":                           "The backend rejected the date move. Check the vaccine/date and try again.",
 			"schedule.move.missing_title":                        "Pick a date",
 			"schedule.move.missing_body":                         "Choose the vaccine and new drive date before moving.",
+			"schedule.move.date_placeholder":                     "Select date",
 			"schedule.move.previous_month":                       "Previous month",
 			"schedule.move.next_month":                           "Next month",
 			"schedule.move.invalid_future_date":                  "Pick a date after {date}.",
