@@ -160,6 +160,7 @@ scoped-refusal exclusion so the bot says "not covered yet" rather than inventing
 | G10 | Conversation thread titles unpopulated | Title-derivation on conversation create (planner summary or truncated first message) + rename path |
 | G11 | Identity-resolution / data-quality backlog uncovered | Surface via `ops_exception_queue` (location-review + escalations); dedicated identity-conflict view deferred, documented here |
 | G12 | Transit/holding, proof artifacts, device fleet | EXCLUDED for now: transit/holding deferred (draft when volume matters); proof artifacts surfaced via per-module "evidence present" derivation; device fleet is ops-admin telemetry, not a leadership KPI |
+| G13 | API-tier tool executors (in-process adapters) | CLOSED: tier-2 in-process `ToolExecutor` adapters registered in `ceoai/adapters/readtools/` for all planner-routed API tools (counts_breakdown, vaccination_shed_summary, vaccination_execution, feed_direction_today). Prevents "no read-service executor" errors; degrades to SQL fallback or informational response. Resolves `backend/internal/ceoai/app/registry.go:106` routing error when planner invokes API-tier tools. |
 
 ## E. Rule
 
