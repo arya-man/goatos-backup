@@ -1,0 +1,88 @@
+cubes:
+  # ---------------------------------------------------------------------------
+  # workforce — SOP task execution. Backs operator_completion_rate (DRAFT).
+  #
+  # Source SSOT: canonical public.sop_tasks joined to locations.
+  # AMBIGUITY: the set of task states that count as "completed" vs "assigned"
+  # is not fixed by the docs (observed states include 'queued'; the terminal /
+  # verified vocabulary is not confirmed). operator_completion_rate ships as
+  # verified / total as an interim shape and stays DRAFT until the business owner
+  # confirms which states are the numerator and denominator. actor identity
+  # (assigned_to) is sensitive — expose it only as an opaque id dimension, never
+  # personal detail. See METRICS.md.
+  # ---------------------------------------------------------------------------
+  - name: workforce
+    title: Workforce (SOP task execution)
+    description: >-
+      One row per SOP task. Backs task_count and operator_completion_rate
+      (draft).
+    sql: >
+      SELECT
+        t.task_id                                              AS task_id,
+        t.tenant_id                                            AS tenant_id,
+        t.state                                                AS state,
+        t.task_type                                            AS task_type,
+        t.assigned_to                                          AS operator_id,
+        t.scope_id                                             AS scope_id,
+        sh.name                                                AS shed_label,
+        sh.parent_location_id                                  AS park_id,
+        pk.name                                                AS park_label,
+        t.verified_at                                          AS verified_at,
+        (t.due_at AT TIME ZONE 'Asia/Kolkata')::date           AS due_business_day
+      FROM sop_tasks t
+      LEFT JOIN locations sh ON sh.location_id = t.scope_id
+      LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+
+    dimensions:
+      - name: task_id
+        sql: task_id
+        type: string
+        primary_key: true
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+      - name: state
+        sql: state
+        type: string
+      - name: task_type
+        sql: task_type
+        type: string
+      - name: operator_id
+        sql: operator_id
+        type: string
+        # sensitive: opaque id only, never joined to personal detail here.
+      - name: park_label
+        sql: park_label
+        type: string
+      - name: shed_label
+        sql: shed_label
+        type: string
+      - name: due_business_day
+        sql: due_business_day
+        type: time
+
+    measures:
+      - name: task_count
+        title: SOP tasks
+        description: Count of SOP tasks.
+        type: count
+
+      - name: task_verified
+        title: SOP tasks verified (draft)
+        description: DRAFT — tasks with a verified_at timestamp.
+        type: count
+        filters:
+          - sql: "{CUBE}.verified_at IS NOT NULL"
+
+      # DRAFT — verified / total. AMBIGUITY on the completed-state vocabulary.
+      # Not an official figure.
+      - name: operator_completion_rate
+        title: Operator completion rate (draft)
+        description: >-
+          DRAFT — task_verified / task_count. Completed-state vocabulary pending
+          business sign-off. Not an official figure.
+        type: number
+        sql: >
+          CASE WHEN {task_count} = 0 THEN NULL
+               ELSE {task_verified}::numeric / {task_count} END
+        format: percent

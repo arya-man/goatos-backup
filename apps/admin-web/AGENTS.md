@@ -515,6 +515,18 @@ disable or remove the Company-wide/Park-wise toggle rather than assigning it
 fake semantics. "All parks" means everything in the current slice across parks;
 it must not exclude invented central/admin rows.
 
+Leadership assistant (CEO/CXO read-only chatbot): admin-web is only the renderer.
+The assistant brain is server-owned (`backend/internal/ceoai`); the browser never
+calls Cube/Toolbox/Postgres directly, and the leadership gate is a server session
+role (`ceo_internal`), not a client-side name regex. Any new admin-web route,
+feature, or read that is leadership-relevant must land matching assistant coverage
+(a Cube metric / `ceo_ai.*` view / MCP tool / read-API mapping / GenAI
+query-class) or a documented exclusion in `docs/ceo-ai/coverage-matrix.md`, in the
+same change. HOW-TO: `.agents/skills/goatos-leadership-assistant/SKILL.md`;
+enforced by `make leadership-assistant-coverage-guard`. Response fields the
+renderer may show are exactly `answer, source, mode, request_id, citations,
+conversation_id` (+ streamed tokens); never render step traces / chain-of-thought.
+
 Page bodies may show only page-specific controls:
 
 - Action Center: Status board/SOP queues, domain chips, work-state chips, My

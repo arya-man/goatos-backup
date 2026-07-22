@@ -50,6 +50,42 @@ Reference docs inside (progressive disclosure — load only what the change touc
 .agents/skills/goatos-code-review/references/business-rules.md    # vaccination/obligation/feed/org rule fidelity
 ```
 
+## Leadership Assistant Coverage Skill
+
+Use the leadership-assistant skill whenever a change adds or modifies a
+**leadership-relevant** table, read API, OpenAPI contract, admin-web route,
+mobile workflow, reporting view, domain event, or official KPI. It is the
+canonical HOW-TO for keeping the Mesha leadership assistant (CEO/CXO read-only
+chatbot) read path in sync — Cube-first routing, `ceo_ai.*` views, MCP Toolbox
+tools, read-API mappings, GenAI query-classes, evals — or writing a documented
+exclusion.
+
+```text
+.agents/skills/goatos-leadership-assistant/SKILL.md
+```
+
+Claude discovers the same skill through a symlink:
+
+```text
+.claude/skills/goatos-leadership-assistant -> ../../.agents/skills/goatos-leadership-assistant
+```
+
+Reference docs inside (progressive disclosure):
+
+```text
+.agents/skills/goatos-leadership-assistant/references/coverage-howto.md  # step-by-step + copy-paste per tier
+.agents/skills/goatos-leadership-assistant/references/architecture.md    # agentic loop, ports, safety, persistence, streaming, eval
+.agents/skills/goatos-leadership-assistant/references/exclusions.md      # what is legitimately NOT leadership-relevant
+```
+
+Machine gate: `make leadership-assistant-coverage-guard`
+(`tools/agent-hooks/check-leadership-assistant-coverage.mjs`), registered in
+`tools/ci/guardrail-manifest.json`, wired into `make guardrails` /
+`tools/ci/run-local-ci.sh`, and nudged on PostToolUse for Claude
+(`.claude/settings.json`) and Codex (`.codex/hooks.json`). Scaffold:
+`node tools/ceo-ai/scaffold-coverage.mjs <module>`. Backfill baseline:
+`docs/ceo-ai/coverage-matrix.md`.
+
 ## Agent tool routing (human)
 
 Before starting work, read **`docs/ai/agent-tool-routing.md`**:

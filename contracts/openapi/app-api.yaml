@@ -4453,6 +4453,276 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /ceo-ai/ask:
+    post:
+      operationId: askCeoAssistant
+      summary: Ask the read-only leadership operations assistant
+      description: >
+        CEO/CxO leadership assistant. Read-only over business data. Tenant and
+        role scope come ONLY from the authenticated session, never from the
+        request body. The response carries ONLY the user-facing envelope
+        (answer, source, mode, request_id, conversation_id, citations) — step
+        traces / chain-of-thought are internal and never returned.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoAssistantAskRequest"
+      responses:
+        "200":
+          description: Assistant answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoAssistantAnswer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  # --- ceo-ai conversation persistence + feedback (owned by ceoai/persistence) ---
+  # Additive block. Tenant + actor scope come ONLY from the authenticated session,
+  # never from the request body or path. All reads/writes are actor-scoped: one
+  # leadership user can never see or mutate another's threads.
+  /ceo-ai/conversations:
+    post:
+      operationId: createCeoConversation
+      summary: Open a leadership assistant conversation thread
+      description: >
+        Creates a durable thread. Idempotent when an Idempotency-Key header is
+        supplied: a replay with the same key returns the original thread (200)
+        instead of forking a new one (201).
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CeoIdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoConversationCreateRequest"
+      responses:
+        "201":
+          description: Thread created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "200":
+          description: Idempotent replay — existing thread returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    get:
+      operationId: listCeoConversations
+      summary: List the actor's conversation threads (keyset paginated)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from a prior page's next_cursor.
+          schema:
+            type: string
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: One keyset page of threads, newest activity first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/conversations/{conversation_id}:
+    parameters:
+      - $ref: "#/components/parameters/CeoConversationId"
+    get:
+      operationId: getCeoConversation
+      summary: Resume one thread
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    patch:
+      operationId: updateCeoConversation
+      summary: Rename or archive/unarchive a thread
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoConversationPatchRequest"
+      responses:
+        "200":
+          description: Updated thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      operationId: deleteCeoConversation
+      summary: Soft-delete a thread (hidden immediately, purged per retention policy)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Thread soft-deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/conversations/{conversation_id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/CeoConversationId"
+    get:
+      operationId: listCeoConversationMessages
+      summary: Read a thread's message history (keyset paginated, oldest-first)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One keyset page of message history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoMessageList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/messages/{message_id}/feedback:
+    parameters:
+      - $ref: "#/components/parameters/CeoMessageId"
+    post:
+      operationId: upsertCeoMessageFeedback
+      summary: Record thumbs up/down (+ reason) on an assistant message
+      description: >
+        Idempotent on (message, actor): a re-vote updates the existing signal in
+        place. Feedback can only be attached to a message in the actor's own live
+        thread.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoFeedbackRequest"
+      responses:
+        "200":
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoFeedback"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -4460,6 +4730,28 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    CeoConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CeoMessageId:
+      name: message_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CeoIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Replay-safety key; a repeat create with the same key returns the original thread.
+      schema:
+        type: string
+        maxLength: 200
     GoatId:
       name: goat_id
       in: path
@@ -4667,6 +4959,228 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    CeoConversationCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          description: Optional initial title; when omitted the backend derives one.
+          type: string
+          maxLength: 200
+      # tenant/actor are session-derived and MUST NOT appear in the body.
+    CeoConversationPatchRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        Exactly one intent per request. `title` renames; `archived=true` archives;
+        `archived=false` unarchives.
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        archived:
+          type: boolean
+    CeoConversation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - created_at
+        - updated_at
+        - archived
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived:
+          type: boolean
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+    CeoConversationList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CeoConversation"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+    CeoMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - conversation_id
+        - role
+        - content
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        source:
+          description: Assistant turns only — resolved read surface / routing tier.
+          type: string
+        mode:
+          description: Assistant turns only — governed | operational | exploratory.
+          type: string
+        request_id:
+          type: string
+        citations:
+          description: User-visible provenance chips (structured JSON array).
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      # tool_calls are INTERNAL routing detail and are intentionally NOT exposed here.
+    CeoMessageList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CeoMessage"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+    CeoFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - rating
+      properties:
+        rating:
+          description: +1 thumbs up, -1 thumbs down.
+          type: integer
+          enum: [1, -1]
+        reason:
+          type: string
+          maxLength: 2000
+    CeoFeedback:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - message_id
+        - rating
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        rating:
+          type: integer
+          enum: [1, -1]
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    CeoAssistantAskRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1200
+          description: Natural-language leadership question. Treated as data, never as instructions.
+        conversation_id:
+          type: string
+          description: Optional existing thread id to continue.
+    CeoAssistantCitation:
+      type: object
+      additionalProperties: false
+      required:
+        - surface
+        - route
+        - as_of
+        - planned_by_model
+      properties:
+        surface:
+          type: string
+          description: Human source label, e.g. "Cube · vaccination_overdue" or "Mesha read API".
+        route:
+          type: string
+          enum: [cube, api, toolbox, sql, none]
+        as_of:
+          type: string
+          format: date-time
+          description: Freshness of the underlying read model (IST business day).
+        metric_status:
+          type: string
+          enum: [approved, draft]
+          description: Cube governance status; present only for governed metrics.
+        planned_by_model:
+          type: boolean
+    CeoAssistantAnswer:
+      type: object
+      additionalProperties: false
+      required:
+        - answer
+        - source
+        - mode
+        - request_id
+      properties:
+        answer:
+          type: string
+        source:
+          type: string
+          description: Route-attributed source label(s).
+        mode:
+          type: string
+          enum: [planned, fallback, refused, partial]
+        request_id:
+          type: string
+        conversation_id:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CeoAssistantCitation"
     FeedConfigRationRate:
       type: object
       additionalProperties: false

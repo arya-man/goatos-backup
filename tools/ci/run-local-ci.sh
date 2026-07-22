@@ -52,6 +52,30 @@ postgres_tests_enabled() {
   esac
 }
 
+# ceo_ai_eval_live_enabled: the CEO-AI answer-quality eval calls a live assistant
+# endpoint (Vertex/Gemini) and a Postgres oracle, so it is opt-in only — same
+# posture as the e2e docker chain. It never runs in the default local/PR gate.
+ceo_ai_eval_live_enabled() {
+  case "${CEO_AI_EVAL_LIVE:-0}" in
+    1|true|TRUE|True) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# run_ceo_ai_eval: always run the cheap, dependency-free structural self-test
+# (golden-set integrity + deterministic scorer unit tests); run the LIVE
+# answer-quality regression only when explicitly opted in. A missing live
+# prerequisite is a loud SKIP, never a silent pass.
+run_ceo_ai_eval() {
+  step "ceo-ai-eval golden self-test" make ceo-ai-eval-selftest
+  if ceo_ai_eval_live_enabled; then
+    step "ceo-ai-eval live answer-quality (opt-in)" make ceo-ai-eval
+  else
+    RESULTS+=("SKIP  ceo-ai-eval live answer-quality (set CEO_AI_EVAL_LIVE=1 + MESHA_ASSISTANT_URL/GOATOS_EVAL_DATABASE_URL/GOATOS_EVAL_TENANT_ID to run)")
+    echo "── ci-local: ceo-ai-eval live SKIPPED by default (opt-in via CEO_AI_EVAL_LIVE=1)"
+  fi
+}
+
 # run_e2e_docker_chain: the Docker-image E2E foundation (KERN-001 follow-up). Builds the
 # real goatos-backend:e2e image, proves deploy/runtime/workers.json against it
 # (e2e-parity), boots deploy/e2e/docker-compose.e2e.yml and proves the real topology starts
@@ -160,6 +184,8 @@ run_backend() {
 	RESULTS+=("SKIP  Postgres sqlc/migration integration gates (explicit opt-in required)")
 	echo "── ci-local: Postgres sqlc/migration gates SKIPPED by default"
   fi
+  # CEO-AI answer-quality eval: cheap golden self-test always; live regression opt-in.
+  run_ceo_ai_eval
 }
 
 run_query_plans() {

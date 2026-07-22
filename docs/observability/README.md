@@ -93,6 +93,7 @@ distinct operator question:
 | **`LESSONS_AND_GUARDS.md`** | **ANTI-RECURRENCE LEDGER.** Every bug fixed in stg build: symptom · root cause · fix · prevention guard · next-env check. Pre-deploy checklist for dev/stg/prod. |
 | `../../apps/goatos-android/docs/TELEMETRY.md` | Android-specific telemetry wiring (Firebase Analytics/Perf/Crashlytics, funnel call sites, OTLP TODO) |
 | `../decisions/observability.md` | Backend logging ADR (`slog`, `GOATOS_OBS_SINK`, panic-recovery logging) |
+| `CEO_AI_OBSERVABILITY.md` | Leadership assistant (CEO AI) metrics catalog, SLO/latency budget, alerting notes, and the admin-only step-trace debug surface |
 
 ## Rollout status (see `INFRA.md`, `PROD_PROMOTION.md`, and `RUNBOOK.md` for detail)
 

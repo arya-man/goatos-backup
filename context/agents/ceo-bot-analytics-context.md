@@ -345,3 +345,22 @@ Start with specific tools for common CEO questions. Use SQL only as fallback for
 cross-domain questions or missing API coverage. When a SQL pattern becomes
 frequent or business-critical, promote it into a named Mesha read API or governed
 Cube metric.
+
+---
+
+## Integration status pointer (2026-07-22)
+
+The leadership assistant is WIRED end-to-end and PROVEN on the live local path
+(Vertex planner → Cube governed metrics → grounded answers matching a SQL
+oracle: active animals 1308, goats 975 / sheep 336, vaccination overdue 168 /
+due 836; adversarial refusals; SSE streaming; 2-turn persistence; cache hit;
+audit + admin trace with no identity leak). It is NOT deployed to staging/prod.
+
+PENDING (not done): conversation/feedback/starters HTTP routes are unregistered
+(only `POST /ceo-ai/ask` + admin trace are); API-tier read executors
+(feed/procurement/workforce) are not built; Cube reads `public.*` not `ceo_ai.*`
+yet; `mesha-cube-stg` + Cloud Run toolbox + Agent Engine deploy, prod secrets,
+and BigQuery/dbt marts + prod-scale certification are future work.
+
+Canonical, detailed status: `docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md`
+→ "Integration Status — 2026-07-22".

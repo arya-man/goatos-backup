@@ -1,0 +1,75 @@
+views:
+  # Governed leadership KPI views — stable public contract names the assistant
+  # planner asks for. Single-cube views (no cross-cube joins) so grain stays
+  # exact. Each re-exposes tenant_id so queryRewrite can inject the tenant
+  # filter on the view member too.
+
+  - name: kpi_animals
+    description: Census & mortality KPIs (active_animal_count is approved).
+    cubes:
+      - join_path: animals
+        includes:
+          - active_animal_count
+          - total_animal_count
+          - dead_count
+          - mortality_rate
+          - tenant_id
+          - species
+          - park_label
+          - shed_label
+          - management_stage
+          - exit_business_day
+
+  - name: kpi_vaccination
+    description: Vaccination due/overdue/compliance KPIs (all draft).
+    cubes:
+      - join_path: vaccination
+        includes:
+          - vaccination_due
+          - due_today
+          - vaccination_overdue
+          - vaccination_completed
+          - vaccination_compliance
+          - tenant_id
+          - species
+          - park_label
+          - shed_label
+          - due_business_day
+
+  - name: kpi_feed
+    description: Feed KPIs (feed_cost draft/blocked — no price source).
+    cubes:
+      - join_path: feed
+        includes:
+          - feed_quantity_kg
+          - feed_cost
+          - tenant_id
+          - park_label
+          - shed_label
+          - fed_business_day
+
+  - name: kpi_procurement
+    description: Procurement KPIs (procurement_cost draft/blocked — no cost source).
+    cubes:
+      - join_path: procurement
+        includes:
+          - load_count
+          - procurement_animals
+          - procurement_cost
+          - tenant_id
+          - source_label
+          - entered_business_day
+
+  - name: kpi_workforce
+    description: Operator completion KPIs (draft).
+    cubes:
+      - join_path: workforce
+        includes:
+          - task_count
+          - task_verified
+          - operator_completion_rate
+          - tenant_id
+          - park_label
+          - shed_label
+          - operator_id
+          - due_business_day

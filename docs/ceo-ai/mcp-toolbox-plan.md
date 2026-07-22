@@ -543,3 +543,15 @@ sheds to `whole` when explaining operator assignments.
 - MCP Toolbox toolsets let one app load only the tools it needs.
 - MCP Toolbox Cloud Run deployment supports config mounting from Secret Manager
   and production `allowed-hosts` / `allowed-origins` hardening.
+
+---
+
+## Status (2026-07-22)
+
+MCP Toolbox client + curated `ceo_ai.*` tool config are built and covered by the
+leadership-assistant coverage guard. The toolbox bridge is wired into the
+assistant (`ports.Toolbox`, `internal/ceoai/wiring.go`) and activates when
+`MESHA_MCP_TOOLBOX_URL` is set. The Toolbox SERVER itself is not run in the
+proven local E2E (Cube-first routing answered the leadership KPIs); running the
+Toolbox on :5001 and the Cloud Run deployment are pending. Canonical status:
+`docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md` → "Integration Status".
