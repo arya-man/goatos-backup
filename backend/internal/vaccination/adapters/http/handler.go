@@ -26,7 +26,7 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
-	ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error)
+	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -331,6 +331,7 @@ type shedCompletionSummaryResponse struct {
 	ExpectedCount    int64                                `json:"expected_count"`
 	HandledCount     int64                                `json:"handled_count"`
 	ProofReadyCount  int64                                `json:"proof_ready_count"`
+	ProofMode        string                               `json:"proof_mode"`
 	VaccineBreakdown []shedCompletionVaccineBreakdownItem `json:"vaccine_breakdown"`
 	SubmitEnabled    bool                                 `json:"submit_enabled"`
 	BlockingReason   *string                              `json:"blocking_reason"`
@@ -346,7 +347,15 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 		h.badRequest(w, r, "invalid_task_id", "task_id must be a UUID")
 		return
 	}
-	summary, err := h.svc.ShedCompletionSummary(r.Context(), tenantID(r), taskID)
+	shedID := strings.TrimSpace(r.URL.Query().Get("shed_id"))
+	if shedID == "" {
+		shedID = strings.TrimSpace(r.URL.Query().Get("shedId"))
+	}
+	if shedID != "" && !uuidutil.IsUUIDString(shedID) {
+		h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
+		return
+	}
+	summary, err := h.svc.ShedCompletionSummary(r.Context(), tenantID(r), taskID, shedID)
 	if err != nil {
 		if errors.Is(err, vaccports.ErrNotFound) {
 			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
@@ -367,6 +376,7 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 		ExpectedCount:    summary.ExpectedCount,
 		HandledCount:     summary.HandledCount,
 		ProofReadyCount:  summary.ProofReadyCount,
+		ProofMode:        summary.ProofMode,
 		VaccineBreakdown: breakdown,
 		SubmitEnabled:    summary.SubmitEnabled,
 		BlockingReason:   summary.BlockingReason,

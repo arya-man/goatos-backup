@@ -414,11 +414,12 @@ bug-for-bug row copying. Known legacy gaps to close are row/header evidence bein
 treated as dose proof, optional/weak medicine-batch capture, adverse reactions
 without durable notes/follow-up, and review confidence not being first-class.
 
-- `sop_versions.form_dsl` for vaccination carries a **single** operator field:
-  `goat_ids` (the per-animal scan roster, `repeat`), each scanned row bound to its
-  own live camera proof via the per-goat `proof_policy`. There is **no shed-level
-  manual medical form**: vaccine + dose come from the drive/obligation config,
-  `administered_at` is derived server-side (the submit time), and adverse events go
+- `sop_versions.form_dsl` for vaccination carries the operator execution fields
+  published by backend SOP: `goat_ids` (the per-animal scan roster, `repeat`) plus
+  the SOP-selected proof field. Supported proof grains are per-goat live camera
+  proof and shed-level video proof. Shed-level proof is still proof media only,
+  not a manual medical recap form: vaccine + dose come from the drive/obligation
+  config, scan timestamps capture administration timing, and adverse events go
   through the health problem-report path. The manual field keys `vaccine_lot_id`,
   `cold_chain_verified`, `dose_ml_given`, `route_site`, `administered_at`,
   `adverse_reaction`, `adverse_reaction_notes` are **banned** from the vaccination

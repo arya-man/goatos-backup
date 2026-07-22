@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class ShedsExecutionIdentityTest {
 
@@ -34,5 +36,24 @@ class ShedsExecutionIdentityTest {
         )
 
         assertEquals(ExecutionCounts(target = 5, open = 3, done = 2), counts)
+    }
+
+    @Test
+    fun `operator shed queue window is today through the next seven days in India time`() {
+        val window = OperatorWorkWindow.today(
+            ZonedDateTime.of(2026, 7, 21, 9, 30, 0, 0, ZoneId.of("Asia/Kolkata")),
+        )
+
+        assertEquals(null, window.asOf)
+        assertEquals("2026-07-28T09:30:00+05:30", window.dueBefore)
+        assertEquals("Today · Tue 21 Jul", window.todayLabel)
+        assertEquals("Tue 21 Jul → Mon 27 Jul", window.windowLabel)
+    }
+
+    @Test
+    fun `execution due date parser uses backend dueDate not stage or drive labels`() {
+        assertEquals("2026-07-24", parseExecutionDate("2026-07-24")?.toString())
+        assertEquals("2026-07-24", parseExecutionDate("2026-07-24T23:00:00+05:30")?.toString())
+        assertEquals(null, parseExecutionDate("Adult"))
     }
 }

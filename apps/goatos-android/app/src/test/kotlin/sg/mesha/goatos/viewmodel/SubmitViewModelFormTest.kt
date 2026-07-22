@@ -646,9 +646,9 @@ class SubmitViewModelFormTest {
             override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
                 MutableStateFlow(Resource(data = null))
             override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.failure(IllegalStateException("offline"))
-            override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
+            override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
                 MutableStateFlow(null)
-            override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> =
+            override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> =
                 Result.failure(IllegalStateException("offline"))
         }
         val coldCacheVm = viewModel(stuckRepository, CapturingSyncRepository(), "task-x")
@@ -871,9 +871,9 @@ private class FakeFormTasksRepository(
         flow.value = Resource(data = TaskDetail(task = task, form = form, proofPolicy = proofPolicy), lastSyncedAt = 1L)
     }
 
-    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> = summaryFlow
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> = summaryFlow
 
-    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = runCatching {
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = runCatching {
         summaryFlow.value = shedSummary
     }
 }

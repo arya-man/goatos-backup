@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.feature.calendar.CalendarScreen
 import sg.mesha.goatos.feature.leadership.LeadershipScreen
+import sg.mesha.goatos.feature.sheds.ShedsScreen
 
 /**
  * Screenshot tests for the app's nav chrome PER ROLE TIER (item: role-based screenshot
@@ -66,11 +67,12 @@ class RoleChromeScreenshotTest {
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
     )
 
-    // Single-vertical operational nav — Drives/Calendar/Alerts (+ "You"). Used by every
+    // Single-vertical operational nav — Vaccination/Alerts (+ "You"). Used by every
     // MINIMAL-chrome, vaccination-department-only role below (Park Manager, Operator).
+    // Vaccination operators must not get the leadership planning Calendar/week/month/history
+    // surface; they land directly on the shed-first 7-day execution queue.
     private fun operationalNavItems() = listOf(
-        NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
-        NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
+        NavItem(key = "vaccination", label = "Vaccination", href = Routes.VACCINATION),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
     )
 
@@ -174,7 +176,7 @@ class RoleChromeScreenshotTest {
     }
 
     // Park Manager (Operational Position, Manager-tier per roster-rbac-design.md §0.1 — e.g.
-    // "Preventive Care Manager") — MINIMAL bottom-bar, landing Calendar.
+    // "Preventive Care Manager") — MINIMAL bottom-bar, landing shed-first Vaccination queue.
     @Test
     fun role_park_manager() = shot("role_park_manager") {
         GoatOsShellChrome(
@@ -182,16 +184,15 @@ class RoleChromeScreenshotTest {
                 chrome = NavChrome.MINIMAL,
                 items = operationalNavItems(),
             ),
-            currentRoute = Routes.CALENDAR,
+            currentRoute = Routes.VACCINATION,
             onNavigate = {},
         ) {
-            CalendarScreen(state = sampleCalendarState())
+            ShedsScreen(state = sampleShedsState())
         }
     }
 
-    // Operator (single-vertical, Vaccination) — MINIMAL bottom-bar, items Drives/Calendar/
-    // Alerts/You, landing Calendar. Matches the existing operator vs leadership split this
-    // task closes the per-role gap for.
+    // Operator (single-vertical, Vaccination) — MINIMAL bottom-bar, items Vaccination/Alerts/You,
+    // landing shed-first on today's work inside the 7-day queue.
     @Test
     fun role_operator() = shot("role_operator") {
         GoatOsShellChrome(
@@ -199,10 +200,10 @@ class RoleChromeScreenshotTest {
                 chrome = NavChrome.MINIMAL,
                 items = operationalNavItems(),
             ),
-            currentRoute = Routes.CALENDAR,
+            currentRoute = Routes.VACCINATION,
             onNavigate = {},
         ) {
-            CalendarScreen(state = sampleCalendarState())
+            ShedsScreen(state = sampleShedsState())
         }
     }
 }

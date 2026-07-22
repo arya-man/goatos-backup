@@ -25,7 +25,7 @@ import { vaccinationCurrentViewScope } from "./shed-scope";
 // Merged CEO status headline order (highest priority first) — matches the backend headline priority and
 // the shed_status_chips contract group. Used to validate the ?sheds_status filter and render chips.
 const SHED_STATUS_ORDER: VaccinationShedStatus[] = ["overdue", "needs_review", "split", "due", "scheduled", "on_track"];
-// Capacity filter order (All / Within cap / Split / Needs review) — capacity_chips contract group.
+// Capacity filter order (All / Within cap / Split / Capacity action) — capacity_chips contract group.
 const CAPACITY_ORDER: VaccinationCapacityStatus[] = ["within_cap", "over_cap", "capacity_breach"];
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -217,7 +217,7 @@ export async function VaccinationShedBoard({
         ))}
       </div>
 
-      {/* Capacity filter (All / Within cap / Split / Needs review). Server-side via ?sheds_capacity. */}
+      {/* Capacity filter (All / Within cap / Split / Capacity action). Server-side via ?sheds_capacity. */}
       <div className="chipset" style={{ padding: "0 14px 10px" }}>
         <Link href={allCapacityHref} replace scroll={false} className={`chip${!capacityFilter ? " on" : ""}`}>
           {copy(pageContract, "label.all_capacity")}

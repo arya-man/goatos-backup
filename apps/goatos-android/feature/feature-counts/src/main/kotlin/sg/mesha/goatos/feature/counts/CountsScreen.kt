@@ -219,8 +219,8 @@ fun CountsScreen(
                 }
             }
 
-            // Paging handles prefetch itself (PagingConfig.prefetchDistance) — there is no manual
-            // "load more" button and no index arithmetic here. `itemKey` gives every row a stable
+            // Paging handles prefetch itself (PagingConfig.prefetchDistance) — continuation is
+            // viewport-owned and has no operator-facing pagination control. `itemKey` gives every row a stable
             // business identity so a re-page never reorders or duplicates a card.
             items(
                 count = rows.itemCount,

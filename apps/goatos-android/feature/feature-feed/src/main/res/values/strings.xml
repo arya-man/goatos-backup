@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
     <string name="feed_direction_caption">Generated feed sheet — quantity per shed and session</string>
     <string name="feed_packing_caption">Per-shed bags to pack for this feed day</string>
     <string name="feed_refresh_description">Refresh</string>

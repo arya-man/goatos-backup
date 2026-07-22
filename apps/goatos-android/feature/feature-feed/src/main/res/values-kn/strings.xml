@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
     <string name="feed_direction_caption">ರಚಿಸಿದ ಆಹಾರ ಹಾಳೆ — ಪ್ರತಿ ಶೆಡ್ ಮತ್ತು ಸೆಷನ್ ಪ್ರಮಾಣ</string>
     <string name="feed_packing_caption">ಈ ಆಹಾರ ದಿನಕ್ಕೆ ಪ್ರತಿ-ಶೆಡ್ ಚೀಲಗಳು</string>
     <string name="feed_refresh_description">ರಿಫ್ರೆಶ್</string>

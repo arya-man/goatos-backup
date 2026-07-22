@@ -172,7 +172,7 @@ func TestImpactPreviewReadsRollupNotLiveGoats(t *testing.T) {
 	if out.DailyCap != 100 { // default cap (no capacity config row for the test tenant)
 		t.Fatalf("daily_cap: want 100, got %d", out.DailyCap)
 	}
-	if out.EstimatedDays != 1 { // ceil(6/100)
+	if out.EstimatedDays != 1 { // ceil(3 animals/100)
 		t.Fatalf("estimated_days: want 1, got %d", out.EstimatedDays)
 	}
 	if out.SourceRevision != recomputed.SourceRevision {

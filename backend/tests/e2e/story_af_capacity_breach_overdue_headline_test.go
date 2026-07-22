@@ -15,7 +15,7 @@ import (
 func TestKernelStoryAF_CapacityBreachKeepsOverdueHeadline(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-af", "Capacity breach keeps Overdue as the shed headline",
-		"A shed with more open vaccination cells than the safe window can carry is still an overdue "+
+		"A shed with more eligible animals than the safe window can carry is still an overdue "+
 			"shed when any animal is late. The merged Status chip must show Overdue; the separate "+
 			"Capacity chip must still show Needs review so managers can find the capacity breach.")
 	defer story.Finish()
@@ -48,22 +48,22 @@ func TestKernelStoryAF_CapacityBreachKeepsOverdueHeadline(t *testing.T) {
 	fx.SeedGoat(GoatSpec{GoatID: goatC, ShedID: shedID, DOB: &dueDay})
 
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
-	story.Step("Generate six due vaccination cells",
+	story.Step("Generate six obligations across three animal slots",
 		"Three goats each need FMD and HS. With the tenant cap tightened to 2/day and a 1-day buffer, "+
-			"six open cells require three sessions, which exceeds the two-day safe window.")
+			"three animal slots require two sessions, which exceeds the two-day safe window.")
 	fmdRes, errF := gen.GenerateForVersion(fx.Ctx, fxTenant, versionFMD, dueDay)
 	hsRes, errH := gen.GenerateForVersion(fx.Ctx, fxTenant, versionHS, dueDay)
 	story.Assert("both generation passes succeeded", errF == nil && errH == nil, "errF=%v errH=%v", errF, errH)
-	story.Assert("six open cells generated", fmdRes.Generated+hsRes.Generated == 6, "fmd=%d hs=%d", fmdRes.Generated, hsRes.Generated)
+	story.Assert("six obligation rows generated", fmdRes.Generated+hsRes.Generated == 6, "fmd=%d hs=%d", fmdRes.Generated, hsRes.Generated)
 
 	lateAsOf := dueDay.AddDate(0, 0, 1)
 	story.Step("Read shed summary after the due day",
 		"On the next business day at least one animal is late. The capacity axis must remain "+
 			"capacity_breach, but the merged Status headline must be overdue.")
 	row := shedRow(fx, story, shedID, lateAsOf)
-	story.Assert("open_cells still counts all six due vaccination cells", row.OpenCells == 6, "open_cells=%d", row.OpenCells)
-	story.Assert("six cells at 2/day need three sessions", row.Sessions == 3, "sessions=%d", row.Sessions)
-	story.Assert("capacity axis is Needs review", row.Capacity == vaccexecdomain.CapacityBreach, "capacity=%q", row.Capacity)
+	story.Assert("open_cells counts three eligible animal slots", row.OpenCells == 3, "open_cells=%d", row.OpenCells)
+	story.Assert("three animals at 2/day need two sessions", row.Sessions == 2, "sessions=%d", row.Sessions)
+	story.Assert("capacity axis is Split", row.Capacity == vaccexecdomain.CapacityOverCap, "capacity=%q", row.Capacity)
 	story.Assert("merged shed status is Overdue", row.Status == vaccexecdomain.ShedStatusOverdue, "status=%q", row.Status)
 
 	story.Step("Filter axes stay independent",

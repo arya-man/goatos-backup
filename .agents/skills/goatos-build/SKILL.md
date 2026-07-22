@@ -16,6 +16,19 @@ CEO/CXO full access is represented by the `ceo_internal` grant role and `cxo`
 workforce hint. Product route/package names such as `/admin/*` or `admin-web`
 are not grant roles.
 
+Git identity rule: Goat OS commits must use a Mesha identity. Before committing
+or landing, verify `git config user.email` ends in `@mesha.sg`; never commit or
+push with Heva, Slice, gmail, or personal identities. `make git-identity-guard`
+and `make ci-local` enforce this.
+
+Leadership assistant coverage rule: every current or future
+leadership-relevant backend module, migration, OpenAPI contract, admin-web
+route, mobile workflow, reporting table, or domain event must update the
+leadership assistant read path in the same change. Update a Mesha read API
+mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
+document an explicit exclusion. `make leadership-assistant-coverage-guard`
+enforces this in local CI.
+
 ## Required First Step — 4-Layer Lookup
 
 Work layers in order. Stop when the question is answered. Never jump to files first.
@@ -93,6 +106,15 @@ Permanent scale and guard-authoring rules:
 - Vaccination seed/config changes must keep the committed fixture contract in
   sync. Matrix schedule rows require `route_site=subcutaneous` as protocol
   metadata only; do not add route/site back to vaccination SOP/operator forms.
+- ET+TT adult booster is mandatory schedule work: adult ET+TT dose 2 is due 21
+  days after adult ET+TT dose 1. Do not treat `ET+TT Booster` as kid-only,
+  optional, or as the 182-day repeat; the repeat starts only after ET+TT dose 2
+  / course completion.
+- Vaccination drive capacity is per available operator per business date and
+  counts unique animals, not doses or vaccine obligation rows. Persist generated
+  operator/shed/partition assignments set-wise; if the safe buffer would be
+  breached, mark the drive over-cap required and finish instead of silently
+  pushing animals beyond the latest-safe date.
 - The local vaccination trigger fixture has one reviewed synthetic primary RFID
   (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
   with the source fixture validator/runbooks when changed.
@@ -380,6 +402,11 @@ one product; this skill is the navigation layer.
   Do not copy or hand-roll kid/adult path logic in seeders; call the live
   vaccination schedule-path helper/config. Checklist:
   `docs/runbooks/vaccination-seed-source-date-contract.md`.
+- Vaccination proof grain is SOP-owned and must flow through backend config/API
+  into Android. Current source fixture contract is shed-level video proof:
+  one-to-five shed videos (camera or gallery) plus per-goat scan timestamps.
+  Do not hardcode per-goat video proof in seeders, Android, verifier bridge, or
+  assistant copy.
 - Local vaccination proof after a seed/reseed/import/change of goat shed, goat
   health state, goat lifecycle, source history, protocol rules, or HRMS
   ownership must run the same closeout chain: generation, sweeper drive

@@ -48,6 +48,7 @@ interface ExecutionRepository {
         workState: String? = null,
         asOf: String? = null,
         dueBefore: String? = null,
+        openOnly: Boolean? = null,
         limit: Int? = null,
         cursor: String? = null,
     ): VaccinationExecutionResponseDto
@@ -59,6 +60,7 @@ interface ExecutionRepository {
         workState: String? = null,
         asOf: String? = null,
         dueBefore: String? = null,
+        openOnly: Boolean? = null,
         limit: Int? = null,
     ): Flow<Resource<VaccinationExecutionResponseDto>>
 
@@ -69,6 +71,7 @@ interface ExecutionRepository {
         workState: String? = null,
         asOf: String? = null,
         dueBefore: String? = null,
+        openOnly: Boolean? = null,
         limit: Int? = null,
     ): Result<Unit>
 
@@ -79,6 +82,7 @@ interface ExecutionRepository {
         workState: String? = null,
         asOf: String? = null,
         dueBefore: String? = null,
+        openOnly: Boolean? = null,
         limit: Int? = null,
     ): Result<Unit>
 
@@ -169,19 +173,21 @@ class DefaultExecutionRepository(
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
         cursor: String?,
     ): VaccinationExecutionResponseDto =
-        api.listVaccinationExecution(parkId, workState, asOf, dueBefore, limit, cursor)
+        api.listVaccinationExecution(parkId, workState, asOf, dueBefore, openOnly, limit, cursor)
 
     override fun observeRows(
         parkId: String?,
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
     ): Flow<Resource<VaccinationExecutionResponseDto>> {
-        val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
+        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), limit?.toString())
         return rowsDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
@@ -192,10 +198,11 @@ class DefaultExecutionRepository(
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
     ): Result<Unit> = runCatching {
-        val dto = rows(parkId, workState, asOf, dueBefore, limit, cursor = null)
-        val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
+        val dto = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor = null)
+        val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), limit?.toString())
         rowsDao.upsert(ExecutionRowsCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         rowsDao.enforceCacheBounds()
     }
@@ -206,10 +213,11 @@ class DefaultExecutionRepository(
         workState: String?,
         asOf: String?,
         dueBefore: String?,
+        openOnly: Boolean?,
         limit: Int?,
     ): Result<Unit> = runCatching {
         rowsAppendMutex.withLock {
-            val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
+            val key = cacheKey(parkId, workState, asOf, dueBefore, openOnly?.toString(), limit?.toString())
             val currentEntity = rowsDao.get(key)
             val current = readCachedJson<VaccinationExecutionResponseDto>(
                 json = json,
@@ -222,7 +230,7 @@ class DefaultExecutionRepository(
             if (current.nextCursor != cursor) {
                 throw ExecutionRowsCursorException("execution cursor is stale or belongs to another filter")
             }
-            val page = rows(parkId, workState, asOf, dueBefore, limit, cursor)
+            val page = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor)
             if (page.nextCursor == cursor) {
                 throw ExecutionRowsCursorException("execution backend returned a non-advancing cursor")
             }
@@ -399,6 +407,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     normalizedSecondaryTag = secondaryTag?.let(::canonicalRosterTag)?.takeIf { it.isNotBlank() },
     vaccineLabel = vaccineLabel,
     status = status,
+    scannedAtMs = scannedAt?.let(::parseServerInstantMs),
     obligationId = obligationId,
     seq = seq,
     updatedAt = now,
@@ -408,6 +417,9 @@ private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
     cacheKey(shedId, taskId ?: "shed-wide")
 
 internal fun canonicalRosterTag(tag: String): String = tag.filter(Char::isLetterOrDigit).lowercase()
+
+private fun parseServerInstantMs(raw: String): Long? =
+    runCatching { java.time.Instant.parse(raw).toEpochMilli() }.getOrNull()
 
 class ScanRosterCursorException(message: String) : IllegalStateException(message)
 class ExecutionRowsCursorException(message: String) : IllegalStateException(message)

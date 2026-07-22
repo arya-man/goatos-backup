@@ -21,9 +21,12 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Backend: auth token endpoint (Firebase Auth adapter) → then mobile bootstrap.
 - States: idle, code-sent, verifying, error, version-gate-block.
 
-### Calendar  (`v-calendar`: week / month / history)  — **universal landing, all roles**
-- Module: `feature-calendar`. The Calendar is where **every** role lands after
-  login (Manju, 2026-07-08). Segmented week/month/history.
+### Calendar  (`v-calendar`: week / month / history)  — leadership/planning lens
+- Module: `feature-calendar`. Calendar is the planning/review lens for
+  CEO/CXO, directors, park heads, and other leadership/planning principals.
+  A pure vaccination operator must not land here and must not receive this nav
+  item from the vaccination module; their home is the shed-first vaccination
+  queue below. Segmented week/month/history stays available for leadership.
   - **Week**: today's entry = "Today · N sheds · M due" (counts from the backend
     calendar/sheds read — the app does not re-derive which animals are due) → the
     **backend-provided drill target** (today: operator → execute; leadership →
@@ -34,29 +37,34 @@ Legend — roles: **O** operator · **PM** parkmgr · **D** director · **C** ce
 - Backend: `GET calendar?scope_token=<token>&range` (Asia/Kolkata day buckets); day/record reads.
 - CTA label is **backend-provided** per principal (today: operator "Open drive";
   leadership "View drive status") — not a client role switch.
-- Note: which calendar segments are visible comes from bootstrap
-  `presentationConfig` visible-nav (the mock hides month/history for operators); the
-  app renders the backend-marked segments, never a `role==operator` gate.
+- Note: which calendar surfaces are reachable comes from backend bootstrap nav.
+  Do not add a client `role == operator` branch to hide week/month/history; the
+  backend must simply not expose `/calendar` to a vaccination-only operator.
 
 ## Drill from the calendar card (backend-provided target)
 
-### Today's sheds / Drive status  (`v-sheds`)  — backend-returned lens + scope token (today's examples: O execute own-park; PM read-only own-park; D/C read-only all-parks)
+### Vaccination sheds / Drive status  (`v-sheds`)  — backend-returned lens + scope token (operator execute own-park; PM/director/CEO read-only follow-up when drilling)
 - Module: `feature-sheds`. Same route, **backend-scoped lens**. Header: date · window ·
   shed count · due total. Day progress bar (from backend totals). **Shed cards**, each: cohort · in-shed,
   status pill, **vaccine-group chips (mix-and-match)**, in-shed/due/done nums,
   progress. Roster-change cards + kernel info box.
-  - **Operator (execute)**: eyebrow "Vaccination · CBE", title "Today's sheds",
-    action per shed (Start / Resume / View records — **local execution UX** from the
-    operator's own scan progress; server revalidates on submit).
+  - **Vaccination operator (execute)**: this is the landing screen for a
+    vaccination-only operator. It is a shed-first, paginated 7-day work queue:
+    query from `as_of=now` through `due_before=now+7days`, show today as the
+    landing anchor, display each shed's planned date, and page at the standard
+    mobile list size (~20 rows). No drive-card calendar, no month view, no
+    history tab. Action per shed (Start / Resume / View records) comes from the
+    backend execution row and local scan progress; server revalidates on submit.
   - **Leadership (read-only follow-up)**: eyebrow scope label ("All parks · 2" for
     director/ceo, "CBE" for parkmgr), title "Drive status". No Start/scan. Per-shed
     status colour: **done = green, in-progress = amber, delayed / not-started =
     red** (left-border + "Delayed · chase team" / "Not started — chase the team ›").
     Card → shed record (a delayed shed shows "Delayed · not started", not a fake
     proof window).
-- Backend: `GET sheds?scope_token=<token>` → shed_day/shed_group/roster_animal (cached
-  in Room) + per-drive follow-up status. Scope = own park (operator/parkmgr) or all
-  parks (director/ceo). Shed-first: a shed can have several due vaccine groups.
+- Backend: `GET /app/vaccination/execution?as_of=<now>&due_before=<now+7d>&limit=20`
+  → execution shed rows cached in Room. Scope = own park for operator/park manager
+  or all parks for director/CEO, per backend grants. Shed-first: a shed can have
+  several due vaccine groups.
 - States: ready / in-progress / done per shed; leadership rows are read-only
   because the backend returned no Start/scan action for this principal (absence of
   the action in the payload — not a client `role==` check), with the red-on-delay

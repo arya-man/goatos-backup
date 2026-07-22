@@ -72,6 +72,13 @@ non-core rows blank).
 The latest source doc includes the operating decisions below. These are part of
 the rule source and must stay aligned with Config presets and kernel behavior.
 
+> **Do not miss this ET+TT adult booster rule.** ET+TT is a two-dose course for
+> adults as well as kids. Adult ET+TT dose 2 / booster is due 21 days after
+> adult ET+TT dose 1, with the normal scheduling buffer applied by the planner.
+> Do not read the adult sheet's `ET+TT Booster` column as kid-only, optional, or
+> as the 182-day revaccination. The 182-day ET+TT repeat starts only after dose
+> 2/course completion.
+
 | Question | Source answer | V1 implication |
 |---|---|---|
 | Mother not vaccinated / unknown mother status | Source DOCX contains an early branch. | **Ignore it in GoatOS.** Never ask this as a rule/config/import question. Always use the approved standard schedule. |

@@ -165,11 +165,13 @@ docs/runbooks/staging-vaccination-clean-slate.md
   business rule. It means the planner may split work up to 7 days after the first
   due date before flagging `Needs review`; it does not replace vaccine medical
   windows or cross-vaccine spacing rules.
-- Capacity counts vaccination administrations, not animals. One goat receiving
-  FMD + HS counts as 2 vaccination cells. Medical due windows, cross-vaccine
-  spacing, and max buffer days override the cap when needed; if the cap cannot
-  fit all due work inside the safe window, the planner must mark a capacity
-  exception.
+- Capacity counts eligible animals per available operator, not vaccine doses or
+  obligation cells. One goat receiving FMD + HS consumes one operator animal
+  slot even though it still creates separate vaccine obligation/completion rows.
+  Medical due windows, cross-vaccine spacing, and max buffer days override the
+  cap when needed; if available operator capacity cannot fit all due work inside
+  the safe window, the planner must mark a capacity exception / over-cap
+  required.
 - Future scheduling from seeded history must run through the same constraints as
   normal runtime generation: active matrix scope, species/breed/sex/stage,
   lifecycle/death/sold state, current park/shed, sick/ICU/quarantine defer
@@ -250,8 +252,9 @@ this smoke/e2e gate with the exact staging seed source:
 - Date range controls stay hidden until backend-owned range semantics exist.
 - Config UI exposes the daily capacity fields inside the vaccination matrix/rule
   config flow.
-- Config UI has an info popover explaining that the cap counts vaccination cells,
-  not animals, and that FMD + HS on one goat counts as 2 vaccinations.
+- Config UI has an info popover explaining that the cap counts animals per
+  operator per day, and that FMD + HS on one goat still consumes one operator
+  animal slot.
 - Draft publish impact preview shows the planned session split before publish.
 - Local E2E proves:
   - FMD + HS combo in one shed work session;

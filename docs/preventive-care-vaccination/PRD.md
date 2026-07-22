@@ -202,13 +202,25 @@ scope override was activated.
 ### 4.2 Herd animal enters → obligations auto-generate
 Birth report (`origin_type=birth`) or procurement (`origin_type=procured`) creates the herd animal. The engine reads published vaccination rules matching the animal's `species × breed × sex × shed-tag/stage × age × dose sequence` and **materializes `obligation_instances`** (one per due dose), `scheduled_date` computed from the trigger.
 
-### 4.3 Due → park drive plan appears (the work unit)
-The sweeper/planner batches due per-animal obligations into an optimized
-**park-level vaccination drive plan** with shed/tag breakdowns, then assigns the
-execution work through `vaccination.execute`. The operational goal is to give
-the doctors the maximum safe animal count for one park visit, not to create one
-tiny drive per shed. The plan still carries per-shed/tag counts and animal lists
-for proof and execution.
+### 4.3 Due → operator drive plan appears (the work unit)
+The sweeper/planner batches due per-animal obligations into compatible drive
+work, then the operator-drive planner assigns that work by date, available
+operator, physical shed, partition, animal count, and vaccine bundle. The
+medical obligation kernel remains unchanged: kid/adult rules, boosters, repeat
+cycles, buffers, contraindications, and animal-state deferrals decide what is
+due. The drive planning layer decides who can handle each due animal and when.
+
+Operator capacity is consumed by unique animals handled per operator per
+business date, not by vaccine doses or obligation rows. One animal receiving a
+same-day bundle still consumes one operator animal slot. If available operator
+capacity is insufficient, remaining animals spill to the next date and operator
+availability is recomputed from timetable, leave/day-off, role, and scope.
+
+The operational goal is to give the doctors the maximum safe animal count for
+one park visit while preserving field execution clarity. The plan carries
+physical shed, partition, species, vaccine-bundle, and animal lists for proof
+and execution. Detailed planner rules live in
+[operator-drive-planner-PRD.md](./operator-drive-planner-PRD.md).
 
 Drive grouping is stage-aware:
 - Kid shed/tag groups may combine goat and sheep kids in the same park drive

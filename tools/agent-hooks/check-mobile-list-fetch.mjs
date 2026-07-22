@@ -2,8 +2,9 @@
 
 // check-mobile-list-fetch.mjs — blocks mobile "fetch a huge list / aggregate on the client"
 // anti-patterns. A phone viewport holds ~10 items; a screen must never pull hundreds of rows
-// from Room/backend, and a calendar overview must render from tiny per-day markers, not by
-// parsing every event. See docs/decisions/mobile-data-fetch-anti-patterns.md.
+// from Room/backend, must not expose manual "Load more" work-list CTAs, and a calendar overview
+// must render from tiny per-day markers, not by parsing every event.
+// See docs/decisions/mobile-data-fetch-anti-patterns.md.
 //
 // Modes:
 //   (default)     diff-scoped: scan only mobile .kt changed vs $MOBILE_GUARD_BASE (or origin/main).
@@ -131,6 +132,20 @@ export function findingsForSource(source) {
     }
   });
 
+  // 7) Mobile work queues must auto-page from LazyListState/viewport visibility. A visible
+  // "Load more" button makes operators manage pagination instead of work, and it commonly leaks
+  // when the first backend page contains rows filtered out by the selected day/status.
+  lines.forEach((text, i) => {
+    if (/mobile-guard:ignore/.test(text)) return;
+    if (/(?:Load\s+more|load\s+more|(?:^|[^A-Za-z0-9])load_more\b|(?:^|[^A-Za-z0-9])loading_more\b)/i.test(text)) {
+      findings.push({
+        line: i + 1,
+        rule: "manual-load-more-mobile-ui",
+        message: "visible/manual 'Load more' mobile UI is banned for work lists; keep cursor/Room pagination but trigger next page from LazyListState near the viewport end",
+      });
+    }
+  });
+
   return findings;
 }
 
@@ -175,6 +190,8 @@ function selfTest() {
     ["val row = state.value.roster.firstOrNull { it.matchesTag(target) } // R50-007 anti-pattern", "page-scoped-entity-matching"],
     ["val match = state.value.items.find { it.contains(query) }", "page-scoped-entity-matching"],
     ["val merged = page.copy(rows = (current.rows + page.rows).distinctBy { it.id })", "unbounded-json-accumulation"],
+    ["Text(\"Load more sheds\")", "manual-load-more-mobile-ui"],
+    ["val label = stringResource(R.string.scan_load_more)", "manual-load-more-mobile-ui"],
   ];
   for (const [src, rule] of bad) {
     const f = findingsForSource(src);
@@ -190,6 +207,8 @@ function selfTest() {
     "@Query(\"SELECT * FROM calendar_cache WHERE cacheKey = :key\")",
     "val row = repo.findByTag(shedId, tag) // R50-007 correct: bounded Room query",
     "val merged = mergeScanRosterPage(current, page) // Uses bounded per-entity Room rows",
+    "snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }",
+    "CircularProgressIndicator(modifier = Modifier.size(18.dp))",
   ];
   for (const src of good) {
     const f = findingsForSource(src);
@@ -239,4 +258,4 @@ if (findings.length) {
   console.error("If a case is genuinely bounded, append `mobile-guard:ignore: <reason>` on the line.");
   process.exit(1);
 }
-console.log(`mobile-list-fetch: ok (${files.length} mobile file(s) scanned; no over-fetch / client-aggregation)`);
+console.log(`mobile-list-fetch: ok (${files.length} mobile file(s) scanned; no over-fetch / client-aggregation / manual load-more UI)`);

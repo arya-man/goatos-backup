@@ -1,0 +1,261 @@
+# Starter MCP Toolbox config for the CEO-only Mesha assistant.
+#
+# This file is a production-intent template, not a deployed secret. Keep secrets
+# in Secret Manager / runtime env and mount this file into the Toolbox service.
+#
+# Required env:
+#   MESHA_MCP_DB_USER
+#   MESHA_MCP_DB_PASSWORD
+#   MESHA_MCP_TENANT_ID
+#
+# Recommended Cloud Run args:
+#   --config=/app/tools.yaml
+#   --address=0.0.0.0
+#   --port=8080
+#   --allowed-origins=https://stg.dashboard.mesha.sg,https://dashboard.mesha.sg
+#   --allowed-hosts=<toolbox-cloud-run-host>
+---
+kind: source
+name: mesha-cloudsql-readonly
+type: cloud-sql-postgres
+project: ${MESHA_GCP_PROJECT}
+region: ${MESHA_GCP_REGION}
+instance: ${MESHA_CLOUDSQL_INSTANCE}
+database: ${MESHA_DATABASE_NAME}
+user: ${MESHA_MCP_DB_USER}
+password: ${MESHA_MCP_DB_PASSWORD}
+---
+kind: tool
+name: mesha_count_by_scope
+type: postgres-sql
+source: mesha-cloudsql-readonly
+description: |
+  Answer CEO questions about current animal counts by company, park, shed, stage,
+  sex, breed, or lifecycle status. Return aggregates only. Do not list individual
+  animals unless a separate approved detail tool is added.
+statement: |
+  SELECT
+    park_label,
+    shed_label,
+    management_stage,
+    lifecycle_status,
+    COUNT(*)::bigint AS animal_count
+  FROM ceo_ai.animal_current_scope
+  WHERE tenant_id = $1::uuid
+    AND ($2::text IS NULL OR park_label ILIKE '%' || $2 || '%')
+    AND ($3::text IS NULL OR shed_label ILIKE '%' || $3 || '%')
+    AND ($4::text IS NULL OR management_stage = $4)
+    AND ($5::text IS NULL OR lifecycle_status = $5)
+  GROUP BY park_label, shed_label, management_stage, lifecycle_status
+  ORDER BY animal_count DESC, park_label, shed_label
+  LIMIT LEAST($6::int, 50)
+parameters:
+  - name: tenant_id
+    type: string
+    description: Mesha tenant id. The Mesha backend must pass this from server-side session context, not from the model.
+  - name: park_label
+    type: string
+    description: Optional park name or partial park name from the CEO question.
+    required: false
+  - name: shed_label
+    type: string
+    description: Optional shed name or partial shed name from the CEO question.
+    required: false
+  - name: management_stage
+    type: string
+    description: Optional exact management stage when the question names a stage.
+    required: false
+  - name: lifecycle_status
+    type: string
+    description: Optional exact lifecycle status. Usually active, dead, sold, transferred, or missing.
+    required: false
+  - name: limit
+    type: integer
+    description: Maximum grouped rows to return. Use 10 unless the user explicitly asks for more.
+    default: 10
+---
+kind: tool
+name: mesha_vaccination_due_summary
+type: postgres-sql
+source: mesha-cloudsql-readonly
+description: |
+  Answer CEO questions about vaccination due, overdue, done, capacity, and next
+  due by park/shed. Use this for Preventive Care vaccination status.
+statement: |
+  SELECT
+    park_label,
+    shed_label,
+    animals,
+    due,
+    done,
+    planned_sessions,
+    next_due_date,
+    status
+  FROM ceo_ai.vaccination_shed_status
+  WHERE tenant_id = $1::uuid
+    AND ($2::date IS NULL OR next_due_date <= $2)
+    AND ($3::text IS NULL OR status = $3)
+    AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
+    AND ($5::text IS NULL OR shed_label ILIKE '%' || $5 || '%')
+  ORDER BY
+    CASE status WHEN 'overdue' THEN 0 WHEN 'due' THEN 1 ELSE 2 END,
+    next_due_date NULLS LAST,
+    due DESC,
+    park_label,
+    shed_label
+  LIMIT LEAST($6::int, 50)
+parameters:
+  - name: tenant_id
+    type: string
+    description: Mesha tenant id from server-side session context.
+  - name: due_on_or_before
+    type: string
+    description: Optional ISO date; use today for "today due", current date for overdue/due questions.
+    required: false
+  - name: status
+    type: string
+    description: Optional exact status such as overdue, due, needs_review, split, or no_work_due.
+    required: false
+  - name: park_label
+    type: string
+    description: Optional park name or partial park name.
+    required: false
+  - name: shed_label
+    type: string
+    description: Optional shed name or partial shed name.
+    required: false
+  - name: limit
+    type: integer
+    description: Maximum shed rows to return.
+    default: 10
+---
+kind: tool
+name: mesha_feed_direction_summary
+type: postgres-sql
+source: mesha-cloudsql-readonly
+description: |
+  Answer CEO questions about issued feed directions, feed day, workflow, amended
+  rows, blocked ration gaps, total kg, and shed-level feed status.
+statement: |
+  SELECT
+    feed_day,
+    park_label,
+    shed_label,
+    workflow,
+    COUNT(*)::bigint AS feed_cells,
+    COUNT(*) FILTER (WHERE blocked_reason IS NOT NULL)::bigint AS blocked_cells,
+    COALESCE(SUM(quantity_kg), 0)::numeric(12, 3) AS total_quantity_kg,
+    BOOL_OR(amended) AS has_amendment
+  FROM ceo_ai.feed_direction_current
+  WHERE tenant_id = $1::uuid
+    AND feed_day = $2::date
+    AND ($3::text IS NULL OR park_label ILIKE '%' || $3 || '%')
+    AND ($4::text IS NULL OR shed_label ILIKE '%' || $4 || '%')
+    AND ($5::text IS NULL OR workflow = $5)
+  GROUP BY feed_day, park_label, shed_label, workflow
+  ORDER BY blocked_cells DESC, total_quantity_kg DESC, park_label, shed_label, workflow
+  LIMIT LEAST($6::int, 50)
+parameters:
+  - name: tenant_id
+    type: string
+    description: Mesha tenant id from server-side session context.
+  - name: feed_day
+    type: string
+    description: ISO date for the feed direction day. Use today unless the user names another date.
+  - name: park_label
+    type: string
+    description: Optional park name or partial park name.
+    required: false
+  - name: shed_label
+    type: string
+    description: Optional shed name or partial shed name.
+    required: false
+  - name: workflow
+    type: string
+    description: Optional workflow, usually normal or experiment.
+    required: false
+  - name: limit
+    type: integer
+    description: Maximum grouped rows to return.
+    default: 10
+---
+kind: tool
+name: mesha_ops_exceptions
+type: postgres-sql
+source: mesha-cloudsql-readonly
+description: |
+  Answer CEO questions about operational exceptions, stalled work, pending
+  approvals, failed jobs, DLQ, and unresolved process-integrity items.
+statement: |
+  SELECT
+    area,
+    severity,
+    status,
+    park_label,
+    shed_label,
+    title,
+    opened_at,
+    owner_label
+  FROM ceo_ai.ops_exception_queue
+  WHERE tenant_id = $1::uuid
+    AND ($2::text IS NULL OR area = $2)
+    AND ($3::text IS NULL OR severity = $3)
+    AND ($4::text IS NULL OR status = $4)
+    AND ($5::text IS NULL OR park_label ILIKE '%' || $5 || '%')
+  ORDER BY
+    CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+    opened_at ASC
+  LIMIT LEAST($6::int, 50)
+parameters:
+  - name: tenant_id
+    type: string
+    description: Mesha tenant id from server-side session context.
+  - name: area
+    type: string
+    description: Optional area such as vaccination, counts, feed, procurement, inventory, sop, sync, or dlq.
+    required: false
+  - name: severity
+    type: string
+    description: Optional severity such as critical, high, medium, or low.
+    required: false
+  - name: status
+    type: string
+    description: Optional status such as open, pending, breached, or needs_review.
+    required: false
+  - name: park_label
+    type: string
+    description: Optional park name or partial park name.
+    required: false
+  - name: limit
+    type: integer
+    description: Maximum exception rows to return.
+    default: 20
+---
+kind: tool
+name: mesha_readonly_sql
+type: postgres-sql
+source: mesha-cloudsql-readonly
+description: |
+  Last-resort CEO analytics query over the ceo_ai schema only. Use this only
+  when no specific Mesha tool fits. The Mesha backend must validate generated SQL
+  before invoking this tool: SELECT only, one statement, ceo_ai schema only,
+  no comments, no semicolons, no mutation keywords, mandatory LIMIT <= 100.
+statement: |
+  SELECT *
+  FROM ceo_ai.run_readonly_sql($1::text, $2::uuid)
+parameters:
+  - name: sql
+    type: string
+    description: Validated SELECT statement over ceo_ai.* views only, with LIMIT <= 100.
+  - name: tenant_id
+    type: string
+    description: Mesha tenant id from server-side session context.
+---
+kind: toolset
+name: mesha_ceo_toolset
+tools:
+  - mesha_count_by_scope
+  - mesha_vaccination_due_summary
+  - mesha_feed_direction_summary
+  - mesha_ops_exceptions
+  - mesha_readonly_sql

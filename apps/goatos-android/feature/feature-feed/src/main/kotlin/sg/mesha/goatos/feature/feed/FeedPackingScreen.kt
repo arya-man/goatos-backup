@@ -1,5 +1,8 @@
 package sg.mesha.goatos.feature.feed
 
+// telemetry:exempt pure stateless renderer; FeedPackingViewModel (in :app) owns the feed_*
+// AnalyticsEvents + CrashReporter wiring for every read refresh and filter change.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable

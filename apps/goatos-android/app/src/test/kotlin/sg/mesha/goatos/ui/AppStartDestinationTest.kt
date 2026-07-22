@@ -8,13 +8,27 @@ import sg.mesha.goatos.core.model.nav.NavState
 
 class AppStartDestinationTest {
     @Test
-    fun `calendar is landing when backend exposes it`() {
+    fun `first backend visible root is landing even when calendar is also exposed`() {
         assertEquals(
-            Routes.CALENDAR,
+            Routes.VACCINATION,
             startDestinationFor(
                 navState(
                     NavItem("vaccination", "Drives", Routes.VACCINATION),
                     NavItem("calendar", "Calendar", Routes.CALENDAR),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `vaccination operator starts on shed queue when backend does not expose calendar`() {
+        assertEquals(
+            Routes.VACCINATION,
+            startDestinationFor(
+                navState(
+                    NavItem("vaccination", "Drives", Routes.VACCINATION),
+                    NavItem("alerts", "Alerts", Routes.ALERTS),
+                    NavItem("you", "You", Routes.YOU),
                 ),
             ),
         )

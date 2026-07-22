@@ -46,6 +46,12 @@ CEO/CXO only: grants use `ceo_internal`, workforce/member hints use `cxo`, and
 a parallel admin person role must not be created from source sheets or local
 provisioning.
 
+Vaccination drive assignments are not a seventh source file. They are derived
+after validation from the accepted animal/vaccination rows, shed/partition
+placement, active vaccination rules, and HRMS timetable/leave availability. A
+source bundle that tries to provide manual operator assignments must be rejected
+or transformed into normal timetable/role facts before any database write.
+
 ## Commands
 
 Normalize spreadsheet tabs into the six canonical files, then run:
@@ -142,6 +148,10 @@ transform may repair surrounding mock metadata but must never change a dated,
   model uses. The committed fixture uses synthetic names.
 - Keep `route_site=subcutaneous` as vaccination matrix protocol metadata only.
   Do not add it back to the vaccination SOP/operator form.
+- Keep proof grain in the manifest aligned with the published SOP. Current
+  vaccination fixture contract is `proof_mode=shed_level_video`: every goat scan
+  still carries its own timestamp, but video proof is one-to-five shed-level
+  clips with both in-app camera and gallery picker allowed by backend policy.
 
 These repairs are fixture-specific and recorded in `corrections.json`. They do
 not authorize production ingestion to rewrite business history. Production

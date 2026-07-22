@@ -124,8 +124,8 @@ func (s *Service) SubmissionCompletions(ctx context.Context, tenantID, submissio
 // ShedCompletionSummary returns the read-only shed-completion/submit summary for a vaccination
 // task: shed completion is an acknowledgement, not a manual form, so the summary is computed
 // entirely from scan + proof + obligation state, never from submitted answers.
-func (s *Service) ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error) {
-	return s.repo.ShedCompletionSummary(ctx, tenantID, taskID)
+func (s *Service) ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error) {
+	return s.repo.ShedCompletionSummary(ctx, tenantID, taskID, shedID)
 }
 
 // LastAccepted returns a goat's most recent accepted administration (Goat Passport / SM-7 basis).

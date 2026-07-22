@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 # id -> (label, route path, screenshot_name)
 ROUTES: dict[str, tuple[str, str, str]] = {
     "CALENDAR": ("Calendar", "/calendar", "calendar"),
+    "CALENDAR_DAY": ("Calendar day", "/calendarDay?dateKey={dateKey}", "calendar"),
+    "CALENDAR_DRIVE": ("Calendar drive", "/calendar/drive", "sheds"),
     "VACCINATION": ("Sheds", "/vaccination", "sheds"),
     "SCAN": ("Scan", "/scan?shedId={shedId}", "scan"),
     "SUBMIT": ("Submit", "/submit", "submit"),
@@ -37,14 +39,26 @@ ROUTES: dict[str, tuple[str, str, str]] = {
     "YOU": ("Settings", "you", "you"),
     "RFID": ("RFID", "/rfid", "rfid"),
     "ALERTS": ("Alerts", "/alerts", "alerts"),
+    "TIMETABLE": ("Timetable", "/timetable", "timetable"),
+    "COUNTS": ("Counts", "/counts", "record"),
+    "COUNTS_BIRTH_DEATH": ("Birth/Death", "/counts/birth-death", "record"),
+    "COUNTS_SHIFTING": ("Shifting", "/counts/shifting", "record"),
+    "COUNTS_APPROVALS": ("Approvals", "/counts/approvals", "record"),
+    "VERIFY": ("Verify", "/verify", "record"),
+    "VERIFY_DETAIL": ("Verify detail", "/verify/item?itemId={id}", "record"),
 }
 
-START = "CALENDAR"
+START = "VACCINATION"
 
 # (from, to, label) — every navController.navigate(...) edge. "back" is popBackStack().
 EDGES: list[tuple[str, str, str]] = [
-    ("CALENDAR", "RECORD", "tap history/week item → history target is a past record"),
-    ("CALENDAR", "VACCINATION", "tap week item (no record target) or tap a day"),
+    ("CALENDAR", "CALENDAR_DAY", "tap month day"),
+    ("CALENDAR", "CALENDAR_DRIVE", "tap planned drive"),
+    ("CALENDAR", "RECORD", "tap history/week item → past record"),
+    ("CALENDAR_DAY", "CALENDAR_DRIVE", "tap planned drive"),
+    ("CALENDAR_DAY", "RECORD", "tap completed history"),
+    ("CALENDAR_DRIVE", "SCAN", "execute open drive"),
+    ("CALENDAR_DRIVE", "RECORD", "open read-only record"),
     ("VACCINATION", "RECORD", "tap a DONE shed → read-only record"),
     ("VACCINATION", "SCAN", "tap an open shed → execute (Scan → Submit)"),
     ("SCAN", "SUBMIT", "Submit"),
@@ -58,6 +72,68 @@ EDGES: list[tuple[str, str, str]] = [
     ("RECORD", "back", "Close"),
     ("YOU", "RFID", "Pair RFID"),
     ("YOU", "ALERTS", "Toggle notifications"),
+    ("COUNTS", "COUNTS_BIRTH_DEATH", "Birth/Death tab"),
+    ("COUNTS", "COUNTS_SHIFTING", "Shifting tab"),
+    ("COUNTS", "COUNTS_APPROVALS", "Approvals tab"),
+    ("COUNTS_BIRTH_DEATH", "back", "Back"),
+    ("COUNTS_SHIFTING", "back", "Back"),
+    ("COUNTS_APPROVALS", "back", "Back"),
+    ("VERIFY", "VERIFY_DETAIL", "tap verification item"),
+    ("VERIFY_DETAIL", "back", "Back"),
+]
+
+# Role-wise backend bootstrap contract rendered by RoleChromeScreenshotTest.
+# This is intentionally plain product language, not internal grant strings.
+ROLE_NAV: list[dict[str, object]] = [
+    {
+        "role": "CEO / CXO",
+        "chrome": "Expanded drawer + module switcher",
+        "landing": "Overview",
+        "roots": ["Overview", "Calendar", "Vaccination", "Counts", "Alerts", "You"],
+        "notes": "Full leadership visibility. Uses human module labels; no backend grant/code strings are shown.",
+    },
+    {
+        "role": "Director",
+        "chrome": "Expanded drawer + module switcher",
+        "landing": "Overview",
+        "roots": ["Overview", "Calendar", "Vaccination", "Counts", "Timetable", "Alerts", "You"],
+        "notes": "Cross-park operational leadership; Vaccination remains drillable without changing operator flow.",
+    },
+    {
+        "role": "Park Head",
+        "chrome": "Expanded drawer + module switcher",
+        "landing": "Overview",
+        "roots": ["Overview", "Calendar", "Vaccination", "Counts", "Alerts", "You"],
+        "notes": "Park-scoped leadership lens over the same backend-owned modules.",
+    },
+    {
+        "role": "Park Manager",
+        "chrome": "Minimal bottom bar",
+        "landing": "Vaccination",
+        "roots": ["Vaccination", "Alerts", "You"],
+        "notes": "Single-vertical vaccination manager. Lands shed-first on the rolling 7-day execution queue.",
+    },
+    {
+        "role": "Vaccination Operator",
+        "chrome": "Minimal bottom bar",
+        "landing": "Vaccination",
+        "roots": ["Vaccination", "Alerts", "You"],
+        "notes": "No planning Calendar/month/history. Root is the current-day shed work inside today + 6 days.",
+    },
+    {
+        "role": "Verifier",
+        "chrome": "Minimal bottom bar",
+        "landing": "Verify",
+        "roots": ["Verify", "Alerts", "You"],
+        "notes": "Review queue only; detail route is a child screen with Back.",
+    },
+    {
+        "role": "Counts-capable field role",
+        "chrome": "Backend-selected",
+        "landing": "Counts or assigned module",
+        "roots": ["Counts", "Birth/Death", "Shifting", "Approvals when granted", "Alerts", "You"],
+        "notes": "Counts routes are exact backend nav items, not prefix-derived client guesses.",
+    },
 ]
 
 SNAPSHOTS_DIR = Path("apps/goatos-android/app/src/test/snapshots/images")
@@ -133,15 +209,26 @@ HTML_TEMPLATE = """<!doctype html>
   }}
   a {{ color: #8ad457; text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
+  .role-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 22px; }}
+  .role-card {{ background: #0d1310; border: 1px solid #232b26; border-radius: 14px; padding: 14px 16px; }}
+  .role-card h2 {{ margin: 0 0 8px; font-size: 15px; color: #8ad457; }}
+  .role-card p {{ margin: 4px 0; color: #8aa196; font-size: 12px; line-height: 1.45; }}
+  .role-card .roots {{ color: #e7ede9; }}
 </style>
 </head>
 <body>
   <h1>Goat OS Android — navigation graph</h1>
   <p class="meta">Generated {generated_at} from AppNavHost.kt (routes + navigate() edges, with
-  Paparazzi screenshot thumbnails). Solid borders are navigable routes. Solid green border indicates start destination (Calendar).
+  Paparazzi screenshot thumbnails). Solid borders are navigable routes. Solid green border indicates the default operator execution root (Vaccination).
   Each node shows the screen name and its route path. Regenerate with <code>python3 tools/android/generate-nav-graph.py</code> after routing changes.</p>
+  <h1>Role-wise navigation contract</h1>
+  <p class="meta">Backend bootstrap decides roots/modules by role. Android renders that contract; it does not invent extra tabs locally.</p>
+  <div class="role-grid">
+{role_cards}
+  </div>
+  <h1 style="margin-top:32px">Route graph</h1>
   <div class="legend">
-    <span><span class="dot" style="background:#8ad457"></span>Start (Calendar)</span>
+    <span><span class="dot" style="background:#8ad457"></span>Default root ({start_label})</span>
     <span><span class="dot" style="background:#232b26;border:1px dashed #3a453e"></span>Back / pop</span>
   </div>
   <div class="graph-wrap" id="graph">
@@ -152,12 +239,13 @@ HTML_TEMPLATE = """<!doctype html>
   <script>
     const routes = {routes_json};
     const edges = {edges_json};
+    const startRoute = {start_json};
 
     // Render nodes from screenshot images
     const nodesDiv = document.getElementById('nodes');
     Object.entries(routes).forEach(([id, {{label, route, img}}]) => {{
       const nodeEl = document.createElement('div');
-      nodeEl.className = 'node' + (id === 'CALENDAR' ? ' start' : '');
+      nodeEl.className = 'node' + (id === startRoute ? ' start' : '');
       nodeEl.id = 'node-' + id;
       nodeEl.innerHTML = `
         <img src="${{img}}" alt="${{label}}" class="node-img" />
@@ -237,9 +325,28 @@ def main() -> None:
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         routes_json=json.dumps(routes_json),
         edges_json=json.dumps(edges_data),
+        start_json=json.dumps(START),
+        start_label=ROUTES[START][0],
+        role_cards="\n".join(render_role_cards()),
     )
     (out_dir / "index.html").write_text(html, encoding="utf-8")
     print(f"Wrote {out_dir / 'index.html'} (with embedded Paparazzi thumbnails)")
+
+
+def render_role_cards() -> list[str]:
+    cards: list[str] = []
+    for item in ROLE_NAV:
+        roots = " · ".join(item["roots"])  # type: ignore[arg-type]
+        cards.append(
+            "    <section class=\"role-card\">"
+            f"<h2>{item['role']}</h2>"
+            f"<p><b>Chrome:</b> {item['chrome']}</p>"
+            f"<p><b>Landing:</b> {item['landing']}</p>"
+            f"<p class=\"roots\"><b>Roots:</b> {roots}</p>"
+            f"<p>{item['notes']}</p>"
+            "</section>"
+        )
+    return cards
 
 
 if __name__ == "__main__":

@@ -173,10 +173,10 @@ const (
 	seedFallbackShed = "Seed Intake Shed"
 
 	// vaccinationMatrixProofPolicy is the same proof grain enforced by the bound
-	// vaccination SOP and Android runner: one live in-app-camera clip per goat.
-	// Shed completion is only an acknowledgement; there is no shed-, vial-, or
-	// administration-level summary video.
-	vaccinationMatrixProofPolicy = `{"types":["video"],"required":true,"subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count_per_subject":5,"capture_source":"in_app_camera","one_clip_covers_same_handling_vaccines":true,"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}`
+	// vaccination SOP and Android runner. Current SOP mode is shed-level video:
+	// one mandatory shed proof video, up to five total, camera or gallery.
+	// Per-goat proof remains supported when the SOP publishes proof_mode=per_goat_video.
+	vaccinationMatrixProofPolicy = `{"types":["video"],"required":true,"proof_mode":"shed_level_video","subject_scope":"shed","expected_subjects":["shed"],"minimum_count":1,"maximum_count":5,"maximum_count_per_subject":5,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}`
 )
 
 type oblIns struct {
@@ -3072,7 +3072,7 @@ func resolveVaccinationSOPVersion(ctx context.Context, tx pgx.Tx, tenantID strin
 		return "", fmt.Errorf("resolve published vaccination.drive SOP version: %w", err)
 	}
 	if err := validateVaccinationSOPContract(formDSL, proofPolicy); err != nil {
-		return "", fmt.Errorf("published vaccination.drive SOP %s violates the Android per-goat execution contract: %w", sopVersionID, err)
+		return "", fmt.Errorf("published vaccination.drive SOP %s violates the Android vaccination execution contract: %w", sopVersionID, err)
 	}
 	return sopVersionID, nil
 }
@@ -3080,10 +3080,11 @@ func resolveVaccinationSOPVersion(ctx context.Context, tx pgx.Tx, tenantID strin
 func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	var form struct {
 		Fields []struct {
-			Key      string `json:"key"`
-			Type     string `json:"type"`
-			Required bool   `json:"required"`
-			Repeat   bool   `json:"repeat"`
+			Key          string `json:"key"`
+			Type         string `json:"type"`
+			Required     bool   `json:"required"`
+			Repeat       bool   `json:"repeat"`
+			ProofSubject string `json:"proof_subject"`
 		} `json:"fields"`
 		RepeatForEachGoat struct {
 			ItemKey     string `json:"item_key"`
@@ -3093,8 +3094,17 @@ func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	if err := json.Unmarshal([]byte(formDSLJSON), &form); err != nil {
 		return fmt.Errorf("invalid form_dsl JSON: %w", err)
 	}
-	if len(form.Fields) != 1 || form.Fields[0].Key != "goat_ids" || form.Fields[0].Type != "goat_scan" || !form.Fields[0].Required || !form.Fields[0].Repeat {
-		return fmt.Errorf("form_dsl must contain exactly one required repeat goat_ids/goat_scan field")
+	var hasGoatScan, hasShedVideo bool
+	for _, field := range form.Fields {
+		if field.Key == "goat_ids" && field.Type == "goat_scan" && field.Required && field.Repeat {
+			hasGoatScan = true
+		}
+		if field.Key == "shed_video" && field.Type == "video_proof" && field.Required && field.Repeat && field.ProofSubject == "shed" {
+			hasShedVideo = true
+		}
+	}
+	if !hasGoatScan || !hasShedVideo {
+		return fmt.Errorf("form_dsl must contain required repeat goat_ids/goat_scan and shed_video/video_proof fields")
 	}
 	if form.RepeatForEachGoat.ItemKey != "goat_id" || form.RepeatForEachGoat.SourceField != "goat_ids" {
 		return fmt.Errorf("form_dsl repeat_for_each_goat must bind goat_id to goat_ids")
@@ -3102,12 +3112,15 @@ func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	var proof struct {
 		Types                   []string `json:"types"`
 		Required                bool     `json:"required"`
+		ProofMode               string   `json:"proof_mode"`
 		SubjectScope            string   `json:"subject_scope"`
 		ExpectedSubjects        []string `json:"expected_subjects"`
 		MinimumCount            int      `json:"minimum_count"`
+		MaximumCount            int      `json:"maximum_count"`
 		MinimumCountPerSubject  int      `json:"minimum_count_per_subject"`
 		MaximumCountPerSubject  int      `json:"maximum_count_per_subject"`
 		CaptureSource           string   `json:"capture_source"`
+		AllowedCaptureSources   []string `json:"allowed_capture_sources"`
 		OneClipSameHandlingGoat bool     `json:"one_clip_covers_same_handling_vaccines"`
 		VerifyCapability        string   `json:"verify_capability"`
 		VerifyBeforeApply       bool     `json:"verify_before_apply"`
@@ -3116,14 +3129,25 @@ func validateVaccinationSOPContract(formDSLJSON, proofPolicyJSON string) error {
 	if err := json.Unmarshal([]byte(proofPolicyJSON), &proof); err != nil {
 		return fmt.Errorf("invalid proof_policy JSON: %w", err)
 	}
-	if len(proof.Types) != 1 || proof.Types[0] != "video" || !proof.Required || proof.SubjectScope != "goat" ||
-		len(proof.ExpectedSubjects) != 1 || proof.ExpectedSubjects[0] != "goat" || proof.MinimumCount != 1 ||
-		proof.MinimumCountPerSubject != 1 || proof.MaximumCountPerSubject != 5 || proof.CaptureSource != "in_app_camera" ||
-		!proof.OneClipSameHandlingGoat || proof.VerifyCapability != "proof.verify" || !proof.VerifyBeforeApply ||
+	if len(proof.Types) != 1 || proof.Types[0] != "video" || !proof.Required || proof.ProofMode != "shed_level_video" ||
+		proof.SubjectScope != "shed" || len(proof.ExpectedSubjects) != 1 || proof.ExpectedSubjects[0] != "shed" ||
+		proof.MinimumCount != 1 || proof.MaximumCount != 5 || proof.MaximumCountPerSubject != 5 ||
+		proof.CaptureSource != "in_app_camera" || !stringSliceHas(proof.AllowedCaptureSources, "in_app_camera") ||
+		!stringSliceHas(proof.AllowedCaptureSources, "gallery_picker") ||
+		proof.VerifyCapability != "proof.verify" || !proof.VerifyBeforeApply ||
 		proof.RetentionPolicy != "operational_90d" {
-		return fmt.Errorf("proof_policy must require 1..5 live in-app-camera video clips for each goat and verifier approval before apply")
+		return fmt.Errorf("proof_policy must require 1..5 shed-level video clips, allow camera/gallery sources, and require verifier approval before apply")
 	}
 	return nil
+}
+
+func stringSliceHas(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func nextProtocolVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID string) (int, error) {
@@ -3511,7 +3535,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"max_shots_per_animal_per_drive": 2,
 		},
 		"capacity": map[string]any{
-			"max_per_day":     100,
+			"max_per_day":     200,
 			"max_buffer_days": 7,
 			"capacity_scope":  "tenant",
 			"overflow_policy": "split_within_safe_window_last_safe_may_exceed_cap",

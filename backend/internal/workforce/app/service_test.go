@@ -85,7 +85,6 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -116,7 +115,6 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
-		{Key: "calendar", Label: "कैलेंडर", Href: "/calendar"},
 		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
 		{Key: "you", Label: "आप", Href: "/you"},
 	}
@@ -188,7 +186,7 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 }
 
 // TestBootstrapOperatorGetsFixedNav is a regression guard: an operator-role
-// principal keeps the field-operator nav untouched by the leadership branch.
+// principal gets the field execution queue, not the leadership calendar.
 func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile:        profile("active"),
@@ -201,7 +199,6 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -257,7 +254,7 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 }
 
 // TestVisibleNavigationFor pins that leadership always gets the fixed
-// Calendar/Overview/Alerts nav, and operator gets the fixed field nav.
+// Calendar/Overview/Alerts nav, and operator gets the field execution nav; leadership keeps calendar.
 func TestVisibleNavigationFor(t *testing.T) {
 	leadershipWant := []domain.BootstrapNavigationItem{
 		{Key: "leadership", Label: "Overview", Href: "/leadership"},
@@ -283,7 +280,6 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -304,7 +300,6 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -433,18 +428,26 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("operator with single module gets vaccination + shared nav", func(t *testing.T) {
+	t.Run("operator with single vaccination module gets shed queue, alerts, and you", func(t *testing.T) {
 		nav := visibleNavigationFor(operatorGrants, []string{"vaccination"}, "")
-		if len(nav) != 4 {
-			t.Fatalf("operator nav length=%d want 4 (vaccination + calendar + alerts + you)", len(nav))
+		if len(nav) != 3 {
+			t.Fatalf("operator nav length=%d want 3 (vaccination + alerts + you)", len(nav))
+		}
+		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
+			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
+		}
+		for _, item := range nav {
+			if item.Key == "calendar" || item.Href == "/calendar" {
+				t.Fatalf("operator vaccination nav must not include Calendar/week/month/history; got %#v", nav)
+			}
 		}
 		// "You" is a BACKEND contribution now, not client-static chrome the shell appends.
 		// The client renders the composed bar verbatim, so if this item stops being emitted the
 		// profile/settings surface silently disappears from the bottom bar.
-		if nav[3].Key != "you" || nav[3].Href != "/you" {
-			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[3])
+		if nav[2].Key != "you" || nav[2].Href != "/you" {
+			t.Fatalf("last nav item=%#v want the composed You tab at /you", nav[2])
 		}
-		// Verify calendar, alerts, and you are not duplicated (dedupe by shared_key)
+		// Verify shared nav items are not duplicated (dedupe by shared_key)
 		seen := make(map[string]int)
 		for _, item := range nav {
 			seen[item.Key]++

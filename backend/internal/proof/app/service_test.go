@@ -201,6 +201,33 @@ func TestCreateUploadRejectsVideoWithoutCameraAttestation(t *testing.T) {
 	}
 }
 
+func TestCreateUploadRejectsGalleryForGoatSubject(t *testing.T) {
+	repo := &fakeProofRepo{proof: baseProof()}
+	service := NewService(repo, &fakeProofStorage{})
+
+	_, err := service.CreateUpload(context.Background(), domain.CreateUpload{
+		TenantID:    proofTestTenant,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     proofTestTask,
+		SubjectType: "goat",
+		SubjectID:   stringPtr(proofTestShed),
+		UploadedBy:  stringPtr(proofTestActor),
+		Metadata: map[string]any{
+			"capture_source":    "gallery_picker",
+			"captured_start_ms": float64(1000),
+			"captured_end_ms":   float64(2000),
+		},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("CreateUpload() error = %v, want ErrInvalid", err)
+	}
+	if repo.created.ProofType != "" {
+		t.Fatalf("invalid upload reached repository: %#v", repo.created)
+	}
+}
+
 func baseProof() domain.Artifact {
 	now := time.Now().UTC()
 	return domain.Artifact{

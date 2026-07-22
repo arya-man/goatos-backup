@@ -19,13 +19,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -580,12 +584,23 @@ fun DataGapsSheet(
                     OverlayInfoBox(stringResource(DesignSystemR.string.gaps_empty))
                 }
                 else -> {
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(listState, hasMore, isLoadingMore, gapsData.size) {
+                        if (!hasMore || isLoadingMore || gapsData.isEmpty()) return@LaunchedEffect
+                        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+                            .collect { lastVisibleIndex ->
+                                if (lastVisibleIndex >= listState.layoutInfo.totalItemsCount - 4 && hasMore && !isLoadingMore) {
+                                    onLoadMore()
+                                }
+                            }
+                    }
                     // Every entry is one animal: display id + both physical tags + the reason pill.
                     // LazyColumn(heightIn) so a long gaps list scrolls inside the sheet and composes
                     // lazily, instead of a plain Column { forEach } that eagerly builds every card and
                     // clips past the sheet edge (mirrors DosesGivenSheet).
                     LazyColumn(
-                        Modifier.fillMaxWidth().heightIn(max = 340.dp),
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(gapsData, key = { it.displayId }) { gap ->
@@ -608,25 +623,18 @@ fun DataGapsSheet(
                                 }
                             }
                         }
-                        if (hasMore) {
-                            item(key = "load-more-gaps") {
+                        if (isLoadingMore) {
+                            item(key = "loading-more-gaps") {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .border(1.dp, OverlayTokens.hair, RoundedCornerShape(12.dp))
-                                        .clickable(enabled = !isLoadingMore, onClick = onLoadMore)
                                         .padding(vertical = 12.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(
-                                        text = stringResource(
-                                            if (isLoadingMore) DesignSystemR.string.gaps_loading_more
-                                            else DesignSystemR.string.gaps_load_more,
-                                        ),
-                                        color = if (isLoadingMore) OverlayTokens.muted else OverlayTokens.brandD,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.W700,
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = OverlayTokens.muted,
+                                        strokeWidth = 2.dp,
                                     )
                                 }
                             }

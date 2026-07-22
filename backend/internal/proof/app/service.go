@@ -299,7 +299,11 @@ func validateCreate(in domain.CreateUpload) error {
 		if in.UploadedBy == nil || *in.UploadedBy == "" {
 			return ErrInvalid
 		}
-		if in.Metadata["capture_source"] != "in_app_camera" {
+		captureSource, _ := in.Metadata["capture_source"].(string)
+		if !oneOf(captureSource, "in_app_camera", "gallery_picker") {
+			return ErrInvalid
+		}
+		if captureSource == "gallery_picker" && in.SubjectType != "shed" {
 			return ErrInvalid
 		}
 		start, startOK := metadataNumber(in.Metadata["captured_start_ms"])

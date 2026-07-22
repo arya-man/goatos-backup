@@ -1,5 +1,8 @@
 package sg.mesha.goatos.feature.feed
 
+// telemetry:exempt purely presentational form primitives with no user action of their own; the feed
+// screens and their :app ViewModels own the AnalyticsEvents + CrashReporter wiring.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable

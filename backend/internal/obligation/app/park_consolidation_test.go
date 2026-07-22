@@ -597,7 +597,7 @@ func TestLimitParkSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveCells(planned, rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, NewSweepSession(), SweepConfig{})
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
@@ -615,9 +615,26 @@ func TestLimitParkSelectionAllLastSafeExceedsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveCells(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, NewSweepSession(), SweepConfig{})
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, NewSweepSession())
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
+	}
+}
+
+func TestLimitParkSelectionCountsDistinctAnimals(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-ettt", TargetID: "goat-1", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-ppr", TargetID: "goat-1", RuleID: "rule-b", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-goat-2", TargetID: "goat-2", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 2
+
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, planned, planner, NewSweepSession())
+	if len(out) != 3 {
+		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
 	}
 }
 

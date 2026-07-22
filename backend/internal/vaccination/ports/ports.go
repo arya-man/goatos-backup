@@ -62,8 +62,8 @@ type Repository interface {
 	// docs/decisions/operational-kernel-5k-50k-scale-envelope.md). Scoped by tenant + the eligibility
 	// filter dims (usable animals only).
 	SumEligibilityRollup(ctx context.Context, f domain.ImpactFilter) (domain.EligibilityRollupAggregate, error)
-	// CapacityMaxPerDay returns the tenant's configured vaccinations/day cap (default when unset). Used
-	// to compute estimated_days = ceil(vaccination_cells / cap).
+	// CapacityMaxPerDay returns the tenant's configured animals/operator/day cap (default when unset).
+	// Used to compute estimated_days = ceil(eligible_animals / cap).
 	CapacityMaxPerDay(ctx context.Context, tenantID string) (int64, error)
 	// SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
 	SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (available string, earliestExpiry *time.Time, err error)
@@ -88,6 +88,8 @@ type Repository interface {
 	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (g domain.EligibleGoat, found bool, err error)
 
 	// ShedCompletionSummary computes the FROZEN read-only shed-completion/submit summary (scan +
-	// proof + obligation state only, never submitted answers) for one vaccination task.
-	ShedCompletionSummary(ctx context.Context, tenantID, taskID string) (domain.ShedCompletionSummary, error)
+	// proof + obligation state only, never submitted answers) for one vaccination task. shedID is
+	// optional for legacy task-wide readers; mobile submit passes it so park/drive tasks stay
+	// narrowed to the exact shed the operator scanned.
+	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error)
 }

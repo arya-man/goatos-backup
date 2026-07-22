@@ -32,7 +32,7 @@ rewritten AS (
                 jsonb_set(
                   field,
                   '{description}',
-                  to_jsonb('Scan each goat as it is vaccinated, then attach live camera proof from that goat row.'::text),
+                  to_jsonb('Scan each goat RFID exactly when the vaccine is given. The scan timestamp is the vaccination timestamp.'::text),
                   true
                 )
               ELSE field

@@ -346,6 +346,11 @@ Organization boundaries:
   remote URL for direct remote/CI verification. Do not rely on whatever `gh`
   account is active; this workspace may also have Heva and Slice GitHub
   accounts configured, and those must not be used for Goat OS repo authority.
+- Git commits from this repo must use a Mesha identity only. Before committing
+  or landing, `git config user.email` must end in `@mesha.sg`; Heva, Slice,
+  gmail, or personal identities are blocked by `make git-identity-guard` and
+  the local CI common gate. The expected maintainer identity is
+  `Raviteja <ravi@mesha.sg>`.
 - **Staging promotion is PR-only (always on).** Never push any local ref, local
   `stg`, `main`, `HEAD`, agent branch, or refspec directly to remote `stg`.
   The only authorized staging branch update is GitHub merging a same-repository
@@ -540,6 +545,27 @@ Do:
   acceptance case. Do not push a frontend fix until the changed screen has been
   opened locally and visually checked, or until you explicitly report why local
   rendering is blocked.
+- Raw vaccination config/protocol tokens are never API presentation copy or
+  user-facing UI copy. Codes
+  such as `et_tt`, `et_tt_adult_w2`, `ppr_booster`, `blue_tongue_first`,
+  `goat_pox`, the protocol family name `Preventive Care Vaccination Matrix`,
+  and similar backend/config identifiers may exist in backend config,
+  raw storage/contracts/DTOs, non-UI tests, or a dedicated display mapper only.
+  Backend display fields (`driveName`, `vaccineLabel`, `vaccine_labels`, card
+  titles/subtitles, alerts), admin-web, Android screens, Paparazzi screenshot
+  fixtures, cards, rows, chips, alerts, logs visible to operators, and generated
+  UI galleries must render human labels such as `ET+TT`, `PPR · Booster`,
+  `Blue Tongue`, and `Goat Pox`.
+  `make ui-vaccine-labels-guard` is part of the standard guardrail/local-CI
+  path and must fail any direct UI leak.
+- Vaccination proof grain is SOP/backend-owned. Do not hardcode "per goat",
+  "shed level", "camera only", or "gallery allowed" in admin-web or Android.
+  Backend SOP/form DSL/proof policy decides the proof mode, subject scope,
+  minimum/maximum proof count, capture sources, and verifier instruction; clients
+  render that contract. Both modes must remain supported: per-goat video proof
+  and shed-level video proof. A change from one mode to the other must never
+  delete the unused mode, bypass GCS proof upload, skip verifier instructions,
+  or invent proof requirements in mobile/frontend state.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`
@@ -768,7 +794,10 @@ Do:
     `CalendarDateMarkerDto`). Never fetch or parse a day's events to draw the grid.
   - **Every drill level paginates** — L1 day list, L2 sheds, L3 vaccine-capture
     (done/pending/skipped animals) are each a keyset page of **~20** with infinite
-    scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page.
+    scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page,
+    and never show a tappable "Load more" row/button for normal mobile work
+    queues. Pagination is app-owned viewport behavior; users should see only the
+    work list plus a passive loading footer while the next page is already in flight.
   - **A vaccination drive is a park visit with a mix of SHEDS, never grouped by
     vaccine** — one drive can contain one or many sheds. Coverage-by-vaccine is a
     metric, not the drive grouping.

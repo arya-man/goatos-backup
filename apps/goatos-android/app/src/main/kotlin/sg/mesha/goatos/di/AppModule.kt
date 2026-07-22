@@ -236,7 +236,11 @@ object AppModule {
                 // OkHttp interceptors are synchronous: read the session-warmed snapshot rather
                 // than blocking an interceptor thread on DataStore for every request.
                 if (BuildConfig.FLAVOR == "dev") {
-                    sessionStore.cachedToken()
+                    // Dev/local builds authenticate with the Gradle-injected HS256 bearer. After a
+                    // clean reinstall or pm clear, the session gate can observe the DataStore token
+                    // before this synchronous interceptor's in-memory snapshot is warm; falling back
+                    // to the baked token prevents the first bootstrap from racing out unauthenticated.
+                    sessionStore.cachedToken() ?: BuildConfig.DEV_BEARER_TOKEN.takeIf { it.isNotBlank() }
                 } else {
                     currentFirebaseIdTokenBlocking()
                 }

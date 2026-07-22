@@ -90,6 +90,7 @@ data class FormFieldUi(
     /** null means the operator has not answered yet; false is a real, explicit answer. */
     val booleanValue: Boolean? = null,
     val scannedCount: Int = 0,        // goat_scan
+    val latestScanAtMs: Long? = null, // goat_scan
     /** True while [key]'s BT-HID scan capture is actively listening for tags. */
     val scanning: Boolean = false,
     val proofCaptured: Boolean = false, // video_proof: at least one row captured for this field
@@ -98,6 +99,7 @@ data class FormFieldUi(
     /** True while this field may still accept another capture (repeat field under the total
      *  cap, or a non-repeat field with nothing captured yet). */
     val canCaptureMore: Boolean = true,
+    val allowGalleryPicker: Boolean = false,
     val selectedLabel: String = "",   // picker (human label of chosen option)
     val options: List<FormPickerOptionUi> = emptyList(), // picker (selectable options)
     val error: String? = null,
@@ -125,7 +127,7 @@ fun FormRunner(
     onText: (key: String, value: String) -> Unit,
     onScan: (key: String) -> Unit,
     onPick: (key: String, value: String) -> Unit,
-    onCaptureVideo: (key: String) -> Unit,
+    onCaptureVideo: (key: String, source: String) -> Unit,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
     onCaption: (key: String, proofId: String, caption: String) -> Unit = { _, _, _ -> },
@@ -166,7 +168,7 @@ fun FormFieldsColumn(
     onText: (key: String, value: String) -> Unit,
     onScan: (key: String) -> Unit,
     onPick: (key: String, value: String) -> Unit,
-    onCaptureVideo: (key: String) -> Unit,
+    onCaptureVideo: (key: String, source: String) -> Unit,
     modifier: Modifier = Modifier,
     onCaption: (key: String, proofId: String, caption: String) -> Unit = { _, _, _ -> },
     onRemoveProof: (key: String, proofId: String) -> Unit = { _, _ -> },
@@ -186,7 +188,7 @@ private fun FieldCard(
     onText: (String, String) -> Unit,
     onScan: (String) -> Unit,
     onPick: (String, String) -> Unit,
-    onCaptureVideo: (String) -> Unit,
+    onCaptureVideo: (String, String) -> Unit,
     onCaption: (String, String, String) -> Unit,
     onRemoveProof: (String, String) -> Unit,
     onRetryProof: (String, String) -> Unit,
@@ -399,7 +401,7 @@ private fun ScanZoneControl(field: FormFieldUi, onScan: (String) -> Unit) {
         Text(
             text = when {
                 field.scanning -> "Scanning… tap to stop"
-                hasScans -> "${field.scannedCount} scanned · tap to add more"
+                hasScans -> "${field.scannedCount} scanned · last ${field.latestScanAtMs?.let(::formatTimeOnly).orEmpty()} · tap to add more"
                 else -> "Tap to scan goats"
             },
             color = MeshaColors.Ink,
@@ -409,6 +411,11 @@ private fun ScanZoneControl(field: FormFieldUi, onScan: (String) -> Unit) {
     }
 }
 
+private fun formatTimeOnly(epochMs: Long): String =
+    java.time.Instant.ofEpochMilli(epochMs)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("h:mm a"))
+
 /** Mock-faithful `.proofbox` (mock/vaccination-mobile-mock.html): dashed 1.5dp border box with a
  *  centered brand icon + bold title + hint subtitle; captured rows render below with a
  *  sync-status chip, and an operator-added EXTRA video gets an editable caption + remove
@@ -417,7 +424,7 @@ private fun ScanZoneControl(field: FormFieldUi, onScan: (String) -> Unit) {
 @Composable
 private fun ProofBoxControl(
     field: FormFieldUi,
-    onCaptureVideo: (String) -> Unit,
+    onCaptureVideo: (String, String) -> Unit,
     onCaption: (String, String, String) -> Unit,
     onRemoveProof: (String, String) -> Unit,
     onRetryProof: (String, String) -> Unit,
@@ -430,7 +437,6 @@ private fun ProofBoxControl(
                     .clip(RoundedCornerShape(16.dp))
                     .background(MeshaColors.Surf)
                     .border(1.5.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
-                    .clickable(onClick = { onCaptureVideo(field.key) })
                     .padding(15.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -443,11 +449,14 @@ private fun ProofBoxControl(
                     fontWeight = FontWeight.W700,
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    text = field.helpText ?: "tap to record",
-                    color = MeshaColors.Muted,
-                    fontSize = 11.sp,
-                )
+                Text(text = field.helpText ?: "1 required · up to 5 videos", color = MeshaColors.Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ProofActionButton("Record", Modifier.weight(1f)) { onCaptureVideo(field.key, "in_app_camera") }
+                    if (field.allowGalleryPicker) {
+                        ProofActionButton("Gallery", Modifier.weight(1f)) { onCaptureVideo(field.key, "gallery_picker") }
+                    }
+                }
             }
         }
         field.proofItems.forEach { item -> ProofItemRow(field.key, item, onCaption, onRemoveProof, onRetryProof) }
@@ -522,6 +531,21 @@ private fun ProofItemRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ProofActionButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.BrandTint)
+            .border(1.dp, MeshaColors.Brand, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = MeshaColors.BrandD, fontSize = 12.5.sp, fontWeight = FontWeight.W800)
     }
 }
 

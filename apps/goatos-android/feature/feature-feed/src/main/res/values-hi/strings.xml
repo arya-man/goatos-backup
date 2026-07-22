@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- telemetry:exempt localized string resources only; screen and viewmodel telemetry is wired in the feature-feed Kotlin sources + :app ViewModels -->
     <string name="feed_direction_caption">तैयार फ़ीड शीट — प्रति शेड और सत्र मात्रा</string>
     <string name="feed_packing_caption">इस फ़ीड दिन के लिए प्रति-शेड बैग</string>
     <string name="feed_refresh_description">रिफ़्रेश करें</string>

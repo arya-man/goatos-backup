@@ -276,6 +276,48 @@ func TestCreateVersionRejectsVaccinationDriveShedProofPolicy(t *testing.T) {
 	}
 }
 
+func TestCreateVersionAcceptsVaccinationDriveShedLevelProofPolicy(t *testing.T) {
+	repo := newFakeRepo()
+	repo.sop.Code = "vaccination.drive"
+	service := NewService(repo)
+	dsl := vaccinationDSL()
+	fields := dsl["fields"].([]any)
+	fields = append(fields, map[string]any{
+		"key":           "shed_video",
+		"label":         "Shed vaccination video",
+		"type":          "video_proof",
+		"required":      true,
+		"repeat":        true,
+		"proof_subject": "shed",
+	})
+	dsl["fields"] = fields
+	_, err := service.CreateVersion(context.Background(), ports.CreateVersionCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		SOPID:    testSOPID,
+		Body: domain.CreateSOPVersionRequest{
+			VersionLabel: "shed-level-proof",
+			FormDSL:      dsl,
+			ProofPolicy: map[string]any{
+				"required":                  true,
+				"proof_mode":                "shed_level_video",
+				"subject_scope":             "shed",
+				"types":                     []any{"video"},
+				"minimum_count":             float64(1),
+				"maximum_count":             float64(5),
+				"maximum_count_per_subject": float64(5),
+				"expected_subjects":         []any{"shed"},
+				"capture_source":            "in_app_camera",
+				"allowed_capture_sources":   []any{"in_app_camera", "gallery_picker"},
+				"verify_before_apply":       true,
+			},
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("valid vaccination.drive shed-level proof policy should be accepted: %#v", err)
+	}
+}
+
 func TestValidateRejectsUnsupportedRuleKinds(t *testing.T) {
 	for _, ruleType := range []string{"validation_rule", "calculated_value", "branch_to"} {
 		t.Run(ruleType, func(t *testing.T) {
@@ -1477,10 +1519,10 @@ func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAtte
 	f.scanAttempts = append(f.scanAttempts, attempt)
 	return attempt, nil
 }
-func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string) (ports.ShedCompletionReadiness, error) {
+func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string, string, int, int) (ports.ShedCompletionReadiness, error) {
 	return f.shedReadiness, f.shedReadinessErr
 }
-func (f *fakeRepo) CompletedTaskGoatProofRefs(context.Context, string, string) ([]domain.ProofReference, error) {
+func (f *fakeRepo) CompletedTaskProofRefs(context.Context, string, string, string) ([]domain.ProofReference, error) {
 	return f.completedTaskGoatProofRefs, f.completedTaskGoatProofErr
 }
 func (f *fakeRepo) SubmitTask(_ context.Context, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error) {

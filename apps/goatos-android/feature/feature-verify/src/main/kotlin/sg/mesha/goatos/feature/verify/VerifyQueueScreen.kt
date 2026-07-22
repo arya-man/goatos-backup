@@ -16,13 +16,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -105,6 +108,23 @@ fun VerifyQueueScreen(
     onEvent: (VerifyQueueEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
+        if (
+            state.selectedModule != VerifyModuleTab.VACCINATION ||
+            !state.hasMore ||
+            state.isLoadingMore ||
+            state.rows.isEmpty()
+        ) {
+            return@LaunchedEffect
+        }
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= state.rows.lastIndex - 3 && state.hasMore && !state.isLoadingMore) {
+                    onEvent(VerifyQueueEvent.LoadMore)
+                }
+            }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -123,6 +143,7 @@ fun VerifyQueueScreen(
             )
         }
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
@@ -150,13 +171,9 @@ fun VerifyQueueScreen(
                 items(state.rows, key = { it.id }) { row ->
                     QueueRowCard(row = row, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
                 }
-                if (state.hasMore) {
+                if (state.isLoadingMore) {
                     item {
-                        LoadMoreButton(
-                            label = stringResource(R.string.verify_queue_load_more),
-                            loading = state.isLoadingMore,
-                            onClick = { onEvent(VerifyQueueEvent.LoadMore) },
-                        )
+                        InlineLoadingFooter()
                     }
                 }
             }
@@ -351,22 +368,14 @@ internal fun StatusPill(tone: VerifyTone) {
 }
 
 @Composable
-private fun LoadMoreButton(label: String, loading: Boolean, onClick: () -> Unit) {
+private fun InlineLoadingFooter() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Surf2)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
-            .clickable(enabled = !loading, onClick = onClick)
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Muted, strokeWidth = 2.dp)
-        } else {
-            Text(text = label, color = MeshaColors.Brand2, fontSize = 12.5.sp, fontWeight = FontWeight.W700)
-        }
+        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Muted, strokeWidth = 2.dp)
     }
 }

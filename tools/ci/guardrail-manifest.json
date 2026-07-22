@@ -8,6 +8,16 @@
   },
   "guards": [
     {
+      "id": "git-identity",
+      "script": "tools/ci/check-git-identity.mjs",
+      "makeTarget": "git-identity-guard",
+      "realCheck": "node tools/ci/check-git-identity.mjs",
+      "selfTest": "node tools/ci/check-git-identity.mjs --self-test",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "git-identity-guard"
+    },
+    {
       "id": "guardrail-registration",
       "script": "tools/ci/check-guardrail-registration.mjs",
       "makeTarget": "guardrail-registration-guard",
@@ -76,6 +86,16 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "requiredInCI": true,
       "ciStep": "domain-event-architecture-guard"
+    },
+    {
+      "id": "leadership-assistant-coverage",
+      "script": "tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "makeTarget": "leadership-assistant-coverage-guard",
+      "realCheck": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "selfTest": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test",
+      "owningDoc": "docs/ceo-ai/mcp-toolbox-plan.md",
+      "requiredInCI": true,
+      "ciStep": "leadership-assistant-coverage-guard"
     },
     {
       "id": "stg-promotion",
@@ -206,6 +226,17 @@
       "owningDoc": ".agents/skills/goatos-code-review/references/backend.md",
       "requiredInCI": true,
       "ciStep": "config-validate-guard"
+    },
+    {
+      "id": "ui-vaccine-labels",
+      "script": "tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "makeTarget": "ui-vaccine-labels-guard",
+      "realCheck": "node tools/agent-hooks/check-ui-vaccine-labels.mjs",
+      "selfTest": "node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "ui-vaccine-labels-guard",
+      "notes": "Raw vaccination config/protocol tokens are allowed in config/contracts/DTOs/tests only. User-facing admin-web/mobile UI must render human labels."
     },
     {
       "id": "seed-migration-coupling",

@@ -1765,10 +1765,10 @@ paths:
       tags:
         - Vaccination
       operationId: getVaccinationCapacityConfig
-      summary: Read the tenant's daily vaccination capacity config for the admin Config screen.
+      summary: Read the tenant's daily operator animal capacity config for the admin Config screen.
       responses:
         "200":
-          description: The tenant's daily vaccination capacity config.
+          description: The tenant's daily operator animal capacity config.
           content:
             application/json:
               schema:
@@ -3422,6 +3422,11 @@ paths:
                         secondaryTag: { type: string, nullable: true }
                         vaccineLabel: { type: string }
                         status: { type: string }
+                        scannedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          description: Exact RFID scan timestamp persisted by the backend for this task row.
                         obligationId: { type: string }
                         taskId: { type: string }
                         batchId: { type: string }
@@ -6377,8 +6382,8 @@ components:
       description: >-
         FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed
         completion is an acknowledgement, not a manual medical form: the operator already scanned
-        every animal and attached camera proof per goat row; Submit only confirms the shed is
-        done. shed_name / drive_name / vaccine names are always human, never raw UUIDs.
+        every animal. Proof grain is SOP-controlled: either per-goat video or shed-level video.
+        shed_name / drive_name / vaccine names are always human, never raw UUIDs.
       required:
         - task_id
         - shed_name
@@ -6386,6 +6391,7 @@ components:
         - expected_count
         - handled_count
         - proof_ready_count
+        - proof_mode
         - vaccine_breakdown
         - submit_enabled
         - blocking_reason
@@ -6404,6 +6410,11 @@ components:
           type: integer
         proof_ready_count:
           type: integer
+        proof_mode:
+          type: string
+          enum:
+            - per_goat_video
+            - shed_level_video
         vaccine_breakdown:
           type: array
           items:
@@ -9357,6 +9368,18 @@ components:
           type: string
         audit_ref:
           type: string
+    DriveCapacityState:
+      type: string
+      description: >-
+        Operator-drive capacity state from the canonical vaccination drive planner.
+        Capacity is unique animals per available operator per day, never vaccine
+        doses or obligation cells.
+      enum:
+        - not_planned
+        - within_cap
+        - over_cap_required
+        - medical_defer
+        - terminal_animal_closed
     CountByWorkState:
       type: object
       additionalProperties: false
@@ -9366,6 +9389,25 @@ components:
       properties:
         work_state:
           $ref: "#/components/schemas/WorkState"
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
+          type: string
         count:
           type: integer
           minimum: 0
@@ -9480,6 +9522,25 @@ components:
         expected_count:
           type: integer
           minimum: 0
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
+          type: string
         obligation_status:
           type: string
         batch_status:
@@ -9664,6 +9725,25 @@ components:
           $ref: "#/components/schemas/ProcessIntegrityEvidence"
         work_state:
           $ref: "#/components/schemas/WorkState"
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
+          type: string
     ProtocolAdherenceResponse:
       type: object
       additionalProperties: false
@@ -9764,6 +9844,25 @@ components:
         next_action:
           type: string
         evidence_link:
+          type: string
+        drive_capacity_state:
+          $ref: "#/components/schemas/DriveCapacityState"
+        drive_animals_required:
+          type: integer
+          minimum: 0
+        drive_animals_assigned:
+          type: integer
+          minimum: 0
+        drive_operator_cap:
+          type: integer
+          minimum: 0
+        drive_available_operators:
+          type: integer
+          minimum: 0
+        drive_latest_safe_date:
+          type: string
+          format: date-time
+        drive_medical_defer_reason:
           type: string
         obligation_id:
           type: string
@@ -9924,6 +10023,12 @@ components:
           format: uuid
         shedName:
           type: string
+        physicalShed:
+          type: string
+          description: Normalized physical shed/building name. Partition suffixes such as "Gandhi 1" are exposed separately as partition.
+        partition:
+          type: string
+          description: Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds.
         animalStage:
           type: string
         targetCount:
@@ -10349,8 +10454,9 @@ components:
           type: integer
           minimum: 1
           description: >-
-            Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute
-            estimated_days BEFORE publish. Omit to fall back to the published/operational cap.
+            Draft operator animal cap (unique animals per available operator per day) authored in the
+            rule editor, used to compute estimated operator-days BEFORE publish. Omit to fall back to
+            the published/operational cap.
         max_buffer_days:
           type: integer
           minimum: 0
@@ -10367,6 +10473,8 @@ components:
         Aggregate-only config impact preview. Every number is read from the precomputed vaccination
         eligibility rollup (read model); the request path never scans goats. Use the business names
         only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap).
+        vaccination_cells remains a dose-row volume metric for stock planning; drive capacity is based on
+        unique eligible animals per available operator per day.
       required:
         - eligible_animals
         - vaccination_cells
@@ -10382,28 +10490,28 @@ components:
           description: SUM(animal_count) over usable animals matching the filter.
         vaccination_cells:
           type: integer
-          description: eligible_animals × selected dose rows.
+          description: eligible_animals × selected dose rows; stock/dose volume only, not operator capacity.
         affected_sheds:
           type: integer
           description: Distinct sheds holding usable animals in scope.
         estimated_days:
           type: integer
-          description: ceil(vaccination_cells / daily_cap).
+          description: Estimated operator-days from unique eligible animals and daily_cap.
         daily_cap:
           type: integer
-          description: Configured vaccinations/day used for estimated_days.
+          description: Configured unique animals per available operator per day used for estimated_days.
         capacity_status:
           type: string
           enum: [within_cap, over_cap, capacity_breach]
           description: >-
             Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one
-            day), over_cap (Split — fits the safe window), capacity_breach (Needs review — beyond it).
-            Omitted when there are no cells to plan.
+            operator-day), over_cap (Split — fits the safe window), capacity_breach (Capacity action —
+            add operators or finish over cap inside the safe window). Omitted when there is no animal work to plan.
         planned_sessions:
           type: array
           description: >-
-            Pre-publish session split under the draft daily cap. Bounded for very large herds; estimated_days
-            remains the full duration when the preview is truncated.
+            Pre-publish operator-day estimate under the draft daily cap. Bounded for very large herds;
+            estimated_days remains the full duration when the preview is truncated.
           items:
             $ref: "#/components/schemas/VaccinationPlannedSession"
         doses_available:
@@ -11151,10 +11259,10 @@ components:
         Machine vocabulary for capacity/session-splitting state:
         - within_cap: fits in a single day (sessions <= 1)
         - over_cap: safely split across multiple days within the safe window
-        - capacity_breach: cannot fit within the safe window; needs manager review
+        - capacity_breach: cannot fit within the safe window at authored cap; add operators or finish over cap
 
         NEVER show raw tokens in CEO UI. Frontend renders provided labels:
-        within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Needs review"
+        within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Capacity action"
     VaccinationPlannedSession:
       type: object
       additionalProperties: false
@@ -11169,18 +11277,19 @@ components:
           description: Asia/Kolkata business date (YYYY-MM-DD)
         vaccinations:
           type: integer
-          description: Vaccination cells (obligations) planned for this day
+          description: Animal slots planned for this day
         dailyLimit:
           type: integer
-          description: The configured daily vaccination capacity cap
+          description: The configured daily animals/operator cap
         capacity:
           $ref: "#/components/schemas/VaccinationCapacityStatus"
     VaccinationCapacityConfig:
       type: object
       additionalProperties: false
       description: |
-        Tenant daily vaccination capacity config published from the versioned vaccination rule DSL. The cap
-        counts vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2.
+        Tenant vaccination drive capacity config published from the versioned vaccination rule DSL. The cap
+        counts unique animals per available operator per business date, not vaccine doses or obligation
+        cells. One animal receiving a same-day vaccine bundle still consumes one operator slot.
       required:
         - maxPerDay
         - capacityScope
@@ -11192,7 +11301,7 @@ components:
           type: integer
           minimum: 1
           maximum: 100000
-          description: Max vaccination administrations allowed per day.
+          description: Max unique animals one available operator can handle per business date.
         capacityScope:
           type: string
           enum:
@@ -11204,7 +11313,7 @@ components:
           type: integer
           minimum: 0
           maximum: 60
-          description: Extra safe-window days past the first due day before work is flagged Needs review.
+          description: Extra safe-window days past the first due day before added operators or over-cap completion is required.
         overflowPolicy:
           type: string
           enum:
