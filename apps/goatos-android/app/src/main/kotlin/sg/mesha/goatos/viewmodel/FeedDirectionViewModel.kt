@@ -139,6 +139,7 @@ class FeedDirectionViewModel @Inject constructor(
             is FeedDirectionEvent.SelectPark -> selectPark(event.parkId)
             is FeedDirectionEvent.SelectShed -> selectShed(event.shedId)
             is FeedDirectionEvent.SelectWorkflow -> selectWorkflow(event.workflow)
+            is FeedDirectionEvent.SelectSession -> selectSession(event.sessionNo)
             FeedDirectionEvent.ClearFilters -> clearFilters()
         }
     }
@@ -175,11 +176,18 @@ class FeedDirectionViewModel @Inject constructor(
         trackFilter(DIMENSION_WORKFLOW, workflow)
     }
 
+    private fun selectSession(sessionNo: Int) {
+        val current = _filters.value
+        if (current.session == sessionNo) return
+        _filters.value = current.copy(session = sessionNo)
+        trackFilter(DIMENSION_SESSION, if (sessionNo == 0) "" else sessionNo.toString())
+    }
+
     private fun clearFilters() {
         val current = _filters.value
-        if (current.shedId.isBlank() && current.workflow.isBlank()) return
+        if (current.shedId.isBlank() && current.workflow.isBlank() && current.session == 0) return
         // Keep the selected park (it is required scope); clear the narrowing filters.
-        _filters.value = current.copy(shedId = "", workflow = "")
+        _filters.value = current.copy(shedId = "", workflow = "", session = 0)
         trackFilter(DIMENSION_ALL, value = "")
     }
 
@@ -196,6 +204,8 @@ class FeedDirectionViewModel @Inject constructor(
     private fun FeedFilterOptionsDto.toFilterUi(selection: FeedDirectionSelection): FeedFilterUi {
         val parkOptions = parks.map { FeedDropdownOption(it.parkId, it.label) }
         val shedOptions = sheds.map { FeedDropdownOption(it.shedId, it.label) }
+        // Backend-owned session vocabulary; the key is the session_no the backend expects back.
+        val sessionOptions = sessions.map { FeedDropdownOption(it.sessionNo.toString(), it.label) }
         // With no explicit park chosen, the active park is the one the backend served (the default),
         // so the dropdown shows the real park rather than a blank.
         val activeParkId = selection.parkId.ifBlank { servedParkId }
@@ -207,6 +217,9 @@ class FeedDirectionViewModel @Inject constructor(
             selectedShedId = selection.shedId,
             selectedShedLabel = shedOptions.firstOrNull { it.key == selection.shedId }?.label,
             workflow = selection.workflow,
+            sessions = sessionOptions,
+            selectedSessionNo = selection.session,
+            selectedSessionLabel = sessionOptions.firstOrNull { it.key == selection.session.toString() }?.label,
         )
     }
 
@@ -238,12 +251,14 @@ class FeedDirectionViewModel @Inject constructor(
         val parkId: String = "",
         val shedId: String = "",
         val workflow: String = "",
+        // 0 = every session (unfiltered); a positive value is a backend session_no.
+        val session: Int = 0,
     ) {
         fun toQuery(targetDate: String): FeedDirectionQuery = FeedDirectionQuery(
             parkId = parkId,
             targetDate = targetDate,
             shedId = shedId.takeIf { it.isNotBlank() },
-            session = null,
+            session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
         )
     }
@@ -262,6 +277,7 @@ class FeedDirectionViewModel @Inject constructor(
         const val DIMENSION_FARM = "farm"
         const val DIMENSION_SHED = "shed"
         const val DIMENSION_WORKFLOW = "workflow"
+        const val DIMENSION_SESSION = "session"
         const val DIMENSION_ALL = "all"
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"

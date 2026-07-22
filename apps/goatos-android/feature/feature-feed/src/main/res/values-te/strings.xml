@@ -10,6 +10,8 @@
     <string name="feed_filter_farm">ఫారం</string>
     <string name="feed_filter_shed">షెడ్</string>
     <string name="feed_filter_all_sheds">అన్ని షెడ్‌లు</string>
+    <string name="feed_filter_session">సెషన్</string>
+    <string name="feed_filter_all_sessions">అన్ని సెషన్‌లు</string>
     <string name="feed_filter_park_first">ముందు ఫారం ఎంచుకోండి</string>
     <string name="feed_filter_workflow">ఫీడ్ రకం</string>
     <string name="feed_filter_workflow_all">సాధారణ + ప్రయోగం</string>

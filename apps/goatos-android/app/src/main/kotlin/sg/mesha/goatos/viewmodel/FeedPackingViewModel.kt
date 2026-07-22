@@ -124,6 +124,7 @@ class FeedPackingViewModel @Inject constructor(
             FeedPackingEvent.Refresh -> refresh()
             is FeedPackingEvent.SelectPark -> selectPark(event.parkId)
             is FeedPackingEvent.SelectWorkflow -> selectWorkflow(event.workflow)
+            is FeedPackingEvent.SelectSession -> selectSession(event.sessionNo)
             FeedPackingEvent.ClearFilters -> clearFilters()
         }
     }
@@ -148,10 +149,17 @@ class FeedPackingViewModel @Inject constructor(
         trackFilter(DIMENSION_WORKFLOW, workflow)
     }
 
+    private fun selectSession(sessionNo: Int) {
+        val current = _filters.value
+        if (current.session == sessionNo) return
+        _filters.value = current.copy(session = sessionNo)
+        trackFilter(DIMENSION_SESSION, if (sessionNo == 0) "" else sessionNo.toString())
+    }
+
     private fun clearFilters() {
         val current = _filters.value
-        if (current.workflow.isBlank()) return
-        _filters.value = current.copy(workflow = "")
+        if (current.workflow.isBlank() && current.session == 0) return
+        _filters.value = current.copy(workflow = "", session = 0)
         trackFilter(DIMENSION_ALL, value = "")
     }
 
@@ -167,12 +175,16 @@ class FeedPackingViewModel @Inject constructor(
 
     private fun FeedFilterOptionsDto.toFilterUi(selection: FeedPackingSelection): FeedFilterUi {
         val parkOptions = parks.map { FeedDropdownOption(it.parkId, it.label) }
+        val sessionOptions = sessions.map { FeedDropdownOption(it.sessionNo.toString(), it.label) }
         val activeParkId = selection.parkId.ifBlank { servedParkId }
         return FeedFilterUi(
             parks = parkOptions,
             selectedParkId = activeParkId,
             selectedParkLabel = parkOptions.firstOrNull { it.key == activeParkId }?.label,
             workflow = selection.workflow,
+            sessions = sessionOptions,
+            selectedSessionNo = selection.session,
+            selectedSessionLabel = sessionOptions.firstOrNull { it.key == selection.session.toString() }?.label,
         )
     }
 
@@ -198,10 +210,13 @@ class FeedPackingViewModel @Inject constructor(
     private data class FeedPackingSelection(
         val parkId: String = "",
         val workflow: String = "",
+        // 0 = every session (unfiltered); a positive value is a backend session_no.
+        val session: Int = 0,
     ) {
         fun toQuery(targetDate: String): FeedPackingQuery = FeedPackingQuery(
             parkId = parkId,
             targetDate = targetDate,
+            session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
         )
     }
@@ -219,6 +234,7 @@ class FeedPackingViewModel @Inject constructor(
         const val ERROR_MESSAGE = "Couldn't load the worklist. Tap refresh to retry."
         const val DIMENSION_FARM = "farm"
         const val DIMENSION_WORKFLOW = "workflow"
+        const val DIMENSION_SESSION = "session"
         const val DIMENSION_ALL = "all"
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"

@@ -10,6 +10,8 @@
     <string name="feed_filter_farm">Farm</string>
     <string name="feed_filter_shed">Shed</string>
     <string name="feed_filter_all_sheds">All sheds</string>
+    <string name="feed_filter_session">Session</string>
+    <string name="feed_filter_all_sessions">All sessions</string>
     <string name="feed_filter_park_first">Pick a farm first</string>
     <string name="feed_filter_workflow">Feed type</string>
     <string name="feed_filter_workflow_all">Normal + Experiment</string>

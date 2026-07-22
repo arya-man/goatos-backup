@@ -10,6 +10,8 @@
     <string name="feed_filter_farm">फ़ार्म</string>
     <string name="feed_filter_shed">शेड</string>
     <string name="feed_filter_all_sheds">सभी शेड</string>
+    <string name="feed_filter_session">सत्र</string>
+    <string name="feed_filter_all_sessions">सभी सत्र</string>
     <string name="feed_filter_park_first">पहले फ़ार्म चुनें</string>
     <string name="feed_filter_workflow">फ़ीड प्रकार</string>
     <string name="feed_filter_workflow_all">सामान्य + प्रयोग</string>

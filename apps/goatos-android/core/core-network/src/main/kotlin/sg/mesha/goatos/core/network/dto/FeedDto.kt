@@ -92,6 +92,14 @@ data class FeedFilterShedDto(
     @SerialName("park_id") val parkId: String = "",
 )
 
+/** One feeding session in the served park's split — the session filter vocabulary. [sessionNo] is
+ *  what the client sends back as the `session` query param; [label] is the authored session name. */
+@Serializable
+data class FeedFilterSessionDto(
+    @SerialName("session_no") val sessionNo: Int = 0,
+    @SerialName("label") val label: String = "",
+)
+
 /**
  * The backend-owned park/shed filter vocabulary plus the served park id. The screen renders its
  * farm/shed pickers from this and holds no location list of its own (the golden frontend rule).
@@ -104,6 +112,7 @@ data class FeedFilterOptionsDto(
     @SerialName("served_park_id") val servedParkId: String = "",
     @SerialName("parks") val parks: List<FeedFilterParkDto> = emptyList(),
     @SerialName("sheds") val sheds: List<FeedFilterShedDto> = emptyList(),
+    @SerialName("sessions") val sessions: List<FeedFilterSessionDto> = emptyList(),
 )
 
 // ---------------------------------------------------------------------------

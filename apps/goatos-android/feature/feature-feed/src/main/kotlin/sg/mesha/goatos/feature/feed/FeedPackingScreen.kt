@@ -81,6 +81,9 @@ sealed interface FeedPackingEvent {
 
     /** "" (both), "normal", or "experiment". */
     data class SelectWorkflow(val workflow: String) : FeedPackingEvent
+
+    /** The session_no to filter to; 0 = every session. */
+    data class SelectSession(val sessionNo: Int) : FeedPackingEvent
     data object ClearFilters : FeedPackingEvent
 }
 
@@ -131,9 +134,10 @@ fun FeedPackingScreen(
 @Composable
 private fun FeedPackingFilterBar(filters: FeedFilterUi, onEvent: (FeedPackingEvent) -> Unit) {
     val bothWorkflows = stringResource(R.string.feed_filter_workflow_all)
+    val allSessions = stringResource(R.string.feed_filter_all_sessions)
     val normalLabel = stringResource(R.string.feed_workflow_normal)
     val experimentLabel = stringResource(R.string.feed_workflow_experiment)
-    val hasActive = filters.workflow.isNotBlank()
+    val hasActive = filters.workflow.isNotBlank() || filters.selectedSessionNo != 0
 
     Column(
         modifier = Modifier
@@ -193,6 +197,12 @@ private fun FeedPackingFilterBar(filters: FeedFilterUi, onEvent: (FeedPackingEve
                 enabled = true,
                 modifier = Modifier.weight(1f),
             )
+            FeedSessionDropdown(
+                filters = filters,
+                allSessions = allSessions,
+                onSelect = { onEvent(FeedPackingEvent.SelectSession(it)) },
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -235,7 +245,7 @@ private fun FeedPackingSummaryCard(summary: FeedPackingSummaryUi) {
                 modifier = Modifier.weight(1f),
             )
         }
-        summary.totalsByItem.forEach { total ->
+        summary.totalsByItem.filter { it.quantityKg.toKgOrZero() != 0.0 || it.blockedCells > 0 }.forEach { total ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(text = total.feedItem, color = MeshaColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                 Text(
@@ -270,7 +280,8 @@ private fun FeedPackingRowCard(row: FeedPackingRowUi) {
             if (row.experimentArm.isNotBlank()) add(row.experimentArm)
         }.joinToString(" · ")
         Text(text = subtitle, color = MeshaColors.Muted, fontSize = 12.sp)
-        row.items.forEach { item -> FeedItemQtyRow(item) }
+        // Hide 0-kg lines (nothing to pack for that item here); a BLOCKED line is not zero and stays.
+        row.items.filter { it.blocked || it.quantityKg.toKgOrZero() != 0.0 }.forEach { item -> FeedItemQtyRow(item) }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text = stringResource(R.string.feed_pack_total), color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
             if (row.status == "blocked") {

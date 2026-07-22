@@ -10,6 +10,8 @@
     <string name="feed_filter_farm">ಫಾರ್ಮ್</string>
     <string name="feed_filter_shed">ಶೆಡ್</string>
     <string name="feed_filter_all_sheds">ಎಲ್ಲಾ ಶೆಡ್‌ಗಳು</string>
+    <string name="feed_filter_session">ಅವಧಿ</string>
+    <string name="feed_filter_all_sessions">ಎಲ್ಲಾ ಅವಧಿಗಳು</string>
     <string name="feed_filter_park_first">ಮೊದಲು ಫಾರ್ಮ್ ಆರಿಸಿ</string>
     <string name="feed_filter_workflow">ಆಹಾರ ಪ್ರಕಾರ</string>
     <string name="feed_filter_workflow_all">ಸಾಮಾನ್ಯ + ಪ್ರಯೋಗ</string>
