@@ -1,16 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { actionErrorMessage, actionRedirect } from "@/lib/action-helpers";
 import { requestSopTaskRework, verifySopTask } from "@/lib/api/server";
-
-// A verify/reject ripples across every screen that reads the process-integrity model: the Action Center
-// board + verify queue, Preventive Care (PC) Vaccination ops, Protocol Adherence, and the Control Tower summary.
-function revalidateVaccinationViews(): void {
-  for (const p of ["/action-center", "/vaccination", "/protocol-adherence", "/workflows", "/"]) {
-    revalidatePath(p);
-  }
-}
+import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
 
 // verifyCompletionAction reviews the SOP task, then the backend SOP review fanout applies SM-5:
 // accept completion, complete the obligation, consume reserved stock, and emit durable completion.
@@ -27,7 +19,7 @@ export async function verifyCompletionAction(formData: FormData): Promise<void> 
       actionKey = actionErrorMessage(result.error);
     } else {
       actionKey = "action.verify_accepted";
-      revalidateVaccinationViews();
+      revalidateVaccinationCommandLenses();
     }
   } catch (error) {
     void error;
@@ -53,7 +45,7 @@ export async function rejectCompletionAction(formData: FormData): Promise<void> 
       actionKey = actionErrorMessage(result.error);
     } else {
       actionKey = reason === "rework_requested" ? "action.rework_requested" : "action.completion_rejected";
-      revalidateVaccinationViews();
+      revalidateVaccinationCommandLenses();
     }
   } catch (error) {
     void error;

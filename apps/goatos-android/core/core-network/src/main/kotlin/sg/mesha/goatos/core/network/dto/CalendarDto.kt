@@ -87,6 +87,11 @@ data class CalendarDateMarkerDto(
 @Serializable
 data class DriveSummaryDto(
     @SerialName("park_name") val parkName: String = "",
+    @SerialName("effective_schedule_date") val effectiveScheduleDate: String? = null,
+    @SerialName("current_assignment_date") val currentAssignmentDate: String? = null,
+    @SerialName("assignment_planned_date") val assignmentPlannedDate: String? = null,
+    @SerialName("planned_date") val plannedDate: String? = null,
+    @SerialName("scheduled_date") val scheduledDate: String? = null,
     @SerialName("due_date") val dueDate: String = "",
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("sheds_completed") val shedsCompleted: Int = 0,
@@ -141,6 +146,11 @@ data class CalendarEventDto(
     @SerialName("summary_tertiary") val summaryTertiary: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("severity") val severity: String = "",
+    @SerialName("effective_schedule_date") val effectiveScheduleDate: String? = null,
+    @SerialName("current_assignment_date") val currentAssignmentDate: String? = null,
+    @SerialName("assignment_planned_date") val assignmentPlannedDate: String? = null,
+    @SerialName("planned_date") val plannedDate: String? = null,
+    @SerialName("scheduled_date") val scheduledDate: String? = null,
     @SerialName("due_at") val dueAt: String = "",
     @SerialName("window_start") val windowStart: String? = null,
     @SerialName("window_end") val windowEnd: String? = null,
@@ -182,6 +192,33 @@ data class CalendarEventDto(
     @SerialName("cross_cutting") val crossCutting: Boolean = false,
     @SerialName("links") val links: Map<String, JsonElement> = emptyMap(),
 )
+
+/**
+ * Current operational date for calendar vaccination rows.
+ *
+ * Original due dates can remain in the payload as audit/medical facts, but calendar ordering and
+ * labels must prefer the assignment-aware schedule date whenever the backend provides it.
+ */
+val CalendarEventDto.currentScheduleDate: String
+    get() = listOf(
+        effectiveScheduleDate,
+        currentAssignmentDate,
+        assignmentPlannedDate,
+        plannedDate,
+        scheduledDate,
+        driveSummary?.currentScheduleDate,
+        dueAt,
+    ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
+
+val DriveSummaryDto.currentScheduleDate: String
+    get() = listOf(
+        effectiveScheduleDate,
+        currentAssignmentDate,
+        assignmentPlannedDate,
+        plannedDate,
+        scheduledDate,
+        dueDate,
+    ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 
 @Serializable
 data class CalendarEventListResponseDto(

@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CalendarRepository
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.calendar.CalendarDayUiState
 import java.time.LocalDate
 import javax.inject.Inject
@@ -63,7 +64,7 @@ class CalendarDayViewModel @Inject constructor(
         _isLoadingMore
     ) { resource, isRefreshing, isOffline, isLoadingMore ->
         val items = resource.data?.items.orEmpty()
-            .sortedBy { it.dueAt }
+            .sortedBy { it.currentScheduleDate }
             .map { it.toCalendarItem() }
         CalendarDayUiState(
             title = date?.let { calendarDayTitle(it) }.orEmpty(),

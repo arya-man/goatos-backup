@@ -138,6 +138,14 @@ Permanent scale and guard-authoring rules:
   Review SQL joins at exact assignment grain so multiple operators, planned
   dates, or partitions cannot multiply counts or expose another operator's
   partition work.
+- `vaccination_drive_assignments` is the canonical operator-day source for
+  scheduled drive execution once rows exist. Full Schedule, Calendar L1/L2/L3,
+  Action Center, Protocol Adherence, Control Tower, Workflows, execution pages,
+  and leadership/operator reads must prefer assignment `planned_date` before
+  batch `planned_date` or obligation `due_at`. A date move or vaccine override is
+  not complete until every command lens reads the same assignment/effective-date
+  grain and local CI's `vaccination-schedule-canonical-guard` would fail if any
+  consumer falls back to stale dates.
 - Shed partition labels are not canonical sheds. `Gandhi 1`, `Gandhi 2`, and
   `Godel 1 - Part 3` must normalize to physical-shed owner/count rows plus
   partition metadata. CPT-only rehearsal seeds must not pull CBE/Coimbatore

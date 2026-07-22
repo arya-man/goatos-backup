@@ -29,10 +29,11 @@
     "check:action-center-request-plan": "node --experimental-strip-types scripts/check-action-center-request-plan.mjs",
     "check:calendar-request-plan": "node scripts/check-calendar-request-plan.mjs --self-test && node scripts/check-calendar-request-plan.mjs",
     "check:request-plan-fanout": "node scripts/check-request-plan-fanout.mjs --self-test && node scripts/check-request-plan-fanout.mjs --all",
+    "check:vaccination-command-lenses": "node scripts/check-vaccination-command-lenses.mjs",
     "check:herd-import-security": "node --experimental-strip-types scripts/check-herd-import-security.mjs",
     "check:goal1-frontend": "node scripts/check-goal1-frontend-coverage.mjs",
     "check:ui-contract": "node scripts/check-ui-contract-literals.mjs",
-    "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-ui-contract-literals.mjs && node scripts/check-serial-await.mjs && node --experimental-strip-types scripts/check-action-center-request-plan.mjs && npm run check:calendar-request-plan && npm run check:request-plan-fanout && node scripts/check-mock-fidelity.mjs"
+    "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-ui-contract-literals.mjs && node scripts/check-serial-await.mjs && node --experimental-strip-types scripts/check-action-center-request-plan.mjs && npm run check:calendar-request-plan && npm run check:request-plan-fanout && npm run check:vaccination-command-lenses && node scripts/check-mock-fidelity.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.5.0",
