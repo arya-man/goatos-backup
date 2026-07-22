@@ -275,6 +275,31 @@ type ScheduleQuery struct {
 	Cursor     *OperationsCursor
 }
 
+type DriveAssignmentQuery struct {
+	TenantID   string
+	ParkID     *string
+	MonthStart time.Time
+	Limit      int
+}
+
+type DriveAssignmentRow struct {
+	PlannedDate    string         `json:"plannedDate"`
+	OperatorID     string         `json:"operatorId"`
+	OperatorName   string         `json:"operatorName"`
+	ParkID         string         `json:"parkId"`
+	ParkName       string         `json:"parkName"`
+	ShedID         *string        `json:"shedId,omitempty"`
+	PhysicalShed   string         `json:"physicalShed"`
+	PartitionLabel string         `json:"partitionLabel"`
+	Animals        int            `json:"animals"`
+	Capacity       CapacityStatus `json:"capacity"`
+}
+
+type DriveAssignmentResponse struct {
+	Source string               `json:"source"`
+	Rows   []DriveAssignmentRow `json:"rows"`
+}
+
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
 // primaryTag and secondaryTag are RFID identifiers; vaccineLabel is the vaccine name and schedule position.
 type ScanRosterRow struct {
@@ -530,20 +555,23 @@ type ShedOwner struct {
 // vaccination visits/days for the shed (usually 1; >1 when the daily cap forces a split). Capacity is
 // the machine capacity state (CEO label rendered by the UI). Status is the merged CEO headline.
 type ShedSummaryRow struct {
-	ParkID   string         `json:"parkId"`
-	ParkName string         `json:"parkName"`
-	ShedID   string         `json:"shedId"`
-	ShedName string         `json:"shedName"`
-	Animals  int            `json:"animals"`
-	Due      int            `json:"due"`
-	Done     int            `json:"done"`
-	Sessions int            `json:"sessions"`
-	LastDone *string        `json:"lastDone,omitempty"` // Asia/Kolkata business date of latest accepted dose
-	NextDue  *string        `json:"nextDue,omitempty"`  // Asia/Kolkata business date of earliest open obligation
-	Manager  *ShedOwner     `json:"manager,omitempty"`
-	Backup   *ShedOwner     `json:"backup,omitempty"`
-	Capacity CapacityStatus `json:"capacity"`
-	Status   ShedStatus     `json:"status"`
+	ParkID   string     `json:"parkId"`
+	ParkName string     `json:"parkName"`
+	ShedID   string     `json:"shedId"`
+	ShedName string     `json:"shedName"`
+	Animals  int        `json:"animals"`
+	Due      int        `json:"due"`
+	Done     int        `json:"done"`
+	Sessions int        `json:"sessions"`
+	LastDone *string    `json:"lastDone,omitempty"` // Asia/Kolkata business date of latest accepted dose
+	NextDue  *string    `json:"nextDue,omitempty"`  // Asia/Kolkata business date of earliest open obligation
+	Manager  *ShedOwner `json:"manager,omitempty"`
+	Backup   *ShedOwner `json:"backup,omitempty"`
+	// DriveOperatorNames are the actual vaccination operators assigned by the operator-cap planner.
+	// This is the ownership field for vaccination drives; Manager/Backup remain legacy shed-owner context.
+	DriveOperatorNames []string       `json:"driveOperatorNames,omitempty"`
+	Capacity           CapacityStatus `json:"capacity"`
+	Status             ShedStatus     `json:"status"`
 }
 
 // ShedOwnershipScope is one shed row whose owner cells need enrichment. ParkID is the center/park scope
@@ -609,20 +637,21 @@ type ShedSummaryQuery struct {
 // operator/date assignments from the operator-drive planner, where capacity is unique animals per
 // available operator per business date.
 type ShedSummaryProjection struct {
-	ParkID     string
-	ParkName   string
-	ShedID     string
-	ShedName   string
-	Animals    int
-	DueAnimals int
-	OpenCells  int            // legacy open obligation rows; not the new operator capacity unit
-	Sessions   int            // legacy session count
-	Capacity   CapacityStatus // from Sessions vs (buffer+1)
-	Status     ShedStatus     // merged CEO headline
-	LastDone   *time.Time
-	NextDue    *time.Time
-	TotalCount int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
-	Freshness  *ProjectionFreshness
+	ParkID             string
+	ParkName           string
+	ShedID             string
+	ShedName           string
+	Animals            int
+	DueAnimals         int
+	OpenCells          int            // legacy open obligation rows; not the new operator capacity unit
+	Sessions           int            // legacy session count
+	Capacity           CapacityStatus // from Sessions vs (buffer+1)
+	Status             ShedStatus     // merged CEO headline
+	DriveOperatorNames []string
+	LastDone           *time.Time
+	NextDue            *time.Time
+	TotalCount         int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
+	Freshness          *ProjectionFreshness
 }
 
 // ---- Shed detail read model (per-vaccine breakdown + keyset-paginated animal list) ----

@@ -29,6 +29,8 @@ type fakeReader struct {
 	schedule      domain.OperationsResponse
 	lastSchedule  domain.ScheduleQuery
 	scheduleErr   error
+	assignments   domain.DriveAssignmentResponse
+	lastAssign    domain.DriveAssignmentQuery
 	roster        []domain.ScanRosterRow
 	lastRoster    domain.ScanRosterQuery
 	rosterNext    *domain.ScanRosterCursor
@@ -68,6 +70,11 @@ func (f *fakeReader) VaccinationSchedule(_ context.Context, q domain.ScheduleQue
 		return domain.OperationsResponse{}, f.scheduleErr
 	}
 	return f.schedule, nil
+}
+
+func (f *fakeReader) DriveAssignments(_ context.Context, q domain.DriveAssignmentQuery) (domain.DriveAssignmentResponse, error) {
+	f.lastAssign = q
+	return f.assignments, nil
 }
 
 func (f *fakeReader) VaccinationExecution(_ context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {

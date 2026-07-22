@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -88,6 +89,7 @@ func (r *Repository) LoadContractFamilyRevisions(ctx context.Context, tenantID s
 }
 
 func (r *Repository) listParks(ctx context.Context, tenantID string) ([]app.ReferenceOption, string, error) {
+	localVaccinationScope := os.Getenv("GOATOS_ENV") == "local"
 	rows, err := r.pool.Query(ctx, `
 SELECT
   location_id::text,
@@ -99,8 +101,22 @@ FROM locations
 WHERE tenant_id = $1::uuid
   AND location_type = 'park'
   AND status = 'active'
+  AND (
+    $2::boolean = false
+    OR NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignments any_vda
+      WHERE any_vda.tenant_id = locations.tenant_id
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignments vda
+      WHERE vda.tenant_id = locations.tenant_id
+        AND vda.park_id = locations.location_id
+    )
+  )
 ORDER BY display_order, name, location_id
-LIMIT 500`, tenantID)
+LIMIT 500`, tenantID, localVaccinationScope)
 	if err != nil {
 		return nil, "", fmt.Errorf("adminui: list parks: %w", err)
 	}
