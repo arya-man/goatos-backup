@@ -58,6 +58,76 @@ func TestAskStreamReassemblesAnswer(t *testing.T) {
 	}
 }
 
+// progressSink captures both progress phases and answer tokens in arrival order
+// so a test can assert progress frames precede the answer body.
+type progressSink struct {
+	mu     sync.Mutex
+	order  []string // "progress:<phase>" and "token" markers, in arrival order
+	phases []string
+	tokens []string
+}
+
+func (p *progressSink) Progress(_ context.Context, phase, _ string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.phases = append(p.phases, phase)
+	p.order = append(p.order, "progress:"+phase)
+	return nil
+}
+
+func (p *progressSink) Token(_ context.Context, tok string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tokens = append(p.tokens, tok)
+	p.order = append(p.order, "token")
+	return nil
+}
+
+// TestAskStreamEmitsProgressBeforeAnswer proves AskStream emits the coarse
+// progress phases (planning -> querying -> synthesizing) and that every progress
+// frame arrives BEFORE the first answer token — the fix for the "frozen blank"
+// finding. It also proves no phase label leaks chain-of-thought (phases are a
+// bounded enum).
+func TestAskStreamEmitsProgressBeforeAnswer(t *testing.T) {
+	prov := &fakeProvider{plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "s1", Text: "count", Route: domain.RouteAPI, ToolName: "herd_count"},
+	}}, byModel: true}
+	reg := NewRegistry(nil, nil, nil)
+	reg.Register(&fakeExec{
+		spec:   ports.ToolSpec{Name: "herd_count", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "counts", Facts: []domain.Fact{{Label: "active goats", Value: "1234"}}},
+	})
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	q := domain.Question{Actor: leadershipActor(), Text: "how many goats"}
+	sink := &progressSink{}
+	if _, err := a.AskStream(context.Background(), q, sink); err != nil {
+		t.Fatalf("AskStream err = %v", err)
+	}
+
+	wantPhases := []string{"planning", "querying", "synthesizing"}
+	if strings.Join(sink.phases, ",") != strings.Join(wantPhases, ",") {
+		t.Fatalf("phases = %v, want %v", sink.phases, wantPhases)
+	}
+	// Every progress frame must precede the first token.
+	firstToken := -1
+	lastProgress := -1
+	for i, m := range sink.order {
+		if m == "token" && firstToken == -1 {
+			firstToken = i
+		}
+		if strings.HasPrefix(m, "progress:") {
+			lastProgress = i
+		}
+	}
+	if firstToken == -1 {
+		t.Fatal("no answer tokens streamed")
+	}
+	if lastProgress >= firstToken {
+		t.Fatalf("progress frame arrived after first token (lastProgress=%d firstToken=%d): %v", lastProgress, firstToken, sink.order)
+	}
+}
+
 // blockingProvider blocks in Plan until ctx is cancelled, then records that it
 // observed the cancellation and returns ctx.Err(). This is the real upstream
 // dependency (Vertex/Cube/DB stand-in) that AskStream must interrupt.

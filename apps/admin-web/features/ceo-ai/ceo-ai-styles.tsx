@@ -266,6 +266,9 @@ export function CeoAiStyles(): ReactElement {
 .mzai-skel span:nth-child(2){animation-delay:.12s}
 .mzai-skel span:nth-child(3){animation-delay:.24s}
 @keyframes mzai-bounce{0%,100%{opacity:.4;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}}
+.mzai-progress{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mzai-progress .mzai-skel{padding:12px 8px 12px 14px}
+.mzai-progress-label{font-size:12px;color:var(--muted);letter-spacing:.01em}
 @media (max-width:600px){
   .mzai-side{width:140px}
   .mzai-icon,.mzai-send{min-height:40px}

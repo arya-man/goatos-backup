@@ -52,7 +52,7 @@ func TestServiceMountedRouteStreamsSSE(t *testing.T) {
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "event:") {
 			name := strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-			if name != "token" && name != "final" && name != "error" {
+			if name != "token" && name != "final" && name != "error" && name != "progress" {
 				t.Fatalf("unexpected event type %q on mounted route", name)
 			}
 		}

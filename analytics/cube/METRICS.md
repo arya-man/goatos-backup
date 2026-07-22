@@ -48,10 +48,19 @@ governed number.
 | `workforce.task_count` | COUNT(sop_tasks) | draft | Workforce | `public.sop_tasks` | — |
 | `workforce.task_verified` | COUNT(sop_tasks) WHERE `verified_at IS NOT NULL` | draft | Workforce | `public.sop_tasks` | Confirm whether "verified" is the right completion signal. |
 | `workforce.operator_completion_rate` | `task_verified / task_count` | draft | Workforce | `public.sop_tasks` | **Completed-state vocabulary undefined** (observed states include `queued`; terminal set unconfirmed). Confirm numerator/denominator states with business owner. |
+| `vaccination_operator.operator_assigned_animals` | SUM(`assigned_animals`) | draft | Preventive Care | `ceo_ai.vaccination_operator_status` → `public.vaccination_drive_assignments` | Operator-grain drive load (operator-based model). "animals" = unique animal slots assigned to an operator per business date, not obligation doses. Group by `operator_label` (+ `planned_business_day`) for a per-operator figure. |
+| `vaccination_operator.operator_overdue` | SUM(`overdue`) = assigned animals in still-open drives past their planned IST business day | draft | Preventive Care | `ceo_ai.vaccination_operator_status` → `vaccination_drive_assignments` + `obligation_batches` | "behind" is derived from `obligation_batches.status` (planned/in_progress) + `planned_date < today IST`. Confirm whether a superseded/reopened batch should still count. |
+| `vaccination_operator.operator_capacity` | MAX(`daily_capacity`) | draft | Preventive Care | `ceo_ai.vaccination_operator_status` → `public.vaccination_capacity_config` | Per-operator-per-day animal cap (`max_per_day`, `capacity_scope='tenant'`). **MAX not SUM** — the cap is constant within an operator-day; summing across shed rows multiplies it. Only `tenant` scope is honored by the planner today. |
+| `vaccination_operator.operator_utilization` | `operator_assigned_animals / operator_capacity` | draft | Preventive Care | `ceo_ai.vaccination_operator_status` | Answers "who is overloaded" (> 1.0). **Meaningful only grouped by `operator_label` + `planned_business_day`** — the ratio is per-operator-per-day. Not an official figure. |
 
 ## Dimensions (every metric)
 
 - `park_label`, `shed_label` (facility scope — via `locations`)
+- `operator_label`, `operator_id` (operator scope — the operator-grain
+  `vaccination_operator` metrics only; `operator_id` is the opaque id,
+  `operator_label` the display name)
+- `planned_business_day` (IST planned drive date — the `vaccination_operator`
+  time member; capacity/utilization must be grouped by it)
 - `species` (goat / sheep — where the base row carries it)
 - a time member on the IST business day (`*_business_day` / `due_business_day`)
 - `tenant_id` — **security context only**, injected server-side by

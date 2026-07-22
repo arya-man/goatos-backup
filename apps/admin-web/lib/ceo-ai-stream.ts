@@ -68,14 +68,22 @@ export function parseChart(raw: unknown): CeoAiChart | undefined {
   };
 }
 
+// Coarse pre-answer progress frame (planning / querying / synthesizing). It
+// carries only a stable phase enum + a coarse route label — never step traces or
+// chain-of-thought — so the UI can show progressive status while the grounded
+// pipeline runs, instead of a frozen blank placeholder.
+export type CeoAiProgress = { phase: string; label?: string };
+
 export type CeoAiStreamEvent =
   | { type: "token"; text: string }
   | ({ type: "final" } & CeoAiFinal)
+  | { type: "progress"; phase: string; label?: string }
   | { type: "error"; message: string; status?: number };
 
 export type CeoAiStreamHandlers = {
   onToken?: (text: string) => void;
   onFinal?: (final: CeoAiFinal) => void;
+  onProgress?: (progress: CeoAiProgress) => void;
   onError?: (message: string, status?: number) => void;
 };
 
@@ -111,6 +119,9 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
     const type = obj.type;
     if (type === "token" && typeof obj.text === "string") {
       return { type: "token", text: obj.text };
+    }
+    if (type === "progress" && typeof obj.phase === "string") {
+      return { type: "progress", phase: obj.phase, label: typeof obj.label === "string" ? obj.label : undefined };
     }
     if (type === "error") {
       return { type: "error", message: typeof obj.message === "string" ? obj.message : "assistant_error" };
@@ -251,6 +262,8 @@ async function readComposed(
       if (event) {
         if (event.type === "token") {
           handlers.onToken?.(event.text);
+        } else if (event.type === "progress") {
+          handlers.onProgress?.({ phase: event.phase, label: event.label });
         } else if (event.type === "final") {
           const { type: _t, ...rest } = event;
           void _t;

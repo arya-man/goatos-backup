@@ -38,6 +38,16 @@ type StreamSink interface {
 	Token(ctx context.Context, token string) error
 }
 
+// ProgressSink is an OPTIONAL capability a StreamSink may also implement to
+// receive coarse pre-answer progress frames (planning / querying / synthesizing)
+// so the UI shows progressive status within <1s instead of sitting on a blank
+// placeholder for the ~4-19s the grounded pipeline takes. phase is a stable enum
+// and label is a coarse route tag — NEVER chain-of-thought or step traces. A
+// sink that does not implement this simply receives no progress frames.
+type ProgressSink interface {
+	Progress(ctx context.Context, phase, label string) error
+}
+
 // AskStream produces one grounded Answer and streams its answer body through
 // sink. It reuses Ask for the full pipeline (identical routing, review, audit,
 // caching, persistence) so streaming can never diverge from the non-streaming
@@ -47,7 +57,15 @@ func (a *Assistant) AskStream(ctx context.Context, q domain.Question, sink Strea
 		return domain.Answer{}, err
 	}
 
-	ans, err := a.Ask(ctx, q)
+	// Progressive status: if the sink accepts progress frames, thread a callback
+	// into the pipeline so "planning"/"querying"/"synthesizing" frames flush live
+	// (the first within <1s, well before the final answer). Skip the Gemini critic
+	// on this path to cut a Vertex round-trip; the deterministic reviewer still runs.
+	var prog progressFn
+	if ps, ok := sink.(ProgressSink); ok {
+		prog = func(phase, label string) { _ = ps.Progress(ctx, phase, label) }
+	}
+	ans, err := a.ask(ctx, q, askOptions{progress: prog, skipModelCritic: true})
 	if err != nil {
 		return domain.Answer{}, err
 	}

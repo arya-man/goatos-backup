@@ -123,7 +123,20 @@ animals unless the user explicitly asks for animal IDs or records.
 
 Primary use:
 due/overdue work, planned sessions, shed workload, completion status, capacity,
-proof and verification gaps, adherence.
+proof and verification gaps, adherence, and OPERATOR drive load / capacity /
+utilization.
+
+Vaccination has TWO reporting grains — use the right one:
+- SHED grain (which sheds are due/overdue, doses to pick): `vaccination_shed_status`
+  / `vaccination_dose_pickup` views + `vaccination_due`/`vaccination_overdue` Cube
+  metrics.
+- OPERATOR grain (operator-based drive model: drives planned by operator animal
+  capacity, work assigned at operator grain, shed-level video proof): the
+  `ceo_ai.vaccination_operator_status` view + `operator_vaccination_load` /
+  `operator_vaccination_overdue` / `operator_vaccination_capacity` /
+  `operator_vaccination_utilization` Cube metrics (kpi_vaccination_operator).
+  Vaccination is NOT purely shed-driven — an operator dimension exists and
+  leadership can ask about it directly.
 
 Preferred source:
 `GET /vaccination/execution` for shed execution rows.
@@ -140,7 +153,8 @@ Read-only tables when API is not enough:
 `vaccination_generation_runs`, `vaccination_capacity_config`,
 `vaccination_drive_assignments`, `obligation_instances`,
 `obligation_batches`, `sop_tasks`, `sop_submissions`,
-`sop_submission_items`, `verification_items`, `locations`, `goats`.
+`sop_submission_items`, `verification_items`, `workforce_members`,
+`locations`, `goats`.
 
 Assistant coverage note:
 operator workload/capacity questions are answered from the vaccination
@@ -162,6 +176,10 @@ Common questions:
 | What is vaccination adherence this week? | `/vaccination/adherence` | Percentage, numerator/denominator, period. |
 | Where are proof gaps? | `/vaccination/verification-queue` or `verification_items` | Count by shed/owner/status. |
 | Are vaccination operators overloaded tomorrow? | `/vaccination/execution`, `/vaccination/schedule`, or assignment SQL fallback | Operator totals by date and shed/partition, with over-cap markers. |
+| Which operators are behind on vaccination? | `operator_vaccination_overdue` (kpi_vaccination_operator) | Operator list sorted by overdue assigned animals. |
+| Who is overloaded / operator capacity? | `operator_vaccination_utilization` / `operator_vaccination_capacity` | Operators with utilization > 1.0 (assigned vs daily cap), per planned day. |
+| Operator drive assignments today? | `operator_vaccination_load` (filter planned day = today) | Assigned animals per operator × park × shed. |
+| How many animals is <operator> assigned? | `operator_vaccination_load` (group by operator_label) | Total assigned animal slots for that operator. |
 
 Default response rule:
 Explain operational causes, not only numbers: due, done, stale, proof missing,
@@ -329,6 +347,7 @@ the feature.
 | `vaccination_shed_summary` | read API | `/vaccination/execution`, shed summary/read model |
 | `vaccination_action_center` | read API | `/vaccination/action-center`, `/control-tower/vaccination` |
 | `vaccination_dose_pickup` | MCP/read API | vaccine names, doses to pick, sheds affected, due/overdue |
+| `operator_vaccination_load` / `_overdue` / `_capacity` / `_utilization` | Cube (kpi_vaccination_operator) | operator drive load, overdue, per-day capacity, utilization over `ceo_ai.vaccination_operator_status` (`vaccination_drive_assignments`) |
 | `feed_direction_summary` | read API | `/feed-direction/preview`, `/feed-packing/worklist` |
 | `shifting_pending_summary` | read API | `/app/counts/shifting-events/pending-execution` |
 | `procurement_load_summary` | read API | `/procurement/source-entry/loads` |

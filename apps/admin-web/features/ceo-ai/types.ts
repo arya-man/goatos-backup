@@ -19,6 +19,10 @@ export type ChatMessage = {
   citations?: CeoAiCitation[];
   chart?: CeoAiChart;
   feedback?: "up" | "down";
+  // Coarse live progress status shown under the streaming placeholder before the
+  // first answer token (planning / querying / synthesizing). Cleared once answer
+  // text arrives. Never carries chain-of-thought — only a coarse route label.
+  progress?: string;
 };
 
 // A conversation thread summary in the sidebar (backend-owned list).
