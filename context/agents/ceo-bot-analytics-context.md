@@ -173,6 +173,11 @@ assignment dates while preserving vaccine spacing, combo, buffer, and
 operator-capacity rules. Leadership answers about postponed vaccination drives
 should therefore mention the recorded override and the regenerated assignment
 rows, not treat the old inline schedule as authoritative after a move.
+When a persisted assignment row contains multiple vaccine rules, moving one
+vaccine must physically split `vaccination_drive_assignments`: sibling vaccines
+remain on the original business date, and the moved vaccine gets its own
+assignment membership on the override date. SQL fallback answers must not count
+stale mixed rows from the original date after an override has been accepted.
 Date-override verification must cover the full round trip: the original month
 shows the vaccine before the override, the original month loses only the moved
 vaccine after the override, the target month gains that vaccine, and clearing
