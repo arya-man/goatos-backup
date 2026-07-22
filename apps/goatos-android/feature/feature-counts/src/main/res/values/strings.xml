@@ -98,6 +98,8 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">Animal identifier 1</string>
+    <string name="counts_field_tag2">Animal identifier 2 (optional)</string>
+    <string name="counts_hint_tag2">A second permanent RFID. Leave blank if the newborn has only one tag.</string>
     <string name="counts_field_temp_tag">Temporary tag</string>
     <string name="counts_id_kind_permanent">Permanent RFID</string>
     <string name="counts_id_kind_temporary">Temporary tag</string>

@@ -73,6 +73,12 @@ data class BirthDeathUiState(
     /** [BIRTH_ID_KIND_PERMANENT] (RFID) or [BIRTH_ID_KIND_TEMPORARY] (provisional tag). */
     val idKind: String = BIRTH_ID_KIND_PERMANENT,
     val tag: String = "",
+    /**
+     * An optional SECOND permanent RFID (animal_identifier_2) for the permanent-RFID path only — a
+     * newborn given two ear tags. Blank = attach only the primary. Only sent in
+     * [BIRTH_ID_KIND_PERMANENT] mode; a temporary tag never carries a second permanent RFID.
+     */
+    val tag2: String = "",
     val species: String = "goat",
     val sex: String = "female",
     // Breed is CHOSEN from the herd's own backend-supplied breed vocabulary (the same Room-cached
@@ -129,7 +135,7 @@ sealed interface BirthDeathEvent {
  * automatically to the day the entry is recorded (see [BirthDeathViewModel]).
  */
 enum class BirthDeathField {
-    ID_KIND, TAG, SPECIES, SEX, BREED, DOB, DAM_ID, REASON,
+    ID_KIND, TAG, TAG2, SPECIES, SEX, BREED, DOB, DAM_ID, REASON,
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +234,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 ),
                 required = true,
             )
+            // A newborn given two permanent ear tags carries an optional second RFID
+            // (animal_identifier_2). Only offered on the permanent path — a provisional temporary tag
+            // never carries a second permanent RFID (the backend rejects that pairing).
+            if (!isTemporary) {
+                CountsTextField(
+                    value = state.tag2,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, it)) },
+                    label = stringResource(R.string.counts_field_tag2),
+                    required = false,
+                    supporting = stringResource(R.string.counts_hint_tag2),
+                )
+            }
             CountsSegmented(
                 options = listOf(
                     "goat" to stringResource(R.string.counts_species_goat),

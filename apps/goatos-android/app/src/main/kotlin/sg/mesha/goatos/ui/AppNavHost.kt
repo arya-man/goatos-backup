@@ -29,6 +29,8 @@ import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
 import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
+import sg.mesha.goatos.feature.counts.AwaitingRfidEvent
+import sg.mesha.goatos.feature.counts.AwaitingRfidScreen
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
@@ -41,6 +43,8 @@ import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
 import sg.mesha.goatos.feature.counts.ShiftingHomeScreen
+import sg.mesha.goatos.feature.counts.RfidPromoteEvent
+import sg.mesha.goatos.feature.counts.RfidPromoteScreen
 import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
 import sg.mesha.goatos.feature.counts.ShiftingPendingScreen
 import sg.mesha.goatos.feature.counts.ShiftingScreen
@@ -71,6 +75,7 @@ import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.viewmodel.AlertsViewModel
+import sg.mesha.goatos.viewmodel.AwaitingRfidViewModel
 import sg.mesha.goatos.viewmodel.BirthDeathViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
@@ -83,6 +88,7 @@ import sg.mesha.goatos.viewmodel.OverdueViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RescheduleViewModel
+import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
 import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
 import sg.mesha.goatos.viewmodel.ShedsViewModel
@@ -143,6 +149,15 @@ object Routes {
     const val COUNTS_SHIFTING_EXECUTE = "/counts/shifting/execute/{$COUNTS_SHIFTING_EXECUTE_ARG}"
     fun shiftingExecuteRoute(shiftingEventId: String): String =
         "/counts/shifting/execute/$shiftingEventId"
+
+    // The "Awaiting RFID" flow: an L1 list of temporary-tagged goats and an L2 promote form for one
+    // goat. Both are distinct hosted destinations with Up/Back and no root chrome (Android
+    // navigation-stack invariant) — reached from the Counts landing, NOT backend `nav_items`, so
+    // neither is a prefix of [COUNTS] reused as a drill target.
+    const val COUNTS_PROMOTE = "/counts/promote"
+    const val COUNTS_PROMOTE_GOAT_ARG = "goat_id"
+    const val COUNTS_PROMOTE_GOAT = "/counts/promote/{$COUNTS_PROMOTE_GOAT_ARG}"
+    fun promoteGoatRoute(goatId: String): String = "/counts/promote/$goatId"
 
     // Feed module bar (backend module `feed_direction`). Both are L0 roots and match the
     // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
@@ -857,6 +872,59 @@ fun AppNavHost(
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                 ShiftingExecuteScreen(state = state, onEvent = onEvent)
             }
+        }
+
+        // L1 "Awaiting RFID" list: goats carrying a temporary tag, waiting for a permanent RFID.
+        // Bounded Room-backed Paging window (~20/page keyset). Tapping a row opens the L2 promote form.
+        composable(Routes.COUNTS_PROMOTE) {
+            val vm: AwaitingRfidViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshState = rows.loadState.refresh
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                    else -> Unit
+                }
+            }
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
+
+            AwaitingRfidScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        AwaitingRfidEvent.Back -> navController.popBackStack()
+                        is AwaitingRfidEvent.OpenGoat ->
+                            navController.navigate(Routes.promoteGoatRoute(event.goatId)) { launchSingleTop = true }
+                        // Location filter events are ViewModel-owned (they re-fetch the list).
+                        is AwaitingRfidEvent.SelectPark,
+                        is AwaitingRfidEvent.SelectShed,
+                        AwaitingRfidEvent.ClearFilter,
+                        -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // L2 promote form: assign the permanent RFID to one temporary-tagged goat, Promote.
+        composable(
+            route = Routes.COUNTS_PROMOTE_GOAT,
+            arguments = listOf(navArgument(Routes.COUNTS_PROMOTE_GOAT_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: RfidPromoteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            RfidPromoteScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        RfidPromoteEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
         }
 
         // Feed module bar: two L0 read screens. Both render a bounded Room-backed Paging window

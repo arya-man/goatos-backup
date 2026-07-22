@@ -455,3 +455,61 @@ data class CountsGoatSummaryDto(
     @SerialName("display_id") val displayId: String = "",
     @SerialName("lifecycle_status") val lifecycleStatus: String = "",
 )
+
+// ---------------------------------------------------------------------------
+// READ — GET /app/counts/goats/temporary-tagged  ("Awaiting RFID" list)
+// ---------------------------------------------------------------------------
+
+/**
+ * One goat awaiting a permanent RFID: it still carries an active temporary tag. Every field has a
+ * default so a later contract addition never breaks decode of an already-cached Room row.
+ *
+ * [rowVersion] is the goat's optimistic-concurrency token; it is echoed back verbatim in the promote
+ * call so a stale in-hand row is rejected instead of clobbering a newer change.
+ */
+@Serializable
+data class TemporaryTaggedGoatDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("display_id") val displayId: String = "",
+    @SerialName("temporary_identifier") val temporaryIdentifier: String = "",
+    @SerialName("location_display") val locationDisplay: String = "",
+    @SerialName("row_version") val rowVersion: Int = 0,
+)
+
+/**
+ * One keyset page of the "Awaiting RFID" list. [nextCursor] is absent on the last page; it is the
+ * last row's display_id. Keyset, not offset: several operators may retag at once.
+ */
+@Serializable
+data class TemporaryTaggedGoatsResponseDto(
+    @SerialName("items") val items: List<TemporaryTaggedGoatDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /app/counts/goats/{goat_id}/promote-identifier
+// ---------------------------------------------------------------------------
+
+/**
+ * Assign a permanent RFID to a temporary-tagged goat. The temporary tag to retire is found
+ * server-side, so only the permanent RFID and the goat's current [rowVersion] are sent.
+ */
+@Serializable
+data class CountsPromoteIdentifierRequestDto(
+    @SerialName("permanent_identifier") val permanentIdentifier: String,
+    // Optional second permanent RFID (animal_identifier_2), like the birth flow. Null/absent = only
+    // the primary is attached.
+    @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
+    @SerialName("row_version") val rowVersion: Int,
+)
+
+/**
+ * The promote outcome. [idempotentReplay] is true when the result came from a previous identical
+ * promotion rather than a new one — the outbox replays under one stable key on every retry, so this
+ * is the normal outcome of a resend, not an error.
+ */
+@Serializable
+data class CountsPromoteIdentifierResponseDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)

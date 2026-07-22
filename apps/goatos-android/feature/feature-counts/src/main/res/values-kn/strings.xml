@@ -83,6 +83,11 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 1</string>
+    <string name="counts_field_tag2">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 2 (ಐಚ್ಛಿಕ)</string>
+    <string name="counts_hint_tag2">ಎರಡನೇ ಶಾಶ್ವತ RFID. ನವಜಾತಕ್ಕೆ ಒಂದೇ ಟ್ಯಾಗ್ ಇದ್ದರೆ ಖಾಲಿ ಬಿಡಿ.</string>
+    <string name="counts_field_temp_tag">ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್</string>
+    <string name="counts_id_kind_permanent">ಶಾಶ್ವತ RFID</string>
+    <string name="counts_id_kind_temporary">ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್</string>
     <string name="counts_field_breed">ತಳಿ</string>
     <string name="counts_field_dob">ಜನ್ಮ ದಿನಾಂಕ (YYYY-MM-DD)</string>
     <string name="counts_field_park">ಪಾರ್ಕ್</string>

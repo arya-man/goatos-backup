@@ -44,6 +44,7 @@ import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
@@ -138,7 +139,7 @@ class BirthDeathViewModelValidationTest {
         val vm = newViewModel()
         advanceUntilIdle()
 
-        // A single identifier is entered; there is no second-identifier or entry-date field to fill.
+        // Only the primary identifier is required; the second RFID is optional and left blank here.
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
@@ -151,11 +152,76 @@ class BirthDeathViewModelValidationTest {
         val request = syncRepository.lastBirth
         assertTrue("A birth was enqueued", request != null)
         assertEquals("Only the primary identifier is sent", "Goat001", request!!.animalIdentifier1)
-        assertEquals("No second identifier is collected any more", null, request.animalIdentifier2)
+        assertEquals("A blank second RFID is sent as null", null, request.animalIdentifier2)
         // Entry date is stamped automatically to today's business date (Asia/Kolkata), never typed.
         val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
             .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
         assertEquals("Entry date is auto-stamped to today", today, request.entryDate)
+    }
+
+    @Test
+    fun `birth sends the optional second permanent RFID when provided`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        // A newborn given two permanent ear tags: both identifiers are sent (second is optional).
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "RFID-A"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, "RFID-B"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        assertTrue("Two distinct RFIDs + dob + placement submits", vm.state.value.canSubmit)
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals("Primary RFID sent", "RFID-A", request!!.animalIdentifier1)
+        assertEquals("Second RFID sent as animal_identifier_2", "RFID-B", request.animalIdentifier2)
+    }
+
+    @Test
+    fun `a second RFID equal to the first blocks submit`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "RFID-A"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        assertTrue("Valid before the duplicate second RFID", vm.state.value.canSubmit)
+
+        // Case-insensitive duplicate of the first RFID must block submit (backend enforces this too).
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, "rfid-a"))
+        assertTrue("A duplicate second RFID blocks submit", !vm.state.value.canSubmit)
+        assertEquals(
+            "The second RFID must differ from the first.",
+            vm.state.value.validationMessage,
+        )
+    }
+
+    @Test
+    fun `a temporary tag never carries a second permanent RFID`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        // Even if a stale tag2 lingered, the temporary path must not send a second permanent RFID.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, "RFID-B"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, BIRTH_ID_KIND_TEMPORARY))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "TMP-77"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals("Temporary tag is the primary identity", "TMP-77", request!!.temporaryIdentifier)
+        assertEquals("No permanent primary on the temporary path", null, request.animalIdentifier1)
+        assertEquals("No second permanent RFID on the temporary path", null, request.animalIdentifier2)
     }
 
     @Test

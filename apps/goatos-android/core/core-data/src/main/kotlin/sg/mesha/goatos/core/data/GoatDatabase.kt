@@ -57,6 +57,10 @@ import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
+import sg.mesha.goatos.core.data.cache.AwaitingRfidItemDao
+import sg.mesha.goatos.core.data.cache.AwaitingRfidItemEntity
+import sg.mesha.goatos.core.data.cache.AwaitingRfidRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.AwaitingRfidRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
@@ -149,8 +153,10 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         FeedPackingRemoteKeyEntity::class,
         ShiftingPendingItemEntity::class,
         ShiftingPendingRemoteKeyEntity::class,
+        AwaitingRfidItemEntity::class,
+        AwaitingRfidRemoteKeyEntity::class,
     ],
-    version = 18,
+    version = 19,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -171,6 +177,9 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // v18 (see [MIGRATION_17_18]) adds the shifting pending-execution queue pair — the Shifting
     // "Pending" tab's offline-first read model (one Room row per authorized movement + its keyset
     // remote key), so an operator re-entering the tab sees their cached queue instead of a blank wall.
+    // v19 (see [MIGRATION_18_19]) adds the "Awaiting RFID" list pair — the Counts promote flow's
+    // offline-first read model (one Room row per temporary-tagged goat + its keyset remote key), so an
+    // operator re-entering the list sees their cached rows instead of a blank wall.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -208,4 +217,6 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun feedPackingRemoteKeyDao(): FeedPackingRemoteKeyDao
     abstract fun shiftingPendingItemDao(): ShiftingPendingItemDao
     abstract fun shiftingPendingRemoteKeyDao(): ShiftingPendingRemoteKeyDao
+    abstract fun awaitingRfidItemDao(): AwaitingRfidItemDao
+    abstract fun awaitingRfidRemoteKeyDao(): AwaitingRfidRemoteKeyDao
 }

@@ -62,6 +62,19 @@ enum class OutboxOpType {
      */
     SHIFTING_COMPLETE,
     SHIFTING_CANCEL,
+
+    /**
+     * Counts identifier PROMOTE from the operator's "Awaiting RFID" list
+     * (`POST /app/counts/goats/{goat_id}/promote-identifier`).
+     *
+     * Assigns a permanent RFID to a temporary-tagged goat, atomically retiring the temp tag.
+     * Promoting twice would attempt a second retag under a different RFID, so its caller derives a
+     * STABLE idempotency key from the goat id (never a timestamp-suffixed one); under that key a
+     * server-committed-but-client-unrecorded retry returns the original promotion instead of
+     * retagging onward. The GOAT ID is the outbox group key so two promotes of the same goat can
+     * never drain concurrently or out of order.
+     */
+    COUNTS_PROMOTE_IDENTIFIER,
 }
 
 /**

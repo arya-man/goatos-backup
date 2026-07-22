@@ -19,6 +19,7 @@ import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
+import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
@@ -50,6 +51,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskOptionValuesResponseDto
+import sg.mesha.goatos.core.network.dto.TemporaryTaggedGoatsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
@@ -531,6 +533,35 @@ interface AppApi {
     ): CountsShiftingExecutionResponseDto
 
     /**
+     * GET /app/counts/goats/temporary-tagged — the operator's "Awaiting RFID" list: goats that still
+     * carry an active temporary tag and are waiting to be promoted to a permanent RFID. Keyset-
+     * paginated and server-capped at 20 rows. The app renders what arrives; each row carries the
+     * goat's row_version for the promote call.
+     */
+    suspend fun listCountsTemporaryTaggedGoats(
+        pageSize: Int? = null,
+        cursor: String? = null,
+        // Optional location filter (park -> shed cascade). Null = unfiltered on that dimension.
+        parkId: String? = null,
+        shedId: String? = null,
+    ): TemporaryTaggedGoatsResponseDto
+
+    /**
+     * POST /app/counts/goats/{goat_id}/promote-identifier — assigns a permanent RFID to a
+     * temporary-tagged goat, atomically retiring the temp. Drained through the offline outbox with a
+     * stable [idempotencyKey]: a server-committed-but-client-unrecorded retry returns the ORIGINAL
+     * promotion (idempotent_replay=true) instead of retagging twice. The temp tag to retire is found
+     * server-side; the caller sends only the [permanentIdentifier] and the goat's [rowVersion].
+     */
+    suspend fun promoteCountsIdentifier(
+        goatId: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String? = null,
+    ): CountsPromoteIdentifierResponseDto
+
+    /**
      * POST /app/counts/shifting-events/{id}/cancel — retires an authorized movement that will never
      * be walked. Moves NOTHING. A [reason] is REQUIRED server-side. Same stable-key replay contract
      * as complete.
@@ -567,6 +598,8 @@ interface AppApi {
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        // Optional session filter (session_no; null = every session). Mirrors the preview.
+        session: Int? = null,
         workflow: String? = null,
         limit: Int? = null,
         offset: Int? = null,
@@ -924,6 +957,21 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
     ): CountsShiftingPendingExecutionResponseDto = CountsShiftingPendingExecutionResponseDto()
 
+    override suspend fun listCountsTemporaryTaggedGoats(
+        pageSize: Int?,
+        cursor: String?,
+        parkId: String?,
+        shedId: String?,
+    ): TemporaryTaggedGoatsResponseDto = TemporaryTaggedGoatsResponseDto()
+
+    override suspend fun promoteCountsIdentifier(
+        goatId: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String?,
+    ): CountsPromoteIdentifierResponseDto = CountsPromoteIdentifierResponseDto(goatId = goatId)
+
     override suspend fun completeCountsShiftingEvent(
         shiftingEventId: String,
         idempotencyKey: String,
@@ -955,6 +1003,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        session: Int?,
         workflow: String?,
         limit: Int?,
         offset: Int?,

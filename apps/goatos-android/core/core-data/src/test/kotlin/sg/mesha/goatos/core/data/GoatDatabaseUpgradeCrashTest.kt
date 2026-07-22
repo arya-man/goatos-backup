@@ -50,6 +50,8 @@ import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.AwaitingRfidItemEntity
+import sg.mesha.goatos.core.data.cache.AwaitingRfidRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ShiftingPendingItemEntity
 import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
@@ -113,6 +115,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_15_16,
                 MIGRATION_16_17,
                 MIGRATION_17_18,
+                MIGRATION_18_19,
             )
             .build()
         try {
@@ -397,6 +400,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_15_16,
                 MIGRATION_16_17,
                 MIGRATION_17_18,
+                MIGRATION_18_19,
             )
             .build()
         try {
@@ -493,6 +497,9 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 7. The two v18 shifting pending-execution tables (MIGRATION_17_18) exist and round-trip.
             assertShiftingPendingTablesRoundTrip(upgraded, base = 60L)
+
+            // 8. The two v19 "Awaiting RFID" tables (MIGRATION_18_19) exist and round-trip.
+            assertAwaitingRfidTablesRoundTrip(upgraded, base = 80L)
         } finally {
             upgraded.close()
         }
@@ -520,6 +527,28 @@ class GoatDatabaseUpgradeCrashTest {
             ShiftingPendingRemoteKeyEntity(queryKey = scope, nextCursor = "cursor-2", endReached = false, updatedAt = base + 1),
         )
         assertEquals("cursor-2", upgraded.shiftingPendingRemoteKeyDao().get(scope)?.nextCursor)
+    }
+
+    /** Round-trips the v19 "Awaiting RFID" list pair so a missing/mismatched CREATE in
+     *  MIGRATION_18_19 fails here — the MOB-007 upgrade-crash class — rather than on a user's phone. */
+    private suspend fun assertAwaitingRfidTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.awaitingRfidItemDao().upsertAll(
+            listOf(
+                AwaitingRfidItemEntity(
+                    goatId = "goat-1",
+                    sortIndex = 0,
+                    displayId = "G-000101",
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.awaitingRfidItemDao().countAll())
+        assertNotNull(upgraded.awaitingRfidItemDao().findById("goat-1"))
+        upgraded.awaitingRfidRemoteKeyDao().upsert(
+            AwaitingRfidRemoteKeyEntity(id = AwaitingRfidRemoteKeyEntity.SCOPE, nextCursor = "G-000101", endReached = false, updatedAt = base + 1),
+        )
+        assertEquals("G-000101", upgraded.awaitingRfidRemoteKeyDao().get(AwaitingRfidRemoteKeyEntity.SCOPE)?.nextCursor)
     }
 
     private companion object {

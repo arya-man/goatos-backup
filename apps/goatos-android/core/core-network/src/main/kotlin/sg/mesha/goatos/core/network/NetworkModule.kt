@@ -31,6 +31,8 @@ import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
+import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierRequestDto
+import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
@@ -62,6 +64,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskOptionValuesResponseDto
+import sg.mesha.goatos.core.network.dto.TemporaryTaggedGoatsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
@@ -341,6 +344,21 @@ interface AppApiService {
         @Query("cursor") cursor: String?,
     ): CountsShiftingPendingExecutionResponseDto
 
+    @GET("app/counts/goats/temporary-tagged")
+    suspend fun listCountsTemporaryTaggedGoats(
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+    ): TemporaryTaggedGoatsResponseDto
+
+    @POST("app/counts/goats/{goat_id}/promote-identifier")
+    suspend fun promoteCountsIdentifier(
+        @Path("goat_id") goatId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsPromoteIdentifierRequestDto,
+    ): CountsPromoteIdentifierResponseDto
+
     @POST("app/counts/shifting-events/{shifting_event_id}/complete")
     suspend fun completeCountsShiftingEvent(
         @Path("shifting_event_id") shiftingEventId: String,
@@ -370,6 +388,7 @@ interface AppApiService {
     suspend fun getFeedPackingWorklist(
         @Query("park_id") parkId: String,
         @Query("target_date") targetDate: String,
+        @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
@@ -695,6 +714,31 @@ class RetrofitAppApi(
     ): CountsShiftingPendingExecutionResponseDto =
         service.listCountsShiftingPendingExecution(parkId, shedId, pageSize, cursor)
 
+    override suspend fun listCountsTemporaryTaggedGoats(
+        pageSize: Int?,
+        cursor: String?,
+        parkId: String?,
+        shedId: String?,
+    ): TemporaryTaggedGoatsResponseDto =
+        service.listCountsTemporaryTaggedGoats(pageSize, cursor, parkId, shedId)
+
+    override suspend fun promoteCountsIdentifier(
+        goatId: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String?,
+    ): CountsPromoteIdentifierResponseDto =
+        service.promoteCountsIdentifier(
+            goatId,
+            idempotencyKey,
+            CountsPromoteIdentifierRequestDto(
+                permanentIdentifier = permanentIdentifier,
+                animalIdentifier2 = secondaryIdentifier?.trim()?.ifBlank { null },
+                rowVersion = rowVersion,
+            ),
+        )
+
     override suspend fun completeCountsShiftingEvent(
         shiftingEventId: String,
         idempotencyKey: String,
@@ -731,11 +775,12 @@ class RetrofitAppApi(
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        session: Int?,
         workflow: String?,
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto =
-        service.getFeedPackingWorklist(parkId, targetDate, workflow, limit, offset)
+        service.getFeedPackingWorklist(parkId, targetDate, session, workflow, limit, offset)
 
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,

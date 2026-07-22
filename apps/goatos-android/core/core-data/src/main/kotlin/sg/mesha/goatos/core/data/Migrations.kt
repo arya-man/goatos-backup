@@ -472,3 +472,28 @@ val MIGRATION_17_18: Migration = object : Migration(17, 18) {
         )
     }
 }
+
+/**
+ * v18 -> v19: the "Awaiting RFID" list pair — the Counts promote flow's offline-first read model. One
+ * Room row per temporary-tagged goat ([AwaitingRfidItemEntity]) plus its keyset remote key
+ * ([AwaitingRfidRemoteKeyEntity]). Additive and non-destructive: no existing table is touched, so an
+ * installed APK carrying an unsynced write outbox upgrades in place without data loss.
+ */
+val MIGRATION_18_19: Migration = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `awaiting_rfid_items` " +
+                "(`goatId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `displayId` TEXT NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`goatId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_awaiting_rfid_items_sortIndex` " +
+                "ON `awaiting_rfid_items` (`sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `awaiting_rfid_remote_keys` " +
+                "(`id` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        )
+    }
+}

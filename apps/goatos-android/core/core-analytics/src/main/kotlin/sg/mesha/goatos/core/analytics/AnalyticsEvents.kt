@@ -80,6 +80,15 @@ object AnalyticsEvents {
     /** The operator pressed "Mark done": the completion (relocation) write was queued. */
     const val COUNTS_SHIFTING_EXECUTE_COMPLETED = "counts_shifting_execute_completed"
 
+    /** The operator opened the "Awaiting RFID" list (goats carrying a temporary tag). */
+    const val COUNTS_AWAITING_RFID_VIEWED = "counts_awaiting_rfid_viewed"
+
+    /** The operator opened one temporary-tagged goat to promote it (the promote screen). */
+    const val COUNTS_RFID_PROMOTE_OPENED = "counts_rfid_promote_opened"
+
+    /** The operator pressed "Promote to permanent RFID": the promote (retag) write was queued. */
+    const val COUNTS_RFID_PROMOTE_SUBMITTED = "counts_rfid_promote_submitted"
+
     /** A Counts write could not be queued at all. [Params.KIND] distinguishes
      *  birth/death/shifting; [Params.REASON] carries a coarse, non-PII cause. */
     const val COUNTS_WRITE_FAILURE = "counts_write_failure"
