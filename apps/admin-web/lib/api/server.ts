@@ -1099,7 +1099,7 @@ export async function getVaccinationShedAnimals(
   );
 }
 
-// Admin daily vaccination capacity config (Config screen). Capacity is authored through protocol publish;
+// Admin daily operator animal capacity config (Config screen). Capacity is authored through protocol publish;
 // this endpoint is read-only so the planner can show the published values.
 export async function getVaccinationCapacityConfig(): Promise<ApiResult<VaccinationCapacityConfig>> {
   const config = await getServerConfig(true);

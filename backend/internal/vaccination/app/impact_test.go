@@ -40,13 +40,13 @@ func TestImpactPreviewReadsRollupNotGoats(t *testing.T) {
 	if out.DailyCap != 100 {
 		t.Fatalf("daily_cap: want 100, got %d", out.DailyCap)
 	}
-	if out.EstimatedDays != 5 { // ceil(500 / 100)
-		t.Fatalf("estimated_days: want 5, got %d", out.EstimatedDays)
+	if out.EstimatedDays != 3 { // ceil(250 animals / 100)
+		t.Fatalf("estimated_days: want 3, got %d", out.EstimatedDays)
 	}
-	if len(out.PlannedSessions) != 5 {
-		t.Fatalf("planned_sessions: want 5 rows, got %d", len(out.PlannedSessions))
+	if len(out.PlannedSessions) != 3 {
+		t.Fatalf("planned_sessions: want 3 rows, got %d", len(out.PlannedSessions))
 	}
-	if out.PlannedSessions[0].Vaccinations != 100 || out.PlannedSessions[4].Vaccinations != 100 {
+	if out.PlannedSessions[0].Vaccinations != 100 || out.PlannedSessions[2].Vaccinations != 50 {
 		t.Fatalf("planned_sessions split = %+v", out.PlannedSessions)
 	}
 	if out.SourceRevision != 1700000000000 {
@@ -54,8 +54,8 @@ func TestImpactPreviewReadsRollupNotGoats(t *testing.T) {
 	}
 }
 
-// TestImpactPreviewEstimatedDaysCeilsAndDefaultsDoseRows proves estimated_days uses ceil integer math and
-// dose_rows defaults to 1 when unset/zero.
+// TestImpactPreviewEstimatedDaysCeilsAndDefaultsDoseRows proves estimated_days uses unique animals, not
+// dose rows, and dose_rows defaults to 1 when unset/zero.
 func TestImpactPreviewEstimatedDaysCeilsAndDefaultsDoseRows(t *testing.T) {
 	repo := newCompletionRepoFake()
 	repo.rollupAgg = domain.EligibilityRollupAggregate{EligibleAnimals: 101, AffectedSheds: 2, SourceRevision: 1}
@@ -74,6 +74,27 @@ func TestImpactPreviewEstimatedDaysCeilsAndDefaultsDoseRows(t *testing.T) {
 	}
 	if out.EstimatedDays != 2 { // ceil(101 / 100) = 2, not 1
 		t.Fatalf("estimated_days: want 2 (ceil), got %d", out.EstimatedDays)
+	}
+}
+
+func TestImpactPreviewEstimatedDaysIgnoresMultipleDoseRows(t *testing.T) {
+	repo := newCompletionRepoFake()
+	repo.rollupAgg = domain.EligibilityRollupAggregate{EligibleAnimals: 101, AffectedSheds: 2, SourceRevision: 1}
+	repo.dailyCap = 100
+	svc := NewService(repo)
+
+	out, err := svc.ImpactPreview(context.Background(), domain.ImpactRequest{
+		Filter:   domain.ImpactFilter{TenantID: "tenant-1"},
+		DoseRows: 3,
+	})
+	if err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+	if out.VaccinationCells != 303 {
+		t.Fatalf("vaccination_cells: want 303 stock rows, got %d", out.VaccinationCells)
+	}
+	if out.EstimatedDays != 2 {
+		t.Fatalf("estimated_days: want 2 animal-days, got %d", out.EstimatedDays)
 	}
 }
 

@@ -26,6 +26,8 @@ data class VaccinationExecutionRowDto(
     @SerialName("parkName") val parkName: String = "",
     @SerialName("shedId") val shedId: String = "",
     @SerialName("shedName") val shedName: String = "",
+    @SerialName("physicalShed") val physicalShed: String = "",
+    @SerialName("partition") val partition: String = "",
     @SerialName("animalStage") val animalStage: String = "",
     @SerialName("targetCount") val targetCount: Int = 0,
     @SerialName("openCount") val openCount: Int = 0,

@@ -131,8 +131,15 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 				}
 				release = rel
 			}
+			effectiveDriveCap := maxDriveCells
 			if maxDriveCells > 0 && strings.TrimSpace(batch.ParkID) != "" {
-				rel, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, batch.ParkID, target, maxDriveCells, session)
+				effectiveCap, err := s.effectiveOperatorAnimalCap(ctx, tenantID, batch.ParkID, target, maxDriveCells)
+				if err != nil {
+					_ = release(ctx)
+					return err
+				}
+				effectiveDriveCap = effectiveCap
+				rel, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, batch.ParkID, target, effectiveCap, session)
 				if err != nil {
 					_ = release(ctx)
 					return err
@@ -147,7 +154,7 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 				}
 				continue
 			}
-			if maxDriveCells > 0 && comboBatchExceedsDriveCapacityAtDate(batch, *target, maxDriveCells, session) {
+			if effectiveDriveCap > 0 && comboBatchExceedsDriveCapacityAtDate(batch, *target, effectiveDriveCap, session) {
 				// Combo alignment is optional consolidation. If moving this already-safe batch would
 				// overfill the whole park/date drive, leave it on its existing planned date.
 				if err := release(ctx); err != nil {
@@ -161,7 +168,7 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 			}
 			session.claimComboBatchTargets(batch.TargetIDs, *target)
 			if maxDriveCells > 0 && strings.TrimSpace(batch.ParkID) != "" {
-				session.claimDriveCapacity(batch.ParkID, *target, batch.BatchID, comboBatchCellCount(batch))
+				session.claimDriveCapacity(batch.ParkID, *target, batch.BatchID, comboBatchAnimalCount(batch))
 			}
 			aligned++
 			if err := release(ctx); err != nil {
@@ -253,13 +260,10 @@ func comboBatchExceedsDriveCapacityAtDate(batch domain.ComboDriveBatch, target t
 	if maxCells <= 0 || strings.TrimSpace(batch.ParkID) == "" {
 		return false
 	}
-	return session.driveCapacityUsed(batch.ParkID, target)+comboBatchCellCount(batch) > maxCells
+	return session.driveCapacityUsed(batch.ParkID, target)+comboBatchAnimalCount(batch) > maxCells
 }
 
-func comboBatchCellCount(batch domain.ComboDriveBatch) int32 {
-	if batch.CellCount > 0 {
-		return batch.CellCount
-	}
+func comboBatchAnimalCount(batch domain.ComboDriveBatch) int32 {
 	if len(batch.TargetIDs) > 0 {
 		return int32(len(batch.TargetIDs))
 	}

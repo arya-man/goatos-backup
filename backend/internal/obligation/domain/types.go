@@ -85,6 +85,20 @@ type NewBatch struct {
 	SopTaskID             *string
 	ConductedBy           *string
 	BatchingHoldUntil     *time.Time
+	DriveAssignments      []DriveAssignment
+}
+
+type DriveAssignment struct {
+	BatchID        string
+	PlannedDate    time.Time
+	OperatorID     *string
+	ParkID         string
+	ShedID         *string
+	PhysicalShed   string
+	PartitionLabel string
+	AnimalCount    int32
+	CapacityStatus string
+	Warnings       []string
 }
 
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).
@@ -94,6 +108,7 @@ type UnbatchedDue struct {
 	ScopeType                string
 	ScopeID                  string
 	ParkID                   string
+	ShedName                 string
 	TargetID                 string
 	TargetSpecies            string
 	TargetAnimalStage        string
@@ -111,6 +126,7 @@ type ParkConsolidationCandidate struct {
 	ObligationID             string
 	RuleID                   string
 	ShedID                   string
+	ShedName                 string
 	ParkID                   string
 	TargetID                 string
 	TargetSpecies            string

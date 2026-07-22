@@ -1,22 +1,13 @@
 'use client';
 
 import { getAdminApi } from '@/lib/api/client';
-import { useEffect, useState } from 'react';
-import {
-  BookOpen,
-  Check,
-  Clock3,
-  Plus,
-  TriangleAlert,
-  UserRound,
-  Users,
-  X,
-} from 'lucide-react';
-import type { AdminApiComponents } from '@goatos/api-client';
 import { optionalCopy, type AdminUiPageContract } from '@/lib/admin-ui-contract';
+import type { AdminApiComponents } from '@goatos/api-client';
+import { CalendarDays, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
-// Backend enriches positions with display fields from related tables
 type BasePosition = AdminApiComponents['schemas']['Position'];
+
 interface Position extends BasePosition {
   person_display_name?: string | null;
   hr_designation_grade?: string | null;
@@ -27,440 +18,178 @@ interface Position extends BasePosition {
   backup_group?: string | null;
 }
 
-type BackupConfig = AdminApiComponents['schemas']['BackupConfig'];
-type Coverage = AdminApiComponents['schemas']['Coverage'];
-type PositionProfile = AdminApiComponents['schemas']['PositionProfile'];
-
 interface PositionsPanelProps {
   pageContract?: AdminUiPageContract;
 }
 
+const OPERATOR_CAP = 200;
+
+function isVaccinationOperator(pos: Position): boolean {
+  const haystack = `${pos.position_code ?? ''} ${pos.position_title ?? ''} ${pos.tier ?? ''}`.toLowerCase();
+  return haystack.includes('vaccination') || haystack.includes('operator') || haystack.includes('preventive_care');
+}
+
+function isDirector(pos: Position): boolean {
+  const haystack = `${pos.position_code ?? ''} ${pos.position_title ?? ''} ${pos.tier ?? ''}`.toLowerCase();
+  return haystack.includes('director');
+}
+
+function personName(pos: Position): string {
+  return pos.person_display_name || pos.position_title || pos.position_code || 'Unassigned';
+}
+
+function roleLabel(pos: Position): string {
+  if (isDirector(pos)) return 'Preventive Care Director';
+  if (isVaccinationOperator(pos)) return 'Vaccination Operator';
+  return pos.position_title || pos.position_code || 'Role';
+}
+
+function weekOff(pos: Position): string {
+  return pos.week_off || pos.week_off_weekday || '—';
+}
+
 export function PositionsPanel({ pageContract }: PositionsPanelProps) {
   const [positions, setPositions] = useState<Position[]>([]);
-  const [backupConfigs, setBackupConfigs] = useState<BackupConfig[]>([]);
-  const [activeCoverages, setActiveCoverages] = useState<Coverage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Row-click profile drawer (mock: openPerson). getStaffPositionProfile returns the
-  // enriched seat + the coverage window currently covering its holder (null when present).
-  const [profile, setProfile] = useState<PositionProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
-
-  const openProfile = async (positionId: string) => {
-    setProfile(null);
-    setProfileError(null);
-    setProfileLoading(true);
-    try {
-      const res = await getAdminApi().getStaffPositionProfile(positionId);
-      setProfile(res.data.profile ?? null);
-    } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Failed to load position profile');
-    } finally {
-      setProfileLoading(false);
-    }
-  };
-
-  const closeProfile = () => {
-    setProfile(null);
-    setProfileError(null);
-    setProfileLoading(false);
-  };
-  const drawerOpen = profileLoading || profileError !== null || profile !== null;
-
-  // Contract-driven labels (from pageContract, fallback to defaults)
-  // Note: /people page contract copy/labels are being moved to backend; falling back to sensible defaults until complete
-  const positionsTableLabel = pageContract?.tables?.find((t) => t.id === 'positions')?.title ?? 'Position & Coverage';
-  const pageTitle = pageContract?.title ?? 'People / HRMS';
-  const pageSubtitle = pageContract?.subtitle ?? 'Staff positions, coverage, timetable';
-
-  const kpiPositionsFilled = optionalCopy(pageContract, 'kpi.positions_filled') ?? 'Positions filled';
-  const kpiOffToday = optionalCopy(pageContract, 'kpi.off_today') ?? 'Off today (leave + week-off)';
-  const kpiAutoCovered = optionalCopy(pageContract, 'kpi.auto_covered') ?? 'Auto-covered';
-  const kpiEscalated = optionalCopy(pageContract, 'kpi.escalated') ?? 'Escalated to Park Head';
-
   useEffect(() => {
-    const loadData = async () => {
+    let alive = true;
+    async function loadData() {
       try {
-        const api = getAdminApi();
-
-        // Load positions
-        const posResponse = await api.listStaffPositions();
-        if (posResponse.data?.items) {
-          setPositions(posResponse.data.items);
+        const response = await getAdminApi().listStaffPositions();
+        if (alive) {
+          setPositions(response.data?.items ?? []);
+          setError(null);
         }
-
-        // Load backup configurations
-        const backupResponse = await api.listBackupConfig();
-        if (backupResponse.data?.items) {
-          setBackupConfigs(backupResponse.data.items);
-        }
-
-        // Load active coverage — active=true means currently-in-effect windows only
-        // (the "this period" the section header promises), incl. escalation_required.
-        const coverageResponse = await api.listCoverage({ active: true });
-        if (coverageResponse.data?.items) {
-          setActiveCoverages(coverageResponse.data.items);
-        }
-
-        setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load roster data');
-        console.error('Error loading roster data:', err);
+        if (alive) setError(err instanceof Error ? err.message : 'Failed to load operator roster');
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
-    };
-
+    }
     loadData();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  if (loading) {
-    return <div className="p-4 text-center">Loading positions...</div>;
-  }
+  const roster = useMemo(() => {
+    return positions.filter((pos) => pos.status === 'active' && (isVaccinationOperator(pos) || isDirector(pos)));
+  }, [positions]);
 
-  if (error) {
+  const operators = roster.filter((pos) => !isDirector(pos));
+  const directors = roster.filter(isDirector);
+  const totalCapacity = operators.length * OPERATOR_CAP;
+  const title = pageContract?.tables?.find((t) => t.id === 'positions')?.title ?? 'Vaccination Operators';
+  const subtitle =
+    optionalCopy(pageContract, 'people.operator_roster.subtitle') ??
+    'Operator availability drives vaccination planning. Directors monitor; they do not add field capacity unless explicitly assigned.';
+
+  if (loading) {
     return (
-      <div style={{ padding: '16px', color: 'var(--danger)' }}>
-        <TriangleAlert className="ic" style={{ marginRight: '8px' }} aria-hidden="true" />
-        Error: {error}
+      <div className="subpanel on" data-sub="positions">
+        <div className="note" style={{ padding: 16 }}>Loading operator roster...</div>
       </div>
     );
   }
 
-  // Helper to determine if coverage is escalated based on backend coverage fields
-  const isEscalatedCoverage = (coverage: Coverage): boolean => {
-    return !!(coverage.escalation_state || coverage.source === 'escalation');
-  };
-
-  const positionsFilled = positions.filter(p => p.status === 'active').length;
-  const autoCovered = activeCoverages.filter(c => c.source === 'leave' || c.source === 'week_off').length;
-  const escalated = activeCoverages.filter(isEscalatedCoverage).length;
+  if (error) {
+    return (
+      <div className="subpanel on" data-sub="positions">
+        <div className="note" style={{ color: 'var(--danger)', padding: 16 }}>
+          <TriangleAlert className="ic" style={{ marginRight: 8 }} aria-hidden="true" />
+          {error}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="subpanel on" data-sub="positions">
       <div className="phead">
         <div>
-          <div className="crumb">Team / <b>{positionsTableLabel}</b></div>
-          <h1>{positionsTableLabel}</h1>
-          <div className="sub">Each person holds a <b>fixed operational position</b> — never mutated by a leave. When someone is off (ad-hoc leave <b>or</b> their weekly OFF day), that position&apos;s <b>configured backup</b> covers only their due work for that window; ownership never changes. Functional managers never cross-cover.</div>
+          <div className="crumb">Team / <b>{title}</b></div>
+          <h1>{title}</h1>
+          <div className="sub">{subtitle}</div>
         </div>
-        <div className="sp"></div>
-        <button className="btn" title="How coverage works" disabled aria-label="How coverage works (backend contract pending)">
-          <BookOpen className="ic" aria-hidden="true" />How coverage works
-        </button>
-        <button className="btn p" title="Configure backup" disabled aria-label="Configure backup (backend contract pending)">
-          <Plus className="ic" aria-hidden="true" />Configure backup
-        </button>
       </div>
 
-      <div className="grid g4" style={{ marginBottom: '16px' }}>
+      <div className="grid g4" style={{ marginBottom: 16 }}>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--brand)' }}></span>
-          <div className="lab"><Users className="ic" aria-hidden="true" />{kpiPositionsFilled}</div>
-          <div className="val">{positionsFilled}</div>
-          <div className="dl">{positions.length} total rows</div>
+          <div className="lab"><UsersRound className="ic" aria-hidden="true" />Operators</div>
+          <div className="val">{operators.length}</div>
+          <div className="dl">field capacity seats</div>
         </div>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--amber)' }}></span>
-          <div className="lab">{kpiOffToday}</div>
-          <div className="val">{autoCovered + escalated}</div>
-          <div className="dl"><span className="muted">all resolved below</span></div>
+          <div className="lab"><Stethoscope className="ic" aria-hidden="true" />Cap / operator</div>
+          <div className="val">{OPERATOR_CAP}</div>
+          <div className="dl">animals per day</div>
         </div>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--brand)' }}></span>
-          <div className="lab">{kpiAutoCovered}</div>
-          <div className="val">{autoCovered}</div>
-          <div className="dl up">backup routed</div>
+          <div className="lab"><CalendarDays className="ic" aria-hidden="true" />Daily capacity</div>
+          <div className="val">{totalCapacity}</div>
+          <div className="dl">before leave/day-off</div>
         </div>
         <div className="kpi">
-          <span className="acc" style={{ background: 'var(--danger)' }}></span>
-          <div className="lab">{kpiEscalated}</div>
-          <div className="val">{escalated}</div>
-          <div className="dl down">no backup configured</div>
+          <span className="acc" style={{ background: 'var(--teal)' }}></span>
+          <div className="lab"><ShieldCheck className="ic" aria-hidden="true" />Directors</div>
+          <div className="val">{directors.length}</div>
+          <div className="dl">monitoring only</div>
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: '16px' }}>
+      <div className="card">
         <div className="hd">
-          <Users className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
-          <h3>Positions — three independent axes</h3>
+          <UserRoundCheck className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
+          <h3>Vaccination drive roster</h3>
           <div className="sp"></div>
-          <span className="pill b">tier · position · backup</span>
+          <span className="pill b">operator cap · timetable · role</span>
         </div>
         <div className="bd" style={{ padding: 0 }}>
           <table>
             <thead>
               <tr>
                 <th>Person</th>
-                <th>Tier</th>
-                <th>Position title</th>
-                <th>Center</th>
-                <th>Week OFF</th>
-                <th>HR grade</th>
-                <th>Backup group</th>
+                <th>Role</th>
+                <th>Park / center</th>
+                <th>Week off</th>
+                <th>Drive cap</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {positions.length === 0 ? (
+              {roster.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)' }}>
-                    No positions found
+                  <td colSpan={6} style={{ color: 'var(--muted)', padding: 16, textAlign: 'center' }}>
+                    No vaccination roster configured
                   </td>
                 </tr>
               ) : (
-                positions.map((pos) => (
-                  <tr
-                    key={pos.position_id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => openProfile(pos.position_id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        openProfile(pos.position_id);
-                      }
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`Open profile for ${pos.person_display_name || pos.position_code}`}
-                  >
-                    <td>{pos.person_display_name || '—'}</td>
-                    <td><span className="tag t-info">{pos.tier || pos.position_tier}</span></td>
-                    <td><b>{pos.position_title || pos.position_code}</b></td>
-                    <td>{pos.center_label || '—'}</td>
-                    <td>{pos.week_off || (pos.week_off_weekday ? pos.week_off_weekday : '—')}</td>
-                    <td>{pos.hr_designation_grade || '—'}</td>
-                    <td><span className="tag t-mut">{pos.backup_group || pos.backup_group_code || '—'}</span></td>
-                  </tr>
-                ))
+                roster.map((pos) => {
+                  const director = isDirector(pos);
+                  return (
+                    <tr key={pos.position_id}>
+                      <td><b>{personName(pos)}</b></td>
+                      <td>{roleLabel(pos)}</td>
+                      <td>{pos.center_label || '—'}</td>
+                      <td>{director ? '—' : weekOff(pos)}</td>
+                      <td>{director ? 'monitor only' : `${OPERATOR_CAP} animals/day`}</td>
+                      <td><span className="tag t-ok">{pos.status}</span></td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
           <div className="note" style={{ margin: '12px 14px' }}>
-            <b>Three axes stay independent:</b> HR designation grade (payroll context only), Position tier/title (who does what, from the timetable), and Backup group (coverage fallback). Tier never grants access; position code determines who can execute.
+            Weekly off and leave remove an operator from that date&apos;s drive capacity. Chandrakant/director roles monitor across parks and do not count as field capacity unless explicitly assigned an execution role.
           </div>
         </div>
       </div>
-
-      <div className="grid g2">
-        <div className="card">
-          <div className="hd">
-            <Users className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
-            <h3>Configured backup — per center × group</h3>
-            <span className="small muted" style={{ marginLeft: 'auto' }}>two-tier · fixed slots</span>
-          </div>
-          <div className="bd" style={{ padding: 0 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Center</th>
-                  <th>Backup group</th>
-                  <th>Backup position</th>
-                  <th>Holder</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {backupConfigs.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)' }}>
-                      No backup configurations
-                    </td>
-                  </tr>
-                ) : (
-                  backupConfigs.map((config) => (
-                    <tr key={`${config.center_id}-${config.backup_group_code}`}>
-                      <td>{config.center_label || '—'}</td>
-                      <td>{config.backup_group_code}</td>
-                      <td><b>{config.backup_position_title || config.backup_position_code}</b></td>
-                      <td>{config.configured_holder_name || '—'}</td>
-                      <td>
-                        <span className={`tag ${config.status === 'active' ? 't-ok' : 't-warn'}`}>
-                          {config.status || 'configured'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            <div className="note" style={{ margin: '12px 14px' }}>
-              Managers fall back to <b>one</b> center-wide Backup Manager; operators fall back to their <b>Backup AM tier</b> — never cross-cover. An empty slot escalates to the Park Head instead of silently picking someone.
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="hd">
-            <Clock3 className="ic" style={{ color: 'var(--amber)' }} aria-hidden="true" />
-            <h3>Active coverage — this period</h3>
-            <div className="sp"></div>
-            <span className="pill">ownership unchanged · window only</span>
-          </div>
-          <div className="bd feed">
-            {activeCoverages.length === 0 ? (
-              <div className="note" style={{ padding: '12px 14px', textAlign: 'center', color: 'var(--muted)' }}>
-                No active coverage windows
-              </div>
-            ) : (
-              activeCoverages.map((coverage) => {
-                const isEscalated = isEscalatedCoverage(coverage);
-                return (
-                  <div key={coverage.position_id} className="fitem">
-                    <span
-                      className="fic"
-                      style={{
-                        background: isEscalated ? 'var(--dangerx)' : 'var(--okx)',
-                        color: isEscalated ? 'var(--danger)' : 'var(--brand-d)'
-                      }}
-                    >
-                      {isEscalated ? (
-                        <TriangleAlert className="ic" aria-hidden="true" />
-                      ) : (
-                        <Check className="ic" aria-hidden="true" />
-                      )}
-                    </span>
-                    <div className="tx">
-                      <b>{coverage.covered_position_title || coverage.covered_position_code}</b>
-                      <div className="mt">
-                        {coverage.covering_member_name || 'pending'} · {coverage.source}
-                      </div>
-                    </div>
-                    <span className={`tag ${isEscalated ? 't-dng' : 't-ok'}`}>
-                      {isEscalated ? 'escalated' : 'covered'}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-            <div className="note" style={{ marginTop: '8px' }}>
-              Each coverage grants the backup <b>execute permission for the window only</b> — it expires on its own. The absent person&apos;s ownership badge stays unchanged; only their due work reassigns.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {drawerOpen && (
-        <>
-          <div className="veil" onClick={closeProfile} aria-hidden="true" />
-          <aside className="drawer on" aria-label="Position & coverage profile">
-            <div className="dh">
-              <span className="fic" style={{ background: 'var(--brand-soft)', color: 'var(--brand-d)' }}>
-                <UserRound className="ic" aria-hidden="true" />
-              </span>
-              <div>
-                <div className="mt">Position &amp; coverage</div>
-                <h2>{profile?.position?.person_display_name || profile?.position?.position_title || 'Position profile'}</h2>
-              </div>
-              <span className="sp" style={{ flex: 1 }} />
-              <button type="button" className="iconbtn" onClick={closeProfile} aria-label="Close profile">
-                <X className="ic" />
-              </button>
-            </div>
-
-            <div className="dc">
-              {profileLoading && (
-                <div className="note">Loading profile…</div>
-              )}
-              {profileError && (
-                <div className="note" style={{ color: 'var(--danger)' }}>
-                  <TriangleAlert className="ic" style={{ marginRight: 8 }} aria-hidden="true" />
-                  {profileError}
-                </div>
-              )}
-              {profile && (() => {
-                const pos = profile.position;
-                const cov = profile.active_coverage ?? null;
-                const covEscalated = !!(cov && (cov.escalation_state || cov.source === 'escalation'));
-                const duties = pos.duties ?? [];
-                return (
-                  <>
-                    {/* RECORD anatomy = .metagrid (a 2-col grid of uppercase-key cells), never a flat stack. */}
-                    <div className="metagrid">
-                      <div>
-                        <div className="k">Operational position</div>
-                        <div className="v"><b>{pos.position_title || pos.position_code}</b></div>
-                      </div>
-                      <div>
-                        <div className="k">HR grade</div>
-                        <div className="v">{pos.hr_designation_grade || '—'}</div>
-                      </div>
-                      <div>
-                        <div className="k">Tier</div>
-                        <div className="v"><span className="tag t-info">{pos.tier || pos.position_tier}</span></div>
-                      </div>
-                      <div>
-                        <div className="k">Center</div>
-                        <div className="v">{pos.center_label || '—'}</div>
-                      </div>
-                      <div>
-                        <div className="k">Week OFF</div>
-                        <div className="v">{pos.week_off || pos.week_off_weekday || '—'}</div>
-                      </div>
-                      <div>
-                        <div className="k">Backup group</div>
-                        <div className="v"><span className="tag t-mut">{pos.backup_group || pos.backup_group_code || '—'}</span></div>
-                      </div>
-                      <div>
-                        <div className="k">Scope</div>
-                        <div className="v">{pos.scope_type}</div>
-                      </div>
-                      <div>
-                        <div className="k">Status</div>
-                        <div className="v"><span className={`tag ${pos.status === 'active' ? 't-ok' : 't-warn'}`}>{pos.status}</span></div>
-                      </div>
-                    </div>
-
-                    {/* Coverage this period — ownership never changes; only due work reassigns for the window. */}
-                    <div className="b700" style={{ margin: '16px 0 6px' }}>Coverage — this period</div>
-                    {cov ? (
-                      <div className="fitem">
-                        <span className="fic" style={{ background: covEscalated ? 'var(--dangerx)' : 'var(--okx)', color: covEscalated ? 'var(--danger)' : 'var(--brand-d)' }}>
-                          {covEscalated ? (
-                            <TriangleAlert className="ic" aria-hidden="true" />
-                          ) : (
-                            <Check className="ic" aria-hidden="true" />
-                          )}
-                        </span>
-                        <div className="tx">
-                          <b>{cov.covering_member_name || 'pending'}</b>
-                          <div className="mt">{cov.source}{covEscalated ? ' · escalated to Park Head' : ''}</div>
-                        </div>
-                        <span className={`tag ${covEscalated ? 't-dng' : 't-ok'}`}>{covEscalated ? 'escalated' : 'covered'}</span>
-                      </div>
-                    ) : (
-                      <div className="note">Present — no active leave/week-off coverage for this seat right now.</div>
-                    )}
-
-                    {/* Capabilities (effective-dated) = the position's module duties; a temporary backup grant confers each duty's execute capability. */}
-                    <div className="b700" style={{ margin: '16px 0 6px' }}>Capabilities <span className="muted small">(effective-dated · module duties)</span></div>
-                    {duties.length > 0 ? (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {duties.map((d, i) => (
-                          <span key={`${d.module_code}-${d.duty_type}-${i}`} className="tag t-info">
-                            {d.module_code} · {d.duty_type}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="note">No declared module duties for this position yet.</div>
-                    )}
-
-                    <div className="note" style={{ marginTop: 14 }}>
-                      Registered devices, app sessions, and the daily task checklist live in the operator mobile app, not the roster profile.
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-
-            <div className="df">
-              <button type="button" className="btn" onClick={closeProfile}>Close</button>
-            </div>
-          </aside>
-        </>
-      )}
     </div>
   );
 }

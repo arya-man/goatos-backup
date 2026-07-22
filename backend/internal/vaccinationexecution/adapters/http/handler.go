@@ -43,7 +43,7 @@ type Reader interface {
 	ShedDetail(ctx context.Context, shedID string, q vaccexecd.OperationsQuery) (vaccexecd.ShedDetailResponse, bool, error)
 	// ShedAnimals backs the shed drill-down keyset-paginated animal roster.
 	ShedAnimals(ctx context.Context, q vaccexecd.ShedAnimalQuery) (vaccexecd.ShedAnimalPage, error)
-	// CapacityConfig backs the admin Config screen's read of the tenant daily vaccination cap.
+	// CapacityConfig backs the admin Config screen's read of the tenant daily operator animal cap.
 	CapacityConfig(ctx context.Context, tenantID string) (vaccexecd.CapacityConfig, error)
 }
 
@@ -334,6 +334,13 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
 		Limit:     defaultLimit,
 	}
+	if isAppExecutionRoute(r) {
+		q.OperatorScopeActorID = httpmiddleware.ActorIDFromContext(r.Context())
+		if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
+			h.badRequest(w, r, "operator_scope_required", "app vaccination execution requires an authenticated operator scope")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+	}
 
 	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
 		parsed, err := biztime.ParseLiveAsOfRFC3339(asOfRaw, asOf)
@@ -445,10 +452,15 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	q := vaccexecd.ScanRosterQuery{
-		TenantID: tenantID(r),
-		ShedID:   shedID,
-		TaskID:   taskID,
-		Limit:    limit,
+		TenantID:             tenantID(r),
+		ShedID:               shedID,
+		TaskID:               taskID,
+		OperatorScopeActorID: httpmiddleware.ActorIDFromContext(r.Context()),
+		Limit:                limit,
+	}
+	if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
+		h.badRequest(w, r, "operator_scope_required", "app vaccination roster requires an authenticated operator scope")
+		return
 	}
 	if rawCursor := query.Get("cursor"); rawCursor != "" {
 		cursor, err := vaccexecd.DecodeScanRosterCursor(rawCursor)
@@ -483,6 +495,10 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		response["next_cursor"] = encoded
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, response)
+}
+
+func isAppExecutionRoute(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/app/vaccination/execution")
 }
 
 func (h *Handler) TaskOptionValues(w http.ResponseWriter, r *http.Request) {
@@ -957,7 +973,7 @@ func traceID(r *http.Request) string {
 	return "missing-trace"
 }
 
-// GetCapacityConfig returns the tenant's daily vaccination cap config for the admin Config screen. Read
+// GetCapacityConfig returns the tenant's daily operator animal cap config for the admin Config screen. Read
 // authority is enforced at the permission layer (config authority: CEO/CXO).
 func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := h.reader.CapacityConfig(r.Context(), tenantID(r))

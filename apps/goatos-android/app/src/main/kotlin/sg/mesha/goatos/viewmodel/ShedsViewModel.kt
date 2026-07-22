@@ -199,6 +199,9 @@ class ShedsViewModel @Inject constructor(
             ShedRow(
                 id = identity.cardId,
                 name = first.shedName,
+                operatorName = first.owner?.operatorName.orEmpty(),
+                physicalShed = first.physicalShed.ifBlank { first.shedName },
+                partition = first.partition,
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,

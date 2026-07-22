@@ -137,7 +137,34 @@ func TestAlignComboDrivesSkipsBatchThatWouldExceedParkDateCellCap(t *testing.T) 
 		t.Fatalf("aligned = %d, want 0 because target park/date is already at cap", aligned)
 	}
 	if len(repo.updates) != 0 {
-		t.Fatalf("updates = %#v, want none over whole-park drive cell cap", repo.updates)
+		t.Fatalf("updates = %#v, want none over whole-park drive animal cap", repo.updates)
+	}
+}
+
+func TestAlignComboDrivesUsesAnimalCountForDriveCapacity(t *testing.T) {
+	d1 := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
+	repo := &fakeComboAlignRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		driveCells: map[string]int32{
+			driveCapacityKey("park-1", d2): 49,
+		},
+		comboBatches: []domain.ComboDriveBatch{
+			{BatchID: "batch-fmd", ScopeType: "park", ScopeID: "park-1", ParkID: "park-1", Session: "combo:FMD+HS", PlannedDate: &d1, TargetIDs: []string{"goat-1"}, CellCount: 50},
+			{BatchID: "batch-hs", ScopeType: "park", ScopeID: "park-1", ParkID: "park-1", Session: "combo:FMD+HS", PlannedDate: &d2, TargetIDs: []string{"goat-2"}, CellCount: 50},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, d1, 0, 50, NewSweepSession())
+	if err != nil {
+		t.Fatalf("AlignComboDrives: %v", err)
+	}
+	if aligned != 1 {
+		t.Fatalf("aligned = %d, want 1 because one target animal fits in the remaining slot", aligned)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].BatchID != "batch-fmd" {
+		t.Fatalf("updates = %#v, want batch-fmd moved by animal-slot capacity", repo.updates)
 	}
 }
 

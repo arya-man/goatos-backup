@@ -721,7 +721,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the tenant's daily vaccination capacity config for the admin Config screen. */
+        /** Read the tenant's daily operator animal capacity config for the admin Config screen. */
         get: operations["getVaccinationCapacityConfig"];
         put?: never;
         post?: never;
@@ -3393,8 +3393,21 @@ export interface components {
             latest_rejection_reason?: string;
             audit_ref?: string;
         };
+        /**
+         * @description Operator-drive capacity state from the canonical vaccination drive planner. Capacity is unique animals per available operator per day, never vaccine doses or obligation cells.
+         * @enum {string}
+         */
+        DriveCapacityState: "not_planned" | "within_cap" | "over_cap_required" | "medical_defer" | "terminal_animal_closed";
         CountByWorkState: {
             work_state: components["schemas"]["WorkState"];
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
             count: number;
         };
         ActionCenterObligation: {
@@ -3440,6 +3453,14 @@ export interface components {
             /** Format: date-time */
             window_end?: string;
             expected_count: number;
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
             obligation_status: string;
             batch_status?: string;
             sop_task_state: components["schemas"]["ProcessIntegritySOPState"];
@@ -3508,6 +3529,14 @@ export interface components {
             next_action: string;
             evidence: components["schemas"]["ProcessIntegrityEvidence"];
             work_state: components["schemas"]["WorkState"];
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
         };
         ProtocolAdherenceResponse: {
             /** @enum {string} */
@@ -3542,6 +3571,14 @@ export interface components {
             owner: components["schemas"]["ProcessIntegrityOwner"];
             next_action: string;
             evidence_link: string;
+            drive_capacity_state?: components["schemas"]["DriveCapacityState"];
+            drive_animals_required?: number;
+            drive_animals_assigned?: number;
+            drive_operator_cap?: number;
+            drive_available_operators?: number;
+            /** Format: date-time */
+            drive_latest_safe_date?: string;
+            drive_medical_defer_reason?: string;
             /**
              * Format: uuid
              * @description The obligation this alert is about. Lets the mobile app target POST /app/vaccination/obligations/{obligation_id}/reschedule with a real id.
@@ -3596,6 +3633,10 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            /** @description Normalized physical shed/building name. Partition suffixes such as "Gandhi 1" are exposed separately as partition. */
+            physicalShed?: string;
+            /** @description Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds. */
+            partition?: string;
             animalStage: string;
             /** @description Number of targeted animal obligations represented by this aggregated execution row. */
             targetCount: number;
@@ -3768,30 +3809,30 @@ export interface components {
             location_id?: string;
             /** @description Number of selected dose/schedule rows (vaccination cells per eligible animal). */
             dose_rows?: number;
-            /** @description Draft daily vaccination cap (vaccinations/day) authored in the rule editor, used to compute estimated_days BEFORE publish. Omit to fall back to the published/operational cap. */
+            /** @description Draft operator animal cap (unique animals per available operator per day) authored in the rule editor, used to compute estimated operator-days BEFORE publish. Omit to fall back to the published/operational cap. */
             daily_cap?: number;
             /** @description Draft safe-window buffer (days) authored in the rule editor. Omit to fall back to the business default. Drives the within_cap / over_cap (split) / capacity_breach classification. */
             max_buffer_days?: number;
             horizon_days?: number;
         };
-        /** @description Aggregate-only config impact preview. Every number is read from the precomputed vaccination eligibility rollup (read model); the request path never scans goats. Use the business names only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap). */
+        /** @description Aggregate-only config impact preview. Every number is read from the precomputed vaccination eligibility rollup (read model); the request path never scans goats. Use the business names only (eligible_animals / vaccination_cells / affected_sheds / estimated_days / daily_cap). vaccination_cells remains a dose-row volume metric for stock planning; drive capacity is based on unique eligible animals per available operator per day. */
         ImpactPreviewResult: {
             /** @description SUM(animal_count) over usable animals matching the filter. */
             eligible_animals: number;
-            /** @description eligible_animals × selected dose rows. */
+            /** @description eligible_animals × selected dose rows; stock/dose volume only, not operator capacity. */
             vaccination_cells: number;
             /** @description Distinct sheds holding usable animals in scope. */
             affected_sheds: number;
-            /** @description ceil(vaccination_cells / daily_cap). */
+            /** @description Estimated operator-days from unique eligible animals and daily_cap. */
             estimated_days: number;
-            /** @description Configured vaccinations/day used for estimated_days. */
+            /** @description Configured unique animals per available operator per day used for estimated_days. */
             daily_cap: number;
             /**
-             * @description Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one day), over_cap (Split — fits the safe window), capacity_breach (Needs review — beyond it). Omitted when there are no cells to plan.
+             * @description Planner classification of the draft under daily_cap + the buffer window: within_cap (fits one operator-day), over_cap (Split — fits the safe window), capacity_breach (Capacity action — add operators or finish over cap inside the safe window). Omitted when there is no animal work to plan.
              * @enum {string}
              */
             capacity_status?: "within_cap" | "over_cap" | "capacity_breach";
-            /** @description Pre-publish session split under the draft daily cap. Bounded for very large herds; estimated_days remains the full duration when the preview is truncated. */
+            /** @description Pre-publish operator-day estimate under the draft daily cap. Bounded for very large herds; estimated_days remains the full duration when the preview is truncated. */
             planned_sessions: components["schemas"]["VaccinationPlannedSession"][];
             /** @description Optional cheap stock check; present only when a vaccine item is set. */
             doses_available?: string;
@@ -4102,35 +4143,36 @@ export interface components {
          * @description Machine vocabulary for capacity/session-splitting state:
          *     - within_cap: fits in a single day (sessions <= 1)
          *     - over_cap: safely split across multiple days within the safe window
-         *     - capacity_breach: cannot fit within the safe window; needs manager review
+         *     - capacity_breach: cannot fit within the safe window at authored cap; add operators or finish over cap
          *
          *     NEVER show raw tokens in CEO UI. Frontend renders provided labels:
-         *     within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Needs review"
+         *     within_cap -> "Within cap", over_cap -> "Split", capacity_breach -> "Capacity action"
          * @enum {string}
          */
         VaccinationCapacityStatus: "within_cap" | "over_cap" | "capacity_breach";
         VaccinationPlannedSession: {
             /** @description Asia/Kolkata business date (YYYY-MM-DD) */
             date: string;
-            /** @description Vaccination cells (obligations) planned for this day */
+            /** @description Animal slots planned for this day */
             vaccinations: number;
-            /** @description The configured daily vaccination capacity cap */
+            /** @description The configured daily animals/operator cap */
             dailyLimit: number;
             capacity: components["schemas"]["VaccinationCapacityStatus"];
         };
         /**
-         * @description Tenant daily vaccination capacity config published from the versioned vaccination rule DSL. The cap
-         *     counts vaccination administrations (cells), not animals — one goat receiving FMD + HS is 2.
+         * @description Tenant vaccination drive capacity config published from the versioned vaccination rule DSL. The cap
+         *     counts unique animals per available operator per business date, not vaccine doses or obligation
+         *     cells. One animal receiving a same-day vaccine bundle still consumes one operator slot.
          */
         VaccinationCapacityConfig: {
-            /** @description Max vaccination administrations allowed per day. */
+            /** @description Max unique animals one available operator can handle per business date. */
             maxPerDay: number;
             /**
              * @description Where the cap applies. Only 'tenant' is honored by the planner today.
              * @enum {string}
              */
             capacityScope: "tenant" | "center" | "shed";
-            /** @description Extra safe-window days past the first due day before work is flagged Needs review. */
+            /** @description Extra safe-window days past the first due day before added operators or over-cap completion is required. */
             maxBufferDays: number;
             /**
              * @description What the planner does when due work exceeds the cap.
@@ -6338,7 +6380,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The tenant's daily vaccination capacity config. */
+            /** @description The tenant's daily operator animal capacity config. */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -263,7 +263,12 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		if err != nil {
 			return plannedDate, nil, nil, err
 		}
-		driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, plannedDate, planner.MaxGoatsPerDrive, session)
+		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner)
+		if err != nil {
+			_ = visitRelease(ctx)
+			return plannedDate, nil, nil, err
+		}
+		driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, plannedDate, capPlanner.MaxGoatsPerDrive, session)
 		if err != nil {
 			_ = visitRelease(ctx)
 			return plannedDate, nil, nil, err
@@ -274,13 +279,13 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			_ = release(ctx)
 			return plannedDate, nil, nil, err
 		}
-		cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, plannedDate, planner, session, cellsPerObligation)
+		cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, plannedDate, capPlanner, session)
 		if len(cappedIDs) < len(selectedIDs) {
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 			selectedIDs = cappedIDs
 		}
-		claimPreflightUnbatchedDriveCapacity(session, rows, selectedIDs, plannedDate, cellsPerObligation)
+		claimPreflightUnbatchedDriveCapacity(session, rows, selectedIDs, plannedDate)
 		return plannedDate, selectedIDs, shotClaims, release(ctx)
 	}
 
@@ -299,7 +304,11 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 				return plannedDate, nil, nil, err
 			}
-			driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, &day, planner.MaxGoatsPerDrive, session)
+			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner)
+			if err != nil {
+				return plannedDate, nil, nil, err
+			}
+			driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, &day, capPlanner.MaxGoatsPerDrive, session)
 			if err != nil {
 				return plannedDate, nil, nil, err
 			}
@@ -308,7 +317,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 				_ = driveRelease(ctx)
 				return plannedDate, nil, nil, err
 			}
-			cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, &day, planner, session, cellsPerObligation)
+			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, session)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, cappedIDs))
@@ -336,7 +345,11 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 		return bestDate, nil, nil, err
 	}
-	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, bestDate, planner.MaxGoatsPerDrive, session)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner)
+	if err != nil {
+		return bestDate, nil, nil, err
+	}
+	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, bestDate, capPlanner.MaxGoatsPerDrive, session)
 	if err != nil {
 		return bestDate, nil, nil, err
 	}
@@ -345,13 +358,13 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		_ = driveRelease(ctx)
 		return bestDate, nil, nil, err
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, bestDate, planner, session, cellsPerObligation)
+	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 		selectedIDs = cappedIDs
 	}
-	claimPreflightUnbatchedDriveCapacity(session, rows, selectedIDs, bestDate, cellsPerObligation)
+	claimPreflightUnbatchedDriveCapacity(session, rows, selectedIDs, bestDate)
 	if err := driveRelease(ctx); err != nil {
 		return bestDate, nil, nil, err
 	}
@@ -470,7 +483,13 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 	if err != nil {
 		return remaining, nil, plannedDate, false, true, err
 	}
-	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, firstParkID(remaining), plannedDate, planner.MaxGoatsPerDrive, session)
+	parkID := firstParkID(remaining)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner)
+	if err != nil {
+		_ = visitRelease(ctx)
+		return remaining, nil, plannedDate, false, true, err
+	}
+	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, plannedDate, capPlanner.MaxGoatsPerDrive, session)
 	if err != nil {
 		_ = visitRelease(ctx)
 		return remaining, nil, plannedDate, false, true, err
@@ -481,7 +500,7 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		_ = release(ctx)
 		return remaining, nil, plannedDate, false, true, err
 	}
-	capped := limitParkSelectionByDriveCells(now, orderedRemaining, selected, *plannedDate, planner, session, cfg)
+	capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, session)
 	if len(capped) < len(selected) {
 		animalCapReached = true
 		cappedClaims := splitShotCapReservations(shotClaims, selected, [][]string{capped})
@@ -501,9 +520,7 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		session.releaseClaims(shotClaims)
 		return remaining, nil, plannedDate, animalCapReached, !animalCapReached, nil
 	}
-	for _, row := range filterRows(remaining, selected) {
-		session.claimDriveCapacity(row.ParkID, *plannedDate, row.ObligationID, parkCandidateDriveCells(cfg, row))
-	}
+	claimParkDriveAnimals(session, filterRows(remaining, selected), *plannedDate)
 	return removeRows(remaining, selected), selected, plannedDate, animalCapReached, false, nil
 }
 
@@ -562,14 +579,9 @@ func recordClaimed(claimed map[string]struct{}, ids []string) {
 	}
 }
 
-func claimPreflightUnbatchedDriveCapacity(session *SweepSession, rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time, cellsPerObligation int32) {
+func claimPreflightUnbatchedDriveCapacity(session *SweepSession, rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time) {
 	if session == nil || plannedDate == nil || len(selected) == 0 {
 		return
 	}
-	if cellsPerObligation <= 0 {
-		cellsPerObligation = 1
-	}
-	for _, row := range selectedUnbatchedRows(rows, selected) {
-		session.claimDriveCapacity(row.ParkID, *plannedDate, row.ObligationID, cellsPerObligation)
-	}
+	claimUnbatchedDriveAnimals(session, selectedUnbatchedRows(rows, selected), *plannedDate)
 }

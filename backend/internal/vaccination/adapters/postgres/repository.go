@@ -24,9 +24,9 @@ import (
 
 const defaultQueryTimeout = 3 * time.Second
 
-// defaultDailyVaccinationCap mirrors domain.DefaultCapacityConfig / migration 000155 seed. Used when a
+// defaultDailyVaccinationCap mirrors the operator-drive default used by vaccinationexecution. Used when a
 // tenant has no vaccination_capacity_config row yet.
-const defaultDailyVaccinationCap int64 = 100
+const defaultDailyVaccinationCap int64 = 200
 
 const (
 	vaccinationCompletedEventType     = "vaccination.completed"
@@ -2297,8 +2297,8 @@ WHERE tenant_id = $1::uuid
 	return out, nil
 }
 
-// CapacityMaxPerDay returns the tenant's configured daily vaccination cap (vaccinations/day), falling
-// back to the code default when no vaccination_capacity_config row exists.
+// CapacityMaxPerDay returns the tenant's configured daily operator animal cap, falling back to the code
+// default when no vaccination_capacity_config row exists.
 func (r *Repository) CapacityMaxPerDay(ctx context.Context, tenantID string) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

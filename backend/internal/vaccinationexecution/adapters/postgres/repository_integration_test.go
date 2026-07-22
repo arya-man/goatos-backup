@@ -127,6 +127,51 @@ func TestListVaccinationExecutionProjection(t *testing.T) {
 	}
 }
 
+func TestListVaccinationExecutionOperatorScopeOnlyReturnsAssignedWork(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	otherOperator := "70000000-0000-4000-8000-000000000099"
+	execProjectionSQL(t, ctx, pool, "other operator",
+		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+		 VALUES ($1, $2, 'OP-OTHER', 'Operator B', 'active', 'operator', $3)`,
+		otherOperator, testTenant, testShed)
+	execProjectionSQL(t, ctx, pool, "durable drive assignment overrides conducted_by",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-20'::date, $3, $4, $5, 'Gandhi', '1', 1)`,
+		testTenant, testBatch, otherOperator, testPark, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	assigned, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:             testTenant,
+		DueBefore:            time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:                10,
+		OperatorScopeActorID: otherOperator,
+	})
+	if err != nil {
+		t.Fatalf("assigned operator query error = %v", err)
+	}
+	if len(assigned) != 1 || assigned[0].OperatorName == nil || *assigned[0].OperatorName != "Operator B" {
+		t.Fatalf("assigned operator rows = %#v, want durable assignment Operator B work", assigned)
+	}
+
+	hidden, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:             testTenant,
+		DueBefore:            time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:                10,
+		OperatorScopeActorID: testOperator,
+	})
+	if err != nil {
+		t.Fatalf("other operator query error = %v", err)
+	}
+	if len(hidden) != 0 {
+		t.Fatalf("old conducted_by operator rows = %#v, want hidden by durable assignment", hidden)
+	}
+}
+
 func TestListVaccinationExecutionDateShiftUsesBatchPlannedDateInsteadOfObligationDueDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -186,6 +231,17 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Exact drive','in_progress',$5,'shed',$6
   jsonb_build_object('obligation_batch_id',$7::text))`, testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, testBatch)
 	execProjectionSQL(t, ctx, pool, "link task batch", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
 	execProjectionSQL(t, ctx, pool, "link task obligations", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "pin option sources", `
+UPDATE sop_versions
+SET form_dsl = jsonb_build_object('fields', jsonb_build_array(
+  jsonb_build_object('option_source','inventory.vaccine_lots.fefo'),
+  jsonb_build_object('option_source','vaccination.route_sites')
+))
+WHERE tenant_id=$1 AND sop_version_id=$2`, testTenant, testVaccinationSOPVer)
+	execProjectionSQL(t, ctx, pool, "drive assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'Castro', 'whole', 2)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
 	execProjectionSQL(t, ctx, pool, "primary tag", `
 INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
 VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-ONE','rfid-one','active','global','v1',now())`, testTenant, testGoat)
@@ -205,6 +261,11 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-TWO','rfid-two','act
 		execProjectionSQL(t, ctx, pool, "lot "+lot.code, `INSERT INTO inventory_stock (stock_id,tenant_id,item_id,location_id,lot_code,expiry_date,quantity_in_stock,quantity_reserved,quantity_unit,status) VALUES ($1,$2,$3,$4,$5,$6::date,$7::numeric,$8::numeric,'dose',$9)`, lot.id, testTenant, itemID, testPark, lot.code, lot.expiry, lot.qty, lot.reserved, lot.status)
 	}
 	execProjectionSQL(t, ctx, pool, "batch reservation", `INSERT INTO inventory_stock_movements (movement_id,tenant_id,lot_id,item_id,location_id,movement_type,quantity,quantity_unit,batch_id,actor_id,idempotency_key) VALUES (gen_random_uuid(),$1,$2,$3,$4,'reserve',2,'dose',$5,$6,'vaccexec-option-reserve')`, testTenant, lotEarly, itemID, testPark, testBatch, testOperator)
+	otherOperator := "70000000-0000-4000-8000-000000000089"
+	execProjectionSQL(t, ctx, pool, "other roster operator",
+		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+		 VALUES ($1, $2, 'OP-ROSTER-OTHER', 'Operator Other', 'active', 'operator', $3)`,
+		otherOperator, testTenant, testShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	first, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 1})
@@ -224,6 +285,20 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-TWO','rfid-two','act
 	}
 	if len(second.Rows) != 1 || second.Rows[0].GoatID == row.GoatID || second.NextCursor != nil {
 		t.Fatalf("second=%#v", second)
+	}
+	assignedRoster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster(assigned operator): %v", err)
+	}
+	if len(assignedRoster.Rows) != 2 {
+		t.Fatalf("assigned roster rows=%#v, want both task animals", assignedRoster.Rows)
+	}
+	hiddenRoster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster(other operator): %v", err)
+	}
+	if len(hiddenRoster.Rows) != 0 {
+		t.Fatalf("other operator roster rows=%#v, want hidden", hiddenRoster.Rows)
 	}
 
 	options, err := repo.TaskOptionValues(ctx, testTenant, testTask)

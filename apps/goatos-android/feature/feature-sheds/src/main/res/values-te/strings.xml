@@ -14,6 +14,7 @@
     <string name="sheds_num_cell_in_shed">లక్ష్యం</string>
     <string name="sheds_num_cell_due">మిగిలినవి</string>
     <string name="sheds_num_cell_done">పూర్తయింది</string>
+    <string name="sheds_partition_fmt">భాగం %1$s</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">సిబ్బంది మార్పులు · ఈ డ్రైవ్ షెడ్యూల్ చేయబడిన తర్వాత</string>

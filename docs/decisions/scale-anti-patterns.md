@@ -120,6 +120,13 @@ Source ingestion is also a scale and correctness boundary. One bad spreadsheet
 row can fan out into obligations, drives, owners, calendars, alerts, and mobile
 proof work. The following are banned:
 
+Vaccination drive assignment persistence must stay set-based. The planner may
+produce one row per physical shed/partition/operator/date, but those rows are
+written with one batched upsert for the generated batch, never one database
+round trip per partition. Operator capacity is counted as unique animals per
+available operator per business date; multi-vaccine animals do not multiply the
+assignment write volume.
+
 - connecting to the database or writing grants/roster/config before the exact
   selected source directory passes a DB-free preflight;
 - seeding a private/raw sheet directly instead of a sanitized committed fixture
