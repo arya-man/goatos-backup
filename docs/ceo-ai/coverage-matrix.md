@@ -1,5 +1,13 @@
 # Leadership Assistant — Coverage Matrix (backfill baseline)
 
+## Implementation Status
+
+**2026-07-22**: Wired real data readers into tool executors (counts_breakdown, vaccination_shed_summary, 
+vaccination_execution, feed_direction_today). Executors now call actual read services 
+(`countsService.ProjectedCountFor`, etc.) instead of returning placeholder status strings. 
+Gracefully degrades to empty results when data readers unavailable or on error.
+API tier routing now returns real data from the Mesha read APIs listed in section A below.
+
 One-time full sweep of every leadership-relevant table, read API, and feature in
 the repo against the assistant's read path. Each row resolves to exactly one
 coverage path — a **Cube** governed metric, a **`ceo_ai.*`** reporting view, an
