@@ -135,6 +135,13 @@ The operator drive ledger is `/vaccination/drive-assignments`; the shed board
 summary is `/vaccination/sheds` with `driveOperatorNames`. Assistant tools must
 treat those read APIs as the source of truth for who owns a vaccination drive on
 a date, including physical shed and partition labels.
+Canceled vaccination date overrides are not active scheduling facts. Leadership
+assistant coverage, MCP Toolbox SQL fallbacks, and any direct read-model
+summaries must apply the same active-override rule as the backend: a
+`vaccination_drive_date_overrides` row only changes the effective drive date
+while `canceled_at IS NULL`. Once a move is canceled or reverted, the original
+date must again show the vaccine bundle, animal count, dose count, and operator
+assignment.
 Bootstrap scope copy is also backend-owned: leadership assistant and MCP tool
 summaries should read the active park count from the admin bootstrap contract
 rather than hardcoding CPT/CBE park lists or singular/plural labels.

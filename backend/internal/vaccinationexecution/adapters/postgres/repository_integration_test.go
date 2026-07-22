@@ -371,6 +371,53 @@ VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
 		t.Fatalf("august animals/doses = %d/%d, want 84/84 moved vaccine row", augustRow.Animals, augustRow.TotalDoses)
 	}
 
+	execProjectionSQL(t, ctx, pool, "cancel ppr move", `
+UPDATE vaccination_drive_date_overrides
+SET canceled_at = TIMESTAMPTZ '2026-07-23 00:00:00+00',
+    canceled_by = $3,
+    cancel_reason = 'e2e proof revert'
+WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date=DATE '2026-07-22'`,
+		testTenant, testPark, testOperator)
+	julyAfterCancel, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments(july after cancel): %v", err)
+	}
+	augustAfterCancel, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments(august after cancel): %v", err)
+	}
+	julyCanceledRow := driveAssignmentRowFor(julyAfterCancel, "2026-07-22", "Gandhi")
+	if julyCanceledRow == nil {
+		t.Fatalf("july rows after cancel missing Gandhi: %#v", julyAfterCancel)
+	}
+	if !containsString(julyCanceledRow.VaccineCodes, "PPR") || !containsString(julyCanceledRow.VaccineCodes, "ET_TT") {
+		t.Fatalf("july vaccine codes after canceled override = %#v, want ET_TT and PPR restored", julyCanceledRow.VaccineCodes)
+	}
+	if julyCanceledRow.Animals != 84 || julyCanceledRow.TotalDoses != 168 {
+		t.Fatalf("july animals/doses after canceled override = %d/%d, want 84/168 restored", julyCanceledRow.Animals, julyCanceledRow.TotalDoses)
+	}
+	if movedAfterCancel := driveAssignmentRowFor(augustAfterCancel, "2026-08-05", "Gandhi"); movedAfterCancel != nil && containsString(movedAfterCancel.VaccineCodes, "PPR") {
+		t.Fatalf("august rows after canceled override still contain moved PPR: %#v", movedAfterCancel)
+	}
+
+	execProjectionSQL(t, ctx, pool, "reactivate ppr move for delete-clear coverage", `
+UPDATE vaccination_drive_date_overrides
+SET canceled_at = NULL,
+    canceled_by = NULL,
+    cancel_reason = NULL
+WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date=DATE '2026-07-22'`,
+		testTenant, testPark)
+
 	execProjectionSQL(t, ctx, pool, "clear ppr move", `
 DELETE FROM vaccination_drive_date_overrides
 WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date=DATE '2026-07-22'`,

@@ -458,6 +458,7 @@ WITH assignment_vaccines AS (
    AND override.park_id = vda.park_id
    AND override.original_drive_date = vda.planned_date
    AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+   AND override.canceled_at IS NULL
   WHERE vda.tenant_id = $1::uuid
     AND ($4::text = '' OR vda.park_id::text = $4)
 ),
