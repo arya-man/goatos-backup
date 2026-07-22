@@ -4,6 +4,7 @@
   "data_as_of": "2026-07-20",
   "minimum_migration": "000008",
   "generated_by": "tools/dev/build-vaccination-hrms-fixture.mjs",
+  "ceo_ai_compatibility_note": "Compatible with ceo_ai reporting view migrations 000024-000027 (read-only SQL views for leadership assistant operational screens)",
   "contracts": {
     "vaccination_protocol_code": "vaccination.matrix",
     "vaccination_sop_code": "vaccination.drive",

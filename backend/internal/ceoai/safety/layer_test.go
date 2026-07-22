@@ -8,7 +8,11 @@ import (
 )
 
 func testLayer(cfg Config) *Layer {
-	return NewLayer(cfg, nil, nil, fixedClock(time.Date(2026, 7, 22, 6, 0, 0, 0, time.UTC)), nil)
+	l, err := NewLayer(cfg, nil, nil, fixedClock(time.Date(2026, 7, 22, 6, 0, 0, 0, time.UTC)), nil)
+	if err != nil {
+		panic(err)
+	}
+	return l
 }
 
 func TestLayerAdmitAllowsCleanRequest(t *testing.T) {
@@ -144,7 +148,10 @@ func TestConfigFromEnvValidateOrReject(t *testing.T) {
 
 func TestNewLayerWithPurgerWiresRetention(t *testing.T) {
 	p := &fakePurger{remaining: 5}
-	l := NewLayer(DefaultConfig(), nil, p, fixedClock(time.Now()), nil)
+	l, err := NewLayer(DefaultConfig(), nil, p, fixedClock(time.Now()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if l.Retention == nil {
 		t.Fatal("retention cleaner should be wired when a purger is provided")
 	}

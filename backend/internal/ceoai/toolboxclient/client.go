@@ -157,7 +157,7 @@ func New(cfg Config) (*Client, error) {
 		retries = DefaultMaxRetries
 	}
 	if retries < 0 {
-		retries = 0
+		return nil, fmt.Errorf("%w: MaxRetries must be >= 0, got %d", ErrConfig, retries)
 	}
 	ua := cfg.UserAgent
 	if ua == "" {

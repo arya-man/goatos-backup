@@ -323,7 +323,7 @@ FROM generate_series(1, $3)`, tenantA, expired, total); err != nil {
 		t.Fatalf("create live: %v", err)
 	}
 
-	n, err := conv.PurgeExpired(ctx, time.Now().UTC())
+	n, err := conv.PurgeExpired(ctx, time.Now())
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}

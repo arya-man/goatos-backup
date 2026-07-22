@@ -1,33 +1,30 @@
 -- +goose Up
 -- +goose StatementBegin
 -- ===========================================================================
--- ceo_ai OPERATOR-GRAIN vaccination reporting — the governed, business-language
--- read surface for the OPERATOR-BASED vaccination drive model.
+-- ceo_ai OPERATOR-GRAIN DRIVE reporting — the governed, business-language
+-- read surface for the OPERATOR-BASED DRIVE model.
 --
 -- WHY THIS EXISTS
--- Main moved vaccination drive planning to an OPERATOR grain: drives are planned
+-- Main moved DRIVE planning to an OPERATOR grain: drives are planned
 -- by operator animal CAPACITY, work is assigned at OPERATOR grain, and proof is
--- shed-level video. The prior ceo_ai vaccination views (migration 000023:
--- vaccination_shed_status / vaccination_dose_pickup) answer the SHED question
--- (which sheds are due/overdue, doses to pick per shed). They carry NO operator
+-- shed-level video. The prior ceo_ai reporting views (migration 000023) answer
+-- the SHED question (which sheds are due/overdue). They carry NO operator
 -- dimension, so the leadership assistant could not answer "which operators are
--- behind", "who is overloaded", "operator drive assignments today", or "how many
+-- behind", "who is overloaded", "operator assignments today", or "how many
 -- animals is <operator> assigned". This view closes that gap over the REAL new
 -- operator tables.
 --
 -- SOURCE (operator model, learned from main):
---   * public.vaccination_drive_assignments (migration 000020, operator grain in
---     000022) — one row per (batch, planned_date, park, shed, partition,
---     operator). Columns used: tenant_id, operator_id, park_id, shed_id,
+--   * public.drive_assignments (one row per batch, operator, park, shed grain).
+--     Columns used: tenant_id, operator_id, park_id, shed_id,
 --     physical_shed, partition_label, animal_count, capacity_status, batch_id,
 --     planned_date. operator_id FK → workforce_members(workforce_member_id).
---   * public.obligation_batches — batch_id status (planned/in_progress/completed/
---     …) tells whether the assigned drive work is done vs still open. Each
---     assignment row references exactly ONE batch (assignment→batch is 1:1), so
---     joining batch status never fans out the animal_count sum.
---   * public.vaccination_capacity_config — tenant-scoped max_per_day is the
---     animal CAP one available operator handles on one business date (the unit
---     the OperatorDrivePlanner consumes: unique animals per operator per day).
+--   * public.obligation_batches — batch_id status tells whether the assigned
+--     work is done vs still open. Each assignment row references exactly ONE batch
+--     (assignment→batch is 1:1), so joining batch status never fans out.
+--   * public.capacity_config — tenant-scoped max_per_day is the
+--     animal CAP one operator handles on one business date (the unit
+--     the OperatorPlanner consumes).
 --   * public.workforce_members — operator display label.
 --
 -- GRAIN: one row per (tenant_id, operator_id, planned_date, park_id, shed_id).

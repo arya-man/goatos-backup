@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Validates vaccination HRMS source data before seeding.
+// Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
