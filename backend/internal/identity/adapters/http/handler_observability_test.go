@@ -47,6 +47,9 @@ func (r errRepo) AddGoatIdentifier(context.Context, ports.AddGoatIdentifierComma
 func (r errRepo) RetireGoatIdentifier(context.Context, ports.RetireGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
 	return nil, r.err
 }
+func (r errRepo) PromoteTemporaryIdentifier(context.Context, ports.PromoteTemporaryIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	return nil, r.err
+}
 func (r errRepo) MoveGoat(context.Context, ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	return nil, r.err
 }

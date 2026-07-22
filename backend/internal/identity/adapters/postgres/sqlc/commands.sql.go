@@ -32,6 +32,41 @@ func (q *Queries) CompleteIdempotencyKey(ctx context.Context, arg CompleteIdempo
 	return err
 }
 
+const getActiveTemporaryIdentifierForGoat = `-- name: GetActiveTemporaryIdentifierForGoat :one
+SELECT
+  identifier_id::text AS identifier_id,
+  identifier_value,
+  normalized_value
+FROM goat_identifiers
+WHERE tenant_id = $1
+  AND goat_id = $2
+  AND identifier_type = 'temporary_tag'
+  AND status = 'active'
+ORDER BY is_primary_for_goat DESC, valid_from DESC
+LIMIT 1
+`
+
+type GetActiveTemporaryIdentifierForGoatParams struct {
+	TenantID pgtype.UUID
+	GoatID   pgtype.UUID
+}
+
+type GetActiveTemporaryIdentifierForGoatRow struct {
+	IdentifierID    string
+	IdentifierValue string
+	NormalizedValue string
+}
+
+// The goat's current active temporary_tag, if any. Backs promote: the operator supplies the goat
+// and the permanent RFID, and the server finds the temp tag to retire. LIMIT 1 with the
+// primary-per-type partial-unique index guaranteeing at most one active temporary_tag primary.
+func (q *Queries) GetActiveTemporaryIdentifierForGoat(ctx context.Context, arg GetActiveTemporaryIdentifierForGoatParams) (GetActiveTemporaryIdentifierForGoatRow, error) {
+	row := q.db.QueryRow(ctx, getActiveTemporaryIdentifierForGoat, arg.TenantID, arg.GoatID)
+	var i GetActiveTemporaryIdentifierForGoatRow
+	err := row.Scan(&i.IdentifierID, &i.IdentifierValue, &i.NormalizedValue)
+	return i, err
+}
+
 const getGoatMutationState = `-- name: GetGoatMutationState :one
 SELECT COALESCE(merged_into_goat_id::text, '')::text AS merged_into_goat_id, row_version
 FROM goats

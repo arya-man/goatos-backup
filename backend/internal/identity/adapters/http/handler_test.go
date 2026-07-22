@@ -570,6 +570,15 @@ func (h handlerRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoa
 	}, nil
 }
 
+func (h handlerRepo) PromoteTemporaryIdentifier(_ context.Context, cmd ports.PromoteTemporaryIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	return &ports.AdminGoatMutationResult{
+		Goat:        handlerPassport().Summary,
+		Identifiers: []domain.GoatIdentifier{identifierResponseFixture("70000000-0000-4000-8000-000000000103", "animal_identifier_1", cmd.PermanentValue, "active")},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000103", "attach_identifier", "identifier_attached"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000103", EventType: "goat.identifier.added"}},
+	}, nil
+}
+
 func (h handlerRepo) MoveGoat(_ context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	return &ports.AdminGoatMutationResult{
 		Goat:        handlerPassport().Summary,

@@ -337,6 +337,9 @@ func mapRepoErr(err error) error {
 		return Unprocessable("cross_park_move_forbidden",
 			"cross-park goat movement does not exist: sheds move only within one park; leaving a park is a terminal transfer/sale exit, not a move")
 	}
+	if errors.Is(err, ports.ErrNoTemporaryIdentifier) {
+		return Conflict("no_temporary_identifier", "this animal has no active temporary tag to promote (it may already have a permanent RFID)")
+	}
 	if errors.Is(err, ports.ErrWriteConflict) {
 		return Conflict("write_conflict", "identity write cannot be applied with the supplied state or row_version")
 	}
