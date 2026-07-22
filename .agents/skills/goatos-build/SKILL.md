@@ -16,6 +16,16 @@ CEO/CXO full access is represented by the `ceo_internal` grant role and `cxo`
 workforce hint. Product route/package names such as `/admin/*` or `admin-web`
 are not grant roles.
 
+CPT operator-drive rehearsal seed packet: when seeding the supplied CPT source,
+use `fixtures/vaccination-cpt-operator-drive-2026-07-23/` and business date
+`2026-07-23`. The packet is CPT/Channapatna only; do not synthesize CBE/
+Coimbatore. The only field operators are Amit Kumar, Darshan Talwar, and Sagar
+Mahoor, all equal vaccination operators at `200` unique animals/day/operator.
+Chandrakant is director-only monitoring scope. The five founder/CXO emails in
+`docs/runbooks/auth.md` must receive tenant-scoped `ceo_internal` grants. The
+`Adult` filename is only source naming; kid/adult/booster/clinical/combo/buffer
+rules still come from the backend vaccination rule engine.
+
 Git identity rule: Goat OS commits must use a Mesha identity. Before committing
 or landing, verify `git config user.email` ends in `@mesha.sg`; never commit or
 push with Heva, Slice, gmail, or personal identities. `make git-identity-guard`

@@ -1055,6 +1055,14 @@ Do not:
   seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
   route visibility applies to non-founder operators, not to these five builder
   accounts.
+- CPT operator-drive rehearsal seed invariant: the committed packet at
+  `fixtures/vaccination-cpt-operator-drive-2026-07-23/` is CPT/Channapatna only
+  and uses business date `2026-07-23`. Do not synthesize CBE/Coimbatore rows.
+  Seed Amit Kumar, Darshan Talwar, and Sagar Mahoor as equal vaccination
+  operators with `200` unique animals/day/operator; seed Chandrakant as
+  director-only monitoring scope. The `Adult` source filenames do not narrow
+  the vaccination kernel: kid/adult/booster/clinical/combo-spacing/safe-window
+  rules still come from backend vaccination rules.
 - Leadership assistant coverage invariant: every leadership-relevant table,
   read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
   domain event, or official KPI must resolve to a Cube governed metric, a
