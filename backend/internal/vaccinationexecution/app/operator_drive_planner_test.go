@@ -245,25 +245,6 @@ func TestOperatorDrivePlannerPrioritizesLatestSafeDateAndFlagsBreach(t *testing.
 	}
 }
 
-func TestNormalizeDriveShed(t *testing.T) {
-	tests := []struct {
-		raw       string
-		physical  string
-		partition string
-	}{
-		{raw: "Gandhi 1", physical: "Gandhi", partition: "1"},
-		{raw: "Godel 1 - Part 4", physical: "Godel 1", partition: "Part 4"},
-		{raw: "Mandela 2 - Part 8", physical: "Mandela 2", partition: "Part 8"},
-		{raw: "Old Yashoda 5", physical: "Old Yashoda", partition: "5"},
-	}
-	for _, tt := range tests {
-		physical, partition := NormalizeDriveShed(tt.raw)
-		if physical != tt.physical || partition != tt.partition {
-			t.Fatalf("NormalizeDriveShed(%q) = %q/%q, want %q/%q", tt.raw, physical, partition, tt.physical, tt.partition)
-		}
-	}
-}
-
 func totalsByOperator(day DrivePlanDay) map[string]int {
 	totals := map[string]int{}
 	for _, assignment := range day.Assignments {

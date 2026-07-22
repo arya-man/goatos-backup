@@ -337,12 +337,13 @@ The planner works like this:
 8. Enforce the per-animal shot cap before finalizing a same-day plan. The default
    cap is 2 shots per animal per drive/doctor visit. If 3+ vaccines are due, the
    planner chooses the highest-priority compatible pair that is medically safe
-   today and schedules the remainder on the next safe date using live/killed,
-   priority, and safe-window rules. The normal per-drive animal cap is
+   today and schedules the remainder from that session date using live/killed
+   gap rules, priority, and the +7-day safe scheduling buffer. Operator-cap
+   overflow is never permission to give a next-day third vaccine. The normal
+   per-drive animal cap is
    operational and soft on a last-safe-day overflow: move overflow to the next
    feasible day when safe; keep the animal in the current/last-safe drive even
    over that normal cap when moving would cross its safe-until date.
-   booster, and matrix gap rules.
 9. Create the drive with its animal list, vaccine list, lot/stock reservation,
    SOP/proof requirements, worker, verifier, and route. A route may contain
    multiple sheds, but each shed keeps its own animal list, proof, and

@@ -1,0 +1,93 @@
+[
+  {
+    "id": "workforce-coverage",
+    "class": "workforce_coverage",
+    "question": "Which sheds have no backup manager coverage?",
+    "notes": "Report role/position/active status, never staff PII. Backup covers absent manager's tasks.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "verification-queue",
+    "class": "verification_queue",
+    "question": "How many proofs are pending verification?",
+    "notes": "Cross-domain proof-verification backlog. Status is a read-time bucket; asserted as an aggregate + routing tier.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "action-center",
+    "class": "action_center_queue",
+    "question": "What needs action right now as CEO?",
+    "notes": "Cross-module command lens by severity + owner + due_at.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "ops-exceptions-risk",
+    "class": "ops_exceptions_risk",
+    "question": "What are the highest-risk operational exceptions right now?",
+    "notes": "Order by severity then opened_at; cross-module.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["toolbox", "sql", "api"]
+    }
+  },
+  {
+    "id": "sop-execution",
+    "class": "sop_execution_status",
+    "question": "Which SOP tasks are pending execution?",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "inventory-stock",
+    "class": "inventory_stock",
+    "question": "What is our vaccine stock position on hand?",
+    "notes": "No tier-2 read API yet for inventory; routes to toolbox or SQL fallback. Blocked/missing is not 0.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["toolbox", "sql"]
+    }
+  },
+  {
+    "id": "counts-movement-daily",
+    "class": "counts_movement_daily",
+    "question": "How many deaths were recorded this week?",
+    "notes": "Mortality/deaths by period is a governed Cube KPI; resolve on the IST calendar.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["cube", "sql", "api"]
+    }
+  },
+  {
+    "id": "audit-activity-today",
+    "class": "audit_activity",
+    "question": "What happened today across operations?",
+    "notes": "Actions by domain/operator/result; actor identity is sensitive (role/label only).",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "cross-module-status",
+    "class": "cross_module_aggregate",
+    "question": "Give me a full operations status: counts, vaccination due, and blocked feed.",
+    "notes": "Spans >=2 modules; compose per-module tools, aggregate-first, bounded.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["cube", "api", "toolbox"]
+    }
+  }
+]

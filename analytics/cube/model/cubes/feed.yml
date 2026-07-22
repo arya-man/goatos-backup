@@ -1,0 +1,75 @@
+cubes:
+  # ---------------------------------------------------------------------------
+  # feed — feed direction actuals. Backs feed_cost (DRAFT / BLOCKED).
+  #
+  # Source SSOT: canonical public.feed_direction_completions joined to locations.
+  # AMBIGUITY / BLOCKED: there is NO price or cost column anywhere on the feed
+  # path (feed_direction_completions, feed_ration_rates, feed_item_catalog carry
+  # quantities and grams-per-head, not currency). feed_cost therefore cannot be
+  # computed today and ships as a NULL placeholder measure that the assistant
+  # must NOT present as a number. A real feed_cost needs a feed-item price /
+  # cost catalog to be authored first — that is the exact open question for the
+  # business owner. See METRICS.md.
+  # ---------------------------------------------------------------------------
+  - name: feed
+    title: Feed direction (actuals)
+    description: >-
+      One row per feed direction completion. Backs feed_quantity_kg (draft) and
+      feed_cost (draft / blocked — no price source).
+    sql: >
+      SELECT
+        c.completion_id                                        AS completion_id,
+        c.tenant_id                                            AS tenant_id,
+        c.shed_id                                              AS shed_id,
+        sh.name                                                AS shed_label,
+        sh.parent_location_id                                  AS park_id,
+        pk.name                                                AS park_label,
+        c.quantity_fed                                         AS quantity_fed,
+        c.head_count                                           AS head_count,
+        c.status                                               AS status,
+        (c.fed_at AT TIME ZONE 'Asia/Kolkata')::date           AS fed_business_day
+      FROM feed_direction_completions c
+      LEFT JOIN locations sh ON sh.location_id = c.shed_id
+      LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+
+    dimensions:
+      - name: completion_id
+        sql: completion_id
+        type: string
+        primary_key: true
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+      - name: status
+        sql: status
+        type: string
+      - name: park_label
+        sql: park_label
+        type: string
+      - name: shed_label
+        sql: shed_label
+        type: string
+      - name: fed_business_day
+        sql: fed_business_day
+        type: time
+
+    measures:
+      # DRAFT — sum of fed quantity. Unit ambiguity (kg vs g) not confirmed by
+      # docs; treat as raw quantity_fed sum until the unit is signed off.
+      - name: feed_quantity_kg
+        title: Feed quantity fed (draft)
+        description: DRAFT — SUM(quantity_fed). Unit pending business sign-off.
+        type: sum
+        sql: quantity_fed
+
+      # DRAFT / BLOCKED — no price source exists. Returns NULL. The assistant
+      # must route feed cost questions to "not covered yet" rather than emit a
+      # number. Do NOT wire a real cost formula here without an authored price
+      # catalog and business sign-off.
+      - name: feed_cost
+        title: Feed cost (draft — blocked, no price source)
+        description: >-
+          DRAFT / BLOCKED — no feed price/cost column exists in the data model.
+          Returns NULL. Needs a feed-item price catalog before it can serve.
+        type: number
+        sql: "NULL::numeric"

@@ -131,6 +131,20 @@ first. Those APIs expose animal-count operator capacity, available operator
 count, over-cap-required flags, and persisted shed/partition assignments. MCP
 Toolbox/SQL fallback may summarize those same read models, but it must not
 reinterpret dose counts as operator capacity.
+The operator drive ledger is `/vaccination/drive-assignments`; the shed board
+summary is `/vaccination/sheds` with `driveOperatorNames`. Assistant tools must
+treat those read APIs as the source of truth for who owns a vaccination drive on
+a date, including physical shed and partition labels.
+Canceled vaccination date overrides are not active scheduling facts. Leadership
+assistant coverage, MCP Toolbox SQL fallbacks, and any direct read-model
+summaries must apply the same active-override rule as the backend: a
+`vaccination_drive_date_overrides` row only changes the effective drive date
+while `canceled_at IS NULL`. Once a move is canceled or reverted, the original
+date must again show the vaccine bundle, animal count, dose count, and operator
+assignment.
+Bootstrap scope copy is also backend-owned: leadership assistant and MCP tool
+summaries should read the active park count from the admin bootstrap contract
+rather than hardcoding CPT/CBE park lists or singular/plural labels.
 
 ## Current Backend Context
 
@@ -492,6 +506,41 @@ guarded by the visual regression suite and UI label guard, but assistant
 coverage is unchanged unless the underlying backend module, reporting contract,
 or leadership question changes.
 
+### Coverage update: operator-grain vaccination drives
+
+Vaccination drive capacity is operator animal-throughput, not dose or cell
+capacity. Leadership answers about overdue vaccination drives, capacity breach,
+operator assignment, Process Adherence, Action Center, and Control Tower must
+treat `vaccination_drive_assignments` as operator/date/shed/partition-grain
+metadata. Assignment rows are not obligation membership and must not multiply
+animal, proof, completion, due, or overdue counts.
+
+When answering "who is assigned?" or "which drives are over cap?", prefer the
+canonical backend/read-model contract that collapses assignment rows at
+obligation grain before aggregation. Never infer total animals by summing
+vaccine doses or by counting assignment rows. One animal consumes one operator
+slot even if the animal receives multiple vaccines in the same visit, and an
+over-cap latest-safe day means the operator cap was exceeded intentionally to
+finish required vaccination work.
+
+For schedule-display answers, leadership assistant MCP/read API consumers should
+group the persisted assignment ledger to one row per date and operator, then
+summarize physical sheds and partitions inside that operator-day row. The raw
+partition-grain rows remain the drilldown/execution detail, not the top-level
+schedule row count.
+
+### Coverage update: vaccination shed partitions
+
+Vaccination shed names from seed data can encode partitions: `Gandhi 1` means
+physical shed `Gandhi`, partition `1`; `Godel 1 - Part 3` means physical shed
+`Godel 1`, partition `Part 3`. The seed now preserves that lineage in
+`goat_shed_partitions` while `goats.shed_id` points only to the physical shed.
+Leadership assistant read APIs, MCP Toolbox SQL fallback, and any future
+`ceo_ai.*` view must group vaccination drive answers by physical shed first and
+partition second. Do not count `goat_shed_partitions` as extra animals, do not
+split physical shed names ending in a number, and do not flatten partitioned
+sheds to `whole` when explaining operator assignments.
+
 ## References
 
 - MCP Toolbox source config supports environment-variable replacement for
@@ -501,3 +550,15 @@ or leadership question changes.
 - MCP Toolbox toolsets let one app load only the tools it needs.
 - MCP Toolbox Cloud Run deployment supports config mounting from Secret Manager
   and production `allowed-hosts` / `allowed-origins` hardening.
+
+---
+
+## Status (2026-07-22)
+
+MCP Toolbox client + curated `ceo_ai.*` tool config are built and covered by the
+leadership-assistant coverage guard. The toolbox bridge is wired into the
+assistant (`ports.Toolbox`, `internal/ceoai/wiring.go`) and activates when
+`MESHA_MCP_TOOLBOX_URL` is set. The Toolbox SERVER itself is not run in the
+proven local E2E (Cube-first routing answered the leadership KPIs); running the
+Toolbox on :5001 and the Cloud Run deployment are pending. Canonical status:
+`docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md` → "Integration Status".

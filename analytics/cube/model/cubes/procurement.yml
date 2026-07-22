@@ -1,0 +1,74 @@
+cubes:
+  # ---------------------------------------------------------------------------
+  # procurement — source-entry loads. Backs procurement_cost (DRAFT / BLOCKED).
+  #
+  # Source SSOT: canonical public.procurement_loads.
+  # AMBIGUITY / BLOCKED: procurement_loads has no purchase price / cost / amount
+  # column (only expected_count, purchase_date, status, source_party_id). So
+  # procurement_cost cannot be computed today and ships as a NULL placeholder.
+  # A real procurement_cost needs a per-load / per-animal cost field to be
+  # captured first — the open question for the business owner. procurement_animals
+  # (a real pipeline volume) is provided and usable in dev. See METRICS.md.
+  # ---------------------------------------------------------------------------
+  - name: procurement
+    title: Procurement (source-entry loads)
+    description: >-
+      One row per procurement load. Backs procurement_animals (draft volume) and
+      procurement_cost (draft / blocked — no cost source).
+    sql: >
+      SELECT
+        pl.load_id                                             AS load_id,
+        pl.tenant_id                                           AS tenant_id,
+        pl.status                                              AS status,
+        pl.expected_count                                      AS expected_count,
+        pl.source_location_id                                  AS source_location_id,
+        loc.name                                               AS source_label,
+        (pl.purchase_date)                                     AS purchase_date,
+        (pl.created_at AT TIME ZONE 'Asia/Kolkata')::date      AS entered_business_day
+      FROM procurement_loads pl
+      LEFT JOIN locations loc ON loc.location_id = pl.source_location_id
+
+    dimensions:
+      - name: load_id
+        sql: load_id
+        type: string
+        primary_key: true
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+      - name: status
+        sql: status
+        type: string
+      - name: source_label
+        sql: source_label
+        type: string
+      - name: purchase_date
+        sql: purchase_date
+        type: time
+      - name: entered_business_day
+        sql: entered_business_day
+        type: time
+
+    measures:
+      - name: load_count
+        title: Procurement loads
+        description: Count of procurement loads.
+        type: count
+
+      # DRAFT — expected animals in the pipeline. Real volume, but "animals"
+      # semantics (expected vs received vs accepted) not yet reconciled to a
+      # governed definition; leave draft.
+      - name: procurement_animals
+        title: Procurement animals (draft)
+        description: DRAFT — SUM(expected_count). Volume, pending sign-off.
+        type: sum
+        sql: expected_count
+
+      # DRAFT / BLOCKED — no cost column. Returns NULL.
+      - name: procurement_cost
+        title: Procurement cost (draft — blocked, no cost source)
+        description: >-
+          DRAFT / BLOCKED — no purchase price / cost column on procurement_loads.
+          Returns NULL. Needs a captured per-load cost field before it can serve.
+        type: number
+        sql: "NULL::numeric"

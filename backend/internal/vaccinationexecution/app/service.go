@@ -136,6 +136,14 @@ func (s *Service) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuer
 	return operationsResponseFromRows(rows, q.Limit)
 }
 
+func (s *Service) DriveAssignments(ctx context.Context, q domain.DriveAssignmentQuery) (domain.DriveAssignmentResponse, error) {
+	rows, err := s.repo.DriveAssignments(ctx, q)
+	if err != nil {
+		return domain.DriveAssignmentResponse{}, err
+	}
+	return domain.DriveAssignmentResponse{Source: domain.SourceAPI, Rows: rows}, nil
+}
+
 // operationsResponseFromRows rolls the flat cohort × protocol rows into the matrix + per-cohort
 // detail shape shared by /vaccination/operations and /vaccination/schedule.
 func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.OperationsResponse, error) {
@@ -319,7 +327,14 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		workState = workStateFromProjection(p, q)
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
-	physicalShed, partition := NormalizeDriveShed(p.ShedName)
+	physicalShed := strings.TrimSpace(p.PhysicalShed)
+	partition := strings.TrimSpace(p.Partition)
+	if physicalShed == "" || partition == "" {
+		physicalShed, partition = domain.NormalizeDriveShed(p.ShedName)
+	}
+	if partition == "" {
+		partition = "whole"
+	}
 	return domain.ExecutionRow{
 		ParkID:             p.ParkID,
 		ParkName:           p.ParkName,
@@ -699,20 +714,21 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
 		owners := ownersByShed[p.ShedID]
 		rows = append(rows, domain.ShedSummaryRow{
-			ParkID:   p.ParkID,
-			ParkName: p.ParkName,
-			ShedID:   p.ShedID,
-			ShedName: p.ShedName,
-			Animals:  p.Animals,
-			Due:      p.DueAnimals,
-			Done:     p.Animals - p.DueAnimals,
-			Sessions: p.Sessions,
-			LastDone: businessDatePtr(p.LastDone),
-			NextDue:  businessDatePtr(p.NextDue),
-			Manager:  owners.Manager,
-			Backup:   owners.Backup,
-			Capacity: p.Capacity,
-			Status:   p.Status,
+			ParkID:             p.ParkID,
+			ParkName:           p.ParkName,
+			ShedID:             p.ShedID,
+			ShedName:           p.ShedName,
+			Animals:            p.Animals,
+			Due:                p.DueAnimals,
+			Done:               p.Animals - p.DueAnimals,
+			Sessions:           p.Sessions,
+			LastDone:           businessDatePtr(p.LastDone),
+			NextDue:            businessDatePtr(p.NextDue),
+			Manager:            owners.Manager,
+			Backup:             owners.Backup,
+			DriveOperatorNames: append([]string(nil), p.DriveOperatorNames...),
+			Capacity:           p.Capacity,
+			Status:             p.Status,
 		})
 	}
 	limit := q.Limit

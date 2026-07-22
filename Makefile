@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard frontend-foundations-guard domain-event-architecture-guard leadership-assistant-coverage-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration
+.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard frontend-foundations-guard domain-event-architecture-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -100,6 +100,7 @@ guardrails:
 	$(MAKE) frontend-foundations-guard
 	$(MAKE) domain-event-architecture-guard
 	$(MAKE) leadership-assistant-coverage-guard
+	$(MAKE) assistant-route-closure-guard
 	$(MAKE) local-ci-evidence-guard
 	$(MAKE) stg-promotion-guard
 	bash tools/agent-hooks/check-boundaries.sh --self-test
@@ -168,6 +169,10 @@ domain-event-architecture-guard:
 leadership-assistant-coverage-guard:
 	node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test
 	node tools/agent-hooks/check-leadership-assistant-coverage.mjs
+
+assistant-route-closure-guard:
+	node tools/agent-hooks/check-assistant-route-closure.mjs --self-test
+	node tools/agent-hooks/check-assistant-route-closure.mjs
 
 local-ci-evidence-guard:
 	node tools/ci/check-local-ci-evidence.mjs --self-test
@@ -659,7 +664,7 @@ seed-vaccination-source-full: vaccination-hrms-seed-fixture-guard
 	$(MAKE) seed-dev-email-grants
 	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -strict
 	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)" -expect-null-false-dob=0
-	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict
+	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv" -strict -only-sheds-with-goats
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	$(MAKE) seed-closeout
 
@@ -769,3 +774,26 @@ android-emulator-ensure:
 # installs, tunnels (adb reverse), and launches. See android-dev-device.md.
 android-dev-run:
 	bash tools/dev/android-dev-run.sh
+
+# ─── CEO-AI answer-quality eval harness (tools/ceo-ai/eval) ──────────────────
+# ceo-ai-eval-selftest: the always-runnable structural gate. No assistant, no
+# database, no Vertex — it validates the golden set (schema, kebab ids, read-only
+# oracles, tier vocab, >=40 Qs / >=20 classes) and unit-tests the deterministic
+# scorer. Cheap enough to run on every backend CI pass. See docs/ceo-ai/eval.md.
+ceo-ai-eval-selftest:
+	cd tools/ceo-ai/eval && test -z "$$(gofmt -l .)" || { echo "gofmt: files need formatting:"; gofmt -l .; exit 1; }
+	cd tools/ceo-ai/eval && go vet ./...
+	cd tools/ceo-ai/eval && go test ./...
+	cd tools/ceo-ai/eval && go run . -validate
+
+# ceo-ai-eval: the LIVE answer-quality regression. Runs every golden question
+# through the assistant endpoint, scores each answer against an independent
+# Postgres oracle, and writes a self-contained HTML + JSON report under
+# tools/ceo-ai/eval/out/. Requires MESHA_ASSISTANT_URL, GOATOS_EVAL_DATABASE_URL,
+# GOATOS_EVAL_TENANT_ID (and usually MESHA_EVAL_BEARER). STRICT=1 turns a missing
+# prerequisite into a hard failure (this target was explicitly requested, so a
+# misconfiguration is an error, not a silent skip). NOT part of the default gate.
+CEO_AI_EVAL_HTML ?= out/ceo-ai-eval-report.html
+CEO_AI_EVAL_JSON ?= out/ceo-ai-eval-report.json
+ceo-ai-eval:
+	cd tools/ceo-ai/eval && mkdir -p out && CEO_AI_EVAL_STRICT=1 go run . -html "$(CEO_AI_EVAL_HTML)" -json "$(CEO_AI_EVAL_JSON)"

@@ -50,6 +50,14 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	defer pool.Close()
 
 	seedProcessIntegrityProjection(t, ctx, pool)
+	execPI(t, ctx, pool, "drive assignment first partition",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-06-24', $3, $4, $5, 'Process Shed', '1', 1)`,
+		piTenant, piBatch, piOperator, piPark, piShed)
+	execPI(t, ctx, pool, "drive assignment second partition",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-06-25', $3, $4, $5, 'Process Shed', '2', 1)`,
+		piTenant, piBatch, piParkHead, piPark, piShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	result, err := listAtAsOf(t, ctx, repo, domain.Query{
@@ -79,6 +87,10 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	}
 	if row.Evidence.EvidenceCount != 1 || len(row.Evidence.ProofIDs) != 1 || row.Evidence.ProofIDs[0] != piProof {
 		t.Fatalf("evidence = %+v", row.Evidence)
+	}
+	if row.CompletedCount != 0 || row.ProofCount != 1 || row.RejectedCount != 0 || row.DeferredCount != 0 {
+		t.Fatalf("bucket counts drifted under duplicate drive assignments: completed=%d proof=%d rejected=%d deferred=%d",
+			row.CompletedCount, row.ProofCount, row.RejectedCount, row.DeferredCount)
 	}
 	if row.NextAction != "Verifier to accept or reject proof" {
 		t.Fatalf("next action = %q", row.NextAction)

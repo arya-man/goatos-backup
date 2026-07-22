@@ -61,6 +61,8 @@ done
 
 require_pattern "tools/dev/lib/db-mutation-guard.sh" "127.0.0.1:5433/goatos" "single normal local DB fallback on :5433"
 require_pattern "apps/admin-web/scripts/run-local-next.mjs" "127.0.0.1:5433/goatos" "single normal local DB fallback on :5433"
+require_pattern "apps/admin-web/package.json" '"dev": "node scripts/run-local-next.mjs dev"' "dev script routed through local auth wrapper"
+require_pattern "apps/admin-web/scripts/run-local-next.mjs" 'optionValue(extraArgs, ["-p", "--port"])' "custom port support in local auth wrapper"
 require_pattern "tools/dev/run-local-stack.sh" "lib/db-mutation-guard.sh" "shared shell DB mutation guard"
 require_pattern "tools/dev/run-local-stack-supervised.sh" "lib/db-mutation-guard.sh" "shared shell DB mutation guard"
 

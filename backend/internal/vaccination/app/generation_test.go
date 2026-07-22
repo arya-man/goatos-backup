@@ -463,6 +463,61 @@ func TestPrimaryCourseContinuationFromHistorySchedulesAdultETTTDoseTwoAfterTwent
 	}
 }
 
+func TestGenerateMaterializesAdultETTTDoseTwoWhenDueTodayOrOverdue(t *testing.T) {
+	ctx := context.Background()
+	administered := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.July, 22, 0, 0, 0, 0, time.UTC)
+	entryDate := time.Date(2026, time.June, 23, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{
+			{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7},
+			{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 21, MinGapDays: 21, CatchUp: "immediate"},
+		},
+		ruleDSL: []byte(`{"eligibility":{"species":["goat"],"lifecycle":["alive"],"health":["healthy"]},"missed_dose_policy":{"materialize_only_future_open_work":true},"matrix_rows":[{"vaccine":{"code":"ET_TT","name":"ET+TT"},"eligibility":{"species":["goat"],"lifecycle":["alive"],"health":["healthy"]},"schedule":[{"dose_code":"et_tt_adult_w1"},{"dose_code":"et_tt_adult_w2"}]}]}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "goat-1", Species: "goat", LifecycleStatus: "alive", HealthStatus: "healthy", EntryDate: &entryDate,
+		}},
+		trustedByDue: map[string]bool{
+			businessDayStart(administered).UTC().Format(time.RFC3339Nano): true,
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"goat-1": {{
+				AdministeredAt:    administered,
+				VaccineCode:       "ET_TT",
+				DoseCode:          "et_tt_adult_w1",
+				Sequence:          1,
+				ProtocolVersionID: "version-1",
+				ProtocolID:        "",
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("GenerateForVersion: %v", err)
+	}
+	var got obldomain.NewObligation
+	found := false
+	for _, inserted := range obl.inserted {
+		if inserted.RuleID == "rule-et-adult-w2" {
+			got = inserted
+			found = true
+			break
+		}
+	}
+	if result.Generated == 0 || !found {
+		t.Fatalf("result=%#v inserted=%#v, want adult ET+TT dose 2 generated", result, obl.inserted)
+	}
+	wantDue := businessDayStart(administered).AddDate(0, 0, 21)
+	wantLastSafe := wantDue.AddDate(0, 0, 7)
+	if got.RuleID != "rule-et-adult-w2" || got.DueAt.Before(wantDue) || got.DueAt.After(wantLastSafe) {
+		t.Fatalf("inserted=%#v, want rule-et-adult-w2 inside %s..%s", got, wantDue, wantLastSafe)
+	}
+}
+
 func TestRepeatDoesNotWaitAfterPrimaryCourseComplete(t *testing.T) {
 	administeredW2 := time.Date(2026, time.July, 21, 8, 0, 0, 0, time.UTC)
 	rules := []protodomain.Rule{
@@ -2887,7 +2942,6 @@ func TestHasSameDoseAdministration_SameProtocol_EqualDoseCode(t *testing.T) {
 		t.Errorf("same-protocol dose code should suppress; expected true, got false")
 	}
 }
-
 
 // AnchorMissingCatchUpKey must stay byte-identical to the key genOneGoat stamps on the §89 option-4
 // catch-up path (missingDueDateKey with anchorMissingReason). Seed reconciliation classifies

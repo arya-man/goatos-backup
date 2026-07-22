@@ -207,6 +207,61 @@ func TestSeedReconciliationOneToManyPaginationScheduledDateScopeHierarchyStatusB
 	})
 }
 
+func TestSeedPlacementKeyCanonicalizesPhysicalShedPartitions(t *testing.T) {
+	tests := []struct {
+		raw       string
+		physical  string
+		partition string
+	}{
+		{raw: "Gandhi 1", physical: "Gandhi", partition: "1"},
+		{raw: "Gandhi 2", physical: "Gandhi", partition: "2"},
+		{raw: "Gandhi 3", physical: "Gandhi", partition: "3"},
+		{raw: "Godel 1 - Part 3", physical: "Godel 1", partition: "Part 3"},
+		{raw: "Mandela 2 - Part 8", physical: "Mandela 2", partition: "Part 8"},
+		{raw: "Old Yashoda 5", physical: "Old Yashoda", partition: "5"},
+	}
+	for _, tt := range tests {
+		physical, partition := normalizeSeedShedPartition(tt.raw)
+		if physical != tt.physical || partition != tt.partition {
+			t.Fatalf("normalizeSeedShedPartition(%q) = %q/%q, want %q/%q", tt.raw, physical, partition, tt.physical, tt.partition)
+		}
+		key := seedPlacementKey(goatRecord{Farm: "CPT", Shed: tt.raw})
+		if key.shed != tt.physical {
+			t.Fatalf("seedPlacementKey(%q).shed = %q, want physical shed %q", tt.raw, key.shed, tt.physical)
+		}
+	}
+
+	keys := distinctShedKeys([]goatRecord{
+		{Farm: "CPT", Shed: "Gandhi 1"},
+		{Farm: "CPT", Shed: "Gandhi 2"},
+		{Farm: "CPT", Shed: "Gandhi 3"},
+	})
+	if len(keys) != 1 || keys[0].shed != "Gandhi" {
+		t.Fatalf("Gandhi partition keys = %#v, want one physical Gandhi shed key", keys)
+	}
+}
+
+func TestSeedPartitionLineageOneToManyPaginationScheduledDateScopeHierarchyStatusBuckets(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read seed source: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"INSERT INTO goat_shed_partitions",
+		"ON CONFLICT (tenant_id, goat_id)",
+		"activeGoatPartitionLineageInvariantSQL",
+		"projection-review: membership=obligation_instances",
+		"pagination=none",
+		"schedulable open work past latest safe date",
+		"MissingAdultETTTDose2",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("seed partition/reconciliation guard missing %q", want)
+		}
+	}
+}
+
 func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	got := buildEntryDateMapping([]goatRecord{
 		{RFID: "rfid-dob-only", DOB: "2026-01-01"},
@@ -843,6 +898,7 @@ func TestValidateSeedReconciliation(t *testing.T) {
 			MissingBreedForeignKeys:    6,
 			MissingPrimaryIdentifiers:  7,
 			MissingAnchorNormalWork:    8,
+			MissingAdultETTTDose2:      9,
 		}
 		err := validateSeedReconciliation(got, 3389)
 		if err == nil {
@@ -858,6 +914,7 @@ func TestValidateSeedReconciliation(t *testing.T) {
 			"goats missing species-owned breed foreign key=6",
 			"goats missing primary animal identifier=7",
 			"missing trigger anchor goats with normal active work=8",
+			"adult ET+TT dose 1 completions missing mandatory dose 2 obligations=9",
 		} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("error=%q, want %q", err, want)

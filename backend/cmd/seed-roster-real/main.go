@@ -295,9 +295,15 @@ func validateStrictRoster(mappings []rosterMappingRow, assignments []rosterAssig
 		problems = append(problems, fmt.Sprintf("unknown/ignored position labels=%d", st.MappingRows-st.PositionSlotsDefined))
 	}
 	seen := make(map[string]struct{}, len(assignments))
-	required := map[string]map[string]bool{
-		"CBE": {"preventive_care_manager": false, "backup_manager": false, "park_head": false},
-		"CPT": {"preventive_care_manager": false, "backup_manager": false, "park_head": false},
+	required := make(map[string]map[string]bool)
+	for _, mapping := range mappings {
+		center := strings.TrimSpace(mapping.center)
+		if center == "" {
+			continue
+		}
+		if _, ok := required[center]; !ok {
+			required[center] = map[string]bool{"preventive_care_manager": false, "backup_manager": false, "park_head": false}
+		}
 	}
 	for _, assignment := range assignments {
 		key := assignment.center + "\x00" + assignment.position.code

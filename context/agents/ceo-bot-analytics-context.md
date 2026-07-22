@@ -123,7 +123,20 @@ animals unless the user explicitly asks for animal IDs or records.
 
 Primary use:
 due/overdue work, planned sessions, shed workload, completion status, capacity,
-proof and verification gaps, adherence.
+proof and verification gaps, adherence, and OPERATOR drive load / capacity /
+utilization.
+
+Vaccination has TWO reporting grains — use the right one:
+- SHED grain (which sheds are due/overdue, doses to pick): `vaccination_shed_status`
+  / `vaccination_dose_pickup` views + `vaccination_due`/`vaccination_overdue` Cube
+  metrics.
+- OPERATOR grain (operator-based drive model: drives planned by operator animal
+  capacity, work assigned at operator grain, shed-level video proof): the
+  `ceo_ai.vaccination_operator_status` view + `operator_vaccination_load` /
+  `operator_vaccination_overdue` / `operator_vaccination_capacity` /
+  `operator_vaccination_utilization` Cube metrics (kpi_vaccination_operator).
+  Vaccination is NOT purely shed-driven — an operator dimension exists and
+  leadership can ask about it directly.
 
 Preferred source:
 `GET /vaccination/execution` for shed execution rows.
@@ -138,9 +151,39 @@ for action-center summaries.
 Read-only tables when API is not enough:
 `vaccination_eligibility_rollups`, `vaccination_completions`,
 `vaccination_generation_runs`, `vaccination_capacity_config`,
-`obligation_instances`, `obligation_batches`, `sop_tasks`,
-`sop_submissions`, `sop_submission_items`, `verification_items`,
+`vaccination_drive_assignments`, `obligation_instances`,
+`obligation_batches`, `sop_tasks`, `sop_submissions`,
+`sop_submission_items`, `verification_items`, `workforce_members`,
 `locations`, `goats`.
+
+Assistant coverage note:
+operator workload/capacity questions are answered from the vaccination
+execution, schedule, action-center, or control-tower read APIs first. If SQL
+fallback is needed, read generated drive-assignment rows at exact
+park/business-date/operator/physical-shed/partition grain and aggregate unique
+animals; do not repeatedly query workforce availability per candidate date or
+treat assignment rows as dose counts. The `/vaccination/execution` read API
+exposes `physicalShed` and `partition` separately so leadership answers can
+group `Gandhi 1/2/3` as one physical shed with partition-level detail.
+The admin operator schedule is one visible row per
+planned-date/operator/park. Its move-date action is not frontend state: it posts
+a vaccine-level date override to `/vaccination/schedule/drive-date-overrides`.
+The planner/sweeper consumes that override to recalculate the affected vaccine
+assignment dates while preserving vaccine spacing, combo, buffer, and
+operator-capacity rules. Leadership answers about postponed vaccination drives
+should therefore mention the recorded override and the regenerated assignment
+rows, not treat the old inline schedule as authoritative after a move.
+When a persisted assignment row contains multiple vaccine rules, moving one
+vaccine must physically split `vaccination_drive_assignments`: sibling vaccines
+remain on the original business date, and the moved vaccine gets its own
+assignment membership on the override date. SQL fallback answers must not count
+stale mixed rows from the original date after an override has been accepted.
+Date-override verification must cover the full round trip: the original month
+shows the vaccine before the override, the original month loses only the moved
+vaccine after the override, the target month gains that vaccine, and clearing
+the override restores the original month. The admin drawer labels and validation
+copy for this flow are backend-contract owned, with frontend fallback copy only
+for resilience.
 
 Common questions:
 
@@ -151,6 +194,11 @@ Common questions:
 | Why is Gandhi 2 overdue? | Shed drilldown + SOP/proof state | Cause summary: due, done, proof, verification, owner. |
 | What is vaccination adherence this week? | `/vaccination/adherence` | Percentage, numerator/denominator, period. |
 | Where are proof gaps? | `/vaccination/verification-queue` or `verification_items` | Count by shed/owner/status. |
+| Are vaccination operators overloaded tomorrow? | `/vaccination/execution`, `/vaccination/schedule`, or assignment SQL fallback | Operator totals by date and shed/partition, with over-cap markers. |
+| Which operators are behind on vaccination? | `operator_vaccination_overdue` (kpi_vaccination_operator) | Operator list sorted by overdue assigned animals. |
+| Who is overloaded / operator capacity? | `operator_vaccination_utilization` / `operator_vaccination_capacity` | Operators with utilization > 1.0 (assigned vs daily cap), per planned day. |
+| Operator drive assignments today? | `operator_vaccination_load` (filter planned day = today) | Assigned animals per operator × park × shed. |
+| How many animals is <operator> assigned? | `operator_vaccination_load` (group by operator_label) | Total assigned animal slots for that operator. |
 
 Default response rule:
 Explain operational causes, not only numbers: due, done, stale, proof missing,
@@ -318,6 +366,7 @@ the feature.
 | `vaccination_shed_summary` | read API | `/vaccination/execution`, shed summary/read model |
 | `vaccination_action_center` | read API | `/vaccination/action-center`, `/control-tower/vaccination` |
 | `vaccination_dose_pickup` | MCP/read API | vaccine names, doses to pick, sheds affected, due/overdue |
+| `operator_vaccination_load` / `_overdue` / `_capacity` / `_utilization` | Cube (kpi_vaccination_operator) | operator drive load, overdue, per-day capacity, utilization over `ceo_ai.vaccination_operator_status` (`vaccination_drive_assignments`) |
 | `feed_direction_summary` | read API | `/feed-direction/preview`, `/feed-packing/worklist` |
 | `shifting_pending_summary` | read API | `/app/counts/shifting-events/pending-execution` |
 | `procurement_load_summary` | read API | `/procurement/source-entry/loads` |
@@ -334,3 +383,33 @@ Start with specific tools for common CEO questions. Use SQL only as fallback for
 cross-domain questions or missing API coverage. When a SQL pattern becomes
 frequent or business-critical, promote it into a named Mesha read API or governed
 Cube metric.
+
+Leadership assistant read API coverage for vaccination drive date changes:
+CEO/CXO "move vaccine date" commands persist a
+`vaccination_drive_date_overrides` row keyed by park, vaccine, and original
+drive date. The vaccination schedule read model applies that override
+immediately: sibling vaccines that remain on the original day stay visible
+there, while the moved vaccine appears under the override date so the assistant
+and UI do not keep offering the old vaccine/date pair in a loop.
+The admin schedule move drawer uses a themed local date picker; weekday labels
+must keep stable unique keys because the drawer can be opened without any move
+being submitted, and render-only warnings must not surface as operator errors.
+
+---
+
+## Integration status pointer (2026-07-22)
+
+The leadership assistant is WIRED end-to-end and PROVEN on the live local path
+(Vertex planner → Cube governed metrics → grounded answers matching a SQL
+oracle: active animals 1308, goats 975 / sheep 336, vaccination overdue 168 /
+due 836; adversarial refusals; SSE streaming; 2-turn persistence; cache hit;
+audit + admin trace with no identity leak). It is NOT deployed to staging/prod.
+
+PENDING (not done): conversation/feedback/starters HTTP routes are unregistered
+(only `POST /ceo-ai/ask` + admin trace are); API-tier read executors
+(feed/procurement/workforce) are not built; Cube reads `public.*` not `ceo_ai.*`
+yet; `mesha-cube-stg` + Cloud Run toolbox + Agent Engine deploy, prod secrets,
+and BigQuery/dbt marts + prod-scale certification are future work.
+
+Canonical, detailed status: `docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md`
+→ "Integration Status — 2026-07-22".

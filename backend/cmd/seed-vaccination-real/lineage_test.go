@@ -125,7 +125,8 @@ func TestSeedReconciliationPageBoundaryTotalsUsePersistedCounts(t *testing.T) {
 	}
 }
 
-// date dimension: repeat + schedulable open work must be strictly future.
+// date dimension: repeat work must be strictly future; urgent schedulable work may be due/in-window
+// but must not survive past its latest safe date.
 func TestSeedReconciliationDateShiftNonFutureWorkFails(t *testing.T) {
 	got := cleanReconciliation()
 	got.RepeatObligationsNotFuture = 1
@@ -135,7 +136,7 @@ func TestSeedReconciliationDateShiftNonFutureWorkFails(t *testing.T) {
 	got = cleanReconciliation()
 	got.SchedulableOpenWorkNotFuture = 1
 	if err := validateSeedReconciliation(got, 10); err == nil {
-		t.Fatal("expected failure when schedulable open work is dated in the past")
+		t.Fatal("expected failure when schedulable open work is past latest safe date")
 	}
 }
 

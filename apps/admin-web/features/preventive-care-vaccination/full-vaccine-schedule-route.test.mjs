@@ -2,82 +2,174 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync(
-  new URL("./full-vaccine-schedule.tsx", import.meta.url),
-  "utf8",
-);
-const drawerSource = readFileSync(
-  new URL("./full-vaccine-schedule-drawer.tsx", import.meta.url),
-  "utf8",
-);
-const vaccineOverflowSource = readFileSync(
-  new URL("./vaccine-chip-overflow.tsx", import.meta.url),
-  "utf8",
-);
+const source = readFileSync(new URL("./full-vaccine-schedule.tsx", import.meta.url), "utf8");
+const moveDrawerSource = readFileSync(new URL("./full-vaccine-schedule-move-drawer.tsx", import.meta.url), "utf8");
+const themedDatePickerSource = readFileSync(new URL("./themed-date-picker.tsx", import.meta.url), "utf8");
+const operationsSource = readFileSync(new URL("./operations.tsx", import.meta.url), "utf8");
+const shedBoardSource = readFileSync(new URL("../vaccination-sheds/shed-board.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const adminUiContractFallbackSource = readFileSync(new URL("../../lib/admin-ui-contract.ts", import.meta.url), "utf8");
 const adminUiContractSource = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
-const visualSmokeSource = readFileSync(new URL("../../scripts/smoke-visual-live.mjs", import.meta.url), "utf8");
 
-test("vaccination full schedule interactions stay inside the vaccination IA", () => {
+test("vaccination schedule is driven by persisted operator assignments", () => {
+  assert.match(source, /getVaccinationDriveAssignments/);
+  assert.match(source, /section\.full_schedule\.operator_title/);
+  assert.match(source, /physicalShed/);
+  assert.match(source, /partitionLabel/);
+  assert.match(source, /operatorName/);
+  assert.match(source, /groupOperatorDayRows/);
+  assert.match(source, /shed\.partitions\.push/);
   assert.equal(
-    source.includes("/calendar/drive/"),
+    source.includes("getVaccinationSchedule"),
     false,
-    "Vaccination schedule cells must not deep-link to Calendar drive detail; use the vaccination-owned drawer/route.",
+    "Full schedule must not use the old obligation/vaccine-task aggregate endpoint.",
   );
-  assert.match(source, /href=\{shedDrawerHref\(row\)\}/);
+  assert.equal(
+    source.includes("vaccine tasks"),
+    false,
+    "Operator-cap schedule must display animal assignment counts, not vaccine task totals.",
+  );
 });
 
-test("vaccination schedule opens its shed drawer locally and toggles vaccine overflow locally", () => {
+test("vaccination schedule and operator labels are backend-contract owned", () => {
+  const forbiddenFrontendLiterals = [
+    "Operator drive schedule",
+    "Loading planned operator assignments.",
+    "Planned vaccination drives split by operator capacity, physical shed, and partition.",
+    "Animals assigned",
+    "Drive rows",
+    "Drive schedule unavailable",
+    "No operator drive rows",
+    "No persisted operator assignments exist",
+    "Whole shed",
+    "Operators unassigned",
+    "No drive",
+  ];
+  for (const literal of forbiddenFrontendLiterals) {
+    assert.equal(source.includes(literal), false, `${literal} must come from backend pageContract copy, not FE literals`);
+    assert.equal(shedBoardSource.includes(literal), false, `${literal} must come from backend pageContract copy, not FE literals`);
+  }
+  for (const key of [
+    "section.full_schedule.operator_title",
+    "section.full_schedule.operator_note",
+    "section.full_schedule.loading_operator_note",
+    "section.full_schedule.assignment_unavailable_title",
+    "section.full_schedule.no_assignments_title",
+    "section.full_schedule.no_assignments_body",
+    "schedule.kpi.animals_assigned",
+    "schedule.kpi.drive_rows",
+    "schedule.column.operator",
+    "schedule.column.partition",
+    "schedule.column.workload",
+    "schedule.partition.whole_shed",
+    "label.operators_unassigned",
+    "label.no_drive",
+    "schedule.move.open",
+    "schedule.move.title",
+    "schedule.move.recorded_title",
+    "schedule.move.recorded_body",
+    "schedule.move.error_title",
+    "schedule.move.missing_title",
+    "schedule.move.previous_month",
+    "schedule.move.next_month",
+    "schedule.move.invalid_future_date",
+  ]) {
+    assert.match(adminUiContractSource, new RegExp(`"${key.replaceAll(".", "\\.")}"\\s*:`), `${key} missing from backend UI contract`);
+    assert.match(adminUiContractFallbackSource, new RegExp(`"${key.replaceAll(".", "\\.")}"\\s*:`), `${key} missing from admin-web fallback contract`);
+  }
+});
+
+test("vaccination schedule opens the local drawer from operator-day rows", () => {
   assert.match(source, /LocalOverlayLink/);
+  assert.match(source, /ScheduleLocalDrawer/);
+  assert.match(source, /drawerRows\(operatorDayRows, pageContract, scope\)/);
   assert.match(source, /#schedule_event=/);
-  assert.equal(
-    source.includes('name="schedule_event"'),
-    false,
-    "Opening/searching the shed drawer must not submit route query state.",
-  );
-  assert.equal(
-    /<LocalOverlayLink[^>]*title=\{vaccineTitle\}/.test(source),
-    false,
-    "Vaccine overflow must not open the unrelated shed drawer.",
-  );
-  assert.match(source, /<VaccineChipOverflow/);
-  assert.match(source, /moreLabel=\{copy\(pageContract, "schedule\.drawer\.more"\)\}/);
-  assert.match(source, /lessLabel=\{copy\(pageContract, "schedule\.drawer\.less"\)\}/);
-  assert.equal(source.includes("<details"), false, "Native details styling must not control the table-cell layout.");
-  assert.match(vaccineOverflowSource, /const \[expanded, setExpanded\] = useState\(false\)/);
-  assert.match(vaccineOverflowSource, /aria-expanded=\{expanded\}/);
-  assert.match(vaccineOverflowSource, /expanded \? lessLabel : `\+\$\{hiddenCount\} \$\{moreLabel\}`/);
-  assert.match(vaccineOverflowSource, /expanded \? <ChevronUp/);
-  assert.match(vaccineOverflowSource, /: <ChevronDown/);
-  assert.match(vaccineOverflowSource, /className="schedule-vaccine-expanded-chips" hidden=\{!expanded\}/);
-  assert.match(vaccineOverflowSource, /vaccines\.slice\(previewLimit\)\.map/);
-  assert.equal(css.includes(".schedule-vaccine-overflow[open]>summary"), false, "Expanded vaccines must not paint the whole table cell blue.");
-  assert.match(css, /\.schedule-vaccine-toggle\{[^}]*cursor:pointer/);
-  assert.match(css, /\.schedule-vaccine-toggle:focus-visible\{[^}]*outline:2px solid var\(--ring\)/);
+  assert.equal(source.includes("VaccineChipOverflow"), false);
 });
 
-test("vaccination schedule drawer supports real close and roster drilldown", () => {
-  assert.match(drawerSource, /schedule-drawer-close-layer/);
-  assert.match(drawerSource, /currentHistoryEntryIsLocalOverlay/);
-  assert.match(drawerSource, /replaceLocalOverlayUrl/);
-  assert.match(drawerSource, /setDrawerOpen\(false\)/);
-  assert.match(drawerSource, /setDisplayedRow\(undefined\)/);
-  assert.match(drawerSource, /}, 280\)/);
-  assert.match(drawerSource, /translateX\(100%\)/);
-  assert.match(source, /\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(group\.shedId\)\}/);
-  assert.match(source, /drive_due_date/);
-  assert.match(source, /getVaccinationSchedule/);
-  assert.equal(
-    source.includes("getCalendarVaccinationEvents"),
-    false,
-    "Full Schedule list must read the vaccination schedule endpoint, not the broad Calendar list.",
-  );
-  assert.match(source, /row\.sheds\.map/);
-  assert.equal(
-    /\.schedule-drawer-backdrop\{[^}]*pointer-events\s*:\s*none/.test(css),
-    false,
-    "Drawer backdrop must allow outside-click close; pointer-events:none makes it visually modal but not dismissible.",
-  );
+test("vaccination schedule drawer shed rows deep-link to the execution goat list", () => {
+  assert.match(source, /id:\s*row\.shedId/);
+  assert.match(source, /const href = shed\.id/);
+  assert.match(source, /scopeHref\(`\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(shed\.id\)\}`/);
+  assert.match(source, /park:\s*row\.parkId/);
+});
+
+test("vaccination schedule renders one visible row per operator day", () => {
+  assert.match(source, /const operatorDayRows = groupOperatorDayRows\(rows\)/);
+  assert.match(source, /operatorDayRows\.map/);
+  assert.doesNotMatch(source, /rows\.map\(\(row\) => \(\s*<tr/s);
+});
+
+test("vaccination schedule keeps shed totals visible and partition detail out of the overview columns", () => {
+  assert.match(source, /shedPartitionTitle\(pageContract, shed\)/);
+  assert.match(source, /operator-day-shed/);
+  assert.doesNotMatch(source, /<th>\{copy\(pageContract, "schedule\.column\.partition"\)\}<\/th>/);
+  assert.doesNotMatch(source, /className="operator-day-partitions"/);
+});
+
+test("vaccination schedule keeps workload bars animal-based on backend assignment rows", () => {
+  assert.match(source, /schedule-load-card operator-workload-card/);
+  assert.match(source, /scheduleLoadBuckets/);
+  assert.match(source, /schedule-load-bar/);
+  assert.match(source, /row\.dueAnimals/);
+  assert.match(source, /row\.deferredAnimals/);
+  assert.match(source, /row\.overdueAnimals/);
+  assert.match(source, /schedule-load-total">\{row\.animals\}/);
+  assert.match(source, /schedule-load-goats">\{row\.totalDoses\}/);
+  assert.match(source, /row\.totalDoses/);
+  assert.match(source, /row\.animals/);
+  assert.match(css, /\.operator-workload-card/);
+  assert.match(css, /\.schedule-load-seg\.tone-danger/);
+  assert.match(css, /\.schedule-load-seg\.tone-warn/);
+  assert.match(css, /\.schedule-load-seg\.tone-done/);
+});
+
+test("vaccination schedule move date uses an overlay and themed dark date picker", () => {
+  assert.match(source, /ScheduleMoveDrawer/);
+  assert.match(source, /scheduleMoveHref/);
+  assert.match(source, /#schedule_move=/);
+  assert.match(source, /schedule_move_result/);
+  assert.match(source, /schedule_move_vaccine/);
+  assert.match(source, /schedule_move_date/);
+  assert.match(source, /schedule-move-banner/);
+  assert.match(source, /redirect\(/);
+  assert.doesNotMatch(source, /<input name="override_date"[^>]*type="date"/);
+  assert.doesNotMatch(source, /<select name="vaccine_code"/);
+  assert.match(moveDrawerSource, /<ThemedDatePicker[\s\S]*name="override_date"/);
+  assert.match(moveDrawerSource, /<select name="vaccine_code"/);
+  assert.match(moveDrawerSource, /schedule-move-form/);
+  assert.doesNotMatch(themedDatePickerSource, /showPicker/);
+  assert.doesNotMatch(themedDatePickerSource, /type="date"/);
+  assert.doesNotMatch(themedDatePickerSource, /className=.*out/);
+  assert.doesNotMatch(themedDatePickerSource, /addDays\(parseDateKey\(min\), 1\)/);
+  assert.match(themedDatePickerSource, /const minDate = useMemo\(\(\) => parseDateKey\(min\), \[min\]\)/);
+  assert.match(themedDatePickerSource, /move-date-popover/);
+  assert.match(themedDatePickerSource, /move-date-spacer/);
+  assert.match(themedDatePickerSource, /document\.addEventListener\("pointerdown", onPointerDown\)/);
+  assert.match(themedDatePickerSource, /detailsRef\.current\.open = false/);
+  assert.match(moveDrawerSource, /schedule\.move\.previous_month/);
+  assert.match(moveDrawerSource, /schedule\.move\.next_month/);
+  assert.match(moveDrawerSource, /schedule\.move\.invalid_future_date/);
+  assert.match(css, /\.move-date-popover/);
+  assert.match(css, /\.move-date-spacer/);
+  assert.match(css, /background:var\(--panel\)/);
+});
+
+test("closed vaccination schedule drawers do not intercept page clicks", () => {
+  assert.match(css, /\.schedule-drawer-backdrop\[aria-hidden="true"\]\{[^}]*pointer-events\s*:\s*none/);
+  assert.match(css, /\.schedule-drawer-backdrop\[aria-hidden="true"\]\{[^}]*visibility\s*:\s*hidden/);
+  assert.match(moveDrawerSource, /disabled=\{!drawerOpen\}/);
+  assert.match(moveDrawerSource, /tabIndex=\{drawerOpen \? 0 : -1\}/);
+});
+
+test("vaccination schedule year navigation is bounded at 2025", () => {
+  assert.match(source, /const MIN_SCHEDULE_YEAR = 2025/);
+  assert.match(source, /boundedInt\(one\(searchParams \?\? \{\}, "schedule_year"\), CURRENT_YEAR, MIN_SCHEDULE_YEAR, CURRENT_YEAR \+ 5\)/);
+  assert.match(source, /year > MIN_SCHEDULE_YEAR/);
+});
+
+test("full schedule action is hidden while already inside the schedule view", () => {
+  assert.match(operationsSource, /isFullSchedule \? null : <VaccinationFullScheduleButton/);
 });
 
 test("vaccination schedule table is visually bounded on desktop", () => {
@@ -88,43 +180,4 @@ test("vaccination schedule table is visually bounded on desktop", () => {
   );
   assert.match(css, /\.full-vaccine-schedule-table\{[^}]*width\s*:\s*100%/);
   assert.match(css, /\.full-vaccine-schedule-table th:nth-child\(6\)/);
-});
-
-test("live visual smoke expands and inspects the vaccine overflow state", () => {
-  assert.match(visualSmokeSource, /"vaccination-schedule"/);
-  assert.match(visualSmokeSource, /collapsed vaccine overflow label/);
-  assert.match(visualSmokeSource, /expanded\.label !== "Show less"/);
-  assert.match(visualSmokeSource, /expanded\.url !== before\.url/);
-  assert.match(visualSmokeSource, /isTransparentBackground\(expanded\.cellBackground\)/);
-  assert.match(visualSmokeSource, /Math\.abs\(expanded\.rowHeight - before\.rowHeight\) > 1/);
-  assert.match(visualSmokeSource, /assertA11y\(page, `\$\{routeName\}-expanded`/);
-});
-
-test("vaccination schedule copy keys are backend-owned", () => {
-  const requiredKeys = [
-    "schedule.unit.animal",
-    "schedule.unit.animals",
-    "schedule.unit.dose",
-    "schedule.unit.doses",
-    "schedule.load.batches",
-    "schedule.load.deferred_short",
-    "schedule.load.scheduled_short",
-    "schedule.load.single_drive",
-    "schedule.drawer.title",
-    "schedule.drawer.open_sheds",
-    "schedule.drawer.open_roster",
-    "schedule.drawer.more",
-    "schedule.drawer.less",
-    "schedule.drawer.close",
-    "schedule.drawer.search",
-    "schedule.drawer.search_action",
-    "schedule.drawer.previous_page",
-    "schedule.drawer.next_page",
-    "schedule.drawer.page_label",
-    "schedule.drawer.rows_label",
-    "schedule.drawer.empty",
-  ];
-  for (const key of requiredKeys) {
-    assert.match(adminUiContractSource, new RegExp(`"${key.replaceAll(".", "\\.")}"\\s*:`), `${key} missing from backend UI contract`);
-  }
 });

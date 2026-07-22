@@ -31,6 +31,7 @@ type Reader interface {
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
 	VaccinationOperations(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.OperationsResponse, error)
 	VaccinationSchedule(ctx context.Context, q vaccexecd.ScheduleQuery) (vaccexecd.OperationsResponse, error)
+	DriveAssignments(ctx context.Context, q vaccexecd.DriveAssignmentQuery) (vaccexecd.DriveAssignmentResponse, error)
 	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) (vaccexecd.ScanRosterResult, error)
 	TaskOptionValues(ctx context.Context, tenantID, taskID string) (vaccexecd.TaskOptionValuesResponse, error)
 	// VaccinationGaps backs the mobile data-gaps overlay (animals excluded from coverage + reason).
@@ -65,6 +66,7 @@ type Writer interface {
 	// left untouched. Callers should treat the returned obligation_id as authoritative rather than
 	// assuming it always equals the path's obligation_id.
 	RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error)
+	UpsertVaccinationDriveDateOverride(ctx context.Context, override domain.VaccineDriveDateOverride) (*domain.VaccineDriveDateOverride, error)
 }
 
 // Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
@@ -106,6 +108,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
 	mux.HandleFunc("GET /vaccination/schedule", h.VaccinationSchedule)
+	mux.HandleFunc("POST /vaccination/schedule/drive-date-overrides", h.UpsertDriveDateOverride)
+	mux.HandleFunc("GET /vaccination/drive-assignments", h.DriveAssignments)
 	mux.HandleFunc("GET /vaccination/sheds", h.ListShedSummary)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
@@ -117,6 +121,98 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
 	mux.HandleFunc("GET /app/vaccination/coverage", h.VaccinationCoverage)
+}
+
+type driveDateOverrideRequest struct {
+	ParkID            string `json:"park_id"`
+	VaccineCode       string `json:"vaccine_code"`
+	OriginalDriveDate string `json:"original_drive_date"`
+	OverrideDate      string `json:"override_date"`
+	Reason            string `json:"reason"`
+}
+
+type driveDateOverrideResponse struct {
+	ParkID            string `json:"park_id"`
+	VaccineCode       string `json:"vaccine_code"`
+	OriginalDriveDate string `json:"original_drive_date"`
+	OverrideDate      string `json:"override_date"`
+	Reason            string `json:"reason"`
+	CreatedBy         string `json:"created_by"`
+	CreatedAt         string `json:"created_at"`
+}
+
+func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request) {
+	if h.writer == nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "override_unavailable", Message: "vaccination drive date override writer is not wired", TraceID: traceID(r)}, nil)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil || len(body) == 0 {
+		h.badRequest(w, r, "invalid_body", "request body is required")
+		return
+	}
+	var req driveDateOverrideRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+		return
+	}
+	if !uuidutil.IsUUIDString(req.ParkID) {
+		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	req.VaccineCode = strings.TrimSpace(req.VaccineCode)
+	if req.VaccineCode == "" {
+		h.badRequest(w, r, "invalid_vaccine_code", "vaccine_code is required")
+		return
+	}
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Reason == "" {
+		h.badRequest(w, r, "invalid_reason", "reason is required")
+		return
+	}
+	original, err := time.ParseInLocation("2006-01-02", req.OriginalDriveDate, biztime.DefaultLocation())
+	if err != nil {
+		h.badRequest(w, r, "invalid_original_drive_date", "original_drive_date must be YYYY-MM-DD")
+		return
+	}
+	overrideDate, err := time.ParseInLocation("2006-01-02", req.OverrideDate, biztime.DefaultLocation())
+	if err != nil {
+		h.badRequest(w, r, "invalid_override_date", "override_date must be YYYY-MM-DD")
+		return
+	}
+	if overrideDate.Before(original) {
+		h.badRequest(w, r, "invalid_override_date", "override_date must not be before the original drive date")
+		return
+	}
+	actorID := strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))
+	if !uuidutil.IsUUIDString(actorID) {
+		h.badRequest(w, r, "missing_actor", "authenticated actor id is required")
+		return
+	}
+	out, err := h.writer.UpsertVaccinationDriveDateOverride(r.Context(), domain.VaccineDriveDateOverride{
+		TenantID:          tenantID(r),
+		ParkID:            req.ParkID,
+		VaccineCode:       req.VaccineCode,
+		OriginalDriveDate: original,
+		OverrideDate:      overrideDate,
+		Reason:            req.Reason,
+		CreatedBy:         actorID,
+		CreatedAt:         h.now(),
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, driveDateOverrideResponse{
+		ParkID:            out.ParkID,
+		VaccineCode:       out.VaccineCode,
+		OriginalDriveDate: out.OriginalDriveDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		OverrideDate:      out.OverrideDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		Reason:            out.Reason,
+		CreatedBy:         out.CreatedBy,
+		CreatedAt:         out.CreatedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
+	})
 }
 
 // VaccinationOperations serves the source-backed cohort × protocol matrix + per-cohort detail for the
@@ -245,6 +341,63 @@ func (h *Handler) VaccinationSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := h.reader.VaccinationSchedule(r.Context(), q)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// DriveAssignments serves the persisted operator-cap schedule ledger. This is the date/operator/shed/
+// partition table used by the vaccination drive UI; it is not a vaccine-dose aggregate.
+func (h *Handler) DriveAssignments(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	now := h.now()
+	year := now.Year()
+	month := int(now.Month())
+	if raw := query.Get("year"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < now.Year()-1 || n > now.Year()+5 {
+			h.badRequest(w, r, "invalid_year", "year must be within the supported schedule window")
+			return
+		}
+		year = n
+	}
+	if raw := query.Get("month"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 12 {
+			h.badRequest(w, r, "invalid_month", "month must be 1-12")
+			return
+		}
+		month = n
+	}
+	q := vaccexecd.DriveAssignmentQuery{
+		TenantID:   tenantID(r),
+		MonthStart: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, biztime.DefaultLocation()),
+		Limit:      defaultDrilldownLimit,
+	}
+	if parkID := query.Get("park_id"); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+			return
+		}
+		q.ParkID = &parkID
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxExecutionLimit {
+			n = maxExecutionLimit
+		}
+		q.Limit = n
+	}
+	if !h.applyDriveAssignmentParkScope(w, r, &q) {
+		return
+	}
+	resp, err := h.reader.DriveAssignments(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
 		return
@@ -1040,6 +1193,17 @@ func (h *Handler) readShedError(w http.ResponseWriter, r *http.Request, err erro
 }
 
 func (h *Handler) applyScheduleParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.ScheduleQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
+}
+
+func (h *Handler) applyDriveAssignmentParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.DriveAssignmentQuery) bool {
 	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
 	if !ok {
 		return false

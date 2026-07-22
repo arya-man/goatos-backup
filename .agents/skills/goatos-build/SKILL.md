@@ -29,6 +29,13 @@ mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
 document an explicit exclusion. `make leadership-assistant-coverage-guard`
 enforces this in local CI.
 
+CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce
+`ceo_ai.*` reporting views (vaccination_shed_status, vaccination_dose_pickup,
+action_center, vaccination_operator_status) that read canonical vaccination/
+procurement/obligation/workforce tables but do NOT modify the vaccination seed/
+config/SOP schema. These migrations support the leadership assistant's
+operational read path and are not part of the vaccination protocol contract.
+
 ## Required First Step — 4-Layer Lookup
 
 Work layers in order. Stop when the question is answered. Never jump to files first.
@@ -110,11 +117,33 @@ Permanent scale and guard-authoring rules:
   days after adult ET+TT dose 1. Do not treat `ET+TT Booster` as kid-only,
   optional, or as the 182-day repeat; the repeat starts only after ET+TT dose 2
   / course completion.
+  Post-seed guard: accepted `et_tt_adult_w1` without same-goat
+  `et_tt_adult_w2` obligation/completion is a broken DB and must block handoff.
 - Vaccination drive capacity is per available operator per business date and
   counts unique animals, not doses or vaccine obligation rows. Persist generated
   operator/shed/partition assignments set-wise; if the safe buffer would be
   breached, mark the drive over-cap required and finish instead of silently
   pushing animals beyond the latest-safe date.
+- Operator drive assignments are generated metadata, not obligation membership.
+  Review SQL joins at exact assignment grain so multiple operators, planned
+  dates, or partitions cannot multiply counts or expose another operator's
+  partition work.
+- Shed partition labels are not canonical sheds. `Gandhi 1`, `Gandhi 2`, and
+  `Godel 1 - Part 3` must normalize to physical-shed owner/count rows plus
+  partition metadata. CPT-only rehearsal seeds must not pull CBE/Coimbatore
+  into HRMS, parks, APIs, or UI just because the full fixture has both centers.
+  Strict source-backed shed ownership applies to active sheds that contain live
+  source goats; empty baseline catalog sheds are not vaccination drive truth.
+  In CPT operator-drive rehearsal seeds, Amit, Darshan, and Sagar are all
+  manager-tier vaccination operators; do not treat Amit as park-head-only or
+  Sagar as backup/support-only for drive assignment. Preserve the source
+  week-offs: Amit Friday, Darshan Sunday, Sagar Saturday.
+- Vaccination operator availability/capacity is a sweep-session fact. Load it
+  once per `(tenant, park, business_date, cap_per_operator)` and pass/cache it
+  through date scoring, `ConductedBy` selection, effective cap calculation, and
+  assignment splitting. Never call `AvailableVaccinationOperatorsForDrive` from
+  multiple helpers or from park/date loops; that is the same N+1 fan-out bug
+  wearing a different shirt.
 - The local vaccination trigger fixture has one reviewed synthetic primary RFID
   (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
   with the source fixture validator/runbooks when changed.
@@ -339,9 +368,13 @@ one product; this skill is the navigation layer.
   into a false empty/error screen while the developer machine is compiling or
   running CI. The supervisor must fast-forward only a clean ancestor checkout,
   re-exec before DB preparation, and restart FE and BE together when either
-  fails or `origin/main` advances. An isolated E2E stack is unrelated: it must
-  have non-shared FE/BE ports and an explicit throwaway DB; never stop, sync,
-  seed, migrate, reuse, or delete it while fixing the shared stack. Run `make
+  fails or `origin/main` advances. Admin-web dev startup must always go through
+  `apps/admin-web/scripts/run-local-next.mjs`, including isolated/custom ports
+  such as `--port 3318`. Plain `next dev` bypasses the local bearer environment
+  and causes `/admin-web/bootstrap` to fail with `invalid_bearer_token`. An
+  isolated E2E stack is unrelated: it must have non-shared FE/BE ports and an
+  explicit throwaway DB; never stop, sync, seed, migrate, reuse, or delete it
+  while fixing the shared stack. Run `make
   local-stack-service-guard`; it is a registered, required standard local-CI
   guard. Canonical operating details:
   `docs/runbooks/local-full-stack-rehearsal.md`.
@@ -442,6 +475,13 @@ one product; this skill is the navigation layer.
   back to animal `due_at` only for unbatched work. Guard:
   `make vaccination-drive-clubbing-guard`. Post-reseed/local proof also requires
   `make vaccination-drive-clubbing-db-proof` after the sweeper.
+- Vaccination drive date override is a write-path/kernel operation, not a
+  frontend/read-model illusion. When a vaccine is moved out of a mixed
+  operator-cap drive, raw `vaccination_drive_assignments` must be split so only
+  the moved vaccine leaves the original date. Selecting the original date is the
+  supported revert path: cancel the active override and restore the raw
+  assignment membership. Proof must cover move and revert with raw DB assertions
+  plus existing clinical-rule outcomes and operator animal caps.
 
 ## Must Not
 
@@ -465,3 +505,4 @@ one product; this skill is the navigation layer.
   exercising a disposable tree.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
+<!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->

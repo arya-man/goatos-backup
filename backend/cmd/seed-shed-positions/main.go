@@ -107,6 +107,8 @@ func run(args []string) error {
 		"write a PROVISIONAL shed->manager mapping CSV to this path (round-robin across each park's non-backup managers; every row tagged provisional_seed/needs_review). Writes NO database rows. Review it, then apply with -mapping.")
 	mappingPath := fs.String("mapping", "",
 		"CSV of shed->manager assignments to APPLY (header must include shed_code,manager_code; resolved via locations.location_code / workforce_members.display_code). CSV rows override; unlisted sheds inherit the park preventive_care_manager.")
+	onlyShedsWithGoats := fs.Bool("only-sheds-with-goats", false,
+		"scope strict shed-manager coverage to active sheds that currently contain live goats. Use for source-backed rehearsals where baseline empty shed catalogs may exist but are not part of the selected source bundle.")
 	strict := fs.Bool("strict", false,
 		"exit non-zero if any active shed is left unassigned after park preventive-care-manager fallback, assigned only provisionally, or missing backup coverage after applying -mapping. Use as a production preflight gate: production requires every active shed to resolve manager and backup.")
 	if err := fs.Parse(args); err != nil {
@@ -144,7 +146,7 @@ func run(args []string) error {
 		return nil
 	}
 
-	st, err := applyMapping(ctx, pool, *tenantID, *mappingPath, *strict)
+	st, err := applyMapping(ctx, pool, *tenantID, *mappingPath, *strict, *onlyShedsWithGoats)
 	if err != nil {
 		return err
 	}
@@ -230,7 +232,7 @@ type managerRow struct {
 // (the one-and-only place it lives) fills each shed from its park's non-backup
 // manager pool; every row is stamped provisional_seed / needs_review. No DB writes.
 func generateProvisional(ctx context.Context, pool *pgxpool.Pool, tenantID, outPath string) error {
-	sheds, err := loadShedsWithPark(ctx, pool, tenantID)
+	sheds, err := loadShedsWithPark(ctx, pool, tenantID, false)
 	if err != nil {
 		return err
 	}
@@ -289,14 +291,23 @@ func generateProvisional(ctx context.Context, pool *pgxpool.Pool, tenantID, outP
 // It invents nothing: only rows with a resolvable shed + manager become seats.
 // Under strict, it is a true PREFLIGHT: if any active shed would be unassigned or
 // only provisionally assigned, it writes NOTHING and reports StrictBlocked.
-func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string, strict bool) (stats, error) {
+func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string, strict bool, onlyShedsWithGoats bool) (stats, error) {
 	var st stats
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM locations
-		WHERE tenant_id = $1::uuid AND location_type = 'shed' AND status = 'active'`, tenantID).Scan(&st.ActiveSheds); err != nil {
+		WHERE tenant_id = $1::uuid
+		  AND location_type = 'shed'
+		  AND status = 'active'
+		  AND ($2::boolean = false OR EXISTS (
+		    SELECT 1
+		    FROM goats g
+		    WHERE g.tenant_id = locations.tenant_id
+		      AND g.shed_id = locations.location_id
+		      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+		  ))`, tenantID, onlyShedsWithGoats).Scan(&st.ActiveSheds); err != nil {
 		return st, fmt.Errorf("count active sheds: %w", err)
 	}
-	sheds, err := loadShedsWithPark(ctx, pool, tenantID)
+	sheds, err := loadShedsWithPark(ctx, pool, tenantID, onlyShedsWithGoats)
 	if err != nil {
 		return st, err
 	}
@@ -342,7 +353,7 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 	}
 	st.UnmappedGaps = st.ActiveSheds - len(seats)
 	st.DistinctHolders = len(holders)
-	st.BackupGaps, err = backupCoverageGaps(ctx, pool, tenantID)
+	st.BackupGaps, err = backupCoverageGaps(ctx, pool, tenantID, onlyShedsWithGoats)
 	if err != nil {
 		return st, err
 	}
@@ -392,7 +403,7 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 	return st, nil
 }
 
-func backupCoverageGaps(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
+func backupCoverageGaps(ctx context.Context, pool *pgxpool.Pool, tenantID string, onlyShedsWithGoats bool) (int, error) {
 	var gaps int
 	err := pool.QueryRow(ctx, `
 		WITH active_sheds AS (
@@ -405,6 +416,13 @@ func backupCoverageGaps(ctx context.Context, pool *pgxpool.Pool, tenantID string
 			WHERE s.tenant_id = $1::uuid
 			  AND s.location_type = 'shed'
 			  AND s.status = 'active'
+			  AND ($3::boolean = false OR EXISTS (
+			    SELECT 1
+			    FROM goats g
+			    WHERE g.tenant_id = s.tenant_id
+			      AND g.shed_id = s.location_id
+			      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+			  ))
 		)
 		SELECT count(*)::int
 		FROM active_sheds s
@@ -431,22 +449,31 @@ func backupCoverageGaps(ctx context.Context, pool *pgxpool.Pool, tenantID string
 			  AND wp.status = 'active'
 			  AND wp.valid_from <= now()
 			  AND (wp.valid_to IS NULL OR wp.valid_to > now())
-		)`, tenantID, managerBackupGroupCode).Scan(&gaps)
+		)`, tenantID, managerBackupGroupCode, onlyShedsWithGoats).Scan(&gaps)
 	if err != nil {
 		return 0, fmt.Errorf("check backup coverage: %w", err)
 	}
 	return gaps, nil
 }
 
-func loadShedsWithPark(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]shedRow, error) {
+func loadShedsWithPark(ctx context.Context, pool *pgxpool.Pool, tenantID string, onlyShedsWithGoats bool) ([]shedRow, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT s.location_id::text, s.location_code, s.name, p.location_id::text, p.location_code
 		FROM locations s
 		JOIN locations p
 		  ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
 		 AND p.location_type = 'park' AND p.status = 'active'
-		WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
-		ORDER BY p.location_code, s.location_code`, tenantID)
+		WHERE s.tenant_id = $1::uuid
+		  AND s.location_type = 'shed'
+		  AND s.status = 'active'
+		  AND ($2::boolean = false OR EXISTS (
+		    SELECT 1
+		    FROM goats g
+		    WHERE g.tenant_id = s.tenant_id
+		      AND g.shed_id = s.location_id
+		      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+		  ))
+		ORDER BY p.location_code, s.location_code`, tenantID, onlyShedsWithGoats)
 	if err != nil {
 		return nil, fmt.Errorf("query sheds: %w", err)
 	}

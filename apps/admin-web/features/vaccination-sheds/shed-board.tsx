@@ -30,13 +30,16 @@ const CAPACITY_ORDER: VaccinationCapacityStatus[] = ["within_cap", "over_cap", "
 
 const DEFAULT_PAGE_SIZE = 25;
 
-// Manager / Backup are workforce Position holders resolved cross-module. A nil slot is a seed/config gap
-// (staging preflight blocker), NEVER a normal business state — surfaced as a danger tag, never invented.
-function OwnerCell({ owner, missingLabel }: { owner: VaccinationShedSummaryRow["manager"]; missingLabel: string }) {
-  if (owner?.displayName) {
-    return <ClipText title={owner.displayName} className="small">{owner.displayName}</ClipText>;
-  }
-  return <Tag tone="dng">{missingLabel}</Tag>;
+function DriveOperatorsCell({ row, pageContract }: { row: VaccinationShedSummaryRow & { driveOperatorNames?: string[] }; pageContract: AdminUiPageContract }) {
+  const names = row.driveOperatorNames?.filter(Boolean) ?? [];
+  if (names.length === 0) return <Tag tone="dng">{copy(pageContract, "label.operators_unassigned")}</Tag>;
+  return <ClipText title={names.join(", ")} className="small">{names.join(", ")}</ClipText>;
+}
+
+function assignmentLabel(row: VaccinationShedSummaryRow & { driveOperatorNames?: string[] }, pageContract: AdminUiPageContract) {
+  const operatorCount = row.driveOperatorNames?.filter(Boolean).length ?? 0;
+  if (operatorCount <= 0) return copy(pageContract, "label.no_drive");
+  return `${operatorCount} ${copy(pageContract, operatorCount === 1 ? "label.operator_count_singular" : "label.operator_count_plural")}`;
 }
 
 function shedStatusLabel(pageContract: AdminUiPageContract, status: VaccinationShedStatus): string {
@@ -275,6 +278,10 @@ export async function VaccinationShedBoard({
                             {copy(pageContract, "tooltip.sessions.body")}
                           </InfoTooltip>
                         </span>
+                      ) : col.key === "manager" ? (
+                        copy(pageContract, "label.operators")
+                      ) : col.key === "backup" ? (
+                        copy(pageContract, "label.assignment")
                       ) : (
                         col.label
                       )}
@@ -317,8 +324,8 @@ export async function VaccinationShedBoard({
                       {cell(row.done, "muted")}
                       {cell(row.sessions)}
                       {cell(row.nextDue ? fmtDate(row.nextDue) : copy(pageContract, "label.placeholder"), "muted")}
-                      {cell(<OwnerCell owner={row.manager} missingLabel={copy(pageContract, "label.manager_unassigned")} />)}
-                      {cell(<OwnerCell owner={row.backup} missingLabel={copy(pageContract, "label.backup_unassigned")} />)}
+                      {cell(<DriveOperatorsCell row={row} pageContract={pageContract} />)}
+                      {cell(<Tag tone={row.sessions > 1 ? "warn" : "mut"}>{assignmentLabel(row, pageContract)}</Tag>)}
                       {cell(
                         <Tag tone={optionTone(pageContract, "shed_status_chips", row.status) as Tone}>
                           {shedStatusLabel(pageContract, row.status)}

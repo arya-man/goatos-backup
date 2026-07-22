@@ -354,6 +354,10 @@ business labels only: vaccine family/name, open dose count, shed, park, due date
 status, and route. Raw protocol/config identifiers such as internal ET/TT week
 codes are implementation details and must not appear in leadership answers or
 operator UI.
+UI-only schedule drawer click-layer fixes do not change assistant coverage or
+MCP Toolbox tool contracts, but they protect access to the same backend-owned
+vaccination read APIs by ensuring closed overlays cannot block operator schedule
+navigation.
 
 Canonical files:
 
@@ -408,3 +412,82 @@ A CEO chatbot capability is done only when:
 - SQL, if used, is read-only and validated
 - the relevant docs/context are updated
 - local typecheck and guardrail checks pass
+
+---
+
+## Integration Status — 2026-07-22 (local wired + live E2E proven; not deployed)
+
+This section is the ground-truth status after the end-to-end integration pass.
+It distinguishes what is BUILT AND PROVEN locally from what is still PENDING.
+No overclaim: nothing here is deployed to staging/production yet.
+
+### Implemented and proven on the live path (local, `goatos-local-current`)
+
+Adapters are now wired into the running server (`internal/bootstrap/api.go` →
+`ceoai.Build`, bridges in `internal/ceoai/wiring.go`):
+
+- Agentic loop with the Vertex Gemini planner (`MESHA_AI_PROVIDER=vertex`,
+  `goatos-stg`/`asia-south1`/`gemini-2.5-flash`, ADC) + deterministic keyword
+  fallback; runtime grounding review (`MESHA_AI_REVIEW=1`) that downgrades an
+  ungrounded answer instead of emitting an unverified number.
+- Cube-first routing to the governed metric layer. Live E2E through the running
+  API (side instance :8090, same DB + Cube :4000), verbatim, all Cube numbers
+  matched an independent SQL oracle:
+  - "How many active animals" → `1308` (Cube, `mode=planned`, metric approved) — oracle `1308`.
+  - Species split → goats `975`, sheep `336` — oracle `975`/`336`.
+  - Vaccination overdue `168`, due `836` (metric_status `draft`).
+- Adversarial refusals: cross-tenant "all tenants" (scope escalation) refused;
+  write intent ("delete …") refused; prompt-injection/tenant-override refused —
+  all `mode=refused`, before any tool ran.
+- SSE streaming (`stream:true`) — real `text/event-stream` with progressive
+  `event: token` frames + terminal `event: final` carrying only
+  answer/source/mode/request_id/conversation_id/citations (no CoT/trace).
+- Conversation persistence — a 2-turn thread persisted to `ceo_ai_messages`
+  (user+assistant ×2, same `conversation_id`, `mode=planned`).
+- Response cache — repeated identical question served from cache (~0.009s,
+  identical `as_of`).
+- Internal audit + admin step-trace — rows persisted to
+  `ceo_ai_assistant_audit`; `GET /ceo-ai/admin/trace/{request_id}` returns the
+  step trace with route/tool/latency/review verdict and NO actor identity or
+  question text (internal-only, admin-gated).
+- sqlguard read-only SQL validator, MCP toolbox bridge, safety layer
+  (injection/rate-limit/budget/breaker/moderation), 18 `ceo_ai.*` reporting
+  views (+ Postgres-gated grain/identity tests), Cube governed metric model,
+  eval harness, observability/telemetry, and the leadership-assistant coverage
+  guard are all present and green under `make guardrails` + `go test
+  ./internal/ceoai/...`.
+
+Three integration defects were found and fixed root-cause during this pass
+(failing-then-passing proof on the live path):
+1. SSE silently downgraded to buffered JSON because the middleware-wrapped
+   `ResponseWriter` failed a bare `http.Flusher` assertion — now walks the
+   `Unwrap()` chain (`internal/ceoai/adapters/http/stream.go`).
+2. Every audit row was dropped (admin trace 404) because `source_views`
+   (`text[] NOT NULL`) bound a nil slice as SQL NULL and the caller swallowed
+   the error — now coerced to `[]` (`internal/ceoai/adapters/observability/store.go`).
+3. `ceo_ai.counts_movement_daily` deaths never counted — its filter used
+   `exit_reason IN ('death','dead','mortality')` but the canonical value is
+   `'died'` (`backend/migrations/postgres/000020`).
+
+### Not implemented / pending (do NOT claim as done)
+
+- Conversation-management + feedback + starters HTTP routes
+  (`GET /ceo-ai/starters`, `GET/POST /ceo-ai/conversations…`,
+  `POST /ceo-ai/messages/{id}/feedback`) are NOT registered on the server (only
+  `POST /ceo-ai/ask` and the admin trace route are). The admin-web capability
+  probe therefore fails closed and hides the chat bubble by design. The
+  persistence store + admin-web proxy/UI already speak the contract; the
+  backend route registration is the remaining wire.
+- API-tier read services (feed/procurement/workforce/verification/action-center)
+  have no in-process `ToolExecutor` yet, so those questions honestly refuse
+  ("no read-service executor") rather than fabricate. Cube-backed KPIs answer;
+  operational read APIs are pending.
+- Cube reads `public.*` today, not the `ceo_ai.*` views (metric formulas are the
+  SSOT and unchanged on that swap).
+- Staging/production deploy is NOT done: `mesha-cube-stg` Cloud Run, the Cloud
+  Run MCP Toolbox, and any Agent Engine deployment are pending; the two
+  `*-readonly` DB DSN secrets hold placeholders; BigQuery/dbt marts for
+  historical metrics and prod-scale (1-5M) load certification are future work.
+- The generated `packages/api-client` was regenerated to match the additive
+  OpenAPI ceo-ai endpoints; `make api-client-check` only goes green once that
+  regenerated file is committed (it is a `git diff --exit-code` gate).

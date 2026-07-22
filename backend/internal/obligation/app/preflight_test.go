@@ -145,9 +145,9 @@ func TestPreflightVisitShotCapTiesDetectsFallbackOnlyTieWriteFree(t *testing.T) 
 			MinParkMergeSheds:   2,
 		},
 		RuleVaccineIDs: map[string]RuleVaccineIdentity{
-			"rule-fmd": {VaccineCode: "FMD", VaccinePriority: 5},
-			"rule-ppr": {VaccineCode: "PPR", VaccinePriority: 5},
-			"rule-hs":  {VaccineCode: "HS", VaccinePriority: 5},
+			"rule-fmd": {VaccineCode: "Unmapped FMD", VaccinePriority: 5},
+			"rule-ppr": {VaccineCode: "Unmapped PPR", VaccinePriority: 5},
+			"rule-hs":  {VaccineCode: "Unmapped HS", VaccinePriority: 5},
 		},
 	}
 
