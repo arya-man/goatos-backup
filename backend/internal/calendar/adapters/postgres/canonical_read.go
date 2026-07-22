@@ -472,9 +472,10 @@ batch_events AS (
       ob.batch_id,
       ob.status AS batch_status,
       ob.scope_type AS batch_scope_type,
-      COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AS due_at,
-      COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AS window_start,
+      COALESCE((assignment_scope.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AS due_at,
+      COALESCE((assignment_scope.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AS window_start,
       CASE
+        WHEN assignment_scope.planned_date IS NOT NULL THEN (assignment_scope.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '8 hours'
         WHEN ob.planned_date IS NOT NULL THEN (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '8 hours'
         ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
       END AS window_end,
@@ -568,15 +569,38 @@ batch_events AS (
       ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
     LEFT JOIN locations scope_parent
       ON scope_parent.tenant_id = ob.tenant_id AND scope_parent.location_id = scope_loc.parent_location_id
+    LEFT JOIN LATERAL (
+      SELECT count(*) > 0 AS has_any_assignment
+      FROM vaccination_drive_assignments vda
+      WHERE vda.tenant_id = ob.tenant_id
+        AND vda.batch_id = ob.batch_id
+    ) assignment_presence ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        vda.planned_date,
+        array_remove(array_agg(DISTINCT assignment_rule.rule_id), NULL)::uuid[] AS rule_ids
+      FROM vaccination_drive_assignments vda
+      LEFT JOIN LATERAL unnest(vda.vaccine_rule_ids) AS assignment_rule(rule_id) ON true
+      WHERE vda.tenant_id = ob.tenant_id
+        AND vda.batch_id = ob.batch_id
+        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
+        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+      GROUP BY vda.planned_date
+    ) assignment_scope ON true
     WHERE ob.tenant_id = $1::uuid
       AND ob.scope_type IN ('shed', 'park')
       AND (
-        (
+        assignment_scope.planned_date IS NOT NULL
+        OR (
+          NOT COALESCE(assignment_presence.has_any_assignment, false)
+          AND
           ob.planned_date IS NOT NULL
           AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
           AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
         )
         OR (
+          NOT COALESCE(assignment_presence.has_any_assignment, false)
+          AND
           ob.planned_date IS NULL
           AND COALESCE(ob.window_start, ob.window_end) >= $2::timestamptz
           AND COALESCE(ob.window_start, ob.window_end) < $3::timestamptz
@@ -585,12 +609,18 @@ batch_events AS (
       AND pd.category = 'vaccination'
       AND pv.status = 'published'
       AND ob.status NOT IN ('superseded', 'canceled')
+      AND (
+        assignment_scope.planned_date IS NULL
+        OR cardinality(assignment_scope.rule_ids) = 0
+        OR oi.rule_id = ANY(assignment_scope.rule_ids)
+      )
     GROUP BY
       ob.batch_id,
       ob.status,
       ob.scope_type,
-      COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end),
+      COALESCE((assignment_scope.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end),
       CASE
+        WHEN assignment_scope.planned_date IS NOT NULL THEN (assignment_scope.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '8 hours'
         WHEN ob.planned_date IS NOT NULL THEN (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '8 hours'
         ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
       END,
@@ -670,33 +700,63 @@ obligation_drive_membership AS (
     -- Unbatched window branch keeps 'completed' (membership needs it for the completed aggregates),
     -- hence idx_obligation_instances_calendar_window excludes only waived/canceled/superseded.
     -- Unbatched window (index: idx_obligation_instances_calendar_window)
-    SELECT * FROM obligation_instances
+    SELECT oi0.*, NULL::timestamptz AS membership_at_override
+    FROM obligation_instances oi0
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status NOT IN ('superseded', 'canceled', 'waived')
       AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
     UNION
     -- Unbatched bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due)
-    SELECT * FROM obligation_instances
+    SELECT oi0.*, NULL::timestamptz AS membership_at_override
+    FROM obligation_instances oi0
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('missed', 'in_progress', 'deferred')
       AND due_at >= $2::timestamptz - interval '45 days'
       AND due_at < $3::timestamptz
     UNION
     -- Unbatched overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
-    SELECT * FROM obligation_instances
+    SELECT oi0.*, NULL::timestamptz AS membership_at_override
+    FROM obligation_instances oi0
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('scheduled', 'due') AND due_at < now()
       AND due_at >= $2::timestamptz - interval '45 days'
       AND due_at < $3::timestamptz
     UNION
-    -- Batched drives in-window (obligation_batches window joined to obligation_instances via
-    -- obligation_instances_batch_idx). obligation_batches stays a cheap scan (low cardinality).
-    SELECT oi2.* FROM obligation_instances oi2
+    -- Operator-planned vaccination drives. The assignment table is the source of truth for the
+    -- execution day after operator-cap planning or admin date moves; do not let stale batch
+    -- planned_date hide a valid drive day.
+    SELECT oi2.*, (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS membership_at_override
+    FROM obligation_instances oi2
     JOIN obligation_batches ob2
       ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
+    JOIN vaccination_drive_assignments vda
+      ON vda.tenant_id = oi2.tenant_id
+     AND vda.batch_id = oi2.batch_id
+     AND (
+       cardinality(vda.vaccine_rule_ids) = 0
+       OR oi2.rule_id = ANY(vda.vaccine_rule_ids)
+     )
     WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
+      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
+      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+    UNION
+    -- Batched drives in-window (obligation_batches window joined to obligation_instances via
+    -- obligation_instances_batch_idx). obligation_batches stays a cheap scan (low cardinality).
+    SELECT oi2.*, NULL::timestamptz AS membership_at_override FROM obligation_instances oi2
+    JOIN obligation_batches ob2
+      ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
+    LEFT JOIN LATERAL (
+      SELECT count(*) > 0 AS has_assignment
+      FROM vaccination_drive_assignments vda
+      WHERE vda.tenant_id = oi2.tenant_id
+        AND vda.batch_id = oi2.batch_id
+    ) assignment_presence ON true
+    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
+      AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
+      AND ob2.status NOT IN ('superseded', 'canceled')
+      AND NOT COALESCE(assignment_presence.has_assignment, false)
       AND (
         (
           ob2.planned_date IS NOT NULL
@@ -739,6 +799,7 @@ obligation_drive_membership AS (
       CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
       CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
       CASE
+        WHEN oi.membership_at_override IS NOT NULL THEN oi.membership_at_override
         WHEN oi.batch_id IS NOT NULL THEN COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)
         ELSE oi.due_at
       END AS membership_at
