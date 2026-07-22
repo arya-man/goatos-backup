@@ -380,7 +380,10 @@ data class CountsEvidenceRefDto(
  */
 @Serializable
 data class CountsBirthEventRequestDto(
-    @SerialName("animal_identifier_1") val animalIdentifier1: String,
+    // Exactly one of animal_identifier_1 (permanent RFID) or temporary_identifier (provisional tag)
+    // is sent; the backend rejects both-or-neither. Nullable so a temporary-tagged newborn omits it.
+    @SerialName("animal_identifier_1") val animalIdentifier1: String? = null,
+    @SerialName("temporary_identifier") val temporaryIdentifier: String? = null,
     @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
     @SerialName("species") val species: String,
     @SerialName("park_id") val parkId: String? = null,

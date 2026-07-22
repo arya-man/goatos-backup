@@ -2822,7 +2822,7 @@ CREATE TABLE public.goat_identifiers (
     CONSTRAINT goat_identifiers_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT goat_identifiers_scope_key_check CHECK ((length(scope_key) > 0)),
     CONSTRAINT goat_identifiers_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text, 'disputed'::text, 'duplicate'::text, 'invalid'::text]))),
-    CONSTRAINT goat_identifiers_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text]))),
+    CONSTRAINT goat_identifiers_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text, 'temporary_tag'::text]))),
     CONSTRAINT goat_identifiers_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
 );
 
@@ -3051,7 +3051,7 @@ CREATE TABLE public.identifier_policies (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     approved_by uuid,
     CONSTRAINT identifier_policies_active_uniqueness_check CHECK ((active_uniqueness = ANY (ARRAY['global'::text, 'scoped'::text, 'non_unique'::text]))),
-    CONSTRAINT identifier_policies_identifier_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text]))),
+    CONSTRAINT identifier_policies_identifier_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text, 'temporary_tag'::text]))),
     CONSTRAINT identifier_policies_invalid_value_action_check CHECK ((invalid_value_action = ANY (ARRAY['review'::text, 'reject'::text]))),
     CONSTRAINT identifier_policies_missing_scope_action_check CHECK ((missing_or_conflicting_scope_action = ANY (ARRAY['review'::text, 'reject'::text]))),
     CONSTRAINT identifier_policies_unknown_scope_action_check CHECK ((unknown_scope_action = ANY (ARRAY['review'::text, 'reject'::text])))

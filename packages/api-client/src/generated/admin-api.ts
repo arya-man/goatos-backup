@@ -1924,7 +1924,7 @@ export interface components {
             cohort_id?: string | null;
         };
         /** @enum {string} */
-        IdentifierType: "animal_identifier_1" | "animal_identifier_2";
+        IdentifierType: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
         /** @enum {string} */
         IdentifierStatus: "active" | "retired" | "disputed" | "duplicate" | "invalid";
         LocationPath: {

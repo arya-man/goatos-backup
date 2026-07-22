@@ -4727,9 +4727,12 @@ export interface components {
             /** @description True when this result was returned from a previous identical request rather than a new write. */
             idempotent_replay: boolean;
         };
-        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. */
+        /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. Exactly ONE primary identity is required: a permanent animal_identifier_1 (the RFID) OR a temporary_identifier (a provisional tag for a kid not yet permanently tagged). Providing both, or neither, is rejected by the backend. A temporary-tagged kid carries no active animal_identifier_1 and is promoted to a permanent RFID later. */
         RecordBirthEventRequest: {
-            animal_identifier_1: string;
+            /** @description The permanent RFID. Provide this OR temporary_identifier, never both. */
+            animal_identifier_1?: string | null;
+            /** @description A provisional tag for a newborn not yet permanently tagged. Provide this OR animal_identifier_1, never both. Stored as a temporary_tag identifier; the kid still reads as untagged until promoted to a permanent RFID. */
+            temporary_identifier?: string | null;
             /** @description Optional until double RFID tagging is live; that rollout must make this mandatory in both app validation and DB constraints. */
             animal_identifier_2?: string | null;
             /** @enum {string} */

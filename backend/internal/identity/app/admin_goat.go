@@ -364,6 +364,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	errorsOut := make([]domain.FieldError, 0)
 	trimOptionalString(&normalized.AnimalIdentifier1)
 	trimOptionalString(&normalized.AnimalIdentifier2)
+	trimOptionalString(&normalized.TemporaryIdentifier)
 	trimOptionalString(&normalized.FarmID)
 	trimOptionalString(&normalized.FarmCode)
 	trimOptionalString(&normalized.ParkID)
@@ -386,8 +387,14 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		estimated := false
 		normalized.DOBEstimated = &estimated
 	}
-	if normalized.AnimalIdentifier1 == nil {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_1", Code: "required", Message: "Animal ID 1 is required"})
+	// Exactly one primary identity is required: a permanent animal_identifier_1 (the RFID) OR a
+	// temporary_identifier (a provisional tag for a newborn not yet permanently tagged). A temp-only
+	// goat has no active animal_identifier_1 and is promoted to a permanent RFID later.
+	if normalized.AnimalIdentifier1 == nil && normalized.TemporaryIdentifier == nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_1", Code: "required", Message: "a permanent identifier (animal_identifier_1) or a temporary_identifier is required"})
+	}
+	if normalized.AnimalIdentifier1 != nil && normalized.TemporaryIdentifier != nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "temporary_identifier", Code: "conflict", Message: "provide either a permanent animal_identifier_1 or a temporary_identifier, not both"})
 	}
 	// Animal ID 2 stays optional until the double RFID tagging rollout is live.
 	// That rollout must make it mandatory in app validation and with a DB invariant.
@@ -467,6 +474,12 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	}
 	if normalized.AnimalIdentifier2 != nil {
 		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "animal_identifier_2", IdentifierValue: *normalized.AnimalIdentifier2, NormalizedValue: normalizeIdentifier("animal_identifier_2", *normalized.AnimalIdentifier2), ScopeKey: "global", IsPrimary: false})
+	}
+	if normalized.TemporaryIdentifier != nil {
+		// Primary within its own type: a temp-tagged goat's working identity is the temporary tag,
+		// but it deliberately does NOT occupy the animal_identifier_1 slot, so the goat still reads as
+		// untagged (needing a permanent RFID) until promotion.
+		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "temporary_tag", IdentifierValue: *normalized.TemporaryIdentifier, NormalizedValue: normalizeIdentifier("temporary_tag", *normalized.TemporaryIdentifier), ScopeKey: "global", IsPrimary: true})
 	}
 	cmd := ports.CreateAdminGoatCommand{
 		TenantID:             tenantID,

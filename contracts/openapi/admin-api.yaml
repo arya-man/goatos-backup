@@ -4784,6 +4784,7 @@ components:
       enum:
         - animal_identifier_1
         - animal_identifier_2
+        - temporary_tag
     IdentifierStatus:
       type: string
       enum:

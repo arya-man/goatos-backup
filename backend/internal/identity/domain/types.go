@@ -165,21 +165,25 @@ type IdempotencyMeta struct {
 type AdminGoatCreateRequest struct {
 	AnimalIdentifier1 *string `json:"animal_identifier_1,omitempty"`
 	AnimalIdentifier2 *string `json:"animal_identifier_2,omitempty"`
-	Species           string  `json:"species"`
-	FarmID            *string `json:"farm_id,omitempty"`
-	FarmCode          *string `json:"farm_code,omitempty"`
-	ParkID            *string `json:"park_id,omitempty"`
-	ParkCode          *string `json:"park_code,omitempty"`
-	ShedID            *string `json:"shed_id,omitempty"`
-	ShedCode          *string `json:"shed_code,omitempty"`
-	Breed             *string `json:"breed,omitempty"`
-	Sex               string  `json:"sex"`
-	DOB               *string `json:"dob,omitempty"`
-	DOBEstimated      *bool   `json:"dob_estimated,omitempty"`
-	OriginType        string  `json:"origin_type"`
-	EntryDate         string  `json:"entry_date"`
-	ManagementStage   *string `json:"management_stage,omitempty"`
-	HealthStatus      *string `json:"health_status,omitempty"`
+	// TemporaryIdentifier is a provisional tag for a newborn created before its permanent RFID is
+	// available. Exactly one of animal_identifier_1 or temporary_identifier must be present; a
+	// temp-only goat carries no active animal_identifier_1 and is promoted later.
+	TemporaryIdentifier *string `json:"temporary_identifier,omitempty"`
+	Species             string  `json:"species"`
+	FarmID              *string `json:"farm_id,omitempty"`
+	FarmCode            *string `json:"farm_code,omitempty"`
+	ParkID              *string `json:"park_id,omitempty"`
+	ParkCode            *string `json:"park_code,omitempty"`
+	ShedID              *string `json:"shed_id,omitempty"`
+	ShedCode            *string `json:"shed_code,omitempty"`
+	Breed               *string `json:"breed,omitempty"`
+	Sex                 string  `json:"sex"`
+	DOB                 *string `json:"dob,omitempty"`
+	DOBEstimated        *bool   `json:"dob_estimated,omitempty"`
+	OriginType          string  `json:"origin_type"`
+	EntryDate           string  `json:"entry_date"`
+	ManagementStage     *string `json:"management_stage,omitempty"`
+	HealthStatus        *string `json:"health_status,omitempty"`
 	// ReproductiveStatus is optional. When present on a row whose identifiers
 	// match an existing goat, the bulk import applies it via the event-emitting
 	// ReproductiveGoat transition instead of treating the row as a create conflict.

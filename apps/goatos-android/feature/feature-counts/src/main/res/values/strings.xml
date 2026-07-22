@@ -98,6 +98,9 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">Animal identifier 1</string>
+    <string name="counts_field_temp_tag">Temporary tag</string>
+    <string name="counts_id_kind_permanent">Permanent RFID</string>
+    <string name="counts_id_kind_temporary">Temporary tag</string>
     <string name="counts_field_breed">Breed</string>
     <string name="counts_field_dob">Date of birth (YYYY-MM-DD)</string>
     <string name="counts_field_park">Park</string>

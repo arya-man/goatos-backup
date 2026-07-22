@@ -93,6 +93,10 @@ func trimAndValidateOptionalString(field string, value *string, max int, require
 var allowedIdentifierTypes = map[string]bool{
 	"animal_identifier_1": true,
 	"animal_identifier_2": true,
+	// temporary_tag is a provisional identity for a newborn tagged before its permanent RFID is
+	// available. It may be a primary within its own type (primary-per-goat is per identifier_type),
+	// and is later retired when the permanent animal_identifier_1 is assigned via promote.
+	"temporary_tag": true,
 }
 
 var allowedEvidenceTypes = map[string]bool{
