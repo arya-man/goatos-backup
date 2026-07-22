@@ -189,6 +189,17 @@ vaccine after the override, the target month gains that vaccine, and clearing
 the override restores the original month. The admin drawer labels and validation
 copy for this flow are backend-contract owned, with frontend fallback copy only
 for resilience.
+Calendar read API answers for vaccination drives must also use
+`vaccination_drive_assignments.planned_date` as the effective drive date when
+assignment rows exist. `obligation_batches.planned_date` is only a fallback for
+older unsplit batches. Leadership assistant read API and SQL fallback answers
+must not report "no drive today" from a stale batch date when operator-capacity
+assignment rows have moved the real execution date.
+For CPT operator timetable answers, the backend can label the center as
+`Channapatna` while the position code is `vaccination_operator_*`. Assistant
+coverage and frontend read consumers must treat those rows as CPT vaccination
+operators with 200-animal daily cap and their seeded week-off days; do not
+filter them out just because the display center string is not literal `cpt`.
 
 Common questions:
 
