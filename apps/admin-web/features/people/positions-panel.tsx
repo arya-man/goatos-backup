@@ -22,7 +22,7 @@ interface PositionsPanelProps {
   pageContract?: AdminUiPageContract;
 }
 
-const OPERATOR_CAP = 200;
+const DEFAULT_OPERATOR_CAP = 200;
 
 function isVaccinationOperator(pos: Position): boolean {
   const haystack = `${pos.position_code ?? ''} ${pos.position_title ?? ''} ${pos.tier ?? ''}`.toLowerCase();
@@ -50,6 +50,7 @@ function weekOff(pos: Position): string {
 
 export function PositionsPanel({ pageContract }: PositionsPanelProps) {
   const [positions, setPositions] = useState<Position[]>([]);
+  const [operatorCap, setOperatorCap] = useState(DEFAULT_OPERATOR_CAP);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,9 +58,14 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
     let alive = true;
     async function loadData() {
       try {
-        const response = await getAdminApi().listStaffPositions();
+        const api = getAdminApi();
+        const [positionsResponse, capacityResponse] = await Promise.all([
+          api.listStaffPositions(),
+          api.getVaccinationCapacityConfig().catch(() => ({ data: { maxPerDay: DEFAULT_OPERATOR_CAP } })),
+        ]);
         if (alive) {
-          setPositions(response.data?.items ?? []);
+          setPositions(positionsResponse.data?.items ?? []);
+          setOperatorCap(capacityResponse.data.maxPerDay);
           setError(null);
         }
       } catch (err) {
@@ -80,7 +86,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
 
   const operators = roster.filter((pos) => !isDirector(pos));
   const directors = roster.filter(isDirector);
-  const totalCapacity = operators.length * OPERATOR_CAP;
+  const totalCapacity = operators.length * operatorCap;
   const title = pageContract?.tables?.find((t) => t.id === 'positions')?.title ?? 'Vaccination Operators';
   const subtitle =
     optionalCopy(pageContract, 'people.operator_roster.subtitle') ??
@@ -125,7 +131,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--amber)' }}></span>
           <div className="lab"><Stethoscope className="ic" aria-hidden="true" />Cap / operator</div>
-          <div className="val">{OPERATOR_CAP}</div>
+          <div className="val">{operatorCap}</div>
           <div className="dl">animals per day</div>
         </div>
         <div className="kpi">
@@ -177,7 +183,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                       <td>{roleLabel(pos)}</td>
                       <td>{pos.center_label || '—'}</td>
                       <td>{director ? '—' : weekOff(pos)}</td>
-                      <td>{director ? 'monitor only' : `${OPERATOR_CAP} animals/day`}</td>
+                      <td>{director ? 'monitor only' : `${operatorCap} animals/day`}</td>
                       <td><span className="tag t-ok">{pos.status}</span></td>
                     </tr>
                   );
