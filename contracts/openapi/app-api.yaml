@@ -1491,6 +1491,78 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/ServerError"
+  /vaccination/schedule/drive-date-overrides:
+    post:
+      tags:
+        - Vaccination
+      operationId: upsertVaccinationDriveDateOverride
+      summary: Postpone one vaccine within a scheduled vaccination drive.
+      description: >
+        CEO/CXO vaccination campaign command that records a bounded sidecar override for one
+        vaccine code in one park drive date. The sweeper treats the override as a proposed
+        planned date only; max two vaccines per animal session, live/killed spacing, adult booster
+        rules, the +1 week medical window, operator cap, and shed/partition assignment constraints
+        are still enforced by the backend planner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [park_id, vaccine_code, original_drive_date, override_date, reason]
+              properties:
+                park_id:
+                  type: string
+                  format: uuid
+                vaccine_code:
+                  type: string
+                  minLength: 1
+                original_drive_date:
+                  type: string
+                  format: date
+                override_date:
+                  type: string
+                  format: date
+                  description: Must be after original_drive_date.
+                reason:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Active drive date override.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at]
+                properties:
+                  park_id:
+                    type: string
+                    format: uuid
+                  vaccine_code:
+                    type: string
+                  original_drive_date:
+                    type: string
+                    format: date
+                  override_date:
+                    type: string
+                    format: date
+                  reason:
+                    type: string
+                  created_by:
+                    type: string
+                    format: uuid
+                  created_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/drive-assignments:
     get:
       tags:
@@ -11954,6 +12026,9 @@ components:
         - physicalShed
         - partitionLabel
         - animals
+        - vaccineNames
+        - vaccineCodes
+        - totalDoses
         - capacity
       properties:
         plannedDate:
@@ -11980,6 +12055,20 @@ components:
           type: string
         animals:
           type: integer
+          minimum: 0
+        vaccineNames:
+          type: array
+          description: Backend-owned vaccine display labels attached to this operator assignment row.
+          items:
+            type: string
+        vaccineCodes:
+          type: array
+          description: Backend-owned vaccine identity codes used for drive-date overrides.
+          items:
+            type: string
+        totalDoses:
+          type: integer
+          description: Number of vaccine tasks/doses represented by this assignment row.
           minimum: 0
         capacity:
           $ref: "#/components/schemas/VaccinationCapacityStatus"

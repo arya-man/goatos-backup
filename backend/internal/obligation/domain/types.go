@@ -97,8 +97,21 @@ type DriveAssignment struct {
 	PhysicalShed   string
 	PartitionLabel string
 	AnimalCount    int32
+	VaccineRuleIDs []string
+	TotalDoses     int32
 	CapacityStatus string
 	Warnings       []string
+}
+
+type VaccineDriveDateOverride struct {
+	TenantID          string
+	ParkID            string
+	VaccineCode       string
+	OriginalDriveDate time.Time
+	OverrideDate      time.Time
+	Reason            string
+	CreatedBy         string
+	CreatedAt         time.Time
 }
 
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).

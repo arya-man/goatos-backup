@@ -154,6 +154,7 @@ type stats struct {
 	KernelDeferred     int         // kernel-deferred obligations
 	KernelSuppressed   int         // kernel-suppressed (already completed) obligations
 	Purged             purgeCounts // synthetic fixtures removed
+	RetiredSourceDrift int         // active non-source park/shed locations retired during source-owned local/dev reseed
 	DobNulled          int         // purchased/imported-origin animals with provably-false DOB, nulled via -null-false-dob
 	StagesCorrected    int         // goats whose source stage contradicted age-derived stage, auto-corrected
 
@@ -805,11 +806,15 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		parkByFarm[farm] = parkID
 		st.ParksResolved++
 	}
-
+	sourceParkCodes := make([]string, 0, len(parkByFarm))
+	for farm := range parkByFarm {
+		sourceParkCodes = append(sourceParkCodes, seedLocationCode(farm))
+	}
 	// 2. Sheds: resolve existing park-scoped shed by (name, park); create missing ones
 	//    so EVERY goat maps to its real shed.
 	shedByKey := map[shedKey]string{}
-	for _, k := range distinctShedKeys(goats) {
+	sourceShedKeys := distinctShedKeys(goats)
+	for _, k := range sourceShedKeys {
 		parkID := parkByFarm[k.farm]
 		var shedID string
 		err := tx.QueryRow(ctx, `
@@ -844,6 +849,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		shedByKey[k] = shedID
 		st.ShedsCreated++
 	}
+	retired, err := retireActiveNonSourceLocations(ctx, tx, tenantID, sourceParkCodes, sourceShedKeys)
+	if err != nil {
+		return st, fmt.Errorf("retire non-source locations: %w", err)
+	}
+	st.RetiredSourceDrift = retired
 
 	// Store entry_date source mapping for later use when seeding goats
 	entryDateByAnimalKey := buildEntryDateMapping(goats)
@@ -1932,14 +1942,14 @@ func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d scheduled=%d) completions_history=%d pending_source=%d skipped_cells=%d\n"+
 		"  dated_source_facts reconciled=%d (later_administrations=%d unresolved=%d lifecycle_excluded=%d goat_not_placed=%d vaccine_unrecognized=%d)\n"+
-		"  purged_fixtures total=%d (obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
+		"  purged_fixtures total=%d (obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d) retired_non_source_locations=%d\n"+
 		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Scheduled, st.CompletionsHistory, st.PendingSource, st.Skipped,
 		st.Completed+st.Scheduled, st.LaterAdministrationsReconciled, st.UnresolvedDatedFacts,
 		st.LifecycleExcludedDatedFacts, st.GoatNotPlacedDatedFacts, st.VaccineUnrecognizedDatedFacts,
 		st.Purged.total(), st.Purged.Obligations, st.Purged.Batches,
-		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
+		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows, st.RetiredSourceDrift,
 		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
 }
 
@@ -2987,6 +2997,122 @@ func shedCode(farm, shed string) string {
 		slug = "SHED"
 	}
 	return seedLocationCode(farm) + "_SHED_" + slug
+}
+
+func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID string, sourceParkCodes []string, sourceSheds []shedKey) (int, error) {
+	codes := make([]string, 0, len(sourceParkCodes))
+	seen := map[string]struct{}{}
+	for _, code := range sourceParkCodes {
+		code = strings.ToUpper(strings.TrimSpace(code))
+		if code == "" {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		codes = append(codes, code)
+	}
+	if len(codes) == 0 {
+		return 0, nil
+	}
+	shedPairs := make([]string, 0, len(sourceSheds))
+	seenSheds := map[string]struct{}{}
+	for _, shed := range sourceSheds {
+		parkCode := seedLocationCode(shed.farm)
+		shedName := strings.ToLower(strings.TrimSpace(shed.shed))
+		if parkCode == "" || shedName == "" {
+			continue
+		}
+		pair := parkCode + "||" + shedName
+		if _, ok := seenSheds[pair]; ok {
+			continue
+		}
+		seenSheds[pair] = struct{}{}
+		shedPairs = append(shedPairs, pair)
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('goatos.approved_location_migration_plan', 'vaccination source-owned local/dev non-source location retire', true)`); err != nil {
+		return 0, err
+	}
+	var retired int
+	err := tx.QueryRow(ctx, `
+			WITH source_parks AS (
+			SELECT location_id
+			FROM locations
+			WHERE tenant_id = $1::uuid
+			  AND location_type = 'park'
+				  AND upper(location_code) = ANY($2::text[])
+			),
+			source_sheds AS (
+				SELECT split_part(v, '||', 1) AS park_code,
+				       split_part(v, '||', 2) AS shed_name
+				FROM unnest($3::text[]) AS source(v)
+			),
+			stale_parks AS (
+			SELECT p.location_id
+			FROM locations p
+			WHERE p.tenant_id = $1::uuid
+			  AND p.location_type = 'park'
+			  AND p.status = 'active'
+			  AND NOT EXISTS (SELECT 1 FROM source_parks sp WHERE sp.location_id = p.location_id)
+			  AND NOT EXISTS (
+			    SELECT 1 FROM goats g
+			    WHERE g.tenant_id = p.tenant_id
+			      AND g.park_id = p.location_id
+			      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+				  )
+			),
+			stale_source_park_sheds AS (
+				SELECT s.location_id
+				FROM locations s
+				JOIN locations p ON p.location_id = s.parent_location_id AND p.tenant_id = s.tenant_id
+				WHERE s.tenant_id = $1::uuid
+				  AND s.location_type = 'shed'
+				  AND s.status = 'active'
+				  AND p.location_type = 'park'
+				  AND upper(p.location_code) = ANY($2::text[])
+				  AND NOT EXISTS (
+				  	SELECT 1 FROM source_sheds src
+				  	WHERE src.park_code = upper(p.location_code)
+				  	  AND src.shed_name = lower(s.name)
+				  )
+				  AND NOT EXISTS (
+				    SELECT 1 FROM goats g
+				    WHERE g.tenant_id = s.tenant_id
+				      AND g.shed_id = s.location_id
+				      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+				  )
+			),
+			retired_sheds AS (
+				UPDATE locations s
+				SET status = 'inactive', updated_at = now(), row_version = row_version + 1
+				WHERE s.tenant_id = $1::uuid
+				  AND s.location_type = 'shed'
+				  AND s.status = 'active'
+				  AND (
+				  	s.parent_location_id IN (SELECT location_id FROM stale_parks)
+				  	OR s.location_id IN (SELECT location_id FROM stale_source_park_sheds)
+				  )
+				  AND NOT EXISTS (
+			    SELECT 1 FROM goats g
+			    WHERE g.tenant_id = s.tenant_id
+			      AND g.shed_id = s.location_id
+			      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+			  )
+			RETURNING 1
+		),
+		retired_parks AS (
+			UPDATE locations p
+			SET status = 'inactive', updated_at = now(), row_version = row_version + 1
+			WHERE p.location_id IN (SELECT location_id FROM stale_parks)
+			RETURNING 1
+			)
+			SELECT (SELECT count(*) FROM retired_sheds) + (SELECT count(*) FROM retired_parks)
+		`, tenantID, codes, shedPairs).Scan(&retired)
+	if err != nil {
+		return 0, err
+	}
+	return retired, nil
 }
 
 func normalizeSex(g string) string {

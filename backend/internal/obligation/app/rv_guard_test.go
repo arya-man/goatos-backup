@@ -144,7 +144,7 @@ func TestLockAndRefreshReLocksAlreadyLoadedKey(t *testing.T) {
 	selected, _, err := selectIDsWithinVisitShotCapForSession(
 		date,
 		[]domain.UnbatchedDue{{ObligationID: "obl-x", TargetID: "goat-1"}},
-		&date, planner, "vaccineB", 6, session,
+		&date, planner, RuleVaccineIdentity{VaccineCode: "vaccineB", VaccinePriority: 6, VaccineType: "killed"}, session,
 	)
 	if err != nil {
 		t.Fatalf("select at cap: %v", err)

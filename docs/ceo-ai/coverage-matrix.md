@@ -33,7 +33,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /vaccination/execution | api + Cube:vaccination_due/overdue | Due/overdue by shed |
 | GET /vaccination/execution/sheds/{shed_id} | api + view:vaccination_shed_status | Cause drilldown |
 | GET /vaccination/operations | api + view:vaccination_shed_status | Cohort rollups |
-| GET /vaccination/schedule | api | Day/week/month workload; per-obligation counts |
+| GET /vaccination/schedule | api + view:vaccination_operator_status | Operator-date drive workload from `vaccination_drive_assignments`, including animal cap, physical shed, partition, vaccines, and total doses |
 | GET /vaccination/sheds | api + view:vaccination_shed_status | Shed status list |
 | GET /vaccination/sheds/{shed_id} | api + view:vaccination_shed_status | Shed drilldown |
 | GET /vaccination/sheds/{shed_id}/animals | EXCLUDED | Animal-level detail; not aggregate |

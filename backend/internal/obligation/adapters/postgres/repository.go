@@ -71,11 +71,100 @@ func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.
 	return context.WithTimeout(ctx, r.queryTimeout)
 }
 
+func businessDateOnly(t time.Time) time.Time {
+	return time.Date(t.In(biztime.DefaultLocation()).Year(), t.In(biztime.DefaultLocation()).Month(), t.In(biztime.DefaultLocation()).Day(), 0, 0, 0, 0, biztime.DefaultLocation())
+}
+
 // Ping checks pool connectivity.
 func (r *Repository) Ping(ctx context.Context) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	return r.pool.Ping(ctx)
+}
+
+func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, override domain.VaccineDriveDateOverride) (*domain.VaccineDriveDateOverride, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(override.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	park, err := pgconv.UUID(override.ParkID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: park id: %w", err)
+	}
+	createdBy, err := pgconv.UUID(override.CreatedBy)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: created by: %w", err)
+	}
+	vaccineCode := strings.TrimSpace(override.VaccineCode)
+	if vaccineCode == "" {
+		return nil, fmt.Errorf("obligation: vaccine code is required")
+	}
+	reason := strings.TrimSpace(override.Reason)
+	if reason == "" {
+		return nil, fmt.Errorf("obligation: override reason is required")
+	}
+	original := businessDateOnly(override.OriginalDriveDate)
+	next := businessDateOnly(override.OverrideDate)
+	if !next.After(original) {
+		return nil, fmt.Errorf("obligation: override date must postpone the original drive date")
+	}
+	createdAt := override.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	var out domain.VaccineDriveDateOverride
+	err = r.pool.QueryRow(ctx, `
+INSERT INTO vaccination_drive_date_overrides (
+  tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (tenant_id, park_id, (lower(btrim(vaccine_code))), original_drive_date)
+WHERE canceled_at IS NULL
+DO UPDATE SET
+  override_date = EXCLUDED.override_date,
+  reason = EXCLUDED.reason,
+  created_by = EXCLUDED.created_by,
+  created_at = EXCLUDED.created_at
+RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date, reason, created_by::text, created_at`,
+		tenant, park, vaccineCode, original, next, reason, createdBy, createdAt,
+	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate, &out.Reason, &out.CreatedBy, &out.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: upsert vaccination drive date override: %w", err)
+	}
+	return &out, nil
+}
+
+func (r *Repository) ActiveVaccinationDriveDateOverride(ctx context.Context, tenantID, parkID, vaccineCode string, originalDate time.Time) (*domain.VaccineDriveDateOverride, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	park, err := pgconv.UUID(parkID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: park id: %w", err)
+	}
+	var out domain.VaccineDriveDateOverride
+	err = r.pool.QueryRow(ctx, `
+SELECT tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date, reason, created_by::text, created_at
+FROM vaccination_drive_date_overrides
+WHERE tenant_id = $1
+  AND park_id = $2
+  AND lower(btrim(vaccine_code)) = lower(btrim($3))
+  AND original_drive_date = $4
+  AND canceled_at IS NULL
+LIMIT 1`,
+		tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(originalDate),
+	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate, &out.Reason, &out.CreatedBy, &out.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("obligation: active vaccination drive date override: %w", err)
+	}
+	return &out, nil
 }
 
 // InsertObligation generates one obligation; idempotent on (tenant_id, idempotency_key).

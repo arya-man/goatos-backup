@@ -29,7 +29,7 @@
       "goat": 975,
       "sheep": 336
     },
-    "sheds": 116,
+    "sheds": 28,
     "vaccination_cells": {
       "dated": 3836,
       "pending": 6383,
@@ -106,6 +106,11 @@
       "date": "2026-07-22",
       "change": "adult ET+TT dose-2 seed invariant and shed partition name-pattern normalization",
       "vaccination_hrms_source_impact": "none to raw fixture bytes: source shed labels may still arrive as Gandhi 1 or Godel 1 - Part 3, but canonical DB locations must store the physical shed and keep partition labels in derived drive/read-model metadata. Post-seed validation must fail if accepted et_tt_adult_w1 exists without same-goat et_tt_adult_w2 obligation/completion."
+    },
+    {
+      "date": "2026-07-22",
+      "change": "fixture/source validation aggregates shed-manager coverage at physical-shed grain and supports CPT-only operator-roster rehearsal seeds",
+      "vaccination_hrms_source_impact": "raw fixture bytes unchanged. The manifest shed count now records physical sheds, not raw partition labels; committed fixtures still require reviewed manager/backup coverage after physical-shed aggregation, while private CPT-only rehearsal bundles may derive vaccination drive ownership from the reviewed Amit/Darshan/Sagar operator roster without inventing CBE rows."
     }
   ]
 }

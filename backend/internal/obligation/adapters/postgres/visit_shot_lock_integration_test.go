@@ -509,3 +509,97 @@ func TestCountVisitShotsStatusBucketsExcludesCanceledSuperseded(t *testing.T) {
 		t.Fatalf("count = %d, want 1 (only the active shot; canceled batch, superseded batch, and canceled obligation must all be excluded)", counts[goatID])
 	}
 }
+
+func TestUpsertVaccinationDriveAssignmentsOneToManyPageBoundaryScheduledDateScopeHierarchyStatusMatrixPersistsOperatorDoseGrain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.assignmentgrain", 2)
+
+	const goatID = "10000000-0000-4000-8000-00000000f301"
+	const shedID = "00000000-0000-4000-8000-00000000d301"
+	const operatorA = "20000000-0000-4000-8000-000000000301"
+	const operatorB = "20000000-0000-4000-8000-000000000302"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "assignment-grain-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES
+  ($1, $3, 'OP-A', 'Operator A', 'active', 'operator'),
+  ($2, $3, 'OP-B', 'Operator B', 'active', 'operator')`,
+		operatorA, operatorB, tenantID); err != nil {
+		t.Fatalf("seed operators: %v", err)
+	}
+
+	planned := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	_, batchID := seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, planned, planned, "assignment-grain")
+	assignments := []domain.DriveAssignment{
+		{
+			BatchID: batchID, PlannedDate: planned, OperatorID: testStringPtr(operatorA), ParkID: cbePark, ShedID: testStringPtr(shedID),
+			PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 26, VaccineRuleIDs: []string{versions[0].ruleID, versions[1].ruleID},
+			TotalDoses: 52, CapacityStatus: "within_cap",
+		},
+		{
+			BatchID: batchID, PlannedDate: planned, OperatorID: testStringPtr(operatorB), ParkID: cbePark, ShedID: testStringPtr(shedID),
+			PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 24, VaccineRuleIDs: []string{versions[0].ruleID},
+			TotalDoses: 24, CapacityStatus: "capacity_action", Warnings: []string{"capacity breach handled"},
+		},
+	}
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, assignments); err != nil {
+		t.Fatalf("UpsertVaccinationDriveAssignments: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+SELECT operator_id::text, planned_date::text, park_id::text, shed_id::text, physical_shed, partition_label, animal_count, total_doses, capacity_status, cardinality(vaccine_rule_ids)
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND batch_id=$2
+ORDER BY operator_id`, tenantID, batchID)
+	if err != nil {
+		t.Fatalf("query assignments: %v", err)
+	}
+	defer rows.Close()
+	type gotRow struct {
+		operatorID, plannedDate, parkID, shedID, physicalShed, partitionLabel, status string
+		animals, doses, ruleCount                                                     int
+	}
+	var got []gotRow
+	for rows.Next() {
+		var row gotRow
+		if err := rows.Scan(&row.operatorID, &row.plannedDate, &row.parkID, &row.shedID, &row.physicalShed, &row.partitionLabel, &row.animals, &row.doses, &row.status, &row.ruleCount); err != nil {
+			t.Fatalf("scan assignment: %v", err)
+		}
+		got = append(got, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("assignment rows: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("assignment row count = %d, want 2 operator rows on same batch/shed/date/partition", len(got))
+	}
+	if got[0].operatorID != operatorA || got[0].plannedDate != "2026-07-22" || got[0].parkID != cbePark || got[0].shedID != shedID || got[0].physicalShed != "Gandhi" || got[0].partitionLabel != "1" || got[0].animals != 26 || got[0].doses != 52 || got[0].ruleCount != 2 {
+		t.Fatalf("operator A assignment mismatch: %+v", got[0])
+	}
+	if got[1].operatorID != operatorB || got[1].status != "capacity_action" || got[1].animals != 24 || got[1].doses != 24 || got[1].ruleCount != 1 {
+		t.Fatalf("operator B assignment mismatch: %+v", got[1])
+	}
+
+	assignments[0].AnimalCount = 27
+	assignments[0].TotalDoses = 54
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, assignments[:1]); err != nil {
+		t.Fatalf("re-upsert operator A assignment: %v", err)
+	}
+	if gotRows := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); gotRows != 2 {
+		t.Fatalf("rows after same-grain update = %d, want still 2 (operator grain updates, not duplicates)", gotRows)
+	}
+	if gotDoses := countRows(t, ctx, pool, `SELECT total_doses FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2 AND operator_id=$3`, tenantID, batchID, operatorA); gotDoses != 54 {
+		t.Fatalf("operator A total_doses after update = %d, want 54", gotDoses)
+	}
+}
+
+func testStringPtr(value string) *string {
+	return &value
+}

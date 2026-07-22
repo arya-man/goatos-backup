@@ -18,6 +18,7 @@ const CONTRACT_SOURCES = [
   "backend/cmd/seed-position-duties/main.go",
   "backend/internal/vaccination/app/schedule_policy.go",
   "backend/internal/vaccination/app/generation.go",
+  "Makefile",
 ];
 const REQUIRED_COMPANIONS = [
   "fixtures/vaccination-hrms-source-full/manifest.json",

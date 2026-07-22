@@ -69,6 +69,23 @@ canonical DB writes. `Gandhi 1` means physical shed `Gandhi`, partition `1`;
 `Godel 1 - Part 3` means physical shed `Godel 1`, partition `Part 3`. The raw
 partition label may appear in source/audit output, but active goat placement and
 goat obligation scope must point to the physical shed.
+Fixture validation, source validation, and shed-owner checks all aggregate by
+that physical shed. Partition rows may split operator drive work, but they must
+not create separate buildings, duplicate owner coverage requirements, duplicate
+animal counts, or independent read-model totals.
+
+CPT-only operator-drive rehearsal data is valid when the source center is CPT
+only and the reviewed roster contains exactly the three vaccination
+operators/managers required for that seed. Do not synthesize Coimbatore/CBE
+owners just because the full production fixture also covers CBE.
+The three CPT vaccination operators are the reviewed Preventive Care Manager,
+Backup Manager, and Park Head seats. Even though Backup Manager is a backup slot
+for generic HRMS coverage, it carries `pc.vaccination` execute duty for
+operator-cap drive assignment in this seed model.
+For source-backed rehearsals, strict shed-position validation is scoped to
+active sheds that contain live goats from the selected source. Empty baseline
+catalog sheds created by migrations are not vaccination drive truth and must not
+force unrelated owners/operators into the run.
 
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement

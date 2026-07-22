@@ -354,14 +354,21 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 		var row domain.DriveAssignmentRow
 		var planned pgtype.Date
 		var shedID pgtype.Text
+		var vaccineKeys []string
+		var vaccineCodes []string
 		var capacity string
-		if err := rows.Scan(&planned, &row.OperatorID, &row.OperatorName, &row.ParkID, &row.ParkName, &shedID, &row.PhysicalShed, &row.PartitionLabel, &row.Animals, &capacity); err != nil {
+		if err := rows.Scan(&planned, &row.OperatorID, &row.OperatorName, &row.ParkID, &row.ParkName, &shedID, &row.PhysicalShed, &row.PartitionLabel, &row.Animals, &vaccineKeys, &vaccineCodes, &row.TotalDoses, &capacity); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan drive assignment: %w", err)
 		}
 		if planned.Valid {
 			row.PlannedDate = planned.Time.Format("2006-01-02")
 		}
 		row.ShedID = textPtr(shedID)
+		row.VaccineNames = driveAssignmentVaccineLabels(vaccineKeys)
+		if vaccineCodes == nil {
+			vaccineCodes = []string{}
+		}
+		row.VaccineCodes = vaccineCodes
 		row.Capacity = domain.CapacityStatus(capacity)
 		out = append(out, row)
 	}
@@ -369,6 +376,27 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 		return nil, fmt.Errorf("vaccination execution: drive assignment rows: %w", err)
 	}
 	return out, nil
+}
+
+func driveAssignmentVaccineLabels(keys []string) []string {
+	if len(keys) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		protocolName, doseCode, ok := strings.Cut(key, "\x1f")
+		if !ok {
+			doseCode = key
+		}
+		label := domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
+	}
+	return out
 }
 
 const driveAssignmentsSQL = `
@@ -382,6 +410,9 @@ SELECT
   vda.physical_shed,
   vda.partition_label,
   vda.animal_count,
+  COALESCE(assignment_vaccines.vaccine_keys, ARRAY[]::text[]),
+  COALESCE(assignment_vaccines.vaccine_codes, ARRAY[]::text[]),
+  vda.total_doses,
   vda.capacity_status
 FROM vaccination_drive_assignments vda
 JOIN workforce_members wm
@@ -392,6 +423,24 @@ JOIN locations park
   ON park.tenant_id = vda.tenant_id
  AND park.location_id = vda.park_id
  AND park.location_type = 'park'
+LEFT JOIN LATERAL (
+  SELECT
+    ARRAY_AGG(DISTINCT pd.name || E'\x1f' || pr.dose_code ORDER BY pd.name || E'\x1f' || pr.dose_code) AS vaccine_keys,
+    ARRAY_AGG(DISTINCT NULLIF(prd.vaccine_code, '') ORDER BY NULLIF(prd.vaccine_code, '')) FILTER (WHERE NULLIF(prd.vaccine_code, '') IS NOT NULL) AS vaccine_codes
+  FROM unnest(vda.vaccine_rule_ids) AS assigned_rule(rule_id)
+  JOIN protocol_rules pr
+    ON pr.tenant_id = vda.tenant_id
+   AND pr.rule_id = assigned_rule.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id
+   AND prd.rule_id = pr.rule_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+) assignment_vaccines ON true
 WHERE vda.tenant_id = $1::uuid
   AND vda.planned_date >= $2::date
   AND vda.planned_date < $3::date

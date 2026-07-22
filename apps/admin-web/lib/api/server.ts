@@ -1034,6 +1034,26 @@ export async function getVaccinationDriveAssignments(
   );
 }
 
+export async function postponeVaccinationDriveDate(body: {
+  park_id: string;
+  vaccine_code: string;
+  original_drive_date: string;
+  override_date: string;
+  reason: string;
+}, idempotencyKey = `vaccination-drive-date-override-${randomUUID()}`): Promise<ApiResult<Record<string, unknown>>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<Record<string, unknown>>("/vaccination/schedule/drive-date-overrides", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function getVaccinationExecutionShedDrilldown(
   shedId: string,
   params: { asOf?: string } = {},

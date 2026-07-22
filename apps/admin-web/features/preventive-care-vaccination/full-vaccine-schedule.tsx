@@ -1,7 +1,9 @@
 import Link from "@/components/no-prefetch-link";
+import { revalidatePath } from "next/cache";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {
   getVaccinationDriveAssignments,
+  postponeVaccinationDriveDate,
   type ApiResult,
   type VaccinationDriveAssignmentResponse,
 } from "@/lib/api/server";
@@ -22,8 +24,12 @@ type OperatorDayScheduleRow = {
   plannedDate: string;
   operatorId: string;
   operatorName: string;
+  parkId: string;
   parkName: string;
   animals: number;
+  totalDoses: number;
+  vaccineNames: string[];
+  vaccineCodes: string[];
   capacity: string;
   sheds: Array<{
     name: string;
@@ -69,7 +75,7 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
   const groups = new Map<string, OperatorDayScheduleRow>();
 
   for (const row of rows) {
-    const key = `${row.plannedDate}|${row.operatorId}`;
+    const key = `${row.plannedDate}|${row.operatorId}|${row.parkId}`;
     let group = groups.get(key);
     if (!group) {
       group = {
@@ -77,14 +83,31 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
         plannedDate: row.plannedDate,
         operatorId: row.operatorId,
         operatorName: row.operatorName,
+        parkId: row.parkId,
         parkName: row.parkName,
         animals: 0,
+        totalDoses: 0,
+        vaccineNames: [],
+        vaccineCodes: [],
         capacity: row.capacity,
         sheds: [],
       };
       groups.set(key, group);
     }
+    group = groups.get(key);
+    if (!group) continue;
     group.animals += row.animals;
+    group.totalDoses += row.totalDoses;
+    for (const vaccineName of row.vaccineNames) {
+      if (!group.vaccineNames.includes(vaccineName)) {
+        group.vaccineNames.push(vaccineName);
+      }
+    }
+    for (const vaccineCode of row.vaccineCodes ?? []) {
+      if (!group.vaccineCodes.includes(vaccineCode)) {
+        group.vaccineCodes.push(vaccineCode);
+      }
+    }
     group.capacity = strongerCapacity(group.capacity, row.capacity);
 
     let shed = group.sheds.find((item) => item.name === row.physicalShed);
@@ -101,6 +124,24 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
     if (dateOrder !== 0) return dateOrder;
     return a.operatorName.localeCompare(b.operatorName);
   });
+}
+
+async function postponeDriveDateAction(formData: FormData) {
+  "use server";
+  const parkID = String(formData.get("park_id") ?? "").trim();
+  const vaccineCode = String(formData.get("vaccine_code") ?? "").trim();
+  const originalDriveDate = String(formData.get("original_drive_date") ?? "").trim();
+  const overrideDate = String(formData.get("override_date") ?? "").trim();
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!parkID || !vaccineCode || !originalDriveDate || !overrideDate) return;
+  await postponeVaccinationDriveDate({
+    park_id: parkID,
+    vaccine_code: vaccineCode,
+    original_drive_date: originalDriveDate,
+    override_date: overrideDate,
+    reason,
+  });
+  revalidatePath("/vaccination");
 }
 
 async function loadDriveSchedule(scope: Scope, year: number, month: number): Promise<ApiResult<VaccinationDriveAssignmentResponse>> {
@@ -149,14 +190,17 @@ export function VaccinationFullScheduleSkeleton({
                 <th>{copy(pageContract, "schedule.column.park")}</th>
                 <th>{copy(pageContract, "schedule.column.shed")}</th>
                 <th>{copy(pageContract, "schedule.column.partition")}</th>
+                <th>{copy(pageContract, "schedule.column.vaccines")}</th>
                 <th className="num">{copy(pageContract, "schedule.column.animals")}</th>
+                <th className="num">{copy(pageContract, "schedule.column.total_doses")}</th>
                 <th>{copy(pageContract, "schedule.column.capacity")}</th>
+                <th>{copy(pageContract, "schedule.column.postpone")}</th>
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: 5 }, (_, row) => (
                 <tr key={row}>
-                  {Array.from({ length: 7 }, (_, col) => (
+                  {Array.from({ length: 9 }, (_, col) => (
                     <td key={col}>
                       <span className="skel" style={{ width: col === 5 ? 48 : 96, height: 16 }} />
                     </td>
@@ -283,8 +327,11 @@ export async function VaccinationFullSchedule({
                 <th>{copy(pageContract, "schedule.column.park")}</th>
                 <th>{copy(pageContract, "schedule.column.sheds")}</th>
                 <th>{copy(pageContract, "schedule.column.partition")}</th>
+                <th>{copy(pageContract, "schedule.column.vaccines")}</th>
                 <th className="num">{copy(pageContract, "schedule.column.animals")}</th>
+                <th className="num">{copy(pageContract, "schedule.column.total_doses")}</th>
                 <th>{copy(pageContract, "schedule.column.capacity")}</th>
+                <th>{copy(pageContract, "schedule.column.postpone")}</th>
               </tr>
             </thead>
             <tbody>
@@ -319,8 +366,30 @@ export async function VaccinationFullSchedule({
                       )}
                     </div>
                   </td>
+                  <td>
+                    <div className="operator-day-vaccines">
+                      {row.vaccineNames.map((vaccineName) => (
+                        <Tag key={vaccineName} tone="teal" title={vaccineName}>{vaccineName}</Tag>
+                      ))}
+                    </div>
+                  </td>
                   <td className="num"><b>{row.animals}</b></td>
+                  <td className="num"><b>{row.totalDoses}</b></td>
                   <td><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></td>
+                  <td>
+                    <form action={postponeDriveDateAction} className="schedule-postpone-form">
+                      <input type="hidden" name="park_id" value={row.parkId} />
+                      <input type="hidden" name="original_drive_date" value={row.plannedDate} />
+                      <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
+                      <select name="vaccine_code" aria-label={copy(pageContract, "schedule.postpone.vaccine")} required>
+                        {row.vaccineCodes.map((code) => (
+                          <option key={code} value={code}>{code}</option>
+                        ))}
+                      </select>
+                      <input name="override_date" aria-label={copy(pageContract, "schedule.postpone.new_date")} type="date" min={row.plannedDate} required />
+                      <button className="btn sm" type="submit">{copy(pageContract, "schedule.postpone.action")}</button>
+                    </form>
+                  </td>
                 </tr>
               ))}
             </tbody>
