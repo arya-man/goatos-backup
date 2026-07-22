@@ -558,6 +558,14 @@ Do:
   `Blue Tongue`, and `Goat Pox`.
   `make ui-vaccine-labels-guard` is part of the standard guardrail/local-CI
   path and must fail any direct UI leak.
+- Vaccination proof grain is SOP/backend-owned. Do not hardcode "per goat",
+  "shed level", "camera only", or "gallery allowed" in admin-web or Android.
+  Backend SOP/form DSL/proof policy decides the proof mode, subject scope,
+  minimum/maximum proof count, capture sources, and verifier instruction; clients
+  render that contract. Both modes must remain supported: per-goat video proof
+  and shed-level video proof. A change from one mode to the other must never
+  delete the unused mode, bypass GCS proof upload, skip verifier instructions,
+  or invent proof requirements in mobile/frontend state.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`

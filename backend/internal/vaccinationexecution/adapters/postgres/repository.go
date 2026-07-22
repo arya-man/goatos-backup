@@ -1522,6 +1522,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	for rows.Next() {
 		var row domain.ScanRosterRow
 		var secondaryTag pgtype.Text
+		var scannedAt pgtype.Timestamptz
 		var protocolName, doseCode string
 		if err := rows.Scan(
 			&row.GoatID,
@@ -1530,11 +1531,16 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 			&protocolName,
 			&doseCode,
 			&row.Status,
+			&scannedAt,
 			&row.ObligationID,
 		); err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
 		row.SecondaryTag = textPtr(secondaryTag)
+		if scannedAt.Valid {
+			value := scannedAt.Time.UTC().Format(time.RFC3339Nano)
+			row.ScannedAt = &value
+		}
 		row.VaccineLabel = domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
 		row.BatchID = identity.BatchID
 		row.TaskID = identity.TaskID
@@ -1555,6 +1561,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 }
 
 const scanRosterSQL = `
+-- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed; group_key=(tenant_id,shed_id,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional task_id/batch_id pinning, and authorized park filter.
 WITH operator_scope_member AS (
   SELECT wm.workforce_member_id
   FROM workforce_members wm
@@ -1577,12 +1584,14 @@ SELECT
   pd.name AS protocol_name,
   pr.dose_code,
   CASE
+    WHEN sc.capture_id IS NOT NULL THEN 'done'
     WHEN oi.status = 'due' OR (oi.due_at < now() AND oi.status = 'scheduled') THEN 'due'
     WHEN oi.status = 'in_progress' THEN 'in_progress'
     WHEN oi.status = 'completed' THEN 'completed'
     WHEN oi.status IN ('deferred', 'missed', 'waived') THEN 'deferred'
     ELSE 'pending'
   END AS status,
+  sc.captured_at AS scanned_at,
   oi.obligation_id::text
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
@@ -1621,6 +1630,19 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.goat_id = g.goat_id
  AND aid2.identifier_type = 'animal_identifier_2'
  AND aid2.status = 'active'
+LEFT JOIN LATERAL (
+  SELECT c.capture_id, c.captured_at
+  FROM sop_task_scan_captures c
+  WHERE c.tenant_id = oi.tenant_id
+    AND c.task_id = NULLIF($3, '')::uuid
+    AND c.field_key IN ('goat_ids', '__scan_roster__')
+    AND (
+      c.obligation_id = oi.obligation_id
+      OR (c.obligation_id IS NULL AND c.goat_id = g.goat_id)
+    )
+  ORDER BY c.captured_at DESC, c.capture_id DESC
+  LIMIT 1
+) sc ON $3 <> ''
 WHERE oi.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
   AND (

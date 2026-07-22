@@ -107,6 +107,7 @@ data class ShedCompletionSummaryDto(
     @SerialName("expected_count") val expectedCount: Int = 0,
     @SerialName("handled_count") val handledCount: Int = 0,
     @SerialName("proof_ready_count") val proofReadyCount: Int = 0,
+    @SerialName("proof_mode") val proofMode: String = "",
     @SerialName("vaccine_breakdown") val vaccineBreakdown: List<VaccineBreakdownItemDto> = emptyList(),
     @SerialName("submit_enabled") val submitEnabled: Boolean = false,
     @SerialName("blocking_reason") val blockingReason: String? = null,

@@ -149,7 +149,7 @@ func TestShedCompletionSummaryParkScopedTaskUsesObligationShedAndRuleDSLVaccine(
 	scsSeedObligation(t, ctx, pool, versionID, ruleID, batchID, goatID, "scheduled", 1)
 
 	vacc := NewRepository(pool, 5*time.Second)
-	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID)
+	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, "")
 	if err != nil {
 		t.Fatalf("ShedCompletionSummary: %v", err)
 	}
@@ -196,6 +196,106 @@ func scsSeedGoatProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tas
 	}
 }
 
+func scsSwitchTaskToShedLevelProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`UPDATE sop_versions sv
+		    SET proof_policy = '{"required":true,"proof_mode":"shed_level_video","subject_scope":"shed","types":["video"],"minimum_count":1,"maximum_count":5,"maximum_count_per_subject":5}'::jsonb
+		   FROM sop_tasks st
+		  WHERE st.tenant_id = sv.tenant_id
+		    AND st.sop_version_id = sv.sop_version_id
+		    AND st.tenant_id = $1
+		    AND st.task_id = $2`,
+		impTenant, taskID); err != nil {
+		t.Fatalf("switch task to shed-level proof: %v", err)
+	}
+}
+
+func scsSeedShedProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, taskID, shedID, objectKey, uploadState string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO proof_artifacts
+		   (tenant_id, storage_provider, object_key, scope_type, scope_id, subject_type, subject_id, proof_type, upload_state)
+		 VALUES ($1, 'local', $2, 'task', $3, 'shed', $4, 'video', $5)`,
+		impTenant, objectKey, taskID, shedID, uploadState); err != nil {
+		t.Fatalf("shed proof %s: %v", shedID, err)
+	}
+}
+
+// TestShedCompletionSummaryShedLevelProofOneToManyPageBoundaryParkScopeStatusBuckets
+// is the shed-video-mode sibling of the older per-goat proof adversarial tests.
+// It covers the aggregate guard dimensions touched by the proof-mode projection:
+// OneToMany proof rows must count only completed shed clips, PageBoundary counts
+// must stay whole-shed totals, ParkScope must not bleed another shed in the same
+// park, and StatusBuckets must still exclude terminal obligations.
+func TestShedCompletionSummaryShedLevelProofOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, ruleID := scsSeedProtocol(t, ctx, pool)
+	const shedA = "35000000-0000-4000-8000-0000000000a1"
+	const shedB = "35000000-0000-4000-8000-0000000000b1"
+	seedShedOperational(t, ctx, pool, shedA, "SHED-A", true, false, false)
+	seedShedOperational(t, ctx, pool, shedB, "SHED-B", true, false, false)
+	scsSeedRuleDim(t, ctx, pool, versionID, ruleID, "sel-a", "ET+TT")
+	scsSeedRuleDim(t, ctx, pool, versionID, ruleID, "sel-b", "ET+TT")
+
+	taskA, batchA := scsSeedDrive(t, ctx, pool, versionID, shedA, "shed-proof-a", nil)
+	taskB, batchB := scsSeedDrive(t, ctx, pool, versionID, shedB, "shed-proof-b", nil)
+	scsSwitchTaskToShedLevelProof(t, ctx, pool, taskA)
+	scsSwitchTaskToShedLevelProof(t, ctx, pool, taskB)
+
+	const totalA = 25 // more than one phone page, but the summary is not page-limited.
+	for i := 0; i < totalA; i++ {
+		goatID := "35000000-0000-4000-8000-0000000001" + fmt.Sprintf("%02d", i)
+		seedGoatAtShed(t, ctx, pool, goatID, shedA)
+		scsSeedObligation(t, ctx, pool, versionID, ruleID, batchA, goatID, "scheduled", 1)
+		scsSeedScan(t, ctx, pool, taskA, goatID, "A"+strconv.Itoa(i))
+	}
+	// Shed B proves scope isolation. If the summary bleeds same-park/sibling-shed rows,
+	// shed A's expected count would become 28.
+	for i := 0; i < 3; i++ {
+		goatID := "35000000-0000-4000-8000-0000000002" + fmt.Sprintf("%02d", i)
+		seedGoatAtShed(t, ctx, pool, goatID, shedB)
+		scsSeedObligation(t, ctx, pool, versionID, ruleID, batchB, goatID, "scheduled", 1)
+		scsSeedScan(t, ctx, pool, taskB, goatID, "B"+strconv.Itoa(i))
+	}
+	// Terminal obligation in shed A must not inflate expected_count.
+	const terminalGoat = "35000000-0000-4000-8000-000000000099"
+	seedGoatAtShed(t, ctx, pool, terminalGoat, shedA)
+	scsSeedObligation(t, ctx, pool, versionID, ruleID, batchA, terminalGoat, "completed", 99)
+
+	// Multiple shed proof artifacts are allowed up to five. Proof readiness in shed mode is
+	// the completed shed proof count, not one proof per goat.
+	scsSeedShedProof(t, ctx, pool, taskA, shedA, "shed-clip-a", "completed")
+	scsSeedShedProof(t, ctx, pool, taskA, shedA, "shed-clip-b", "completed")
+	scsSeedShedProof(t, ctx, pool, taskA, shedA, "shed-clip-pending", "pending")
+	scsSeedShedProof(t, ctx, pool, taskB, shedB, "shed-b-clip", "completed")
+
+	vacc := NewRepository(pool, 5*time.Second)
+	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskA, "")
+	if err != nil {
+		t.Fatalf("ShedCompletionSummary: %v", err)
+	}
+	if got.ProofMode != "shed_level_video" {
+		t.Fatalf("proof mode = %q, want shed_level_video", got.ProofMode)
+	}
+	if got.ExpectedCount != totalA || got.HandledCount != totalA {
+		t.Fatalf("wrong shed totals: expected=%d handled=%d, want %d/%d", got.ExpectedCount, got.HandledCount, totalA, totalA)
+	}
+	if got.ProofReadyCount != 2 {
+		t.Fatalf("shed proof count = %d, want 2 completed shed clips only", got.ProofReadyCount)
+	}
+	if len(got.VaccineBreakdown) != 1 || got.VaccineBreakdown[0].Vaccine != "ET+TT" || got.VaccineBreakdown[0].Count != totalA {
+		t.Fatalf("vaccine breakdown = %+v, want ET+TT x%d", got.VaccineBreakdown, totalA)
+	}
+	if !got.SubmitEnabled || got.BlockingReason != nil {
+		t.Fatalf("shed-level submit should be enabled with all scans and 1..5 shed videos: enabled=%v reason=%v", got.SubmitEnabled, got.BlockingReason)
+	}
+}
+
 // TestShedCompletionSummaryOneToMany proves the aggregate does not double-count when a goat
 // carries MULTIPLE proof clips and its rule has MULTIPLE dimension rows. A naive COUNT(*) over a
 // JOIN to protocol_rule_dimensions (2 rows) or proof_artifacts (2 clips) would inflate the counts.
@@ -223,7 +323,7 @@ func TestShedCompletionSummaryOneToManyScanProofRegression(t *testing.T) {
 	scsSeedGoatProof(t, ctx, pool, taskID, g1, "clip-b", "completed")
 
 	vacc := NewRepository(pool, 5*time.Second)
-	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID)
+	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, "")
 	if err != nil {
 		t.Fatalf("ShedCompletionSummary: %v", err)
 	}
@@ -265,7 +365,7 @@ func TestShedCompletionSummaryPageBoundaryScanProofRegression(t *testing.T) {
 	}
 
 	vacc := NewRepository(pool, 5*time.Second)
-	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID)
+	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, "")
 	if err != nil {
 		t.Fatalf("ShedCompletionSummary: %v", err)
 	}
@@ -312,7 +412,7 @@ func TestShedCompletionSummaryParkScope(t *testing.T) {
 	}
 
 	vacc := NewRepository(pool, 5*time.Second)
-	gotA, err := vacc.ShedCompletionSummary(ctx, impTenant, taskA)
+	gotA, err := vacc.ShedCompletionSummary(ctx, impTenant, taskA, "")
 	if err != nil {
 		t.Fatalf("summary A: %v", err)
 	}
@@ -322,7 +422,7 @@ func TestShedCompletionSummaryParkScope(t *testing.T) {
 	if gotA.ShedName != "SHED-A" {
 		t.Fatalf("shed A name = %q, want SHED-A", gotA.ShedName)
 	}
-	gotB, err := vacc.ShedCompletionSummary(ctx, impTenant, taskB)
+	gotB, err := vacc.ShedCompletionSummary(ctx, impTenant, taskB, "")
 	if err != nil {
 		t.Fatalf("summary B: %v", err)
 	}
@@ -375,7 +475,7 @@ func TestShedCompletionSummaryStatusBucketsScanProofRegression(t *testing.T) {
 		scsSeedScan(t, ctx, pool, taskID, liveGoats[i], "S"+strconv.Itoa(i))
 		scsSeedGoatProof(t, ctx, pool, taskID, liveGoats[i], "s-clip-"+strconv.Itoa(i), "completed")
 	}
-	under, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID)
+	under, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, "")
 	if err != nil {
 		t.Fatalf("under-scan summary: %v", err)
 	}
@@ -391,7 +491,7 @@ func TestShedCompletionSummaryStatusBucketsScanProofRegression(t *testing.T) {
 		scsSeedScan(t, ctx, pool, taskID, liveGoats[i], "S"+strconv.Itoa(i))
 		scsSeedGoatProof(t, ctx, pool, taskID, liveGoats[i], "s-clip-"+strconv.Itoa(i), "completed")
 	}
-	exact, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID)
+	exact, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, "")
 	if err != nil {
 		t.Fatalf("exact summary: %v", err)
 	}
@@ -405,7 +505,7 @@ func TestShedCompletionSummaryStatusBucketsScanProofRegression(t *testing.T) {
 	extra := "34000000-0000-4000-8000-0000000000" + fmt.Sprintf("%02d", 50) // a completed-obligation goat
 	scsSeedScan(t, ctx, pool, taskID, extra, "S-extra")
 	scsSeedGoatProof(t, ctx, pool, taskID, extra, "s-clip-extra", "completed")
-	over, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID)
+	over, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, "")
 	if err != nil {
 		t.Fatalf("over-scan summary: %v", err)
 	}

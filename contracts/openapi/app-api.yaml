@@ -3422,6 +3422,11 @@ paths:
                         secondaryTag: { type: string, nullable: true }
                         vaccineLabel: { type: string }
                         status: { type: string }
+                        scannedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          description: Exact RFID scan timestamp persisted by the backend for this task row.
                         obligationId: { type: string }
                         taskId: { type: string }
                         batchId: { type: string }
@@ -6326,8 +6331,8 @@ components:
       description: >-
         FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed
         completion is an acknowledgement, not a manual medical form: the operator already scanned
-        every animal and attached camera proof per goat row; Submit only confirms the shed is
-        done. shed_name / drive_name / vaccine names are always human, never raw UUIDs.
+        every animal. Proof grain is SOP-controlled: either per-goat video or shed-level video.
+        shed_name / drive_name / vaccine names are always human, never raw UUIDs.
       required:
         - task_id
         - shed_name
@@ -6335,6 +6340,7 @@ components:
         - expected_count
         - handled_count
         - proof_ready_count
+        - proof_mode
         - vaccine_breakdown
         - submit_enabled
         - blocking_reason
@@ -6353,6 +6359,11 @@ components:
           type: integer
         proof_ready_count:
           type: integer
+        proof_mode:
+          type: string
+          enum:
+            - per_goat_video
+            - shed_level_video
         vaccine_breakdown:
           type: array
           items:

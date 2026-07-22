@@ -45,6 +45,7 @@ android {
         targetSdk = 36
         versionCode = 5
         versionName = "0.1.4"
+        multiDexKeepProguard = file("multidex-startup-rules.pro")
 
         // Local dev bearer token (a minted HS256 dev token), injected from a gradle
         // property so it's NEVER committed: -PgoatosDevBearerToken=... or in
@@ -241,9 +242,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
-    // In-app LIVE camera video capture for proof recording (MOB-002 anti-fraud rule: camera-
-    // only, no gallery/file picker). camera-video's Recorder + camera-view's PreviewView back
-    // the `video_proof` capture screen; no other module needs CameraX, so it stays :app-only.
+    // In-app LIVE camera video capture for proof recording. Shed-level proof may also use the
+    // Android gallery picker when the backend SOP explicitly allows it; CameraX still backs the
+    // `video_proof` recorder screen, and no other module needs CameraX, so it stays :app-only.
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)

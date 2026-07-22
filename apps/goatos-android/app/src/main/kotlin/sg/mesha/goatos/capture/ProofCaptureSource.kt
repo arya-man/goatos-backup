@@ -10,29 +10,31 @@ import dagger.hilt.components.SingletonComponent
 
 /** One captured proof video, as the capture port sees it — a local, already-durable file the
  *  caller hands to Room (docs/mobile/proof-capture-sync-and-e2e.md §2/§3: "Room first").
- *  [startedAtMs]/[endedAtMs] are the device-clock record start/stop — anti-fraud freshness
- *  metadata ("Camera-only capture" business rule): every video is a fresh, timed, in-app
- *  recording, never an imported file (there is no picker path that could produce one). */
+ *  [startedAtMs]/[endedAtMs] are the device-clock capture/import start/stop metadata. The SOP
+ *  decides whether this proof must be a live camera clip or may come from gallery. */
 data class CapturedVideo(
     val localUri: String,
     val mimeType: String = "video/mp4",
     val startedAtMs: Long,
     val endedAtMs: Long,
+    val captureSource: String = "in_app_camera",
 )
 
 /**
- * Port for the Submit recording-form's `video_proof` capture. Production: LIVE in-app CameraX
- * recording ONLY (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, see
- * `InAppVideoRecorder.kt`) writing straight to this app's own private storage — no gallery
- * import, no `ACTION_GET_CONTENT`/`ACTION_PICK`, no chooser of any kind. This is a hard
- * anti-fraud business rule (docs/mobile/proof-capture-sync-and-e2e.md "Camera-only capture"):
- * a picker would let an operator submit an old or unrelated video as "proof", defeating the
- * entire point of the recording. Tests use [FakeProofCaptureSource].
+ * Port for the Submit recording-form's `video_proof` capture. Production camera capture uses
+ * LIVE in-app CameraX (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, see
+ * `InAppVideoRecorder.kt`) writing straight to this app's own private storage. Gallery picker
+ * is exposed only when backend SOP allows shed-level proof; per-goat proof remains camera-only.
+ * Tests use [FakeProofCaptureSource].
  */
 interface ProofCaptureSource {
     /** Suspends until a video has been captured (production: launches the camera intent and
      *  awaits its result), or returns null if the operator cancelled. */
     suspend fun captureVideo(): CapturedVideo?
+
+    /** Suspends until a video is selected from gallery and copied into app-private storage, or
+     *  returns null if the operator cancelled. Only call when the backend SOP allows it. */
+    suspend fun pickVideo(): CapturedVideo?
 }
 
 /**
@@ -47,16 +49,21 @@ interface ProofCaptureSource {
 class DelegatingProofCaptureSource : ProofCaptureSource {
     @Volatile
     private var delegate: (suspend () -> CapturedVideo?)? = null
+    @Volatile
+    private var pickerDelegate: (suspend () -> CapturedVideo?)? = null
 
-    fun bind(launch: suspend () -> CapturedVideo?) {
+    fun bind(launch: suspend () -> CapturedVideo?, pick: suspend () -> CapturedVideo?) {
         delegate = launch
+        pickerDelegate = pick
     }
 
     fun unbind() {
         delegate = null
+        pickerDelegate = null
     }
 
     override suspend fun captureVideo(): CapturedVideo? = delegate?.invoke()
+    override suspend fun pickVideo(): CapturedVideo? = pickerDelegate?.invoke()
 }
 
 /** Test double: returns queued fixture results (or invokes [onCapture]) in call order. */
@@ -74,6 +81,8 @@ class FakeProofCaptureSource(
         captureCount++
         return if (results.isNotEmpty()) results.removeAt(0) else null
     }
+
+    override suspend fun pickVideo(): CapturedVideo? = captureVideo()
 }
 
 /** Fetches the Hilt-singleton [DelegatingProofCaptureSource] outside a ViewModel (Compose has

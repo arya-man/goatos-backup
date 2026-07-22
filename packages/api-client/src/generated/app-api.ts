@@ -2418,7 +2418,7 @@ export interface components {
             vaccine: string;
             count: number;
         };
-        /** @description FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed completion is an acknowledgement, not a manual medical form: the operator already scanned every animal and attached camera proof per goat row; Submit only confirms the shed is done. shed_name / drive_name / vaccine names are always human, never raw UUIDs. */
+        /** @description FROZEN read-only contract for the vaccination shed-completion / submit screen. Shed completion is an acknowledgement, not a manual medical form: the operator already scanned every animal. Proof grain is SOP-controlled: either per-goat video or shed-level video. shed_name / drive_name / vaccine names are always human, never raw UUIDs. */
         ShedCompletionSummary: {
             /** Format: uuid */
             task_id: string;
@@ -2427,6 +2427,8 @@ export interface components {
             expected_count: number;
             handled_count: number;
             proof_ready_count: number;
+            /** @enum {string} */
+            proof_mode: "per_goat_video" | "shed_level_video";
             vaccine_breakdown: components["schemas"]["ShedCompletionVaccineBreakdownItem"][];
             submit_enabled: boolean;
             blocking_reason: string | null;
@@ -7522,6 +7524,11 @@ export interface operations {
                             secondaryTag?: string | null;
                             vaccineLabel?: string;
                             status?: string;
+                            /**
+                             * Format: date-time
+                             * @description Exact RFID scan timestamp persisted by the backend for this task row.
+                             */
+                            scannedAt?: string | null;
                             obligationId?: string;
                             taskId?: string;
                             batchId?: string;

@@ -111,6 +111,7 @@ data class ScanRosterRowEntity(
     val normalizedSecondaryTag: String?,
     val vaccineLabel: String,
     val status: String,
+    val scannedAtMs: Long? = null,
     val obligationId: String,
     /** Backend roster order captured at refresh, so the windowed UI read is stable and page-N
      *  matches backend order. Defaults to 0 for rows written before the ordering column existed. */
@@ -141,7 +142,7 @@ interface ScanRosterRowDao {
      *  proof for every vaccinated animal, page-independent. Bounded by one shed's animal count. */
     @Query(
         "SELECT DISTINCT goatId FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' AND " +
-            "(LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%')"
+            "(scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%')"
     )
     fun observeDoneGoatIds(scopeKey: String): Flow<List<String>>
 

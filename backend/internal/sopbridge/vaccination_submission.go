@@ -11,7 +11,7 @@ import (
 )
 
 var ErrNoVaccinationCompletions = errors.New("vaccination fanout materialized no completions")
-var ErrMissingGoatProof = errors.New("vaccination submission is missing a completed camera proof for a scanned goat")
+var ErrMissingGoatProof = errors.New("vaccination submission is missing a completed proof for a scanned goat")
 
 // VaccinationVerificationCategory is the type-registry category vaccination proof submissions
 // register under (verification-module-design.md §2.3). Registered at composition time via
@@ -84,11 +84,19 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	completions []vaccinationdomain.SubmissionCompletion,
 ) error {
 	proofsByGoat := make(map[string][]string)
+	shedProofRefs := make([]string, 0)
 	for _, ref := range submission.ProofRefs {
-		if ref.ProofID == "" || ref.SubjectType != "goat" || ref.SubjectID == nil || *ref.SubjectID == "" {
+		if ref.ProofID == "" {
 			continue
 		}
-		proofsByGoat[*ref.SubjectID] = append(proofsByGoat[*ref.SubjectID], ref.ProofID)
+		switch ref.SubjectType {
+		case "goat":
+			if ref.SubjectID != nil && *ref.SubjectID != "" {
+				proofsByGoat[*ref.SubjectID] = append(proofsByGoat[*ref.SubjectID], ref.ProofID)
+			}
+		case "shed":
+			shedProofRefs = append(shedProofRefs, ref.ProofID)
+		}
 	}
 	byGoat := make(map[string]vaccinationdomain.SubmissionCompletion)
 	for _, completion := range completions {
@@ -114,6 +122,9 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	}
 	for goatID, completion := range byGoat {
 		mediaRefs := proofsByGoat[goatID]
+		if len(mediaRefs) == 0 {
+			mediaRefs = append(mediaRefs, shedProofRefs...)
+		}
 		mediaRefs = uniqueStrings(mediaRefs)
 		if len(mediaRefs) == 0 {
 			return fmt.Errorf("%w: goat_id=%s", ErrMissingGoatProof, goatID)

@@ -542,4 +542,11 @@ form field. The seed fixture guard must fail a seeder-only route/site change
 until the fixture manifest, source policy, validator, and docs describe the same
 rule.
 
+The same coupling applies to vaccination proof grain. Moving the SOP from
+per-goat video to shed-level video is not just a UI switch: the fixture
+manifest, source validator, backend proof gate, Android form runner, and
+verifier bridge must all agree that scans remain per goat while video proof is
+one-to-five shed-level artifacts. A seeder-only or client-only proof-grain
+change is a false-green seed and is blocked by the seed fixture guard.
+
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->

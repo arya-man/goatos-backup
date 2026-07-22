@@ -59,6 +59,9 @@ const RAW_ATTENDANCE_EXTRA_HEADERS = new Set(["Basic Salary", "Incentive", "DOJ"
 const FULL_ACCESS_GRANT_ROLE = "ceo_internal";
 const FULL_ACCESS_WORKFORCE_HINT = "cxo";
 const DERIVED_DRIVE_ASSIGNMENT_CONTRACT = "vaccination_drive_assignments are generated after validation from animal eligibility plus operator timetable/leave; source bundles must not include manual drive-assignment rows";
+// Vaccination proof grain is validated through the committed fixture manifest:
+// proof_mode=shed_level_video, subject_scope=shed, 1..5 shed videos, camera +
+// gallery allowed. Per-goat scan timestamps remain required runtime facts.
 
 function arraysEqual(left, right) {
   return left.length === right.length && left.every((value, index) => String(value ?? "").trim() === String(right[index] ?? "").trim());

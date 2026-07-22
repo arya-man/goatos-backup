@@ -292,7 +292,7 @@ interface AppApi {
 
     /** GET /app/tasks/{task_id}/shed-completion-summary — vaccination shed completion summary
      *  (read-only acknowledgement contract: shed name, drive name, animal counts, vaccine breakdown). */
-    suspend fun getShedCompletionSummary(taskId: String): ShedCompletionSummaryDto
+    suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -674,7 +674,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         TaskOptionValuesResponseDto(taskId = taskId)
 
-    override suspend fun getShedCompletionSummary(taskId: String): ShedCompletionSummaryDto =
+    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
         ShedCompletionSummaryDto(
             taskId = taskId,
             shedName = "Shed A — Weaners",

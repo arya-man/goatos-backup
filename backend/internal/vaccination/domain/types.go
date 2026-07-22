@@ -332,6 +332,7 @@ type ShedCompletionSummary struct {
 	ExpectedCount    int64
 	HandledCount     int64
 	ProofReadyCount  int64
+	ProofMode        string
 	VaccineBreakdown []VaccineBreakdownItem
 	SubmitEnabled    bool
 	BlockingReason   *string

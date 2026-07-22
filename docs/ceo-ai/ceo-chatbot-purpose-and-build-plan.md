@@ -158,6 +158,22 @@ Use APIs for app-shaped reads that already exist:
 - action center queues
 - audit summaries
 
+Vaccination proof wording is API-owned, not prompt-owned. When the leadership
+assistant answers vaccination execution, due-work, or verifier-readiness
+questions, it must read the backend API fields that expose the published SOP
+proof policy. In particular, the assistant must preserve `proof_mode` semantics:
+
+- `per_goat_video` means proof readiness is one completed goat video per scanned
+  animal.
+- `shed_level_video` means proof readiness is one to five completed shed-level
+  videos for the shed submission, while every scanned goat still carries its
+  own captured scan timestamp.
+
+Do not infer the proof grain from old SOP copy or from mobile UI labels. Use the
+read API/tool catalog result, include the source surface/freshness in the answer,
+and never expose internal protocol token names such as raw dose codes in CEO
+answers.
+
 Use MCP Toolbox for business analytics tools and direct database reads:
 
 - count by scope
