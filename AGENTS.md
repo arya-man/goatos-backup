@@ -677,6 +677,12 @@ Do:
     baselined debt in `tools/scale-guard/baseline.txt`). Fix by batching to a
     single `*ByIDs` / `= ANY($1)` read (as `ShedSummary` now does with
     `ShedOwnerships`), not by looping a per-item service/port call.
+    Vaccination operator availability is explicitly in this class: a sweep or
+    preflight may probe many dates, but it must share one session cache at
+    `(tenant, park, business_date, cap_per_operator)` grain across capacity
+    scoring, `ConductedBy`, effective-cap, and assignment-split helpers. Do not
+    call `AvailableVaccinationOperatorsForDrive` from those helpers independently
+    or inside park/date loops.
   - **OFFSET pagination** — `LIMIT/OFFSET` with a growable offset. Use keyset/cursor.
   - **non-SARGable predicate** — `lower(col) LIKE '%x%'` / function on an indexed
     column. Use a normalized column, expression index, or `pg_trgm` GIN.

@@ -138,9 +138,17 @@ for action-center summaries.
 Read-only tables when API is not enough:
 `vaccination_eligibility_rollups`, `vaccination_completions`,
 `vaccination_generation_runs`, `vaccination_capacity_config`,
-`obligation_instances`, `obligation_batches`, `sop_tasks`,
-`sop_submissions`, `sop_submission_items`, `verification_items`,
-`locations`, `goats`.
+`vaccination_drive_assignments`, `obligation_instances`,
+`obligation_batches`, `sop_tasks`, `sop_submissions`,
+`sop_submission_items`, `verification_items`, `locations`, `goats`.
+
+Assistant coverage note:
+operator workload/capacity questions are answered from the vaccination
+execution, schedule, action-center, or control-tower read APIs first. If SQL
+fallback is needed, read generated drive-assignment rows at exact
+park/business-date/operator/physical-shed/partition grain and aggregate unique
+animals; do not repeatedly query workforce availability per candidate date or
+treat assignment rows as dose counts.
 
 Common questions:
 
@@ -151,6 +159,7 @@ Common questions:
 | Why is Gandhi 2 overdue? | Shed drilldown + SOP/proof state | Cause summary: due, done, proof, verification, owner. |
 | What is vaccination adherence this week? | `/vaccination/adherence` | Percentage, numerator/denominator, period. |
 | Where are proof gaps? | `/vaccination/verification-queue` or `verification_items` | Count by shed/owner/status. |
+| Are vaccination operators overloaded tomorrow? | `/vaccination/execution`, `/vaccination/schedule`, or assignment SQL fallback | Operator totals by date and shed/partition, with over-cap markers. |
 
 Default response rule:
 Explain operational causes, not only numbers: due, done, stale, proof missing,

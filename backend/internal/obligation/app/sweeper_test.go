@@ -117,7 +117,7 @@ func TestDistributeVaccinationDriveAssignmentsBalancesAvailableOperators(t *test
 	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
 		ScopeID:     "park-1",
 		PlannedDate: &planned,
-	}, 200, assignments)
+	}, 200, assignments, NewSweepSession())
 	if err != nil {
 		t.Fatalf("distribute assignments: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestDistributeVaccinationDriveAssignmentsSplitsOversizedPartitionWithPlanne
 	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
 		ScopeID:     "park-1",
 		PlannedDate: &planned,
-	}, 50, assignments)
+	}, 50, assignments, NewSweepSession())
 	if err != nil {
 		t.Fatalf("distribute assignments: %v", err)
 	}
@@ -190,12 +190,54 @@ func TestOperatorCapacityPlannerScalesByAvailableOperators(t *testing.T) {
 	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
 	svc := NewSweeperService(repo, nil, nil)
 
-	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200})
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, NewSweepSession())
 	if err != nil {
 		t.Fatalf("operatorCapacityPlanner: %v", err)
 	}
 	if planner.MaxGoatsPerDrive != 600 {
 		t.Fatalf("effective animal cap = %d, want 600 for 3 operators at 200 each", planner.MaxGoatsPerDrive)
+	}
+}
+
+func TestVaccinationOperatorAvailabilityCachedAcrossPlannerAndAssignment(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	batch := domain.NewBatch{
+		TenantID:    "tenant-1",
+		ScopeType:   "park",
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, session)
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 600 {
+		t.Fatalf("effective animal cap = %d, want 600", planner.MaxGoatsPerDrive)
+	}
+	if err := svc.assignVaccinationOperator(context.Background(), &batch, 200, session); err != nil {
+		t.Fatalf("assignVaccinationOperator: %v", err)
+	}
+	if batch.ConductedBy == nil || *batch.ConductedBy != "op-1" {
+		t.Fatalf("conducted by = %#v, want op-1", batch.ConductedBy)
+	}
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "Part 1",
+		AnimalCount:    90,
+		CapacityStatus: "within_cap",
+	}}
+	if _, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", batch, 200, assignments, session); err != nil {
+		t.Fatalf("distributeVaccinationDriveAssignments: %v", err)
+	}
+	if repo.operatorListCalls != 1 {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive calls = %d, want 1 for shared park/date/cap session", repo.operatorListCalls)
 	}
 }
 
@@ -1758,10 +1800,12 @@ type fakeDateVisitShotLockerRepo struct {
 
 type fakeVaccinationOperatorListRepo struct {
 	*fakeSweepRepo
-	operators []string
+	operators         []string
+	operatorListCalls int
 }
 
 func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(context.Context, string, string, time.Time, int32) ([]string, error) {
+	f.operatorListCalls++
 	return append([]string(nil), f.operators...), nil
 }
 

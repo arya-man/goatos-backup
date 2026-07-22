@@ -121,6 +121,12 @@ Permanent scale and guard-authoring rules:
   Review SQL joins at exact assignment grain so multiple operators, planned
   dates, or partitions cannot multiply counts or expose another operator's
   partition work.
+- Vaccination operator availability/capacity is a sweep-session fact. Load it
+  once per `(tenant, park, business_date, cap_per_operator)` and pass/cache it
+  through date scoring, `ConductedBy` selection, effective cap calculation, and
+  assignment splitting. Never call `AvailableVaccinationOperatorsForDrive` from
+  multiple helpers or from park/date loops; that is the same N+1 fan-out bug
+  wearing a different shirt.
 - The local vaccination trigger fixture has one reviewed synthetic primary RFID
   (`CBE-RFID-0001`) for emulator scan E2E. Keep it synthetic and synchronized
   with the source fixture validator/runbooks when changed.

@@ -20,10 +20,11 @@ import (
 // (cmd/obligation-sweeper) shares one SweepSession across every published version it sweeps in
 // one run, plus the subsequent AlignComboDrives pass, via SweepVersionWithSession.
 type SweepSession struct {
-	visitShotCounts map[string]int32
-	visitClaims     map[string]shotCapClaim
-	driveCellCounts map[string]int32
-	driveLoaded     map[string]struct{}
+	visitShotCounts              map[string]int32
+	visitClaims                  map[string]shotCapClaim
+	driveCellCounts              map[string]int32
+	driveLoaded                  map[string]struct{}
+	vaccinationOperatorAvailable map[string][]string
 	// loaded marks every visitShotCountKey whose starting count has already been resolved once
 	// in this session -- either seeded from the persisted, cross-pass/cross-worker committed
 	// shot count (see seedResolved/SweeperService.seedAndLockVisitShots, VAX-REV-01) or, for a
@@ -57,12 +58,47 @@ type driveCapacityReservation struct {
 // NewSweepSession starts a fresh cross-version sweep session with empty shot-cap state.
 func NewSweepSession() *SweepSession {
 	return &SweepSession{
-		visitShotCounts: make(map[string]int32),
-		visitClaims:     make(map[string]shotCapClaim),
-		driveCellCounts: make(map[string]int32),
-		driveLoaded:     make(map[string]struct{}),
-		loaded:          make(map[string]struct{}),
+		visitShotCounts:              make(map[string]int32),
+		visitClaims:                  make(map[string]shotCapClaim),
+		driveCellCounts:              make(map[string]int32),
+		driveLoaded:                  make(map[string]struct{}),
+		vaccinationOperatorAvailable: make(map[string][]string),
+		loaded:                       make(map[string]struct{}),
 	}
+}
+
+func vaccinationOperatorAvailabilityKey(tenantID, parkID string, plannedDate time.Time, capPerOperator int32) string {
+	return strings.Join([]string{
+		strings.TrimSpace(tenantID),
+		strings.TrimSpace(parkID),
+		businessDate(plannedDate).Format("2006-01-02"),
+		fmt.Sprint(capPerOperator),
+	}, "\x00")
+}
+
+func cloneOperatorIDs(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	return append([]string(nil), values...)
+}
+
+func (s *SweepSession) cachedVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]string, bool) {
+	if s == nil {
+		return nil, false
+	}
+	values, ok := s.vaccinationOperatorAvailable[vaccinationOperatorAvailabilityKey(tenantID, parkID, plannedDate, capPerOperator)]
+	if !ok {
+		return nil, false
+	}
+	return cloneOperatorIDs(values), true
+}
+
+func (s *SweepSession) rememberVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32, operators []string) {
+	if s == nil {
+		return
+	}
+	s.vaccinationOperatorAvailable[vaccinationOperatorAvailabilityKey(tenantID, parkID, plannedDate, capPerOperator)] = cloneOperatorIDs(operators)
 }
 
 // unresolvedTargets returns the distinct, non-blank target IDs in targetIDs whose (date, target)

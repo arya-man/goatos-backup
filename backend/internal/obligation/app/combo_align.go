@@ -133,7 +133,7 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 			}
 			effectiveDriveCap := maxDriveCells
 			if maxDriveCells > 0 && strings.TrimSpace(batch.ParkID) != "" {
-				effectiveCap, err := s.effectiveOperatorAnimalCap(ctx, tenantID, batch.ParkID, target, maxDriveCells)
+				effectiveCap, err := s.effectiveOperatorAnimalCap(ctx, tenantID, batch.ParkID, target, maxDriveCells, session)
 				if err != nil {
 					_ = release(ctx)
 					return err
