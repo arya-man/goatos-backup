@@ -629,6 +629,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/schedule/drive-date-overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Postpone one vaccine within a scheduled vaccination drive.
+         * @description CEO/CXO vaccination campaign command that records a bounded sidecar override for one vaccine code in one park drive date. The sweeper treats the override as a proposed planned date only; max two vaccines per animal session, live/killed spacing, adult booster rules, the +1 week medical window, operator cap, and shed/partition assignment constraints are still enforced by the backend planner.
+         */
+        post: operations["upsertVaccinationDriveDateOverride"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/drive-assignments": {
         parameters: {
             query?: never;
@@ -4462,6 +4482,12 @@ export interface components {
             physicalShed: string;
             partitionLabel: string;
             animals: number;
+            /** @description Backend-owned vaccine display labels attached to this operator assignment row. */
+            vaccineNames: string[];
+            /** @description Backend-owned vaccine identity codes used for drive-date overrides. */
+            vaccineCodes: string[];
+            /** @description Number of vaccine tasks/doses represented by this assignment row. */
+            totalDoses: number;
             capacity: components["schemas"]["VaccinationCapacityStatus"];
         };
         VaccinationDriveAssignmentResponse: {
@@ -6457,6 +6483,59 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             503: components["responses"]["ServerError"];
+        };
+    };
+    upsertVaccinationDriveDateOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    park_id: string;
+                    vaccine_code: string;
+                    /** Format: date */
+                    original_drive_date: string;
+                    /**
+                     * Format: date
+                     * @description Must be after original_drive_date.
+                     */
+                    override_date: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Active drive date override. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        park_id: string;
+                        vaccine_code: string;
+                        /** Format: date */
+                        original_drive_date: string;
+                        /** Format: date */
+                        override_date: string;
+                        reason: string;
+                        /** Format: uuid */
+                        created_by: string;
+                        /** Format: date-time */
+                        created_at: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
         };
     };
     listVaccinationDriveAssignments: {

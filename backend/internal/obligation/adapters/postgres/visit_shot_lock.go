@@ -87,6 +87,8 @@ func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant 
 	physicalSheds := make([]string, 0, len(assignments))
 	partitions := make([]string, 0, len(assignments))
 	animalCounts := make([]int32, 0, len(assignments))
+	vaccineRuleIDsJSON := make([]string, 0, len(assignments))
+	totalDoses := make([]int32, 0, len(assignments))
 	statuses := make([]string, 0, len(assignments))
 	warningsJSON := make([]string, 0, len(assignments))
 	for _, assignment := range assignments {
@@ -111,6 +113,21 @@ func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant 
 			if err != nil {
 				return fmt.Errorf("obligation: drive assignment operator id: %w", err)
 			}
+		}
+		ruleIDs := make([]string, 0, len(assignment.VaccineRuleIDs))
+		for _, rawRuleID := range assignment.VaccineRuleIDs {
+			rawRuleID = strings.TrimSpace(rawRuleID)
+			if rawRuleID == "" {
+				continue
+			}
+			if _, err := pgconv.UUID(rawRuleID); err != nil {
+				return fmt.Errorf("obligation: drive assignment vaccine rule id: %w", err)
+			}
+			ruleIDs = append(ruleIDs, rawRuleID)
+		}
+		ruleIDsJSONBytes, err := json.Marshal(ruleIDs)
+		if err != nil {
+			return fmt.Errorf("obligation: drive assignment vaccine rule ids: %w", err)
 		}
 		warnings := assignment.Warnings
 		if warnings == nil {
@@ -140,6 +157,8 @@ func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant 
 		physicalSheds = append(physicalSheds, physicalShed)
 		partitions = append(partitions, partition)
 		animalCounts = append(animalCounts, assignment.AnimalCount)
+		vaccineRuleIDsJSON = append(vaccineRuleIDsJSON, string(ruleIDsJSONBytes))
+		totalDoses = append(totalDoses, assignment.TotalDoses)
 		statuses = append(statuses, status)
 		warningsJSON = append(warningsJSON, string(warningsJSONBytes))
 	}
@@ -147,7 +166,7 @@ func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant 
 	-- projection-review: membership=one generated DriveAssignment row per batch/date/operator/park/shed/physical_shed/partition; group_key=conflict key (tenant_id,batch_id,planned_date,park_id,shed_id,physical_shed,partition_label,operator_id); join_cardinality=no joins, UNNEST arrays are positional one-to-one inputs from the planner; pagination=single generated batch write, no paging or truncation; scope=explicit assignment park_id/shed_id.
 INSERT INTO vaccination_drive_assignments (
   tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
-  physical_shed, partition_label, animal_count, capacity_status, warnings
+  physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses, capacity_status, warnings
 )
 SELECT
   $1,
@@ -159,6 +178,11 @@ SELECT
   u.physical_shed,
   u.partition_label,
   u.animal_count,
+  COALESCE((
+    SELECT array_agg(rule_id::uuid ORDER BY rule_id)
+    FROM jsonb_array_elements_text(u.vaccine_rule_ids_json::jsonb) AS rule_ids(rule_id)
+  ), '{}'::uuid[]),
+  u.total_doses,
   u.capacity_status,
   u.warnings::jsonb
 FROM unnest(
@@ -171,8 +195,10 @@ FROM unnest(
   $8::text[],
   $9::int[],
   $10::text[],
-  $11::text[]
-) AS u(batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings)
+  $11::int[],
+  $12::text[],
+  $13::text[]
+) AS u(batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids_json, total_doses, capacity_status, warnings)
 	ON CONFLICT (
 	  tenant_id,
 	  batch_id,
@@ -186,10 +212,12 @@ FROM unnest(
 	DO UPDATE SET
   operator_id = EXCLUDED.operator_id,
   animal_count = EXCLUDED.animal_count,
+  vaccine_rule_ids = EXCLUDED.vaccine_rule_ids,
+  total_doses = EXCLUDED.total_doses,
   capacity_status = EXCLUDED.capacity_status,
   warnings = EXCLUDED.warnings,
   updated_at = now()`,
-		tenant, batchIDs, plannedDates, operatorIDs, parkIDs, shedIDs, physicalSheds, partitions, animalCounts, statuses, warningsJSON); err != nil {
+		tenant, batchIDs, plannedDates, operatorIDs, parkIDs, shedIDs, physicalSheds, partitions, animalCounts, vaccineRuleIDsJSON, totalDoses, statuses, warningsJSON); err != nil {
 		return fmt.Errorf("obligation: upsert drive assignments: %w", err)
 	}
 	return nil

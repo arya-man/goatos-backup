@@ -16,14 +16,14 @@ import (
 // the failure class the smaller unit tests cannot prove alone: a 7-week kid-course visit has ET+TT
 // and PPR due together, while a lower-priority vaccine also competes for the same animals. The
 // sweeper must maximize the drive without violating MaxShotsPerAnimalPerDrive=2: ET+TT+PPR stay on
-// the planned drive, the overflow vaccine moves to the next feasible safe day, and nothing is
+// the planned drive, the overflow vaccine moves to the next medically safe gap date, and nothing is
 // dropped or backdated.
 func TestKernelStoryAL_DriveClubbingHonorsShotCapAndThreeWeekCourse(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-al", "Drive clubbing: 3-week course plus shot cap",
 		"Three kids reach the seven-week course date. ET+TT #2 and PPR are both valid on the drive day, "+
 			"while FMD also competes for the same visit. SM-4 must keep the higher-priority ET+TT/PPR pair "+
-			"together, overflow FMD to the next safe day because of the two-shot cap, and still render the "+
+			"together, overflow FMD to the next gap-safe date because of the two-shot cap, and still render the "+
 			"calendar from the planned batch dates.")
 	defer story.Finish()
 	story.Certify("backend kernel + Calendar projection")
@@ -52,7 +52,7 @@ func TestKernelStoryAL_DriveClubbingHonorsShotCapAndThreeWeekCourse(t *testing.T
 	ruleByDose := make(map[string]string, len(doses))
 	for _, dose := range doses {
 		versionID, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_al."+dose.code, "{}", []RuleSpec{{
-			DoseCode: dose.code, Sequence: dose.priority, TriggerType: "birth_age", OffsetDays: 49, DueWindowDays: 7,
+			DoseCode: dose.code, Sequence: dose.priority, TriggerType: "birth_age", OffsetDays: 49, DueWindowDays: 21,
 			EligibilityJSON: fmt.Sprintf(
 				`{"vaccine":{"code":%q,"priority":%d,"compatibility_group":%q},"eligibility":{"animal_stage":"K1"}}`,
 				dose.vaccine, dose.priority, dose.compatibility),
@@ -69,7 +69,7 @@ func TestKernelStoryAL_DriveClubbingHonorsShotCapAndThreeWeekCourse(t *testing.T
 
 	story.Step("Generate competing course obligations",
 		"Run the production generation service over the published protocol. Each kid gets ET+TT #2, "+
-			"PPR, and FMD due on the same seven-week day, all safe through the next week.")
+			"PPR, and FMD due on the same seven-week day; the overflow vaccine stays safe through the live-to-killed gap window.")
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 	totalGenerated := 0
 	for _, dose := range doses {
@@ -111,7 +111,7 @@ WHERE tenant_id=$1
 	}
 	plans = oblapp.SortSweepVersionsByPriority(plans)
 	sweeper := oblapp.NewSweeperService(fx.Obl, nil, nil)
-	dueBefore := dueDay.AddDate(0, 0, 7)
+	dueBefore := dueDay.AddDate(0, 0, 21)
 	snapshot, err := sweeper.PreflightVisitShotCapTiesWithSnapshotAsOf(fx.Ctx, fxTenant, plans, dueDay, dueBefore, time.Time{})
 	story.Assert("shot-cap preflight accepts the resolved ET+TT/PPR/FMD priorities", err == nil, "err=%v", err)
 	session := oblapp.NewSweepSession()
@@ -131,10 +131,10 @@ WHERE tenant_id=$1
 	}
 
 	story.Step("Assert the cap outcome per animal",
-		"Every goat gets exactly two shots on Aug 10. ET+TT and PPR stay together; FMD moves one day "+
-			"later and still remains inside the authored seven-day safe window.")
+		"Every goat gets exactly two shots on Aug 10. ET+TT and PPR stay together; FMD moves 14 days "+
+			"later and still remains inside the authored safe window.")
 	wantPrimary := biztime.BusinessDate(dueDay)
-	wantOverflow := biztime.BusinessDate(dueDay.AddDate(0, 0, 1))
+	wantOverflow := biztime.BusinessDate(dueDay.AddDate(0, 0, 14))
 	for _, goatID := range []string{goatA, goatB, goatC} {
 		primaryCount := fx.countRows(`
 SELECT count(*)

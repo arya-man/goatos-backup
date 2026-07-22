@@ -109,6 +109,7 @@ function makeCheck(id, count, message, action, samples = [], severity = "error")
 
 export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}) {
   const source = path.resolve(directory);
+  const isCommittedFixtureSource = source.includes(`${path.sep}fixtures${path.sep}`);
   const checks = [];
   const missingFiles = INPUT_FILES.filter((name) => !fs.existsSync(path.join(source, name)));
   checks.push(makeCheck(
@@ -173,10 +174,10 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     const oldID = cell(row, goatColumns, "old_id");
     const suffix = cell(row, goatColumns, "old_id_suffix");
     if (oldID && !/^(none|na|n\/a)$/i.test(oldID)) goatAliases.set(normalized(suffix && !/^(none|na|n\/a)$/i.test(suffix) ? `${suffix}-${oldID}` : oldID), key);
-    const shedKey = `${cell(row, goatColumns, "farm")}\0${cell(row, goatColumns, "shed")}`;
-    shedCounts.set(shedKey, (shedCounts.get(shedKey) ?? 0) + 1);
     const rawShed = cell(row, goatColumns, "shed");
     const normalizedShed = normalizeShedPartitionName(rawShed);
+    const shedKey = `${cell(row, goatColumns, "farm")}\0${normalizedShed.physical}`;
+    shedCounts.set(shedKey, (shedCounts.get(shedKey) ?? 0) + 1);
     if (normalizedShed.partition !== "whole") {
       pushSample(rawPartitionExamples, `${rawShed} -> ${normalizedShed.physical} / ${normalizedShed.partition}`);
     }
@@ -357,7 +358,14 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       if (value && value !== "--" && !value.startsWith("Fixture ")) pushSample(nonSyntheticNames, `timetable row ${index + 1}:column ${column + 1}`);
     }
   }
-  checks.push(makeCheck("hrms_synthetic_identity", nonSyntheticNames.length, "Committed seed data must not contain real staff names.", "Replace every staff display name with a deterministic Fixture identity and keep only the reviewed role/center relationship.", nonSyntheticNames));
+  checks.push(makeCheck(
+    "hrms_synthetic_identity",
+    isCommittedFixtureSource ? nonSyntheticNames.length : 0,
+    "Committed seed data must not contain real staff names.",
+    "Replace every staff display name with a deterministic Fixture identity and keep only the reviewed role/center relationship. Private/local source bundles may contain reviewed runtime names, but they must never be committed.",
+    nonSyntheticNames,
+    isCommittedFixtureSource ? "error" : "warning",
+  ));
 
   const sensitiveValues = [];
   for (const [file, rows] of [["attendance", attendance], ["timetable", timetable], ["roster", roster], ["shed-manager", managers]]) {
@@ -395,13 +403,14 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       rosterSeatByCode.set(code, { center, position, candidate });
     }
   }
+  const sourceCenters = new Set(roster.slice(1).map((row) => cell(row, rosterColumns, "center")).filter(Boolean));
   const missingOwnerSeats = [];
-  for (const center of ["CBE", "CPT"]) for (const position of ["Preventive Care Manager", "Backup Manager", "Park Head"]) {
+  for (const center of sourceCenters) for (const position of ["Preventive Care Manager", "Backup Manager", "Park Head"]) {
     if (!rosterSeats.has(`${center}\0${position}`)) missingOwnerSeats.push(`${center}/${position}`);
   }
   checks.push(makeCheck("hrms_roster_resolved", rosterProblems.length, "Every timetable/owner seat must resolve to a reviewed synthetic workforce member.", "Resolve the mapping; no round-robin or silent default owner is allowed.", rosterProblems));
   checks.push(makeCheck("hrms_roster_unique", rosterDuplicates.length, "A center/position seat must occur exactly once.", "Remove duplicate roster assignments.", rosterDuplicates));
-  checks.push(makeCheck("required_vaccination_owners", missingOwnerSeats.length, "CBE and CPT each require Preventive Care Manager, Backup Manager, and Park Head.", "Add explicit reviewed synthetic fixture seats before seeding.", missingOwnerSeats));
+  checks.push(makeCheck("required_vaccination_owners", missingOwnerSeats.length, "Each source center requires Preventive Care Manager, Backup Manager, and Park Head.", "Add explicit reviewed fixture/private-source seats before seeding.", missingOwnerSeats));
   const routeSiteProblems = [];
   if (SEED_SOURCE_POLICY.protocol_schedule_policy?.route_site !== "subcutaneous" ||
     SEED_SOURCE_POLICY.protocol_schedule_policy?.route_site_is_not_operator_form_field !== true) {
@@ -410,26 +419,44 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck("protocol_route_site_contract", routeSiteProblems.length, "Published vaccination matrix schedule rows require route_site metadata.", "Set route_site to subcutaneous in the protocol schedule contract and keep it out of vaccination SOP form fields.", routeSiteProblems));
 
   const managerProblems = [];
-  const managerSheds = new Set();
-  let mappedAnimals = 0;
+  const managerSheds = new Map();
+  const hasReviewedOperatorRoster =
+    ["Preventive Care Manager", "Backup Manager", "Park Head"].every((position) =>
+      rosterSeats.has(`CPT\0${position}`),
+    );
   for (let index = 1; index < managers.length; index += 1) {
     const row = managers[index];
     const park = cell(row, managerColumns, "park_code");
-    const shed = cell(row, managerColumns, "shed_name");
+    const rawShed = cell(row, managerColumns, "shed_name");
+    const shed = normalizeShedPartitionName(rawShed).physical;
     const key = `${park}\0${shed}`;
     const count = Number(cell(row, managerColumns, "goat_count"));
     const manager = cell(row, managerColumns, "manager_code");
     const backup = cell(row, managerColumns, "backup_manager_code");
     const managerSeat = rosterSeatByCode.get(manager);
     const backupSeat = rosterSeatByCode.get(backup);
-    if (managerSheds.has(key) || !shedCounts.has(key) || shedCounts.get(key) !== count || !staffCodes.has(manager) || !staffCodes.has(backup) || manager === backup || managerSeat?.center !== park || managerSeat?.position !== "Preventive Care Manager" || backupSeat?.center !== park || backupSeat?.position !== "Backup Manager" || cell(row, managerColumns, "manager_name") !== managerSeat?.candidate || cell(row, managerColumns, "backup_manager_name") !== backupSeat?.candidate || normalized(cell(row, managerColumns, "needs_review")) !== "false") {
+    const aggregate = managerSheds.get(key) ?? { count: 0, manager, backup };
+    if (aggregate.manager !== manager || aggregate.backup !== backup || !shedCounts.has(key) || !staffCodes.has(manager) || !staffCodes.has(backup) || manager === backup || managerSeat?.center !== park || managerSeat?.position !== "Preventive Care Manager" || backupSeat?.center !== park || backupSeat?.position !== "Backup Manager" || cell(row, managerColumns, "manager_name") !== managerSeat?.candidate || cell(row, managerColumns, "backup_manager_name") !== backupSeat?.candidate || normalized(cell(row, managerColumns, "needs_review")) !== "false") {
       pushSample(managerProblems, `shed-manager row ${index + 1}`);
     }
-    managerSheds.add(key);
-    if (Number.isFinite(count)) mappedAnimals += count;
+    aggregate.count += Number.isFinite(count) ? count : 0;
+    managerSheds.set(key, aggregate);
   }
-  const ownerCoverageGap = managerProblems.length + Math.abs(managerSheds.size - shedCounts.size) + Math.abs(mappedAnimals - goatByKey.size);
-  checks.push(makeCheck("shed_owner_coverage", ownerCoverageGap, "Every source shed and animal must have one reviewed manager plus one reviewed backup.", "Resolve codes/counts/review flags and cover every shed before the DB transaction starts.", managerProblems));
+  for (const [key, aggregate] of managerSheds.entries()) {
+    if (shedCounts.get(key) !== aggregate.count) pushSample(managerProblems, `shed-manager aggregate ${key.replace("\0", "/")}`);
+  }
+  const managerRows = Math.max(0, managers.length - 1);
+  const operatorRosterDrivenCPTSeed = !isCommittedFixtureSource && managerRows === 0 && hasReviewedOperatorRoster;
+  const mappedAnimals = [...managerSheds.values()].reduce((sum, aggregate) => sum + aggregate.count, 0);
+  const ownerCoverageGap = operatorRosterDrivenCPTSeed ? 0 : managerProblems.length + Math.abs(managerSheds.size - shedCounts.size) + Math.abs(mappedAnimals - goatByKey.size);
+  checks.push(makeCheck(
+    "shed_owner_coverage",
+    ownerCoverageGap,
+    "Every committed source shed and animal must have one reviewed manager plus one reviewed backup; private CPT operator-drive seeds may derive vaccination ownership from the reviewed operator roster.",
+    "Resolve codes/counts/review flags and cover every shed before the DB transaction starts, or use the CPT-only operator roster seed path with Amit, Darshan, and Sagar.",
+    operatorRosterDrivenCPTSeed ? ["private CPT seed uses operator-roster-driven vaccination assignment"] : managerProblems,
+    operatorRosterDrivenCPTSeed ? "warning" : "error",
+  ));
 
   const errorCount = checks.filter((check) => check.status === "fail").reduce((sum, check) => sum + check.count, 0);
   const warningCount = checks.filter((check) => check.status === "warning").reduce((sum, check) => sum + check.count, 0);

@@ -251,6 +251,8 @@ func driveAssignmentsForParkConsolidation(batchID string, batch domain.NewBatch,
 		physicalShed string
 		partition    string
 		targets      map[string]struct{}
+		ruleIDs      map[string]struct{}
+		doseKeys     map[string]struct{}
 	}
 	buckets := make(map[string]*assignmentBucket)
 	for _, row := range rows {
@@ -270,12 +272,24 @@ func driveAssignmentsForParkConsolidation(batchID string, batch domain.NewBatch,
 		key := parkID + "\x00" + stringPtrValue(shedID) + "\x00" + physicalShed + "\x00" + partition
 		bucket := buckets[key]
 		if bucket == nil {
-			bucket = &assignmentBucket{parkID: parkID, shedID: shedID, physicalShed: physicalShed, partition: partition, targets: map[string]struct{}{}}
+			bucket = &assignmentBucket{
+				parkID:       parkID,
+				shedID:       shedID,
+				physicalShed: physicalShed,
+				partition:    partition,
+				targets:      map[string]struct{}{},
+				ruleIDs:      map[string]struct{}{},
+				doseKeys:     map[string]struct{}{},
+			}
 			buckets[key] = bucket
 		}
 		targetKey := parkCandidateTargetKey(row)
 		if targetKey != "" {
 			bucket.targets[targetKey] = struct{}{}
+			if ruleID := strings.TrimSpace(row.RuleID); ruleID != "" {
+				bucket.ruleIDs[ruleID] = struct{}{}
+				bucket.doseKeys[targetKey+"\x00"+ruleID] = struct{}{}
+			}
 		}
 	}
 	out := make([]domain.DriveAssignment, 0, len(buckets))
@@ -289,6 +303,8 @@ func driveAssignmentsForParkConsolidation(batchID string, batch domain.NewBatch,
 			PhysicalShed:   bucket.physicalShed,
 			PartitionLabel: bucket.partition,
 			AnimalCount:    int32(len(bucket.targets)),
+			VaccineRuleIDs: sortedStringSet(bucket.ruleIDs),
+			TotalDoses:     int32(len(bucket.doseKeys)),
 			CapacityStatus: "within_cap",
 		})
 	}

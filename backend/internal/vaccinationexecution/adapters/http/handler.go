@@ -66,6 +66,7 @@ type Writer interface {
 	// left untouched. Callers should treat the returned obligation_id as authoritative rather than
 	// assuming it always equals the path's obligation_id.
 	RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error)
+	UpsertVaccinationDriveDateOverride(ctx context.Context, override domain.VaccineDriveDateOverride) (*domain.VaccineDriveDateOverride, error)
 }
 
 // Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
@@ -107,6 +108,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
 	mux.HandleFunc("GET /vaccination/schedule", h.VaccinationSchedule)
+	mux.HandleFunc("POST /vaccination/schedule/drive-date-overrides", h.UpsertDriveDateOverride)
 	mux.HandleFunc("GET /vaccination/drive-assignments", h.DriveAssignments)
 	mux.HandleFunc("GET /vaccination/sheds", h.ListShedSummary)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
@@ -119,6 +121,98 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
 	mux.HandleFunc("GET /app/vaccination/coverage", h.VaccinationCoverage)
+}
+
+type driveDateOverrideRequest struct {
+	ParkID            string `json:"park_id"`
+	VaccineCode       string `json:"vaccine_code"`
+	OriginalDriveDate string `json:"original_drive_date"`
+	OverrideDate      string `json:"override_date"`
+	Reason            string `json:"reason"`
+}
+
+type driveDateOverrideResponse struct {
+	ParkID            string `json:"park_id"`
+	VaccineCode       string `json:"vaccine_code"`
+	OriginalDriveDate string `json:"original_drive_date"`
+	OverrideDate      string `json:"override_date"`
+	Reason            string `json:"reason"`
+	CreatedBy         string `json:"created_by"`
+	CreatedAt         string `json:"created_at"`
+}
+
+func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request) {
+	if h.writer == nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "override_unavailable", Message: "vaccination drive date override writer is not wired", TraceID: traceID(r)}, nil)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil || len(body) == 0 {
+		h.badRequest(w, r, "invalid_body", "request body is required")
+		return
+	}
+	var req driveDateOverrideRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+		return
+	}
+	if !uuidutil.IsUUIDString(req.ParkID) {
+		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	req.VaccineCode = strings.TrimSpace(req.VaccineCode)
+	if req.VaccineCode == "" {
+		h.badRequest(w, r, "invalid_vaccine_code", "vaccine_code is required")
+		return
+	}
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Reason == "" {
+		h.badRequest(w, r, "invalid_reason", "reason is required")
+		return
+	}
+	original, err := time.ParseInLocation("2006-01-02", req.OriginalDriveDate, biztime.DefaultLocation())
+	if err != nil {
+		h.badRequest(w, r, "invalid_original_drive_date", "original_drive_date must be YYYY-MM-DD")
+		return
+	}
+	overrideDate, err := time.ParseInLocation("2006-01-02", req.OverrideDate, biztime.DefaultLocation())
+	if err != nil {
+		h.badRequest(w, r, "invalid_override_date", "override_date must be YYYY-MM-DD")
+		return
+	}
+	if !overrideDate.After(original) {
+		h.badRequest(w, r, "invalid_override_date", "override_date must postpone the original drive date")
+		return
+	}
+	actorID := strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))
+	if !uuidutil.IsUUIDString(actorID) {
+		h.badRequest(w, r, "missing_actor", "authenticated actor id is required")
+		return
+	}
+	out, err := h.writer.UpsertVaccinationDriveDateOverride(r.Context(), domain.VaccineDriveDateOverride{
+		TenantID:          tenantID(r),
+		ParkID:            req.ParkID,
+		VaccineCode:       req.VaccineCode,
+		OriginalDriveDate: original,
+		OverrideDate:      overrideDate,
+		Reason:            req.Reason,
+		CreatedBy:         actorID,
+		CreatedAt:         h.now(),
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, driveDateOverrideResponse{
+		ParkID:            out.ParkID,
+		VaccineCode:       out.VaccineCode,
+		OriginalDriveDate: out.OriginalDriveDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		OverrideDate:      out.OverrideDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		Reason:            out.Reason,
+		CreatedBy:         out.CreatedBy,
+		CreatedAt:         out.CreatedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
+	})
 }
 
 // VaccinationOperations serves the source-backed cohort × protocol matrix + per-cohort detail for the

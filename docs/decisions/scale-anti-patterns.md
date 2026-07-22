@@ -28,6 +28,13 @@ parallel business roles for the same authority. CEO/CXO full access is a single
 person role creates duplicate authorization branches, duplicated test matrices,
 and stale UI labels.
 
+Vaccination seed scope drift is the same class of bug. A CPT-only rehearsal
+source must not pull in CBE/Coimbatore because a broad fixture once covered both
+parks. Shed partition labels such as `Gandhi 1` or `Godel 1 - Part 3` are not
+new buildings; source audits, fixture guards, seeders, read APIs, and frontend
+tables must aggregate owner/count totals at physical-shed grain and carry the
+partition only as drive-assignment detail.
+
 ## Sub-500ms serving-read budget
 
 Every operator-facing API, SSR page load, dashboard read, schedule/calendar

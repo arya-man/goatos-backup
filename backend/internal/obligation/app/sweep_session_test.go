@@ -18,12 +18,32 @@ func TestSelectIDsWithinVisitShotCapForSessionFiltersUnsafeRows(t *testing.T) {
 	selected, _, err := selectIDsWithinVisitShotCapForSession(planned, []domain.UnbatchedDue{
 		{ObligationID: "expired", TargetID: "goat-1", DueAt: planned, WindowEnd: &expired},
 		{ObligationID: "open", TargetID: "goat-2", DueAt: planned, WindowEnd: &open},
-	}, &planned, planner, "FMD", 5, NewSweepSession())
+	}, &planned, planner, RuleVaccineIdentity{VaccineCode: "FMD", VaccinePriority: 5, VaccineType: "killed"}, NewSweepSession())
 	if err != nil {
 		t.Fatalf("selectIDsWithinVisitShotCapForSession: %v", err)
 	}
 	if !reflect.DeepEqual(selected, []string{"open"}) {
 		t.Fatalf("selected = %#v, want only row still safe on planned date", selected)
+	}
+}
+
+func TestVaccineFeasibleOnPlannerDateBlocksThirdSameDayVaccine(t *testing.T) {
+	planned := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	planner := domain.DefaultDrivePlannerSettings()
+	session := NewSweepSession()
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "ET_TT", VaccineType: "killed"})
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"})
+
+	candidate := driveCandidate{
+		TargetID:  "goat-1",
+		DueAt:     planned,
+		WindowEnd: &planned,
+	}
+	if session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "BLUE_TONGUE", VaccineType: "killed"}) {
+		t.Fatal("third same-day vaccine was feasible; want blocked by max two vaccines per animal session")
+	}
+	if !session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"}) {
+		t.Fatal("same vaccine re-check should not count as a third distinct same-day vaccine")
 	}
 }
 

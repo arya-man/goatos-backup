@@ -57,6 +57,7 @@ type fakeWriter struct {
 	lastRescheduleObl     string
 	lastRescheduleIdemKey string
 	lastAuthorizedParks   []string
+	lastOverride          *obligationdomain.VaccineDriveDateOverride
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -151,6 +152,39 @@ func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obl
 		id = obligationID
 	}
 	return id, w.rescheduleReplay, nil
+}
+
+func (w *fakeWriter) UpsertVaccinationDriveDateOverride(ctx context.Context, override obligationdomain.VaccineDriveDateOverride) (*obligationdomain.VaccineDriveDateOverride, error) {
+	w.lastOverride = &override
+	return &override, nil
+}
+
+func TestUpsertDriveDateOverrideRequiresActorAndPostpone(t *testing.T) {
+	const testTenantID = "00000000-0000-4000-8000-000000000001"
+	writer := &fakeWriter{}
+	h := NewHandler(&fakeReader{}, writer).WithClock(func() time.Time {
+		return time.Date(2026, 7, 22, 9, 0, 0, 0, biztime.DefaultLocation())
+	})
+	body := `{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-01","override_date":"2026-08-08","reason":"CEO postponement"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	rec := httptest.NewRecorder()
+
+	h.UpsertDriveDateOverride(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if writer.lastOverride == nil || writer.lastOverride.VaccineCode != "PPR" || writer.lastOverride.CreatedBy == "" {
+		t.Fatalf("override not carried: %#v", writer.lastOverride)
+	}
+
+	bad := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-08","override_date":"2026-08-01","reason":"bad"}`))
+	bad = bad.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(bad.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	badRec := httptest.NewRecorder()
+	h.UpsertDriveDateOverride(badRec, bad)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("bad status=%d body=%s", badRec.Code, badRec.Body.String())
+	}
 }
 
 func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {

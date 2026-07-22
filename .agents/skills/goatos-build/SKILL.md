@@ -128,6 +128,15 @@ Permanent scale and guard-authoring rules:
   Review SQL joins at exact assignment grain so multiple operators, planned
   dates, or partitions cannot multiply counts or expose another operator's
   partition work.
+- Shed partition labels are not canonical sheds. `Gandhi 1`, `Gandhi 2`, and
+  `Godel 1 - Part 3` must normalize to physical-shed owner/count rows plus
+  partition metadata. CPT-only rehearsal seeds must not pull CBE/Coimbatore
+  into HRMS, parks, APIs, or UI just because the full fixture has both centers.
+  Strict source-backed shed ownership applies to active sheds that contain live
+  source goats; empty baseline catalog sheds are not vaccination drive truth.
+  In the reviewed CPT roster, Preventive Care Manager, Backup Manager, and Park
+  Head are all vaccination operators; do not treat Backup Manager/Sagar as
+  support-only for drive assignment.
 - Vaccination operator availability/capacity is a sweep-session fact. Load it
   once per `(tenant, park, business_date, cap_per_operator)` and pass/cache it
   through date scoring, `ConductedBy` selection, effective cap calculation, and

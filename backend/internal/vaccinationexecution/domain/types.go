@@ -292,6 +292,9 @@ type DriveAssignmentRow struct {
 	PhysicalShed   string         `json:"physicalShed"`
 	PartitionLabel string         `json:"partitionLabel"`
 	Animals        int            `json:"animals"`
+	VaccineNames   []string       `json:"vaccineNames"`
+	VaccineCodes   []string       `json:"vaccineCodes"`
+	TotalDoses     int            `json:"totalDoses"`
 	Capacity       CapacityStatus `json:"capacity"`
 }
 

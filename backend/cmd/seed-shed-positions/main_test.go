@@ -55,7 +55,7 @@ TEST_CBE_A,CBE A,TEST_CBE,TEST-CBE-PC,CBE Preventive Manager,reviewed,test-revie
 		t.Fatalf("write mapping: %v", err)
 	}
 
-	st, err := applyMapping(ctx, pool, shedPositionTenant, mappingPath, true)
+	st, err := applyMapping(ctx, pool, shedPositionTenant, mappingPath, true, false)
 	if err != nil {
 		t.Fatalf("applyMapping: %v", err)
 	}
