@@ -114,8 +114,18 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: begin vaccination drive date override tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
 	var out domain.VaccineDriveDateOverride
-	err = r.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 INSERT INTO vaccination_drive_date_overrides (
   tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -132,7 +142,121 @@ RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, ove
 	if err != nil {
 		return nil, fmt.Errorf("obligation: upsert vaccination drive date override: %w", err)
 	}
+	if err := splitVaccinationDriveAssignmentsForDateOverrideTx(ctx, tx, tenant, park, vaccineCode, original, next); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("obligation: commit vaccination drive date override: %w", err)
+	}
+	committed = true
 	return &out, nil
+}
+
+func splitVaccinationDriveAssignmentsForDateOverrideTx(ctx context.Context, tx pgx.Tx, tenant, park pgtype.UUID, vaccineCode string, original, next time.Time) error {
+	tag, err := tx.Exec(ctx, `
+WITH moved_rules AS (
+  SELECT COALESCE(array_agg(DISTINCT rule_id ORDER BY rule_id), '{}'::uuid[]) AS rule_ids
+  FROM protocol_rule_dimensions
+  WHERE tenant_id = $1
+    AND lower(btrim(vaccine_code)) = lower(btrim($3))
+),
+affected AS (
+  SELECT
+    vda.assignment_id,
+    vda.batch_id,
+    vda.operator_id,
+    vda.park_id,
+    vda.shed_id,
+    vda.physical_shed,
+    vda.partition_label,
+    vda.animal_count,
+    vda.capacity_status,
+    vda.warnings,
+    ARRAY(
+      SELECT DISTINCT rule_id
+      FROM unnest(vda.vaccine_rule_ids) AS rule_ids(rule_id)
+      WHERE rule_id = ANY(moved_rules.rule_ids)
+      ORDER BY rule_id
+    ) AS moved_rule_ids,
+    ARRAY(
+      SELECT DISTINCT rule_id
+      FROM unnest(vda.vaccine_rule_ids) AS rule_ids(rule_id)
+      WHERE NOT (rule_id = ANY(moved_rules.rule_ids))
+      ORDER BY rule_id
+    ) AS remaining_rule_ids
+  FROM vaccination_drive_assignments vda
+  CROSS JOIN moved_rules
+  WHERE vda.tenant_id = $1
+    AND vda.park_id = $2
+    AND vda.planned_date = $4
+    AND vda.vaccine_rule_ids && moved_rules.rule_ids
+),
+remaining AS (
+  UPDATE vaccination_drive_assignments vda
+  SET vaccine_rule_ids = affected.remaining_rule_ids,
+      total_doses = vda.animal_count * cardinality(affected.remaining_rule_ids),
+      updated_at = now()
+  FROM affected
+  WHERE vda.assignment_id = affected.assignment_id
+    AND cardinality(affected.remaining_rule_ids) > 0
+  RETURNING affected.assignment_id
+),
+deleted AS (
+  DELETE FROM vaccination_drive_assignments vda
+  USING affected
+  WHERE vda.assignment_id = affected.assignment_id
+    AND cardinality(affected.remaining_rule_ids) = 0
+  RETURNING affected.assignment_id
+)
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+  physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses
+)
+SELECT
+  $1,
+  affected.batch_id,
+  $5,
+  affected.operator_id,
+  affected.park_id,
+  affected.shed_id,
+  affected.physical_shed,
+  affected.partition_label,
+  affected.animal_count,
+  affected.capacity_status,
+  affected.warnings,
+  affected.moved_rule_ids,
+  affected.animal_count * cardinality(affected.moved_rule_ids)
+FROM affected
+WHERE cardinality(affected.moved_rule_ids) > 0
+ON CONFLICT (
+  tenant_id,
+  batch_id,
+  planned_date,
+  park_id,
+  COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  physical_shed,
+  partition_label,
+  COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
+)
+DO UPDATE SET
+  vaccine_rule_ids = (
+    SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
+    FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
+  ),
+  animal_count = EXCLUDED.animal_count,
+  total_doses = EXCLUDED.animal_count * cardinality((
+    SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
+    FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
+  )),
+  capacity_status = EXCLUDED.capacity_status,
+  warnings = EXCLUDED.warnings,
+  updated_at = now()`,
+		tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(original), businessDateOnly(next))
+	if err != nil {
+		return fmt.Errorf("obligation: split vaccination drive assignments for date override: %w", err)
+	}
+	_ = tag
+	return nil
 }
 
 func (r *Repository) ActiveVaccinationDriveDateOverride(ctx context.Context, tenantID, parkID, vaccineCode string, originalDate time.Time) (*domain.VaccineDriveDateOverride, error) {

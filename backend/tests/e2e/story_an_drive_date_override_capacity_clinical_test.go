@@ -138,6 +138,12 @@ WHERE tenant_id=$1 AND protocol_version_id IN ($2::uuid, $3::uuid)`, fxTenant, v
 		batchedOnDateAN(fx, versionByDose["ettt"], original) == 3, "count=%d", batchedOnDateAN(fx, versionByDose["ettt"], original))
 	story.Assert("PPR has no batch left on the original date",
 		batchedOnDateAN(fx, versionByDose["ppr"], original) == 0, "count=%d", batchedOnDateAN(fx, versionByDose["ppr"], original))
+	story.Assert("PPR has no raw assignment membership left on the original date",
+		assignmentAnimalsAN(fx, original, ruleByDose["ppr"]) == 0,
+		"assignment_animals=%d", assignmentAnimalsAN(fx, original, ruleByDose["ppr"]))
+	story.Assert("ET+TT raw assignment membership still remains on the original date",
+		assignmentAnimalsAN(fx, original, ruleByDose["ettt"]) == 3,
+		"assignment_animals=%d", assignmentAnimalsAN(fx, original, ruleByDose["ettt"]))
 	story.Assert("PPR moved to override date for exactly three eligible goats",
 		batchedOnDateAN(fx, versionByDose["ppr"], override) == 3, "count=%d", batchedOnDateAN(fx, versionByDose["ppr"], override))
 	story.Assert("deferred goats were not batched on either date",

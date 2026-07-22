@@ -600,6 +600,92 @@ ORDER BY operator_id`, tenantID, batchID)
 	}
 }
 
+func TestUpsertVaccinationDriveDateOverrideSplitsMixedRawAssignmentMembership(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.assignmentoverride", 2)
+
+	const goatID = "10000000-0000-4000-8000-00000000f321"
+	const shedID = "00000000-0000-4000-8000-00000000d321"
+	const operatorA = "20000000-0000-4000-8000-000000000321"
+	const operatorB = "20000000-0000-4000-8000-000000000322"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "assignment-override-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO protocol_rule_dimensions (
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+) VALUES
+  ($1, $2, $3, 'vaccination', 'assignment-override-ettt', 'et_tt_adult_w2', 'ET_TT'),
+  ($1, $4, $5, 'vaccination', 'assignment-override-ppr', 'ppr_adult_w1', 'PPR')
+ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
+  vaccine_code = EXCLUDED.vaccine_code,
+  dose_code = EXCLUDED.dose_code`,
+		tenantID, versions[0].versionID, versions[0].ruleID, versions[1].versionID, versions[1].ruleID); err != nil {
+		t.Fatalf("seed rule dimensions: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES
+  ($1, $3, 'OP-A', 'Operator A', 'active', 'operator'),
+  ($2, $3, 'OP-B', 'Operator B', 'active', 'operator')`,
+		operatorA, operatorB, tenantID); err != nil {
+		t.Fatalf("seed operators: %v", err)
+	}
+
+	planned := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	override := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	_, batchID := seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, planned, planned, "assignment-override")
+	assignments := []domain.DriveAssignment{
+		{
+			BatchID: batchID, PlannedDate: planned, OperatorID: testStringPtr(operatorA), ParkID: cbePark, ShedID: testStringPtr(shedID),
+			PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 26, VaccineRuleIDs: []string{versions[0].ruleID, versions[1].ruleID},
+			TotalDoses: 52, CapacityStatus: "within_cap",
+		},
+		{
+			BatchID: batchID, PlannedDate: planned, OperatorID: testStringPtr(operatorB), ParkID: cbePark, ShedID: testStringPtr(shedID),
+			PhysicalShed: "Gandhi", PartitionLabel: "2", AnimalCount: 24, VaccineRuleIDs: []string{versions[0].ruleID},
+			TotalDoses: 24, CapacityStatus: "within_cap",
+		},
+	}
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, assignments); err != nil {
+		t.Fatalf("UpsertVaccinationDriveAssignments: %v", err)
+	}
+
+	if _, err := repo.UpsertVaccinationDriveDateOverride(ctx, domain.VaccineDriveDateOverride{
+		TenantID: tenantID, ParkID: cbePark, VaccineCode: "PPR", OriginalDriveDate: planned, OverrideDate: override,
+		Reason: "admin moves PPR", CreatedBy: operatorA,
+	}); err != nil {
+		t.Fatalf("UpsertVaccinationDriveDateOverride: %v", err)
+	}
+
+	originalPPR := countRows(t, ctx, pool, `
+SELECT COALESCE(sum(animal_count), 0)::int
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND planned_date=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenantID, planned, versions[1].ruleID)
+	if originalPPR != 0 {
+		t.Fatalf("original-date PPR raw assignment animals = %d, want 0", originalPPR)
+	}
+	originalETTT := countRows(t, ctx, pool, `
+SELECT COALESCE(sum(animal_count), 0)::int
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND planned_date=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenantID, planned, versions[0].ruleID)
+	if originalETTT != 50 {
+		t.Fatalf("original-date ET+TT raw assignment animals = %d, want 50", originalETTT)
+	}
+	overridePPR := countRows(t, ctx, pool, `
+SELECT COALESCE(sum(animal_count), 0)::int
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND planned_date=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenantID, override, versions[1].ruleID)
+	if overridePPR != 26 {
+		t.Fatalf("override-date PPR raw assignment animals = %d, want 26", overridePPR)
+	}
+}
+
 func testStringPtr(value string) *string {
 	return &value
 }
