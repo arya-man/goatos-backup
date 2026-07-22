@@ -119,11 +119,19 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	// Session 0 means "every session"; a present-but-invalid session is rejected, not widened --
+	// same contract as the preview.
+	sessionNo, err := boundedIntParam(query, "session", 0, 0, 99)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
 
 	page, err := h.service.PackingWorklist(r.Context(), domain.PackingQuery{
 		TenantID:   tenantID,
 		ParkID:     strings.TrimSpace(query.Get("park_id")),
 		TargetDate: targetDate,
+		SessionNo:  sessionNo,
 		Workflow:   strings.TrimSpace(query.Get("workflow")),
 		Draft:      parseDraft(query),
 		Limit:      limit,

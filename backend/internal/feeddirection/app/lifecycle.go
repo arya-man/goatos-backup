@@ -231,6 +231,10 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		return s.servePackingGenerated(ctx, q, feedDay)
 	}
 
+	// Session filter (worklist has no shed filter, so the shedID arg is empty). Applied to the whole
+	// frozen scope before paging + summary, so both the page and the summary describe the same session.
+	scopeRows = filterPreviewRows(scopeRows, "", q.SessionNo)
+
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
@@ -352,6 +356,7 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		tenantID:   q.TenantID,
 		parkID:     q.ParkID,
 		targetDate: q.TargetDate,
+		sessionNo:  q.SessionNo,
 		limit:      MaxShedPageLimit,
 	})
 	if err != nil {

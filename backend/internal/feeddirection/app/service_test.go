@@ -33,8 +33,9 @@ type fakeConfigRepo struct {
 	// CONSTANT number of reads regardless of how many sheds or grains are on the page. A counter
 	// that scales with the page is the N+1 fan-out the scale rules ban -- and it is invisible to a
 	// raw-driver check, because the query sits an adapter layer below the loop.
-	snapshotCalls int
-	shedCalls     int
+	snapshotCalls        int
+	shedCalls            int
+	sessionTemplateCalls int
 
 	lastShedQuery ports.ShedScopeQuery
 	shedQueries   []ports.ShedScopeQuery
@@ -61,6 +62,16 @@ func (f *fakeConfigRepo) LoadConfigSnapshot(_ context.Context, _, _ string, asOf
 		return domain.ConfigSnapshot{}, f.err
 	}
 	return f.snapshot, nil
+}
+
+func (f *fakeConfigRepo) ListSessionTemplates(_ context.Context, _, _ string, _ time.Time) ([]domain.SessionTemplate, error) {
+	f.sessionTemplateCalls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	// Mirror the snapshot's own session split so the filter vocabulary matches what the sheet can
+	// contain, without counting as a snapshot read.
+	return f.snapshot.Sessions, nil
 }
 
 func (f *fakeConfigRepo) ListShedScope(_ context.Context, q ports.ShedScopeQuery) (ports.ShedScope, error) {
@@ -369,6 +380,78 @@ func TestPackingSummaryIsInvariantToPageSize(t *testing.T) {
 			if total.QuantityKg != want.TotalKgByFeedItem[j].QuantityKg {
 				t.Errorf("summary[%d] %s store draw = %s kg, want %s kg -- the draw shrank with the page size",
 					i, total.FeedItem, total.QuantityKg, want.TotalKgByFeedItem[j].QuantityKg)
+			}
+		}
+	}
+}
+
+// The packing worklist honours the session filter: session=1 returns only session-1 lines, exactly
+// as the preview does. The test snapshot is 2 sheds x 2 sessions (Morning=1, Evening=2), so an
+// unfiltered worklist is 4 lines and session=1 is 2.
+func TestPackingWorklistFiltersBySession(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+
+	all, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist(all sessions): %v", err)
+	}
+	if len(all.Items) != 4 {
+		t.Fatalf("unfiltered worklist = %d lines, want 4 (2 sheds x 2 sessions)", len(all.Items))
+	}
+
+	one, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), SessionNo: 1, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist(session=1): %v", err)
+	}
+	if len(one.Items) != 2 {
+		t.Fatalf("session=1 worklist = %d lines, want 2 (2 sheds x 1 session)", len(one.Items))
+	}
+	for _, row := range one.Items {
+		if row.SessionNo != 1 {
+			t.Fatalf("session=1 filter returned a session %d line: %+v", row.SessionNo, row)
+		}
+	}
+	// The summary follows the filter too, so it never over-reports the store draw for one session.
+	if one.Summary.LineCount != 2 {
+		t.Fatalf("session=1 summary line_count = %d, want 2", one.Summary.LineCount)
+	}
+}
+
+// The feed read exposes the served park's session split as backend-owned filter vocabulary, on both
+// surfaces, so the client renders its session picker from the contract and holds no session list of
+// its own (the golden frontend rule).
+func TestFeedFiltersExposeSessionVocabulary(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+
+	preview, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	packing, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist: %v", err)
+	}
+	want := []domain.FeedFilterSession{{SessionNo: 1, Label: "Morning"}, {SessionNo: 2, Label: "Evening"}}
+	for name, got := range map[string][]domain.FeedFilterSession{
+		"preview": preview.Filters.Sessions,
+		"packing": packing.Filters.Sessions,
+	} {
+		if len(got) != len(want) {
+			t.Fatalf("%s sessions = %+v, want %+v", name, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s sessions[%d] = %+v, want %+v", name, i, got[i], want[i])
 			}
 		}
 	}

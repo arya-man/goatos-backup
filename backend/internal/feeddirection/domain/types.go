@@ -150,6 +150,9 @@ type PackingQuery struct {
 	TenantID   string
 	ParkID     string
 	TargetDate time.Time
+	// SessionNo optionally narrows the worklist to a single feeding session. Zero means every
+	// session, mirroring PreviewQuery.SessionNo.
+	SessionNo int32
 	// Workflow optionally narrows the served issue to one dispatch workflow. Empty means both.
 	Workflow string
 	// Draft live-computes the worklist without touching any issue. See PreviewQuery.Draft.
@@ -404,9 +407,19 @@ type FeedFilterShed struct {
 // park_id, or — when the request omitted park_id — the default park the server selected, so the
 // client can show the right park as active without guessing.
 type FeedFilterOptions struct {
-	ServedParkID string           `json:"served_park_id"`
-	Parks        []FeedFilterPark `json:"parks"`
-	Sheds        []FeedFilterShed `json:"sheds"`
+	ServedParkID string              `json:"served_park_id"`
+	Parks        []FeedFilterPark    `json:"parks"`
+	Sheds        []FeedFilterShed    `json:"sheds"`
+	Sessions     []FeedFilterSession `json:"sessions"`
+}
+
+// FeedFilterSession is one feeding session in the served park's active split (session 1, session 2,
+// ...), the backend-owned vocabulary a client renders its session picker from. The label is the
+// authored session_label; the number is what the client sends back as the `session` filter param.
+// Ordered by display order then session number, matching the generator's own iteration order.
+type FeedFilterSession struct {
+	SessionNo int32  `json:"session_no"`
+	Label     string `json:"label"`
 }
 
 // FeedItemTotal is one feed item's page total. A slice of pairs rather than a map so the order is

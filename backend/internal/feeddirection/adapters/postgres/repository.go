@@ -251,6 +251,35 @@ func (r *Repository) LoadConfigSnapshot(ctx context.Context, tenantID, parkID st
 	return snapshot, nil
 }
 
+// ListSessionTemplates returns ONLY the park's active feeding-session split (session_no + label) for
+// the session-filter vocabulary. A dedicated tiny read (~2 rows), deliberately not the full config
+// snapshot -- see the port doc. It reuses the same active-session query loadSessions runs, minus the
+// split fraction and slot items the vocabulary does not need. status='active' with no valid_from/to
+// window matches loadSessions exactly.
+func (r *Repository) ListSessionTemplates(ctx context.Context, tenantID, parkID string, _ time.Time) ([]domain.SessionTemplate, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT session_no, session_label
+FROM feed_session_templates
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND status = 'active'
+ORDER BY display_order, session_no`, tenantID, parkID)
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: list session templates: %w", err)
+	}
+	defer rows.Close()
+	sessions := make([]domain.SessionTemplate, 0, 4)
+	for rows.Next() {
+		var session domain.SessionTemplate
+		if err := rows.Scan(&session.SessionNo, &session.Label); err != nil {
+			return nil, fmt.Errorf("feeddirection: scan session template: %w", err)
+		}
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
 func (r *Repository) loadParkLabel(ctx context.Context, snapshot *domain.ConfigSnapshot, tenantID, parkID string) error {
 	err := r.pool.QueryRow(ctx, `
 SELECT COALESCE(NULLIF(location_code, ''), name, '')
