@@ -61,6 +61,11 @@ function partitionLabel(pageContract: AdminUiPageContract, label: string): strin
   return /^part\b/i.test(trimmed) ? trimmed : `${copy(pageContract, "schedule.partition.prefix")} ${trimmed}`;
 }
 
+function shedPartitionTitle(pageContract: AdminUiPageContract, shed: OperatorDayScheduleRow["sheds"][number]): string {
+  const partitions = shed.partitions.map((partition) => `${partitionLabel(pageContract, partition.label)} ${partition.animals}`);
+  return partitions.length > 0 ? `${shed.name}: ${partitions.join(", ")}` : shed.name;
+}
+
 function capacityRank(status: string): number {
   if (status === "over_cap_required" || status === "capacity_breach") return 3;
   if (status === "capacity_action") return 2;
@@ -69,6 +74,17 @@ function capacityRank(status: string): number {
 
 function strongerCapacity(left: string, right: string): string {
   return capacityRank(right) > capacityRank(left) ? right : left;
+}
+
+function workloadTone(capacity: string): string {
+  if (capacityRank(capacity) >= 3) return "tone-danger";
+  if (capacity === "capacity_action") return "tone-warn";
+  return "tone-ok";
+}
+
+function workloadWidth(totalDoses: number, maxTotalDoses: number): string {
+  const percentage = Math.round((Math.max(0, totalDoses) / Math.max(1, maxTotalDoses)) * 100);
+  return `${Math.max(4, Math.min(100, percentage))}%`;
 }
 
 function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRow[] {
@@ -189,10 +205,8 @@ export function VaccinationFullScheduleSkeleton({
                 <th>{copy(pageContract, "schedule.column.operator")}</th>
                 <th>{copy(pageContract, "schedule.column.park")}</th>
                 <th>{copy(pageContract, "schedule.column.shed")}</th>
-                <th>{copy(pageContract, "schedule.column.partition")}</th>
                 <th>{copy(pageContract, "schedule.column.vaccines")}</th>
-                <th className="num">{copy(pageContract, "schedule.column.animals")}</th>
-                <th className="num">{copy(pageContract, "schedule.column.total_doses")}</th>
+                <th>{copy(pageContract, "schedule.column.workload")}</th>
                 <th>{copy(pageContract, "schedule.column.capacity")}</th>
                 <th>{copy(pageContract, "schedule.column.postpone")}</th>
               </tr>
@@ -200,7 +214,7 @@ export function VaccinationFullScheduleSkeleton({
             <tbody>
               {Array.from({ length: 5 }, (_, row) => (
                 <tr key={row}>
-                  {Array.from({ length: 9 }, (_, col) => (
+                  {Array.from({ length: 8 }, (_, col) => (
                     <td key={col}>
                       <span className="skel" style={{ width: col === 5 ? 48 : 96, height: 16 }} />
                     </td>
@@ -234,6 +248,7 @@ export async function VaccinationFullSchedule({
   const parks = new Set(rows.map((row) => row.parkId).filter(Boolean));
   const sheds = new Set(rows.map((row) => `${row.parkId}|${row.physicalShed}`).filter(Boolean));
   const animals = rows.reduce((sum, row) => sum + row.animals, 0);
+  const maxOperatorDayDoses = Math.max(1, ...operatorDayRows.map((row) => row.totalDoses));
 
   function yearHref(nextYear: number) {
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(month) });
@@ -326,10 +341,8 @@ export async function VaccinationFullSchedule({
                 <th>{copy(pageContract, "schedule.column.operator")}</th>
                 <th>{copy(pageContract, "schedule.column.park")}</th>
                 <th>{copy(pageContract, "schedule.column.sheds")}</th>
-                <th>{copy(pageContract, "schedule.column.partition")}</th>
                 <th>{copy(pageContract, "schedule.column.vaccines")}</th>
-                <th className="num">{copy(pageContract, "schedule.column.animals")}</th>
-                <th className="num">{copy(pageContract, "schedule.column.total_doses")}</th>
+                <th>{copy(pageContract, "schedule.column.workload")}</th>
                 <th>{copy(pageContract, "schedule.column.capacity")}</th>
                 <th>{copy(pageContract, "schedule.column.postpone")}</th>
               </tr>
@@ -348,22 +361,11 @@ export async function VaccinationFullSchedule({
                   <td className="schedule-shed-cell">
                     <div className="operator-day-sheds">
                       {row.sheds.map((shed) => (
-                        <span key={shed.name} className="operator-day-shed">
+                        <span key={shed.name} className="operator-day-shed" title={shedPartitionTitle(pageContract, shed)}>
                           <b>{shed.name}</b>
                           <span className="muted">{shed.animals}</span>
                         </span>
                       ))}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="operator-day-partitions">
-                      {row.sheds.flatMap((shed) =>
-                        shed.partitions.map((partition) => (
-                          <Tag key={`${shed.name}|${partition.label}`} tone="info" title={`${shed.name} · ${partition.animals}`}>
-                            {partitionLabel(pageContract, partition.label)}
-                          </Tag>
-                        )),
-                      )}
                     </div>
                   </td>
                   <td>
@@ -373,8 +375,21 @@ export async function VaccinationFullSchedule({
                       ))}
                     </div>
                   </td>
-                  <td className="num"><b>{row.animals}</b></td>
-                  <td className="num"><b>{row.totalDoses}</b></td>
+                  <td>
+                    <div className="schedule-load-card operator-workload-card">
+                      <div className="schedule-load-head">
+                        <span className="schedule-load-total">{row.totalDoses}</span>
+                        <span className="schedule-load-total-label">{copy(pageContract, "schedule.unit.doses")}</span>
+                        <span className="schedule-load-goats">{row.animals} {copy(pageContract, "schedule.unit.animals")}</span>
+                      </div>
+                      <div className="schedule-load-bar" aria-hidden="true">
+                        <span
+                          className={`schedule-load-seg ${workloadTone(row.capacity)}`}
+                          style={{ flexBasis: workloadWidth(row.totalDoses, maxOperatorDayDoses) }}
+                        />
+                      </div>
+                    </div>
+                  </td>
                   <td><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></td>
                   <td>
                     <form action={postponeDriveDateAction} className="schedule-postpone-form">
