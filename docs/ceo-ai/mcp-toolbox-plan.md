@@ -135,6 +135,9 @@ The operator drive ledger is `/vaccination/drive-assignments`; the shed board
 summary is `/vaccination/sheds` with `driveOperatorNames`. Assistant tools must
 treat those read APIs as the source of truth for who owns a vaccination drive on
 a date, including physical shed and partition labels.
+Bootstrap scope copy is also backend-owned: leadership assistant and MCP tool
+summaries should read the active park count from the admin bootstrap contract
+rather than hardcoding CPT/CBE park lists or singular/plural labels.
 
 ## Current Backend Context
 
