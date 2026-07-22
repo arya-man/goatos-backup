@@ -475,6 +475,30 @@ type CountSourceImportRun struct {
 	UpdatedAt              pgtype.Timestamptz
 }
 
+type CountsApprovalRequest struct {
+	ApprovalRequestID          pgtype.UUID
+	TenantID                   pgtype.UUID
+	RequestType                string
+	Payload                    []byte
+	ShiftingEventID            pgtype.UUID
+	SubjectGoatID              pgtype.UUID
+	Status                     string
+	RaisedByUserID             pgtype.UUID
+	RaisedAt                   pgtype.Timestamptz
+	DecidedByUserID            pgtype.UUID
+	DecidedAt                  pgtype.Timestamptz
+	DecisionReason             pgtype.Text
+	AppliedResultType          pgtype.Text
+	AppliedResultID            pgtype.UUID
+	IdempotencyKey             string
+	RequestFingerprint         string
+	DecisionIdempotencyKey     pgtype.Text
+	DecisionRequestFingerprint pgtype.Text
+	RowVersion                 int32
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+}
+
 type CountsShiftingReadinessEvidence struct {
 	CountsShiftingReadinessEvidenceID pgtype.UUID
 	TenantID                          pgtype.UUID
@@ -508,6 +532,16 @@ type Department struct {
 	UpdatedAt    pgtype.Timestamptz
 }
 
+type DepartmentModuleGrant struct {
+	DepartmentModuleGrantID pgtype.UUID
+	TenantID                pgtype.UUID
+	DepartmentID            pgtype.UUID
+	ModuleKey               string
+	Status                  string
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
 type DomainEventProcessedEvent struct {
 	TenantID        pgtype.UUID
 	SubscriptionID  string
@@ -536,6 +570,34 @@ type FarmProfile struct {
 	UpdatedAt  pgtype.Timestamptz
 }
 
+type FeedConfigWriteLog struct {
+	FeedConfigWriteID  pgtype.UUID
+	TenantID           pgtype.UUID
+	WriteKind          string
+	IdempotencyKey     string
+	RequestFingerprint string
+	Outcome            string
+	ResultRowID        pgtype.UUID
+	SupersededRowID    pgtype.UUID
+	EffectiveFrom      pgtype.Date
+	ActorRef           string
+	CreatedAt          pgtype.Timestamptz
+}
+
+type FeedConversion struct {
+	ConversionID  pgtype.UUID
+	TenantID      pgtype.UUID
+	FromItemLabel string
+	FromItemKey   pgtype.Text
+	ToItemLabel   string
+	ToItemKey     pgtype.Text
+	Ratio         pgtype.Numeric
+	Notes         pgtype.Text
+	Status        string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type FeedDirectionCompletion struct {
 	CompletionID            pgtype.UUID
 	TenantID                pgtype.UUID
@@ -558,6 +620,195 @@ type FeedDirectionCompletion struct {
 	RowVersion              int32
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
+}
+
+type FeedDirectionIssue struct {
+	FeedDirectionIssueID       pgtype.UUID
+	TenantID                   pgtype.UUID
+	ParkID                     pgtype.UUID
+	FeedDay                    pgtype.Date
+	Workflow                   string
+	State                      string
+	IssuedAt                   pgtype.Timestamptz
+	AmendedAt                  pgtype.Timestamptz
+	LockedAt                   pgtype.Timestamptz
+	GenerationInputFingerprint string
+	IdempotencyKey             string
+	RequestFingerprint         string
+	SourceContract             string
+	SourceContractVersion      string
+	AmendmentCount             int32
+	GeneratedBy                string
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+}
+
+type FeedDirectionIssueRow struct {
+	FeedDirectionIssueRowID pgtype.UUID
+	TenantID                pgtype.UUID
+	FeedDirectionIssueID    pgtype.UUID
+	ParkID                  pgtype.UUID
+	ParkLabel               string
+	ShedID                  pgtype.UUID
+	ShedLabel               string
+	ShedTag                 string
+	ShedTagKey              pgtype.Text
+	Breed                   string
+	BreedKey                pgtype.Text
+	RationGroup             string
+	ExperimentArm           string
+	SessionNo               int32
+	SessionLabel            string
+	HeadCount               int64
+	HeadCountInformational  bool
+	Workflow                string
+	FeedItemLabel           string
+	FeedItemKey             pgtype.Text
+	QuantityKg              pgtype.Numeric
+	GramsPerHead            pgtype.Numeric
+	ShedFactor              pgtype.Numeric
+	BlockedReasonCode       pgtype.Text
+	BlockedReasonDetail     pgtype.Text
+	SessionTotalKg          pgtype.Numeric
+	OverduePending          bool
+	RowSeq                  int32
+	ItemSeq                 int32
+	Amended                 bool
+	AmendedAt               pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
+type FeedExperimentConfig struct {
+	ExperimentConfigID pgtype.UUID
+	TenantID           pgtype.UUID
+	ParkID             pgtype.UUID
+	ShedID             pgtype.UUID
+	FeedItemLabel      string
+	FeedItemKey        pgtype.Text
+	AbsoluteKg         pgtype.Numeric
+	HeadCount          pgtype.Int4
+	ExperimentCategory string
+	Notes              pgtype.Text
+	Status             string
+	CreatedBy          pgtype.UUID
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type FeedItemCatalog struct {
+	FeedItemID      pgtype.UUID
+	TenantID        pgtype.UUID
+	FeedItemLabel   string
+	FeedItemKey     pgtype.Text
+	EnergyKcalPerKg pgtype.Numeric
+	DryMatterFactor pgtype.Numeric
+	WastageFactor   pgtype.Numeric
+	DisplayOrder    int32
+	Status          string
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type FeedRationGroup struct {
+	RationGroupID    pgtype.UUID
+	TenantID         pgtype.UUID
+	BreedLabel       string
+	BreedKey         pgtype.Text
+	RationGroupLabel string
+	RationGroupKey   pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type FeedRationRate struct {
+	RationRateID     pgtype.UUID
+	TenantID         pgtype.UUID
+	ParkID           pgtype.UUID
+	RationGroupLabel string
+	RationGroupKey   pgtype.Text
+	ShedTagLabel     string
+	ShedTagKey       pgtype.Text
+	FeedItemLabel    string
+	FeedItemKey      pgtype.Text
+	GramsPerHead     pgtype.Numeric
+	ValidFrom        pgtype.Date
+	ValidTo          pgtype.Date
+	SourceSystem     string
+	CreatedBy        pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type FeedScheduleConfig struct {
+	FeedScheduleConfigID pgtype.UUID
+	TenantID             pgtype.UUID
+	ParkID               pgtype.UUID
+	Workflow             string
+	DirectionTime        pgtype.Time
+	CorrectionTime       pgtype.Time
+	TransportTime        pgtype.Time
+	ValidFrom            pgtype.Date
+	ValidTo              pgtype.Date
+	CreatedBy            pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type FeedSessionTemplate struct {
+	SessionTemplateID pgtype.UUID
+	TenantID          pgtype.UUID
+	ParkID            pgtype.UUID
+	SessionNo         int32
+	SessionLabel      string
+	SplitFraction     pgtype.Numeric
+	DisplayOrder      int32
+	Status            string
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type FeedSessionTemplateItem struct {
+	SessionTemplateItemID pgtype.UUID
+	TenantID              pgtype.UUID
+	ParkID                pgtype.UUID
+	SessionNo             int32
+	SlotNo                int32
+	FeedItemLabel         string
+	FeedItemKey           pgtype.Text
+	Status                string
+	ValidFrom             pgtype.Date
+	ValidTo               pgtype.Date
+	CreatedBy             pgtype.UUID
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type FeedShedFactor struct {
+	ShedFactorID  pgtype.UUID
+	TenantID      pgtype.UUID
+	ParkID        pgtype.UUID
+	ShedID        pgtype.UUID
+	FeedItemLabel string
+	FeedItemKey   pgtype.Text
+	Multiplier    pgtype.Numeric
+	ValidFrom     pgtype.Date
+	ValidTo       pgtype.Date
+	CreatedBy     pgtype.UUID
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type FeedShedTag struct {
+	ShedTagID    pgtype.UUID
+	TenantID     pgtype.UUID
+	ShedTagLabel string
+	ShedTagKey   pgtype.Text
+	AppliesTo    string
+	DisplayOrder int32
+	Status       string
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
 }
 
 type Goat struct {
@@ -1553,31 +1804,40 @@ type ShedProfile struct {
 }
 
 type ShiftingEvent struct {
-	ShiftingEventID         pgtype.UUID
-	TenantID                pgtype.UUID
-	LogicalShiftingEventKey string
-	Priority                string
-	Category                string
-	SourceParkID            pgtype.UUID
-	SourceShedID            pgtype.UUID
-	DestinationParkID       pgtype.UUID
-	DestinationShedID       pgtype.UUID
-	RaisedAt                pgtype.Timestamptz
-	EffectiveAt             pgtype.Timestamptz
-	AuthorizedAt            pgtype.Timestamptz
-	AuthorizedBy            pgtype.UUID
-	AuthorizationState      string
-	VerificationState       string
-	EventStatus             string
-	SourceSystem            string
-	SourceRef               string
-	ProofRef                pgtype.Text
-	PayloadHash             string
-	IdempotencyKey          string
-	RequestFingerprint      string
-	CreatedAt               pgtype.Timestamptz
-	UpdatedAt               pgtype.Timestamptz
-	RowVersion              int32
+	ShiftingEventID              pgtype.UUID
+	TenantID                     pgtype.UUID
+	LogicalShiftingEventKey      string
+	Priority                     string
+	Category                     string
+	SourceParkID                 pgtype.UUID
+	SourceShedID                 pgtype.UUID
+	DestinationParkID            pgtype.UUID
+	DestinationShedID            pgtype.UUID
+	RaisedAt                     pgtype.Timestamptz
+	EffectiveAt                  pgtype.Timestamptz
+	AuthorizedAt                 pgtype.Timestamptz
+	AuthorizedBy                 pgtype.UUID
+	AuthorizationState           string
+	VerificationState            string
+	EventStatus                  string
+	SourceSystem                 string
+	SourceRef                    string
+	ProofRef                     pgtype.Text
+	PayloadHash                  string
+	IdempotencyKey               string
+	RequestFingerprint           string
+	CreatedAt                    pgtype.Timestamptz
+	UpdatedAt                    pgtype.Timestamptz
+	RowVersion                   int32
+	AppliedAt                    pgtype.Timestamptz
+	AppliedBy                    pgtype.UUID
+	CanceledAt                   pgtype.Timestamptz
+	CanceledBy                   pgtype.UUID
+	CancelReason                 pgtype.Text
+	CompletionIdempotencyKey     pgtype.Text
+	CompletionRequestFingerprint pgtype.Text
+	CancelIdempotencyKey         pgtype.Text
+	CancelRequestFingerprint     pgtype.Text
 }
 
 type ShiftingEventImpact struct {
@@ -1880,6 +2140,23 @@ type VaccinationCompletion struct {
 	RowVersion               int32
 	CreatedAt                pgtype.Timestamptz
 	UpdatedAt                pgtype.Timestamptz
+}
+
+type VaccinationDriveAssignment struct {
+	AssignmentID   pgtype.UUID
+	TenantID       pgtype.UUID
+	BatchID        pgtype.UUID
+	PlannedDate    pgtype.Date
+	OperatorID     pgtype.UUID
+	ParkID         pgtype.UUID
+	ShedID         pgtype.UUID
+	PhysicalShed   string
+	PartitionLabel string
+	AnimalCount    int32
+	CapacityStatus string
+	Warnings       []byte
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type VaccinationEligibilityRollup struct {

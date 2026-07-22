@@ -166,15 +166,8 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 		choice := bestOperatorForBlock(loads, total)
 		if choice < 0 {
 			if isLatestSafeDue(group.blocks, date) {
-				choice = lowestLoadedOperator(loads)
-				if choice >= 0 {
-					loads[choice].remaining -= total
-					loads[choice].assigned += total
-					for _, block := range group.blocks {
-						assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, block, []string{"over_cap_required_latest_safe"}))
-					}
-					continue
-				}
+				assignments = append(assignments, splitLatestSafeGroupAcrossOperators(date, loads, group.blocks)...)
+				continue
 			}
 			for _, block := range group.blocks {
 				if block.Animals <= 0 {
@@ -183,13 +176,8 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 				choice = bestOperatorForBlock(loads, block.Animals)
 				if choice < 0 {
 					if isBlockLatestSafeDue(block, date) {
-						choice = lowestLoadedOperator(loads)
-						if choice >= 0 {
-							loads[choice].remaining -= block.Animals
-							loads[choice].assigned += block.Animals
-							assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, block, []string{"over_cap_required_latest_safe"}))
-							continue
-						}
+						assignments = append(assignments, splitLatestSafeGroupAcrossOperators(date, loads, []DriveWorkBlock{block})...)
+						continue
 					}
 					splitAssignments, residual := splitOversizedBlockAcrossOperators(date, loads, block)
 					for _, assignment := range splitAssignments {
@@ -214,6 +202,42 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 	}
 
 	return assignments, unscheduled
+}
+
+func splitLatestSafeGroupAcrossOperators(date string, loads []operatorLoad, blocks []DriveWorkBlock) []DrivePlanAssignment {
+	assignments := make([]DrivePlanAssignment, 0, len(blocks))
+	for _, block := range blocks {
+		remaining := block.Animals
+		for remaining > 0 {
+			choice := bestOperatorWithAnyCapacity(loads)
+			if choice < 0 {
+				break
+			}
+			chunk := loads[choice].remaining
+			if chunk > remaining {
+				chunk = remaining
+			}
+			chunkBlock := block
+			chunkBlock.Animals = chunk
+			assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, chunkBlock, []string{"forced_partition_split"}))
+			loads[choice].remaining -= chunk
+			loads[choice].assigned += chunk
+			remaining -= chunk
+		}
+		if remaining <= 0 {
+			continue
+		}
+		choice := lowestLoadedOperator(loads)
+		if choice < 0 {
+			continue
+		}
+		overCapBlock := block
+		overCapBlock.Animals = remaining
+		loads[choice].remaining -= remaining
+		loads[choice].assigned += remaining
+		assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, overCapBlock, []string{"over_cap_required_latest_safe", "forced_partition_split"}))
+	}
+	return assignments
 }
 
 func splitOversizedBlockAcrossOperators(date string, loads []operatorLoad, block DriveWorkBlock) ([]DrivePlanAssignment, DriveWorkBlock) {
@@ -426,6 +450,7 @@ func mergeAssignment(assignments []DrivePlanAssignment, next DrivePlanAssignment
 			existing.Animals += next.Animals
 			existing.Partitions = appendUniqueStrings(existing.Partitions, next.Partitions...)
 			existing.BlockIDs = append(existing.BlockIDs, next.BlockIDs...)
+			existing.Warnings = appendUniqueStrings(existing.Warnings, next.Warnings...)
 			return assignments
 		}
 	}

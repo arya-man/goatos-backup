@@ -492,6 +492,23 @@ guarded by the visual regression suite and UI label guard, but assistant
 coverage is unchanged unless the underlying backend module, reporting contract,
 or leadership question changes.
 
+### Coverage update: operator-grain vaccination drives
+
+Vaccination drive capacity is operator animal-throughput, not dose or cell
+capacity. Leadership answers about overdue vaccination drives, capacity breach,
+operator assignment, Process Adherence, Action Center, and Control Tower must
+treat `vaccination_drive_assignments` as operator/date/shed/partition-grain
+metadata. Assignment rows are not obligation membership and must not multiply
+animal, proof, completion, due, or overdue counts.
+
+When answering "who is assigned?" or "which drives are over cap?", prefer the
+canonical backend/read-model contract that collapses assignment rows at
+obligation grain before aggregation. Never infer total animals by summing
+vaccine doses or by counting assignment rows. One animal consumes one operator
+slot even if the animal receives multiple vaccines in the same visit, and an
+over-cap latest-safe day means the operator cap was exceeded intentionally to
+finish required vaccination work.
+
 ## References
 
 - MCP Toolbox source config supports environment-variable replacement for

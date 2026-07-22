@@ -118,6 +118,11 @@ inline `scale-guard:ignore` with a concrete boundedness reason.
 
 Source ingestion is also a scale and correctness boundary. One bad spreadsheet
 row can fan out into obligations, drives, owners, calendars, alerts, and mobile
+worklists. Do not import vaccination drive assignments as source data or count
+assignment rows as animals. Operator-capacity planning must remain derived,
+set-based, and bounded at operator/business-date/unique-animal grain so
+partitioned sheds cannot multiply read-model counts or leak work across
+operators.
 proof work. The following are banned:
 
 Vaccination drive assignment persistence must stay set-based. The planner may

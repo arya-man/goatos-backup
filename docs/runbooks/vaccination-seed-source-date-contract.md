@@ -60,6 +60,9 @@ Drive assignment rows are generated from this default plus timetable/leave
 availability. When the safe buffer would be missed, the generated work is marked
 over-cap required so the drive is finished by available staff instead of being
 quietly pushed beyond the latest-safe date.
+Assignment rows are operator/date/shed/partition metadata and never replace
+obligation membership; read models must collapse them before counting animals,
+proofs, completion, due, or overdue buckets.
 
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
