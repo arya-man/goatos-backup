@@ -28,12 +28,6 @@ function addMonths(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, 1);
 }
 
-function addDays(date: Date, delta: number): Date {
-  const next = new Date(date);
-  next.setDate(date.getDate() + delta);
-  return next;
-}
-
 function buildMonthDays(cursor: Date): Date[] {
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const start = new Date(first);
@@ -62,7 +56,7 @@ export function ThemedDatePicker({
   invalidFutureDateText: string;
   required?: boolean;
 }) {
-  const minDate = useMemo(() => addDays(parseDateKey(min), 1), [min]);
+  const minDate = useMemo(() => parseDateKey(min), [min]);
   const minKey = dateKey(minDate);
   const [selected, setSelected] = useState<string>("");
   const [error, setError] = useState<string>("");

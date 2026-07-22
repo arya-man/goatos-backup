@@ -820,6 +820,16 @@ Do:
   - **A vaccination drive is a park visit with a mix of SHEDS, never grouped by
     vaccine** — one drive can contain one or many sheds. Coverage-by-vaccine is a
     metric, not the drive grouping.
+  - **Vaccination date moves/reverts are kernel writes, not read-model sidecars** —
+    moving a vaccine from a mixed operator-cap drive must update raw
+    `vaccination_drive_assignments` membership so the old date loses only that
+    vaccine and the target date gains it. Reverting by selecting the original
+    date must cancel the active override and restore the original raw
+    assignment membership. Never declare this fixed from frontend banners or
+    read-time `COALESCE(override_date)` behavior; E2E must assert raw DB rows
+    across move and revert while preserving all clinical rule outputs
+    (kid/adult, boosters, live/killed spacing, sick/ICU/pregnant/dead/cull
+    deferrals) and operator animal caps.
   - Parse/transform each field ONCE (never re-parse inside `.find`/`.filter` → O(n^2)),
     off the Main thread (`Dispatchers.Default`, ideally in the repo via `flowOn`).
   - **Room is the single source of truth, so pagination binds BOTH layers** — the network

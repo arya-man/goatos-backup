@@ -141,7 +141,8 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.doesNotMatch(themedDatePickerSource, /showPicker/);
   assert.doesNotMatch(themedDatePickerSource, /type="date"/);
   assert.doesNotMatch(themedDatePickerSource, /className=.*out/);
-  assert.match(themedDatePickerSource, /addDays\(parseDateKey\(min\), 1\)/);
+  assert.doesNotMatch(themedDatePickerSource, /addDays\(parseDateKey\(min\), 1\)/);
+  assert.match(themedDatePickerSource, /const minDate = useMemo\(\(\) => parseDateKey\(min\), \[min\]\)/);
   assert.match(themedDatePickerSource, /move-date-popover/);
   assert.match(themedDatePickerSource, /move-date-spacer/);
   assert.match(themedDatePickerSource, /document\.addEventListener\("pointerdown", onPointerDown\)/);

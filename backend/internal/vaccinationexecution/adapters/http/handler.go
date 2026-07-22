@@ -181,8 +181,8 @@ func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request
 		h.badRequest(w, r, "invalid_override_date", "override_date must be YYYY-MM-DD")
 		return
 	}
-	if !overrideDate.After(original) {
-		h.badRequest(w, r, "invalid_override_date", "override_date must postpone the original drive date")
+	if overrideDate.Before(original) {
+		h.badRequest(w, r, "invalid_override_date", "override_date must not be before the original drive date")
 		return
 	}
 	actorID := strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))

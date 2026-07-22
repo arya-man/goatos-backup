@@ -1,8 +1,8 @@
 'use client';
 
 import { getAdminApi } from '@/lib/api/client';
-import { useEffect, useState } from 'react';
-import { ArrowRight, Clock3, Plus, TriangleAlert } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarDays, Clock3, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
@@ -22,133 +22,193 @@ interface TimetablePanelProps {
   pageContract?: AdminUiPageContract;
 }
 
+const DEFAULT_OPERATOR_CAP = 200;
+const WEEKDAYS = [
+  { key: 'monday', label: 'Mon' },
+  { key: 'tuesday', label: 'Tue' },
+  { key: 'wednesday', label: 'Wed' },
+  { key: 'thursday', label: 'Thu' },
+  { key: 'friday', label: 'Fri' },
+  { key: 'saturday', label: 'Sat' },
+  { key: 'sunday', label: 'Sun' },
+] as const;
+
+function dutyMatchesVaccinationExecute(pos: Position): boolean {
+  return (pos.duties ?? []).some((duty) => duty.module_code === 'pc.vaccination' && duty.duty_type === 'execute');
+}
+
+function looksLikeVaccinationOperator(pos: Position): boolean {
+  const haystack = `${pos.position_code ?? ''} ${pos.position_title ?? ''} ${pos.tier ?? ''}`.toLowerCase();
+  return haystack.includes('vaccination') || haystack.includes('preventive_care') || haystack.includes('operator');
+}
+
+function isCptSeat(pos: Position): boolean {
+  const haystack = `${pos.center_label ?? ''} ${pos.position_code ?? ''}`.toLowerCase();
+  return haystack.includes('cpt');
+}
+
+function isFieldOperator(pos: Position): boolean {
+  return pos.status === 'active' && !pos.is_backup_slot && pos.position_tier !== 'director' && isCptSeat(pos) && (dutyMatchesVaccinationExecute(pos) || looksLikeVaccinationOperator(pos));
+}
+
+function personName(pos: Position): string {
+  return pos.person_display_name || pos.position_title || pos.position_code || 'Unassigned';
+}
+
+function weekOffKey(pos: Position): string | null {
+  return pos.week_off_weekday ?? (pos.week_off ? pos.week_off.toLowerCase() : null);
+}
+
+function weekOffLabel(pos: Position): string {
+  const key = weekOffKey(pos);
+  const day = WEEKDAYS.find((weekday) => weekday.key === key);
+  return day?.label ?? pos.week_off ?? '—';
+}
+
 export function TimetablePanel({ pageContract }: TimetablePanelProps) {
   const [positions, setPositions] = useState<Position[]>([]);
+  const [operatorCap, setOperatorCap] = useState(DEFAULT_OPERATOR_CAP);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let alive = true;
     const loadData = async () => {
       try {
         const api = getAdminApi();
-        const response = await api.listStaffPositions();
+        const [positionsResponse, capacityResponse] = await Promise.all([
+          api.listStaffPositions({ status: 'active', limit: 500 }),
+          api.getVaccinationCapacityConfig().catch(() => ({ data: { maxPerDay: DEFAULT_OPERATOR_CAP } })),
+        ]);
 
-        if (response.data?.items) {
-          setPositions(response.data.items);
+        if (alive) {
+          setPositions(positionsResponse.data?.items ?? []);
+          setOperatorCap(capacityResponse.data.maxPerDay ?? DEFAULT_OPERATOR_CAP);
+          setError(null);
         }
-
-        setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load timetable');
-        console.error('Error loading timetable:', err);
+        if (alive) setError(err instanceof Error ? err.message : 'Failed to load timetable');
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     };
 
     loadData();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  if (loading) {
-    return <div className="p-4 text-center">Loading timetable...</div>;
-  }
+  const operators = useMemo(() => positions.filter(isFieldOperator).sort((a, b) => personName(a).localeCompare(personName(b))), [positions]);
+  const activeDays = useMemo(
+    () => WEEKDAYS.map((day) => operators.filter((operator) => weekOffKey(operator) !== day.key).length),
+    [operators],
+  );
+  const peakDailyCapacity = operators.length * operatorCap;
+  const lowestDailyCapacity = Math.min(...activeDays, operators.length) * operatorCap;
+  const title = pageContract?.tables?.find((table) => table.id === 'timetable')?.title ?? 'Vaccination operator timetable';
 
-  if (error) {
+  if (loading) {
     return (
-      <div style={{ padding: '16px', color: 'var(--danger)' }}>
-        <TriangleAlert className="ic" style={{ marginRight: '8px' }} aria-hidden="true" />
-        Error: {error}
+      <div className="subpanel on" data-sub="timetable">
+        <div className="note" style={{ padding: 16 }}>Loading vaccination operator timetable...</div>
       </div>
     );
   }
 
-  // Group positions by center + backup status for timetable display
-  const regularPositions = positions.filter(p => !p.is_backup_slot && p.status === 'active');
-  const backupPositions = positions.filter(p => p.is_backup_slot && p.status === 'active');
+  if (error) {
+    return (
+      <div className="subpanel on" data-sub="timetable">
+        <div className="note" style={{ padding: 16, color: 'var(--danger)' }}>
+          <TriangleAlert className="ic" style={{ marginRight: '8px' }} aria-hidden="true" />
+          {error}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="subpanel on" data-sub="timetable">
       <div className="phead">
         <div>
-          <div className="crumb">Team / <b>Timetable</b></div>
-          <h1>Timetable</h1>
+          <div className="crumb">Team / <b>Vaccination availability</b></div>
+          <h1>{title}</h1>
           <div className="sub">
-            The shift roster — the operational source for <b>who executes each day</b>. Vaccination and operations read this to resolve responsibility. The mobile app <b>mirrors this read-only</b>. CRUD edit only here.
+            Backend roster and capacity data for CPT vaccination execution. Week-off days remove that operator from drive capacity.
           </div>
         </div>
-        <div className="sp"></div>
-        <button className="btn" title="Import sheet" disabled aria-label="Import sheet (backend import contract pending)">
-          <ArrowRight className="ic" style={{ width: '13px' }} aria-hidden="true" />
-          Import sheet
-        </button>
-        <button className="btn p" title="Edit position" disabled aria-label="Edit position (backend contract pending)">
-          <Plus className="ic" aria-hidden="true" />
-          Edit position
-        </button>
       </div>
 
-      <div className="card">
+      <div className="grid g4 people-availability-kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--brand)' }}></span>
+          <div className="lab"><UsersRound className="ic" aria-hidden="true" />CPT operators</div>
+          <div className="val">{operators.length}</div>
+          <div className="dl">active vaccination seats</div>
+        </div>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--amber)' }}></span>
+          <div className="lab"><Stethoscope className="ic" aria-hidden="true" />Cap / operator</div>
+          <div className="val">{operatorCap}</div>
+          <div className="dl">animals per day</div>
+        </div>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--brand)' }}></span>
+          <div className="lab"><CalendarDays className="ic" aria-hidden="true" />Full-cap day</div>
+          <div className="val">{peakDailyCapacity}</div>
+          <div className="dl">when all are available</div>
+        </div>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--teal)' }}></span>
+          <div className="lab"><ShieldCheck className="ic" aria-hidden="true" />Lowest day</div>
+          <div className="val">{lowestDailyCapacity}</div>
+          <div className="dl">after scheduled week-off</div>
+        </div>
+      </div>
+
+      <div className="card people-availability-card">
         <div className="hd">
           <Clock3 className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
-          <h3>Position roster — regular + backup</h3>
+          <h3>Weekly availability</h3>
           <div className="sp"></div>
-          <span className="small muted">position · tier · center · week OFF · backup</span>
+          <span className="pill b">active · week-off · {operatorCap} cap</span>
         </div>
-        <div className="bd" style={{ padding: 0 }}>
-          <table id="ttTbl">
-            <thead>
-              <tr>
-                <th>Position title</th>
-                <th>Position code</th>
-                <th>Tier</th>
-                <th>Center</th>
-                <th>Person</th>
-                <th>Week OFF</th>
-                <th>Backup group</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)' }}>
-                    No positions in roster
-                  </td>
-                </tr>
-              ) : (
-                positions.map((pos) => (
-                  <tr
-                    key={pos.position_id}
-                    style={pos.is_backup_slot ? { background: 'var(--surf3)' } : undefined}
-                  >
-                    <td>
-                      {pos.is_backup_slot ? <b>{pos.position_title || pos.position_code}</b> : pos.position_title || pos.position_code}
-                    </td>
-                    <td><code>{pos.position_code}</code></td>
-                    <td><span className="tag t-info">{pos.position_tier}</span></td>
-                    <td>{pos.center_label || '—'}</td>
-                    <td>{pos.person_display_name || '—'}</td>
-                    <td>{pos.week_off || (pos.week_off_weekday ? pos.week_off_weekday : '—')}</td>
-                    <td>
-                      <span
-                        className={`tag ${pos.is_backup_slot ? 't-teal' : 't-mut'}`}
-                      >
-                        {pos.is_backup_slot ? `backup: ${pos.backup_group_code}` : pos.backup_group_code || '—'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`tag ${pos.status === 'active' ? 't-ok' : 't-warn'}`}>
-                        {pos.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-          <div className="note" style={{ margin: '12px 14px' }}>
-            <b>Backup column:</b> The backup group code (e.g., &quot;backup_manager&quot;, &quot;backup_am1&quot;) is a fixed <b>position assignment</b>, not a temporary leave pick — exactly as stored. A position&apos;s <b>Week OFF</b> auto-triggers same-day coverage from its backup group, no leave request needed. Mobile shows this table read-only plus &quot;covering X&quot; context when a coverage is active.
-          </div>
+        <div className="bd people-availability-body">
+          {operators.length === 0 ? (
+            <div className="note people-availability-empty">
+              No active CPT vaccination operator seats returned by the roster API.
+            </div>
+          ) : (
+            <div className="people-availability-list">
+              {operators.map((operator) => (
+                <div className="people-operator-row" key={operator.position_id}>
+                  <div className="people-operator-main">
+                    <UserRoundCheck className="ic" aria-hidden="true" />
+                    <div className="people-operator-text">
+                      <b>{personName(operator)}</b>
+                      <span>{operator.position_title || operator.position_code}</span>
+                    </div>
+                  </div>
+                  <div className="people-operator-meta">
+                    <span className="tag t-ok">{operator.status}</span>
+                    <span className="tag t-info">{weekOffLabel(operator)} off</span>
+                    <span className="tag t-teal">{operatorCap} animals/day</span>
+                  </div>
+                  <div className="people-week-grid" aria-label={`${personName(operator)} weekly availability`}>
+                    {WEEKDAYS.map((day) => {
+                      const off = weekOffKey(operator) === day.key;
+                      return (
+                        <div className={`people-week-cell ${off ? 'off' : 'on'}`} key={day.key}>
+                          <span>{day.label}</span>
+                          <b>{off ? 'Off' : 'Avail'}</b>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

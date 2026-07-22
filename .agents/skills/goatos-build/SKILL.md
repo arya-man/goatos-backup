@@ -471,6 +471,13 @@ one product; this skill is the navigation layer.
   back to animal `due_at` only for unbatched work. Guard:
   `make vaccination-drive-clubbing-guard`. Post-reseed/local proof also requires
   `make vaccination-drive-clubbing-db-proof` after the sweeper.
+- Vaccination drive date override is a write-path/kernel operation, not a
+  frontend/read-model illusion. When a vaccine is moved out of a mixed
+  operator-cap drive, raw `vaccination_drive_assignments` must be split so only
+  the moved vaccine leaves the original date. Selecting the original date is the
+  supported revert path: cancel the active override and restore the raw
+  assignment membership. Proof must cover move and revert with raw DB assertions
+  plus existing clinical-rule outcomes and operator animal caps.
 
 ## Must Not
 

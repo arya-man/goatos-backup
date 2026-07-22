@@ -431,6 +431,15 @@ Review checkpoints:
   `vaccination_dose_due` / `dose_due` rows from active Calendar; per-animal rows
   stay visible in Passport, Protocol Adherence, vaccination detail, and audit
   surfaces.
+- **Vaccination date override/revert:** reject fixes that only add a sidecar row
+  or read-time date masking. The write path must split raw
+  `vaccination_drive_assignments` when one vaccine moves out of a mixed
+  operator-cap drive, and must restore those rows when the override is canceled
+  by selecting the original date. Required proof: already-planned drive →
+  move vaccine to a future date → raw original date loses only that vaccine →
+  target date gains it → revert → raw original date regains it and target date
+  loses it. Keep kid/adult boosters, live/killed spacing, sick/ICU/pregnant/
+  dead/cull deferrals, and operator animal caps in the same proof scope.
 - **Feed direction** (`docs/feed-direction/*`): "how much of which feed each shed
   gets, each session, each day," recomputed on count/shifting changes; reuses the
   generic obligation + inventory engine — no parallel `feed_*` execution tables.
