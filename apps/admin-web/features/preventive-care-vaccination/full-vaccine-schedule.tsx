@@ -1,6 +1,5 @@
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {
@@ -17,6 +16,7 @@ import { ClipText, Tag } from "@/components/ui-primitives";
 import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
+import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -260,7 +260,7 @@ async function postponeDriveDateAction(formData: FormData) {
     override_date: overrideDate,
     reason,
   });
-  revalidatePath("/vaccination");
+  revalidateVaccinationCommandLenses();
   if (!result.ok) {
     redirect(scheduleMoveRedirect(returnTo, {
       schedule_move_result: "error",

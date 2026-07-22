@@ -124,6 +124,7 @@ run_common() {
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
   step "agent: UI vaccine labels" make ui-vaccine-labels-guard
+  step "agent: vaccination shared source sync" make vaccination-shared-source-sync-guard
   step "agent: calendar endpoint grain" make calendar-endpoint-grain-guard
   step "agent: contract-drift"    bash tools/agent-hooks/check-contract-drift.sh
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
@@ -168,6 +169,7 @@ run_backend() {
   step "seed-migration-guard"     make seed-migration-guard
   step "vaccination-hrms-seed-fixture-guard" make vaccination-hrms-seed-fixture-guard
   step "vaccination-schedule-canonical-guard" make vaccination-schedule-canonical-guard
+  step "vaccination-shared-source-sync-guard" make vaccination-shared-source-sync-guard
   step "india-date-guard"         make india-date-guard
   step "local-single-db-guard"    make local-single-db-guard
   if postgres_tests_enabled; then

@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import {
   completeProofUpload,
   createProofUpload,
@@ -9,6 +8,7 @@ import {
   uploadProofLocal,
   verifySopTask,
 } from "@/lib/api/server";
+import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
 
 /**
  * Result of a vaccination server action. The operator-facing UI surfaces `error`
@@ -96,7 +96,7 @@ export async function submitVaccinationProof(_prev: ActionResult | null, formDat
       return { ok: false, error: `Failed to submit task: ${submitResult.error.message}` };
     }
 
-    revalidatePath("/vaccination/execution", "page");
+    revalidateVaccinationCommandLenses();
     return { ok: true };
   } catch (error) {
     return actionError(error);
@@ -118,7 +118,7 @@ export async function acceptCompletionAction(taskId: string, rowVersion: number)
       return { ok: false, error: `Failed to accept SOP review: ${result.error.message}` };
     }
 
-    revalidatePath("/vaccination/execution", "page");
+    revalidateVaccinationCommandLenses();
     return { ok: true };
   } catch (error) {
     return actionError(error);
@@ -143,7 +143,7 @@ export async function rejectCompletionAction(taskId: string, rowVersion: number,
       return { ok: false, error: `Failed to request SOP rework: ${result.error.message}` };
     }
 
-    revalidatePath("/vaccination/execution", "page");
+    revalidateVaccinationCommandLenses();
     return { ok: true };
   } catch (error) {
     return actionError(error);

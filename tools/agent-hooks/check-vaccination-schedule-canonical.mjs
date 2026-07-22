@@ -55,6 +55,49 @@ function findingsForFiles(files, readText) {
   return findings;
 }
 
+function invariantFindings(readText) {
+  const checks = [
+    {
+      file: "backend/internal/calendar/adapters/postgres/targets.go",
+      fragments: [
+        "JOIN vaccination_drive_assignments vda",
+        "to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text",
+        "vda.park_id = $4::uuid",
+      ],
+      message: "Calendar L3 drive roster must resolve parkdrive members from vaccination_drive_assignments.planned_date, not stale obligation_batches.planned_date",
+    },
+    {
+      file: "backend/internal/processintegrity/adapters/postgres/repository.go",
+      fragments: [
+        "vda.assignment_planned_at",
+        "(assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at",
+        "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)",
+        "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+      ],
+      message: "Action Center / Protocol Adherence / Control Tower / Workflows must prefer operator assignment date before batch or obligation dates",
+    },
+    {
+      file: "backend/internal/vaccinationexecution/adapters/postgres/repository.go",
+      fragments: [
+        "COALESCE(override.override_date, vda.planned_date) AS effective_planned_date",
+        "effective_planned_date AS planned_date",
+        "WHERE effective.planned_date >= $2::date",
+      ],
+      message: "Vaccination schedule must expose override-aware effective assignment dates",
+    },
+  ];
+  const findings = [];
+  for (const check of checks) {
+    const text = readText(check.file);
+    for (const fragment of check.fragments) {
+      if (!text.includes(fragment)) {
+        findings.push(`${check.file}: ${check.message}; missing ${JSON.stringify(fragment)}`);
+      }
+    }
+  }
+  return findings;
+}
+
 function selfTest() {
   const bad = findingsForFiles(["backend/a.go", "tools/b.sh"], (file) =>
     file === "backend/a.go"
@@ -64,6 +107,24 @@ function selfTest() {
   if (bad.length !== 2) throw new Error(`self-test: expected 2 findings, got ${JSON.stringify(bad)}`);
   const good = findingsForFiles(["backend/a.go"], () => "func VaccinationSchedule() { /* canonical */ }\n");
   if (good.length !== 0) throw new Error(`self-test: expected clean fixture, got ${JSON.stringify(good)}`);
+  const invariantBad = invariantFindings((file) =>
+    file.endsWith("targets.go")
+      ? "FROM obligation_batches ob\n"
+      : file.endsWith("processintegrity/adapters/postgres/repository.go")
+        ? "COALESCE(raw.batch_planned_at, raw.due_at) AS execution_due_at\n"
+        : "effective_planned_date AS planned_date\n",
+  );
+  if (invariantBad.length === 0) throw new Error("self-test: expected invariant findings for stale date sources");
+  const invariantGood = invariantFindings((file) => {
+    if (file.endsWith("calendar/adapters/postgres/targets.go")) {
+      return "JOIN vaccination_drive_assignments vda\nAND to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text\nvda.park_id = $4::uuid\n";
+    }
+    if (file.endsWith("processintegrity/adapters/postgres/repository.go")) {
+      return "vda.assignment_planned_at\n(assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at\nCOALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)\nCOALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at\n";
+    }
+    return "COALESCE(override.override_date, vda.planned_date) AS effective_planned_date\neffective_planned_date AS planned_date\nWHERE effective.planned_date >= $2::date\n";
+  });
+  if (invariantGood.length !== 0) throw new Error(`self-test: expected clean invariant fixture, got ${JSON.stringify(invariantGood)}`);
   console.log("vaccination-schedule-canonical guard: self-test passed");
 }
 
@@ -74,7 +135,10 @@ if (process.argv.includes("--self-test")) {
 
 const files = trackedFiles();
 const existingFiles = files.filter((file) => existsSync(resolve(repo, file)));
-const findings = findingsForFiles(existingFiles, (file) => readFileSync(resolve(repo, file), "utf8"));
+const findings = [
+  ...findingsForFiles(existingFiles, (file) => readFileSync(resolve(repo, file), "utf8")),
+  ...invariantFindings((file) => readFileSync(resolve(repo, file), "utf8")),
+];
 if (findings.length > 0) {
   console.error("vaccination-schedule-canonical guard failed:");
   for (const finding of findings) console.error(`- ${finding}`);

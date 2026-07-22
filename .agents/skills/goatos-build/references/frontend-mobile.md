@@ -51,6 +51,13 @@ process was expected, whether it was followed, where broken, who owns next
 action, what is due by when, what evidence exists, and whether reminder,
 deadline, or escalation state is active.
 
+Any vaccination mutation that changes due-work, proof, verification, reminders,
+snoozes, or drive scheduling must revalidate the shared command-lens set through
+`revalidateVaccinationCommandLenses` only. Do not hand-maintain one-off
+`revalidatePath` lists for Vaccination, Calendar, Action Center, Protocol
+Adherence, Workflows, or Control Tower; `check:vaccination-command-lenses` is
+the local guard for that anti-pattern.
+
 Use `context/frontend/vaccination-process-integrity-frontend-handoff.md` for the
 mock-shaped frontend split before reshaping `/`, `/action-center`,
 `/protocol-adherence`, `/workflows`, `/vaccination`, or

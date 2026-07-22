@@ -135,12 +135,26 @@ func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScop
 	if strings.Contains(calendarDriveTargetsSQL, badTargetDate) {
 		t.Fatalf("park-drive target lookup still matches batches by window_start before planned_date")
 	}
-	const wantedTargetDate = "COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)"
+	const wantedTargetDate = "to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text"
 	if !strings.Contains(calendarDriveTargetsSQL, wantedTargetDate) {
-		t.Fatalf("park-drive target lookup must match batches by planned_date before window_start")
+		t.Fatalf("park-drive target lookup must match batches by vaccination_drive_assignments.planned_date")
 	}
 	if strings.Contains(calendarDriveTargetsSQL, "ob.planned_date::timestamptz") {
 		t.Fatalf("park-drive target lookup must not depend on the PostgreSQL session timezone")
+	}
+}
+
+func TestCalendarParkDriveTargetsUseOperatorAssignmentDateOneToManyPageBoundaryScheduledDateParkScopeStatusBuckets(t *testing.T) {
+	checks := map[string]string{
+		"assignment table membership": "JOIN vaccination_drive_assignments vda",
+		"assignment business date":    "to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text",
+		"assignment park scope":       "vda.park_id = $4::uuid",
+		"target display date":         "COALESCE(target_assignment.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at",
+	}
+	for name, fragment := range checks {
+		if !strings.Contains(calendarDriveTargetsSQL, fragment) {
+			t.Fatalf("calendar drive targets lost %s invariant %q", name, fragment)
+		}
 	}
 }
 

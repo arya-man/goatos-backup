@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.CalendarFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.CalendarPresentationDto
 import sg.mesha.goatos.core.network.dto.DriveSummaryDto
+import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.calendar.CalendarDriveSummary
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarFilterOption
@@ -365,10 +366,10 @@ class CalendarViewModel @Inject constructor(
         // MOB-004: items come straight from the observed Room row, which already holds every
         // appended page (bounded keyset window) — no ViewModel-side accumulation.
         val dayItems = selectedDay.data?.items.orEmpty()
-            .sortedBy { it.dueAt }
+            .sortedBy { it.currentScheduleDate }
         val historyItems = history.data?.items.orEmpty()
             .filter { it.status == COMPLETED_STATUS }
-            .sortedByDescending { it.dueAt }
+            .sortedByDescending { it.currentScheduleDate }
 
         return base.copy(
             eyebrow = "Vaccination",
@@ -578,7 +579,8 @@ internal fun buildMonthDays(markers: List<CalendarDateMarkerDto>, today: LocalDa
 }
 
 internal fun parseLocalDate(due: String): LocalDate? =
-    runCatching { OffsetDateTime.parse(due).atZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
+    runCatching { LocalDate.parse(due) }.getOrNull()
+        ?: runCatching { OffsetDateTime.parse(due).atZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
 
 internal fun Map<String, JsonElement>.route(): String? =
     this["drive"]?.jsonPrimitive?.contentOrNull ?: this["vaccination"]?.jsonPrimitive?.contentOrNull
@@ -605,14 +607,15 @@ internal fun CalendarEventDto.calendarTone(): CalendarTone =
 
 internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
     val target = routeTarget()
-    val localDate = parseLocalDate(dueAt)
+    val scheduleDate = currentScheduleDate
+    val localDate = parseLocalDate(scheduleDate)
     return CalendarItem(
         id = eventId,
         title = title,
         subtitle = subtitle,
         aggregated = aggregated,
         allDay = allDay,
-        timeLabel = if (allDay) "" else calendarTimeLabel(dueAt),
+        timeLabel = if (allDay) "" else calendarTimeLabel(scheduleDate),
         summaryPrimary = summaryPrimary,
         summarySecondary = summarySecondary,
         shedCount = shedCount,
@@ -648,7 +651,7 @@ private fun CalendarFilterOptionsDto.toUi(): CalendarMonthFilterOptions = Calend
 /** Straight field mapping — see [DriveSummaryDto] / [CalendarDriveSummary] docs. */
 internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = CalendarDriveSummary(
     parkName = parkName,
-    dueDateLabel = formatDriveDueDate(dueDate),
+    dueDateLabel = formatDriveDueDate(currentScheduleDate),
     shedCount = shedCount,
     shedsCompleted = shedsCompleted,
     vaccineLabels = vaccineLabels,

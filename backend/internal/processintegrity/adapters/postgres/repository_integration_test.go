@@ -592,6 +592,24 @@ func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {
 	}
 }
 
+func TestCanonicalRowsUseOperatorAssignmentDateBeforeBatchOrObligationDateOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	checks := map[string]string{
+		"assignment date selected": "vda.assignment_planned_at",
+		"assignment date computed": "(assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at",
+		"window filter":            "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)",
+		"execution date":           "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+		"status date":              "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at)",
+	}
+	for name, fragment := range checks {
+		if !strings.Contains(processIntegrityCanonicalRowsSQL, fragment) {
+			t.Fatalf("process-integrity canonical rows lost %s invariant %q", name, fragment)
+		}
+	}
+	if strings.Contains(processIntegrityCanonicalRowsSQL, "ob.planned_date::timestamptz") {
+		t.Fatalf("process-integrity canonical rows must not use session-timezone-dependent planned_date casts")
+	}
+}
+
 func maxPlaceholder(sql string) int {
 	matches := regexp.MustCompile(`\$(\d+)`).FindAllStringSubmatch(sql, -1)
 	maxArg := 0

@@ -60,6 +60,53 @@ const (
 	testVaccinationSOPVer  = "b0000000-0000-4000-8000-000000000002"
 )
 
+func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	queries := map[string]string{
+		"execution":    vaccinationExecutionSQL,
+		"operations":   vaccinationOperationsSQL,
+		"fullSchedule": vaccinationScheduleWindowSQL,
+		"shedSummary":  shedSummaryCanonicalReadSQL,
+		"shedAnimals":  shedAnimalListSQL,
+	}
+	for name, sql := range queries {
+		if !strings.Contains(sql, "vaccination_drive_assignments") {
+			t.Fatalf("%s query must join vaccination_drive_assignments", name)
+		}
+		if !strings.Contains(sql, "assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'") &&
+			!strings.Contains(sql, "drive_date.assignment_planned_date") {
+			t.Fatalf("%s query must derive an India-business execution date from assignment.planned_date", name)
+		}
+		if strings.Contains(sql, "ob.planned_date::timestamptz") {
+			t.Fatalf("%s query must not use session-timezone-dependent batch planned_date casts", name)
+		}
+	}
+
+	requiredFragments := map[string]string{
+		"execution horizon":     "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"execution bucket":      "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+		"operations horizon":    "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"operations next due":   "MIN(effective.execution_due_at) FILTER",
+		"schedule horizon":      "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz",
+		"schedule next due":     "MIN(windowed.execution_due_at) FILTER",
+		"scan roster status":    "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now()",
+		"shed summary next due": "MIN(effective.execution_due_at) FILTER",
+		"shed animal filter":    "COALESCE(drive_date.assignment_planned_date, dob.planned_date",
+	}
+	combined := strings.Join([]string{
+		vaccinationExecutionSQL,
+		vaccinationOperationsSQL,
+		vaccinationScheduleWindowSQL,
+		scanRosterSQL,
+		shedSummaryCanonicalReadSQL,
+		shedAnimalListSQL,
+	}, "\n")
+	for name, fragment := range requiredFragments {
+		if !strings.Contains(combined, fragment) {
+			t.Fatalf("vaccination canonical reads lost %s invariant %q", name, fragment)
+		}
+	}
+}
+
 func TestListVaccinationExecutionProjectionPartitionContractOneToManyPageBoundaryScheduledDateScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

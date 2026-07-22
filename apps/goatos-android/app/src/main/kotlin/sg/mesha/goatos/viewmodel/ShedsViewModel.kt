@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.sheds.ShedDayTab
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
@@ -172,7 +173,7 @@ class ShedsViewModel @Inject constructor(
         val base = sampleShedsState()
         val weekRows = rows
         val rowsForSelectedDay = weekRows.filter { row ->
-            val dueDate = row.dueDate?.let(::parseExecutionDate)
+            val dueDate = row.currentScheduleDate?.let(::parseExecutionDate)
             val hasOpenWork = row.openCount > 0
             when {
                 !hasOpenWork -> false
@@ -183,7 +184,7 @@ class ShedsViewModel @Inject constructor(
         }
         val shedRows = rowsForSelectedDay.groupBy { it.executionIdentity() }.map { (identity, group) ->
             val first = group.first()
-            val scheduleDate = group.mapNotNull { it.dueDate?.let(::parseExecutionDate) }.minOrNull()
+            val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
             val status = shedStatusFor(group)
             val counts = executionCounts(group)
             val vaccineGroups = group.groupBy { humanizeVaccineLabel(it.driveName.orEmpty()) }
@@ -373,13 +374,13 @@ private fun buildOperatorDayTabs(
     window: OperatorWorkWindow,
     selectedDay: LocalDate,
 ): List<ShedDayTab> {
-    val countsByDate = rows.groupBy { it.dueDate?.let(::parseExecutionDate) }
+    val countsByDate = rows.groupBy { it.currentScheduleDate?.let(::parseExecutionDate) }
         .filterKeys { it != null }
         .mapKeys { it.key!! }
         .mapValues { (_, dueRows) -> executionCounts(dueRows).open }
     val todayBacklogCount = rows
         .filter { row ->
-            row.openCount > 0 && row.dueDate?.let(::parseExecutionDate)?.isAfter(window.today) != true
+            row.openCount > 0 && row.currentScheduleDate?.let(::parseExecutionDate)?.isAfter(window.today) != true
         }
         .let(::executionCounts)
         .open

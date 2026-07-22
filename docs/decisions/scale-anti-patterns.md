@@ -69,6 +69,19 @@ can keep its broader endpoint only when it truly renders calendar-specific event
 types. Reusing a broad endpoint for a narrow UI and producing >500ms hot loads is
 a scale anti-pattern even if both endpoints are "correct."
 
+Vaccination date-source drift is the same performance and correctness bug. Once
+`vaccination_drive_assignments` rows exist, the operator-day assignment is the
+canonical scheduled execution source for every command lens: Full Schedule,
+Calendar L1/L2/L3, Action Center, Protocol Adherence, Control Tower, Workflows,
+execution pages, and leadership/operator reads. Those reads must prefer
+assignment `planned_date` (or the override-effective assignment date in the
+schedule ledger) before `obligation_batches.planned_date` or
+`obligation_instances.due_at`. A screen that rebuilds membership from stale batch
+or obligation dates can show the right aggregate and an empty roster, or mark
+today's moved work as yesterday's overdue work. `make
+vaccination-schedule-canonical-guard` blocks the known recurrence in Calendar
+targets, process-integrity rows, and the schedule ledger.
+
 `make scale-guard` blocks new static offenders for the highest-risk patterns:
 
 - compute-on-read god CTEs on request paths
@@ -108,6 +121,28 @@ the broad `/calendar/vaccination/events` Calendar presentation endpoint. The
 Calendar endpoint remains valid for Calendar event presentation; narrow screens
 must use `/vaccination/schedule` or another grain-owned API/read path with its
 own contract and latency evidence.
+
+Vaccination operator-day sync is a shared-source rule, not a UI convention.
+`vaccination_drive_assignments` is the canonical operator-day source for a
+published/moved vaccination drive: planned business date, operator, park,
+physical shed, partition, assigned animals, dose summary, and capacity state are
+read from that table or a set-based read model whose membership starts there.
+Calendar, Protocol Adherence (PA), Action Center (AC), Workflows (WF),
+vaccination execution, and any L1/L2/L3 calendar drilldown must agree on that
+same source. When a drive moves to a new business date, every surface must show
+the moved operator-day assignment or explicitly show no row because the
+assignment does not exist; none may fall back to stale
+`obligation_batches.planned_date`, `window_start`, `obligation_instances.due_at`,
+or a frontend-local date filter and present that as current work.
+
+`make vaccination-shared-source-sync-guard` blocks the highest-risk recurrences:
+backend vaccination/calendar/process-integrity reads that combine operator-day
+date semantics with `obligation_batches` date fields without also joining
+`vaccination_drive_assignments`, and admin-web server page code that fans out
+Calendar/PA/AC/WF/vaccination fetches inside `Promise.all(...map(...))` or
+`await` loops during page switches. The permanent fix is one grain-owned,
+bounded endpoint/read model per screen transition, backed by set-based SQL and
+shared operator-day assignment membership.
 
 ## Indexed predicates and guard-authoring safety
 
