@@ -418,69 +418,110 @@ func driveAssignmentVaccineLabels(keys []string) []string {
 }
 
 const driveAssignmentsSQL = `
-SELECT
-  vda.planned_date,
-  vda.operator_id::text,
-  wm.display_name,
-  vda.park_id::text,
-  park.name,
-  vda.shed_id::text,
-  vda.physical_shed,
-  vda.partition_label,
-  vda.animal_count,
-  CASE
-    WHEN batch.status IN ('planned', 'in_progress')
-     AND vda.planned_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
-    THEN vda.animal_count
-    ELSE 0
-  END AS due_animals,
-  CASE WHEN batch.status = 'completed' THEN vda.animal_count ELSE 0 END AS done_animals,
-  0 AS deferred_animals,
-  CASE
-    WHEN batch.status IN ('planned', 'in_progress')
-     AND vda.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
-    THEN vda.animal_count
-    ELSE 0
-  END AS overdue_animals,
-  COALESCE(assignment_vaccines.vaccine_keys, ARRAY[]::text[]),
-  COALESCE(assignment_vaccines.vaccine_codes, ARRAY[]::text[]),
-  vda.total_doses,
-  vda.capacity_status
-FROM vaccination_drive_assignments vda
-JOIN workforce_members wm
-  ON wm.tenant_id = vda.tenant_id
- AND wm.workforce_member_id = vda.operator_id
- AND wm.status = 'active'
-JOIN locations park
-  ON park.tenant_id = vda.tenant_id
- AND park.location_id = vda.park_id
- AND park.location_type = 'park'
-LEFT JOIN obligation_batches batch
-  ON batch.tenant_id = vda.tenant_id
- AND batch.batch_id = vda.batch_id
-LEFT JOIN LATERAL (
+-- projection-review: membership=vaccination_drive_assignments unnested to vaccine-rule grain then regrouped after active vaccination_drive_date_overrides; group_key=(effective_planned_date,operator_id,park_id,shed_id,physical_shed,partition_label,animal_count,capacity_status,batch_status); join_cardinality=rule unnest is intentional 1:N, override lookup is unique by tenant+park+vaccine+original date, regrouping prevents sibling vaccines on the same date from duplicating animal counts; pagination=LIMIT applies only after the full effective-date regroup and month filter, so moved vaccines page by their new date; scope=tenant plus optional park, preserved through assignment park_id.
+WITH assignment_vaccines AS (
   SELECT
-    ARRAY_AGG(DISTINCT pd.name || E'\x1f' || pr.dose_code ORDER BY pd.name || E'\x1f' || pr.dose_code) AS vaccine_keys,
-    ARRAY_AGG(DISTINCT NULLIF(prd.vaccine_code, '') ORDER BY NULLIF(prd.vaccine_code, '')) FILTER (WHERE NULLIF(prd.vaccine_code, '') IS NOT NULL) AS vaccine_codes
-  FROM unnest(vda.vaccine_rule_ids) AS assigned_rule(rule_id)
-  JOIN protocol_rules pr
+    vda.tenant_id,
+    vda.batch_id,
+    vda.planned_date AS original_planned_date,
+    COALESCE(override.override_date, vda.planned_date) AS effective_planned_date,
+    vda.operator_id,
+    vda.park_id,
+    vda.shed_id,
+    vda.physical_shed,
+    vda.partition_label,
+    vda.animal_count,
+    vda.total_doses,
+    vda.capacity_status,
+    batch.status AS batch_status,
+    pd.name || E'\x1f' || pr.dose_code AS vaccine_key,
+    NULLIF(prd.vaccine_code, '') AS vaccine_code
+  FROM vaccination_drive_assignments vda
+  LEFT JOIN obligation_batches batch
+    ON batch.tenant_id = vda.tenant_id
+   AND batch.batch_id = vda.batch_id
+  LEFT JOIN LATERAL unnest(vda.vaccine_rule_ids) AS assigned_rule(rule_id) ON true
+  LEFT JOIN protocol_rules pr
     ON pr.tenant_id = vda.tenant_id
    AND pr.rule_id = assigned_rule.rule_id
   LEFT JOIN protocol_rule_dimensions prd
     ON prd.tenant_id = pr.tenant_id
    AND prd.rule_id = pr.rule_id
-  JOIN protocol_versions pv
+  LEFT JOIN protocol_versions pv
     ON pv.tenant_id = pr.tenant_id
    AND pv.protocol_version_id = pr.protocol_version_id
-  JOIN protocol_definitions pd
+  LEFT JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
-) assignment_vaccines ON true
-WHERE vda.tenant_id = $1::uuid
-  AND vda.planned_date >= $2::date
-  AND vda.planned_date < $3::date
-  AND ($4::text = '' OR vda.park_id::text = $4)
-ORDER BY vda.planned_date, wm.display_name, vda.physical_shed, vda.partition_label
+  LEFT JOIN vaccination_drive_date_overrides override
+    ON override.tenant_id = vda.tenant_id
+   AND override.park_id = vda.park_id
+   AND override.original_drive_date = vda.planned_date
+   AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+  WHERE vda.tenant_id = $1::uuid
+    AND ($4::text = '' OR vda.park_id::text = $4)
+),
+effective_assignments AS (
+  SELECT
+    effective_planned_date AS planned_date,
+    operator_id,
+    park_id,
+    shed_id,
+    physical_shed,
+    partition_label,
+    animal_count,
+    capacity_status,
+    batch_status,
+    ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
+    ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
+    CASE
+      WHEN COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) > 0
+      THEN animal_count * COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL)
+      ELSE MAX(total_doses)
+    END::int AS total_doses
+  FROM assignment_vaccines
+  GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
+)
+SELECT
+  effective.planned_date,
+  effective.operator_id::text,
+  wm.display_name,
+  effective.park_id::text,
+  park.name,
+  effective.shed_id::text,
+  effective.physical_shed,
+  effective.partition_label,
+  effective.animal_count,
+  CASE
+    WHEN effective.batch_status IN ('planned', 'in_progress')
+     AND effective.planned_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN effective.animal_count
+    ELSE 0
+  END AS due_animals,
+  CASE WHEN effective.batch_status = 'completed' THEN effective.animal_count ELSE 0 END AS done_animals,
+  0 AS deferred_animals,
+  CASE
+    WHEN effective.batch_status IN ('planned', 'in_progress')
+     AND effective.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN effective.animal_count
+    ELSE 0
+  END AS overdue_animals,
+  COALESCE(effective.vaccine_keys, ARRAY[]::text[]),
+  COALESCE(effective.vaccine_codes, ARRAY[]::text[]),
+  effective.total_doses,
+  effective.capacity_status
+FROM effective_assignments effective
+JOIN workforce_members wm
+  ON wm.tenant_id = $1::uuid
+ AND wm.workforce_member_id = effective.operator_id
+ AND wm.status = 'active'
+JOIN locations park
+  ON park.tenant_id = $1::uuid
+ AND park.location_id = effective.park_id
+ AND park.location_type = 'park'
+WHERE effective.planned_date >= $2::date
+  AND effective.planned_date < $3::date
+ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_label
 LIMIT $5;
 `
 

@@ -4,7 +4,7 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./full-vaccine-schedule.tsx", import.meta.url), "utf8");
 const moveDrawerSource = readFileSync(new URL("./full-vaccine-schedule-move-drawer.tsx", import.meta.url), "utf8");
-const nativeDateInputSource = readFileSync(new URL("./native-date-input.tsx", import.meta.url), "utf8");
+const themedDatePickerSource = readFileSync(new URL("./themed-date-picker.tsx", import.meta.url), "utf8");
 const operationsSource = readFileSync(new URL("./operations.tsx", import.meta.url), "utf8");
 const shedBoardSource = readFileSync(new URL("../vaccination-sheds/shed-board.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
@@ -70,6 +70,9 @@ test("vaccination schedule and operator labels are backend-contract owned", () =
     "schedule.move.recorded_body",
     "schedule.move.error_title",
     "schedule.move.missing_title",
+    "schedule.move.previous_month",
+    "schedule.move.next_month",
+    "schedule.move.invalid_future_date",
   ]) {
     assert.match(adminUiContractSource, new RegExp(`"${key.replaceAll(".", "\\.")}"\\s*:`), `${key} missing from backend UI contract`);
     assert.match(adminUiContractFallbackSource, new RegExp(`"${key.replaceAll(".", "\\.")}"\\s*:`), `${key} missing from admin-web fallback contract`);
@@ -121,21 +124,34 @@ test("vaccination schedule keeps workload bars animal-based on backend assignmen
   assert.match(css, /\.schedule-load-seg\.tone-done/);
 });
 
-test("vaccination schedule move date uses an overlay and native browser date picker", () => {
+test("vaccination schedule move date uses an overlay and themed dark date picker", () => {
   assert.match(source, /ScheduleMoveDrawer/);
   assert.match(source, /scheduleMoveHref/);
   assert.match(source, /#schedule_move=/);
   assert.match(source, /schedule_move_result/);
+  assert.match(source, /schedule_move_vaccine/);
+  assert.match(source, /schedule_move_date/);
   assert.match(source, /schedule-move-banner/);
   assert.match(source, /redirect\(/);
   assert.doesNotMatch(source, /<input name="override_date"[^>]*type="date"/);
   assert.doesNotMatch(source, /<select name="vaccine_code"/);
-  assert.match(moveDrawerSource, /<NativeDateInput name="override_date"/);
+  assert.match(moveDrawerSource, /<ThemedDatePicker[\s\S]*name="override_date"/);
   assert.match(moveDrawerSource, /<select name="vaccine_code"/);
   assert.match(moveDrawerSource, /schedule-move-form/);
-  assert.match(nativeDateInputSource, /showPicker\?\.\(\)/);
-  assert.match(nativeDateInputSource, /onClick=\{handleClick\}/);
-  assert.match(nativeDateInputSource, /type="date"/);
+  assert.doesNotMatch(themedDatePickerSource, /showPicker/);
+  assert.doesNotMatch(themedDatePickerSource, /type="date"/);
+  assert.doesNotMatch(themedDatePickerSource, /className=.*out/);
+  assert.match(themedDatePickerSource, /addDays\(parseDateKey\(min\), 1\)/);
+  assert.match(themedDatePickerSource, /move-date-popover/);
+  assert.match(themedDatePickerSource, /move-date-spacer/);
+  assert.match(themedDatePickerSource, /document\.addEventListener\("pointerdown", onPointerDown\)/);
+  assert.match(themedDatePickerSource, /detailsRef\.current\.open = false/);
+  assert.match(moveDrawerSource, /schedule\.move\.previous_month/);
+  assert.match(moveDrawerSource, /schedule\.move\.next_month/);
+  assert.match(moveDrawerSource, /schedule\.move\.invalid_future_date/);
+  assert.match(css, /\.move-date-popover/);
+  assert.match(css, /\.move-date-spacer/);
+  assert.match(css, /background:var\(--panel\)/);
 });
 
 test("vaccination schedule year navigation is bounded at 2025", () => {

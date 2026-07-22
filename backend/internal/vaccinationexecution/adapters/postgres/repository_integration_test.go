@@ -273,6 +273,84 @@ func TestListVaccinationExecutionDateShiftUsesBatchPlannedDateInsteadOfObligatio
 	}
 }
 
+func TestDriveAssignmentsOneToManyPageBoundaryDateShiftParkScopeStatusMatrixAppliesVaccineDateOverrideImmediatelyWithoutMovingSiblingVaccines(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		pprProtocol = "70000000-0000-4000-8000-000000000091"
+		pprVersion  = "70000000-0000-4000-8000-000000000092"
+		pprRule     = "70000000-0000-4000-8000-000000000093"
+	)
+	execProjectionSQL(t, ctx, pool, "ettt dimension", `
+INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
+VALUES ($1,$2,$3,'vaccination','ET_TT',$4,'ET_TT')`, testTenant, testVersion, testRule, "ET_TT_2")
+	execProjectionSQL(t, ctx, pool, "ppr protocol", `
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ($1,$2,'vaccination.ppr','PPR','vaccination','draft')`, pprProtocol, testTenant)
+	execProjectionSQL(t, ctx, pool, "ppr version", `
+INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
+VALUES ($1,$2,$3,'tenant',1,'draft',DATE '2026-06-01','{}'::jsonb,'{}'::jsonb)`, pprVersion, testTenant, pprProtocol)
+	execProjectionSQL(t, ctx, pool, "ppr rule", `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES ($1,$2,$3,'D1',1,'birth_age','{}'::jsonb,'{}'::jsonb)`, pprRule, testTenant, pprVersion)
+	execProjectionSQL(t, ctx, pool, "ppr dimension", `
+INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
+VALUES ($1,$2,$3,'vaccination','PPR','D1','PPR')`, testTenant, pprVersion, pprRule)
+	execProjectionSQL(t, ctx, pool, "combo drive assignment", `
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses
+) VALUES ($1,$2,DATE '2026-07-22',$3,$4,$5,'Gandhi','1',84,ARRAY[$6::uuid,$7::uuid],168)`,
+		testTenant, testBatch, testOperator, testPark, testShed, testRule, pprRule)
+	execProjectionSQL(t, ctx, pool, "move only ppr", `
+INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
+VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
+		testTenant, testPark, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	july, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments(july): %v", err)
+	}
+	august, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments(august): %v", err)
+	}
+	julyRow := driveAssignmentRowFor(july, "2026-07-22", "Gandhi")
+	if julyRow == nil {
+		t.Fatalf("july rows missing Gandhi: %#v", july)
+	}
+	if containsString(julyRow.VaccineCodes, "PPR") || !containsString(julyRow.VaccineCodes, "ET_TT") {
+		t.Fatalf("july vaccine codes = %#v, want ET_TT only after PPR override", julyRow.VaccineCodes)
+	}
+	if julyRow.Animals != 84 || julyRow.TotalDoses != 84 {
+		t.Fatalf("july animals/doses = %d/%d, want 84/84 after sibling split", julyRow.Animals, julyRow.TotalDoses)
+	}
+	augustRow := driveAssignmentRowFor(august, "2026-08-05", "Gandhi")
+	if augustRow == nil {
+		t.Fatalf("august rows missing moved PPR: %#v", august)
+	}
+	if !containsString(augustRow.VaccineCodes, "PPR") || containsString(augustRow.VaccineCodes, "ET_TT") {
+		t.Fatalf("august vaccine codes = %#v, want PPR only", augustRow.VaccineCodes)
+	}
+	if augustRow.Animals != 84 || augustRow.TotalDoses != 84 {
+		t.Fatalf("august animals/doses = %d/%d, want 84/84 moved vaccine row", augustRow.Animals, augustRow.TotalDoses)
+	}
+}
+
 func TestScanRosterUsesExactTaskIdentityCursorAndPinnedOptions(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1994,6 +2072,24 @@ func projectedExecutionPage(t *testing.T, ctx context.Context, repo *Repository,
 func projectedOperations(t *testing.T, ctx context.Context, repo *Repository, q domain.OperationsQuery) ([]domain.OperationsRow, error) {
 	t.Helper()
 	return repo.VaccinationOperations(ctx, q)
+}
+
+func driveAssignmentRowFor(rows []domain.DriveAssignmentRow, plannedDate, physicalShed string) *domain.DriveAssignmentRow {
+	for i := range rows {
+		if rows[i].PlannedDate == plannedDate && rows[i].PhysicalShed == physicalShed {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func TestVaccinationOperationsProjectionReadLatency(t *testing.T) {
