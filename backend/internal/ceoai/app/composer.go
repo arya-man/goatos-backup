@@ -21,7 +21,10 @@ func (composer) compose(results []domain.ToolResult) (body string, citations []d
 
 	for _, r := range results {
 		if r.Err != nil {
-			sections = append(sections, fmt.Sprintf("%s: could not be retrieved (%s).", surfaceOrRoute(r), r.Err.Error()))
+			// Never surface the raw internal error (route/tool wiring, SQL, etc.)
+			// to the leadership user — that stays in the admin trace + audit. Show
+			// a clean, honest "not available yet" line instead.
+			sections = append(sections, fmt.Sprintf("%s isn't available to the assistant yet.", surfaceOrRoute(r)))
 			continue
 		}
 		if len(r.Facts) == 0 && strings.TrimSpace(r.Summary) == "" {
