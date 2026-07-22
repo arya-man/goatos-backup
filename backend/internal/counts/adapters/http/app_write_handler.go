@@ -57,6 +57,10 @@ const (
 	appBirthEventRoute    = "/app/counts/birth-events"
 	appDeathEventRoute    = "/app/counts/death-events"
 
+	// appPromoteIdentifierRoute assigns a permanent RFID to a temporary-tagged goat (the Convert
+	// tab). Gated on CountsWrite: promoting a temp tag is the operator's retag, not an approval.
+	appPromoteIdentifierRoute = "/app/counts/goats/{goat_id}/promote-identifier"
+
 	// appShiftingDestinationsRoute serves the park -> shed cascade the shifting form's destination
 	// dropdowns are built from. It is a READ on the write surface: it is gated on CountsWrite, not
 	// on the admin-tier locations.read, because the operator who must pick a destination is exactly
@@ -105,6 +109,10 @@ type ShiftingEventRecorder interface {
 type GoatLifecycleValidator interface {
 	PrepareCreateAdminGoat(ctx context.Context, in identityapp.CreateAdminGoatInput) (identityports.CreateAdminGoatCommand, error)
 	PrepareCriticalDeathExit(ctx context.Context, in identityapp.ExitGoatInput) (identityports.ExitGoatCommand, error)
+	// PromoteTemporaryIdentifier assigns a permanent RFID to a temporary-tagged goat, atomically
+	// retiring the temp. Applied directly (not an approval): it is the operator's retag action, like
+	// the admin identifier flow. *identityapp.Service satisfies it.
+	PromoteTemporaryIdentifier(ctx context.Context, in identityapp.PromoteTemporaryIdentifierInput) (*identitydomain.AdminGoatResponse, error)
 }
 
 type AppWriteHandler struct {
@@ -139,6 +147,57 @@ func RegisterAppWrites(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("POST "+appShiftingEventRoute, h.RecordShiftingEvent)
 	mux.HandleFunc("POST "+appBirthEventRoute, h.RecordBirthEvent)
 	mux.HandleFunc("POST "+appDeathEventRoute, h.RecordDeathEvent)
+	mux.HandleFunc("POST "+appPromoteIdentifierRoute, h.PromoteTemporaryIdentifier)
+}
+
+type appPromoteIdentifierResponse struct {
+	GoatID           string `json:"goat_id"`
+	IdempotentReplay bool   `json:"idempotent_replay"`
+}
+
+// PromoteTemporaryIdentifier assigns a permanent RFID to a temporary-tagged goat, atomically
+// retiring the temp. Applied directly through identity's guarded promote command -- no approval.
+func (h *AppWriteHandler) PromoteTemporaryIdentifier(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	if h.validator == nil {
+		h.writeError(w, r, http.StatusNotImplemented, "promote_unavailable",
+			"identity promote workflow is not configured", nil)
+		return
+	}
+	goatID := strings.TrimSpace(r.PathValue("goat_id"))
+	if goatID == "" {
+		h.writeError(w, r, http.StatusBadRequest, "missing_goat_id", "goat_id is required", nil)
+		return
+	}
+	clientKey, err := appIdempotencyKey(r)
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	body, ok := h.readBody(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.validator.PromoteTemporaryIdentifier(r.Context(), identityapp.PromoteTemporaryIdentifierInput{
+		TenantID:       tenantID,
+		ActorID:        httpmiddleware.ActorIDFromContext(r.Context()),
+		IdempotencyKey: clientKey,
+		TraceID:        appTraceID(r),
+		GoatID:         goatID,
+		RawBody:        body,
+	})
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, appPromoteIdentifierResponse{
+		GoatID:           result.Goat.GoatID,
+		IdempotentReplay: result.Idempotency.Replayed,
+	})
 }
 
 // ---------------------------------------------------------------------------

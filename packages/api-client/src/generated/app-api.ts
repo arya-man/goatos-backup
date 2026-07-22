@@ -1591,6 +1591,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/goats/{goat_id}/promote-identifier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign a permanent RFID to a temporary-tagged goat (temp -> permanent).
+         * @description Promotes a goat that currently carries a temporary tag to a permanent RFID. In ONE transaction the server retires the goat's active temporary_tag and attaches the supplied permanent_identifier as its primary animal_identifier_1, emitting both goat.identifier.retired and goat.identifier.added. Applied directly (NOT an approval): this is the operator's retag, gated on CountsWrite. The temp tag to retire is found server-side; the caller sends only the permanent RFID and the goat's row_version. Idempotent via the Idempotency-Key header: an exact replay returns idempotent_replay=true and moves nothing; a same-key/different-payload replay is 409. A goat with no active temporary tag is rejected with 409 no_temporary_identifier.
+         */
+        post: operations["promoteAppCountsIdentifier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/shifting-events/pending-execution": {
         parameters: {
             query?: never;
@@ -4772,6 +4792,19 @@ export interface components {
             source_record_id?: string;
             evidence_refs: components["schemas"]["EvidenceRef"][];
             vaccination_history?: components["schemas"]["EvidenceRef"][];
+        };
+        /** @description Assign a permanent RFID to a temporary-tagged goat. The temporary tag to retire is found server-side, so only the permanent RFID and the goat's current row_version are sent. */
+        PromoteIdentifierRequest: {
+            /** @description The permanent RFID to attach as the goat's primary animal_identifier_1. */
+            permanent_identifier: string;
+            /** @description The goat's current optimistic-concurrency token (from the temporary-tagged list). */
+            row_version: number;
+        };
+        PromoteIdentifierResponse: {
+            /** Format: uuid */
+            goat_id: string;
+            /** @description True when this returned a prior identical promotion rather than a new one. */
+            idempotent_replay: boolean;
         };
         /** @description The guardrailed critical-death exit. lifecycle_status and exit_reason are constants: the dead+died pairing is the guardrail, and any other combination is rejected. */
         RecordDeathEventRequest: {
@@ -8005,6 +8038,40 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    promoteAppCountsIdentifier: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoteIdentifierRequest"];
+            };
+        };
+        responses: {
+            /** @description The permanent RFID was assigned (or the call was an idempotent replay). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromoteIdentifierResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
