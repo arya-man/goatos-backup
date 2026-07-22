@@ -64,11 +64,11 @@ interface TasksRepository {
      *  Room has (null on a cold cache) and re-emits after every successful
      *  [refreshShedCompletionSummary]. The submit-readiness acknowledgement summary is viewable
      *  offline, so it is Room-backed like every other screen-facing read. */
-    fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?>
+    fun observeShedCompletionSummary(taskId: String, shedId: String? = null): Flow<ShedCompletionSummaryDto?>
 
     /** Network side of stale-while-revalidate for the shed-completion summary: fetches and upserts
      *  Room on success; leaves the cache untouched on failure so a stale cached summary survives. */
-    suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit>
+    suspend fun refreshShedCompletionSummary(taskId: String, shedId: String? = null): Result<Unit>
 }
 
 class DefaultTasksRepository(
@@ -96,12 +96,12 @@ class DefaultTasksRepository(
     }
 
     // offline-first-guard:ignore: Room-backed — reads shedCompletionSummaryDao.observe(); heuristic misses the dao read through the .map/readCachedJson helper.
-    override fun observeShedCompletionSummary(taskId: String): Flow<ShedCompletionSummaryDto?> =
-        shedCompletionSummaryDao.observe(taskId)
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
+        shedCompletionSummaryDao.observe(shedCompletionSummaryCacheKey(taskId, shedId))
             .map { entity ->
                 readCachedJson<ShedCompletionSummaryDto>(
                     json = json,
-                    cacheKey = taskId,
+                    cacheKey = shedCompletionSummaryCacheKey(taskId, shedId),
                     dtoJson = entity?.dtoJson,
                     updatedAt = entity?.updatedAt,
                     now = clock(),
@@ -111,10 +111,14 @@ class DefaultTasksRepository(
             .flowOn(Dispatchers.Default)
 
     // offline-first-guard:ignore: Room-backed — upserts via shedCompletionSummaryDao.upsert() inside runCatching; heuristic misses the upsert through the runCatching block.
-    override suspend fun refreshShedCompletionSummary(taskId: String): Result<Unit> = runCatching {
-        val dto = api.getShedCompletionSummary(taskId)
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = runCatching {
+        val dto = api.getShedCompletionSummary(taskId, shedId)
         shedCompletionSummaryDao.upsert(
-            ShedCompletionSummaryCacheEntity(cacheKey = taskId, dtoJson = json.encodeToString(dto), updatedAt = clock()),
+            ShedCompletionSummaryCacheEntity(
+                cacheKey = shedCompletionSummaryCacheKey(taskId, shedId),
+                dtoJson = json.encodeToString(dto),
+                updatedAt = clock(),
+            ),
         )
         shedCompletionSummaryDao.enforceCacheBounds()
     }
@@ -146,6 +150,9 @@ class DefaultTasksRepository(
         return Resource(data = cached.data?.toDomain(), lastSyncedAt = cached.updatedAt)
     }
 }
+
+private fun shedCompletionSummaryCacheKey(taskId: String, shedId: String?): String =
+    listOf(taskId, shedId?.takeIf { it.isNotBlank() } ?: "task-wide").joinToString("|")
 
 private fun TaskDetailResponseDto.toDomain(): TaskDetail = TaskDetail(
     task = task.copy(

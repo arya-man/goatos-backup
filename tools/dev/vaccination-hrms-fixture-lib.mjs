@@ -186,10 +186,11 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.minimum_migration === "000008", "manifest.minimum_migration must be 000008", problems);
   expect(manifest.contracts?.source_policy_sha256 === SEED_SOURCE_POLICY_SHA256, "manifest source policy digest differs from contracts/vaccination-seed-source-policy.json", problems);
   expect(manifest.contracts?.vaccination_sop_code === "vaccination.drive", "manifest must bind vaccination.drive SOP", problems);
-  expect(manifest.contracts?.video_proof_subject_scope === "goat", "manifest video proof must be per goat", problems);
-  expect(manifest.contracts?.video_capture_source === "in_app_camera", "manifest video proof must use in_app_camera", problems);
-  expect(manifest.contracts?.minimum_video_count_per_goat === 1, "manifest must require at least one video per goat", problems);
-  expect(manifest.contracts?.maximum_video_count_per_goat === 5, "manifest must allow at most five videos per goat", problems);
+  expect(manifest.contracts?.proof_mode === "shed_level_video", "manifest proof_mode must be shed_level_video", problems);
+  expect(manifest.contracts?.video_proof_subject_scope === "shed", "manifest video proof subject must be shed", problems);
+  expect(Array.isArray(manifest.contracts?.video_capture_sources) && manifest.contracts.video_capture_sources.includes("in_app_camera") && manifest.contracts.video_capture_sources.includes("gallery_picker"), "manifest shed video proof must allow camera and gallery picker", problems);
+  expect(manifest.contracts?.minimum_video_count_per_shed === 1, "manifest must require at least one video per shed", problems);
+  expect(manifest.contracts?.maximum_video_count_per_shed === 5, "manifest must allow at most five videos per shed", problems);
   expect(manifest.contracts?.verifier_approval_required === true, "manifest must require verifier approval", problems);
   expect(manifest.contracts?.shed_completion === "acknowledgement_only", "shed completion must be acknowledgement_only", problems);
   expect(manifest.contracts?.local_trigger_primary_rfid_fixture === "CBE-RFID-0001", "manifest must bind the local trigger primary RFID fixture used by emulator scan E2E", problems);

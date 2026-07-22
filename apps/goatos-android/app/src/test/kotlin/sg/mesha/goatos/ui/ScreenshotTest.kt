@@ -141,7 +141,10 @@ class ScreenshotTest {
                     canSubmit = false,
                     syncLabel = "",
                     groups = emptyList(),
-                    goatProofTotal = 0,
+                    proofSummaryTitle = "",
+                    proofSummarySyncedLabel = "",
+                    proofSummaryFinalizeHint = "",
+                    proofTotal = 0,
                 ),
             )
         }
@@ -160,7 +163,10 @@ class ScreenshotTest {
                 date = "",
                 summaryItems = emptyList(),
                 groups = emptyList(),
-                goatProofTotal = 0,
+                proofSummaryTitle = "",
+                proofSummarySyncedLabel = "",
+                proofSummaryFinalizeHint = "",
+                proofTotal = 0,
                 formRunner = null,
                 submitLabel = "Submit",
                 canSubmit = true,
@@ -170,7 +176,8 @@ class ScreenshotTest {
                     driveName = "Vaccination · July 2026",
                     expectedCount = 50,
                     handledCount = 50,
-                    proofReadyCount = 50,
+                    proofReadyCount = 1,
+                    proofMode = "shed_level_video",
                     submitState = "draft",
                 ),
                 vaccineBreakdown = listOf(
@@ -218,7 +225,7 @@ class ScreenshotTest {
     fun form_runner() = shot("form_runner") {
         FormRunner(
             state = sampleFormRunnerState(),
-            onToggle = { _, _ -> }, onText = { _, _ -> }, onScan = {}, onPick = { _, _ -> }, onCaptureVideo = {}, onSubmit = {},
+            onToggle = { _, _ -> }, onText = { _, _ -> }, onScan = {}, onPick = { _, _ -> }, onCaptureVideo = { _, _ -> }, onSubmit = {},
         )
     }
 
@@ -275,8 +282,9 @@ class ScreenshotTest {
                 syncState = sg.mesha.goatos.feature.submit.SyncState.ACKED,
                 syncProgress = 1f,
                 submitLabel = "Finalize shed",
-                goatProofSynced = 40,
-                goatProofUploading = 0,
+                proofSummarySyncedLabel = "40 of 40 goats synced",
+                proofSynced = 40,
+                proofUploading = 0,
             ),
         )
     }

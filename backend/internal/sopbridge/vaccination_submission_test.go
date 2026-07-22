@@ -173,6 +173,36 @@ func TestVaccinationSubmissionBridgeUsesCompletionProofRefsForShedAck(t *testing
 	}
 }
 
+func TestVaccinationSubmissionBridgeUsesShedLevelVideoForEachGoatVerificationItem(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	rec := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-1", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+		},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	shedID := "shed-1"
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-1",
+		SubmittedBy:  "operator-1",
+		ProofRefs: []sopdomain.ProofReference{
+			{ProofID: "shed-video-1", SubjectType: "shed", SubjectID: &shedID},
+		},
+	}
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	if producer.calls != 2 {
+		t.Fatalf("verification producer calls = %d, want 2", producer.calls)
+	}
+	if got := producer.last.MediaRefs; len(got) != 1 || got[0] != "shed-video-1" {
+		t.Fatalf("media refs = %v, want shed-level video proof", got)
+	}
+}
+
 func TestVaccinationSubmissionBridgeFailsWhenScannedGoatHasNoCameraProof(t *testing.T) {
 	rec := &captureVaccinationRecorder{
 		count: 1,

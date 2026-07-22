@@ -448,7 +448,7 @@ func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, strin
 	return r.srGoat, r.srGoatLoadFound, nil
 }
 
-func (r *completionRepoFake) ShedCompletionSummary(_ context.Context, _ string, taskID string) (domain.ShedCompletionSummary, error) {
+func (r *completionRepoFake) ShedCompletionSummary(_ context.Context, _ string, taskID, shedID string) (domain.ShedCompletionSummary, error) {
 	return domain.ShedCompletionSummary{TaskID: taskID, SubmitState: "draft"}, nil
 }
 

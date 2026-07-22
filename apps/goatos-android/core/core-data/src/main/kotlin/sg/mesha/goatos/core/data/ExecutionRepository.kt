@@ -407,6 +407,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     normalizedSecondaryTag = secondaryTag?.let(::canonicalRosterTag)?.takeIf { it.isNotBlank() },
     vaccineLabel = vaccineLabel,
     status = status,
+    scannedAtMs = scannedAt?.let(::parseServerInstantMs),
     obligationId = obligationId,
     seq = seq,
     updatedAt = now,
@@ -416,6 +417,9 @@ private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
     cacheKey(shedId, taskId ?: "shed-wide")
 
 internal fun canonicalRosterTag(tag: String): String = tag.filter(Char::isLetterOrDigit).lowercase()
+
+private fun parseServerInstantMs(raw: String): Long? =
+    runCatching { java.time.Instant.parse(raw).toEpochMilli() }.getOrNull()
 
 class ScanRosterCursorException(message: String) : IllegalStateException(message)
 class ExecutionRowsCursorException(message: String) : IllegalStateException(message)

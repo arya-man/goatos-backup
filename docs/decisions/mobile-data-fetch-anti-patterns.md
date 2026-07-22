@@ -184,11 +184,10 @@ Re-verified against `origin/main` 05889b83 on 2026-07-20:
   is an UNREACHABLE safety bound, not a silent truncation: a task's proofs are bounded by
   `MAX_PROOFS_PER_GOAT=5` × the shed's animals (hundreds at most) — orders of magnitude below 10k.
   It is not a live data-loss bug.
-- **Crash-recovery re-enqueue uses `ProofPolicy.Default`** (`reconcileRecoverableUploadsNow` →
-  `enqueueRegistrationNow` with no policy). The only field this affects is `capture_source`, which is
-  camera-only-enforced and effectively constant (`in_app_camera`), so the "loss" is a no-op. If a
-  non-default `capture_source` is ever introduced, persist the policy on the proof row (Room bump +
-  MigrationTest + UpgradeCrashTest) and use it in recovery — until then this is not a live bug.
+- **Crash-recovery re-enqueue must preserve proof capture source.** `capture_source` is now
+  SOP-controlled: per-goat proof remains `in_app_camera`, while shed-level proof may use
+  `gallery_picker`. Any recovery/outbox path must persist and replay the capture source from Room;
+  it must not silently rebuild upload metadata from `ProofPolicy.Default`.
 - **`minimumCountPerSubject`** is enforced server-side at SOP submission
   (`backend/internal/sop/app/service.go` `validatePerGoatProofRefs`), the correct boundary. The Android
   client parses it for display only; that is not a missing-enforcement bug.

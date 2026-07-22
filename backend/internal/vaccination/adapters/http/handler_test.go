@@ -36,7 +36,7 @@ func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, parkID strin
 	return f.queue, nil
 }
 
-func (f *fakeImpact) ShedCompletionSummary(_ context.Context, _ string, taskID string) (domain.ShedCompletionSummary, error) {
+func (f *fakeImpact) ShedCompletionSummary(_ context.Context, _ string, taskID, shedID string) (domain.ShedCompletionSummary, error) {
 	return domain.ShedCompletionSummary{TaskID: taskID, SubmitState: "draft"}, nil
 }
 

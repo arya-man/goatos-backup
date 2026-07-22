@@ -128,6 +128,7 @@ data class ScanFeedEntry(
     val secondaryTag: String?,
     val vaccineLabel: String,      // "FMD · 1st" or "skip · <reason>"
     val status: ScanStatus,        // DONE or SKIPPED
+    val scannedAtLabel: String? = null,
     val tone: ScanFeedTone = when (status) {
         ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
         else -> ScanFeedTone.ACCEPTED
@@ -204,6 +205,7 @@ data class ScanUiState(
     // animals below the visible scroll window.
     val proofActionNeeded: List<RosterRow> = emptyList(),
     val readerConnection: ScanReaderConnection? = null,
+    val shedId: String? = null,
     val taskId: String? = null,
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
@@ -764,18 +766,30 @@ private fun FeedRow(entry: ScanFeedEntry) {
     ) {
         StatusGlyph(entry.status, tone = entry.tone)
         Spacer(Modifier.width(10.dp))
-        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                entry.primaryTag,
-                color = tagColor,
-                fontSize = 15.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
-            )
-            entry.secondaryTag?.let {
-                Spacer(Modifier.width(6.dp))
-                TwoTagsBadge()
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    entry.primaryTag,
+                    color = tagColor,
+                    fontSize = 15.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                )
+                entry.secondaryTag?.let {
+                    Spacer(Modifier.width(6.dp))
+                    TwoTagsBadge()
+                }
+            }
+            entry.scannedAtLabel?.takeIf { it.isNotBlank() }?.let { label ->
+                Text(
+                    text = label,
+                    color = ScanTokens.brandD,
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
         }
         Text(entry.vaccineLabel, color = toneColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)

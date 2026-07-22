@@ -148,6 +148,10 @@ transform may repair surrounding mock metadata but must never change a dated,
   model uses. The committed fixture uses synthetic names.
 - Keep `route_site=subcutaneous` as vaccination matrix protocol metadata only.
   Do not add it back to the vaccination SOP/operator form.
+- Keep proof grain in the manifest aligned with the published SOP. Current
+  vaccination fixture contract is `proof_mode=shed_level_video`: every goat scan
+  still carries its own timestamp, but video proof is one-to-five shed-level
+  clips with both in-app camera and gallery picker allowed by backend policy.
 
 These repairs are fixture-specific and recorded in `corrections.json`. They do
 not authorize production ingestion to rewrite business history. Production

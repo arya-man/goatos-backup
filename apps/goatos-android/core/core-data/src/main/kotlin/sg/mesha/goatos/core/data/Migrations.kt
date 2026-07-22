@@ -376,3 +376,17 @@ val MIGRATION_14_15: Migration = object : Migration(14, 15) {
         )
     }
 }
+
+/** v15 -> v16: cache backend scan timestamps on scan_roster_row.
+ *
+ * The server is the source of truth for RFID captures once they sync. The scan screen previously
+ * showed exact scan times only from the phone-local scanned_goat_capture table, so a refreshed or
+ * reinstalled operator device could reopen a shed and see 0/N even though the backend had accepted
+ * the captures. This nullable column lets the roster refresh carry the server's `scannedAt`
+ * timestamp into Room; the UI then renders DONE plus the exact IST timestamp from the row itself.
+ */
+val MIGRATION_15_16: Migration = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `scannedAtMs` INTEGER")
+    }
+}

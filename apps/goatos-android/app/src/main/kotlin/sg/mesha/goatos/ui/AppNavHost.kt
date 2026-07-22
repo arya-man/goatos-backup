@@ -453,7 +453,8 @@ fun AppNavHost(
                     when (event) {
                         ScanEvent.Submit -> navController.navigate(
                             Routes.submitRoute(
-                                shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG),
+                                shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG)?.takeIf { it.isNotBlank() }
+                                    ?: state.shedId,
                                 driveId = entry.arguments?.getString(Routes.EXECUTION_DRIVE_ARG),
                                 batchId = entry.arguments?.getString(Routes.EXECUTION_BATCH_ARG),
                                 taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG)?.takeIf { it.isNotBlank() }

@@ -536,6 +536,11 @@ stale for this data until reseeded with `-null-false-dob`.
 
 At minimum, this contract is guarded by:
 
+- Fixture manifest proof contract: the committed source bundle declares
+  `proof_mode=shed_level_video`, shed proof subject, one required shed video
+  with a maximum of five, and camera + gallery capture sources. This does not
+  change source vaccination dates; per-goat scan timestamps remain the
+  administration-time truth.
 - `backend/cmd/seed-vaccination-real/main_test.go`: source dates on or before
   the business date import as trusted anchor history, while future business
   dates do not; open work materialized by the seed is strictly future-only.

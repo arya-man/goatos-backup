@@ -402,6 +402,11 @@ one product; this skill is the navigation layer.
   Do not copy or hand-roll kid/adult path logic in seeders; call the live
   vaccination schedule-path helper/config. Checklist:
   `docs/runbooks/vaccination-seed-source-date-contract.md`.
+- Vaccination proof grain is SOP-owned and must flow through backend config/API
+  into Android. Current source fixture contract is shed-level video proof:
+  one-to-five shed videos (camera or gallery) plus per-goat scan timestamps.
+  Do not hardcode per-goat video proof in seeders, Android, verifier bridge, or
+  assistant copy.
 - Local vaccination proof after a seed/reseed/import/change of goat shed, goat
   health state, goat lifecycle, source history, protocol rules, or HRMS
   ownership must run the same closeout chain: generation, sweeper drive

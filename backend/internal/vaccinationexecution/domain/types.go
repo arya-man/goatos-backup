@@ -283,6 +283,7 @@ type ScanRosterRow struct {
 	SecondaryTag   *string `json:"secondaryTag,omitempty"`
 	VaccineLabel   string  `json:"vaccineLabel"`
 	Status         string  `json:"status"`
+	ScannedAt      *string `json:"scannedAt,omitempty"`
 	ObligationID   string  `json:"obligationId"`
 	BatchID        string  `json:"batchId"`
 	TaskID         string  `json:"taskId"`

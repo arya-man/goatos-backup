@@ -325,6 +325,64 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-TWO','rfid-two','act
 	}
 }
 
+func TestScanRosterOneToManyPageBoundaryExecutionDateParkScopeStatusBucketsReturnsScannedAt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		secondGoat = "70000000-0000-4000-8000-000000000091"
+		secondObl  = "70000000-0000-4000-8000-000000000092"
+	)
+	execProjectionSQL(t, ctx, pool, "task for scanned roster", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Scanned roster','in_progress',$5,'shed',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`, testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, testBatch)
+	execProjectionSQL(t, ctx, pool, "link scanned task batch", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "link scanned task obligations", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "first goat tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-SCAN-ONE','rfid-scan-one','active','global','v1',now())`, testTenant, testGoat)
+	insertProjectionGoat(t, ctx, pool, secondGoat, testShed, testPark)
+	insertProjectionObligation(t, ctx, pool, secondObl, testBatch, secondGoat, "due", "2026-06-24 00:00:00+00", "vaccexec-roster-scan-second")
+	execProjectionSQL(t, ctx, pool, "link scanned second task", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`, testTask, testTenant, secondObl)
+	execProjectionSQL(t, ctx, pool, "second goat tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-SCAN-TWO','rfid-scan-two','active','global','v1',now())`, testTenant, secondGoat)
+	execProjectionSQL(t, ctx, pool, "older same goat scan", `
+INSERT INTO sop_task_scan_captures
+  (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at)
+VALUES ($1,$2,'goat_ids','RFID-SCAN-ONE','rfid-scan-one',$3,$4,$5,'scan-roster-old','2026-07-22 03:29:00+05:30')`,
+		testTenant, testTask, testGoat, testObl, testOperator)
+	execProjectionSQL(t, ctx, pool, "latest exact scan timestamp", `
+INSERT INTO sop_task_scan_captures
+  (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at)
+VALUES ($1,$2,'goat_ids','RFID-SCAN-ONE','rfid-scan-one',$3,$4,$5,'scan-roster-latest','2026-07-22 03:31:05.123+05:30')`,
+		testTenant, testTask, testGoat, testObl, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	first, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 1})
+	if err != nil {
+		t.Fatalf("ScanRoster(first): %v", err)
+	}
+	if len(first.Rows) != 1 || first.NextCursor == nil {
+		t.Fatalf("first page=%#v", first)
+	}
+	if first.Rows[0].Status != "done" || first.Rows[0].ScannedAt == nil || *first.Rows[0].ScannedAt != "2026-07-21T22:01:05.123Z" {
+		t.Fatalf("scanned row status/scannedAt=%#v", first.Rows[0])
+	}
+	second, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 1, Cursor: first.NextCursor})
+	if err != nil {
+		t.Fatalf("ScanRoster(second): %v", err)
+	}
+	if len(second.Rows) != 1 || second.Rows[0].Status != "due" || second.Rows[0].ScannedAt != nil || second.NextCursor != nil {
+		t.Fatalf("second page=%#v", second)
+	}
+}
+
 func TestScanRosterParkScopePinsDriveTaskToSelectedShed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
