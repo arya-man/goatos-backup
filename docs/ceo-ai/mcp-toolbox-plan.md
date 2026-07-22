@@ -516,6 +516,12 @@ slot even if the animal receives multiple vaccines in the same visit, and an
 over-cap latest-safe day means the operator cap was exceeded intentionally to
 finish required vaccination work.
 
+For schedule-display answers, leadership assistant MCP/read API consumers should
+group the persisted assignment ledger to one row per date and operator, then
+summarize physical sheds and partitions inside that operator-day row. The raw
+partition-grain rows remain the drilldown/execution detail, not the top-level
+schedule row count.
+
 ### Coverage update: vaccination shed partitions
 
 Vaccination shed names from seed data can encode partitions: `Gandhi 1` means

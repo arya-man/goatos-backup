@@ -15,6 +15,23 @@ const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
 const PAGE_LIMIT = 2000;
 
+type DriveAssignmentRow = VaccinationDriveAssignmentResponse["rows"][number];
+
+type OperatorDayScheduleRow = {
+  key: string;
+  plannedDate: string;
+  operatorId: string;
+  operatorName: string;
+  parkName: string;
+  animals: number;
+  capacity: string;
+  sheds: Array<{
+    name: string;
+    animals: number;
+    partitions: Array<{ label: string; animals: number }>;
+  }>;
+};
+
 function selectedScheduleYear(searchParams: RouteSearchParams | undefined): number {
   return boundedInt(one(searchParams ?? {}, "schedule_year"), CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR + 5);
 }
@@ -36,6 +53,54 @@ function partitionLabel(pageContract: AdminUiPageContract, label: string): strin
   const trimmed = label.trim();
   if (!trimmed) return copy(pageContract, "schedule.partition.whole_shed");
   return /^part\b/i.test(trimmed) ? trimmed : `${copy(pageContract, "schedule.partition.prefix")} ${trimmed}`;
+}
+
+function capacityRank(status: string): number {
+  if (status === "over_cap_required" || status === "capacity_breach") return 3;
+  if (status === "capacity_action") return 2;
+  return 1;
+}
+
+function strongerCapacity(left: string, right: string): string {
+  return capacityRank(right) > capacityRank(left) ? right : left;
+}
+
+function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRow[] {
+  const groups = new Map<string, OperatorDayScheduleRow>();
+
+  for (const row of rows) {
+    const key = `${row.plannedDate}|${row.operatorId}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        plannedDate: row.plannedDate,
+        operatorId: row.operatorId,
+        operatorName: row.operatorName,
+        parkName: row.parkName,
+        animals: 0,
+        capacity: row.capacity,
+        sheds: [],
+      };
+      groups.set(key, group);
+    }
+    group.animals += row.animals;
+    group.capacity = strongerCapacity(group.capacity, row.capacity);
+
+    let shed = group.sheds.find((item) => item.name === row.physicalShed);
+    if (!shed) {
+      shed = { name: row.physicalShed, animals: 0, partitions: [] };
+      group.sheds.push(shed);
+    }
+    shed.animals += row.animals;
+    shed.partitions.push({ label: row.partitionLabel, animals: row.animals });
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const dateOrder = a.plannedDate.localeCompare(b.plannedDate);
+    if (dateOrder !== 0) return dateOrder;
+    return a.operatorName.localeCompare(b.operatorName);
+  });
 }
 
 async function loadDriveSchedule(scope: Scope, year: number, month: number): Promise<ApiResult<VaccinationDriveAssignmentResponse>> {
@@ -121,6 +186,7 @@ export async function VaccinationFullSchedule({
   const month = selectedScheduleMonth(searchParams);
   const result = scheduleResult ?? (await loadDriveSchedule(scope, year, month));
   const rows = result.ok ? result.data.rows : [];
+  const operatorDayRows = groupOperatorDayRows(rows);
   const parks = new Set(rows.map((row) => row.parkId).filter(Boolean));
   const sheds = new Set(rows.map((row) => `${row.parkId}|${row.physicalShed}`).filter(Boolean));
   const animals = rows.reduce((sum, row) => sum + row.animals, 0);
@@ -175,7 +241,7 @@ export async function VaccinationFullSchedule({
         <div className="kpi">
           <CalendarDays className="ic" aria-hidden="true" />
           <span>{copy(pageContract, "schedule.kpi.drive_rows")}</span>
-          <b>{rows.length}</b>
+          <b>{operatorDayRows.length}</b>
         </div>
       </div>
 
@@ -215,15 +281,15 @@ export async function VaccinationFullSchedule({
                 <th>{copy(pageContract, "schedule.column.date")}</th>
                 <th>{copy(pageContract, "schedule.column.operator")}</th>
                 <th>{copy(pageContract, "schedule.column.park")}</th>
-                <th>{copy(pageContract, "schedule.column.shed")}</th>
+                <th>{copy(pageContract, "schedule.column.sheds")}</th>
                 <th>{copy(pageContract, "schedule.column.partition")}</th>
                 <th className="num">{copy(pageContract, "schedule.column.animals")}</th>
                 <th>{copy(pageContract, "schedule.column.capacity")}</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={`${row.plannedDate}|${row.operatorId}|${row.physicalShed}|${row.partitionLabel}`} className="schedule-click-row">
+              {operatorDayRows.map((row) => (
+                <tr key={row.key} className="schedule-click-row">
                   <td className="schedule-date-cell state-scheduled">
                     <span className="schedule-date-stack">
                       <span className="schedule-date-main">{fmtDate(row.plannedDate)}</span>
@@ -232,10 +298,29 @@ export async function VaccinationFullSchedule({
                   </td>
                   <td><b>{row.operatorName}</b></td>
                   <td><ClipText title={row.parkName}>{row.parkName}</ClipText></td>
-                  <td><ClipText title={row.physicalShed}>{row.physicalShed}</ClipText></td>
-                  <td>{row.partitionLabel ? <Tag tone="info">{partitionLabel(pageContract, row.partitionLabel)}</Tag> : <span className="muted">{copy(pageContract, "schedule.partition.whole_shed")}</span>}</td>
+                  <td className="schedule-shed-cell">
+                    <div className="operator-day-sheds">
+                      {row.sheds.map((shed) => (
+                        <span key={shed.name} className="operator-day-shed">
+                          <b>{shed.name}</b>
+                          <span className="muted">{shed.animals}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="operator-day-partitions">
+                      {row.sheds.flatMap((shed) =>
+                        shed.partitions.map((partition) => (
+                          <Tag key={`${shed.name}|${partition.label}`} tone="info" title={`${shed.name} · ${partition.animals}`}>
+                            {partitionLabel(pageContract, partition.label)}
+                          </Tag>
+                        )),
+                      )}
+                    </div>
+                  </td>
                   <td className="num"><b>{row.animals}</b></td>
-                  <td><Tag tone={row.capacity === "capacity_breach" ? "dng" : "ok"}>{row.capacity}</Tag></td>
+                  <td><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></td>
                 </tr>
               ))}
             </tbody>

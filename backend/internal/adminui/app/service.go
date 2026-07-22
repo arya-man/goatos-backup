@@ -268,7 +268,7 @@ func pages() []domain.PageContract {
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
 				// planned Sessions, capacity, merged Status). 10 columns; default 25 rows.
 				tableP("shed-summary", "Vaccination by shed", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100}),
-				table("full-vaccine-schedule", "Operator drive schedule", "/vaccination/drive-assignments", []string{"date", "operator", "park", "shed", "partition", "animals", "capacity"}, "schedule_row"),
+				table("full-vaccine-schedule", "Operator drive schedule", "/vaccination/drive-assignments", []string{"date", "operator", "park", "sheds", "partitions", "animals", "capacity"}, "schedule_row"),
 				table("supplier-warmup", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "warmup_load"),
 			}),
 		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination shed detail", "Shed-wise vaccination detail: planned sessions, per-vaccine breakdown, and the shed's animal roster.", "record-drilldown",
@@ -1084,7 +1084,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.kpi.sheds":                                 "Sheds in drives",
 			"schedule.kpi.animals":                               "Animals in drives",
 			"schedule.kpi.animals_assigned":                      "Animals assigned",
-			"schedule.kpi.drive_rows":                            "Drive rows",
+			"schedule.kpi.drive_rows":                            "Operator days",
 			"schedule.kpi.overdue_drives":                        "Overdue drives",
 			"schedule.column.date":                               "Date",
 			"schedule.column.operator":                           "Operator",

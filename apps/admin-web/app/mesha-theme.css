@@ -690,6 +690,11 @@
   .main table.full-vaccine-schedule-table .schedule-status-link .tag{margin:0}
   .main table.full-vaccine-schedule-table .schedule-wrap-link{align-items:center;white-space:normal;overflow:visible;text-overflow:clip;min-height:58px}
   .main table.full-vaccine-schedule-table .schedule-shed-cell{overflow:hidden}
+  .main table.full-vaccine-schedule-table .operator-day-sheds{display:flex;flex-wrap:wrap;gap:6px;padding:9px 12px;white-space:normal}
+  .main table.full-vaccine-schedule-table .operator-day-shed{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,var(--panel) 82%,var(--brand));padding:4px 8px;line-height:1.1}
+  .main table.full-vaccine-schedule-table .operator-day-shed b{font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
+  .main table.full-vaccine-schedule-table .operator-day-shed .muted{font-size:11px}
+  .main table.full-vaccine-schedule-table .operator-day-partitions{display:flex;flex-wrap:wrap;gap:5px;padding:9px 12px;white-space:normal}
   .schedule-chip-list{display:flex;align-items:center;align-content:center;gap:6px;flex-wrap:nowrap;min-width:0;max-width:100%;overflow:hidden}
   .schedule-chip-list-compact .schedule-mini-chip{max-width:104px}
   .schedule-mini-chip{display:inline-flex;align-items:center;min-width:0;max-width:180px;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 82%,var(--bg));border-radius:999px;padding:4px 8px;font-size:12px;line-height:1.1;color:var(--muted);font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

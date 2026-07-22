@@ -14,6 +14,8 @@ test("vaccination schedule is driven by persisted operator assignments", () => {
   assert.match(source, /physicalShed/);
   assert.match(source, /partitionLabel/);
   assert.match(source, /operatorName/);
+  assert.match(source, /groupOperatorDayRows/);
+  assert.match(source, /row\.sheds\.flatMap/);
   assert.equal(
     source.includes("getVaccinationSchedule"),
     false,
@@ -68,6 +70,12 @@ test("vaccination schedule no longer opens the retired aggregate drawer", () => 
   assert.equal(source.includes("ScheduleLocalDrawer"), false);
   assert.equal(source.includes("VaccineChipOverflow"), false);
   assert.equal(source.includes("#schedule_event="), false);
+});
+
+test("vaccination schedule renders one visible row per operator day", () => {
+  assert.match(source, /const operatorDayRows = groupOperatorDayRows\(rows\)/);
+  assert.match(source, /operatorDayRows\.map/);
+  assert.doesNotMatch(source, /rows\.map\(\(row\) => \(\s*<tr/s);
 });
 
 test("full schedule action is hidden while already inside the schedule view", () => {
