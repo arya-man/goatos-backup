@@ -2,12 +2,12 @@ package app
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // OperatorDrivePlanner assigns already-eligible vaccination work to operators.
@@ -393,7 +393,7 @@ func normalizeDriveWorkBlocks(blocks []DriveWorkBlock) []DriveWorkBlock {
 	out := make([]DriveWorkBlock, 0, len(blocks))
 	for _, block := range blocks {
 		if block.PhysicalShed == "" {
-			block.PhysicalShed, block.Partition = NormalizeDriveShed(block.RawShed)
+			block.PhysicalShed, block.Partition = domain.NormalizeDriveShed(block.RawShed)
 		}
 		if block.Partition == "" {
 			block.Partition = "whole"
@@ -471,25 +471,6 @@ func appendUniqueStrings(values []string, next ...string) []string {
 	}
 	sort.SliceStable(values, func(i, j int) bool { return partitionLess(values[i], values[j]) })
 	return values
-}
-
-var (
-	partPattern   = regexp.MustCompile(`(?i)^(.+?)\s*-\s*(part\s+\d+)$`)
-	numberPattern = regexp.MustCompile(`^(.+?)\s+(\d+)$`)
-)
-
-func NormalizeDriveShed(raw string) (physicalShed, partition string) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", ""
-	}
-	if matches := partPattern.FindStringSubmatch(raw); len(matches) == 3 {
-		return strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2])
-	}
-	if matches := numberPattern.FindStringSubmatch(raw); len(matches) == 3 {
-		return strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2])
-	}
-	return raw, "whole"
 }
 
 func partitionLess(a, b string) bool {

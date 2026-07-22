@@ -134,6 +134,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&p.ParkName,
 			&p.ShedID,
 			&p.ShedName,
+			&p.PhysicalShed,
+			&p.Partition,
 			&p.AnimalStage,
 			&batchID,
 			&p.ProtocolName,
@@ -830,6 +832,8 @@ raw AS (
     ob.planned_date::timestamptz AS batch_planned_at,
     ob.status AS batch_status,
     vda.operator_id AS conducted_by,
+    vda.physical_shed,
+    vda.partition_label,
     st.state AS task_state,
     st.task_id AS sop_task_id,
     st.sop_version_id AS sop_version_id,
@@ -872,7 +876,7 @@ raw AS (
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
   LEFT JOIN LATERAL (
-    SELECT assignment.operator_id
+    SELECT assignment.operator_id, assignment.physical_shed, assignment.partition_label
     FROM vaccination_drive_assignments assignment
     WHERE assignment.tenant_id = oi.tenant_id
       AND assignment.batch_id = oi.batch_id
@@ -1003,6 +1007,16 @@ grouped AS (
       operator.updated_at DESC NULLS LAST,
       operator.workforce_member_id DESC
     ) FILTER (WHERE operator.display_name IS NOT NULL))[1] AS operator_name,
+    COALESCE(
+      (ARRAY_AGG(located.physical_shed ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
+        FILTER (WHERE NULLIF(located.physical_shed, '') IS NOT NULL))[1],
+      MAX(shed.name)
+    ) AS physical_shed,
+    COALESCE(
+      (ARRAY_AGG(located.partition_label ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
+        FILTER (WHERE NULLIF(located.partition_label, '') IS NOT NULL))[1],
+      'whole'
+    ) AS partition_label,
     -- This value is rendered directly on mobile shed cards. Prefer the governed
     -- human name; stage_code (K1/K2/...) is an internal fallback only.
     COALESCE(
@@ -1160,6 +1174,8 @@ SELECT
   park.name AS park_name,
   grouped.shed_uuid::text AS shed_id,
   shed.name AS shed_name,
+  grouped.physical_shed,
+  grouped.partition_label,
   grouped.animal_stage,
   grouped.batch_id::text AS batch_id,
   grouped.protocol_name,

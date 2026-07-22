@@ -148,7 +148,9 @@ execution, schedule, action-center, or control-tower read APIs first. If SQL
 fallback is needed, read generated drive-assignment rows at exact
 park/business-date/operator/physical-shed/partition grain and aggregate unique
 animals; do not repeatedly query workforce availability per candidate date or
-treat assignment rows as dose counts.
+treat assignment rows as dose counts. The `/vaccination/execution` read API
+exposes `physicalShed` and `partition` separately so leadership answers can
+group `Gandhi 1/2/3` as one physical shed with partition-level detail.
 
 Common questions:
 

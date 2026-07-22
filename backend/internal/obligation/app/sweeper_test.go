@@ -66,10 +66,11 @@ func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T)
 		{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-1"},
 		{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-2"},
 		{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-1", ShedName: "Gandhi - Part 2", TargetID: "goat-3"},
-		{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-3", ParkID: "park-1", ShedName: "Old Yashoda", TargetID: "goat-4"},
+		{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-3", ParkID: "park-1", ShedName: "Gandhi 3", TargetID: "goat-4"},
+		{ObligationID: "obl-5", ScopeType: "shed", ScopeID: "shed-4", ParkID: "park-1", ShedName: "Old Yashoda", TargetID: "goat-5"},
 	})
-	if len(assignments) != 3 {
-		t.Fatalf("assignments = %d, want 3: %#v", len(assignments), assignments)
+	if len(assignments) != 4 {
+		t.Fatalf("assignments = %d, want 4: %#v", len(assignments), assignments)
 	}
 	got := map[string]int32{}
 	for _, assignment := range assignments {
@@ -78,6 +79,7 @@ func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T)
 	want := map[string]int32{
 		"Gandhi|Part 1":     2,
 		"Gandhi|Part 2":     1,
+		"Gandhi|3":          1,
 		"Old Yashoda|whole": 1,
 	}
 	for key, count := range want {

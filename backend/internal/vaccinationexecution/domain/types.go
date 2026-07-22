@@ -340,6 +340,8 @@ type ExecutionProjection struct {
 	ParkName             string
 	ShedID               string
 	ShedName             string
+	PhysicalShed         string
+	Partition            string
 	AnimalStage          string
 	BatchID              *string
 	ProtocolName         string

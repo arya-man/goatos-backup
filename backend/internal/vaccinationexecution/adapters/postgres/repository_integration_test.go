@@ -60,7 +60,7 @@ const (
 	testVaccinationSOPVer  = "b0000000-0000-4000-8000-000000000002"
 )
 
-func TestListVaccinationExecutionProjectionOneToManyPageBoundaryScheduledDateScopeHierarchyStatusMatrix(t *testing.T) {
+func TestListVaccinationExecutionProjectionPartitionContractOneToManyPageBoundaryScheduledDateScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -94,6 +94,9 @@ func TestListVaccinationExecutionProjectionOneToManyPageBoundaryScheduledDateSco
 	}
 	if got.ShedID != testShed || got.ShedName != "K1 Shed" {
 		t.Fatalf("shed = %s/%s", got.ShedID, got.ShedName)
+	}
+	if got.PhysicalShed != "K1 Shed" || got.Partition != "1" {
+		t.Fatalf("assignment grain = %q/%q, want K1 Shed/1", got.PhysicalShed, got.Partition)
 	}
 	if got.AnimalStage != "K1 kids" {
 		t.Fatalf("animal stage = %q want human label K1 kids", got.AnimalStage)
