@@ -26,6 +26,7 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
 	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
+	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
@@ -459,6 +460,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	ceoVertex := ceoai.NewVertexProvider(ctx, log)
 	ceoOpts := ceoai.Options{
 		Metrics:   ceoai.NewCubeMetricService(log),
+		ReadTools: ceoreadtools.NewToolExecutors(),
 		Toolbox:   ceoai.NewToolbox(log),
 		Moderator: ceoai.NewModerator(),
 		Convo:     ceoai.NewConversationStore(pool, cfg.Postgres.QueryTimeout),
