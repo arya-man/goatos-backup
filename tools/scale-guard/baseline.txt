@@ -48,9 +48,8 @@ n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1 # owner
 #
 # P1 burn-down completed 2026-07-11: generation rulebook reads and proof refs are now batched.
 # P1 inside a P2 file: sweeper count/link/block are batched; remaining hits are bounded per-run page/chunk paths.
-n-plus-one-fanout backend/internal/obligation/app/sweeper.go 10 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=bounded sweep page still has cross-port calls to batch
+n-plus-one-fanout backend/internal/obligation/app/sweeper.go 2 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=remaining bounded sweep page paths still need bulk ports
 # P2/P3 bounded (per-run / capped) — annotate with scale-guard:ignore then drop:
-n-plus-one-fanout backend/internal/obligation/app/park_consolidation.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=park-bounded calls need a bulk port
 n-plus-one-fanout backend/internal/sop/app/service.go 4 # owner=sop-platform issue=C35-020 expires=2026-09-30 reason=admin retry and pending lists are capped but need batch ports
 n-plus-one-fanout backend/internal/bulkstatus/app/worker.go 2 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=per-job count bumps need batch CASE update
 n-plus-one-fanout backend/internal/identity/app/service.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=merge redirect is capped at sixteen but needs one recursive read

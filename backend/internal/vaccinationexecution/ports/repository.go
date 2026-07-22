@@ -15,6 +15,8 @@ type Repository interface {
 	VaccinationOperations(ctx context.Context, q domain.OperationsQuery) ([]domain.OperationsRow, error)
 	// VaccinationSchedule returns the canonical Full Schedule month/window rows.
 	VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) ([]domain.OperationsRow, error)
+	// DriveAssignments returns persisted operator-cap drive assignments for the selected month.
+	DriveAssignments(ctx context.Context, q domain.DriveAssignmentQuery) ([]domain.DriveAssignmentRow, error)
 	// ScanRoster returns one keyset page of per-animal scan obligations for the mobile scan screen
 	// (Rows + NextCursor); the shed's completion counts are computed server-side, not by loading the
 	// full roster on the device.

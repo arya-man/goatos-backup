@@ -85,6 +85,12 @@ starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
 2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
 spacing after PPR.
 
+Hard seed/generation guard: after real vaccination seeding, any accepted
+`et_tt_adult_w1` completion without a same-goat `et_tt_adult_w2` obligation or
+completion is a broken database, not a warning. Do not report future drives from
+`vaccination_drive_assignments` alone; first audit missing required obligations
+against `protocol_rules` and accepted history, especially adult ET+TT dose 2.
+
 Confirmed movement rule (maintainer decision 2026-07-19): goats never move
 between parks — shed moves exist only within one park; leaving a park is a
 terminal transferred/sold exit, never a move. Initial placement is exempt. See
@@ -441,6 +447,13 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
+- Vaccination seed shed names must normalize raw partition labels before
+  canonical `locations` writes. `Gandhi 1`, `Gandhi 2`, `Gandhi 3` are one
+  physical shed `Gandhi` with partitions `1`, `2`, `3`; `Godel 1 - Part 3`
+  is physical shed `Godel 1` with partition `Part 3`. Never seed those raw
+  partition strings as separate physical shed buildings. Drive planning and UI
+  must show physical shed -> partition -> operator assignment, with capacity
+  counted as unique animals per assigned operator/day.
 - Vaccination drive batching is park-level, animal-first, and safe-window-bound.
   Shed count is never a merge constraint; it is display/proof detail. A 1-2
   animal drive is valid only after proving no compatible same-park animal group
@@ -664,6 +677,12 @@ Do:
     baselined debt in `tools/scale-guard/baseline.txt`). Fix by batching to a
     single `*ByIDs` / `= ANY($1)` read (as `ShedSummary` now does with
     `ShedOwnerships`), not by looping a per-item service/port call.
+    Vaccination operator availability is explicitly in this class: a sweep or
+    preflight may probe many dates, but it must share one session cache at
+    `(tenant, park, business_date, cap_per_operator)` grain across capacity
+    scoring, `ConductedBy`, effective-cap, and assignment-split helpers. Do not
+    call `AvailableVaccinationOperatorsForDrive` from those helpers independently
+    or inside park/date loops.
   - **OFFSET pagination** — `LIMIT/OFFSET` with a growable offset. Use keyset/cursor.
   - **non-SARGable predicate** — `lower(col) LIKE '%x%'` / function on an indexed
     column. Use a normalized column, expression index, or `pg_trgm` GIN.
@@ -801,6 +820,16 @@ Do:
   - **A vaccination drive is a park visit with a mix of SHEDS, never grouped by
     vaccine** — one drive can contain one or many sheds. Coverage-by-vaccine is a
     metric, not the drive grouping.
+  - **Vaccination date moves/reverts are kernel writes, not read-model sidecars** —
+    moving a vaccine from a mixed operator-cap drive must update raw
+    `vaccination_drive_assignments` membership so the old date loses only that
+    vaccine and the target date gains it. Reverting by selecting the original
+    date must cancel the active override and restore the original raw
+    assignment membership. Never declare this fixed from frontend banners or
+    read-time `COALESCE(override_date)` behavior; E2E must assert raw DB rows
+    across move and revert while preserving all clinical rule outputs
+    (kid/adult, boosters, live/killed spacing, sick/ICU/pregnant/dead/cull
+    deferrals) and operator animal caps.
   - Parse/transform each field ONCE (never re-parse inside `.find`/`.filter` → O(n^2)),
     off the Main thread (`Dispatchers.Default`, ideally in the repo via `flowOn`).
   - **Room is the single source of truth, so pagination binds BOTH layers** — the network
@@ -991,9 +1020,13 @@ Do not:
 - Local dev servers (`:3300` admin-web, `:8080` backend): the workspace owner has
   granted agents (Codex and Claude) STANDING authority to stop, restart, re-port,
   or `next build` over them WITHOUT asking — just do it when the work needs it
-  (clean build, or an expired local token making routes redirect to `/login`;
-  restart with `npm --prefix apps/admin-web run dev:local` to re-mint a fresh
-  token). Do not pause to ask permission for a restart/rebuild. The only
+  (clean build, or an expired local token making routes redirect to `/login`).
+  Admin-web must be restarted through the local wrapper:
+  `npm --prefix apps/admin-web run dev` / `dev:local`, including custom isolated
+  ports like `npm --prefix apps/admin-web run dev -- --port 3318`. Plain
+  `next dev` is forbidden because it bypasses `GOATOS_AUTH_*` env and makes
+  `/admin-web/bootstrap` fail with `invalid_bearer_token`. Do not pause to ask
+  permission for a restart/rebuild. The only
   discipline: restore the server on the SAME port, never silently change ports,
   don't run `next build` concurrently with a live `next dev` on the same `.next`
   (stop it first), and if you break it, restore it. See
@@ -1022,6 +1055,21 @@ Do not:
   seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
   route visibility applies to non-founder operators, not to these five builder
   accounts.
+- Leadership assistant coverage invariant: every leadership-relevant table,
+  read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
+  domain event, or official KPI must resolve to a Cube governed metric, a
+  `ceo_ai.*` view, an MCP Toolbox tool, a mapped Mesha read API, or a documented
+  exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The
+  read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
+  Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
+  wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):
+  every tool name must resolve in the runtime registry (Cube binding, executor spec,
+  toolbox tool, or fallback alias), every RouteAPI target must have a wired reader or
+  fallback alias, and every coverage row must reference a golden eval question. HOW-TO:
+  `.agents/skills/goatos-leadership-assistant/SKILL.md` (includes ROUTE-CLOSURE rules).
+  Scaffold: `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
+  `make leadership-assistant-coverage-guard` + `make assistant-route-closure-guard`
+  (local CI + PostToolUse nudge for Claude and Codex).
 - Do not reintroduce old staging labels as architecture.
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the

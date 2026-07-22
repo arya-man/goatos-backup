@@ -1,7 +1,7 @@
 // Client-side API client for making requests from 'use client' components.
 // This is a thin wrapper around fetch that calls the backend admin API endpoints.
 
-import type { AdminApiComponents, AdminApiPaths } from '@goatos/api-client';
+import type { AdminApiComponents, AdminApiPaths, AppApiComponents } from '@goatos/api-client';
 
 /**
  * getAdminApi returns a client-side API object that can fetch roster and other admin endpoints.
@@ -72,6 +72,15 @@ export function getAdminApi() {
         items: AdminApiComponents['schemas']['Coverage'][];
         trace_id: string;
       };
+      return { data: body };
+    },
+
+    async getVaccinationCapacityConfig() {
+      const response = await fetch('/api/vaccination/capacity-config', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch vaccination capacity config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationCapacityConfig'];
       return { data: body };
     },
 

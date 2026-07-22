@@ -1491,6 +1491,129 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/ServerError"
+  /vaccination/schedule/drive-date-overrides:
+    post:
+      tags:
+        - Vaccination
+      operationId: upsertVaccinationDriveDateOverride
+      summary: Postpone one vaccine within a scheduled vaccination drive.
+      description: >
+        CEO/CXO vaccination campaign command that records a bounded sidecar override for one
+        vaccine code in one park drive date. The sweeper treats the override as a proposed
+        planned date only; max two vaccines per animal session, live/killed spacing, adult booster
+        rules, the +1 week medical window, operator cap, and shed/partition assignment constraints
+        are still enforced by the backend planner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [park_id, vaccine_code, original_drive_date, override_date, reason]
+              properties:
+                park_id:
+                  type: string
+                  format: uuid
+                vaccine_code:
+                  type: string
+                  minLength: 1
+                original_drive_date:
+                  type: string
+                  format: date
+                override_date:
+                  type: string
+                  format: date
+                  description: Must be after original_drive_date.
+                reason:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Active drive date override.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at]
+                properties:
+                  park_id:
+                    type: string
+                    format: uuid
+                  vaccine_code:
+                    type: string
+                  original_drive_date:
+                    type: string
+                    format: date
+                  override_date:
+                    type: string
+                    format: date
+                  reason:
+                    type: string
+                  created_by:
+                    type: string
+                    format: uuid
+                  created_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/drive-assignments:
+    get:
+      tags:
+        - Vaccination
+      operationId: listVaccinationDriveAssignments
+      summary: Persisted operator-cap vaccination drive assignments for one business-calendar month.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: year
+          in: query
+          required: false
+          description: Calendar year in the business timezone. Defaults to the current year.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+        - name: month
+          in: query
+          required: false
+          description: Calendar month in the business timezone. Defaults to the current month.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Operator/date/shed/partition assignment rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationDriveAssignmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServerError"
   /vaccination/execution:
     get:
       tags:
@@ -4533,6 +4656,276 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /ceo-ai/ask:
+    post:
+      operationId: askCeoAssistant
+      summary: Ask the read-only leadership operations assistant
+      description: >
+        CEO/CxO leadership assistant. Read-only over business data. Tenant and
+        role scope come ONLY from the authenticated session, never from the
+        request body. The response carries ONLY the user-facing envelope
+        (answer, source, mode, request_id, conversation_id, citations) — step
+        traces / chain-of-thought are internal and never returned.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoAssistantAskRequest"
+      responses:
+        "200":
+          description: Assistant answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoAssistantAnswer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  # --- ceo-ai conversation persistence + feedback (owned by ceoai/persistence) ---
+  # Additive block. Tenant + actor scope come ONLY from the authenticated session,
+  # never from the request body or path. All reads/writes are actor-scoped: one
+  # leadership user can never see or mutate another's threads.
+  /ceo-ai/conversations:
+    post:
+      operationId: createCeoConversation
+      summary: Open a leadership assistant conversation thread
+      description: >
+        Creates a durable thread. Idempotent when an Idempotency-Key header is
+        supplied: a replay with the same key returns the original thread (200)
+        instead of forking a new one (201).
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CeoIdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoConversationCreateRequest"
+      responses:
+        "201":
+          description: Thread created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "200":
+          description: Idempotent replay — existing thread returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    get:
+      operationId: listCeoConversations
+      summary: List the actor's conversation threads (keyset paginated)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from a prior page's next_cursor.
+          schema:
+            type: string
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: One keyset page of threads, newest activity first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/conversations/{conversation_id}:
+    parameters:
+      - $ref: "#/components/parameters/CeoConversationId"
+    get:
+      operationId: getCeoConversation
+      summary: Resume one thread
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    patch:
+      operationId: updateCeoConversation
+      summary: Rename or archive/unarchive a thread
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoConversationPatchRequest"
+      responses:
+        "200":
+          description: Updated thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      operationId: deleteCeoConversation
+      summary: Soft-delete a thread (hidden immediately, purged per retention policy)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Thread soft-deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/conversations/{conversation_id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/CeoConversationId"
+    get:
+      operationId: listCeoConversationMessages
+      summary: Read a thread's message history (keyset paginated, oldest-first)
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One keyset page of message history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoMessageList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /ceo-ai/messages/{message_id}/feedback:
+    parameters:
+      - $ref: "#/components/parameters/CeoMessageId"
+    post:
+      operationId: upsertCeoMessageFeedback
+      summary: Record thumbs up/down (+ reason) on an assistant message
+      description: >
+        Idempotent on (message, actor): a re-vote updates the existing signal in
+        place. Feedback can only be attached to a message in the actor's own live
+        thread.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CeoFeedbackRequest"
+      responses:
+        "200":
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CeoFeedback"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -4540,6 +4933,28 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    CeoConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CeoMessageId:
+      name: message_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CeoIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Replay-safety key; a repeat create with the same key returns the original thread.
+      schema:
+        type: string
+        maxLength: 200
     GoatId:
       name: goat_id
       in: path
@@ -4747,6 +5162,228 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    CeoConversationCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          description: Optional initial title; when omitted the backend derives one.
+          type: string
+          maxLength: 200
+      # tenant/actor are session-derived and MUST NOT appear in the body.
+    CeoConversationPatchRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        Exactly one intent per request. `title` renames; `archived=true` archives;
+        `archived=false` unarchives.
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        archived:
+          type: boolean
+    CeoConversation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - created_at
+        - updated_at
+        - archived
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived:
+          type: boolean
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+    CeoConversationList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CeoConversation"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+    CeoMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - conversation_id
+        - role
+        - content
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        source:
+          description: Assistant turns only — resolved read surface / routing tier.
+          type: string
+        mode:
+          description: Assistant turns only — governed | operational | exploratory.
+          type: string
+        request_id:
+          type: string
+        citations:
+          description: User-visible provenance chips (structured JSON array).
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      # tool_calls are INTERNAL routing detail and are intentionally NOT exposed here.
+    CeoMessageList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CeoMessage"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+    CeoFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - rating
+      properties:
+        rating:
+          description: +1 thumbs up, -1 thumbs down.
+          type: integer
+          enum: [1, -1]
+        reason:
+          type: string
+          maxLength: 2000
+    CeoFeedback:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - message_id
+        - rating
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        rating:
+          type: integer
+          enum: [1, -1]
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    CeoAssistantAskRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 1200
+          description: Natural-language leadership question. Treated as data, never as instructions.
+        conversation_id:
+          type: string
+          description: Optional existing thread id to continue.
+    CeoAssistantCitation:
+      type: object
+      additionalProperties: false
+      required:
+        - surface
+        - route
+        - as_of
+        - planned_by_model
+      properties:
+        surface:
+          type: string
+          description: Human source label, e.g. "Cube · vaccination_overdue" or "Mesha read API".
+        route:
+          type: string
+          enum: [cube, api, toolbox, sql, none]
+        as_of:
+          type: string
+          format: date-time
+          description: Freshness of the underlying read model (IST business day).
+        metric_status:
+          type: string
+          enum: [approved, draft]
+          description: Cube governance status; present only for governed metrics.
+        planned_by_model:
+          type: boolean
+    CeoAssistantAnswer:
+      type: object
+      additionalProperties: false
+      required:
+        - answer
+        - source
+        - mode
+        - request_id
+      properties:
+        answer:
+          type: string
+        source:
+          type: string
+          description: Route-attributed source label(s).
+        mode:
+          type: string
+          enum: [planned, fallback, refused, partial]
+        request_id:
+          type: string
+        conversation_id:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CeoAssistantCitation"
     FeedConfigRationRate:
       type: object
       additionalProperties: false
@@ -11570,10 +12207,109 @@ components:
           allOf:
             - $ref: "#/components/schemas/VaccinationShedOwner"
             - nullable: true
+        driveOperatorNames:
+          type: array
+          description: Actual vaccination drive operators assigned by the operator-cap planner for this physical shed.
+          items:
+            type: string
         capacity:
           $ref: "#/components/schemas/VaccinationCapacityStatus"
         status:
           $ref: "#/components/schemas/VaccinationShedStatus"
+    VaccinationDriveAssignmentRow:
+      type: object
+      additionalProperties: false
+      required:
+        - plannedDate
+        - operatorId
+        - operatorName
+        - parkId
+        - parkName
+        - physicalShed
+        - partitionLabel
+        - animals
+        - dueAnimals
+        - doneAnimals
+        - deferredAnimals
+        - overdueAnimals
+        - vaccineNames
+        - vaccineCodes
+        - totalDoses
+        - capacity
+      properties:
+        plannedDate:
+          type: string
+          format: date
+        operatorId:
+          type: string
+          format: uuid
+        operatorName:
+          type: string
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        physicalShed:
+          type: string
+        partitionLabel:
+          type: string
+        animals:
+          type: integer
+          minimum: 0
+          description: Assigned operator-capacity animals for this operator/date/shed/partition row.
+        dueAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals still planned or in progress and not yet overdue.
+        doneAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals whose drive batch is completed.
+        deferredAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals held/deferred from the drive.
+        overdueAnimals:
+          type: integer
+          minimum: 0
+          description: Assigned animals still open after the planned drive date.
+        vaccineNames:
+          type: array
+          description: Backend-owned vaccine display labels attached to this operator assignment row.
+          items:
+            type: string
+        vaccineCodes:
+          type: array
+          description: Backend-owned vaccine identity codes used for drive-date overrides.
+          items:
+            type: string
+        totalDoses:
+          type: integer
+          description: Number of vaccine tasks/doses represented by this assignment row.
+          minimum: 0
+        capacity:
+          $ref: "#/components/schemas/VaccinationCapacityStatus"
+    VaccinationDriveAssignmentResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - rows
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationDriveAssignmentRow"
     VaccinationShedVaccineRow:
       type: object
       additionalProperties: false

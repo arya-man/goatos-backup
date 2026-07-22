@@ -42,6 +42,19 @@ func TestSweeperSkipsSideEffectsWhenAttachClaimsNoRows(t *testing.T) {
 	}
 }
 
+func strPtr(value string) *string {
+	return &value
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T) {
 	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	operatorID := "operator-1"
@@ -50,21 +63,23 @@ func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T)
 		PlannedDate: &planned,
 		ConductedBy: &operatorID,
 	}, []domain.UnbatchedDue{
-		{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi 1", TargetID: "goat-1"},
-		{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi 1", TargetID: "goat-2"},
-		{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-1", ShedName: "Gandhi 2", TargetID: "goat-3"},
-		{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-3", ParkID: "park-1", ShedName: "Old Yashoda", TargetID: "goat-4"},
+		{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-1"},
+		{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", ShedName: "Gandhi - Part 1", TargetID: "goat-2"},
+		{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-1", ShedName: "Gandhi - Part 2", TargetID: "goat-3"},
+		{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-3", ParkID: "park-1", ShedName: "Gandhi 3", TargetID: "goat-4"},
+		{ObligationID: "obl-5", ScopeType: "shed", ScopeID: "shed-4", ParkID: "park-1", ShedName: "Old Yashoda", TargetID: "goat-5"},
 	})
-	if len(assignments) != 3 {
-		t.Fatalf("assignments = %d, want 3: %#v", len(assignments), assignments)
+	if len(assignments) != 4 {
+		t.Fatalf("assignments = %d, want 4: %#v", len(assignments), assignments)
 	}
 	got := map[string]int32{}
 	for _, assignment := range assignments {
 		got[assignment.PhysicalShed+"|"+assignment.PartitionLabel] = assignment.AnimalCount
 	}
 	want := map[string]int32{
-		"Gandhi|1":          2,
-		"Gandhi|2":          1,
+		"Gandhi|Part 1":     2,
+		"Gandhi|Part 2":     1,
+		"Gandhi|3":          1,
 		"Old Yashoda|whole": 1,
 	}
 	for key, count := range want {
@@ -86,8 +101,8 @@ func TestDriveAssignmentsForParkConsolidationPersistPartSuffixPartitions(t *test
 	if len(assignments) != 1 {
 		t.Fatalf("assignments = %d, want 1: %#v", len(assignments), assignments)
 	}
-	if assignments[0].PhysicalShed != "Godel 1" || assignments[0].PartitionLabel != "4" || assignments[0].AnimalCount != 1 {
-		t.Fatalf("assignment = %#v, want Godel 1 part 4 with one distinct animal", assignments[0])
+	if assignments[0].PhysicalShed != "Godel 1" || assignments[0].PartitionLabel != "Part 4" || assignments[0].AnimalCount != 1 {
+		t.Fatalf("assignment = %#v, want Godel 1 Part 4 with one distinct animal", assignments[0])
 	}
 }
 
@@ -104,7 +119,7 @@ func TestDistributeVaccinationDriveAssignmentsBalancesAvailableOperators(t *test
 	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
 		ScopeID:     "park-1",
 		PlannedDate: &planned,
-	}, 200, assignments)
+	}, 200, assignments, NewSweepSession())
 	if err != nil {
 		t.Fatalf("distribute assignments: %v", err)
 	}
@@ -122,17 +137,155 @@ func TestDistributeVaccinationDriveAssignmentsBalancesAvailableOperators(t *test
 	}
 }
 
+func TestDistributeVaccinationDriveAssignmentsSplitsOversizedPartitionWithPlanner(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2"}}
+	svc := NewSweeperService(repo, nil, nil)
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		ShedID:         strPtr("shed-1"),
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "1",
+		AnimalCount:    120,
+		CapacityStatus: "within_cap",
+	}}
+
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, 50, assignments, NewSweepSession())
+	if err != nil {
+		t.Fatalf("distribute assignments: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("assignments = %d, want two operator chunks for oversized partition: %#v", len(got), got)
+	}
+	totals := map[string]int32{}
+	overCapSeen := false
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			t.Fatalf("assignment missing operator: %#v", assignment)
+		}
+		if assignment.PhysicalShed != "Gandhi" || assignment.PartitionLabel != "1" {
+			t.Fatalf("assignment lost partition grain: %#v", assignment)
+		}
+		totals[*assignment.OperatorID] += assignment.AnimalCount
+		if !containsString(assignment.Warnings, "partition split because one partition exceeded available operator capacity") {
+			t.Fatalf("assignment missing split warning: %#v", assignment)
+		}
+		if assignment.CapacityStatus == "over_cap_required" {
+			overCapSeen = true
+		}
+	}
+	if totals["op-1"] != 70 || totals["op-2"] != 50 {
+		t.Fatalf("operator totals = %#v, want op-1 over cap by 20 and op-2 at cap", totals)
+	}
+	if !overCapSeen {
+		t.Fatalf("expected one over-cap assignment for latest-safe residual: %#v", got)
+	}
+}
+
 func TestOperatorCapacityPlannerScalesByAvailableOperators(t *testing.T) {
 	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
 	svc := NewSweeperService(repo, nil, nil)
 
-	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200})
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, NewSweepSession())
 	if err != nil {
 		t.Fatalf("operatorCapacityPlanner: %v", err)
 	}
 	if planner.MaxGoatsPerDrive != 600 {
 		t.Fatalf("effective animal cap = %d, want 600 for 3 operators at 200 each", planner.MaxGoatsPerDrive)
+	}
+}
+
+func TestVaccinationOperatorAvailabilityCachedAcrossPlannerAndAssignment(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	batch := domain.NewBatch{
+		TenantID:    "tenant-1",
+		ScopeType:   "park",
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, session)
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 600 {
+		t.Fatalf("effective animal cap = %d, want 600", planner.MaxGoatsPerDrive)
+	}
+	if err := svc.assignVaccinationOperator(context.Background(), &batch, 200, session); err != nil {
+		t.Fatalf("assignVaccinationOperator: %v", err)
+	}
+	if batch.ConductedBy == nil || *batch.ConductedBy != "op-1" {
+		t.Fatalf("conducted by = %#v, want op-1", batch.ConductedBy)
+	}
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "Part 1",
+		AnimalCount:    90,
+		CapacityStatus: "within_cap",
+	}}
+	if _, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", batch, 200, assignments, session); err != nil {
+		t.Fatalf("distributeVaccinationDriveAssignments: %v", err)
+	}
+	if repo.operatorListCalls != 1 {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive calls = %d, want 1 for shared park/date/cap session", repo.operatorListCalls)
+	}
+}
+
+func TestDistributeVaccinationDriveAssignmentsHonorsCrossBatchOperatorDayLoad(t *testing.T) {
+	planned := time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	batch := domain.NewBatch{
+		TenantID:    "tenant-1",
+		ScopeType:   "park",
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}
+	first := []domain.DriveAssignment{
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Gandhi", PartitionLabel: "Part 1", AnimalCount: 160, CapacityStatus: "within_cap"},
+		{BatchID: "batch-1", PlannedDate: planned, ParkID: "park-1", PhysicalShed: "Godel 1", PartitionLabel: "Part 1", AnimalCount: 80, CapacityStatus: "within_cap"},
+	}
+	if _, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", batch, 200, first, session); err != nil {
+		t.Fatalf("first distribute: %v", err)
+	}
+	second := []domain.DriveAssignment{{
+		BatchID:        "batch-2",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		PhysicalShed:   "Mandela 2",
+		PartitionLabel: "Part 8",
+		AnimalCount:    80,
+		CapacityStatus: "within_cap",
+	}}
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", batch, 200, second, session)
+	if err != nil {
+		t.Fatalf("second distribute: %v", err)
+	}
+	totals := map[string]int32{}
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			t.Fatalf("assignment missing operator: %#v", assignment)
+		}
+		totals[*assignment.OperatorID] += assignment.AnimalCount
+	}
+	if totals["op-1"] > 40 {
+		t.Fatalf("second batch reused op-1 beyond remaining capacity: got %#v", got)
+	}
+	if totals["op-2"] == 0 && totals["op-3"] == 0 {
+		t.Fatalf("second batch did not move work to an operator with remaining capacity: %#v", got)
 	}
 }
 
@@ -173,6 +326,59 @@ func TestSweeperRollsBackShotCapClaimWhenAttachNoOps(t *testing.T) {
 	key := visitShotCountKey(due, "goat-1")
 	if session.visitShotCounts[key] != 1 {
 		t.Fatalf("shot count after no-op then attach = %d, want 1", session.visitShotCounts[key])
+	}
+}
+
+func TestSweeperAppliesVaccineDriveDateOverrideBeforeCapSelection(t *testing.T) {
+	original := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	postponed := original.AddDate(0, 0, 7)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"version-ppr": {
+				{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-1", DueAt: original, WindowEnd: &postponed},
+			},
+		},
+		attachAll: true,
+		overrides: map[string]domain.VaccineDriveDateOverride{
+			"tenant-1|park-1|ppr|" + businessDate(original).Format("2006-01-02"): {
+				TenantID:          "tenant-1",
+				ParkID:            "park-1",
+				VaccineCode:       "PPR",
+				OriginalDriveDate: original,
+				OverrideDate:      postponed,
+				Reason:            "CEO postponement",
+			},
+			"tenant-1|park-for-shed-1|ppr|" + businessDate(original).Format("2006-01-02"): {
+				TenantID:          "tenant-1",
+				ParkID:            "park-for-shed-1",
+				VaccineCode:       "PPR",
+				OriginalDriveDate: original,
+				OverrideDate:      postponed,
+				Reason:            "CEO postponement",
+			},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	g := &dueGroup{
+		scopeType: "shed",
+		scopeID:   "shed-1",
+		ruleID:    "rule-ppr",
+		parkID:    "park-1",
+		ids:       []string{"obl-ppr"},
+		rows:      repo.rowsByVersion["version-ppr"],
+	}
+	batched, obligations, err := svc.batchDueGroup(context.Background(), "tenant-1", "version-ppr", SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2, MaxBatchingHoldDays: 7, MaxBatchingHoldCount: 1},
+	}, domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2, MaxBatchingHoldDays: 7, MaxBatchingHoldCount: 1}, original, postponed, NewSweepSession(), g)
+	if err != nil {
+		t.Fatalf("batchDueGroup: %v", err)
+	}
+	if !batched || obligations != 1 || len(repo.createdBatches) != 1 || repo.createdBatches[0].PlannedDate == nil {
+		t.Fatalf("batched=%v obligations=%d batches=%#v", batched, obligations, repo.createdBatches)
+	}
+	if got := businessDate(*repo.createdBatches[0].PlannedDate); !got.Equal(businessDate(postponed)) {
+		t.Fatalf("planned date = %s, want override %s", got.Format("2006-01-02"), businessDate(postponed).Format("2006-01-02"))
 	}
 }
 
@@ -650,11 +856,8 @@ func TestSweepVersionWithSessionSharesShotCapAcrossVersions(t *testing.T) {
 	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
 		t.Fatalf("dates=%#v, want ET+TT and PPR both on 2026-07-01", dates)
 	}
-	if dates["obl-fmd"] == "2026-07-01" {
-		t.Fatalf("dates=%#v, want FMD overflowed off 2026-07-01 instead of a 3rd same-day shot", dates)
-	}
-	if dates["obl-fmd"] == "" {
-		t.Fatalf("dates=%#v, want FMD batched on a later safe date, not dropped", dates)
+	if dates["obl-fmd"] != "2026-07-15" {
+		t.Fatalf("dates=%#v, want FMD overflowed to 2026-07-15 after the 14-day live-to-killed gap", dates)
 	}
 }
 
@@ -1686,6 +1889,7 @@ type fakeSweepRepo struct {
 	ruleCountsByBatch         map[string][]domain.RuleAttachmentCount
 	parkListCalls             int
 	repeatParkPage            bool
+	overrides                 map[string]domain.VaccineDriveDateOverride
 }
 
 type fakeDateVisitShotLockerRepo struct {
@@ -1695,10 +1899,12 @@ type fakeDateVisitShotLockerRepo struct {
 
 type fakeVaccinationOperatorListRepo struct {
 	*fakeSweepRepo
-	operators []string
+	operators         []string
+	operatorListCalls int
 }
 
 func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(context.Context, string, string, time.Time, int32) ([]string, error) {
+	f.operatorListCalls++
 	return append([]string(nil), f.operators...), nil
 }
 
@@ -1719,6 +1925,17 @@ func (f *fakeDateVisitShotLockerRepo) LockVisitShots(ctx context.Context, tenant
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
+
+func (f *fakeSweepRepo) ActiveVaccinationDriveDateOverride(_ context.Context, tenantID, parkID, vaccineCode string, originalDate time.Time) (*domain.VaccineDriveDateOverride, error) {
+	if f.overrides == nil {
+		return nil, nil
+	}
+	override, ok := f.overrides[tenantID+"|"+parkID+"|"+strings.ToLower(strings.TrimSpace(vaccineCode))+"|"+businessDate(originalDate).Format("2006-01-02")]
+	if !ok {
+		return nil, nil
+	}
+	return &override, nil
+}
 
 func (f *fakeSweepRepo) InsertObligation(context.Context, domain.NewObligation) (string, bool, error) {
 	return "", false, nil

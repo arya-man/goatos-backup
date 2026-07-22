@@ -7,7 +7,7 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "node scripts/assert-origin-main-local-stack.mjs && next dev",
+    "dev": "node scripts/run-local-next.mjs dev",
     "dev:local": "node scripts/run-local-next.mjs dev",
     "build": "next build && node scripts/check-token-leak.mjs",
     "start": "node scripts/assert-origin-main-local-stack.mjs && next start",

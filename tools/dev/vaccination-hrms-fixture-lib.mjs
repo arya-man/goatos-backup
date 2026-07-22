@@ -1,3 +1,5 @@
+// Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
+// (migrations 000024-000027) to load and validate vaccination source data.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,6 +24,21 @@ export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seed
 // they must be derived from validated animals/vaccination rows plus timetable-backed
 // operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
 export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
+export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
+  "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
+export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
+  "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
+
+function normalizeShedName(raw) {
+  const name = String(raw ?? "").trim().replace(/\s+/g, " ");
+  if (!name) return { physical: "", partition: "whole" };
+  const partMatch = /^(.*?)\s*-\s*Part\s+(\d+)$/i.exec(name);
+  if (partMatch) return { physical: partMatch[1].trim(), partition: `Part ${partMatch[2]}` };
+  const numberMatch = /^(.*?)\s+(\d+)$/.exec(name);
+  if (numberMatch) return { physical: numberMatch[1].trim(), partition: numberMatch[2] };
+  return { physical: name, partition: "whole" };
+}
 
 export const VACCINE_COLUMNS = SEED_SOURCE_POLICY.source_columns.map((column) => ({
   index: column.index,
@@ -229,7 +246,7 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     expect(rfid && !goatByRFID.has(rfid), `goats row ${sourceRow}: duplicate or blank RFID ${rfid}`, problems);
     goatByRFID.set(rfid, row);
     const farm = cell(row, goatColumns, "farm");
-    const shed = cell(row, goatColumns, "shed");
+    const shed = normalizeShedName(cell(row, goatColumns, "shed")).physical;
     shedCounts.set(`${farm}\0${shed}`, (shedCounts.get(`${farm}\0${shed}`) ?? 0) + 1);
 
     const species = cell(row, goatColumns, "species").toLowerCase();
@@ -374,10 +391,13 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
       expect(rosterByCenterPosition.has(`${center}\0${position}`), `missing ${center} ${position}`, problems);
     }
   }
+  // The full source fixture keeps the original timetable seat names. CPT-only
+  // vaccination rehearsal seeds must map those reviewed CPT seats to equal
+  // manager-tier vaccination operators: Amit Friday off, Darshan Sunday off,
+  // Sagar Saturday off.
 
   const managerHeader = headerMap(bundle.shedManagers[0] ?? []);
-  const managerSheds = new Set();
-  let mappedGoats = 0;
+  const managerSheds = new Map();
   for (let index = 1; index < bundle.shedManagers.length; index += 1) {
     const row = bundle.shedManagers[index];
     const park = cell(row, managerHeader, "park_code");
@@ -387,9 +407,10 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     const backupCode = cell(row, managerHeader, "backup_manager_code");
     const needsReview = cell(row, managerHeader, "needs_review").toLowerCase();
     const count = Number(cell(row, managerHeader, "goat_count"));
-    const key = `${park}\0${shedName}`;
-    expect(!managerSheds.has(key), `duplicate shed manager row ${park}/${shedName}`, problems);
-    managerSheds.add(key);
+    const normalizedShed = normalizeShedName(shedName);
+    const key = `${park}\0${normalizedShed.physical}`;
+    const aggregate = managerSheds.get(key) ?? { count: 0, managerCode, backupCode };
+    expect(aggregate.managerCode === managerCode && aggregate.backupCode === backupCode, `shed manager row ${index + 1}: partition manager mismatch for ${park}/${normalizedShed.physical}`, problems);
     expect(Boolean(shedCode), `shed manager row ${index + 1}: blank shed_code`, problems);
     expect(staffCodes.has(managerCode), `shed manager row ${index + 1}: unknown manager ${managerCode}`, problems);
     expect(staffCodes.has(backupCode), `shed manager row ${index + 1}: unknown backup ${backupCode}`, problems);
@@ -401,9 +422,13 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     expect(cell(row, managerHeader, "manager_name") === managerSeat?.candidate, `shed manager row ${index + 1}: manager name/code mismatch`, problems);
     expect(cell(row, managerHeader, "backup_manager_name") === backupSeat?.candidate, `shed manager row ${index + 1}: backup name/code mismatch`, problems);
     expect(needsReview === "false", `shed manager row ${index + 1}: needs_review must be false`, problems);
-    expect(shedCounts.get(key) === count, `shed manager row ${index + 1}: goat_count mismatch for ${park}/${shedName}`, problems);
-    mappedGoats += count;
+    aggregate.count += Number.isFinite(count) ? count : 0;
+    managerSheds.set(key, aggregate);
   }
+  for (const [key, aggregate] of managerSheds.entries()) {
+    expect(shedCounts.get(key) === aggregate.count, `shed manager aggregate goat_count mismatch for ${key.replace("\0", "/")}`, problems);
+  }
+  const mappedGoats = [...managerSheds.values()].reduce((sum, aggregate) => sum + aggregate.count, 0);
   expect(managerSheds.size === shedCounts.size, `shed manager coverage ${managerSheds.size}/${shedCounts.size}`, problems);
   expect(mappedGoats === goatByRFID.size, `shed manager goat total ${mappedGoats}/${goatByRFID.size}`, problems);
 

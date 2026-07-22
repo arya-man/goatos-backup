@@ -67,6 +67,97 @@ non-core rows blank).
 | FMD | Single | 1 ml | 30 |
 | HS | Single | 2 ml | 100 |
 
+## Same-Day Session, Overflow, And Gap Rules
+
+These rules apply to every vaccine in the matrix. They are not Blue
+Tongue-specific, and they are not operator-cap rules.
+
+### Hard Session Cap
+
+| Rule | Value |
+|---|---:|
+| Maximum vaccines per animal in one vaccination session / doctor visit | 2 |
+| Operator cap counts | Animals handled by the operator |
+| Operator cap does not count | Vaccine doses, vaccine rows, or obligation rows |
+
+Same-day compatibility only means two vaccines may share one session. It never
+means "give every due vaccine now." If three or more vaccines are due for the
+same animal, GoatOS must select at most two compatible vaccines for this session
+and schedule the remaining vaccines by the medical gap rules below.
+
+### Vaccine Class Matrix
+
+| Vaccine | Species scope | Class | Priority |
+|---|---|---|---:|
+| ET+TT | goat + sheep | killed bacterial / toxoid | 1 |
+| PPR | goat + sheep | live viral | 2 |
+| Goat Pox | goat only | live viral | 3 |
+| Sheep Pox | sheep only | live viral | 3 |
+| Blue Tongue | sheep only | killed viral | 4 |
+| FMD | goat + sheep | killed viral | 5 |
+| HS | goat + sheep | killed bacterial | 5 |
+
+Priority 1 is highest. When the scheduler has to choose between competing due
+vaccines, it keeps the highest-priority compatible pair in the current session.
+
+### Cross-Vaccine Gap Matrix
+
+| Previous vaccine class | Next vaccine class | Minimum gap |
+|---|---|---:|
+| live | live | 28 days / 4 weeks |
+| live | killed | 14 days / 2 weeks |
+| killed | live | 14 days / 2 weeks unless an explicitly allowed same-day pair is selected for the same session |
+| killed | killed | 14 days / 2 weeks unless an explicitly allowed same-day pair is selected for the same session |
+
+The normal scheduling buffer is then applied on top of the minimum safe date:
+the safe scheduling range is **earliest safe date through earliest safe date +
+7 calendar days**.
+
+### Course / Booster Gaps
+
+| Vaccine/course | Minimum gap |
+|---|---:|
+| ET+TT dose 1 -> ET+TT dose 2 / booster | 21 days / 3 weeks |
+| Blue Tongue kid dose 1 -> Blue Tongue kid dose 2 / booster | 28 days / 4 weeks |
+| ET+TT repeat/revaccination | Starts only after dose 2 / course completion; repeats every 182 days |
+
+The ET+TT 21-day booster rule applies to **adults and kids**. Do not treat adult
+ET+TT booster as optional, kid-only, or as the 182-day revaccination.
+
+### Overflow Rule For 3+ Due Vaccines
+
+If more than two vaccines are due for the same animal:
+
+1. Build the medically compatible candidate pairs for the current session.
+2. Pick the highest-priority compatible pair, capped at two vaccines.
+3. Schedule overflow vaccines from the current session date, not from the
+   original old due date.
+4. Apply live/killed gap rules to the overflow vaccine.
+5. Apply the +7-day scheduling buffer to that overflow safe date.
+6. If operator capacity would push an animal beyond its safe end date, raise a
+   capacity breach and overtake the normal operator cap when needed; do not
+   silently delay the animal past the safe window.
+
+Concrete example:
+
+| Current session date | Vaccines given now | Overflow vaccine | Earliest overflow date | Latest overflow date with buffer |
+|---|---|---|---:|---:|
+| 2026-07-22 | ET+TT + PPR | Blue Tongue | 2026-08-05 | 2026-08-12 |
+| 2026-07-22 | ET+TT + PPR | FMD | 2026-08-05 | 2026-08-12 |
+| 2026-07-22 | PPR | Goat Pox / Sheep Pox | 2026-08-19 | 2026-08-26 |
+
+Explicit invalid schedule:
+
+| Date | Vaccines |
+|---|---|
+| 2026-07-22 | ET+TT + PPR |
+| 2026-07-23 | Blue Tongue |
+
+This is invalid because Blue Tongue becomes the next vaccine after a completed
+two-vaccine session and must respect the 14-day live-to-killed gap. The scheduler
+must never interpret operator-cap overflow as permission to give tomorrow's
+third vaccine.
+
 ## Source Q&A Decisions
 
 The latest source doc includes the operating decisions below. These are part of
@@ -78,6 +169,11 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 > Do not read the adult sheet's `ET+TT Booster` column as kid-only, optional, or
 > as the 182-day revaccination. The 182-day ET+TT repeat starts only after dose
 > 2/course completion.
+>
+> **Post-seed invariant:** if the DB contains accepted `et_tt_adult_w1`
+> completions but zero matching same-goat `et_tt_adult_w2` obligations or
+> completions, the seed/generation output is invalid. Reporting only later
+> generated drive rows while adult dose 2 is missing is a blocker.
 
 | Question | Source answer | V1 implication |
 |---|---|---|
@@ -174,13 +270,16 @@ must use India/local operational dates:
   give any vaccination for one week.
 - At most **2 shots per animal per drive/doctor visit**. Same-day compatibility
   does not mean "give everything due." If more than 2 vaccines are due, GoatOS
-  picks the highest-priority compatible pair and schedules the remainder on the
-  next safe date.
+  picks the highest-priority compatible pair and schedules the remainder from
+  the current session date using the cross-vaccine gap matrix. Operator-cap
+  overflow must not become a next-day third shot.
 - Two live vaccines must have a 4-week gap.
 - Bacterial + viral vaccines may be combined on the same day.
 - Live viral + killed viral vaccines may be combined on the same day.
 - Quarantine and ICU animals should not be vaccinated.
 - Live followed by killed needs a 2-week gap.
+- Killed followed by live needs a 2-week gap unless selected as an explicitly
+  allowed same-day pair in the same session.
 - Killed followed by killed needs a 2-week gap.
 - Live followed by live needs a 4-week gap.
 - ET+TT dose 2 needs a 3-week gap after ET+TT dose 1 for both kid and adult

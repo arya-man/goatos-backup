@@ -263,7 +263,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		if err != nil {
 			return plannedDate, nil, nil, err
 		}
-		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner)
+		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
 		if err != nil {
 			_ = visitRelease(ctx)
 			return plannedDate, nil, nil, err
@@ -274,7 +274,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			return plannedDate, nil, nil, err
 		}
 		release := combineReleases(driveRelease, visitRelease)
-		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, plannedDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, plannedDate, planner, ruleVaccineID, session)
 		if err != nil {
 			_ = release(ctx)
 			return plannedDate, nil, nil, err
@@ -289,8 +289,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		return plannedDate, selectedIDs, shotClaims, release(ctx)
 	}
 
-	candidates := driveCandidatesFromUnbatched(rows)
-	latest := latestUnbatchedDriveDate(candidates)
+	latest := session.latestUnbatchedDriveDateWithOverflow(rows, ruleVaccineID)
 	if latest.IsZero() {
 		return plannedDate, nil, nil, nil
 	}
@@ -299,12 +298,12 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	var bestIDs []string
 	bestAnimals := -1
 	for probe := businessDate(*plannedDate); !probe.After(latest); {
-		if len(obligationsFeasibleOnDriveDateForPlanner(now, probe, candidates, planner)) > 0 {
+		if len(session.unbatchedObligationsFeasibleOnDateForVaccine(now, probe, rows, planner, ruleVaccineID)) > 0 {
 			day := probe
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 				return plannedDate, nil, nil, err
 			}
-			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner)
+			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
 			if err != nil {
 				return plannedDate, nil, nil, err
 			}
@@ -312,7 +311,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			if err != nil {
 				return plannedDate, nil, nil, err
 			}
-			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, &day, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, &day, planner, ruleVaccineID, session)
 			if err != nil {
 				_ = driveRelease(ctx)
 				return plannedDate, nil, nil, err
@@ -332,11 +331,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 				bestAnimals = animals
 			}
 		}
-		next := nextFeasibleUnbatchedDriveDateAfter(now, probe, rows, planner)
-		if next == nil {
-			break
-		}
-		probe = *next
+		probe = probe.AddDate(0, 0, 1)
 	}
 	if bestDate == nil || len(bestIDs) == 0 {
 		return plannedDate, nil, nil, nil
@@ -345,7 +340,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 		return bestDate, nil, nil, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner, session)
 	if err != nil {
 		return bestDate, nil, nil, err
 	}
@@ -353,7 +348,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	if err != nil {
 		return bestDate, nil, nil, err
 	}
-	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, bestDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, bestDate, planner, ruleVaccineID, session)
 	if err != nil {
 		_ = driveRelease(ctx)
 		return bestDate, nil, nil, err
@@ -484,7 +479,7 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		return remaining, nil, plannedDate, false, true, err
 	}
 	parkID := firstParkID(remaining)
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
 	if err != nil {
 		_ = visitRelease(ctx)
 		return remaining, nil, plannedDate, false, true, err

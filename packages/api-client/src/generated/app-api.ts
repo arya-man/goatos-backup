@@ -629,6 +629,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/schedule/drive-date-overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Postpone one vaccine within a scheduled vaccination drive.
+         * @description CEO/CXO vaccination campaign command that records a bounded sidecar override for one vaccine code in one park drive date. The sweeper treats the override as a proposed planned date only; max two vaccines per animal session, live/killed spacing, adult booster rules, the +1 week medical window, operator cap, and shed/partition assignment constraints are still enforced by the backend planner.
+         */
+        post: operations["upsertVaccinationDriveDateOverride"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/drive-assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Persisted operator-cap vaccination drive assignments for one business-calendar month. */
+        get: operations["listVaccinationDriveAssignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/execution": {
         parameters: {
             query?: never;
@@ -1751,10 +1788,216 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ceo-ai/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the read-only leadership operations assistant
+         * @description CEO/CxO leadership assistant. Read-only over business data. Tenant and role scope come ONLY from the authenticated session, never from the request body. The response carries ONLY the user-facing envelope (answer, source, mode, request_id, conversation_id, citations) — step traces / chain-of-thought are internal and never returned.
+         */
+        post: operations["askCeoAssistant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ceo-ai/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the actor's conversation threads (keyset paginated) */
+        get: operations["listCeoConversations"];
+        put?: never;
+        /**
+         * Open a leadership assistant conversation thread
+         * @description Creates a durable thread. Idempotent when an Idempotency-Key header is supplied: a replay with the same key returns the original thread (200) instead of forking a new one (201).
+         */
+        post: operations["createCeoConversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ceo-ai/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        /** Resume one thread */
+        get: operations["getCeoConversation"];
+        put?: never;
+        post?: never;
+        /** Soft-delete a thread (hidden immediately, purged per retention policy) */
+        delete: operations["deleteCeoConversation"];
+        options?: never;
+        head?: never;
+        /** Rename or archive/unarchive a thread */
+        patch: operations["updateCeoConversation"];
+        trace?: never;
+    };
+    "/ceo-ai/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        /** Read a thread's message history (keyset paginated, oldest-first) */
+        get: operations["listCeoConversationMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ceo-ai/messages/{message_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: components["parameters"]["CeoMessageId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record thumbs up/down (+ reason) on an assistant message
+         * @description Idempotent on (message, actor): a re-vote updates the existing signal in place. Feedback can only be attached to a message in the actor's own live thread.
+         */
+        post: operations["upsertCeoMessageFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        CeoConversationCreateRequest: {
+            /** @description Optional initial title; when omitted the backend derives one. */
+            title?: string;
+        };
+        /** @description Exactly one intent per request. `title` renames; `archived=true` archives; `archived=false` unarchives. */
+        CeoConversationPatchRequest: {
+            title?: string;
+            archived?: boolean;
+        };
+        CeoConversation: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            archived: boolean;
+            /** Format: date-time */
+            archived_at?: string | null;
+        };
+        CeoConversationList: {
+            items: components["schemas"]["CeoConversation"][];
+            has_more: boolean;
+            next_cursor?: string | null;
+        };
+        CeoMessage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversation_id: string;
+            /** @enum {string} */
+            role: "user" | "assistant" | "system";
+            content: string;
+            /** @description Assistant turns only — resolved read surface / routing tier. */
+            source?: string;
+            /** @description Assistant turns only — governed | operational | exploratory. */
+            mode?: string;
+            request_id?: string;
+            /** @description User-visible provenance chips (structured JSON array). */
+            citations?: {
+                [key: string]: unknown;
+            }[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        CeoMessageList: {
+            items: components["schemas"]["CeoMessage"][];
+            has_more: boolean;
+            next_cursor?: string | null;
+        };
+        CeoFeedbackRequest: {
+            /**
+             * @description +1 thumbs up, -1 thumbs down.
+             * @enum {integer}
+             */
+            rating: 1 | -1;
+            reason?: string;
+        };
+        CeoFeedback: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            message_id: string;
+            /** @enum {integer} */
+            rating: 1 | -1;
+            reason?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CeoAssistantAskRequest: {
+            /** @description Natural-language leadership question. Treated as data, never as instructions. */
+            question: string;
+            /** @description Optional existing thread id to continue. */
+            conversation_id?: string;
+        };
+        CeoAssistantCitation: {
+            /** @description Human source label, e.g. "Cube · vaccination_overdue" or "Mesha read API". */
+            surface: string;
+            /** @enum {string} */
+            route: "cube" | "api" | "toolbox" | "sql" | "none";
+            /**
+             * Format: date-time
+             * @description Freshness of the underlying read model (IST business day).
+             */
+            as_of: string;
+            /**
+             * @description Cube governance status; present only for governed metrics.
+             * @enum {string}
+             */
+            metric_status?: "approved" | "draft";
+            planned_by_model: boolean;
+        };
+        CeoAssistantAnswer: {
+            answer: string;
+            /** @description Route-attributed source label(s). */
+            source: string;
+            /** @enum {string} */
+            mode: "planned" | "fallback" | "refused" | "partial";
+            request_id: string;
+            conversation_id?: string;
+            citations?: components["schemas"]["CeoAssistantCitation"][];
+        };
         FeedConfigRationRate: {
             /** Format: uuid */
             ration_rate_id: string;
@@ -4286,8 +4529,46 @@ export interface components {
             nextDue?: string | null;
             manager?: components["schemas"]["VaccinationShedOwner"] & unknown;
             backup?: components["schemas"]["VaccinationShedOwner"] & unknown;
+            /** @description Actual vaccination drive operators assigned by the operator-cap planner for this physical shed. */
+            driveOperatorNames?: string[];
             capacity: components["schemas"]["VaccinationCapacityStatus"];
             status: components["schemas"]["VaccinationShedStatus"];
+        };
+        VaccinationDriveAssignmentRow: {
+            /** Format: date */
+            plannedDate: string;
+            /** Format: uuid */
+            operatorId: string;
+            operatorName: string;
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId?: string | null;
+            physicalShed: string;
+            partitionLabel: string;
+            /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
+            animals: number;
+            /** @description Assigned animals still planned or in progress and not yet overdue. */
+            dueAnimals: number;
+            /** @description Assigned animals whose drive batch is completed. */
+            doneAnimals: number;
+            /** @description Assigned animals held/deferred from the drive. */
+            deferredAnimals: number;
+            /** @description Assigned animals still open after the planned drive date. */
+            overdueAnimals: number;
+            /** @description Backend-owned vaccine display labels attached to this operator assignment row. */
+            vaccineNames: string[];
+            /** @description Backend-owned vaccine identity codes used for drive-date overrides. */
+            vaccineCodes: string[];
+            /** @description Number of vaccine tasks/doses represented by this assignment row. */
+            totalDoses: number;
+            capacity: components["schemas"]["VaccinationCapacityStatus"];
+        };
+        VaccinationDriveAssignmentResponse: {
+            /** @enum {string} */
+            source: "api";
+            rows: components["schemas"]["VaccinationDriveAssignmentRow"][];
         };
         VaccinationShedVaccineRow: {
             protocolId: string;
@@ -5178,6 +5459,10 @@ export interface components {
         };
     };
     parameters: {
+        CeoConversationId: string;
+        CeoMessageId: string;
+        /** @description Replay-safety key; a repeat create with the same key returns the original thread. */
+        CeoIdempotencyKey: string;
         GoatId: string;
         DeviceId: string;
         TaskId: string;
@@ -6305,6 +6590,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VaccinationOperationsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServerError"];
+        };
+    };
+    upsertVaccinationDriveDateOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    park_id: string;
+                    vaccine_code: string;
+                    /** Format: date */
+                    original_drive_date: string;
+                    /**
+                     * Format: date
+                     * @description Must be after original_drive_date.
+                     */
+                    override_date: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Active drive date override. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        park_id: string;
+                        vaccine_code: string;
+                        /** Format: date */
+                        original_drive_date: string;
+                        /** Format: date */
+                        override_date: string;
+                        reason: string;
+                        /** Format: uuid */
+                        created_by: string;
+                        /** Format: date-time */
+                        created_at: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listVaccinationDriveAssignments: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Calendar year in the business timezone. Defaults to the current year. */
+                year?: number;
+                /** @description Calendar month in the business timezone. Defaults to the current month. */
+                month?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator/date/shed/partition assignment rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationDriveAssignmentResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8356,6 +8725,243 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    askCeoAssistant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CeoAssistantAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Assistant answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoAssistantAnswer"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listCeoConversations: {
+        parameters: {
+            query?: {
+                page_size?: number;
+                /** @description Opaque keyset cursor from a prior page's next_cursor. */
+                cursor?: string;
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One keyset page of threads, newest activity first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversationList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replay-safety key; a repeat create with the same key returns the original thread. */
+                "Idempotency-Key"?: components["parameters"]["CeoIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CeoConversationCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay — existing thread returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            /** @description Thread created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread soft-deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateCeoConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CeoConversationPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoConversation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listCeoConversationMessages: {
+        parameters: {
+            query?: {
+                page_size?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["CeoConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One keyset page of message history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoMessageList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertCeoMessageFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: components["parameters"]["CeoMessageId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CeoFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Feedback recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeoFeedback"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

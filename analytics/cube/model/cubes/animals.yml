@@ -1,0 +1,114 @@
+cubes:
+  # ---------------------------------------------------------------------------
+  # animals — census + mortality base.
+  #
+  # Source SSOT: canonical public.goats joined to locations for park/shed labels.
+  # Migration path: swap `sql` FROM to ceo_ai.animal_current_scope + a deaths
+  # source once the ceo_ai.* reporting schema lands; the metric FORMULAS below
+  # (the measures) are the governed contract and must not change on that swap.
+  #
+  # Security: tenant_id is exposed as a dimension and MUST be filtered by the
+  # server-side queryRewrite (see analytics/cube/cube.js). Never trust a tenant
+  # id from user text.
+  # ---------------------------------------------------------------------------
+  - name: animals
+    title: Animals (census & mortality)
+    description: >-
+      One row per animal (all species). Backs the active_animal_count governed
+      KPI and the mortality_rate draft metric. IST business calendar.
+    sql: >
+      SELECT
+        g.goat_id                                              AS goat_id,
+        g.tenant_id                                            AS tenant_id,
+        g.species                                              AS species,
+        g.lifecycle_status                                     AS lifecycle_status,
+        g.management_stage                                     AS management_stage,
+        g.park_id                                              AS park_id,
+        pk.name                                                AS park_label,
+        g.shed_id                                              AS shed_id,
+        sh.name                                                AS shed_label,
+        g.entry_date                                           AS entry_date,
+        (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date        AS exit_business_day,
+        g.exit_reason                                          AS exit_reason
+      FROM goats g
+      LEFT JOIN locations pk ON pk.location_id = g.park_id
+      LEFT JOIN locations sh ON sh.location_id = g.shed_id
+
+    dimensions:
+      - name: goat_id
+        sql: goat_id
+        type: string
+        primary_key: true
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+        # security filter member — injected by queryRewrite, not user text.
+      - name: species
+        sql: species
+        type: string
+      - name: lifecycle_status
+        sql: lifecycle_status
+        type: string
+      - name: management_stage
+        sql: management_stage
+        type: string
+      - name: park_label
+        sql: park_label
+        type: string
+      - name: shed_label
+        sql: shed_label
+        type: string
+      - name: exit_reason
+        sql: exit_reason
+        type: string
+      - name: exit_business_day
+        sql: exit_business_day
+        type: time
+      - name: entry_date
+        sql: entry_date
+        type: time
+
+    measures:
+      # -- GOVERNED (approved) -------------------------------------------------
+      # active_animal_count: current living herd size, all species.
+      # Formula is unambiguous from Goats-and-Parks source semantics
+      # (lifecycle_status = 'alive'). status: approved. See METRICS.md.
+      - name: active_animal_count
+        title: Active animals
+        description: Count of living animals (lifecycle_status = 'alive').
+        type: count
+        filters:
+          - sql: "{CUBE}.lifecycle_status = 'alive'"
+
+      - name: total_animal_count
+        title: Total animals (incl. exited)
+        description: All animal rows regardless of lifecycle_status.
+        type: count
+
+      # -- DRAFT (pending business sign-off) -----------------------------------
+      # dead_count: rows currently in lifecycle_status = 'dead'. Building block
+      # for mortality_rate. Draft: "current dead flag" is a point-in-time state,
+      # not a period death event count.
+      - name: dead_count
+        title: Dead animals
+        description: Count of animals in lifecycle_status = 'dead' (draft).
+        type: count
+        filters:
+          - sql: "{CUBE}.lifecycle_status = 'dead'"
+
+      # mortality_rate: DRAFT. AMBIGUITY — the population denominator is
+      # undefined by the business docs: is it start-of-period, end-of-period, or
+      # average population? And the numerator should be death EVENTS in the
+      # window (via exit_business_day + exit_reason), not the current dead flag.
+      # This measure ships as dead / total as an interim shape ONLY and MUST NOT
+      # be presented as an official figure until sign-off. See METRICS.md.
+      - name: mortality_rate
+        title: Mortality rate (draft)
+        description: >-
+          DRAFT — dead_count / total_animal_count. Denominator + event-window
+          definition pending business sign-off. Not an official figure.
+        type: number
+        sql: >
+          CASE WHEN {total_animal_count} = 0 THEN NULL
+               ELSE {dead_count}::numeric / {total_animal_count} END
+        format: percent

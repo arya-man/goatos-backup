@@ -1,0 +1,133 @@
+cubes:
+  # ---------------------------------------------------------------------------
+  # vaccination — obligation-backed due / overdue / compliance.
+  #
+  # Source SSOT: canonical public.obligation_instances (shed-scoped vaccination
+  # obligations), joined to locations for shed/park labels and to goats for
+  # species. Counts are per-OBLIGATION (vaccine tasks), never per-goat — this is
+  # the ratified workload grain (memory: vacc-workload-cell-grain).
+  #
+  # Migration path: swap `sql` FROM to ceo_ai.vaccination_shed_status /
+  # ceo_ai.vaccination_dose_pickup once the ceo_ai.* schema lands. The measure
+  # formulas are the governed contract.
+  #
+  # IST business calendar: due/overdue buckets compare the Asia/Kolkata business
+  # day, never the UTC instant.
+  # ---------------------------------------------------------------------------
+  - name: vaccination
+    title: Vaccination (obligations)
+    description: >-
+      One row per vaccination obligation. Backs vaccination_due /
+      vaccination_overdue (draft) and vaccination_compliance (draft). Per-task
+      grain.
+    sql: >
+      SELECT
+        o.obligation_id                                        AS obligation_id,
+        o.tenant_id                                            AS tenant_id,
+        o.status                                               AS status,
+        o.due_at                                               AS due_at,
+        o.completed_at                                         AS completed_at,
+        o.scope_id                                             AS shed_id,
+        sh.name                                                AS shed_label,
+        sh.parent_location_id                                  AS park_id,
+        pk.name                                                AS park_label,
+        g.species                                              AS species,
+        (o.due_at AT TIME ZONE 'Asia/Kolkata')::date           AS due_business_day,
+        (o.completed_at AT TIME ZONE 'Asia/Kolkata')::date     AS completed_business_day
+      FROM obligation_instances o
+      LEFT JOIN locations sh ON sh.location_id = o.scope_id
+      LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+      LEFT JOIN goats    g  ON g.goat_id      = o.target_id
+
+    dimensions:
+      - name: obligation_id
+        sql: obligation_id
+        type: string
+        primary_key: true
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+      - name: status
+        sql: status
+        type: string
+      - name: species
+        sql: species
+        type: string
+      - name: park_label
+        sql: park_label
+        type: string
+      - name: shed_label
+        sql: shed_label
+        type: string
+      - name: due_business_day
+        sql: due_business_day
+        type: time
+      - name: completed_business_day
+        sql: completed_business_day
+        type: time
+
+    measures:
+      # -- DRAFT: vaccination_due ---------------------------------------------
+      # Open (status='scheduled') obligations whose due business-day has arrived
+      # (<= today IST). AMBIGUITY — "due" could mean strictly today, or today +
+      # any past-but-open (actionable-now). This ships as "actionable now"
+      # (<= today) and INCLUDES overdue; the strict same-day figure is
+      # due_today. Pending business sign-off on the canonical bucket boundary.
+      - name: vaccination_due
+        title: Vaccination due (draft)
+        description: >-
+          DRAFT — open obligations actionable now (status='scheduled' AND due
+          IST business-day <= today). Includes overdue. Per-task count.
+        type: count
+        filters:
+          - sql: >
+              {CUBE}.status = 'scheduled'
+              AND {CUBE}.due_business_day <= (now() AT TIME ZONE 'Asia/Kolkata')::date
+
+      - name: due_today
+        title: Vaccination due today (draft)
+        description: DRAFT — open obligations whose due IST business-day = today.
+        type: count
+        filters:
+          - sql: >
+              {CUBE}.status = 'scheduled'
+              AND {CUBE}.due_business_day = (now() AT TIME ZONE 'Asia/Kolkata')::date
+
+      # -- DRAFT: vaccination_overdue -----------------------------------------
+      # Open obligations whose due business-day is already in the past (IST).
+      - name: vaccination_overdue
+        title: Vaccination overdue (draft)
+        description: >-
+          DRAFT — open obligations past their due IST business-day
+          (status='scheduled' AND due_business_day < today). Per-task count.
+        type: count
+        filters:
+          - sql: >
+              {CUBE}.status = 'scheduled'
+              AND {CUBE}.due_business_day < (now() AT TIME ZONE 'Asia/Kolkata')::date
+
+      - name: vaccination_completed
+        title: Vaccination completed
+        description: Obligations in a terminal completed state.
+        type: count
+        filters:
+          - sql: "{CUBE}.status = 'completed'"
+
+      # -- DRAFT: vaccination_compliance --------------------------------------
+      # AMBIGUITY — numerator/denominator + period are not fixed by the docs.
+      # Interim shape: completed / (completed + overdue) as an adherence proxy.
+      # The vaccination-rules doc defines schedule + tolerance (+1 week) but not
+      # a crisp compliance %; leave draft until the business owner confirms the
+      # window and denominator (all-due-in-period vs open-snapshot). See
+      # METRICS.md. Not an official figure.
+      - name: vaccination_compliance
+        title: Vaccination compliance (draft)
+        description: >-
+          DRAFT — completed / (completed + overdue). Period + denominator
+          pending business sign-off. Not an official figure.
+        type: number
+        sql: >
+          CASE WHEN ({vaccination_completed} + {vaccination_overdue}) = 0 THEN NULL
+               ELSE {vaccination_completed}::numeric
+                    / ({vaccination_completed} + {vaccination_overdue}) END
+        format: percent

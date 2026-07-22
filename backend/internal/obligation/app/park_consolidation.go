@@ -133,7 +133,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		_ = visitRelease(ctx)
 		return remaining, 0, plannedDate, false, true, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner)
+	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
 	if err != nil {
 		session.releaseClaims(shotClaims)
 		_ = visitRelease(ctx)
@@ -199,12 +199,12 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		QuantityUnit:      "dose",
 		BatchingHoldUntil: batchingHoldUntil,
 	}
-	if assignErr := s.assignVaccinationOperator(ctx, &newBatch, planner.MaxGoatsPerDrive); assignErr != nil {
+	if assignErr := s.assignVaccinationOperator(ctx, &newBatch, planner.MaxGoatsPerDrive, session); assignErr != nil {
 		session.releaseClaims(shotClaims)
 		return remaining, 0, plannedDate, animalCapReached, true, assignErr
 	}
 	driveAssignments := driveAssignmentsForParkConsolidation("pending", newBatch, selectedRows)
-	driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments)
+	driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments, session)
 	if assignErr != nil {
 		session.releaseClaims(shotClaims)
 		return remaining, 0, plannedDate, animalCapReached, true, assignErr
@@ -251,6 +251,8 @@ func driveAssignmentsForParkConsolidation(batchID string, batch domain.NewBatch,
 		physicalShed string
 		partition    string
 		targets      map[string]struct{}
+		ruleIDs      map[string]struct{}
+		doseKeys     map[string]struct{}
 	}
 	buckets := make(map[string]*assignmentBucket)
 	for _, row := range rows {
@@ -270,12 +272,24 @@ func driveAssignmentsForParkConsolidation(batchID string, batch domain.NewBatch,
 		key := parkID + "\x00" + stringPtrValue(shedID) + "\x00" + physicalShed + "\x00" + partition
 		bucket := buckets[key]
 		if bucket == nil {
-			bucket = &assignmentBucket{parkID: parkID, shedID: shedID, physicalShed: physicalShed, partition: partition, targets: map[string]struct{}{}}
+			bucket = &assignmentBucket{
+				parkID:       parkID,
+				shedID:       shedID,
+				physicalShed: physicalShed,
+				partition:    partition,
+				targets:      map[string]struct{}{},
+				ruleIDs:      map[string]struct{}{},
+				doseKeys:     map[string]struct{}{},
+			}
 			buckets[key] = bucket
 		}
 		targetKey := parkCandidateTargetKey(row)
 		if targetKey != "" {
 			bucket.targets[targetKey] = struct{}{}
+			if ruleID := strings.TrimSpace(row.RuleID); ruleID != "" {
+				bucket.ruleIDs[ruleID] = struct{}{}
+				bucket.doseKeys[targetKey+"\x00"+ruleID] = struct{}{}
+			}
 		}
 	}
 	out := make([]domain.DriveAssignment, 0, len(buckets))
@@ -289,6 +303,8 @@ func driveAssignmentsForParkConsolidation(batchID string, batch domain.NewBatch,
 			PhysicalShed:   bucket.physicalShed,
 			PartitionLabel: bucket.partition,
 			AnimalCount:    int32(len(bucket.targets)),
+			VaccineRuleIDs: sortedStringSet(bucket.ruleIDs),
+			TotalDoses:     int32(len(bucket.doseKeys)),
 			CapacityStatus: "within_cap",
 		})
 	}
@@ -495,7 +511,7 @@ func (s *SweeperService) selectBestParkDriveDateWithCapacity(ctx context.Context
 		if err != nil {
 			return nil, err
 		}
-		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner)
+		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
 		if err != nil {
 			_ = visitRelease(ctx)
 			return nil, err

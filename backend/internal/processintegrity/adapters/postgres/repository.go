@@ -614,18 +614,23 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
-  LEFT JOIN vaccination_drive_assignments vda
-    ON vda.tenant_id = oi.tenant_id
-   AND vda.batch_id = oi.batch_id
-   AND (
-     vda.shed_id IS NULL
-     OR vda.shed_id = g.shed_id
-     OR vda.shed_id = CASE
-       WHEN oi.target_type = 'shed' THEN oi.target_id
-       WHEN oi.scope_type = 'shed' THEN oi.scope_id
-       ELSE NULL
-     END
-   )
+  LEFT JOIN LATERAL (
+    SELECT assignment.operator_id
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = CASE
+        WHEN g.shed_id IS NOT NULL THEN g.shed_id
+        WHEN oi.target_type = 'shed' THEN oi.target_id
+        WHEN oi.scope_type = 'shed' THEN oi.scope_id
+        ELSE NULL
+      END
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)

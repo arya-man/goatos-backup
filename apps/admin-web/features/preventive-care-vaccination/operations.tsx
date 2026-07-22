@@ -43,7 +43,7 @@ export function VaccinationOperationsPage({
           <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />
+        {isFullSchedule ? null : <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />}
       </div>
 
       {isFullSchedule ? (

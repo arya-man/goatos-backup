@@ -29,6 +29,8 @@ type fakeReader struct {
 	schedule      domain.OperationsResponse
 	lastSchedule  domain.ScheduleQuery
 	scheduleErr   error
+	assignments   domain.DriveAssignmentResponse
+	lastAssign    domain.DriveAssignmentQuery
 	roster        []domain.ScanRosterRow
 	lastRoster    domain.ScanRosterQuery
 	rosterNext    *domain.ScanRosterCursor
@@ -55,6 +57,7 @@ type fakeWriter struct {
 	lastRescheduleObl     string
 	lastRescheduleIdemKey string
 	lastAuthorizedParks   []string
+	lastOverride          *obligationdomain.VaccineDriveDateOverride
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -68,6 +71,11 @@ func (f *fakeReader) VaccinationSchedule(_ context.Context, q domain.ScheduleQue
 		return domain.OperationsResponse{}, f.scheduleErr
 	}
 	return f.schedule, nil
+}
+
+func (f *fakeReader) DriveAssignments(_ context.Context, q domain.DriveAssignmentQuery) (domain.DriveAssignmentResponse, error) {
+	f.lastAssign = q
+	return f.assignments, nil
 }
 
 func (f *fakeReader) VaccinationExecution(_ context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
@@ -144,6 +152,47 @@ func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obl
 		id = obligationID
 	}
 	return id, w.rescheduleReplay, nil
+}
+
+func (w *fakeWriter) UpsertVaccinationDriveDateOverride(ctx context.Context, override obligationdomain.VaccineDriveDateOverride) (*obligationdomain.VaccineDriveDateOverride, error) {
+	w.lastOverride = &override
+	return &override, nil
+}
+
+func TestUpsertDriveDateOverrideRequiresActorAndPostpone(t *testing.T) {
+	const testTenantID = "00000000-0000-4000-8000-000000000001"
+	writer := &fakeWriter{}
+	h := NewHandler(&fakeReader{}, writer).WithClock(func() time.Time {
+		return time.Date(2026, 7, 22, 9, 0, 0, 0, biztime.DefaultLocation())
+	})
+	body := `{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-01","override_date":"2026-08-08","reason":"CEO postponement"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	rec := httptest.NewRecorder()
+
+	h.UpsertDriveDateOverride(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if writer.lastOverride == nil || writer.lastOverride.VaccineCode != "PPR" || writer.lastOverride.CreatedBy == "" {
+		t.Fatalf("override not carried: %#v", writer.lastOverride)
+	}
+
+	revert := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-08","override_date":"2026-08-08","reason":"restore"}`))
+	revert = revert.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(revert.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	revertRec := httptest.NewRecorder()
+	h.UpsertDriveDateOverride(revertRec, revert)
+	if revertRec.Code != http.StatusOK {
+		t.Fatalf("revert status=%d body=%s", revertRec.Code, revertRec.Body.String())
+	}
+
+	bad := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-08","override_date":"2026-08-01","reason":"bad"}`))
+	bad = bad.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(bad.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	badRec := httptest.NewRecorder()
+	h.UpsertDriveDateOverride(badRec, bad)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("bad status=%d body=%s", badRec.Code, badRec.Body.String())
+	}
 }
 
 func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {

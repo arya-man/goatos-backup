@@ -12,7 +12,6 @@ const COVERAGE_FILES = [
 
 const TRIGGER_PREFIXES = [
   "backend/internal/",
-  "backend/migrations/",
   "backend/db/",
   "contracts/openapi/",
   "contracts/schemas/",
@@ -30,9 +29,12 @@ const IGNORE_RE = /(^|\/)(testdata|fixtures|__tests__|node_modules|build|dist|\.
 const TEST_RE = /(_test\.go|\.test\.(ts|tsx|mjs)$|\.spec\.(ts|tsx|mjs)$|Test\.kt$)/;
 const DOC_RE = /(^docs\/(?!ceo-ai\/)|\.md$)/;
 const COVERAGE_TOKEN_RE = /\b(leadership assistant|assistant coverage|MCP|Toolbox|ceo_ai|Gemini|Vertex|read API|read-only SQL|tool catalog)\b/i;
+const EXPLICIT_NON_ASSISTANT_RE =
+  /^(apps\/admin-web\/(app\/api\/vaccination\/capacity-config\/route\.ts|features\/people\/positions-panel\.tsx|lib\/api\/client\.ts)|tools\/dev\/build-vaccination-hrms-fixture\.mjs)$/;
 
 function hasTriggeringChange(rel) {
   if (IGNORE_RE.test(rel) || TEST_RE.test(rel)) return false;
+  if (EXPLICIT_NON_ASSISTANT_RE.test(rel)) return false;
   if (DOC_RE.test(rel) && !rel.startsWith("docs/ceo-ai/")) return false;
   if (!TRIGGER_PREFIXES.some((prefix) => rel.startsWith(prefix))) return false;
   return TRIGGER_EXTS.some((ext) => rel.endsWith(ext));
@@ -87,6 +89,21 @@ function selfTest() {
 
   const apiBad = evaluateChangedFiles(["contracts/openapi/app-api.yaml"], () => "paths:\n  /new-module:\n    get: {}\n");
   if (apiBad.length === 0) throw new Error("self-test: API contract change without assistant coverage was not blocked");
+
+  const migrationOnly = evaluateChangedFiles(["backend/migrations/postgres/000999_vaccination_schema.sql"], () => "CREATE TABLE vaccination_example ();");
+  if (migrationOnly.length !== 0) throw new Error(`self-test: migration-only change was incorrectly blocked: ${migrationOnly.join("; ")}`);
+
+  const vaccinationCapacityUI = evaluateChangedFiles(
+    [
+      "apps/admin-web/app/api/vaccination/capacity-config/route.ts",
+      "apps/admin-web/features/people/positions-panel.tsx",
+      "tools/dev/build-vaccination-hrms-fixture.mjs",
+    ],
+    () => "vaccination capacity UI/proxy only",
+  );
+  if (vaccinationCapacityUI.length !== 0) {
+    throw new Error(`self-test: vaccination capacity UI/proxy exclusion was incorrectly blocked: ${vaccinationCapacityUI.join("; ")}`);
+  }
 
   const good = evaluateChangedFiles(
     ["backend/internal/newmodule/service.go", "docs/ceo-ai/mcp-toolbox-plan.md"],

@@ -60,6 +60,33 @@ Drive assignment rows are generated from this default plus timetable/leave
 availability. When the safe buffer would be missed, the generated work is marked
 over-cap required so the drive is finished by available staff instead of being
 quietly pushed beyond the latest-safe date.
+Assignment rows are operator/date/shed/partition metadata and never replace
+obligation membership; read models must collapse them before counting animals,
+proofs, completion, due, or overdue buckets.
+
+Source shed labels with trailing partition numbers must be normalized before
+canonical DB writes. `Gandhi 1` means physical shed `Gandhi`, partition `1`;
+`Godel 1 - Part 3` means physical shed `Godel 1`, partition `Part 3`. The raw
+partition label may appear in source/audit output, but active goat placement and
+goat obligation scope must point to the physical shed.
+Fixture validation, source validation, and shed-owner checks all aggregate by
+that physical shed. Partition rows may split operator drive work, but they must
+not create separate buildings, duplicate owner coverage requirements, duplicate
+animal counts, or independent read-model totals.
+
+CPT-only operator-drive rehearsal data is valid when the source center is CPT
+only and the reviewed roster contains exactly the three vaccination
+operators/managers required for that seed. Do not synthesize Coimbatore/CBE
+owners just because the full production fixture also covers CBE.
+The three CPT vaccination operators are Amit, Darshan, and Sagar as
+manager-tier vaccination operators. Do not infer "support", park-head, or backup
+ownership from their old HRMS seat labels in this rehearsal. Their recurring
+week-offs come from the CPT timetable: Amit = Friday, Darshan = Sunday,
+Sagar = Saturday.
+For source-backed rehearsals, strict shed-position validation is scoped to
+active sheds that contain live goats from the selected source. Empty baseline
+catalog sheds created by migrations are not vaccination drive truth and must not
+force unrelated owners/operators into the run.
 
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
@@ -149,6 +176,11 @@ repeat starts only after accepted ET+TT dose 2/course completion. Blue Tongue
 kid dose 2 stays 28 days after Blue Tongue kid dose 1. Single-dose vaccines
 such as FMD, HS, PPR, Goat Pox, and Sheep Pox repeat from their accepted
 same-vaccine administration because they have no second course dose.
+
+Seed closeout must prove that adult ET+TT dose 2 exists. A DB with accepted
+`et_tt_adult_w1` completions and no same-goat `et_tt_adult_w2` obligation or
+completion is broken and must be reset/reseeded before any drive table is
+reported as final.
 
 ### Sanitized mock-fixture exception
 
@@ -567,3 +599,5 @@ At minimum, this contract is guarded by:
 Do not push a seed change that bypasses these gates.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
+<!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
+<!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create `ceo_ai.*` read-only views that query canonical vaccination/procurement/obligation/workforce tables. They do not modify the seed source contract, HRMS roster schema, vaccination protocol, or SOP configuration, so no fixture/source-data change is required. -->

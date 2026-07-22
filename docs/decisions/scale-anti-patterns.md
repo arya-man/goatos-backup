@@ -28,6 +28,19 @@ parallel business roles for the same authority. CEO/CXO full access is a single
 person role creates duplicate authorization branches, duplicated test matrices,
 and stale UI labels.
 
+Vaccination seed scope drift is the same class of bug. A CPT-only rehearsal
+source must not pull in CBE/Coimbatore because a broad fixture once covered both
+parks. Shed partition labels such as `Gandhi 1` or `Godel 1 - Part 3` are not
+new buildings; source audits, fixture guards, seeders, read APIs, and frontend
+tables must aggregate owner/count totals at physical-shed grain and carry the
+partition only as drive-assignment detail.
+
+Operator-role drift is part of the same failure mode. In CPT operator-drive
+rehearsals, Amit, Darshan, and Sagar are all manager-tier vaccination operators;
+none of them is support-only, backup-only, or park-head-only. Their week-offs
+must come from HRMS/timetable seed data and reduce the available operator pool
+for that business date before animal-cap splitting runs.
+
 ## Sub-500ms serving-read budget
 
 Every operator-facing API, SSR page load, dashboard read, schedule/calendar
@@ -66,6 +79,14 @@ a scale anti-pattern even if both endpoints are "correct."
   still slow" class (one round trip per row): a 25-row page becomes 51 serial
   reads. Fix by batching to a single `*ByIDs` / `= ANY($1)` read, as `ShedSummary`
   now does with `ShedOwnerships`.
+  Concrete recurrence: vaccination operator availability/capacity must be
+  loaded once per sweep session at `(tenant, park, business_date,
+  cap_per_operator)` grain and reused by date scoring, `ConductedBy` selection,
+  effective-cap calculation, and drive-assignment splitting. Do not call
+  `AvailableVaccinationOperatorsForDrive` independently from date loops,
+  preflight loops, assignment distribution, and combo alignment; that re-creates
+  park x candidate-date x helper fan-out and hides the cost behind "only three
+  operators."
 - infinite paging loops without cursor/progress proof
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds
@@ -118,6 +139,11 @@ inline `scale-guard:ignore` with a concrete boundedness reason.
 
 Source ingestion is also a scale and correctness boundary. One bad spreadsheet
 row can fan out into obligations, drives, owners, calendars, alerts, and mobile
+worklists. Do not import vaccination drive assignments as source data or count
+assignment rows as animals. Operator-capacity planning must remain derived,
+set-based, and bounded at operator/business-date/unique-animal grain so
+partitioned sheds cannot multiply read-model counts or leak work across
+operators.
 proof work. The following are banned:
 
 Vaccination drive assignment persistence must stay set-based. The planner may
@@ -126,6 +152,23 @@ written with one batched upsert for the generated batch, never one database
 round trip per partition. Operator capacity is counted as unique animals per
 available operator per business date; multi-vaccine animals do not multiply the
 assignment write volume.
+
+Vaccination operator availability is the same scale boundary on the read side:
+one sweep/preflight session may probe many dates and may call separate helpers
+for capacity, operator choice, and partition assignment. Those helpers must share
+the session-scoped `(tenant, park, business_date, cap_per_operator)` availability
+cache. A direct repo/port call from any one of those helpers is a recurrence of
+the N+1 fan-out bug, even when the seed fixture has only three operators.
+
+Do not model raw partition-bearing shed names as separate canonical buildings.
+`Gandhi 1/2/3` are partitions under `Gandhi`; `Godel 1 - Part 3` is partition
+`Part 3` under physical shed `Godel 1`. Splitting them into separate `locations`
+rows multiplies work, breaks operator ownership, and makes UI grouping lie.
+
+Do not report drive assignment rows as the complete future schedule until the
+missing-obligation audit is clean. Adult ET+TT dose 1 history must always have
+same-goat adult ET+TT dose 2 work; otherwise the assignment table is just a
+partial projection.
 
 - connecting to the database or writing grants/roster/config before the exact
   selected source directory passes a DB-free preflight;
@@ -550,3 +593,6 @@ one-to-five shed-level artifacts. A seeder-only or client-only proof-grain
 change is a false-green seed and is blocked by the seed fixture guard.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
+<!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
+<!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create read-only SQL views (ceo_ai.vaccination_operator_status, vaccination_shed_status, vaccination_dose_pickup, action_center) that query canonical vaccination/obligation/workforce tables. They do not modify the seed source data, HRMS schema, vaccination protocol rules, or SOP contracts. The reported reads stay tenant-scoped, indexed, and bounded by the 5k-50k envelope exemption for canonical-read screens; they are not full-tenant recomputes or projection-drift anti-patterns. -->
+<!-- Coupling review 2026-07-22: CPT-only operator-drive rehearsal role mapping does not change raw fixture bytes. It changes seed interpretation and validation: Amit, Darshan, and Sagar must seed as equal manager-tier vaccination_operator_* positions with execute duty and source week-offs, and drive splitting must use DB-backed availability for the planned date. -->

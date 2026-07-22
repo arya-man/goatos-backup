@@ -134,6 +134,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&p.ParkName,
 			&p.ShedID,
 			&p.ShedName,
+			&p.PhysicalShed,
+			&p.Partition,
 			&p.AnimalStage,
 			&batchID,
 			&p.ProtocolName,
@@ -330,6 +332,199 @@ func operationsRowsPage(rows []domain.OperationsRow, limit int) ([]domain.Operat
 	}
 	return out, nil
 }
+
+func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignmentQuery) ([]domain.DriveAssignmentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	monthStart, monthEnd := scheduleMonthWindow(q.MonthStart)
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	rows, err := r.pool.Query(ctx, driveAssignmentsSQL, q.TenantID, monthStart, monthEnd, optStr(q.ParkID), limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: drive assignments: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.DriveAssignmentRow, 0)
+	for rows.Next() {
+		var row domain.DriveAssignmentRow
+		var planned pgtype.Date
+		var shedID pgtype.Text
+		var vaccineKeys []string
+		var vaccineCodes []string
+		var capacity string
+		if err := rows.Scan(
+			&planned,
+			&row.OperatorID,
+			&row.OperatorName,
+			&row.ParkID,
+			&row.ParkName,
+			&shedID,
+			&row.PhysicalShed,
+			&row.PartitionLabel,
+			&row.Animals,
+			&row.DueAnimals,
+			&row.DoneAnimals,
+			&row.DeferredAnimals,
+			&row.OverdueAnimals,
+			&vaccineKeys,
+			&vaccineCodes,
+			&row.TotalDoses,
+			&capacity,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan drive assignment: %w", err)
+		}
+		if planned.Valid {
+			row.PlannedDate = planned.Time.Format("2006-01-02")
+		}
+		row.ShedID = textPtr(shedID)
+		row.VaccineNames = driveAssignmentVaccineLabels(vaccineKeys)
+		if vaccineCodes == nil {
+			vaccineCodes = []string{}
+		}
+		row.VaccineCodes = vaccineCodes
+		row.Capacity = domain.CapacityStatus(capacity)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: drive assignment rows: %w", err)
+	}
+	return out, nil
+}
+
+func driveAssignmentVaccineLabels(keys []string) []string {
+	if len(keys) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		protocolName, doseCode, ok := strings.Cut(key, "\x1f")
+		if !ok {
+			doseCode = key
+		}
+		label := domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		out = append(out, label)
+	}
+	return out
+}
+
+const driveAssignmentsSQL = `
+-- projection-review: membership=vaccination_drive_assignments unnested to vaccine-rule grain then regrouped after active vaccination_drive_date_overrides; group_key=(effective_planned_date,operator_id,park_id,shed_id,physical_shed,partition_label,animal_count,capacity_status,batch_status); join_cardinality=rule unnest is intentional 1:N, override lookup is unique by tenant+park+vaccine+original date, regrouping prevents sibling vaccines on the same date from duplicating animal counts; pagination=LIMIT applies only after the full effective-date regroup and month filter, so moved vaccines page by their new date; scope=tenant plus optional park, preserved through assignment park_id.
+WITH assignment_vaccines AS (
+  SELECT
+    vda.tenant_id,
+    vda.batch_id,
+    vda.planned_date AS original_planned_date,
+    COALESCE(override.override_date, vda.planned_date) AS effective_planned_date,
+    vda.operator_id,
+    vda.park_id,
+    vda.shed_id,
+    vda.physical_shed,
+    vda.partition_label,
+    vda.animal_count,
+    vda.total_doses,
+    vda.capacity_status,
+    batch.status AS batch_status,
+    pd.name || E'\x1f' || pr.dose_code AS vaccine_key,
+    NULLIF(prd.vaccine_code, '') AS vaccine_code
+  FROM vaccination_drive_assignments vda
+  LEFT JOIN obligation_batches batch
+    ON batch.tenant_id = vda.tenant_id
+   AND batch.batch_id = vda.batch_id
+  LEFT JOIN LATERAL unnest(vda.vaccine_rule_ids) AS assigned_rule(rule_id) ON true
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = vda.tenant_id
+   AND pr.rule_id = assigned_rule.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id
+   AND prd.rule_id = pr.rule_id
+  LEFT JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+  LEFT JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  LEFT JOIN vaccination_drive_date_overrides override
+    ON override.tenant_id = vda.tenant_id
+   AND override.park_id = vda.park_id
+   AND override.original_drive_date = vda.planned_date
+   AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+   AND override.canceled_at IS NULL
+  WHERE vda.tenant_id = $1::uuid
+    AND ($4::text = '' OR vda.park_id::text = $4)
+),
+effective_assignments AS (
+  SELECT
+    effective_planned_date AS planned_date,
+    operator_id,
+    park_id,
+    shed_id,
+    physical_shed,
+    partition_label,
+    animal_count,
+    capacity_status,
+    batch_status,
+    ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
+    ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
+    CASE
+      WHEN COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) > 0
+      THEN animal_count * COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL)
+      ELSE MAX(total_doses)
+    END::int AS total_doses
+  FROM assignment_vaccines
+  GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
+)
+SELECT
+  effective.planned_date,
+  effective.operator_id::text,
+  wm.display_name,
+  effective.park_id::text,
+  park.name,
+  effective.shed_id::text,
+  effective.physical_shed,
+  effective.partition_label,
+  effective.animal_count,
+  CASE
+    WHEN effective.batch_status IN ('planned', 'in_progress')
+     AND effective.planned_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN effective.animal_count
+    ELSE 0
+  END AS due_animals,
+  CASE WHEN effective.batch_status = 'completed' THEN effective.animal_count ELSE 0 END AS done_animals,
+  0 AS deferred_animals,
+  CASE
+    WHEN effective.batch_status IN ('planned', 'in_progress')
+     AND effective.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN effective.animal_count
+    ELSE 0
+  END AS overdue_animals,
+  COALESCE(effective.vaccine_keys, ARRAY[]::text[]),
+  COALESCE(effective.vaccine_codes, ARRAY[]::text[]),
+  effective.total_doses,
+  effective.capacity_status
+FROM effective_assignments effective
+JOIN workforce_members wm
+  ON wm.tenant_id = $1::uuid
+ AND wm.workforce_member_id = effective.operator_id
+ AND wm.status = 'active'
+JOIN locations park
+  ON park.tenant_id = $1::uuid
+ AND park.location_id = effective.park_id
+ AND park.location_type = 'park'
+WHERE effective.planned_date >= $2::date
+  AND effective.planned_date < $3::date
+ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_label
+LIMIT $5;
+`
 
 func scheduleCohortKey(row domain.OperationsRow) string {
 	return row.ParkID + "|" + row.ShedID + "|" + row.Stage
@@ -830,6 +1025,8 @@ raw AS (
     ob.planned_date::timestamptz AS batch_planned_at,
     ob.status AS batch_status,
     vda.operator_id AS conducted_by,
+    vda.physical_shed,
+    vda.partition_label,
     st.state AS task_state,
     st.task_id AS sop_task_id,
     st.sop_version_id AS sop_version_id,
@@ -871,18 +1068,33 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
-  LEFT JOIN vaccination_drive_assignments vda
-    ON vda.tenant_id = oi.tenant_id
-   AND vda.batch_id = oi.batch_id
-   AND (
-     vda.shed_id IS NULL
-     OR vda.shed_id = g.shed_id
-     OR vda.shed_id = CASE
-       WHEN oi.target_type = 'shed' THEN oi.target_id
-       WHEN oi.scope_type = 'shed' THEN oi.scope_id
-       ELSE NULL
-     END
-   )
+  LEFT JOIN LATERAL (
+    SELECT assignment.operator_id, assignment.physical_shed, assignment.partition_label
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = CASE
+        WHEN g.shed_id IS NOT NULL THEN g.shed_id
+        WHEN oi.target_type = 'shed' THEN oi.target_id
+        WHEN oi.scope_type = 'shed' THEN oi.scope_id
+        ELSE NULL
+      END
+      AND (
+        $15::text = ''
+        OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+      )
+    ORDER BY
+      CASE
+        WHEN assignment.shed_id = g.shed_id THEN 0
+        WHEN assignment.shed_id IS NOT NULL THEN 1
+        ELSE 2
+      END,
+      assignment.planned_date ASC,
+      assignment.partition_label ASC,
+      assignment.operator_id ASC NULLS LAST,
+      assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
@@ -931,7 +1143,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -988,6 +1200,16 @@ grouped AS (
       operator.updated_at DESC NULLS LAST,
       operator.workforce_member_id DESC
     ) FILTER (WHERE operator.display_name IS NOT NULL))[1] AS operator_name,
+    COALESCE(
+      (ARRAY_AGG(located.physical_shed ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
+        FILTER (WHERE NULLIF(located.physical_shed, '') IS NOT NULL))[1],
+      MAX(shed.name)
+    ) AS physical_shed,
+    COALESCE(
+      (ARRAY_AGG(located.partition_label ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
+        FILTER (WHERE NULLIF(located.partition_label, '') IS NOT NULL))[1],
+      'whole'
+    ) AS partition_label,
     -- This value is rendered directly on mobile shed cards. Prefer the governed
     -- human name; stage_code (K1/K2/...) is an internal fallback only.
     COALESCE(
@@ -1145,6 +1367,8 @@ SELECT
   park.name AS park_name,
   grouped.shed_uuid::text AS shed_id,
   shed.name AS shed_name,
+  grouped.physical_shed,
+  grouped.partition_label,
   grouped.animal_stage,
   grouped.batch_id::text AS batch_id,
   grouped.protocol_name,
@@ -1616,10 +1840,6 @@ JOIN goats g
  AND oi.target_type = 'goat'
  AND g.merged_into_goat_id IS NULL
  AND g.lifecycle_status = 'alive'
-LEFT JOIN vaccination_drive_assignments vda
-  ON vda.tenant_id = oi.tenant_id
- AND vda.batch_id = oi.batch_id
- AND (vda.shed_id IS NULL OR vda.shed_id = g.shed_id)
 LEFT JOIN goat_identifiers aid1
   ON aid1.tenant_id = g.tenant_id
  AND aid1.goat_id = g.goat_id
@@ -1654,7 +1874,14 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND (
     $9::text = ''
-    OR vda.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    OR EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignments assignment
+      WHERE assignment.tenant_id = oi.tenant_id
+        AND assignment.batch_id = oi.batch_id
+        AND assignment.shed_id = g.shed_id
+        AND assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
   )
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
@@ -2052,12 +2279,18 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 	for rows.Next() {
 		var row domain.ShedSummaryProjection
 		var lastDone, nextDue pgtype.Timestamptz
-		var capacityStatus, shedStatus string
-		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &row.TotalCount); err != nil {
+		var capacityStatus, shedStatus, driveOperatorNames string
+		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
 		}
 		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
 		row.LastDone, row.NextDue = timePtr(lastDone), timePtr(nextDue)
+		for _, name := range strings.Split(driveOperatorNames, ",") {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				row.DriveOperatorNames = append(row.DriveOperatorNames, name)
+			}
+		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -2245,13 +2478,29 @@ classified AS (
       ELSE 'on_track'
     END AS shed_status
   FROM scored
+),
+drive_ops AS (
+  -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain; group_key=(park_id,physical_shed); join_cardinality=workforce_members is tenant+operator keyed 1:1 and DISTINCT operator names prevents partition rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
+  SELECT
+    vda.park_id::text AS park_id,
+    vda.physical_shed AS shed_name,
+    STRING_AGG(DISTINCT wm.display_name, ', ' ORDER BY wm.display_name) AS drive_operator_names
+  FROM vaccination_drive_assignments vda
+  JOIN workforce_members wm
+    ON wm.tenant_id = vda.tenant_id
+   AND wm.workforce_member_id = vda.operator_id
+   AND wm.status = 'active'
+  WHERE vda.tenant_id = $1::uuid
+  GROUP BY vda.park_id, vda.physical_shed
 )
 SELECT
   park_id, park_name, shed_id, shed_name,
   animals, due_animals, open_cells, sessions, capacity_status, shed_status,
   last_done, next_due,
+  COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
   COUNT(*) OVER()::bigint AS total_count
 FROM classified
+LEFT JOIN drive_ops USING (park_id, shed_name)
 WHERE ($6::text = '' OR park_id = $6)
   AND ($7::text = '' OR shed_id = $7)
   AND ($8::text = '' OR shed_name ILIKE '%' || $8 || '%' OR park_name ILIKE '%' || $8 || '%')

@@ -37,6 +37,29 @@ var protectedRoutes = []Route{
 	{OperationID: "getOperationsAuditSummary", Method: "GET", Pattern: "/operations/audit/summary", Permissions: []string{OperatorsViewAudit}},
 	{OperationID: "getOperationsKernelHealth", Method: "GET", Pattern: "/operations/kernel-health", Permissions: []string{OperatorsViewAudit}},
 	{OperationID: "listOutboxDLQ", Method: "GET", Pattern: "/operations/dlq", Permissions: []string{OperatorsViewAudit}},
+	// CEO/CxO read-only leadership assistant. Route-level defense-in-depth uses
+	// the leadership dashboard-bootstrap grant; the ceoai orchestrator itself is
+	// the authoritative gate (it requires RoleCEOInternal and derives tenant +
+	// role ONLY from the session, never from the request body).
+	{OperationID: "askCeoAssistant", Method: "POST", Pattern: "/ceo-ai/ask", Permissions: []string{AdminWebBootstrap}},
+	// Leadership assistant thread + feedback + starters surface. Route-level
+	// defense-in-depth uses the same leadership dashboard-bootstrap grant; the
+	// ConversationHandler is the authoritative gate (requires RoleCEOInternal and
+	// scopes every read/write to the session tenant+actor). The starters route
+	// doubles as the client leadership-capability probe (200 => show launcher).
+	{OperationID: "getCeoAssistantStarters", Method: "GET", Pattern: "/ceo-ai/starters", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "listCeoAssistantConversations", Method: "GET", Pattern: "/ceo-ai/conversations", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "createCeoAssistantConversation", Method: "POST", Pattern: "/ceo-ai/conversations", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "listCeoAssistantMessages", Method: "GET", Pattern: "/ceo-ai/conversations/{id}/messages", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "renameCeoAssistantConversation", Method: "PATCH", Pattern: "/ceo-ai/conversations/{id}", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "deleteCeoAssistantConversation", Method: "DELETE", Pattern: "/ceo-ai/conversations/{id}", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "feedbackCeoAssistantMessage", Method: "POST", Pattern: "/ceo-ai/messages/{message_id}/feedback", Permissions: []string{AdminWebBootstrap}},
+	// Admin-only internal step-trace debug surface. Route-level defense-in-depth
+	// uses the leadership dashboard-bootstrap grant; the AdminTraceHandler is the
+	// authoritative gate (it requires RoleCEOInternal and derives tenant scope
+	// ONLY from the session, returning an identical 403 for non-admins and a
+	// cross-tenant miss so request-id existence can't be probed).
+	{OperationID: "getCeoAssistantTrace", Method: "GET", Pattern: "/ceo-ai/admin/trace/{request_id}", Permissions: []string{AdminWebBootstrap}, AdminOnly: true},
 	{OperationID: "replayOutboxDLQ", Method: "POST", Pattern: "/operations/dlq/replay", Permissions: []string{OperationsRepair}},
 	{OperationID: "discardOutboxDLQ", Method: "POST", Pattern: "/operations/dlq/discard", Permissions: []string{OperationsRepair}},
 
@@ -148,6 +171,8 @@ var protectedRoutes = []Route{
 	{OperationID: "getVaccinationWorkflowDrilldown", Method: "GET", Pattern: "/vaccination/workflows/{row_id}", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationOperations", Method: "GET", Pattern: "/vaccination/operations", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationSchedule", Method: "GET", Pattern: "/vaccination/schedule", Permissions: []string{ObligationRead, VaccinationRead}},
+	{OperationID: "upsertVaccinationDriveDateOverride", Method: "POST", Pattern: "/vaccination/schedule/drive-date-overrides", Permissions: []string{VaccinationCampaign}},
+	{OperationID: "listVaccinationDriveAssignments", Method: "GET", Pattern: "/vaccination/drive-assignments", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationShedSummary", Method: "GET", Pattern: "/vaccination/sheds", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},

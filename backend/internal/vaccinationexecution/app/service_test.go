@@ -12,6 +12,7 @@ import (
 type fakeRepo struct {
 	rows        []domain.ExecutionProjection
 	opsRows     []domain.OperationsRow
+	driveRows   []domain.DriveAssignmentRow
 	roster      []domain.ScanRosterRow
 	gapsRows    []domain.GapProjectionRow
 	shedRows    []domain.ShedSummaryProjection
@@ -82,6 +83,13 @@ func (r fakeRepo) VaccinationSchedule(_ context.Context, _ domain.ScheduleQuery)
 		return nil, r.err
 	}
 	return r.opsRows, nil
+}
+
+func (r fakeRepo) DriveAssignments(_ context.Context, _ domain.DriveAssignmentQuery) ([]domain.DriveAssignmentRow, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.driveRows, nil
 }
 
 func (r fakeRepo) ListVaccinationExecutionPage(_ context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {

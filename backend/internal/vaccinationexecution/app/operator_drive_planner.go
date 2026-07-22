@@ -2,12 +2,12 @@ package app
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // OperatorDrivePlanner assigns already-eligible vaccination work to operators.
@@ -166,15 +166,8 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 		choice := bestOperatorForBlock(loads, total)
 		if choice < 0 {
 			if isLatestSafeDue(group.blocks, date) {
-				choice = lowestLoadedOperator(loads)
-				if choice >= 0 {
-					loads[choice].remaining -= total
-					loads[choice].assigned += total
-					for _, block := range group.blocks {
-						assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, block, []string{"over_cap_required_latest_safe"}))
-					}
-					continue
-				}
+				assignments = append(assignments, splitLatestSafeGroupAcrossOperators(date, loads, group.blocks)...)
+				continue
 			}
 			for _, block := range group.blocks {
 				if block.Animals <= 0 {
@@ -183,13 +176,8 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 				choice = bestOperatorForBlock(loads, block.Animals)
 				if choice < 0 {
 					if isBlockLatestSafeDue(block, date) {
-						choice = lowestLoadedOperator(loads)
-						if choice >= 0 {
-							loads[choice].remaining -= block.Animals
-							loads[choice].assigned += block.Animals
-							assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, block, []string{"over_cap_required_latest_safe"}))
-							continue
-						}
+						assignments = append(assignments, splitLatestSafeGroupAcrossOperators(date, loads, []DriveWorkBlock{block})...)
+						continue
 					}
 					splitAssignments, residual := splitOversizedBlockAcrossOperators(date, loads, block)
 					for _, assignment := range splitAssignments {
@@ -214,6 +202,42 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 	}
 
 	return assignments, unscheduled
+}
+
+func splitLatestSafeGroupAcrossOperators(date string, loads []operatorLoad, blocks []DriveWorkBlock) []DrivePlanAssignment {
+	assignments := make([]DrivePlanAssignment, 0, len(blocks))
+	for _, block := range blocks {
+		remaining := block.Animals
+		for remaining > 0 {
+			choice := bestOperatorWithAnyCapacity(loads)
+			if choice < 0 {
+				break
+			}
+			chunk := loads[choice].remaining
+			if chunk > remaining {
+				chunk = remaining
+			}
+			chunkBlock := block
+			chunkBlock.Animals = chunk
+			assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, chunkBlock, []string{"forced_partition_split"}))
+			loads[choice].remaining -= chunk
+			loads[choice].assigned += chunk
+			remaining -= chunk
+		}
+		if remaining <= 0 {
+			continue
+		}
+		choice := lowestLoadedOperator(loads)
+		if choice < 0 {
+			continue
+		}
+		overCapBlock := block
+		overCapBlock.Animals = remaining
+		loads[choice].remaining -= remaining
+		loads[choice].assigned += remaining
+		assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, overCapBlock, []string{"over_cap_required_latest_safe", "forced_partition_split"}))
+	}
+	return assignments
 }
 
 func splitOversizedBlockAcrossOperators(date string, loads []operatorLoad, block DriveWorkBlock) ([]DrivePlanAssignment, DriveWorkBlock) {
@@ -369,7 +393,7 @@ func normalizeDriveWorkBlocks(blocks []DriveWorkBlock) []DriveWorkBlock {
 	out := make([]DriveWorkBlock, 0, len(blocks))
 	for _, block := range blocks {
 		if block.PhysicalShed == "" {
-			block.PhysicalShed, block.Partition = NormalizeDriveShed(block.RawShed)
+			block.PhysicalShed, block.Partition = domain.NormalizeDriveShed(block.RawShed)
 		}
 		if block.Partition == "" {
 			block.Partition = "whole"
@@ -426,6 +450,7 @@ func mergeAssignment(assignments []DrivePlanAssignment, next DrivePlanAssignment
 			existing.Animals += next.Animals
 			existing.Partitions = appendUniqueStrings(existing.Partitions, next.Partitions...)
 			existing.BlockIDs = append(existing.BlockIDs, next.BlockIDs...)
+			existing.Warnings = appendUniqueStrings(existing.Warnings, next.Warnings...)
 			return assignments
 		}
 	}
@@ -446,25 +471,6 @@ func appendUniqueStrings(values []string, next ...string) []string {
 	}
 	sort.SliceStable(values, func(i, j int) bool { return partitionLess(values[i], values[j]) })
 	return values
-}
-
-var (
-	partPattern   = regexp.MustCompile(`(?i)^(.+?)\s*-\s*(part\s+\d+)$`)
-	numberPattern = regexp.MustCompile(`^(.+?)\s+(\d+)$`)
-)
-
-func NormalizeDriveShed(raw string) (physicalShed, partition string) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", ""
-	}
-	if matches := partPattern.FindStringSubmatch(raw); len(matches) == 3 {
-		return strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2])
-	}
-	if matches := numberPattern.FindStringSubmatch(raw); len(matches) == 3 {
-		return strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2])
-	}
-	return raw, "whole"
 }
 
 func partitionLess(a, b string) bool {

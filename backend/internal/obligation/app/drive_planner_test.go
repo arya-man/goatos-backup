@@ -60,7 +60,7 @@ func TestDrivePlannerFromRuleDSLUsesMatrixPriority(t *testing.T) {
 }
 
 func TestExtractRuleVaccineIdentityUsesPublishedPriority(t *testing.T) {
-	got := ExtractRuleVaccineIdentity([]byte(`{"vaccine":{"code":"HS","priority":6,"compatibility_group":"HS","inventory_item_id":"item-hs"}}`))
+	got := ExtractRuleVaccineIdentity([]byte(`{"vaccine":{"code":"HS","type":"killed","pathogen_class":"bacterial","priority":6,"compatibility_group":"HS","inventory_item_id":"item-hs"}}`))
 	if got.VaccineCode != "HS" {
 		t.Fatalf("vaccine code = %q, want HS", got.VaccineCode)
 	}
@@ -69,6 +69,9 @@ func TestExtractRuleVaccineIdentityUsesPublishedPriority(t *testing.T) {
 	}
 	if got.CompatibilityGrp != "HS" || got.VaccineItemID != "item-hs" {
 		t.Fatalf("identity = %#v, want compatibility/item metadata preserved", got)
+	}
+	if got.VaccineType != "killed" || got.PathogenClass != "bacterial" {
+		t.Fatalf("vaccine class = %q/%q, want killed/bacterial from published rule DSL", got.VaccineType, got.PathogenClass)
 	}
 }
 

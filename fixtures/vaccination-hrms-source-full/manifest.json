@@ -4,6 +4,7 @@
   "data_as_of": "2026-07-20",
   "minimum_migration": "000008",
   "generated_by": "tools/dev/build-vaccination-hrms-fixture.mjs",
+  "ceo_ai_compatibility_note": "Compatible with ceo_ai reporting view migrations 000024-000027 (read-only SQL views for leadership assistant operational screens)",
   "contracts": {
     "vaccination_protocol_code": "vaccination.matrix",
     "vaccination_sop_code": "vaccination.drive",
@@ -28,7 +29,7 @@
       "goat": 975,
       "sheep": 336
     },
-    "sheds": 116,
+    "sheds": 28,
     "vaccination_cells": {
       "dated": 3836,
       "pending": 6383,
@@ -95,6 +96,26 @@
       "date": "2026-07-22",
       "change": "vaccination_drive_assignments migration and operator animal-cap planner",
       "vaccination_hrms_source_impact": "none: the raw source files stay unchanged. The new table is derived planner output from active vaccination obligations plus HRMS availability/timetable rows at generation time; the fixture contract still validates the same animal, vaccination, roster, timetable, and shed-manager inputs."
+    },
+    {
+      "date": "2026-07-22",
+      "change": "operator-grain vaccination drive assignment reads and safe-window over-cap escalation",
+      "vaccination_hrms_source_impact": "none: the fixture remains the source of animals, vaccine history, roster, timetable, and shed ownership only. Generated drive assignments must be rebuilt from validated source facts and may exceed operator animal capacity only when required to finish before the latest safe vaccination date."
+    },
+    {
+      "date": "2026-07-22",
+      "change": "adult ET+TT dose-2 seed invariant and shed partition name-pattern normalization",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes: source shed labels may still arrive as Gandhi 1 or Godel 1 - Part 3, but canonical DB locations must store the physical shed and keep partition labels in derived drive/read-model metadata. Post-seed validation must fail if accepted et_tt_adult_w1 exists without same-goat et_tt_adult_w2 obligation/completion."
+    },
+    {
+      "date": "2026-07-22",
+      "change": "fixture/source validation aggregates shed-manager coverage at physical-shed grain and supports CPT-only operator-roster rehearsal seeds",
+      "vaccination_hrms_source_impact": "raw fixture bytes unchanged. The manifest shed count now records physical sheds, not raw partition labels; committed fixtures still require reviewed manager/backup coverage after physical-shed aggregation, while private CPT-only rehearsal bundles may derive vaccination drive ownership from the reviewed Amit/Darshan/Sagar operator roster without inventing CBE rows."
+    },
+    {
+      "date": "2026-07-22",
+      "change": "CPT operator-drive rehearsal maps Amit, Darshan, and Sagar as equal manager-tier vaccination operators with source week-offs",
+      "vaccination_hrms_source_impact": "raw fixture bytes unchanged. The full source fixture still preserves the reviewed timetable seat names, but CPT-only rehearsal seeding must convert Amit, Darshan, and Sagar into vaccination_operator_* positions with execute duty and week-offs Amit=Friday, Darshan=Sunday, Sagar=Saturday. Operator availability is then read from DB HRMS rows before drive assignment splitting."
     }
   ]
 }
