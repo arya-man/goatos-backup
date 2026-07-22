@@ -71,9 +71,10 @@ data class FeedDirectionQuery(
 data class FeedPackingQuery(
     val parkId: String,
     val targetDate: String,
+    val session: Int? = null,
     val workflow: String? = null,
 ) {
-    fun roomKey(): String = cacheKey(parkId, targetDate, workflow, FEED_PAGE_SIZE.toString())
+    fun roomKey(): String = cacheKey(parkId, targetDate, session?.toString(), workflow, FEED_PAGE_SIZE.toString())
 }
 
 /**
@@ -326,6 +327,7 @@ private class FeedPackingRemoteMediator(
             val response = api.getFeedPackingWorklist(
                 parkId = query.parkId,
                 targetDate = query.targetDate,
+                session = query.session,
                 workflow = query.workflow,
                 limit = FEED_PAGE_SIZE,
                 offset = offset,

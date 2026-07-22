@@ -94,8 +94,14 @@ data class FeedFilterUi(
     val selectedShedLabel: String? = null,
     /** "" (both), "normal", or "experiment". */
     val workflow: String = "",
+    // Session filter (backend-owned vocabulary). Options carry the session_no as their key; "0" =
+    // every session. selectedSessionNo 0 means unfiltered.
+    val sessions: List<FeedDropdownOption> = emptyList(),
+    val selectedSessionNo: Int = 0,
+    val selectedSessionLabel: String? = null,
 ) {
     val isShedFilterEnabled: Boolean get() = selectedParkId.isNotBlank() && sheds.isNotEmpty()
+    val isSessionFilterEnabled: Boolean get() = sessions.isNotEmpty()
 }
 
 @Immutable
@@ -119,6 +125,9 @@ sealed interface FeedDirectionEvent {
 
     /** "" (both), "normal", or "experiment". */
     data class SelectWorkflow(val workflow: String) : FeedDirectionEvent
+
+    /** The session_no to filter to; 0 = every session. */
+    data class SelectSession(val sessionNo: Int) : FeedDirectionEvent
     data object ClearFilters : FeedDirectionEvent
 }
 
@@ -216,10 +225,12 @@ internal fun FeedHeader(
 @Composable
 private fun FeedDirectionFilterBar(filters: FeedFilterUi, onEvent: (FeedDirectionEvent) -> Unit) {
     val allSheds = stringResource(R.string.feed_filter_all_sheds)
+    val allSessions = stringResource(R.string.feed_filter_all_sessions)
     val bothWorkflows = stringResource(R.string.feed_filter_workflow_all)
     val normalLabel = stringResource(R.string.feed_workflow_normal)
     val experimentLabel = stringResource(R.string.feed_workflow_experiment)
-    val hasActive = filters.selectedShedId.isNotBlank() || filters.workflow.isNotBlank()
+    val hasActive = filters.selectedShedId.isNotBlank() || filters.workflow.isNotBlank() ||
+        filters.selectedSessionNo != 0
 
     Column(
         modifier = Modifier
@@ -276,23 +287,55 @@ private fun FeedDirectionFilterBar(filters: FeedFilterUi, onEvent: (FeedDirectio
                 modifier = Modifier.weight(1f),
             )
         }
-        FeedDropdownField(
-            label = stringResource(R.string.feed_filter_workflow),
-            selectedLabel = when (filters.workflow) {
-                "normal" -> normalLabel
-                "experiment" -> experimentLabel
-                else -> null
-            },
-            placeholder = bothWorkflows,
-            options = listOf(
-                FeedDropdownOption(key = "", label = bothWorkflows),
-                FeedDropdownOption(key = "normal", label = normalLabel),
-                FeedDropdownOption(key = "experiment", label = experimentLabel),
-            ),
-            onSelect = { onEvent(FeedDirectionEvent.SelectWorkflow(it)) },
-            enabled = true,
-        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FeedDropdownField(
+                label = stringResource(R.string.feed_filter_workflow),
+                selectedLabel = when (filters.workflow) {
+                    "normal" -> normalLabel
+                    "experiment" -> experimentLabel
+                    else -> null
+                },
+                placeholder = bothWorkflows,
+                options = listOf(
+                    FeedDropdownOption(key = "", label = bothWorkflows),
+                    FeedDropdownOption(key = "normal", label = normalLabel),
+                    FeedDropdownOption(key = "experiment", label = experimentLabel),
+                ),
+                onSelect = { onEvent(FeedDirectionEvent.SelectWorkflow(it)) },
+                enabled = true,
+                modifier = Modifier.weight(1f),
+            )
+            FeedSessionDropdown(
+                filters = filters,
+                allSessions = allSessions,
+                onSelect = { onEvent(FeedDirectionEvent.SelectSession(it)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
+}
+
+/**
+ * The session picker, shared by both feed filter bars. The option vocabulary is backend-owned
+ * (`filters.sessions`), so the client never invents session numbers or labels. The key "0" is the
+ * synthetic "all sessions" entry; every other option's key is the backend session_no.
+ */
+@Composable
+internal fun FeedSessionDropdown(
+    filters: FeedFilterUi,
+    allSessions: String,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FeedDropdownField(
+        label = stringResource(R.string.feed_filter_session),
+        selectedLabel = filters.selectedSessionLabel,
+        placeholder = allSessions,
+        options = listOf(FeedDropdownOption(key = "0", label = allSessions)) + filters.sessions,
+        onSelect = { onSelect(it.toIntOrNull() ?: 0) },
+        enabled = filters.isSessionFilterEnabled,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -333,8 +376,9 @@ private fun FeedDirectionSummaryCard(summary: FeedDirectionSummaryUi) {
                 modifier = Modifier.weight(1f),
             )
         }
-        // Whole-scope kg per feed item (backend rollup, never re-summed from the paged rows).
-        summary.totalsByItem.forEach { total ->
+        // Whole-scope kg per feed item (backend rollup, never re-summed from the paged rows). A
+        // 0-kg total with no blocked cells is nothing to pack, so it is hidden like the per-shed lines.
+        summary.totalsByItem.filter { it.quantityKg.toKgOrZero() != 0.0 || it.blockedCells > 0 }.forEach { total ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(text = total.feedItem, color = MeshaColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                 Text(
@@ -347,6 +391,9 @@ private fun FeedDirectionSummaryCard(summary: FeedDirectionSummaryUi) {
         }
     }
 }
+
+/** Parses a wire kg string ("0.000", "451.000") to a Double, treating null/blank/unparseable as 0. */
+internal fun String?.toKgOrZero(): Double = this?.trim()?.toDoubleOrNull() ?: 0.0
 
 @Composable
 private fun FeedDirectionRowCard(row: FeedDirectionRowUi) {
@@ -376,7 +423,9 @@ private fun FeedDirectionRowCard(row: FeedDirectionRowUi) {
             color = MeshaColors.Faint,
             fontSize = 11.sp,
         )
-        row.items.forEach { item -> FeedItemQtyRow(item) }
+        // A zero-kg ration line is hidden to keep the sheet readable — this shed simply isn't fed that
+        // item. A BLOCKED line is NOT zero (the backend's pointer-is-the-contract rule) and stays.
+        row.items.filter { it.blocked || it.quantityKg.toKgOrZero() != 0.0 }.forEach { item -> FeedItemQtyRow(item) }
         if (!row.blocked) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(text = stringResource(R.string.feed_session_total), color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
