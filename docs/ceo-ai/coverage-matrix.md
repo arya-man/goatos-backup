@@ -59,6 +59,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /control-tower/vaccination | api + view:action_center_current | Leadership control tower |
 | GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/* |
 | GET /calendar/vaccination/events | api | Calendar timeline (dots) |
+| Calendar vaccination date markers | api | Leadership assistant read API coverage: month/week marker dots use the same assignment-effective schedule date as the calendar event list and vaccination operator schedule, so leadership answers and client overview counts do not report stale batch/obligation dates after a drive move. |
 | GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail |
 | GET /action-center/obligations | api + view:action_center_current | Cross-domain queue |
 | GET /feed-direction/preview | api + view:feed_direction_current | Feed needed today; blocked≠0 |

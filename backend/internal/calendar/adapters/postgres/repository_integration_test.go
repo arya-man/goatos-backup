@@ -4083,7 +4083,7 @@ func TestCalendarHeldDriveTargetsReturnPlannedDateNotStaleDueAt(t *testing.T) {
 	}
 }
 
-func TestCalendarDriveAssignmentDateShiftOneToManyParkScopeStatusBucketsPagination(t *testing.T) {
+func TestCalendarDriveAssignmentScheduledDateShiftOneToManyParkScopeStatusBucketsPagination(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -4175,6 +4175,32 @@ INSERT INTO vaccination_drive_assignments (
 	}
 	if seenAssignments[laterAssignedID] != laterAssignmentKey {
 		t.Fatalf("wide list later assignment day=%q, want %s; list=%#v", seenAssignments[laterAssignedID], laterAssignmentKey, wideList.Items)
+	}
+	markerList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID:           testTenantID,
+		OwnerKey:           domain.OwnerAll,
+		DateFrom:           batchDay.Add(-25 * time.Hour),
+		DateTo:             laterAssignmentDay.Add(24 * time.Hour),
+		Limit:              20,
+		Scope:              domain.ScopeFilter{TenantWide: true},
+		MarkersOnly:        true,
+		IncludeDateMarkers: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents assignment markers: %v", err)
+	}
+	markersByDate := map[string]domain.CalendarDateMarker{}
+	for _, marker := range markerList.DateMarkers {
+		markersByDate[marker.Date] = marker
+	}
+	if marker := markersByDate[assignmentKey]; marker.DriveCount != 1 || marker.OpenCount != 1 {
+		t.Fatalf("assignment-day marker=%#v, want one open drive on moved assignment date %s", marker, assignmentKey)
+	}
+	if marker := markersByDate[laterAssignmentKey]; marker.DriveCount != 1 || marker.OpenCount != 1 {
+		t.Fatalf("later assignment-day marker=%#v, want one open drive on moved assignment date %s", marker, laterAssignmentKey)
+	}
+	if marker, ok := markersByDate[batchKey]; ok && marker.DriveCount != 0 {
+		t.Fatalf("stale batch-day marker leaked=%#v despite operator assignment on %s", marker, assignmentKey)
 	}
 
 	staleID := parkDriveEventID(testParkA, batchDay)
