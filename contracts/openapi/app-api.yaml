@@ -5128,6 +5128,51 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedDirectionWorkflowLifecycle"
+    FeedDirectionFilterOptions:
+      type: object
+      additionalProperties: false
+      description: >-
+        Backend-owned park/shed filter vocabulary for the feed screens, plus the park this response
+        was actually generated for. A client renders its farm/shed pickers from this and holds no
+        location list of its own. Bounded by physical infrastructure (parks and one park's shed
+        catalog), never by herd size. served_park_id equals the requested park_id, or — when the
+        request omitted park_id — the default park the server selected.
+      required:
+        - served_park_id
+        - parks
+        - sheds
+      properties:
+        served_park_id:
+          type: string
+          description: The park id this response was generated for (the requested park, or the defaulted first park).
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionFilterPark"
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionFilterShed"
+    FeedDirectionFilterPark:
+      type: object
+      additionalProperties: false
+      required: [park_id, label]
+      properties:
+        park_id:
+          type: string
+        label:
+          type: string
+    FeedDirectionFilterShed:
+      type: object
+      additionalProperties: false
+      required: [shed_id, label, park_id]
+      properties:
+        shed_id:
+          type: string
+        label:
+          type: string
+        park_id:
+          type: string
     FeedDirectionPreviewPage:
       type: object
       additionalProperties: false
@@ -5136,6 +5181,7 @@ components:
         - summary
         - lifecycle
         - draft
+        - filters
         - target_date
         - limit
         - offset
@@ -5154,6 +5200,8 @@ components:
           description: >-
             True only for the deliberate live-compute escape hatch (draft=true). An issued, amended,
             locked, pending or not_issued response is never draft.
+        filters:
+          $ref: "#/components/schemas/FeedDirectionFilterOptions"
         target_date:
           type: string
           format: date
@@ -5283,6 +5331,7 @@ components:
         - summary
         - lifecycle
         - draft
+        - filters
         - target_date
         - limit
         - offset
@@ -5299,6 +5348,8 @@ components:
         draft:
           type: boolean
           description: True only for the deliberate live-compute escape hatch (draft=true).
+        filters:
+          $ref: "#/components/schemas/FeedDirectionFilterOptions"
         target_date:
           type: string
           format: date

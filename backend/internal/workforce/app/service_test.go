@@ -688,6 +688,71 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 	}
 }
 
+// TestFeedModuleRoleMatrix pins who sees the mobile Feed module and which of its two tabs. The
+// module is the Feed vertical on the phone: Feed Direction (the generated sheet, gated ProtocolRead)
+// and Feed Packing (the bag worklist, gated FeedPackingRead). The two tabs gate on DIFFERENT
+// authorities on purpose, so the matrix is not "all or nothing":
+//
+//   - CEO/park head hold both authorities, so they get both tabs (via the drawer — they default to
+//     the leadership bar and switch to Feed).
+//   - an org Head/Director tier holds ProtocolRead but not FeedPackingRead, so they get Feed
+//     Direction only — they may read the sheet but not draw the bags.
+//   - an operator holds neither, so the module is fully gated away and never appears.
+//
+// The Android shell renders this composed bar verbatim; this is the backend authority for it.
+func TestFeedModuleRoleMatrix(t *testing.T) {
+	tests := []struct {
+		role      string
+		wantItems []string // nav item keys inside the feed module, nil => module absent
+	}{
+		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing"}},
+		{permissions.RoleParkHead, []string{"feed_direction", "feed_packing"}},
+		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), []string{"feed_direction"}},
+		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
+		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
+		{permissions.RoleOperator, nil},
+		{permissions.RoleVerifier, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.role, func(t *testing.T) {
+			grants := []domain.GrantSummary{grantWithRole(tc.role)}
+			modules := modulesFor(grants, []string{"vaccination", "feed_direction"}, "")
+
+			var feed *domain.BootstrapModule
+			for i := range modules {
+				if modules[i].Key == "feed_direction" {
+					feed = &modules[i]
+				}
+			}
+			if tc.wantItems == nil {
+				if feed != nil {
+					t.Fatalf("%s must NOT see the feed module; got items %#v", tc.role, feed.NavItems)
+				}
+				return
+			}
+			if feed == nil {
+				t.Fatalf("%s must see the feed module; modules=%#v", tc.role, modules)
+			}
+			got := make([]string, 0, len(feed.NavItems))
+			for _, item := range feed.NavItems {
+				got = append(got, item.Key)
+			}
+			if len(got) != len(tc.wantItems) {
+				t.Fatalf("feed nav items=%v want %v", got, tc.wantItems)
+			}
+			for i := range tc.wantItems {
+				if got[i] != tc.wantItems[i] {
+					t.Fatalf("feed nav items=%v want %v", got, tc.wantItems)
+				}
+			}
+			// Landing must be a page this principal can actually open.
+			if !navItemsContainHref(feed.NavItems, feed.Href) {
+				t.Fatalf("%s feed landing href=%q is not among its permitted items %v", tc.role, feed.Href, got)
+			}
+		})
+	}
+}
+
 // TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab pins that the mobile Counts module contributes
 // only capture tabs and no trailing action tab. The Approval queue was REMOVED from mobile
 // (maintainer decision 2026-07-21) — approve/reject is admin-web only — and Counts never

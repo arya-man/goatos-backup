@@ -81,6 +81,51 @@ WHERE l.tenant_id = $1::uuid
 ORDER BY l.display_order, l.name, l.location_id
 LIMIT $4`
 
+// scale-guard:ignore: UNPAGED read of the tenant's ACTIVE PARK catalog, bounded by physical infrastructure (a tenant has order-of two parks) and NOT by herd size, animals, obligations, or events. Covered by locations_tenant_type_status_idx. This is the farm filter vocabulary + default-park source; a park list that grew with the herd would be a different query.
+const listParksSQL = `
+SELECT l.location_id::text,
+       COALESCE(NULLIF(l.location_code, ''), l.name, '') AS park_label
+FROM locations l
+WHERE l.tenant_id = $1::uuid
+  AND l.location_type = 'park'
+  AND l.status = 'active'
+ORDER BY l.display_order, l.name, l.location_id
+LIMIT $2`
+
+// MaxParkRows caps the park catalog read. A tenant has order-of two parks; the cap is generous
+// headroom that FAILS closed rather than truncating, on the same principle as MaxShedScopeRows.
+const MaxParkRows = 200
+
+// ListParks returns every active park in the tenant, ordered deterministically. It is the farm
+// filter vocabulary the feed screens render and the default-park source when a request omits
+// park_id.
+func (r *Repository) ListParks(ctx context.Context, tenantID string) ([]ports.Park, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	rows, err := r.pool.Query(ctx, listParksSQL, tenantID, MaxParkRows+1)
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: list parks: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ports.Park, 0)
+	for rows.Next() {
+		var park ports.Park
+		if err := rows.Scan(&park.ParkID, &park.Label); err != nil {
+			return nil, fmt.Errorf("feeddirection: scan park: %w", err)
+		}
+		out = append(out, park)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feeddirection: list parks: %w", err)
+	}
+	if len(out) > MaxParkRows {
+		return nil, fmt.Errorf("%w: tenant has more than %d active parks", ports.ErrScopeTooLarge, MaxParkRows)
+	}
+	return out, nil
+}
+
 // ListShedScope returns every active shed matching the request filters, unpaged.
 //
 // ONE QUERY, ONE POPULATION. This replaced a separate paged shed query: the service now slices its

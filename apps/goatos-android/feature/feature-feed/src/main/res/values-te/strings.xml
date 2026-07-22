@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feed_direction_caption">రూపొందించిన ఫీడ్ షీట్ — ప్రతి షెడ్ మరియు సెషన్ పరిమాణం</string>
+    <string name="feed_packing_caption">ఈ ఫీడ్ రోజుకు ప్రతి-షెడ్ సంచులు</string>
+    <string name="feed_refresh_description">రిఫ్రెష్</string>
+
+    <string name="feed_filters_title">ఫిల్టర్‌లు</string>
+    <string name="feed_filters_clear">క్లియర్</string>
+    <string name="feed_filter_farm">ఫారం</string>
+    <string name="feed_filter_shed">షెడ్</string>
+    <string name="feed_filter_all_sheds">అన్ని షెడ్‌లు</string>
+    <string name="feed_filter_park_first">ముందు ఫారం ఎంచుకోండి</string>
+    <string name="feed_filter_workflow">ఫీడ్ రకం</string>
+    <string name="feed_filter_workflow_all">సాధారణ + ప్రయోగం</string>
+    <string name="feed_workflow_normal">సాధారణ</string>
+    <string name="feed_workflow_experiment">ప్రయోగం</string>
+
+    <string name="feed_totals_title">మొత్తం (మొత్తం ఫారం)</string>
+    <string name="feed_stat_sheds">షెడ్‌లు</string>
+    <string name="feed_stat_rows">వరుసలు</string>
+    <string name="feed_stat_lines">లైన్‌లు</string>
+    <string name="feed_stat_blocked">నిరోధించబడింది</string>
+
+    <string name="feed_kg_fmt">%1$s కేజీ</string>
+    <string name="feed_head_count_fmt">%1$d జంతువులు (అంచనా)</string>
+    <string name="feed_session_total">సెషన్ మొత్తం</string>
+    <string name="feed_pack_total">ప్యాక్ మొత్తం</string>
+    <string name="feed_blocked_label">నిరోధించబడింది</string>
+</resources>

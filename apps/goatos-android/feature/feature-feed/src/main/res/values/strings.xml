@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feed_direction_caption">Generated feed sheet — quantity per shed and session</string>
+    <string name="feed_packing_caption">Per-shed bags to pack for this feed day</string>
+    <string name="feed_refresh_description">Refresh</string>
+
+    <string name="feed_filters_title">Filters</string>
+    <string name="feed_filters_clear">Clear</string>
+    <string name="feed_filter_farm">Farm</string>
+    <string name="feed_filter_shed">Shed</string>
+    <string name="feed_filter_all_sheds">All sheds</string>
+    <string name="feed_filter_park_first">Pick a farm first</string>
+    <string name="feed_filter_workflow">Feed type</string>
+    <string name="feed_filter_workflow_all">Normal + Experiment</string>
+    <string name="feed_workflow_normal">Normal</string>
+    <string name="feed_workflow_experiment">Experiment</string>
+
+    <string name="feed_totals_title">Totals (whole farm)</string>
+    <string name="feed_stat_sheds">Sheds</string>
+    <string name="feed_stat_rows">Rows</string>
+    <string name="feed_stat_lines">Lines</string>
+    <string name="feed_stat_blocked">Blocked</string>
+
+    <string name="feed_kg_fmt">%1$s kg</string>
+    <string name="feed_head_count_fmt">%1$d head (projected)</string>
+    <string name="feed_session_total">Session total</string>
+    <string name="feed_pack_total">Pack total</string>
+    <string name="feed_blocked_label">Blocked</string>
+</resources>

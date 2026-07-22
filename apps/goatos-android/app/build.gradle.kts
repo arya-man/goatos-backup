@@ -183,6 +183,7 @@ dependencies {
 
     implementation(project(":feature:feature-calendar"))
     implementation(project(":feature:feature-counts"))
+    implementation(project(":feature:feature-feed"))
     implementation(project(":feature:feature-sheds"))
     implementation(project(":feature:feature-scan"))
     implementation(project(":feature:feature-submit"))

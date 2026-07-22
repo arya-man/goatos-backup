@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feed_direction_caption">तैयार फ़ीड शीट — प्रति शेड और सत्र मात्रा</string>
+    <string name="feed_packing_caption">इस फ़ीड दिन के लिए प्रति-शेड बैग</string>
+    <string name="feed_refresh_description">रिफ़्रेश करें</string>
+
+    <string name="feed_filters_title">फ़िल्टर</string>
+    <string name="feed_filters_clear">साफ़ करें</string>
+    <string name="feed_filter_farm">फ़ार्म</string>
+    <string name="feed_filter_shed">शेड</string>
+    <string name="feed_filter_all_sheds">सभी शेड</string>
+    <string name="feed_filter_park_first">पहले फ़ार्म चुनें</string>
+    <string name="feed_filter_workflow">फ़ीड प्रकार</string>
+    <string name="feed_filter_workflow_all">सामान्य + प्रयोग</string>
+    <string name="feed_workflow_normal">सामान्य</string>
+    <string name="feed_workflow_experiment">प्रयोग</string>
+
+    <string name="feed_totals_title">कुल (पूरा फ़ार्म)</string>
+    <string name="feed_stat_sheds">शेड</string>
+    <string name="feed_stat_rows">पंक्तियाँ</string>
+    <string name="feed_stat_lines">लाइनें</string>
+    <string name="feed_stat_blocked">अवरुद्ध</string>
+
+    <string name="feed_kg_fmt">%1$s किग्रा</string>
+    <string name="feed_head_count_fmt">%1$d पशु (अनुमानित)</string>
+    <string name="feed_session_total">सत्र कुल</string>
+    <string name="feed_pack_total">पैक कुल</string>
+    <string name="feed_blocked_label">अवरुद्ध</string>
+</resources>

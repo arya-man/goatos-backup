@@ -1929,12 +1929,29 @@ export interface components {
             message?: string;
             workflows: components["schemas"]["FeedDirectionWorkflowLifecycle"][];
         };
+        /** @description Backend-owned park/shed filter vocabulary for the feed screens, plus the park this response was actually generated for. A client renders its farm/shed pickers from this and holds no location list of its own. Bounded by physical infrastructure (parks and one park's shed catalog), never by herd size. served_park_id equals the requested park_id, or — when the request omitted park_id — the default park the server selected. */
+        FeedDirectionFilterOptions: {
+            /** @description The park id this response was generated for (the requested park, or the defaulted first park). */
+            served_park_id: string;
+            parks: components["schemas"]["FeedDirectionFilterPark"][];
+            sheds: components["schemas"]["FeedDirectionFilterShed"][];
+        };
+        FeedDirectionFilterPark: {
+            park_id: string;
+            label: string;
+        };
+        FeedDirectionFilterShed: {
+            shed_id: string;
+            label: string;
+            park_id: string;
+        };
         FeedDirectionPreviewPage: {
             items: components["schemas"]["FeedDirectionRow"][];
             summary: components["schemas"]["FeedDirectionPreviewSummary"];
             lifecycle: components["schemas"]["FeedDirectionLifecycle"];
             /** @description True only for the deliberate live-compute escape hatch (draft=true). An issued, amended, locked, pending or not_issued response is never draft. */
             draft: boolean;
+            filters: components["schemas"]["FeedDirectionFilterOptions"];
             /** Format: date */
             target_date: string;
             /** @description Page size in SHEDS. */
@@ -1996,6 +2013,7 @@ export interface components {
             lifecycle: components["schemas"]["FeedDirectionLifecycle"];
             /** @description True only for the deliberate live-compute escape hatch (draft=true). */
             draft: boolean;
+            filters: components["schemas"]["FeedDirectionFilterOptions"];
             /** Format: date */
             target_date: string;
             limit: number;

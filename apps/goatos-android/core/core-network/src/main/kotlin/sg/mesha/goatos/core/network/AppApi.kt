@@ -9,6 +9,8 @@ import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
@@ -493,6 +495,37 @@ interface AppApi {
      */
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
 
+    /**
+     * GET /feed-direction/preview — one park's generated feed sheet for one Asia/Kolkata business
+     * day (projected head count x authored grams/head x shed factor, split across sessions). Only
+     * `items` is a page ([limit]/[offset], paged by SHED); `summary` rolls up the FULL filtered
+     * scope and must never be re-derived from the fetched page. [targetDate] is `YYYY-MM-DD`;
+     * [parkId] is REQUIRED by the backend (the ration grid, session split, and dispatch clock are
+     * all park-scoped). [workflow] narrows to `normal`/`experiment`; null/blank means both.
+     */
+    suspend fun getFeedDirectionPreview(
+        parkId: String,
+        targetDate: String,
+        shedId: String? = null,
+        session: Int? = null,
+        workflow: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): FeedDirectionPreviewPageDto
+
+    /**
+     * GET /feed-packing/worklist — one park's per-shed bag worklist for one business day. Same
+     * paging + whole-scope-summary contract as [getFeedDirectionPreview]; the row grain here is the
+     * packing line (shed x session), not the ration grain.
+     */
+    suspend fun getFeedPackingWorklist(
+        parkId: String,
+        targetDate: String,
+        workflow: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): FeedPackingWorklistPageDto
+
     /** POST /app/counts/shifting-events — an operator-reported movement between sheds. Drained
      *  through the offline-sync outbox with a stable [idempotencyKey]: the backend derives the
      *  movement's logical key from that key, so an exact retry collapses onto the SAME row
@@ -593,7 +626,16 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
                     NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
                 ),
             ),
-            BootstrapModuleDto(key = "feed_direction", label = "Feed direction", status = "soon"),
+            BootstrapModuleDto(
+                key = "feed_direction",
+                label = "Feed",
+                href = "/feed/direction",
+                status = "available",
+                navItems = listOf(
+                    NavItemDto(key = "feed_direction", label = "Feed Direction", href = "/feed/direction"),
+                    NavItemDto(key = "feed_packing", label = "Feed Packing", href = "/feed/packing"),
+                ),
+            ),
             BootstrapModuleDto(key = "breeding", label = "Breeding", status = "soon"),
         ),
         featureFlags = mapOf("tasks" to true, "sop_runner" to true),
@@ -827,6 +869,24 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         CountsShiftingDestinationsResponseDto()
+
+    override suspend fun getFeedDirectionPreview(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        session: Int?,
+        workflow: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedDirectionPreviewPageDto = FeedDirectionPreviewPageDto(targetDate = targetDate)
+
+    override suspend fun getFeedPackingWorklist(
+        parkId: String,
+        targetDate: String,
+        workflow: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedPackingWorklistPageDto = FeedPackingWorklistPageDto(targetDate = targetDate)
 
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,

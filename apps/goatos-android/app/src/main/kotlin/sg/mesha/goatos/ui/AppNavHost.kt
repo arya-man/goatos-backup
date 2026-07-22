@@ -32,6 +32,10 @@ import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
 import sg.mesha.goatos.feature.counts.CountsScreen
+import sg.mesha.goatos.feature.feed.FeedDirectionEvent
+import sg.mesha.goatos.feature.feed.FeedDirectionScreen
+import sg.mesha.goatos.feature.feed.FeedPackingEvent
+import sg.mesha.goatos.feature.feed.FeedPackingScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
@@ -64,6 +68,8 @@ import sg.mesha.goatos.viewmodel.BirthDeathViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
+import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
+import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.LeadershipViewModel
 import sg.mesha.goatos.viewmodel.OverdueViewModel
@@ -120,6 +126,11 @@ object Routes {
     const val COUNTS = "/counts"
     const val COUNTS_BIRTH_DEATH = "/counts/birth-death"
     const val COUNTS_SHIFTING = "/counts/shifting"
+
+    // Feed module bar (backend module `feed_direction`). Both are L0 roots and match the
+    // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
+    const val FEED_DIRECTION = "/feed/direction"
+    const val FEED_PACKING = "/feed/packing"
 
     /**
      * The approver's pending-decision queue. Contributed by the counts module in the TRAILING
@@ -761,6 +772,58 @@ fun AppNavHost(
             )
         }
 
+        // Feed module bar: two L0 read screens. Both render a bounded Room-backed Paging window
+        // (docs/decisions/mobile-data-fetch-anti-patterns.md) and own no navigation of their own —
+        // Feed Direction and Feed Packing are reached from the module-scoped bottom bar the shell
+        // renders from the backend nav.
+        composable(Routes.FEED_DIRECTION) {
+            val vm: FeedDirectionViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            FeedDirectionScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        FeedDirectionEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(Routes.FEED_PACKING) {
+            val vm: FeedPackingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            FeedPackingScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        FeedPackingEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
         // Approvals were REMOVED from mobile (maintainer decision 2026-07-21): the birth/death/
         // shifting approval queue and approve/reject actions now live only on the admin-web
         // Approvals page, gated to the four org tiers + admin + ceo_internal. There is no mobile
@@ -827,6 +890,8 @@ private val supportedRootDestinations = setOf(
     Routes.VERIFY,
     Routes.ALERTS,
     Routes.TIMETABLE,
+    Routes.FEED_DIRECTION,
+    Routes.FEED_PACKING,
 )
 
 private fun executionRoutePattern(base: String): String =

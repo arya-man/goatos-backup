@@ -376,3 +376,58 @@ val MIGRATION_14_15: Migration = object : Migration(14, 15) {
         )
     }
 }
+
+/**
+ * v15 -> v16: adds the six Feed read-model tables — the Feed Direction sheet and the Feed Packing
+ * worklist, each as a summary-envelope blob + normalized paged rows + per-scope remote keys
+ * (docs/decisions/android-offline-first.md). Purely additive; no existing table changes.
+ *
+ * As in [MIGRATION_14_15], each CREATE spells its table name out as a literal (never an
+ * interpolated loop) so `make room-migration-guard` can statically match every new v16 @Entity
+ * table against a CREATE here — an interpolated name would be invisible to the very check that
+ * exists to catch the upgrade-crash defect (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_15_16: Migration = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_direction_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_direction_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_direction_items_queryKey_sortIndex` " +
+                "ON `feed_direction_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_direction_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_packing_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_packing_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_packing_items_queryKey_sortIndex` " +
+                "ON `feed_packing_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_packing_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}

@@ -20,6 +20,8 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
@@ -322,6 +324,26 @@ interface AppApiService {
 
     @GET("app/counts/shifting/destinations")
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    @GET("feed-direction/preview")
+    suspend fun getFeedDirectionPreview(
+        @Query("park_id") parkId: String,
+        @Query("target_date") targetDate: String,
+        @Query("shed_id") shedId: String?,
+        @Query("session") session: Int?,
+        @Query("workflow") workflow: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): FeedDirectionPreviewPageDto
+
+    @GET("feed-packing/worklist")
+    suspend fun getFeedPackingWorklist(
+        @Query("park_id") parkId: String,
+        @Query("target_date") targetDate: String,
+        @Query("workflow") workflow: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): FeedPackingWorklistPageDto
 
     @POST("app/counts/birth-events")
     suspend fun recordCountsBirthEvent(
@@ -633,6 +655,26 @@ class RetrofitAppApi(
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         service.getCountsShiftingDestinations()
+
+    override suspend fun getFeedDirectionPreview(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        session: Int?,
+        workflow: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedDirectionPreviewPageDto =
+        service.getFeedDirectionPreview(parkId, targetDate, shedId, session, workflow, limit, offset)
+
+    override suspend fun getFeedPackingWorklist(
+        parkId: String,
+        targetDate: String,
+        workflow: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedPackingWorklistPageDto =
+        service.getFeedPackingWorklist(parkId, targetDate, workflow, limit, offset)
 
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,

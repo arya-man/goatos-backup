@@ -30,6 +30,18 @@ import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionItemDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionItemEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingItemDao
+import sg.mesha.goatos.core.data.cache.FeedPackingItemEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
@@ -119,8 +131,14 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CountsApprovalItemEntity::class,
         CountsApprovalRemoteKeyEntity::class,
         CountsShiftingDestinationsCacheEntity::class,
+        FeedDirectionMetaCacheEntity::class,
+        FeedDirectionItemEntity::class,
+        FeedDirectionRemoteKeyEntity::class,
+        FeedPackingMetaCacheEntity::class,
+        FeedPackingItemEntity::class,
+        FeedPackingRemoteKeyEntity::class,
     ],
-    version = 15,
+    version = 16,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -136,6 +154,9 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // shed scan screen: adds `seq` (backend roster order) so the UI renders a bounded keyset window
     // instead of a whole-collection JSON blob, and DROPS the now-unused scan_roster_cache blob table.
     // v15 (see [MIGRATION_14_15]) adds the seven Counts read-model tables.
+    // v16 (see [MIGRATION_15_16]) adds the six Feed read-model tables — the Feed Direction sheet
+    // and the Feed Packing worklist, each as a summary-envelope blob + normalized paged rows +
+    // per-scope remote keys, so both Feed screens are offline-first and bounded from day one.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -165,4 +186,10 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun countsApprovalItemDao(): CountsApprovalItemDao
     abstract fun countsApprovalRemoteKeyDao(): CountsApprovalRemoteKeyDao
     abstract fun countsShiftingDestinationsCacheDao(): CountsShiftingDestinationsCacheDao
+    abstract fun feedDirectionMetaCacheDao(): FeedDirectionMetaCacheDao
+    abstract fun feedDirectionItemDao(): FeedDirectionItemDao
+    abstract fun feedDirectionRemoteKeyDao(): FeedDirectionRemoteKeyDao
+    abstract fun feedPackingMetaCacheDao(): FeedPackingMetaCacheDao
+    abstract fun feedPackingItemDao(): FeedPackingItemDao
+    abstract fun feedPackingRemoteKeyDao(): FeedPackingRemoteKeyDao
 }

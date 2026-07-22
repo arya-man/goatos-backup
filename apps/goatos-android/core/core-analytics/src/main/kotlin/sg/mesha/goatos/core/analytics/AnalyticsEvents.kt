@@ -81,6 +81,20 @@ object AnalyticsEvents {
      */
     const val COUNTS_FILTER_APPLIED = "counts_filter_applied"
 
+    /** The Feed Direction generated-sheet screen was opened. */
+    const val FEED_DIRECTION_VIEWED = "feed_direction_viewed"
+
+    /** The Feed Packing worklist screen was opened. */
+    const val FEED_PACKING_VIEWED = "feed_packing_viewed"
+
+    /** A Feed read (direction or packing) failed. [Params.KIND] is the surface, [Params.REASON] a
+     *  coarse cause. */
+    const val FEED_READ_FAILURE = "feed_read_failure"
+
+    /** A Feed filter changed. [Params.DIMENSION] is `farm`/`shed`/`workflow`/`all`, [Params.ACTION]
+     *  is `set`/`cleared`. */
+    const val FEED_FILTER_APPLIED = "feed_filter_applied"
+
     /** The Counts approver's pending-decision queue was opened. */
     const val COUNTS_APPROVAL_QUEUE_VIEWED = "counts_approval_queue_viewed"
 

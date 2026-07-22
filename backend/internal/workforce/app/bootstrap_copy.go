@@ -98,15 +98,26 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// its bar is capture-only (birth_death + shifting, plus census for Admin/CEO).
 		},
 	},
-	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
-	// client no longer needs its own hardcoded coming-soon list.
+	// "feed_direction" is the Feed vertical on the phone. Its bar is the two read surfaces an
+	// operator dispatches from: the generated feed sheet (Feed Direction) and the per-shed bag
+	// worklist (Feed Packing). Both are read-only projections of the authored ration grid plus
+	// projected counts; there is no capture/write here, so no outbox. The two tabs gate on
+	// DIFFERENT authorities on purpose (see permissions.go): direction reads follow ProtocolRead,
+	// packing follows FeedPackingRead, so a park head who may draw this morning's bags sees the
+	// packing tab without inheriting the direction sheet.
 	"feed_direction": {
 		key:         "feed_direction",
 		labelKey:    "module.feed_direction",
-		landingHref: "",
-		status:      moduleStatusSoon,
+		landingHref: "/feed/direction", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
 		priority:    3,
+		contributions: []moduleNavContribution{
+			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead}, //nav-composition:ignore: registry entry
+			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},    //nav-composition:ignore: registry entry
+		},
 	},
+	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
+	// client no longer needs its own hardcoded coming-soon list.
 	"breeding": {
 		key:         "breeding",
 		labelKey:    "module.breeding",
@@ -147,7 +158,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 
 // soonModuleKeys are surfaced to every principal as disabled drawer rows regardless of
 // grants; they advertise the roadmap, they do not confer access.
-var soonModuleKeys = []string{"feed_direction", "breeding"}
+var soonModuleKeys = []string{"breeding"}
 
 // visibleNavigationFor composes navigation from the person's granted modules.
 // If the person has any leadership grant, they see the leadership nav.
@@ -406,16 +417,18 @@ func localizedBootstrapLabel(localeTag, key string) string {
 
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
-		"nav.leadership":  "Overview",
-		"nav.verify":      "Verify",
-		"nav.calendar":    "Calendar",
-		"nav.alerts":      "Alerts",
-		"nav.drives":      "Drives",
-		"nav.counts":      "Counts",
-		"nav.birth_death": "Birth/Death",
-		"nav.shifting":    "Shifting",
-		"nav.approval":    "Approval",
-		"nav.you":         "You",
+		"nav.leadership":     "Overview",
+		"nav.verify":         "Verify",
+		"nav.calendar":       "Calendar",
+		"nav.alerts":         "Alerts",
+		"nav.drives":         "Drives",
+		"nav.counts":         "Counts",
+		"nav.birth_death":    "Birth/Death",
+		"nav.shifting":       "Shifting",
+		"nav.approval":       "Approval",
+		"nav.feed_direction": "Feed Direction",
+		"nav.feed_packing":   "Feed Packing",
+		"nav.you":            "You",
 
 		"module.leadership":     "Leadership",
 		"module.verification":   "Verification",
@@ -428,16 +441,18 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "Proof review",
 	},
 	"hi": {
-		"nav.leadership":  "अवलोकन",
-		"nav.verify":      "सत्यापित करें",
-		"nav.calendar":    "कैलेंडर",
-		"nav.alerts":      "अलर्ट",
-		"nav.drives":      "ड्राइव",
-		"nav.counts":      "गिनती",
-		"nav.birth_death": "जन्म/मृत्यु",
-		"nav.shifting":    "शिफ्टिंग",
-		"nav.approval":    "अनुमोदन",
-		"nav.you":         "आप",
+		"nav.leadership":     "अवलोकन",
+		"nav.verify":         "सत्यापित करें",
+		"nav.calendar":       "कैलेंडर",
+		"nav.alerts":         "अलर्ट",
+		"nav.drives":         "ड्राइव",
+		"nav.counts":         "गिनती",
+		"nav.birth_death":    "जन्म/मृत्यु",
+		"nav.shifting":       "शिफ्टिंग",
+		"nav.approval":       "अनुमोदन",
+		"nav.feed_direction": "फ़ीड दिशा",
+		"nav.feed_packing":   "फ़ीड पैकिंग",
+		"nav.you":            "आप",
 
 		"module.leadership":     "नेतृत्व",
 		"module.verification":   "सत्यापन",
@@ -450,16 +465,18 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "प्रूफ समीक्षा",
 	},
 	"kn": {
-		"nav.leadership":  "ಅವಲೋಕನ",
-		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
-		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
-		"nav.alerts":      "ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.drives":      "ಡ್ರೈವ್‌ಗಳು",
-		"nav.counts":      "ಎಣಿಕೆ",
-		"nav.birth_death": "ಜನನ/ಮರಣ",
-		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
-		"nav.approval":    "ಅನುಮೋದನೆ",
-		"nav.you":         "ನೀವು",
+		"nav.leadership":     "ಅವಲೋಕನ",
+		"nav.verify":         "ಪರಿಶೀಲಿಸಿ",
+		"nav.calendar":       "ಕ್ಯಾಲೆಂಡರ್",
+		"nav.alerts":         "ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.drives":         "ಡ್ರೈವ್‌ಗಳು",
+		"nav.counts":         "ಎಣಿಕೆ",
+		"nav.birth_death":    "ಜನನ/ಮರಣ",
+		"nav.shifting":       "ಸ್ಥಳಾಂತರ",
+		"nav.approval":       "ಅನುಮೋದನೆ",
+		"nav.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
+		"nav.feed_packing":   "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
+		"nav.you":            "ನೀವು",
 
 		"module.leadership":     "ನಾಯಕತ್ವ",
 		"module.verification":   "ಪರಿಶೀಲನೆ",
@@ -472,16 +489,18 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 	},
 	"te": {
-		"nav.leadership":  "అవలోకనం",
-		"nav.verify":      "ధృవీకరించండి",
-		"nav.calendar":    "క్యాలెండర్",
-		"nav.alerts":      "అలర్ట్లు",
-		"nav.drives":      "డ్రైవ్‌లు",
-		"nav.counts":      "లెక్కలు",
-		"nav.birth_death": "జననం/మరణం",
-		"nav.shifting":    "షిఫ్టింగ్",
-		"nav.approval":    "ఆమోదం",
-		"nav.you":         "మీరు",
+		"nav.leadership":     "అవలోకనం",
+		"nav.verify":         "ధృవీకరించండి",
+		"nav.calendar":       "క్యాలెండర్",
+		"nav.alerts":         "అలర్ట్లు",
+		"nav.drives":         "డ్రైవ్‌లు",
+		"nav.counts":         "లెక్కలు",
+		"nav.birth_death":    "జననం/మరణం",
+		"nav.shifting":       "షిఫ్టింగ్",
+		"nav.approval":       "ఆమోదం",
+		"nav.feed_direction": "ఫీడ్ దిశ",
+		"nav.feed_packing":   "ఫీడ్ ప్యాకింగ్",
+		"nav.you":            "మీరు",
 
 		"module.leadership":     "నాయకత్వం",
 		"module.verification":   "ధృవీకరణ",
