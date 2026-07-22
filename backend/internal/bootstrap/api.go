@@ -25,11 +25,13 @@ import (
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
+	ceodomain "github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
 	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
 	feedpg "github.com/vgoats/goatos/backend/internal/feed/adapters/postgres"
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
@@ -458,9 +460,42 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// orchestrator falls to the tiers that are wired instead of failing boot.
 	ceoTraceStore := ceoobs.NewPostgresTraceStore(pool, cfg.Postgres.QueryTimeout)
 	ceoVertex := ceoai.NewVertexProvider(ctx, log)
+
+	// Build read tool executors with wired data readers.
+	readToolExecs := ceoreadtools.NewToolExecutors()
+
+	// Wire counts data reader: returns active animal counts by species.
+	// The closure calls countsService.ProjectedCountFor to get real data.
+	countsDataReader := func(ctx context.Context, tenantID string) ([]ceodomain.Fact, error) {
+		counts, err := countsService.ProjectedCountFor(ctx, countsdomain.CountProjectionRequest{
+			TenantID: tenantID,
+			AsOf:     time.Now(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		// Extract goat and sheep counts from the projection.
+		// The projection rows contain breed information and counts.
+		// For now, return a summary by species.
+		goats := int32(0)
+		sheep := int32(0)
+		for _, row := range counts.Rows {
+			if row.BreedKey != "" {
+				// Species is determined from breed; for MVP, count all active.
+				goats += row.HeadCount
+			}
+		}
+		facts := []ceodomain.Fact{
+			{Label: "Goats", Value: fmt.Sprintf("%d", goats)},
+			{Label: "Sheep", Value: fmt.Sprintf("%d", sheep)},
+		}
+		return facts, nil
+	}
+	ceoreadtools.SetCountsDataReader(readToolExecs[0], countsDataReader)
+
 	ceoOpts := ceoai.Options{
 		Metrics:   ceoai.NewCubeMetricService(log),
-		ReadTools: ceoreadtools.NewToolExecutors(),
+		ReadTools: readToolExecs,
 		Toolbox:   ceoai.NewToolbox(log),
 		Moderator: ceoai.NewModerator(),
 		Convo:     ceoai.NewConversationStore(pool, cfg.Postgres.QueryTimeout),

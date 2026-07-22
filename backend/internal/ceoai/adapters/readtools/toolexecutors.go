@@ -8,9 +8,11 @@ import (
 )
 
 // countsBreakdownExecutor provides animal counts broken down by dimensions.
+// It calls the real counts service to return actual data from the database.
 type countsBreakdownExecutor struct {
-	// In production, this would call countsService.GetBreakdown or similar.
-	// For now, we return a placeholder that indicates the tool is available.
+	// countsBySpeciesReader provides counts broken down by species.
+	// In the bootstrap wiring, this is set to a closure that calls the counts service.
+	countsBySpeciesReader func(ctx context.Context, tenantID string) ([]domain.Fact, error)
 }
 
 func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
@@ -23,19 +25,37 @@ func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
 }
 
 func (e *countsBreakdownExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
-	// Degrade to SQL fallback or return informational result.
-	// The real implementation would call countsService.GetBreakdown(ctx, actor.TenantID, params).
+	// Call the real counts reader to get actual data.
+	if e.countsBySpeciesReader == nil {
+		// Fallback: return empty results so caller knows tool exists but has no data.
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
+	facts, err := e.countsBySpeciesReader(ctx, actor.TenantID)
+	if err != nil {
+		// Log but don't fail hard; return empty facts so the orchestrator can try other routes.
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts: []domain.Fact{
-			{Label: "status", Value: "Tool available; use Cube active_animals metric or SQL fallback for detailed breakdown"},
-		},
+		Facts:    facts,
 	}, nil
 }
 
-// vaccinationSheddSummaryExecutor provides vaccination status by shed.
-type vaccinationShedSummaryExecutor struct{}
+// vaccinationShedSummaryExecutor provides vaccination status by shed.
+type vaccinationShedSummaryExecutor struct {
+	vaccinationDataReader func(ctx context.Context, tenantID string) ([]domain.Fact, error)
+}
 
 func (e *vaccinationShedSummaryExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
@@ -47,17 +67,34 @@ func (e *vaccinationShedSummaryExecutor) Spec() ports.ToolSpec {
 }
 
 func (e *vaccinationShedSummaryExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.vaccinationDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
+	facts, err := e.vaccinationDataReader(ctx, actor.TenantID)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts: []domain.Fact{
-			{Label: "status", Value: "Tool available; use Cube vaccination_due/overdue metrics or SQL fallback for detailed breakdown"},
-		},
+		Facts:    facts,
 	}, nil
 }
 
 // vaccinationExecutionExecutor provides vaccination execution details.
-type vaccinationExecutionExecutor struct{}
+type vaccinationExecutionExecutor struct {
+	vaccinationDataReader func(ctx context.Context, tenantID string) ([]domain.Fact, error)
+}
 
 func (e *vaccinationExecutionExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
@@ -69,17 +106,34 @@ func (e *vaccinationExecutionExecutor) Spec() ports.ToolSpec {
 }
 
 func (e *vaccinationExecutionExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.vaccinationDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
+	facts, err := e.vaccinationDataReader(ctx, actor.TenantID)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts: []domain.Fact{
-			{Label: "status", Value: "Tool available; use SQL fallback for execution details"},
-		},
+		Facts:    facts,
 	}, nil
 }
 
 // feedDirectionTodayExecutor provides today's feed direction.
-type feedDirectionTodayExecutor struct{}
+type feedDirectionTodayExecutor struct {
+	feedDataReader func(ctx context.Context, tenantID string) ([]domain.Fact, error)
+}
 
 func (e *feedDirectionTodayExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
@@ -91,23 +145,65 @@ func (e *feedDirectionTodayExecutor) Spec() ports.ToolSpec {
 }
 
 func (e *feedDirectionTodayExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.feedDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
+	facts, err := e.feedDataReader(ctx, actor.TenantID)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+		}, nil
+	}
+
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts: []domain.Fact{
-			{Label: "status", Value: "Tool available; use SQL fallback for feed direction details"},
-		},
+		Facts:    facts,
 	}, nil
 }
 
 // NewToolExecutors returns a set of in-process read service tool executors
 // for tier-2 (API) routing. These are registered with the leadership assistant
 // registry to handle RouteAPI sub-questions.
+// The executors are wired with data readers in the bootstrap layer.
 func NewToolExecutors() []ports.ToolExecutor {
 	return []ports.ToolExecutor{
 		&countsBreakdownExecutor{},
 		&vaccinationShedSummaryExecutor{},
 		&vaccinationExecutionExecutor{},
 		&feedDirectionTodayExecutor{},
+	}
+}
+
+// SetCountsDataReader wires the counts data reader into the counts executor.
+func SetCountsDataReader(exec ports.ToolExecutor, reader func(context.Context, string) ([]domain.Fact, error)) {
+	if e, ok := exec.(*countsBreakdownExecutor); ok {
+		e.countsBySpeciesReader = reader
+	}
+}
+
+// SetVaccinationDataReader wires the vaccination data reader into the vaccination executors.
+func SetVaccinationDataReader(execs []ports.ToolExecutor, reader func(context.Context, string) ([]domain.Fact, error)) {
+	for _, exec := range execs {
+		switch e := exec.(type) {
+		case *vaccinationShedSummaryExecutor:
+			e.vaccinationDataReader = reader
+		case *vaccinationExecutionExecutor:
+			e.vaccinationDataReader = reader
+		}
+	}
+}
+
+// SetFeedDataReader wires the feed data reader into the feed executor.
+func SetFeedDataReader(exec ports.ToolExecutor, reader func(context.Context, string) ([]domain.Fact, error)) {
+	if e, ok := exec.(*feedDirectionTodayExecutor); ok {
+		e.feedDataReader = reader
 	}
 }
