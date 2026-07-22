@@ -669,20 +669,18 @@
   .schedule-dot.state-scheduled,.schedule-cell.state-scheduled{background:var(--infox);color:var(--info)}
   .schedule-dot.state-up_to_date,.schedule-cell.state-up_to_date{background:var(--okx);color:var(--brand-d)}
   .schedule-dot.state-no_record,.schedule-cell.state-no_record{background:var(--bg);color:var(--faint)}
-  .main table.full-vaccine-schedule-table{table-layout:fixed;min-width:1540px;width:100%}
+  .main table.full-vaccine-schedule-table{table-layout:fixed;min-width:1220px;width:100%}
   .main table.full-vaccine-schedule-table th,.main table.full-vaccine-schedule-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.full-vaccine-schedule-table th{padding:9px 12px}
   .main table.full-vaccine-schedule-table td{padding:0;border-bottom-color:var(--line2)}
   .main table.full-vaccine-schedule-table th:nth-child(1),.main table.full-vaccine-schedule-table td:nth-child(1){width:10%}
-  .main table.full-vaccine-schedule-table th:nth-child(2),.main table.full-vaccine-schedule-table td:nth-child(2){width:8%}
+  .main table.full-vaccine-schedule-table th:nth-child(2),.main table.full-vaccine-schedule-table td:nth-child(2){width:9%}
   .main table.full-vaccine-schedule-table th:nth-child(3),.main table.full-vaccine-schedule-table td:nth-child(3){width:11%;white-space:normal}
-  .main table.full-vaccine-schedule-table th:nth-child(4),.main table.full-vaccine-schedule-table td:nth-child(4){width:15%}
+  .main table.full-vaccine-schedule-table th:nth-child(4),.main table.full-vaccine-schedule-table td:nth-child(4){width:18%}
   .main table.full-vaccine-schedule-table th:nth-child(5),.main table.full-vaccine-schedule-table td:nth-child(5){width:15%;white-space:normal}
-  .main table.full-vaccine-schedule-table th:nth-child(6),.main table.full-vaccine-schedule-table td:nth-child(6){width:16%;white-space:normal}
-  .main table.full-vaccine-schedule-table th:nth-child(7),.main table.full-vaccine-schedule-table td:nth-child(7){width:7%;text-align:right}
-  .main table.full-vaccine-schedule-table th:nth-child(8),.main table.full-vaccine-schedule-table td:nth-child(8){width:7%;text-align:right}
-  .main table.full-vaccine-schedule-table th:nth-child(9),.main table.full-vaccine-schedule-table td:nth-child(9){width:8%}
-  .main table.full-vaccine-schedule-table th:nth-child(10),.main table.full-vaccine-schedule-table td:nth-child(10){width:16%}
+  .main table.full-vaccine-schedule-table th:nth-child(6),.main table.full-vaccine-schedule-table td:nth-child(6){width:18%}
+  .main table.full-vaccine-schedule-table th:nth-child(7),.main table.full-vaccine-schedule-table td:nth-child(7){width:7%}
+  .main table.full-vaccine-schedule-table th:nth-child(8),.main table.full-vaccine-schedule-table td:nth-child(8){width:12%}
   .main table.full-vaccine-schedule-table .celllink{min-height:58px;display:flex;align-items:center;margin:0;padding:10px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .main table.full-vaccine-schedule-table .celllink.num{justify-content:flex-start;color:var(--ink);font-weight:850;font-size:18px}
   .main table.full-vaccine-schedule-table .schedule-click-row:hover{background:color-mix(in srgb,var(--brand) 7%,var(--bg))}
@@ -698,8 +696,8 @@
   .main table.full-vaccine-schedule-table .operator-day-shed{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,var(--panel) 82%,var(--brand));padding:4px 8px;line-height:1.1}
   .main table.full-vaccine-schedule-table .operator-day-shed b{font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
   .main table.full-vaccine-schedule-table .operator-day-shed .muted{font-size:11px}
-  .main table.full-vaccine-schedule-table .operator-day-partitions{display:flex;flex-wrap:wrap;gap:5px;padding:9px 12px;white-space:normal}
   .main table.full-vaccine-schedule-table .operator-day-vaccines{display:flex;flex-wrap:wrap;gap:5px;padding:9px 12px;white-space:normal}
+  .main table.full-vaccine-schedule-table .operator-workload-card{max-width:260px;padding:9px 12px}
   .main table.full-vaccine-schedule-table .schedule-postpone-form{display:grid;grid-template-columns:minmax(88px,1fr) minmax(118px,1fr) auto;gap:6px;align-items:center;padding:8px 10px}
   .main table.full-vaccine-schedule-table .schedule-postpone-form select,.main table.full-vaccine-schedule-table .schedule-postpone-form input{min-width:0;width:100%;height:32px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:0 8px;font:inherit;font-size:12px}
   .schedule-chip-list{display:flex;align-items:center;align-content:center;gap:6px;flex-wrap:nowrap;min-width:0;max-width:100%;overflow:hidden}

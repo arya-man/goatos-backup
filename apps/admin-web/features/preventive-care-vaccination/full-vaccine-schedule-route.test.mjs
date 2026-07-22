@@ -15,7 +15,7 @@ test("vaccination schedule is driven by persisted operator assignments", () => {
   assert.match(source, /partitionLabel/);
   assert.match(source, /operatorName/);
   assert.match(source, /groupOperatorDayRows/);
-  assert.match(source, /row\.sheds\.flatMap/);
+  assert.match(source, /shed\.partitions\.push/);
   assert.equal(
     source.includes("getVaccinationSchedule"),
     false,
@@ -57,6 +57,7 @@ test("vaccination schedule and operator labels are backend-contract owned", () =
     "schedule.kpi.drive_rows",
     "schedule.column.operator",
     "schedule.column.partition",
+    "schedule.column.workload",
     "schedule.partition.whole_shed",
     "label.operators_unassigned",
     "label.no_drive",
@@ -76,6 +77,21 @@ test("vaccination schedule renders one visible row per operator day", () => {
   assert.match(source, /const operatorDayRows = groupOperatorDayRows\(rows\)/);
   assert.match(source, /operatorDayRows\.map/);
   assert.doesNotMatch(source, /rows\.map\(\(row\) => \(\s*<tr/s);
+});
+
+test("vaccination schedule keeps shed totals visible and partition detail out of the overview columns", () => {
+  assert.match(source, /shedPartitionTitle\(pageContract, shed\)/);
+  assert.match(source, /operator-day-shed/);
+  assert.doesNotMatch(source, /<th>\{copy\(pageContract, "schedule\.column\.partition"\)\}<\/th>/);
+  assert.doesNotMatch(source, /className="operator-day-partitions"/);
+});
+
+test("vaccination schedule keeps workload bars on backend assignment rows", () => {
+  assert.match(source, /schedule-load-card operator-workload-card/);
+  assert.match(source, /schedule-load-bar/);
+  assert.match(source, /row\.totalDoses/);
+  assert.match(source, /row\.animals/);
+  assert.match(css, /\.operator-workload-card/);
 });
 
 test("full schedule action is hidden while already inside the schedule view", () => {
