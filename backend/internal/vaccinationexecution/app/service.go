@@ -319,7 +319,14 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		workState = workStateFromProjection(p, q)
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
-	physicalShed, partition := NormalizeDriveShed(p.ShedName)
+	physicalShed := strings.TrimSpace(p.PhysicalShed)
+	partition := strings.TrimSpace(p.Partition)
+	if physicalShed == "" || partition == "" {
+		physicalShed, partition = domain.NormalizeDriveShed(p.ShedName)
+	}
+	if partition == "" {
+		partition = "whole"
+	}
 	return domain.ExecutionRow{
 		ParkID:             p.ParkID,
 		ParkName:           p.ParkName,

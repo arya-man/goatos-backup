@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
+	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // TaskCreator spawns one SOP task per batch. Implemented by a thin adapter over the SOP module
@@ -1299,33 +1300,14 @@ func stringPtrValue(v *string) string {
 }
 
 func normalizeAssignmentShed(raw string) (string, string) {
-	name := strings.TrimSpace(raw)
-	if name == "" {
+	physical, partition := vaccexecdomain.NormalizeDriveShed(raw)
+	if physical == "" {
 		return "", "whole"
 	}
-	name = strings.Join(strings.Fields(name), " ")
-	if physical, partition, ok := splitAssignmentPartSuffix(name); ok {
-		return physical, partition
+	if partition == "" {
+		partition = "whole"
 	}
-	return name, "whole"
-}
-
-func splitAssignmentPartSuffix(name string) (string, string, bool) {
-	lower := strings.ToLower(name)
-	marker := " - part "
-	idx := strings.LastIndex(lower, marker)
-	if idx < 0 {
-		return "", "", false
-	}
-	physical := strings.TrimSpace(name[:idx])
-	partition := strings.TrimSpace(name[idx+len(marker):])
-	if physical == "" || partition == "" {
-		return "", "", false
-	}
-	if _, err := strconv.Atoi(partition); err != nil {
-		return "", "", false
-	}
-	return physical, "Part " + partition, true
+	return physical, partition
 }
 
 func firstUnbatchedParkID(rows []domain.UnbatchedDue) string {
