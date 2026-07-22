@@ -333,6 +333,73 @@ func operationsRowsPage(rows []domain.OperationsRow, limit int) ([]domain.Operat
 	return out, nil
 }
 
+func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignmentQuery) ([]domain.DriveAssignmentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	monthStart, monthEnd := scheduleMonthWindow(q.MonthStart)
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	rows, err := r.pool.Query(ctx, driveAssignmentsSQL, q.TenantID, monthStart, monthEnd, optStr(q.ParkID), limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: drive assignments: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.DriveAssignmentRow, 0)
+	for rows.Next() {
+		var row domain.DriveAssignmentRow
+		var planned pgtype.Date
+		var shedID pgtype.Text
+		var capacity string
+		if err := rows.Scan(&planned, &row.OperatorID, &row.OperatorName, &row.ParkID, &row.ParkName, &shedID, &row.PhysicalShed, &row.PartitionLabel, &row.Animals, &capacity); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan drive assignment: %w", err)
+		}
+		if planned.Valid {
+			row.PlannedDate = planned.Time.Format("2006-01-02")
+		}
+		row.ShedID = textPtr(shedID)
+		row.Capacity = domain.CapacityStatus(capacity)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: drive assignment rows: %w", err)
+	}
+	return out, nil
+}
+
+const driveAssignmentsSQL = `
+SELECT
+  vda.planned_date,
+  vda.operator_id::text,
+  wm.display_name,
+  vda.park_id::text,
+  park.name,
+  vda.shed_id::text,
+  vda.physical_shed,
+  vda.partition_label,
+  vda.animal_count,
+  vda.capacity_status
+FROM vaccination_drive_assignments vda
+JOIN workforce_members wm
+  ON wm.tenant_id = vda.tenant_id
+ AND wm.workforce_member_id = vda.operator_id
+ AND wm.status = 'active'
+JOIN locations park
+  ON park.tenant_id = vda.tenant_id
+ AND park.location_id = vda.park_id
+ AND park.location_type = 'park'
+WHERE vda.tenant_id = $1::uuid
+  AND vda.planned_date >= $2::date
+  AND vda.planned_date < $3::date
+  AND ($4::text = '' OR vda.park_id::text = $4)
+ORDER BY vda.planned_date, wm.display_name, vda.physical_shed, vda.partition_label
+LIMIT $5;
+`
+
 func scheduleCohortKey(row domain.OperationsRow) string {
 	return row.ParkID + "|" + row.ShedID + "|" + row.Stage
 }
@@ -2086,12 +2153,18 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 	for rows.Next() {
 		var row domain.ShedSummaryProjection
 		var lastDone, nextDue pgtype.Timestamptz
-		var capacityStatus, shedStatus string
-		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &row.TotalCount); err != nil {
+		var capacityStatus, shedStatus, driveOperatorNames string
+		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
 		}
 		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
 		row.LastDone, row.NextDue = timePtr(lastDone), timePtr(nextDue)
+		for _, name := range strings.Split(driveOperatorNames, ",") {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				row.DriveOperatorNames = append(row.DriveOperatorNames, name)
+			}
+		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -2279,13 +2352,29 @@ classified AS (
       ELSE 'on_track'
     END AS shed_status
   FROM scored
+),
+drive_ops AS (
+  -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain; group_key=(park_id,physical_shed); join_cardinality=workforce_members is tenant+operator keyed 1:1 and DISTINCT operator names prevents partition rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
+  SELECT
+    vda.park_id::text AS park_id,
+    vda.physical_shed AS shed_name,
+    STRING_AGG(DISTINCT wm.display_name, ', ' ORDER BY wm.display_name) AS drive_operator_names
+  FROM vaccination_drive_assignments vda
+  JOIN workforce_members wm
+    ON wm.tenant_id = vda.tenant_id
+   AND wm.workforce_member_id = vda.operator_id
+   AND wm.status = 'active'
+  WHERE vda.tenant_id = $1::uuid
+  GROUP BY vda.park_id, vda.physical_shed
 )
 SELECT
   park_id, park_name, shed_id, shed_name,
   animals, due_animals, open_cells, sessions, capacity_status, shed_status,
   last_done, next_due,
+  COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
   COUNT(*) OVER()::bigint AS total_count
 FROM classified
+LEFT JOIN drive_ops USING (park_id, shed_name)
 WHERE ($6::text = '' OR park_id = $6)
   AND ($7::text = '' OR shed_id = $7)
   AND ($8::text = '' OR shed_name ILIKE '%' || $8 || '%' OR park_name ILIKE '%' || $8 || '%')

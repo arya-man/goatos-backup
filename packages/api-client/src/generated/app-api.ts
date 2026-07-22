@@ -629,6 +629,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/drive-assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Persisted operator-cap vaccination drive assignments for one business-calendar month. */
+        get: operations["listVaccinationDriveAssignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/execution": {
         parameters: {
             query?: never;
@@ -4220,8 +4237,31 @@ export interface components {
             nextDue?: string | null;
             manager?: components["schemas"]["VaccinationShedOwner"] & unknown;
             backup?: components["schemas"]["VaccinationShedOwner"] & unknown;
+            /** @description Actual vaccination drive operators assigned by the operator-cap planner for this physical shed. */
+            driveOperatorNames?: string[];
             capacity: components["schemas"]["VaccinationCapacityStatus"];
             status: components["schemas"]["VaccinationShedStatus"];
+        };
+        VaccinationDriveAssignmentRow: {
+            /** Format: date */
+            plannedDate: string;
+            /** Format: uuid */
+            operatorId: string;
+            operatorName: string;
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId?: string | null;
+            physicalShed: string;
+            partitionLabel: string;
+            animals: number;
+            capacity: components["schemas"]["VaccinationCapacityStatus"];
+        };
+        VaccinationDriveAssignmentResponse: {
+            /** @enum {string} */
+            source: "api";
+            rows: components["schemas"]["VaccinationDriveAssignmentRow"][];
         };
         VaccinationShedVaccineRow: {
             protocolId: string;
@@ -6201,6 +6241,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VaccinationOperationsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServerError"];
+        };
+    };
+    listVaccinationDriveAssignments: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Calendar year in the business timezone. Defaults to the current year. */
+                year?: number;
+                /** @description Calendar month in the business timezone. Defaults to the current month. */
+                month?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator/date/shed/partition assignment rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationDriveAssignmentResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

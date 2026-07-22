@@ -183,6 +183,59 @@ func TestListVaccinationExecutionOperatorScopeOnlyReturnsAssignedWork(t *testing
 	}
 }
 
+func TestShedSummaryDriveOperatorsOneToManyPageBoundaryScheduledDateParkScopeStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	otherOperator := "70000000-0000-4000-8000-000000000098"
+	execProjectionSQL(t, ctx, pool, "other drive operator",
+		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+		 VALUES ($1, $2, 'OP-DRIVE-B', 'Operator B', 'active', 'operator', $3)`,
+		otherOperator, testTenant, testShed)
+	execProjectionSQL(t, ctx, pool, "drive assignment first partition",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24'::date, $3, $4, $5, 'K1 Shed', '1', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "drive assignment second partition same operator",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-25'::date, $3, $4, $5, 'K1 Shed', '2', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "drive assignment other operator",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-25'::date, $3, $4, $5, 'K1 Shed', '3', 1)`,
+		testTenant, testBatch, otherOperator, testPark, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  testTenant,
+		ParkID:    strPtr(testPark),
+		Status:    shedStatusPtr(domain.ShedStatusOverdue),
+		AsOf:      time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     1,
+		Offset:    0,
+	})
+	if err != nil {
+		t.Fatalf("ShedSummary() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d shed rows want 1: %#v", len(rows), rows)
+	}
+	got := rows[0]
+	if got.TotalCount != 1 {
+		t.Fatalf("total count = %d want 1 before page boundary truncation", got.TotalCount)
+	}
+	if got.ParkID != testPark || got.ShedID != testShed || got.Status != domain.ShedStatusOverdue {
+		t.Fatalf("scope/status row = park %s shed %s status %s", got.ParkID, got.ShedID, got.Status)
+	}
+	if strings.Join(got.DriveOperatorNames, ",") != "Operator A,Operator B" {
+		t.Fatalf("drive operators = %#v, want distinct operators collapsed across partition assignments", got.DriveOperatorNames)
+	}
+}
+
 func TestListVaccinationExecutionDateShiftUsesBatchPlannedDateInsteadOfObligationDueDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1155,6 +1208,14 @@ func execProjectionSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, la
 	if _, err := pool.Exec(ctx, sql, args...); err != nil {
 		t.Fatalf("%s: %v", label, err)
 	}
+}
+
+func strPtr(value string) *string {
+	return &value
+}
+
+func shedStatusPtr(value domain.ShedStatus) *domain.ShedStatus {
+	return &value
 }
 
 func insertProjectionGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, shedID, parkID string) {

@@ -85,6 +85,8 @@ export type VaccinationPlannedSession = AppApiComponents["schemas"]["Vaccination
 export type VaccinationShedSortKey = AppApiComponents["schemas"]["VaccinationShedSortKey"];
 export type VaccinationPageInfo = AppApiComponents["schemas"]["VaccinationPageInfo"];
 export type VaccinationCapacityConfig = AppApiComponents["schemas"]["VaccinationCapacityConfig"];
+export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
+export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
 export type CreateAdminGoatRequest = AdminApiComponents["schemas"]["CreateAdminGoatRequest"];
@@ -1009,6 +1011,24 @@ export async function getVaccinationSchedule(
         cache: "no-store",
         signal,
         query: compactQuery({ park_id: params.parkId, year: params.year, month: params.month, limit: params.limit, cursor: params.cursor }),
+      }),
+    ),
+  );
+}
+
+// Operator-cap drive ledger: one row per planned date × operator × physical shed × partition.
+export async function getVaccinationDriveAssignments(
+  params: { parkId?: string; year: number; month: number; limit?: number } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
+): Promise<ApiResult<VaccinationDriveAssignmentResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(2500, (signal) =>
+      client.request<VaccinationDriveAssignmentResponse>("/vaccination/drive-assignments", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ park_id: params.parkId, year: params.year, month: params.month, limit: params.limit }),
       }),
     ),
   );

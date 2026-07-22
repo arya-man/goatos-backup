@@ -131,6 +131,10 @@ first. Those APIs expose animal-count operator capacity, available operator
 count, over-cap-required flags, and persisted shed/partition assignments. MCP
 Toolbox/SQL fallback may summarize those same read models, but it must not
 reinterpret dose counts as operator capacity.
+The operator drive ledger is `/vaccination/drive-assignments`; the shed board
+summary is `/vaccination/sheds` with `driveOperatorNames`. Assistant tools must
+treat those read APIs as the source of truth for who owns a vaccination drive on
+a date, including physical shed and partition labels.
 
 ## Current Backend Context
 

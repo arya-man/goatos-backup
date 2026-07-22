@@ -1491,6 +1491,57 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/ServerError"
+  /vaccination/drive-assignments:
+    get:
+      tags:
+        - Vaccination
+      operationId: listVaccinationDriveAssignments
+      summary: Persisted operator-cap vaccination drive assignments for one business-calendar month.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: year
+          in: query
+          required: false
+          description: Calendar year in the business timezone. Defaults to the current year.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+        - name: month
+          in: query
+          required: false
+          description: Calendar month in the business timezone. Defaults to the current month.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Operator/date/shed/partition assignment rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationDriveAssignmentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServerError"
   /vaccination/execution:
     get:
       tags:
@@ -11368,10 +11419,71 @@ components:
           allOf:
             - $ref: "#/components/schemas/VaccinationShedOwner"
             - nullable: true
+        driveOperatorNames:
+          type: array
+          description: Actual vaccination drive operators assigned by the operator-cap planner for this physical shed.
+          items:
+            type: string
         capacity:
           $ref: "#/components/schemas/VaccinationCapacityStatus"
         status:
           $ref: "#/components/schemas/VaccinationShedStatus"
+    VaccinationDriveAssignmentRow:
+      type: object
+      additionalProperties: false
+      required:
+        - plannedDate
+        - operatorId
+        - operatorName
+        - parkId
+        - parkName
+        - physicalShed
+        - partitionLabel
+        - animals
+        - capacity
+      properties:
+        plannedDate:
+          type: string
+          format: date
+        operatorId:
+          type: string
+          format: uuid
+        operatorName:
+          type: string
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        physicalShed:
+          type: string
+        partitionLabel:
+          type: string
+        animals:
+          type: integer
+          minimum: 0
+        capacity:
+          $ref: "#/components/schemas/VaccinationCapacityStatus"
+    VaccinationDriveAssignmentResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - rows
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationDriveAssignmentRow"
     VaccinationShedVaccineRow:
       type: object
       additionalProperties: false
