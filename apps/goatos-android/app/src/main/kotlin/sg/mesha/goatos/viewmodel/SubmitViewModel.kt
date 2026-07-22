@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -134,7 +135,8 @@ class SubmitViewModel @Inject constructor(
     private var currentProofPolicy: ProofPolicy = ProofPolicy.Default
     private var currentShedCompletionSummary: ShedCompletionSummaryDto? = null
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
-    private val selectedShedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
+    private val routeShedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
+    private val selectedShedId = MutableStateFlow(routeShedId)
     private var statusJob: Job? = null
     private var outboxRecoveryKey: String? = null
     private var scanTagJob: Job? = null
@@ -229,21 +231,26 @@ class SubmitViewModel @Inject constructor(
         }
         // Observe the Room-cached shed-completion summary (offline-first SSOT). Gated on
         // [uiSubscribed] like the other Room observers so the DB stream is released the instant
-        // the screen backgrounds. Each emission re-renders the read-only acknowledgement summary.
+        // the screen backgrounds. The shed id is also a stream: if route arguments are lost on a
+        // process/navigation restore, task detail derives scope_type=shed/scope_id and switches
+        // this observer back to the shed-scoped cache instead of silently widening to task-wide
+        // "Multiple sheds" summary.
         viewModelScope.launch {
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
-                    repo.observeShedCompletionSummary(taskId, selectedShedId).collect { summary ->
-                        currentShedCompletionSummary = summary
-                        renderDraft()
-                    }
+                    selectedShedId
+                        .flatMapLatest { shedId -> repo.observeShedCompletionSummary(taskId, shedId) }
+                        .collect { summary ->
+                            currentShedCompletionSummary = summary
+                            renderDraft()
+                        }
                 }
             }
         }
         val refreshResult = repo.refreshTaskDetail(taskId)
         // Background refresh of the shed-completion summary; the observe() stream above re-emits
         // once Room is upserted. A failure leaves any cached summary on screen (offline-first).
-        repo.refreshShedCompletionSummary(taskId, selectedShedId)
+        repo.refreshShedCompletionSummary(taskId, selectedShedId.value)
         if (refreshResult.isFailure && currentTask == null) {
             // Never synced, ever: no cache to fall back to. A stale cache (if any) stays on
             // screen instead — applyTaskResource already rendered it before this refresh ran.
@@ -308,6 +315,7 @@ class SubmitViewModel @Inject constructor(
         currentTask = detail.task
         currentForm = detail.form
         currentProofPolicy = detail.proofPolicy
+        resolveShedScopeFromTask(detail.task)
         if (detail.task.state.isSubmissionTerminal()) {
             // The refreshed backend task is authoritative after a successful submit. Its row
             // version advances when the task enters review/accepted state, so trying to recover
@@ -362,6 +370,18 @@ class SubmitViewModel @Inject constructor(
             observeOutboxItem(queuedItemId)
         } else {
             renderDraft()
+        }
+    }
+
+    private fun resolveShedScopeFromTask(task: TaskSummaryDto) {
+        if (!routeShedId.isNullOrBlank()) return
+        val scopedShedId = task.scopeId.takeIf {
+            task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank()
+        } ?: return
+        if (selectedShedId.value == scopedShedId) return
+        selectedShedId.value = scopedShedId
+        viewModelScope.launch {
+            repo.refreshShedCompletionSummary(task.taskId, scopedShedId)
         }
     }
 
@@ -437,15 +457,19 @@ class SubmitViewModel @Inject constructor(
             try {
                 val captured = if (source == "gallery_picker") proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
                 if (captured != null) {
+                    val subject = subjectForFieldKey(key)
+                    val shedScopeId = selectedShedId.value
+                        ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
                     proofCaptureRepository.capture(
                         taskId = task.taskId,
                         fieldKey = key,
-                        subject = subjectForFieldKey(key),
+                        subject = subject,
+                        subjectId = if (subject == ProofSubject.SHED) shedScopeId else null,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
                         caption = null,
-                        scopeType = "task",
-                        scopeId = task.taskId,
+                        scopeType = if (subject == ProofSubject.SHED && !shedScopeId.isNullOrBlank()) "shed" else "task",
+                        scopeId = if (subject == ProofSubject.SHED && !shedScopeId.isNullOrBlank()) shedScopeId else task.taskId,
                         capturedStartMs = captured.startedAtMs,
                         capturedEndMs = captured.endedAtMs,
                         capturedByPrincipalId = currentPrincipalId,
