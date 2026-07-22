@@ -146,3 +146,76 @@ references/exclusions.md       # what is legitimately NOT leadership-relevant + 
   config tokens.
 - Step traces / chain-of-thought are internal (audit + admin debug), never in
   the user answer.
+
+## ROUTE-CLOSURE Enforcement Rules
+
+These rules ensure the planner → catalog → wiring → reader → grounded facts → eval
+chain is CLOSED end-to-end. Coverage is not complete if any link is deferred/unwired.
+
+### LIVE ROUTE CLOSURE
+
+Coverage is not complete until the chain closes end-to-end:
+
+```
+planner query-class → exact tool/metric name → registry/catalog
+  → bootstrap wiring → reader/service call → grounded facts
+  → citation/source → eval golden question
+```
+
+A docs row, stub executor, or TODO placeholder is NOT coverage. If any link is deferred or unwired, the planner MUST NOT route to it.
+
+### NO UNWIRED TOOLS IN CATALOG
+
+Never register or advertise a RouteAPI executor without a real wired reader in bootstrap
+(one of `SetCountsDataReader`, `SetVaccinationDataReader`, `SetFeedDataReader`, or a
+fallback alias to a working tier). Deferred API tools are absent from the planner/catalog
+or explicitly disabled. Planner output never points at an unwired executor.
+
+### TOOL-NAME CONSISTENCY
+
+Every planned tool name is asserted against the runtime catalog. Keep a test comparing:
+- keyword-planner rule outputs (every rule's tool name)
+- Cube metric bindings (`wiring.go` cubeMetricBindings)
+- NewToolExecutors specs (`toolexecutors.go`)
+- MCP Toolbox tool names (`docs/ceo-ai/mcp-toolbox-tools.yaml`)
+- Fallback aliases (`app/fallback.go`)
+
+A name mismatch is P1. Example: the historical `feed_direction_preview` vs `feed_direction_today`
+mismatch silently left feed questions with no executor, delivering empty results. The
+consistency test `catalog_consistency_test.go` is part of the backend test suite (`make go-test`).
+
+### PARAMS + AS-OF CONTRACT
+
+Every read path carries:
+- **tenant** — from session, never from user text
+- **params** — from planner sub-question (park_label, shed_id, species, dimension, …)
+- **as_of** — from Question.AsOf, injected as "YYYY-MM-DD" before executor call
+
+Tool specs may NOT advertise params that the executor/reader ignores. Tests cover
+at least one scoped question and one as-of question to prove the chain works.
+
+### GOLDEN QUESTION REQUIRED
+
+Every new covered feature adds a golden eval question proving:
+- expected route tier (Cube / API / Toolbox / SQL)
+- exact tool/metric name from the catalog
+- non-empty grounded facts (actual data from the reader, not stale/empty/TODO)
+- tenant scope and as-of behavior
+- no internal error copy in the answer
+
+Every leadership coverage row in `docs/ceo-ai/coverage-matrix.md` must reference a
+golden eval question ID that exists in `tools/ceo-ai/eval/*.json`.
+
+## Machine Guard
+
+The guard `tools/agent-hooks/check-assistant-route-closure.mjs` is wired into:
+- `make guardrails`
+- `tools/ci/guardrail-manifest.json` (guardrail-registration-guard verifies it is wired)
+- `tools/ci/run-local-ci.sh` (included in local CI pipeline)
+
+The guard runs both in CI and on PostToolUse for Claude and Codex. It is diff-scoped
+where sensible, but the planner ↔ catalog consistency check always runs (it is cheap).
+
+The guard includes an adversarial `--self-test` that injects a deliberate planner
+tool-name with no catalog match; CI fails on the injected mismatch AND must pass when
+the injected mismatch is fixed.

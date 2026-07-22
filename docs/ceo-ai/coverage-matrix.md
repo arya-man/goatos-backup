@@ -3,7 +3,7 @@
 ## Implementation Status
 
 **2026-07-22**: Fixed critical readtools findings:
-1. Deleted broken ProjectedCountFor call (was using wrong method signature with missing ParkID + TargetDate).
+1. Deleted the broken projected-count call (wrong method signature; missing park + target date). Species now sourced from Cube.
 2. Routed animal species counts (counts_breakdown) to Cube tier instead of API tier (Cube has correct active_animal_count metric).
 3. Fixed error swallowing: toolexecutors now propagate reader errors instead of silently returning empty facts.
 4. Vaccination/feed executors return errors when not wired, preventing silent empty results.

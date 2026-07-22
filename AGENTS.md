@@ -1061,11 +1061,15 @@ Do not:
   `ceo_ai.*` view, an MCP Toolbox tool, a mapped Mesha read API, or a documented
   exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The
   read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
-  Toolbox `ceo_ai.*` tools → read-only SQL fallback). HOW-TO:
-  `.agents/skills/goatos-leadership-assistant/SKILL.md`. Scaffold:
-  `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
-  `make leadership-assistant-coverage-guard` (local CI + PostToolUse nudge for
-  Claude and Codex).
+  Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
+  wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):
+  every tool name must resolve in the runtime registry (Cube binding, executor spec,
+  toolbox tool, or fallback alias), every RouteAPI target must have a wired reader or
+  fallback alias, and every coverage row must reference a golden eval question. HOW-TO:
+  `.agents/skills/goatos-leadership-assistant/SKILL.md` (includes ROUTE-CLOSURE rules).
+  Scaffold: `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
+  `make leadership-assistant-coverage-guard` + `make assistant-route-closure-guard`
+  (local CI + PostToolUse nudge for Claude and Codex).
 - Do not reintroduce old staging labels as architecture.
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the
