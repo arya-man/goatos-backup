@@ -446,3 +446,55 @@ func TestListPendingExecutionFiltersBySourcePark(t *testing.T) {
 		t.Fatalf("unfiltered rows=%d, want 1", len(page.Items))
 	}
 }
+
+// TestListPendingExecutionFiltersBySourceShed proves the optional shed filter is the second half of
+// the operator's farm -> shed cascade: it narrows to the SOURCE shed the animals stand in, returns
+// empty for a shed with no movement, and returns everything when omitted. authorizedShifting seeds
+// its animals into countsShedA, so that is the movement's source shed.
+func TestListPendingExecutionFiltersBySourceShed(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	inShed := authorizedShifting(t, ctx, pool, repo, "shed-filter-1",
+		[]string{"00000000-0000-4000-8000-00000000f201"})
+
+	// A shed that owns no movement returns an empty page, not everything.
+	page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID:     countsTenant,
+		SourceShedID: countsShedB,
+	})
+	if err != nil {
+		t.Fatalf("list pending execution filtered to another shed: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("rows=%d for a shed with no movements, want 0", len(page.Items))
+	}
+
+	// The movement's actual source shed returns it -- including with the park pinned too, the shape
+	// the cascade always sends.
+	page, err = repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID:     countsTenant,
+		SourceParkID: countsPark,
+		SourceShedID: countsShedA,
+	})
+	if err != nil {
+		t.Fatalf("list pending execution filtered to the source park+shed: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ShiftingEventID != inShed {
+		t.Fatalf("rows=%d, want exactly the movement sourced in %s", len(page.Items), countsShedA)
+	}
+
+	// A correct park but the wrong shed still excludes it: the shed is an AND, not an OR, with park.
+	page, err = repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID:     countsTenant,
+		SourceParkID: countsPark,
+		SourceShedID: countsShedB,
+	})
+	if err != nil {
+		t.Fatalf("list pending execution filtered to source park but wrong shed: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("rows=%d for the right park but wrong shed, want 0", len(page.Items))
+	}
+}

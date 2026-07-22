@@ -217,6 +217,8 @@ class SyncEngine(
         OutboxOpType.COUNTS_DEATH -> dispatchCountsDeath(item)
         OutboxOpType.COUNTS_APPROVAL_APPROVE -> dispatchCountsApprovalApprove(item)
         OutboxOpType.COUNTS_APPROVAL_REJECT -> dispatchCountsApprovalReject(item)
+        OutboxOpType.SHIFTING_COMPLETE -> dispatchShiftingComplete(item)
+        OutboxOpType.SHIFTING_CANCEL -> dispatchShiftingCancel(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -397,6 +399,36 @@ class SyncEngine(
     private suspend fun dispatchCountsApprovalReject(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<CountsApprovalDecisionPayload>(item.payloadJson)
         val response = api.rejectCountsApproval(payload.requestId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The Shifting EXECUTION "Mark done". Same idempotent-replay contract as every other `dispatch*`
+     * — the row's STORED key is passed through verbatim — and it matters as much here as for the
+     * approval decisions: this call RELOCATES the animals, so a replay under a fresh key would move
+     * them a second time. Under the stored key the backend returns the original relocation with
+     * `idempotent_replay=true` and moves nobody again. Completing a movement that is no longer
+     * authorized (already applied elsewhere, or cancelled) is a 400/409 — terminal by
+     * [recordFailure]'s `isTerminalAppApiError` check, so it surfaces to the operator instead of
+     * being retried against a state that will never change.
+     */
+    private suspend fun dispatchShiftingComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ShiftingCompletePayload>(item.payloadJson)
+        val response = api.completeCountsShiftingEvent(
+            payload.shiftingEventId,
+            item.idempotencyKey,
+            payload.destinationTag,
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchShiftingCancel(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ShiftingCancelPayload>(item.payloadJson)
+        val response = api.cancelCountsShiftingEvent(
+            payload.shiftingEventId,
+            item.idempotencyKey,
+            payload.reason,
+        )
         return syncJson.encodeToString(response)
     }
 

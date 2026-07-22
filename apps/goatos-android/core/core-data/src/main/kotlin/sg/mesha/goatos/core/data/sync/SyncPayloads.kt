@@ -141,3 +141,34 @@ data class CountsApprovalDecisionPayload(
     @SerialName("request_id") val requestId: String,
     @SerialName("request") val request: CountsApprovalDecisionRequestDto,
 )
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SHIFTING_COMPLETE].
+ *
+ * The "Mark done" that RELOCATES the animals. The SHIFTING EVENT ID is the outbox group key, so two
+ * actions on the same movement can never drain concurrently or out of order. [destinationTag] is
+ * normally null — the server derives the destination cohort from the destination shed's profile; it
+ * is only sent when completing into an empty shed.
+ *
+ * The OPTIONAL video is deliberately NOT carried here. It is captured and uploaded through the
+ * existing [sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD] op — registered against
+ * the destination shed with `shifting_event_id` in its metadata — so it flows to GCS via the same
+ * signed-URL path as vaccination proof, independently of this completion. Completion is not gated on
+ * it (video is optional for now), and coupling the two would make a movement in a dead-signal shed
+ * un-completable until its video finished uploading.
+ */
+@Serializable
+data class ShiftingCompletePayload(
+    @SerialName("shifting_event_id") val shiftingEventId: String,
+    @SerialName("destination_tag") val destinationTag: String? = null,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SHIFTING_CANCEL]. Retires an
+ * authorized movement that will never be walked; moves nothing. [reason] is REQUIRED server-side.
+ */
+@Serializable
+data class ShiftingCancelPayload(
+    @SerialName("shifting_event_id") val shiftingEventId: String,
+    @SerialName("reason") val reason: String,
+)

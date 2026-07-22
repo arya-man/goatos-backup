@@ -228,6 +228,38 @@ interface SyncRepository {
         idempotencyKey: String,
     ): AppResult<String> = AppResult.Err("counts approval sync is not configured")
 
+    /**
+     * Enqueues a Shifting EXECUTION "Mark done" (`POST /app/counts/shifting-events/{id}/complete`) —
+     * the write that RELOCATES the animals.
+     *
+     * [groupKey] is the shifting event id, so two actions on the SAME movement drain strictly
+     * oldest-first and never race; different movements drain concurrently.
+     *
+     * [idempotencyKey] must be a STABLE key the caller derived once and persisted
+     * (`SavedStateHandle`), never a timestamp-suffixed one. This is a must-not-double-apply write:
+     * a fresh key on resend would relocate the herd twice. Under the stable key the backend returns
+     * the original relocation with `idempotent_replay=true`.
+     *
+     * [destinationTag] is normally null (the server derives the destination cohort). The optional
+     * video is NOT sent here — it goes through [enqueueProofUpload] against the destination shed.
+     */
+    suspend fun enqueueShiftingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        destinationTag: String? = null,
+    ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
+
+    /**
+     * Enqueues a Shifting EXECUTION cancel (`POST /app/counts/shifting-events/{id}/cancel`). Retires
+     * an authorized movement; moves nothing. [reason] is REQUIRED server-side. Same group-key +
+     * stable-key contract as [enqueueShiftingComplete].
+     */
+    suspend fun enqueueShiftingCancel(
+        groupKey: String,
+        idempotencyKey: String,
+        reason: String,
+    ): AppResult<String> = AppResult.Err("shifting cancel sync is not configured")
+
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
      *  idempotency key and payload, a fresh attempt budget. Backs the sync-status sheet's
      *  retry affordance. */
@@ -527,6 +559,35 @@ class DefaultSyncRepository(
                 requestId = requestId,
                 request = CountsApprovalDecisionRequestDto(reason = reason?.trim()?.ifBlank { null }),
             ),
+        ),
+    )
+
+    override suspend fun enqueueShiftingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        destinationTag: String?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SHIFTING_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            ShiftingCompletePayload(
+                shiftingEventId = groupKey,
+                destinationTag = destinationTag?.trim()?.ifBlank { null },
+            ),
+        ),
+    )
+
+    override suspend fun enqueueShiftingCancel(
+        groupKey: String,
+        idempotencyKey: String,
+        reason: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SHIFTING_CANCEL,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            ShiftingCancelPayload(shiftingEventId = groupKey, reason = reason),
         ),
     )
 

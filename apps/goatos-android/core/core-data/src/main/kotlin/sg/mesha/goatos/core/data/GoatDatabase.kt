@@ -60,6 +60,10 @@ import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.ShiftingPendingItemDao
+import sg.mesha.goatos.core.data.cache.ShiftingPendingItemEntity
+import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
@@ -143,8 +147,10 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         FeedPackingMetaCacheEntity::class,
         FeedPackingItemEntity::class,
         FeedPackingRemoteKeyEntity::class,
+        ShiftingPendingItemEntity::class,
+        ShiftingPendingRemoteKeyEntity::class,
     ],
-    version = 17,
+    version = 18,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -162,6 +168,9 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // v15 (see [MIGRATION_14_15]) adds the seven Counts read-model tables.
     // v16 (see [MIGRATION_15_16]) adds nullable backend scan timestamp to scan_roster_row.
     // v17 (see [MIGRATION_16_17]) adds the six Feed read-model tables (Direction + Packing).
+    // v18 (see [MIGRATION_17_18]) adds the shifting pending-execution queue pair — the Shifting
+    // "Pending" tab's offline-first read model (one Room row per authorized movement + its keyset
+    // remote key), so an operator re-entering the tab sees their cached queue instead of a blank wall.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -197,4 +206,6 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun feedPackingMetaCacheDao(): FeedPackingMetaCacheDao
     abstract fun feedPackingItemDao(): FeedPackingItemDao
     abstract fun feedPackingRemoteKeyDao(): FeedPackingRemoteKeyDao
+    abstract fun shiftingPendingItemDao(): ShiftingPendingItemDao
+    abstract fun shiftingPendingRemoteKeyDao(): ShiftingPendingRemoteKeyDao
 }

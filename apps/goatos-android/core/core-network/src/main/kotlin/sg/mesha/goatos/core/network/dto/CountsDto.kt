@@ -231,6 +231,115 @@ data class CountsShiftingEventResponseDto(
 )
 
 // ---------------------------------------------------------------------------
+// READ — GET /app/counts/shifting-events/pending-execution
+// ---------------------------------------------------------------------------
+
+/**
+ * One authorized movement waiting to be physically executed — a row of the operator's Pending tab.
+ *
+ * Field names are verbatim from `contracts/openapi/app-api.yaml`
+ * (`CountsShiftingPendingExecutionItem` / the backend's `appShiftingPendingExecutionItem`). Every
+ * field carries a default so a contract addition never breaks decode of an already-cached Room row.
+ *
+ * [animalCount] is the FULL size of the movement; [animals] is a bounded preview of at most 5. The
+ * client renders the count as truth and the preview for recognition — it never treats the preview
+ * length as the movement size (that is [animalsTruncated]'s job).
+ */
+@Serializable
+data class CountsShiftingPendingExecutionItemDto(
+    @SerialName("shifting_event_id") val shiftingEventId: String = "",
+    @SerialName("event_status") val eventStatus: String = "",
+    @SerialName("priority") val priority: String = "",
+    @SerialName("category") val category: String = "",
+    @SerialName("source_park_id") val sourceParkId: String? = null,
+    @SerialName("source_park_name") val sourceParkName: String? = null,
+    @SerialName("source_shed_id") val sourceShedId: String? = null,
+    @SerialName("source_shed_name") val sourceShedName: String? = null,
+    @SerialName("destination_park_id") val destinationParkId: String = "",
+    @SerialName("destination_park_name") val destinationParkName: String = "",
+    @SerialName("destination_shed_id") val destinationShedId: String = "",
+    @SerialName("destination_shed_name") val destinationShedName: String = "",
+    @SerialName("approved_by_user_id") val approvedByUserId: String? = null,
+    @SerialName("approved_at") val approvedAt: String? = null,
+    @SerialName("approved_at_ist") val approvedAtIst: String? = null,
+    @SerialName("raised_by_user_id") val raisedByUserId: String = "",
+    @SerialName("raised_at") val raisedAt: String = "",
+    @SerialName("raised_at_ist") val raisedAtIst: String = "",
+    @SerialName("effective_at") val effectiveAt: String = "",
+    @SerialName("animal_count") val animalCount: Int = 0,
+    @SerialName("animals_truncated") val animalsTruncated: Boolean = false,
+    @SerialName("animals") val animals: List<CountsShiftingPendingExecutionAnimalDto> = emptyList(),
+)
+
+/** One animal preview on a pending-execution row: enough to find it in a shed. */
+@Serializable
+data class CountsShiftingPendingExecutionAnimalDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("display_id") val displayId: String = "",
+    @SerialName("tag") val tag: String? = null,
+)
+
+/**
+ * One keyset page of the Pending tab. [nextCursor] is absent on the last page. Keyset, not offset:
+ * the queue is drained by several operators at once, so an offset page would skip or repeat rows.
+ */
+@Serializable
+data class CountsShiftingPendingExecutionResponseDto(
+    @SerialName("items") val items: List<CountsShiftingPendingExecutionItemDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /app/counts/shifting-events/{id}/complete  and  /cancel
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete/cancel outcome (`CountsShiftingExecutionResponse` / the backend's
+ * `appShiftingExecutionResponse`). THIS is the response for the "Mark done" action that relocates
+ * the animals.
+ *
+ * [idempotentReplay] is true when the result came from a previous identical completion rather than
+ * a new relocation — the outbox replays under one stable key on every retry, so this is the normal
+ * outcome of a resend, not an error. A movement moved once and confirmed twice returns the original
+ * result; it never moves the herd onward.
+ */
+@Serializable
+data class CountsShiftingExecutionResponseDto(
+    @SerialName("shifting_event_id") val shiftingEventId: String = "",
+    @SerialName("event_status") val eventStatus: String = "",
+    @SerialName("destination_park_id") val destinationParkId: String = "",
+    @SerialName("destination_shed_id") val destinationShedId: String = "",
+    @SerialName("source_park_id") val sourceParkId: String = "",
+    @SerialName("source_shed_id") val sourceShedId: String = "",
+    @SerialName("moved_goat_ids") val movedGoatIds: List<String> = emptyList(),
+    @SerialName("moved_count") val movedCount: Int = 0,
+    @SerialName("applied_at") val appliedAt: String? = null,
+    @SerialName("applied_at_ist") val appliedAtIst: String? = null,
+    @SerialName("applied_by") val appliedBy: String? = null,
+    @SerialName("canceled_at") val canceledAt: String? = null,
+    @SerialName("canceled_at_ist") val canceledAtIst: String? = null,
+    @SerialName("canceled_by") val canceledBy: String? = null,
+    @SerialName("cancel_reason") val cancelReason: String? = null,
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
+
+/** The optional cancel body (`reason` is REQUIRED server-side). */
+@Serializable
+data class CountsShiftingCancelRequestDto(
+    @SerialName("reason") val reason: String? = null,
+)
+
+/**
+ * The optional complete body. `destination_tag` is only consulted when the destination shed is
+ * empty; for an occupied shed the server derives the cohort and a supplied value must agree. The
+ * mobile operator flow leaves it null and lets the server derive it.
+ */
+@Serializable
+data class CountsShiftingCompleteRequestDto(
+    @SerialName("destination_tag") val destinationTag: String? = null,
+)
+
+// ---------------------------------------------------------------------------
 // WRITE — shared evidence envelope (identity's EvidenceRef)
 // ---------------------------------------------------------------------------
 

@@ -445,3 +445,30 @@ val MIGRATION_16_17: Migration = object : Migration(16, 17) {
         )
     }
 }
+
+/**
+ * v17 -> v18: the shifting pending-execution queue pair — the Shifting "Pending" tab's offline-first
+ * read model. One Room row per authorized movement ([ShiftingPendingItemEntity]) plus its opaque
+ * keyset remote key ([ShiftingPendingRemoteKeyEntity]), shaped exactly like the Counts APPROVAL
+ * queue. Additive and non-destructive: no existing table is touched, so an installed APK carrying an
+ * unsynced write outbox upgrades in place without data loss.
+ */
+val MIGRATION_17_18: Migration = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `shifting_pending_items` " +
+                "(`queryKey` TEXT NOT NULL, `shiftingEventId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`raisedAt` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `shiftingEventId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_shifting_pending_items_queryKey_sortIndex` " +
+                "ON `shifting_pending_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `shifting_pending_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}

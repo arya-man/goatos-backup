@@ -1,0 +1,235 @@
+package sg.mesha.goatos.viewmodel
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
+import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.ShiftingPendingRepository
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.feature.counts.CountsWriteResultUi
+import sg.mesha.goatos.feature.counts.CountsWriteStatus
+import sg.mesha.goatos.feature.counts.ShiftingExecuteAnimalUi
+import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
+import sg.mesha.goatos.feature.counts.ShiftingExecuteUiState
+import java.util.Locale
+import javax.inject.Inject
+
+/**
+ * The Shifting EXECUTE screen (`/counts/shifting/execute/{shifting_event_id}`) — an operator
+ * confirming an approved movement physically happened.
+ *
+ * Two independent, offline-first writes:
+ *  - **Optional video** (`enqueueProofUpload`): registered against the destination shed with the
+ *    movement id in metadata, uploaded to GCS via the same signed-URL path as vaccination proof. It
+ *    is OPTIONAL and does NOT gate completion.
+ *  - **Mark done** (`enqueueShiftingComplete`): the write that RELOCATES the animals. Idempotency is
+ *    a STABLE `SavedStateHandle`-persisted key keyed to the movement, so a resend after process
+ *    death collapses onto the original relocation instead of moving the herd twice.
+ *
+ * The movement detail is read from the Room-cached pending row (offline-first open): the operator
+ * tapped a row already in Room, so no refetch is needed.
+ */
+@HiltViewModel
+class ShiftingExecuteViewModel @Inject constructor(
+    private val repo: ShiftingPendingRepository,
+    private val syncRepository: SyncRepository,
+    private val proofCaptureSource: ProofCaptureSource,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
+    savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+
+    private val shiftingEventId: String = savedStateHandle[ARG_SHIFTING_EVENT_ID] ?: ""
+
+    // The movement's own destination shed is the outbox group key + proof scope. Resolved from the
+    // cached row on load, held here so completion/proof enqueues do not re-read Room.
+    private var destinationShedId: String = ""
+
+    private val completeKey = DraftIdempotencyKey(savedStateHandle, KEY_COMPLETE_IDEMPOTENCY, "counts-shifting-complete")
+    private val proofKey = DraftIdempotencyKey(savedStateHandle, KEY_PROOF_IDEMPOTENCY, "counts-shifting-proof")
+    private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
+
+    private val _state = MutableStateFlow(ShiftingExecuteUiState(shiftingEventId = shiftingEventId))
+    val state: StateFlow<ShiftingExecuteUiState> = _state.asStateFlow()
+
+    private var statusJob: Job? = null
+
+    init {
+        analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_OPENED)
+        loadMovement()
+        outboxItemId.value?.let(::observeOutboxItem)
+    }
+
+    fun onEvent(event: ShiftingExecuteEvent) {
+        when (event) {
+            ShiftingExecuteEvent.RecordVideo -> recordVideo()
+            ShiftingExecuteEvent.MarkDone -> markDone()
+            ShiftingExecuteEvent.Back -> Unit // navigation — handled by the nav host.
+        }
+    }
+
+    private fun loadMovement() {
+        viewModelScope.launch {
+            val cached = repo.findCached(shiftingEventId)
+            if (cached == null) {
+                _state.update { it.copy(loading = false, notFound = true, canComplete = false) }
+                return@launch
+            }
+            destinationShedId = cached.destinationShedId
+            _state.update { current -> cached.toUiState(current) }
+        }
+    }
+
+    /**
+     * Optional video. Captures a clip through the same [ProofCaptureSource] the vaccination flow
+     * binds, then enqueues a PROOF_UPLOAD registered against the destination shed with the movement
+     * id in metadata. Failure never blocks completion — the operator can still Mark done.
+     */
+    private fun recordVideo() {
+        if (_state.value.isCapturingVideo || destinationShedId.isBlank()) return
+        _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
+        viewModelScope.launch {
+            val captured = try {
+                proofCaptureSource.captureVideo()
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "shifting execute video capture failed")
+                null
+            }
+            if (captured == null) {
+                _state.update { it.copy(isCapturingVideo = false) }
+                return@launch
+            }
+            val request = ProofUploadRequestDto(
+                proofType = "video",
+                mimeType = captured.mimeType,
+                scopeType = "shed",
+                scopeId = destinationShedId,
+                subjectType = "shed",
+                subjectId = destinationShedId,
+                metadata = mapOf(META_SHIFTING_EVENT_ID to JsonPrimitive(shiftingEventId)),
+            )
+            val result = syncRepository.enqueueProofUpload(
+                groupKey = destinationShedId,
+                idempotencyKey = proofKey.current(),
+                request = request,
+                localFilePath = captured.localUri,
+                durationMs = (captured.endedAtMs - captured.startedAtMs).takeIf { it > 0 },
+            )
+            when (result) {
+                is AppResult.Ok -> {
+                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED)
+                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
+                }
+                is AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, "shifting execute proof enqueue failed") }
+                    _state.update { it.copy(isCapturingVideo = false, videoMessage = VIDEO_FAILED) }
+                }
+            }
+        }
+    }
+
+    private fun markDone() {
+        val current = _state.value
+        if (!current.canComplete) return
+        viewModelScope.launch {
+            val result = syncRepository.enqueueShiftingComplete(
+                // The movement id partitions ordering: two actions on the SAME movement drain
+                // strictly oldest-first, so a complete and a cancel can never race.
+                groupKey = shiftingEventId,
+                idempotencyKey = completeKey.current(),
+            )
+            when (result) {
+                is AppResult.Ok -> {
+                    outboxItemId.value = result.value
+                    observeOutboxItem(result.value)
+                    // Leave the pending queue the moment the completion is durable, so the same
+                    // movement cannot be completed a second time while its first drains.
+                    repo.forgetExecuted(shiftingEventId)
+                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_COMPLETED)
+                }
+                is AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, "shifting complete enqueue failed") }
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_WRITE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "shifting_complete",
+                            AnalyticsEvents.Params.REASON to result.message,
+                        ),
+                    )
+                    _state.update {
+                        it.copy(result = CountsWriteResultUi(CountsWriteStatus.FAILED, result.message), canComplete = true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observeOutboxItem(itemId: String) {
+        statusJob?.cancel()
+        statusJob = viewModelScope.launch {
+            syncRepository.observeStatus()
+                .map { status -> status.items.firstOrNull { it.id == itemId } }
+                .filterNotNull()
+                .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+                .collect { item ->
+                    item ?: return@collect
+                    _state.update {
+                        val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
+                        it.copy(result = writeResult, canComplete = !writeResult.isCommitted)
+                    }
+                }
+        }
+    }
+
+    private fun CountsShiftingPendingExecutionItemDto.toUiState(current: ShiftingExecuteUiState): ShiftingExecuteUiState =
+        current.copy(
+            loading = false,
+            notFound = false,
+            sourceLabel = (sourceShedName ?: sourceParkName)?.takeIf { it.isNotBlank() } ?: UNKNOWN_LOCATION,
+            destinationLabel = destinationShedName.takeIf { it.isNotBlank() }
+                ?: destinationParkName.takeIf { it.isNotBlank() } ?: UNKNOWN_LOCATION,
+            priority = priority.titleCase(),
+            category = category.titleCase(),
+            animalCount = animalCount,
+            animals = animals.map { ShiftingExecuteAnimalUi(it.goatId, it.displayId, it.tag) },
+            animalsTruncated = animalsTruncated,
+            // A committed write already disables the button; a fresh open enables it.
+            canComplete = !current.result.isCommitted,
+        )
+
+    private fun String.titleCase(): String =
+        if (isEmpty()) this else replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+
+    private companion object {
+        const val ARG_SHIFTING_EVENT_ID = "shifting_event_id"
+        const val KEY_COMPLETE_IDEMPOTENCY = "shiftingExecute.completeKey"
+        const val KEY_PROOF_IDEMPOTENCY = "shiftingExecute.proofKey"
+        const val KEY_OUTBOX_ITEM_ID = "shiftingExecute.outboxItemId"
+        const val META_SHIFTING_EVENT_ID = "shifting_event_id"
+        const val UNKNOWN_LOCATION = "—"
+        const val QUEUED_MESSAGE = "Saved on this phone. The move will sync automatically."
+        const val SYNCED_MESSAGE = "Movement completed. The animals are now at the destination shed."
+        const val VIDEO_QUEUED = "Video saved on this phone. It will upload automatically."
+        const val VIDEO_FAILED = "Couldn't save the video. You can still mark the movement done."
+    }
+}

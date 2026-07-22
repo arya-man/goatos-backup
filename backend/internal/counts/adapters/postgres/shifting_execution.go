@@ -492,7 +492,9 @@ WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = $2::uuid`,
 // skip or repeat movements while one of them pages. The predicate and ORDER BY match
 // shifting_events_pending_execution_idx (and ..._park_idx when park_id is supplied), both partial
 // on event_status='authorized', so a page is an index range scan bounded by the page size rather
-// than a filter over every movement the tenant has ever recorded.
+// than a filter over every movement the tenant has ever recorded. The optional source_shed_id is a
+// residual equality on top of that same authorized index range -- the farm -> shed cascade always
+// pins the park too, so the shed narrows an already park-bounded set, not the whole tenant.
 func (r *Repository) ListShiftingEventsPendingExecution(
 	ctx context.Context, q domain.ShiftingExecutionQuery,
 ) (domain.ShiftingExecutionPage, error) {
@@ -508,6 +510,7 @@ func (r *Repository) ListShiftingEventsPendingExecution(
 		cursorAuthorizedAt any
 		cursorID           any
 		parkFilter         any
+		shedFilter         any
 	)
 	if q.Cursor != nil {
 		cursorAuthorizedAt = q.Cursor.AuthorizedAt.UTC()
@@ -515,6 +518,9 @@ func (r *Repository) ListShiftingEventsPendingExecution(
 	}
 	if q.SourceParkID != "" {
 		parkFilter = q.SourceParkID
+	}
+	if q.SourceShedID != "" {
+		shedFilter = q.SourceShedID
 	}
 
 	// Fetch one extra row to decide whether a next page exists, without a second COUNT query.
@@ -528,6 +534,7 @@ WITH page AS (
     WHERE se.tenant_id = $1::uuid
       AND se.event_status = 'authorized'
       AND ($2::uuid IS NULL OR se.source_park_id = $2::uuid)
+      AND ($7::uuid IS NULL OR se.source_shed_id = $7::uuid)
       AND ($3::timestamptz IS NULL
            OR (se.authorized_at, se.shifting_event_id) < ($3::timestamptz, $4::uuid))
     ORDER BY se.authorized_at DESC, se.shifting_event_id DESC
@@ -575,7 +582,7 @@ LEFT JOIN LATERAL (
 ) preview ON true
 ORDER BY p.authorized_at DESC, p.shifting_event_id DESC`,
 		q.TenantID, parkFilter, cursorAuthorizedAt, cursorID, pageSize+1,
-		domain.MaxShiftingExecutionAnimalPreview)
+		domain.MaxShiftingExecutionAnimalPreview, shedFilter)
 	if err != nil {
 		return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: list shifting events pending execution: %w", err)
 	}

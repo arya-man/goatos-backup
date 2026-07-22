@@ -148,7 +148,7 @@ func (s *ShiftingExecutionService) Cancel(
 // the filter never leaks into the transitions: completion and cancellation address a movement by
 // id and are authorized by permission, not by park.
 func (s *ShiftingExecutionService) ListPendingExecution(
-	ctx context.Context, tenantID, sourceParkID string, pageSize int, cursor string,
+	ctx context.Context, tenantID, sourceParkID, sourceShedID string, pageSize int, cursor string,
 ) (domain.ShiftingExecutionPage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ShiftingExecutionPage{}, ErrMissingRequiredField
@@ -160,6 +160,7 @@ func (s *ShiftingExecutionService) ListPendingExecution(
 	return s.repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
 		TenantID:     tenantID,
 		SourceParkID: strings.TrimSpace(sourceParkID),
+		SourceShedID: strings.TrimSpace(sourceShedID),
 		PageSize:     pageSize,
 		Cursor:       decoded,
 	})

@@ -43,7 +43,7 @@ const (
 type ShiftingExecutionWorkflow interface {
 	Complete(ctx context.Context, in countsapp.CompleteShiftingInput) (domain.ShiftingExecutionResult, bool, error)
 	Cancel(ctx context.Context, in countsapp.CancelShiftingInput) (domain.ShiftingExecutionResult, bool, error)
-	ListPendingExecution(ctx context.Context, tenantID, sourceParkID string, pageSize int, cursor string) (domain.ShiftingExecutionPage, error)
+	ListPendingExecution(ctx context.Context, tenantID, sourceParkID, sourceShedID string, pageSize int, cursor string) (domain.ShiftingExecutionPage, error)
 }
 
 // WithShiftingExecutionWorkflow injects the execution service. A handler without it answers 501
@@ -357,7 +357,8 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 	}
 
 	page, err := h.execution.ListPendingExecution(r.Context(), tenantID,
-		strings.TrimSpace(r.URL.Query().Get("park_id")), pageSize,
+		strings.TrimSpace(r.URL.Query().Get("park_id")),
+		strings.TrimSpace(r.URL.Query().Get("shed_id")), pageSize,
 		strings.TrimSpace(r.URL.Query().Get("cursor")))
 	if err != nil {
 		h.writeShiftingExecutionError(w, r, err)
