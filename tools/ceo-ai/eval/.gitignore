@@ -1,0 +1,4 @@
+# Generated eval reports (HTML/JSON) — do not commit.
+out/
+# Compiled binary from `go build`.
+/eval

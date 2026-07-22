@@ -24,6 +24,8 @@ import (
 	calendarhttp "github.com/vgoats/goatos/backend/internal/calendar/adapters/http"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
+	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
@@ -442,6 +444,40 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 	verificationHandler := verificationhttp.NewHandler(verificationService, log)
+
+	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
+	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the
+	// deterministic keyword planner, mode=fallback), the Cube governed-metric
+	// service (tier 1), the MCP Toolbox curated tools (tier 3), the safety
+	// moderator, durable conversation persistence, plus the observability
+	// adapters so a live POST /ceo-ai/ask emits the assistant_* OTel metrics and
+	// persists an internal step trace the admin-only
+	// GET /ceo-ai/admin/trace/{request_id} endpoint reads back. Each port
+	// degrades independently: an unconfigured Cube/Toolbox/Vertex is nil and the
+	// orchestrator falls to the tiers that are wired instead of failing boot.
+	ceoTraceStore := ceoobs.NewPostgresTraceStore(pool, cfg.Postgres.QueryTimeout)
+	ceoVertex := ceoai.NewVertexProvider(ctx, log)
+	ceoOpts := ceoai.Options{
+		Metrics:   ceoai.NewCubeMetricService(log),
+		Toolbox:   ceoai.NewToolbox(log),
+		Moderator: ceoai.NewModerator(),
+		Convo:     ceoai.NewConversationStore(pool, cfg.Postgres.QueryTimeout),
+		Audit:     ceoobs.NewAuditTraceSink(ceoTraceStore),
+		Telemetry: ceoobs.NewMetrics(),
+		Traces:    ceoTraceStore,
+		// Thread + feedback surface backing GET/POST /ceo-ai/conversations*,
+		// POST /ceo-ai/messages/{id}/feedback, and the leadership starters probe
+		// GET /ceo-ai/starters (the launcher visibility gate).
+		ConvStore:     ceoai.NewConversationHTTPStore(pool, cfg.Postgres.QueryTimeout),
+		FeedbackStore: ceoai.NewFeedbackHTTPStore(pool, cfg.Postgres.QueryTimeout),
+		Logger:        log,
+	}
+	if ceoVertex != nil {
+		ceoOpts.Provider = ceoVertex
+		ceoOpts.Critic = ceoVertex
+	}
+	ceoService := ceoai.Build(ceoOpts)
+
 	bus := eventbus.NewInProcessBus()
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
@@ -570,6 +606,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 	verificationhttp.Register(protectedMux, verificationHandler)
+	ceoService.Register(protectedMux)
 
 	// otelhttp owns real span creation for every protected request (server
 	// spans, W3C trace-context propagation); httpmiddleware.Metrics records

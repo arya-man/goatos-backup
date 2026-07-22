@@ -1,0 +1,246 @@
+# CEO/CXO Leadership Assistant — streaming transport (additive note)
+#
+# This is an ADDITIVE OpenAPI 3.1 fragment describing the Server-Sent-Events
+# (SSE) variant of the leadership assistant ask endpoint. It documents the
+# streaming transport only; the non-streaming JSON response envelope is owned by
+# the base assistant endpoint definition and is reused verbatim here as the SSE
+# "done" event payload and as the buffered-fallback body.
+#
+# Merge intent: these `paths` / `components.schemas` entries are namespaced
+# (path `/api/ceo-ai/ask` with a `stream` query param; schemas prefixed
+# `CeoAiStream*`) so they can be folded into the primary admin-api spec without
+# colliding with existing definitions. Kept as a standalone file to stay
+# additive while the base spec is authored in parallel.
+
+openapi: 3.1.0
+info:
+  title: Mesha Leadership Assistant — Streaming Transport
+  version: 0.1.0
+  description: >
+    SSE token streaming for the read-only leadership assistant. Tenant and role
+    are resolved server-side from the authenticated session, never from the
+    request body. The stream carries ONLY synthesized answer tokens plus one
+    terminal metadata event — never step traces, chain-of-thought, tool
+    timelines, or SQL (Internal Tracking rule).
+
+paths:
+  /api/ceo-ai/ask:
+    post:
+      operationId: askLeadershipAssistantStream
+      summary: Ask the leadership assistant (SSE token streaming).
+      description: >
+        When called for streaming (`stream=1` and/or `stream:true` in the body,
+        with `Accept: text/event-stream`), the answer is streamed as Server-Sent
+        Events. Each SSE frame carries a single-line JSON `data:` payload with a
+        `type` discriminator: zero or more `type:"token"` frames, then exactly
+        one terminal `type:"final"` frame (or one `type:"error"` frame on
+        failure). A matching `event:` line is also emitted for EventSource-style
+        consumers and may be ignored. Heartbeat comment lines (`: keepalive`)
+        keep the idle connection alive and MUST be ignored by clients. Client
+        disconnect cancels the request context, which aborts upstream
+        Vertex/Cube/DB work.
+
+
+        Degrade path: when the client cannot consume a stream, or an intermediary
+        buffers the body, the same endpoint returns a single JSON body matching
+        `CeoAiAnswerEnvelope`. Clients fall back to that automatically.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stream
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1]
+          description: Set to `1` to request SSE token streaming.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CeoAiAskRequest'
+      responses:
+        '200':
+          description: >
+            SSE stream (Content-Type `text/event-stream`) when streaming is
+            negotiated, otherwise a JSON `CeoAiAnswerEnvelope` (buffered
+            fallback). The SSE body is described by `CeoAiStreamEvents` for
+            documentation; it is not a JSON schema.
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: ['no-store'] }
+            X-Accel-Buffering:
+              schema: { type: string, enum: ['no'] }
+              description: Disables proxy buffering so tokens flush live.
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/CeoAiStreamEvents'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CeoAiAnswerEnvelope'
+        '400':
+          description: invalid_json or question_required (pre-stream validation).
+        '401':
+          description: unauthorized — no leadership session tenant/actor.
+        '403':
+          description: leadership_required — actor lacks ceo_internal access.
+        '405':
+          description: method_not_allowed — only POST is accepted.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    CeoAiAskRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          maxLength: 1200
+          description: Raw leadership question. Treated strictly as data.
+        conversation_id:
+          type: string
+          maxLength: 128
+          description: Optional thread to continue; empty starts a new thread.
+
+    # Documentation-only description of the SSE frame sequence. Real bytes are
+    # SSE frames, not one JSON object; this names the `data:` payload variants,
+    # each discriminated by `type`.
+    CeoAiStreamEvents:
+      oneOf:
+        - $ref: '#/components/schemas/CeoAiStreamTokenEvent'
+        - $ref: '#/components/schemas/CeoAiStreamFinalEvent'
+        - $ref: '#/components/schemas/CeoAiStreamErrorEvent'
+      discriminator:
+        propertyName: type
+      description: >
+        One SSE `data:` frame. Sequence: `token` (repeatable), then exactly one
+        of `final` or `error`. Lines beginning `:` are comments (open/keepalive)
+        and are ignored by clients.
+
+    CeoAiStreamTokenEvent:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          const: token
+        text:
+          type: string
+          description: One increment of synthesized answer text (never trace/CoT).
+
+    # The terminal `final` frame = the answer envelope plus a `type` tag.
+    CeoAiStreamFinalEvent:
+      allOf:
+        - type: object
+          required: [type]
+          properties:
+            type:
+              type: string
+              const: final
+        - $ref: '#/components/schemas/CeoAiAnswerEnvelope'
+
+    CeoAiStreamErrorEvent:
+      type: object
+      required: [type, message]
+      properties:
+        type:
+          type: string
+          const: error
+        message:
+          type: string
+          description: Stable, user-safe code — no internal detail.
+          enum:
+            - assistant_unavailable
+            - leadership_required
+            - question_required
+
+    # The `final` payload body and the buffered-fallback JSON body. This is the
+    # ONLY non-token envelope the server emits: answer + the allowed metadata
+    # fields. No step trace / tool timeline / SQL is ever present.
+    CeoAiAnswerEnvelope:
+      type: object
+      required: [answer, source, mode, request_id]
+      additionalProperties: false
+      properties:
+        answer:
+          type: string
+        source:
+          type: string
+        mode:
+          type: string
+          enum: [planned, fallback, refused, partial]
+        request_id:
+          type: string
+        conversation_id:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CeoAiCitation'
+        chart:
+          allOf:
+            - $ref: '#/components/schemas/CeoAiChart'
+          description: >
+            Optional, additive inline visualization. Present only when the
+            question asks to plot/graph/trend/compare/break down OR the
+            grounding tool result is a dimensioned metric series. Every point is
+            drawn verbatim from a real Cube/tool row — never fabricated. Absent
+            for plain scalar answers; clients render the text answer alone.
+
+    CeoAiChart:
+      type: object
+      required: [type, title, x, series]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [bar, line]
+        title:
+          type: string
+        x:
+          type: array
+          description: Category/x-axis labels (park, shed, or time bucket).
+          items:
+            type: string
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/CeoAiChartSeries'
+
+    CeoAiChartSeries:
+      type: object
+      required: [name, data]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        data:
+          type: array
+          description: Values aligned positionally with the parent chart `x`.
+          items:
+            type: number
+
+    CeoAiCitation:
+      type: object
+      required: [surface]
+      properties:
+        surface:
+          type: string
+          description: Human source label, e.g. "Cube · vaccination_overdue".
+        as_of:
+          type: string
+          format: date-time
+          description: Freshness of the underlying read model.
+        tier:
+          type: string
+          enum: [cube, api, toolbox, sql]
+        planned_by_model:
+          type: boolean

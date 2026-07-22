@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh && bash tools/agent-hooks/check-e2e-kernel-integrity.sh && { if command -v code-review-graph >/dev/null 2>&1; then (code-review-graph update --skip-flows --repo . >/dev/null 2>&1 &); fi; } && { if command -v repowise >/dev/null 2>&1 && [ -d .repowise ]; then (nohup repowise update >/dev/null 2>&1 &); fi; } && bash tools/agent-hooks/update-docs-graph.sh"
+            "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh && bash tools/agent-hooks/check-e2e-kernel-integrity.sh && { if command -v code-review-graph >/dev/null 2>&1; then (code-review-graph update --skip-flows --repo . >/dev/null 2>&1 &); fi; } && { if command -v repowise >/dev/null 2>&1 && [ -d .repowise ]; then (nohup repowise update >/dev/null 2>&1 &); fi; } && bash tools/agent-hooks/update-docs-graph.sh && { if [ -f tools/agent-hooks/check-leadership-assistant-coverage.mjs ]; then node tools/agent-hooks/check-leadership-assistant-coverage.mjs 2>&1 || echo 'Reminder: update leadership assistant coverage (docs/ceo-ai + Cube/view/tool/read-API/query-class) or a documented exclusion. See .agents/skills/goatos-leadership-assistant/SKILL.md; make leadership-assistant-coverage-guard is the hard gate.'; fi; true; }"
           }
         ]
       },

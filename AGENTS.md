@@ -1041,6 +1041,17 @@ Do not:
   seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
   route visibility applies to non-founder operators, not to these five builder
   accounts.
+- Leadership assistant coverage invariant: every leadership-relevant table,
+  read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
+  domain event, or official KPI must resolve to a Cube governed metric, a
+  `ceo_ai.*` view, an MCP Toolbox tool, a mapped Mesha read API, or a documented
+  exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The
+  read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
+  Toolbox `ceo_ai.*` tools → read-only SQL fallback). HOW-TO:
+  `.agents/skills/goatos-leadership-assistant/SKILL.md`. Scaffold:
+  `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
+  `make leadership-assistant-coverage-guard` (local CI + PostToolUse nudge for
+  Claude and Codex).
 - Do not reintroduce old staging labels as architecture.
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the
