@@ -36,6 +36,19 @@ import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyTone
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
+import kotlinx.coroutines.flow.flowOf
+import sg.mesha.goatos.feature.counts.ShiftingExecuteAnimalUi
+import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
+import sg.mesha.goatos.feature.counts.ShiftingExecuteUiState
+import sg.mesha.goatos.feature.counts.ShiftingHomeScreen
+import sg.mesha.goatos.feature.counts.ShiftingPendingFilterOption
+import sg.mesha.goatos.feature.counts.ShiftingPendingFilterUi
+import sg.mesha.goatos.feature.counts.ShiftingPendingRowUi
+import sg.mesha.goatos.feature.counts.ShiftingPendingScreen
+import sg.mesha.goatos.feature.counts.ShiftingPendingUiState
+import sg.mesha.goatos.feature.counts.ShiftingTab
 
 /**
  * Screenshot tests for every screen in the gallery (item 7). Each test renders the EXACT same
@@ -313,6 +326,77 @@ class ScreenshotTest {
                     ),
                 ),
                 lastSyncedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    @Test
+    fun shifting_pending() = shot("shifting_pending") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    ShiftingPendingRowUi(
+                        shiftingEventId = "move-1",
+                        sourceLabel = "Shed A · Weaners",
+                        destinationLabel = "Shed C · Growers",
+                        priority = "High",
+                        category = "Growth",
+                        animalCount = 12,
+                        approvedAtLabel = "2026-07-22",
+                    ),
+                    ShiftingPendingRowUi(
+                        shiftingEventId = "move-2",
+                        sourceLabel = "Shed B · Kids",
+                        destinationLabel = "Shed A · Weaners",
+                        priority = "Low",
+                        category = "Health",
+                        animalCount = 1,
+                        approvedAtLabel = "2026-07-22",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        ShiftingHomeScreen(
+            selectedTab = ShiftingTab.PENDING,
+            onSelectTab = {},
+            onBack = {},
+            raiseContent = {},
+            pendingContent = {
+                ShiftingPendingScreen(
+                    state = ShiftingPendingUiState(
+                        filters = ShiftingPendingFilterUi(
+                            parks = listOf(ShiftingPendingFilterOption("p1", "Gandhi Farm")),
+                            selectedParkId = "p1",
+                            selectedParkLabel = "Gandhi Farm",
+                            sheds = listOf(ShiftingPendingFilterOption("s1", "Shed A")),
+                        ),
+                        lastSyncedAt = 0L,
+                    ),
+                    rows = rows,
+                )
+            },
+        )
+    }
+
+    @Test
+    fun shifting_execute() = shot("shifting_execute") {
+        ShiftingExecuteScreen(
+            state = ShiftingExecuteUiState(
+                shiftingEventId = "move-1",
+                loading = false,
+                sourceLabel = "Shed A · Weaners",
+                destinationLabel = "Shed C · Growers",
+                priority = "High",
+                category = "Growth",
+                animalCount = 3,
+                animals = listOf(
+                    ShiftingExecuteAnimalUi("g1", "CBE-0412", "RFID 004821"),
+                    ShiftingExecuteAnimalUi("g2", "CBE-0419", "RFID 004839"),
+                    ShiftingExecuteAnimalUi("g3", "CBE-0421", null),
+                ),
+                videoCaptured = true,
+                videoMessage = "Video saved on this phone. It will upload automatically.",
+                canComplete = true,
             ),
         )
     }
