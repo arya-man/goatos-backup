@@ -86,6 +86,12 @@ SET form_dsl = rewritten.form_dsl,
       'verify_before_apply', true,
       'retention_policy', 'operational_90d'
     ),
+    compatibility = jsonb_set(
+      COALESCE(sv.compatibility, '{}'::jsonb),
+      '{supported_proof_actions}',
+      jsonb_build_array('video.capture', 'video.pick'),
+      true
+    ),
     updated_at = now()
 FROM rewritten
 WHERE sv.sop_version_id = rewritten.sop_version_id;
@@ -137,6 +143,12 @@ SET form_dsl = rewritten.form_dsl,
       'verify_capability', 'proof.verify',
       'verify_before_apply', true,
       'retention_policy', 'operational_90d'
+    ),
+    compatibility = jsonb_set(
+      COALESCE(sv.compatibility, '{}'::jsonb),
+      '{supported_proof_actions}',
+      jsonb_build_array('video.capture'),
+      true
     ),
     updated_at = now()
 FROM rewritten

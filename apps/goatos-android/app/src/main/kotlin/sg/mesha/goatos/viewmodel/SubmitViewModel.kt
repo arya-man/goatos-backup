@@ -31,7 +31,6 @@ import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
-import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_TASK
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -449,15 +448,22 @@ class SubmitViewModel @Inject constructor(
         val task = currentTask ?: return
         if (outboxItemId != null || captureAllowed == false) return
         if (captureInFlightKey != null) return // one capture at a time
-        val activeCaptured = currentProofs.count { it.syncStatus != CaptureSyncStatus.FAILED }
-        if (activeCaptured >= MAX_PROOFS_PER_TASK) return
+        val subject = subjectForFieldKey(key)
+        val policyMaxCount = if (currentProofPolicy.isShedLevelVideo && subject == ProofSubject.SHED) {
+            currentProofPolicy.maximumCount
+        } else {
+            currentProofPolicy.maximumCountPerSubject
+        }
+        val activeCaptured = currentProofs.count {
+            it.proofSubject == subject && it.syncStatus != CaptureSyncStatus.FAILED
+        }
+        if (activeCaptured >= policyMaxCount) return
         if (source == "gallery_picker" && !currentProofPolicy.allowsGalleryPicker) return
         captureInFlightKey = key
         viewModelScope.launch {
             try {
                 val captured = if (source == "gallery_picker") proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
                 if (captured != null) {
-                    val subject = subjectForFieldKey(key)
                     val shedScopeId = selectedShedId.value
                         ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
                     proofCaptureRepository.capture(
@@ -533,7 +539,16 @@ class SubmitViewModel @Inject constructor(
         // shed-completion summary is present, never enqueue the acknowledgement unless the
         // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
         if (currentShedCompletionSummary != null) {
-            if (currentShedCompletionSummary?.submitEnabled != true) return
+            val proofReadiness = currentShedProofReadiness()
+            val formBlock = buildFormRunnerState(currentForm, current)?.blockedReason
+            val ready = if (currentProofPolicy.isShedLevelVideo) {
+                currentShedCompletionSummary?.handledCount == currentShedCompletionSummary?.expectedCount &&
+                    proofReadiness.blockingReason == null &&
+                    formBlock == null
+            } else {
+                currentShedCompletionSummary?.submitEnabled == true && formBlock == null
+            }
+            if (!ready) return
         } else if (buildFormRunnerState(currentForm, current)?.blockedReason != null) {
             return
         }
@@ -742,25 +757,16 @@ class SubmitViewModel @Inject constructor(
                         it.syncStatus == CaptureSyncStatus.IN_FLIGHT
                 }
         }
-        val shedProofs = currentProofs.filter { it.proofSubject == ProofSubject.SHED }
-        val syncedShedProofs = shedProofs.count { it.isCompletedProofRef() }
-        val failedShedProofs = shedProofs.count { !it.isCompletedProofRef() && it.syncStatus == CaptureSyncStatus.FAILED }
-        val uploadingShedProofs = shedProofs.count {
-            !it.isCompletedProofRef() &&
-                it.syncStatus != CaptureSyncStatus.FAILED &&
-                (it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT)
-        }
+        val shedProofReadiness = currentShedProofReadiness()
         val proofSummary = if (currentProofPolicy.isShedLevelVideo) {
-            val minimum = currentProofPolicy.minimumCount.coerceAtLeast(1)
-            val maximum = currentProofPolicy.maximumCount.coerceAtLeast(minimum)
             ProofSummaryState(
                 title = "Shed proof videos",
-                label = "$syncedShedProofs of $maximum shed videos synced · $minimum required",
+                label = "${shedProofReadiness.synced} of ${shedProofReadiness.maximum} shed videos synced · ${shedProofReadiness.required} required",
                 finalizeHint = "Finalize checks the shed-level video proof. It does not upload files.",
-                requiredForComplete = minimum,
-                synced = syncedShedProofs,
-                uploading = uploadingShedProofs,
-                failed = failedShedProofs,
+                requiredForComplete = shedProofReadiness.required,
+                synced = shedProofReadiness.synced,
+                uploading = shedProofReadiness.uploading,
+                failed = shedProofReadiness.failed,
             )
         } else {
             val expectedProofCount = summary?.expectedCount ?: goatIds.size
@@ -789,6 +795,20 @@ class SubmitViewModel @Inject constructor(
         } else null
         val vaccineBreakdown = summary?.vaccineBreakdown.orEmpty()
             .map { VaccineSummaryItem(vaccine = it.vaccine, count = it.count) }
+        val summaryReady = if (summary != null && currentProofPolicy.isShedLevelVideo) {
+            summary.handledCount == summary.expectedCount && shedProofReadiness.blockingReason == null
+        } else {
+            summary?.submitEnabled ?: true
+        }
+        val summaryBlock = if (summary != null && currentProofPolicy.isShedLevelVideo) {
+            when {
+                summary.handledCount != summary.expectedCount -> summary.blockingReason ?: "${summary.expectedCount - summary.handledCount} animals not yet scanned."
+                shedProofReadiness.blockingReason != null -> shedProofReadiness.blockingReason
+                else -> null
+            }
+        } else {
+            summary?.blockingReason
+        }
         return submitPlaceholder().copy(
             eyebrow = task.presentation?.eyebrow.orEmpty(),
             title = task.presentation?.title.orEmpty(),
@@ -806,12 +826,8 @@ class SubmitViewModel @Inject constructor(
             // Submit is gated on its submit_enabled flag (all expected animals handled + proof
             // ready) AND any residual form gate. Generic tasks with no shed summary keep the
             // pre-existing form-only gate.
-            canSubmit = if (summary != null) {
-                summary.submitEnabled && formRunner?.blockedReason == null
-            } else {
-                formRunner?.blockedReason == null
-            },
-            blockingReason = summary?.blockingReason,
+            canSubmit = summaryReady && formRunner?.blockedReason == null,
+            blockingReason = summaryBlock ?: formRunner?.blockedReason,
             syncProgress = 0f,
             proofSummaryTitle = proofSummary.title,
             proofSummarySyncedLabel = proofSummary.label,
@@ -824,6 +840,44 @@ class SubmitViewModel @Inject constructor(
             maxAttempts = 0,
             shedCompletionSummary = shedCompletionSummary,
             vaccineBreakdown = vaccineBreakdown,
+        )
+    }
+
+    private data class ShedProofReadiness(
+        val required: Int,
+        val maximum: Int,
+        val synced: Int,
+        val uploading: Int,
+        val failed: Int,
+        val blockingReason: String?,
+    )
+
+    private fun currentShedProofReadiness(): ShedProofReadiness {
+        val required = currentProofPolicy.minimumCount.coerceAtLeast(1)
+        val maximum = currentProofPolicy.maximumCount.coerceAtLeast(required)
+        val shedProofs = currentProofs.filter { it.proofSubject == ProofSubject.SHED }
+        val localSynced = shedProofs.count { it.isCompletedProofRef() }
+        val serverSynced = currentShedCompletionSummary?.proofReadyCount ?: 0
+        val synced = maxOf(localSynced, serverSynced)
+        val failed = shedProofs.count { !it.isCompletedProofRef() && it.syncStatus == CaptureSyncStatus.FAILED }
+        val uploading = shedProofs.count {
+            !it.isCompletedProofRef() &&
+                it.syncStatus != CaptureSyncStatus.FAILED &&
+                (it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT)
+        }
+        val blockingReason = when {
+            synced >= required -> null
+            uploading > 0 -> "Wait for proof upload to finish before submitting."
+            failed > 0 -> "Proof upload failed. Record or choose this shed video again before submitting."
+            else -> "Add at least $required shed video before submitting."
+        }
+        return ShedProofReadiness(
+            required = required,
+            maximum = maximum,
+            synced = synced,
+            uploading = uploading,
+            failed = failed,
+            blockingReason = blockingReason,
         )
     }
 
@@ -894,10 +948,14 @@ class SubmitViewModel @Inject constructor(
 
         // R50-027: check minimum count enforcement
         val minimumCountViolation = if (currentProofPolicy.minimumCount > 0) {
-            val completedCount = currentProofs.count { it.isCompletedProofRef() }
-            if (completedCount < currentProofPolicy.minimumCount) {
-                "A minimum of ${currentProofPolicy.minimumCount} video proof(s) are required before submitting."
-            } else null
+            if (currentProofPolicy.isShedLevelVideo) {
+                currentShedProofReadiness().blockingReason
+            } else {
+                val completedCount = currentProofs.count { it.isCompletedProofRef() }
+                if (completedCount < currentProofPolicy.minimumCount) {
+                    "A minimum of ${currentProofPolicy.minimumCount} video proof(s) are required before submitting."
+                } else null
+            }
         } else null
 
         // R50-029: pre-index once (which goat ids already have a completed GOAT proof) instead of
@@ -937,8 +995,20 @@ class SubmitViewModel @Inject constructor(
                 !(answer as? JsonPrimitive)?.content.isNullOrBlank()
             FormFieldType.SELECT, FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER ->
                 !(answer as? JsonPrimitive)?.content.isNullOrBlank()
-            FormFieldType.GOAT_SCAN -> currentScans.any { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
-            FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key && it.isCompletedProofRef() }
+            FormFieldType.GOAT_SCAN -> {
+                val summary = currentShedCompletionSummary
+                when {
+                    summary != null && summary.expectedCount > 0 ->
+                        summary.handledCount >= summary.expectedCount
+                    else -> currentScans.any { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
+                }
+            }
+            FormFieldType.VIDEO_PROOF ->
+                if (currentProofPolicy.isShedLevelVideo && subjectForFieldKey(key) == ProofSubject.SHED) {
+                    currentShedProofReadiness().blockingReason == null
+                } else {
+                    currentProofs.any { it.fieldKey == key && it.isCompletedProofRef() }
+                }
             FormFieldType.UNKNOWN -> false
         }
     }
@@ -1083,7 +1153,12 @@ class SubmitViewModel @Inject constructor(
         }
         FormFieldType.GOAT_SCAN -> {
             val matchingScans = currentScans.filter { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
-            val count = matchingScans.size
+            val summary = currentShedCompletionSummary
+            val count = if (summary != null && summary.expectedCount > 0) {
+                maxOf(matchingScans.size, summary.handledCount)
+            } else {
+                matchingScans.size
+            }
             FormFieldUi(
                 key = key,
                 label = label,
@@ -1098,9 +1173,27 @@ class SubmitViewModel @Inject constructor(
         FormFieldType.VIDEO_PROOF -> {
             val items = currentProofs.filter { it.fieldKey == key }
             val isExtraSlot = repeat
-            val activeCaptured = currentProofs.count { it.syncStatus != CaptureSyncStatus.FAILED }
             // R50-027: respect the per-subject cap from policy, not hardcoded MAX_PROOFS_PER_TASK
             val fieldSubject = proofSubject?.let { raw -> ProofSubject.entries.firstOrNull { it.wireValue == raw } } ?: subjectForFieldKey(key)
+            val activeCaptured = currentProofs.count {
+                it.proofSubject == fieldSubject && it.syncStatus != CaptureSyncStatus.FAILED
+            }
+            val shedReadiness = if (currentProofPolicy.isShedLevelVideo && fieldSubject == ProofSubject.SHED) {
+                currentShedProofReadiness()
+            } else {
+                null
+            }
+            val serverProofItems = if (items.isEmpty() && shedReadiness != null && shedReadiness.synced > 0) {
+                (1..shedReadiness.synced).map { index ->
+                    ProofItemUi(
+                        id = "server-shed-proof-$index",
+                        label = "Shed proof video $index",
+                        syncStatus = "SYNCED",
+                    )
+                }
+            } else {
+                emptyList()
+            }
             val policyMaxCount = if (currentProofPolicy.isShedLevelVideo && fieldSubject == ProofSubject.SHED) {
                 currentProofPolicy.maximumCount
             } else {
@@ -1113,10 +1206,10 @@ class SubmitViewModel @Inject constructor(
                 kind = FieldKindUi.VIDEO_PROOF,
                 required = requiredOverride,
                 helpText = helpText,
-                proofCaptured = items.isNotEmpty(),
-                proofItems = items.map { it.toProofItemUi(label, isExtraSlot) },
+                proofCaptured = items.isNotEmpty() || serverProofItems.isNotEmpty(),
+                proofItems = items.map { it.toProofItemUi(label, isExtraSlot) } + serverProofItems,
                 canCaptureMore = if (allowMultiple) {
-                    activeCaptured < policyMaxCount
+                    maxOf(activeCaptured, shedReadiness?.synced ?: 0) < policyMaxCount
                 } else {
                     items.none { it.syncStatus != CaptureSyncStatus.FAILED }
                 },

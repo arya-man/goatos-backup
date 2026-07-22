@@ -1048,6 +1048,12 @@ WITH batch AS (
   WHERE ob.tenant_id = $1::uuid
     AND ob.sop_task_id = $2::uuid
 ),
+task_scope AS (
+  SELECT scope_type, scope_id
+  FROM sop_tasks
+  WHERE tenant_id = $1::uuid
+    AND task_id = $2::uuid
+),
 expected AS (
   SELECT count(*) AS n
   FROM obligation_instances oi
@@ -1075,12 +1081,13 @@ proofed_goat AS (
 ),
 proofed_shed AS (
   SELECT count(*) AS n
-  FROM proof_artifacts
-  WHERE tenant_id = $1::uuid
-    AND scope_type = 'task'
-    AND scope_id = $2::uuid
-    AND subject_type = 'shed'
-    AND upload_state = 'completed'
+  FROM proof_artifacts p
+  JOIN task_scope ts ON ts.scope_type = 'shed' AND p.scope_id = ts.scope_id
+  WHERE p.tenant_id = $1::uuid
+    AND p.scope_type = 'shed'
+    AND p.subject_type = 'shed'
+    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
+    AND p.upload_state = 'completed'
 )
 SELECT COALESCE((SELECT n FROM expected), 0),
        COALESCE((SELECT n FROM handled), 0),
@@ -1129,19 +1136,35 @@ func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskI
 		proofSubject = "goat"
 	}
 	rows, err := r.pool.Query(ctx, `
+WITH task_scope AS (
+  SELECT scope_type, scope_id
+  FROM sop_tasks
+  WHERE tenant_id = $1::uuid
+    AND task_id = $2::uuid
+)
 SELECT proof_id::text,
        proof_type,
        subject_type,
        COALESCE(subject_id::text, ''),
        upload_state,
        metadata::text
-FROM proof_artifacts
-WHERE tenant_id = $1::uuid
-  AND scope_type = 'task'
-  AND scope_id = $2::uuid
-  AND subject_type = $3
-  AND ($3 <> 'goat' OR subject_id IS NOT NULL)
-  AND upload_state = 'completed'
+FROM proof_artifacts p
+LEFT JOIN task_scope ts ON true
+WHERE p.tenant_id = $1::uuid
+  AND p.subject_type = $3
+  AND (
+    ($3 = 'shed'
+      AND p.scope_type = 'shed'
+      AND ts.scope_type = 'shed'
+      AND p.scope_id = ts.scope_id
+      AND (p.subject_id IS NULL OR p.subject_id = p.scope_id))
+    OR
+    ($3 <> 'shed'
+      AND p.scope_type = 'task'
+      AND p.scope_id = $2::uuid
+      AND ($3 <> 'goat' OR p.subject_id IS NOT NULL))
+  )
+  AND p.upload_state = 'completed'
 ORDER BY created_at, proof_id`,
 		tenantID,
 		taskID,
@@ -1682,7 +1705,11 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	for _, item := range keys {
-		result, _ := json.Marshal(map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)})
+		resultMap := map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)}
+		if administeredAt := strings.TrimSpace(item.AdministeredAt); administeredAt != "" {
+			resultMap["administered_at"] = administeredAt
+		}
+		result, _ := json.Marshal(resultMap)
 		_, err := tx.Exec(ctx, `
 INSERT INTO sop_submission_items (tenant_id, submission_id, task_id, goat_id, item_key, state, result)
 VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,

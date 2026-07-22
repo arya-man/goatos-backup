@@ -30,6 +30,13 @@ vendor SDK, no visible or invisible `EditText` (see `rfid-keyboard-reader.md`).
 - Each completed tag is written to **Room first** (see §3), appended to the
   drive's scanned-goat list (deduped by tag), and only then reflected in the UI.
   The UI never owns the scan list as transient state — Room is the source of truth.
+- The RFID capture timestamp is the medical administration timestamp. Android
+  sends the device-capture epoch milliseconds with the draft scan, backend stores
+  it on `sop_task_scan_captures.captured_at`, and vaccination fan-out persists it
+  as `vaccination_completions.administered_at` for that goat. Submission time is
+  only a fallback for non-scan legacy paths. UI must display the scanned time in
+  the operator's local/India time zone so the operator can see the exact recorded
+  vaccination time.
 
 ## 2. Video proof capture
 
@@ -65,6 +72,11 @@ may use camera or gallery only when the SOP explicitly allows gallery.
   submission videos. The selected `content://` video is immediately copied into
   app-private storage before Room/outbox sees it, so background upload does not
   depend on temporary picker permission.
+- Shed-level video capture still uses the same Room/outbox/upload contract as
+  per-goat proof. The submit button must gate on at least one completed shed
+  proof and must cap the proof count at the SOP-declared maximum, currently five.
+  Do not implement a screen-local "one video is enough" assumption; read the min,
+  max, subject, and allowed sources from the backend task/SOP payload.
 - **Implementation:** live camera uses in-app CameraX
   (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, `androidx.camera:camera-view`'s
   `PreviewView`) — see `InAppVideoRecorderOverlay`
@@ -165,5 +177,9 @@ in the emulator with **no physical reader and no real camera**:
   (`android-offline-first.md`).
 - Lists (scanned goats, proof rows) paginate / stay bounded per the mobile
   list-fetch rule; never render an unbounded accumulated blob.
+- Mobile lists must auto-fetch the next page when the user approaches the end of
+  the viewport and may show only a spinner/progress footer. Do not expose a
+  manual "Load more" button on operator work queues, scan rosters, verification
+  queues, alerts, or drawers.
 - Server-driven form: field set, labels, descriptions, required/optional, and the
   video cap come from `form_dsl` / `proof_policy`, not hardcoded on the client.

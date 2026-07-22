@@ -365,7 +365,7 @@ fun ScanScreen(
 
             ScanFooter(
                 label = state.submitLabel.ifBlank { stringResource(R.string.scan_submit_default) },
-                enabled = state.scanEnabled && state.canSubmit,
+                enabled = state.canSubmit,
                 note = state.footNote,
                 onSubmit = { onEvent(ScanEvent.Submit) },
             )

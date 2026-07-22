@@ -68,6 +68,7 @@ class CalendarDayViewModel @Inject constructor(
             .map { it.toCalendarItem() }
         CalendarDayUiState(
             title = date?.let { calendarDayTitle(it) }.orEmpty(),
+            dateKey = dateKey,
             showCompletedHistory = completedHistoryOnly,
             items = items,
             isRefreshing = isRefreshing,
@@ -81,6 +82,7 @@ class CalendarDayViewModel @Inject constructor(
         SharingStarted.WhileSubscribed(5_000),
         CalendarDayUiState(
             title = date?.let { calendarDayTitle(it) }.orEmpty(),
+            dateKey = dateKey,
             showCompletedHistory = completedHistoryOnly,
         )
     )

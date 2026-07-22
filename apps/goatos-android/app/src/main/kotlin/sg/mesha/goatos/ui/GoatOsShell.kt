@@ -156,17 +156,16 @@ fun GoatOsShell(navState: NavState) {
     val profile by profileVm.state.collectAsStateWithLifecycle()
     var showLanguage by remember { mutableStateOf(false) }
 
-    // Bottom-nav reselect pattern (Android nav guidance): pop back to the graph start
-    // and SAVE that destination's state, single-top, and RESTORE state on return. Without
-    // popUpTo(saveState)+restoreState, tapping a tab (or double-tapping it) re-enters a new
-    // back-stack entry each time, re-creating the screen ViewModel and re-firing its load —
-    // which is why rapid taps left the screen stuck "loading". This makes reselect a no-op
-    // that reuses the saved screen state instead of reloading.
+    // Bottom-nav roots are true role roots, not "return me to whatever child screen was last
+    // under this tab" shortcuts. We used to save/restore tab state here; after camera/permission
+    // interruptions that could resurrect a hosted child route as the operator landing page, which
+    // put a Back affordance on a root and hid the bottom bar. Selecting a backend-composed L0 item
+    // now clears any stale child stack and lands on the exact href the backend granted.
     val navigate: (String) -> Unit = { href ->
         navController.navigate(href) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
             launchSingleTop = true
-            restoreState = true
+            restoreState = false
         }
     }
 
