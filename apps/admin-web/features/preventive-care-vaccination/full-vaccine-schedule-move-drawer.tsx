@@ -7,7 +7,7 @@ import {
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { ThemedDatePicker } from "./themed-date-picker";
@@ -15,12 +15,14 @@ import { ThemedDatePicker } from "./themed-date-picker";
 export type ScheduleMoveDrawerRow = {
   eventId: string;
   plannedDate: string;
+  originalPlannedDate: string;
   operatorName: string;
   parkId: string;
   parkName: string;
   animals: number;
   totalDoses: number;
   vaccineCodes: string[];
+  vaccineOriginalDates: Record<string, string>;
   vaccineNames: string[];
   returnTo: string;
 };
@@ -49,10 +51,12 @@ export function ScheduleMoveDrawer({
   const initialRow = rows.find((row) => row.eventId === initialSelectedEventId);
   const [displayedRow, setDisplayedRow] = useState<ScheduleMoveDrawerRow | undefined>(initialRow);
   const [drawerOpen, setDrawerOpen] = useState(Boolean(initialRow));
+  const [selectedVaccineCode, setSelectedVaccineCode] = useState(initialRow?.vaccineCodes[0] ?? "");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const showRow = useCallback((row: ScheduleMoveDrawerRow) => {
     setDisplayedRow(row);
+    setSelectedVaccineCode(row.vaccineCodes[0] ?? "");
     window.requestAnimationFrame(() => setDrawerOpen(true));
   }, []);
 
@@ -129,12 +133,16 @@ export function ScheduleMoveDrawer({
         </div>
         <form action={action} className="schedule-move-form">
           <input type="hidden" name="park_id" value={displayedRow.parkId} />
-          <input type="hidden" name="original_drive_date" value={displayedRow.plannedDate} />
+          <input
+            type="hidden"
+            name="original_drive_date"
+            value={displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate}
+          />
           <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
           <input type="hidden" name="return_to" value={displayedRow.returnTo} />
           <label>
             <span>{copy(pageContract, "schedule.postpone.vaccine")}</span>
-            <select name="vaccine_code" required>
+            <select name="vaccine_code" required value={selectedVaccineCode} onChange={(event) => setSelectedVaccineCode(event.currentTarget.value)}>
               {displayedRow.vaccineCodes.map((code, index) => (
                 <option key={code} value={code}>{displayedRow.vaccineNames[index] ?? code}</option>
               ))}
@@ -145,7 +153,7 @@ export function ScheduleMoveDrawer({
             <ThemedDatePicker
               name="override_date"
               label={copy(pageContract, "schedule.move.date_placeholder")}
-              min={displayedRow.plannedDate}
+              min={todayIso()}
               previousMonthLabel={copy(pageContract, "schedule.move.previous_month")}
               nextMonthLabel={copy(pageContract, "schedule.move.next_month")}
               invalidFutureDateText={copy(pageContract, "schedule.move.invalid_future_date")}

@@ -326,6 +326,12 @@ INSERT INTO vaccination_drive_assignments (
 	if julyBeforeRow.Animals != 84 || julyBeforeRow.TotalDoses != 168 {
 		t.Fatalf("july animals/doses before override = %d/%d, want 84/168", julyBeforeRow.Animals, julyBeforeRow.TotalDoses)
 	}
+	if julyBeforeRow.OriginalPlannedDate != "2026-07-22" {
+		t.Fatalf("july original planned date before override = %q, want 2026-07-22", julyBeforeRow.OriginalPlannedDate)
+	}
+	if julyBeforeRow.VaccineOriginalDates["PPR"] != "2026-07-22" || julyBeforeRow.VaccineOriginalDates["ET_TT"] != "2026-07-22" {
+		t.Fatalf("july vaccine original dates before override = %#v, want PPR/ET_TT at 2026-07-22", julyBeforeRow.VaccineOriginalDates)
+	}
 
 	execProjectionSQL(t, ctx, pool, "move only ppr", `
 INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
@@ -369,6 +375,12 @@ VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
 	}
 	if augustRow.Animals != 84 || augustRow.TotalDoses != 84 {
 		t.Fatalf("august animals/doses = %d/%d, want 84/84 moved vaccine row", augustRow.Animals, augustRow.TotalDoses)
+	}
+	if augustRow.OriginalPlannedDate != "2026-07-22" {
+		t.Fatalf("august original planned date = %q, want 2026-07-22 for moved PPR", augustRow.OriginalPlannedDate)
+	}
+	if augustRow.VaccineOriginalDates["PPR"] != "2026-07-22" {
+		t.Fatalf("august vaccine original dates = %#v, want PPR at 2026-07-22", augustRow.VaccineOriginalDates)
 	}
 
 	execProjectionSQL(t, ctx, pool, "cancel ppr move", `

@@ -16,6 +16,8 @@ test("vaccination schedule is driven by persisted operator assignments", () => {
   assert.match(source, /section\.full_schedule\.operator_title/);
   assert.match(source, /physicalShed/);
   assert.match(source, /partitionLabel/);
+  assert.match(source, /originalPlannedDate/);
+  assert.match(source, /vaccineOriginalDates/);
   assert.match(source, /operatorName/);
   assert.match(source, /groupOperatorDayRows/);
   assert.match(source, /shed\.partitions\.push/);
@@ -143,6 +145,10 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.doesNotMatch(themedDatePickerSource, /className=.*out/);
   assert.doesNotMatch(themedDatePickerSource, /addDays\(parseDateKey\(min\), 1\)/);
   assert.match(themedDatePickerSource, /const minDate = useMemo\(\(\) => parseDateKey\(min\), \[min\]\)/);
+  assert.match(moveDrawerSource, /displayedRow\.vaccineOriginalDates\[selectedVaccineCode\]/);
+  assert.match(moveDrawerSource, /value=\{selectedVaccineCode\}/);
+  assert.match(moveDrawerSource, /onChange=\{\(event\) => setSelectedVaccineCode\(event\.currentTarget\.value\)\}/);
+  assert.match(moveDrawerSource, /min=\{todayIso\(\)\}/);
   assert.match(themedDatePickerSource, /move-date-popover/);
   assert.match(themedDatePickerSource, /move-date-spacer/);
   assert.match(themedDatePickerSource, /document\.addEventListener\("pointerdown", onPointerDown\)/);
@@ -162,10 +168,15 @@ test("closed vaccination schedule drawers do not intercept page clicks", () => {
   assert.match(moveDrawerSource, /tabIndex=\{drawerOpen \? 0 : -1\}/);
 });
 
-test("vaccination schedule year navigation is bounded at 2025", () => {
+test("vaccination schedule month navigation stays in the operating window", () => {
   assert.match(source, /const MIN_SCHEDULE_YEAR = 2025/);
   assert.match(source, /boundedInt\(one\(searchParams \?\? \{\}, "schedule_year"\), CURRENT_YEAR, MIN_SCHEDULE_YEAR, CURRENT_YEAR \+ 5\)/);
-  assert.match(source, /year > MIN_SCHEDULE_YEAR/);
+  assert.match(source, /function scheduleWindowMonths/);
+  assert.match(source, /\[-1, 0, 1\]\.map/);
+  assert.match(source, /const monthWindow = scheduleWindowMonths\(\)/);
+  assert.match(source, /monthWindow\.map/);
+  assert.doesNotMatch(source, /Array\.from\(\{ length: 12 \}, \(_, index\) => index \+ 1\)/);
+  assert.doesNotMatch(source, /copy\(pageContract, "action\.next_year"\)/);
 });
 
 test("full schedule action is hidden while already inside the schedule view", () => {

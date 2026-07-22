@@ -173,6 +173,26 @@ WHERE tenant_id = $1
 		return &out, nil
 	}
 
+	var activeOverrideDate time.Time
+	err = tx.QueryRow(ctx, `
+SELECT override_date
+FROM vaccination_drive_date_overrides
+WHERE tenant_id = $1
+  AND park_id = $2
+  AND lower(btrim(vaccine_code)) = lower(btrim($3))
+  AND original_drive_date = $4
+  AND canceled_at IS NULL
+LIMIT 1`, tenant, park, vaccineCode, original).Scan(&activeOverrideDate)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("obligation: lookup active vaccination drive date override before update: %w", err)
+	}
+	hasActiveOverride := err == nil
+	if hasActiveOverride && !businessDateOnly(activeOverrideDate).Equal(next) {
+		if err := restoreVaccinationDriveAssignmentsForDateOverrideTx(ctx, tx, tenant, park, vaccineCode, original, businessDateOnly(activeOverrideDate)); err != nil {
+			return nil, err
+		}
+	}
+
 	err = tx.QueryRow(ctx, `
 INSERT INTO vaccination_drive_date_overrides (
   tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at
@@ -190,8 +210,10 @@ RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, ove
 	if err != nil {
 		return nil, fmt.Errorf("obligation: upsert vaccination drive date override: %w", err)
 	}
-	if err := splitVaccinationDriveAssignmentsForDateOverrideTx(ctx, tx, tenant, park, vaccineCode, original, next); err != nil {
-		return nil, err
+	if !hasActiveOverride || !businessDateOnly(activeOverrideDate).Equal(next) {
+		if err := splitVaccinationDriveAssignmentsForDateOverrideTx(ctx, tx, tenant, park, vaccineCode, original, next); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("obligation: commit vaccination drive date override: %w", err)

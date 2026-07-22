@@ -4471,6 +4471,15 @@ export interface components {
         VaccinationDriveAssignmentRow: {
             /** Format: date */
             plannedDate: string;
+            /**
+             * Format: date
+             * @description Persisted source drive date before any vaccine-level date override is applied.
+             */
+            originalPlannedDate: string;
+            /** @description Original drive date keyed by vaccine code, used when a mixed-vaccine operator row is moved one vaccine at a time. */
+            vaccineOriginalDates: {
+                [key: string]: string;
+            };
             /** Format: uuid */
             operatorId: string;
             operatorName: string;

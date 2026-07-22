@@ -178,6 +178,11 @@ vaccine must physically split `vaccination_drive_assignments`: sibling vaccines
 remain on the original business date, and the moved vaccine gets its own
 assignment membership on the override date. SQL fallback answers must not count
 stale mixed rows from the original date after an override has been accepted.
+Mixed-vaccine operator rows must also preserve per-vaccine original dates in the
+read API. Leadership assistant and read API consumers must use
+`vaccineOriginalDates[vaccineCode]` when explaining or replaying a vaccine move;
+the visible row date is only the current effective drive date and can belong to
+another vaccine already moved into the same operator row.
 Date-override verification must cover the full round trip: the original month
 shows the vaccine before the override, the original month loses only the moved
 vaccine after the override, the target month gains that vaccine, and clearing
