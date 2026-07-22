@@ -410,7 +410,7 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   }
   checks.push(makeCheck("hrms_roster_resolved", rosterProblems.length, "Every timetable/owner seat must resolve to a reviewed synthetic workforce member.", "Resolve the mapping; no round-robin or silent default owner is allowed.", rosterProblems));
   checks.push(makeCheck("hrms_roster_unique", rosterDuplicates.length, "A center/position seat must occur exactly once.", "Remove duplicate roster assignments.", rosterDuplicates));
-  checks.push(makeCheck("required_vaccination_owners", missingOwnerSeats.length, "Each source center requires Preventive Care Manager, Backup Manager, and Park Head.", "Add explicit reviewed fixture/private-source seats before seeding.", missingOwnerSeats));
+  checks.push(makeCheck("required_vaccination_owners", missingOwnerSeats.length, "Each source center requires Preventive Care Manager, Backup Manager, and Park Head source seats; CPT operator-drive rehearsal maps those three reviewed seats to manager-tier vaccination operators.", "Add explicit reviewed fixture/private-source seats before seeding. For CPT operator-drive rehearsal, Amit, Darshan, and Sagar must all seed as vaccination operators with execute duty and their source week-offs.", missingOwnerSeats));
   const routeSiteProblems = [];
   if (SEED_SOURCE_POLICY.protocol_schedule_policy?.route_site !== "subcutaneous" ||
     SEED_SOURCE_POLICY.protocol_schedule_policy?.route_site_is_not_operator_form_field !== true) {
@@ -452,8 +452,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "shed_owner_coverage",
     ownerCoverageGap,
-    "Every committed source shed and animal must have one reviewed manager plus one reviewed backup; private CPT operator-drive seeds may derive vaccination ownership from the reviewed operator roster.",
-    "Resolve codes/counts/review flags and cover every shed before the DB transaction starts, or use the CPT-only operator roster seed path with Amit, Darshan, and Sagar.",
+    "Every committed source shed and animal must have one reviewed manager plus one reviewed backup; private CPT operator-drive seeds may derive vaccination ownership from the reviewed operator roster after mapping Amit, Darshan, and Sagar to manager-tier vaccination operators.",
+    "Resolve codes/counts/review flags and cover every shed before the DB transaction starts, or use the CPT-only operator roster seed path with Amit, Darshan, and Sagar as equal vaccination operators with week-offs Amit=Friday, Darshan=Sunday, Sagar=Saturday.",
     operatorRosterDrivenCPTSeed ? ["private CPT seed uses operator-roster-driven vaccination assignment"] : managerProblems,
     operatorRosterDrivenCPTSeed ? "warning" : "error",
   ));

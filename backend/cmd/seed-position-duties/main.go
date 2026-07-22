@@ -6,10 +6,10 @@
 // Derivation (no invented data -- every row is a projection of an existing
 // active workforce_positions seat):
 //   - module_code comes from the position_code PREFIX (see modulePrefixes).
-//     Backup slots usually cover the duty of whichever seat they stand in for,
-//     but the reviewed CPT vaccination roster treats Backup Manager as one of
-//     the three daily vaccination operators. Therefore backup_manager is an
-//     explicit pc.vaccination execute duty; other backup slots are skipped.
+//     The reviewed CPT vaccination roster treats Amit, Darshan, and Sagar as
+//     manager-tier vaccination operators, not support-only/park-head-only
+//     users. Therefore vaccination_operator_* positions are explicit
+//     pc.vaccination execute duty rows.
 //   - duty_type = 'execute' for surfaced vaccination operator positions even
 //     when their HR/title tier is manager/head; that tier does not remove them
 //     from drive execution. Other modules still use 'manage' for supervisory
@@ -66,6 +66,7 @@ type modulePrefix struct {
 // modulePrefixes is ordered longest-prefix-first so a more specific prefix
 // (e.g. "preventive_care") always wins over a shorter accidental match.
 var modulePrefixes = []modulePrefix{
+	{prefix: "vaccination_operator", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "preventive_care", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "backup_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "shed_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},

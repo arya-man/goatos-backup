@@ -35,6 +35,12 @@ new buildings; source audits, fixture guards, seeders, read APIs, and frontend
 tables must aggregate owner/count totals at physical-shed grain and carry the
 partition only as drive-assignment detail.
 
+Operator-role drift is part of the same failure mode. In CPT operator-drive
+rehearsals, Amit, Darshan, and Sagar are all manager-tier vaccination operators;
+none of them is support-only, backup-only, or park-head-only. Their week-offs
+must come from HRMS/timetable seed data and reduce the available operator pool
+for that business date before animal-cap splitting runs.
+
 ## Sub-500ms serving-read budget
 
 Every operator-facing API, SSR page load, dashboard read, schedule/calendar
@@ -589,3 +595,4 @@ change is a false-green seed and is blocked by the seed fixture guard.
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create read-only SQL views (ceo_ai.vaccination_operator_status, vaccination_shed_status, vaccination_dose_pickup, action_center) that query canonical vaccination/obligation/workforce tables. They do not modify the seed source data, HRMS schema, vaccination protocol rules, or SOP contracts. The reported reads stay tenant-scoped, indexed, and bounded by the 5k-50k envelope exemption for canonical-read screens; they are not full-tenant recomputes or projection-drift anti-patterns. -->
+<!-- Coupling review 2026-07-22: CPT-only operator-drive rehearsal role mapping does not change raw fixture bytes. It changes seed interpretation and validation: Amit, Darshan, and Sagar must seed as equal manager-tier vaccination_operator_* positions with execute duty and source week-offs, and drive splitting must use DB-backed availability for the planned date. -->
