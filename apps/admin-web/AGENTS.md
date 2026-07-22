@@ -55,14 +55,16 @@ own non-shared FE/BE ports plus a throwaway DB and must not be stopped or modifi
 while recovering the shared service. `make local-stack-service-guard` enforces
 this boundary in local CI for both Claude and Codex.
 
-> **Local bearer token now self-refreshes — a restart is NO LONGER needed for an
-> expired token.** In local bearer mode (`GOATOS_ENV=local` + `GOATOS_AUTH_MODE=bearer`),
+> **Local bearer token now self-refreshes — every dev start must use the wrapper,
+> including custom ports.** In local bearer mode (`GOATOS_ENV=local` + `GOATOS_AUTH_MODE=bearer`),
 > SSR self-mints a fresh short-lived HS256 token per request via
 > `lib/api/local-dev-token.ts` (matching `backend/internal/platform/auth.MintHS256Token`,
-> strictly local-only). The old failure — `dev:local` mints one boot-time token, it
-> hits the 24h cap, then every SSR fetch 401s `invalid_bearer_token` until restart —
-> is fixed permanently; the static `GOATOS_BEARER_TOKEN` is only a fallback. Restart
-> for code/build reasons, not to refresh an expired token.
+> strictly local-only). `npm run dev` and `npm run dev:local` must both route through
+> `scripts/run-local-next.mjs`; custom ports such as `npm run dev -- --port 3318`
+> still use that wrapper. Starting plain `next dev` bypasses `GOATOS_AUTH_*` env and
+> causes `/admin-web/bootstrap` to fail with `invalid_bearer_token`, so it is an
+> anti-pattern. The static `GOATOS_BEARER_TOKEN` is only a fallback. Restart for
+> code/build reasons, not to refresh an expired token.
 
 Operational hygiene when you do restart/rebuild (so a restart is clean, not
 destructive):

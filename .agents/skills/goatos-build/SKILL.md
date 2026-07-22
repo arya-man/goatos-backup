@@ -368,9 +368,13 @@ one product; this skill is the navigation layer.
   into a false empty/error screen while the developer machine is compiling or
   running CI. The supervisor must fast-forward only a clean ancestor checkout,
   re-exec before DB preparation, and restart FE and BE together when either
-  fails or `origin/main` advances. An isolated E2E stack is unrelated: it must
-  have non-shared FE/BE ports and an explicit throwaway DB; never stop, sync,
-  seed, migrate, reuse, or delete it while fixing the shared stack. Run `make
+  fails or `origin/main` advances. Admin-web dev startup must always go through
+  `apps/admin-web/scripts/run-local-next.mjs`, including isolated/custom ports
+  such as `--port 3318`. Plain `next dev` bypasses the local bearer environment
+  and causes `/admin-web/bootstrap` to fail with `invalid_bearer_token`. An
+  isolated E2E stack is unrelated: it must have non-shared FE/BE ports and an
+  explicit throwaway DB; never stop, sync, seed, migrate, reuse, or delete it
+  while fixing the shared stack. Run `make
   local-stack-service-guard`; it is a registered, required standard local-CI
   guard. Canonical operating details:
   `docs/runbooks/local-full-stack-rehearsal.md`.
