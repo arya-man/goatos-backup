@@ -4083,7 +4083,7 @@ func TestCalendarHeldDriveTargetsReturnPlannedDateNotStaleDueAt(t *testing.T) {
 	}
 }
 
-func TestCalendarDriveUsesOperatorAssignmentDateInsteadOfStaleBatchDate(t *testing.T) {
+func TestCalendarDriveAssignmentDateShiftOneToManyParkScopeStatusBucketsPagination(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
