@@ -823,16 +823,18 @@ type importStats struct {
 //     maintainer-approved rule is that field operators record birth and death from the app
 //     (docs/runbooks/android-dev-device.md). Health/Kidding seats are the ones present at a
 //     kidding or a death, and PC seats are in the sheds daily.
-//   - feed -> feed_direction and breeding -> breeding are registry-declared "soon" modules.
-//     Granting them now is harmless (a soon module contributes no nav and does not count
-//     toward the drawer threshold) and means those departments light up automatically when
-//     the module ships instead of needing a seed change then.
+//   - preventive_care -> feed_direction: maintainer decision 2026-07-22 — field operators now
+//     see the Feed vertical on the phone (they dispatch and pack what the direction says). The
+//     matching protocol.read / feed_packing.read grants were added to RoleOperator in the same
+//     change; this module grant is what makes the Feed module actually render for a PC operator.
+//   - feed -> feed_direction and breeding -> breeding light those departments up too. breeding is
+//     a registry-declared "soon" module (harmless to grant early); feed_direction is available.
 //
 // Departments with no operational module today (procurement, growth, infrastructure, milk,
 // sales) are deliberately absent. A department key that does not exist in this tenant is
 // skipped by the INSERT ... SELECT below, never an error.
 var defaultDepartmentModules = map[string][]string{
-	"preventive_care": {"vaccination", "counts"},
+	"preventive_care": {"vaccination", "counts", "feed_direction"},
 	"health":          {"counts"},
 	"feed":            {"feed_direction"},
 	"breeding":        {"breeding"},

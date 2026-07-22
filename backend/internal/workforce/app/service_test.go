@@ -316,6 +316,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "birth_death", Label: "Birth/Death", Href: "/counts/birth-death"},
 				{Key: "shifting", Label: "Shifting", Href: "/counts/shifting"},
+				{Key: "awaiting_rfid", Label: "Awaiting RFID", Href: "/counts/promote"},
 			},
 		},
 		{
@@ -644,9 +645,9 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nav item keys inside the counts module, "" => module absent
 	}{
-		{permissions.RoleOperator, []string{"birth_death", "shifting"}},
-		{permissions.RoleParkHead, []string{"birth_death", "shifting"}},
-		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting"}},
+		{permissions.RoleOperator, []string{"birth_death", "shifting", "awaiting_rfid"}},
+		{permissions.RoleParkHead, []string{"birth_death", "shifting", "awaiting_rfid"}},
+		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "awaiting_rfid"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
 	}
@@ -700,7 +701,8 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 //     the leadership bar and switch to Feed).
 //   - an org Head/Director tier holds ProtocolRead but not FeedPackingRead, so they get Feed
 //     Direction only — they may read the sheet but not draw the bags.
-//   - an operator holds neither, so the module is fully gated away and never appears.
+//   - an operator now holds BOTH feed reads (maintainer decision 2026-07-22), so they see the full
+//     Feed module — Direction (dispatch sheet) and Packing (the bag worklist).
 //
 // The Android shell renders this composed bar verbatim; this is the backend authority for it.
 func TestFeedModuleRoleMatrix(t *testing.T) {
@@ -713,7 +715,7 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
-		{permissions.RoleOperator, nil},
+		{permissions.RoleOperator, []string{"feed_direction", "feed_packing"}},
 		{permissions.RoleVerifier, nil},
 	}
 	for _, tc := range tests {
@@ -786,14 +788,14 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 		return true
 	}
 
-	// The headline requirement: an operator's Counts bar is exactly two capture tabs.
-	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth_death", "shifting"}) {
-		t.Fatalf("operator counts bar=%v want exactly [birth_death shifting]", got)
+	// The headline requirement: an operator's Counts bar is the capture tabs (no approval/census).
+	if got := countsBar(permissions.RoleOperator); !equal(got, []string{"birth_death", "shifting", "awaiting_rfid"}) {
+		t.Fatalf("operator counts bar=%v want exactly [birth_death shifting awaiting_rfid]", got)
 	}
 
-	// A park head no longer gets an approval tab — its Counts bar is the same two capture tabs.
-	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth_death", "shifting"}) {
-		t.Fatalf("park_head counts bar=%v want [birth_death shifting] (no approval on mobile)", got)
+	// A park head no longer gets an approval tab — its Counts bar is the same capture tabs.
+	if got := countsBar(permissions.RoleParkHead); !equal(got, []string{"birth_death", "shifting", "awaiting_rfid"}) {
+		t.Fatalf("park_head counts bar=%v want [birth_death shifting awaiting_rfid] (no approval on mobile)", got)
 	}
 
 	// No role gets an "approval" or a "You" tab from Counts on mobile.

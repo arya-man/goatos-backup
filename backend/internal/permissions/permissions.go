@@ -242,6 +242,14 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
 		CountsWrite: {},
+		// Maintainer decision 2026-07-22: operators now see the Feed vertical on the phone. This
+		// reverses the earlier "deliberately NOT granted to RoleOperator" note on the feed reads --
+		// the operator dispatches and packs what the direction says, and the FeedPackingRead comment
+		// above already anticipated this widening. ProtocolRead gates Feed Direction (the generated
+		// dispatch sheet), FeedPackingRead gates the per-shed packing worklist. Both are READ-ONLY;
+		// authoring the ration grid (feed_config.write) stays with the CEO/CXO tier and is NOT added.
+		ProtocolRead:    {},
+		FeedPackingRead: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},

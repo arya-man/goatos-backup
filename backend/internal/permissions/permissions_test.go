@@ -342,8 +342,10 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolRead {
 			t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolRead)
 		}
-		if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
-			t.Fatalf("operator must not authorize Feed Direction read route: %s", item.path)
+		// Maintainer decision 2026-07-22: operators now hold protocol.read, so they DO authorize the
+		// Feed Direction read surface (the Feed vertical is visible to the operator on the phone).
+		if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("operator should authorize Feed Direction read route via protocol.read: %s", item.path)
 		}
 		if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("park head should authorize Feed Direction read route via protocol.read: %s", item.path)
