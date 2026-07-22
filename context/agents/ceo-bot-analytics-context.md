@@ -165,6 +165,14 @@ animals; do not repeatedly query workforce availability per candidate date or
 treat assignment rows as dose counts. The `/vaccination/execution` read API
 exposes `physicalShed` and `partition` separately so leadership answers can
 group `Gandhi 1/2/3` as one physical shed with partition-level detail.
+The admin operator schedule is one visible row per
+planned-date/operator/park. Its move-date action is not frontend state: it posts
+a vaccine-level date override to `/vaccination/schedule/drive-date-overrides`.
+The planner/sweeper consumes that override to recalculate the affected vaccine
+assignment dates while preserving vaccine spacing, combo, buffer, and
+operator-capacity rules. Leadership answers about postponed vaccination drives
+should therefore mention the recorded override and the regenerated assignment
+rows, not treat the old inline schedule as authoritative after a move.
 
 Common questions:
 

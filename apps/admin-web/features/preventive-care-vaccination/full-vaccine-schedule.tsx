@@ -1,6 +1,7 @@
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {
   getVaccinationDriveAssignments,
@@ -15,9 +16,11 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag } from "@/components/ui-primitives";
 import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
+import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
+const MIN_SCHEDULE_YEAR = 2025;
 const PAGE_LIMIT = 2000;
 
 type DriveAssignmentRow = VaccinationDriveAssignmentResponse["rows"][number];
@@ -47,7 +50,7 @@ type OperatorDayScheduleRow = {
 };
 
 function selectedScheduleYear(searchParams: RouteSearchParams | undefined): number {
-  return boundedInt(one(searchParams ?? {}, "schedule_year"), CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR + 5);
+  return boundedInt(one(searchParams ?? {}, "schedule_year"), CURRENT_YEAR, MIN_SCHEDULE_YEAR, CURRENT_YEAR + 5);
 }
 
 function selectedScheduleMonth(searchParams: RouteSearchParams | undefined): number {
@@ -106,6 +109,20 @@ function scheduleDrawerHref(closeHref: string, row: OperatorDayScheduleRow): str
   return `${closeHref}#schedule_event=${encodeURIComponent(row.key)}`;
 }
 
+function scheduleMoveHref(closeHref: string, row: OperatorDayScheduleRow): string {
+  return `${closeHref}#schedule_move=${encodeURIComponent(row.key)}`;
+}
+
+function scheduleMoveRedirect(returnTo: string, params: Record<string, string>): string {
+  const [pathAndSearch, hash] = returnTo.split("#", 2);
+  const base = pathAndSearch.startsWith("/") ? pathAndSearch : "/vaccination?view=schedule";
+  const url = new URL(base, "http://mesha.local");
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  return `${url.pathname}${url.search}${hash ? `#${hash}` : ""}`;
+}
+
 function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope): ScheduleDrawerRow[] {
   return rows.map((row) => ({
     eventId: row.key,
@@ -124,6 +141,21 @@ function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageCon
         href,
       };
     }),
+  }));
+}
+
+function moveDrawerRows(rows: OperatorDayScheduleRow[], closeHref: string): ScheduleMoveDrawerRow[] {
+  return rows.map((row) => ({
+    eventId: row.key,
+    plannedDate: row.plannedDate,
+    operatorName: row.operatorName,
+    parkId: row.parkId,
+    parkName: row.parkName,
+    animals: row.animals,
+    totalDoses: row.totalDoses,
+    vaccineCodes: row.vaccineCodes,
+    vaccineNames: row.vaccineNames,
+    returnTo: closeHref,
   }));
 }
 
@@ -197,8 +229,11 @@ async function postponeDriveDateAction(formData: FormData) {
   const originalDriveDate = String(formData.get("original_drive_date") ?? "").trim();
   const overrideDate = String(formData.get("override_date") ?? "").trim();
   const reason = String(formData.get("reason") ?? "").trim();
-  if (!parkID || !vaccineCode || !originalDriveDate || !overrideDate) return;
-  await postponeVaccinationDriveDate({
+  const returnTo = String(formData.get("return_to") ?? "").trim();
+  if (!parkID || !vaccineCode || !originalDriveDate || !overrideDate) {
+    redirect(scheduleMoveRedirect(returnTo, { schedule_move_result: "missing" }));
+  }
+  const result = await postponeVaccinationDriveDate({
     park_id: parkID,
     vaccine_code: vaccineCode,
     original_drive_date: originalDriveDate,
@@ -206,6 +241,17 @@ async function postponeDriveDateAction(formData: FormData) {
     reason,
   });
   revalidatePath("/vaccination");
+  if (!result.ok) {
+    redirect(scheduleMoveRedirect(returnTo, {
+      schedule_move_result: "error",
+      schedule_move_code: result.error.code ?? result.error.kind,
+    }));
+  }
+  redirect(scheduleMoveRedirect(returnTo, {
+    schedule_move_result: "recorded",
+    schedule_move_vaccine: vaccineCode,
+    schedule_move_date: overrideDate,
+  }));
 }
 
 async function loadDriveSchedule(scope: Scope, year: number, month: number): Promise<ApiResult<VaccinationDriveAssignmentResponse>> {
@@ -298,7 +344,10 @@ export async function VaccinationFullSchedule({
   const animals = rows.reduce((sum, row) => sum + row.animals, 0);
   const closeHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
   const selectedScheduleEvent = one(searchParams ?? {}, "schedule_event");
+  const selectedScheduleMove = one(searchParams ?? {}, "schedule_move");
+  const scheduleMoveStatus = one(searchParams ?? {}, "schedule_move_result");
   const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope);
+  const scheduleMoveRows = moveDrawerRows(operatorDayRows, closeHref);
 
   function yearHref(nextYear: number) {
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(month) });
@@ -317,9 +366,11 @@ export async function VaccinationFullSchedule({
           <span className="muted small">{copy(pageContract, "section.full_schedule.operator_note")}</span>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <Link href={yearHref(year - 1)} className="chip" scroll={false} prefetch={false}>
-          {year - 1}
-        </Link>
+        {year > MIN_SCHEDULE_YEAR ? (
+          <Link href={yearHref(year - 1)} className="chip" scroll={false} prefetch={false}>
+            {year - 1}
+          </Link>
+        ) : null}
         <Link href={yearHref(year)} className="chip on" scroll={false} prefetch={false} aria-current="page">
           {year}
         </Link>
@@ -361,6 +412,13 @@ export async function VaccinationFullSchedule({
           </Link>
         ))}
       </div>
+
+      {scheduleMoveStatus ? (
+        <div className={`schedule-move-banner ${scheduleMoveStatus === "recorded" ? "tone-ok" : "tone-danger"}`} role="status">
+          <b>{copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_title" : scheduleMoveStatus === "missing" ? "schedule.move.missing_title" : "schedule.move.error_title")}</b>
+          <span>{copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_body" : scheduleMoveStatus === "missing" ? "schedule.move.missing_body" : "schedule.move.error_body")}</span>
+        </div>
+      ) : null}
 
       {!result.ok ? (
         <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
@@ -477,18 +535,9 @@ export async function VaccinationFullSchedule({
                   </td>
                   <td><LocalOverlayLink href={drawerHref} className="celllink schedule-status-link" scroll={false}><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></LocalOverlayLink></td>
                   <td>
-                    <form action={postponeDriveDateAction} className="schedule-postpone-form">
-                      <input type="hidden" name="park_id" value={row.parkId} />
-                      <input type="hidden" name="original_drive_date" value={row.plannedDate} />
-                      <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
-                      <select name="vaccine_code" aria-label={copy(pageContract, "schedule.postpone.vaccine")} required>
-                        {row.vaccineCodes.map((code) => (
-                          <option key={code} value={code}>{code}</option>
-                        ))}
-                      </select>
-                      <input name="override_date" aria-label={copy(pageContract, "schedule.postpone.new_date")} type="date" min={row.plannedDate} required />
-                      <button className="btn sm" type="submit">{copy(pageContract, "schedule.postpone.action")}</button>
-                    </form>
+                    <LocalOverlayLink href={scheduleMoveHref(closeHref, row)} className="celllink schedule-status-link" scroll={false}>
+                      <span className="btn sm">{copy(pageContract, "schedule.move.open")}</span>
+                    </LocalOverlayLink>
                   </td>
                 </tr>
                 );
@@ -500,6 +549,13 @@ export async function VaccinationFullSchedule({
             initialSelectedEventId={selectedScheduleEvent}
             closeHref={closeHref}
             pageContract={pageContract}
+          />
+          <ScheduleMoveDrawer
+            rows={scheduleMoveRows}
+            initialSelectedEventId={selectedScheduleMove}
+            closeHref={closeHref}
+            pageContract={pageContract}
+            action={postponeDriveDateAction}
           />
         </div>
       )}
