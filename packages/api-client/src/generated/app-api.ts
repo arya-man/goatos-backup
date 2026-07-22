@@ -4817,6 +4817,8 @@ export interface components {
         PromoteIdentifierRequest: {
             /** @description The permanent RFID to attach as the goat's primary animal_identifier_1. */
             permanent_identifier: string;
+            /** @description Optional second permanent RFID, attached as the goat's non-primary animal_identifier_2 in the SAME atomic promotion (exactly like the birth flow's optional second identifier). Omit or send empty to attach only the primary. When present it must differ from permanent_identifier. */
+            animal_identifier_2?: string;
             /** @description The goat's current optimistic-concurrency token (from the temporary-tagged list). */
             row_version: number;
         };

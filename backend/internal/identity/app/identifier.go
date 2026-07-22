@@ -159,8 +159,9 @@ type PromoteTemporaryIdentifierInput struct {
 }
 
 type promoteTemporaryIdentifierBody struct {
-	PermanentIdentifier string `json:"permanent_identifier"`
-	RowVersion          *int   `json:"row_version"`
+	PermanentIdentifier string  `json:"permanent_identifier"`
+	AnimalIdentifier2   *string `json:"animal_identifier_2,omitempty"`
+	RowVersion          *int    `json:"row_version"`
 }
 
 // PromoteTemporaryIdentifier assigns a permanent RFID (animal_identifier_1) to a goat that currently
@@ -187,6 +188,22 @@ func (s *Service) PromoteTemporaryIdentifier(ctx context.Context, input PromoteT
 	if body.RowVersion == nil || *body.RowVersion < 1 {
 		return nil, BadRequest("invalid_row_version", "row_version must be at least 1")
 	}
+	// Optional second permanent RFID (animal_identifier_2), exactly like the birth flow. Absent or
+	// blank means only the primary is attached; when present it must be a valid distinct value.
+	secondaryValue := ""
+	secondaryNormalized := ""
+	if body.AnimalIdentifier2 != nil {
+		secondaryValue = strings.TrimSpace(*body.AnimalIdentifier2)
+		if secondaryValue != "" {
+			if len(secondaryValue) > 200 {
+				return nil, BadRequest("invalid_animal_identifier_2", "animal_identifier_2 must be between 1 and 200 characters")
+			}
+			if secondaryValue == body.PermanentIdentifier {
+				return nil, BadRequest("duplicate_animal_identifier_2", "animal_identifier_2 must differ from the primary RFID")
+			}
+			secondaryNormalized = normalizeIdentifier("animal_identifier_2", secondaryValue)
+		}
+	}
 	route := fmt.Sprintf("/app/counts/goats/%s/promote-identifier", goatID)
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, promoteTemporaryIdentifierCommand, route, goatID, input.RawBody)
 	if err != nil {
@@ -207,6 +224,8 @@ func (s *Service) PromoteTemporaryIdentifier(ctx context.Context, input PromoteT
 		GoatID:               goatID,
 		PermanentValue:       body.PermanentIdentifier,
 		NormalizedValue:      normalizeIdentifier("animal_identifier_1", body.PermanentIdentifier),
+		SecondaryValue:       secondaryValue,
+		SecondaryNormalized:  secondaryNormalized,
 		EvidenceRefs:         evidence,
 		RowVersion:           *body.RowVersion,
 		Reason:               "Operator promoted a temporary tag to a permanent RFID.",

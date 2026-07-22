@@ -12933,6 +12933,14 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+        animal_identifier_2:
+          description: >-
+            Optional second permanent RFID, attached as the goat's non-primary animal_identifier_2 in
+            the SAME atomic promotion (exactly like the birth flow's optional second identifier). Omit
+            or send empty to attach only the primary. When present it must differ from
+            permanent_identifier.
+          type: string
+          maxLength: 200
         row_version:
           description: The goat's current optimistic-concurrency token (from the temporary-tagged list).
           type: integer
