@@ -39,6 +39,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.flowOf
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
+import sg.mesha.goatos.feature.counts.BirthDeathScreen
+import sg.mesha.goatos.feature.counts.BirthDeathUiState
 import sg.mesha.goatos.feature.counts.ShiftingExecuteAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
 import sg.mesha.goatos.feature.counts.ShiftingExecuteUiState
@@ -375,6 +378,20 @@ class ScreenshotTest {
                     rows = rows,
                 )
             },
+        )
+    }
+
+    @Test
+    fun birth_temporary_tag() = shot("birth_temporary_tag") {
+        BirthDeathScreen(
+            state = BirthDeathUiState(
+                idKind = BIRTH_ID_KIND_TEMPORARY,
+                tag = "TEMP-42",
+                species = "goat",
+                sex = "female",
+                dob = "2026-07-20",
+                canSubmit = true,
+            ),
         )
     }
 

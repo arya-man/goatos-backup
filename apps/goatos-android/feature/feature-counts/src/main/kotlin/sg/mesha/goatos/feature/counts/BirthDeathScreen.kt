@@ -53,6 +53,10 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 enum class BirthDeathMode { BIRTH, DEATH }
 
+/** Whether the newborn's tag is a permanent RFID or a provisional temporary tag. */
+const val BIRTH_ID_KIND_PERMANENT = "permanent"
+const val BIRTH_ID_KIND_TEMPORARY = "temporary"
+
 /**
  * Draft fields for both modes.
  *
@@ -66,6 +70,8 @@ enum class BirthDeathMode { BIRTH, DEATH }
 data class BirthDeathUiState(
     val mode: BirthDeathMode = BirthDeathMode.BIRTH,
     // Birth — identity + dates
+    /** [BIRTH_ID_KIND_PERMANENT] (RFID) or [BIRTH_ID_KIND_TEMPORARY] (provisional tag). */
+    val idKind: String = BIRTH_ID_KIND_PERMANENT,
     val tag: String = "",
     val species: String = "goat",
     val sex: String = "female",
@@ -123,7 +129,7 @@ sealed interface BirthDeathEvent {
  * automatically to the day the entry is recorded (see [BirthDeathViewModel]).
  */
 enum class BirthDeathField {
-    TAG, SPECIES, SEX, BREED, DOB, DAM_ID, REASON,
+    ID_KIND, TAG, SPECIES, SEX, BREED, DOB, DAM_ID, REASON,
 }
 
 // ---------------------------------------------------------------------------
@@ -201,12 +207,25 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
     onEvent: (BirthDeathEvent) -> Unit,
 ) {
     item(key = "birth-identity") {
+        val isTemporary = state.idKind == BIRTH_ID_KIND_TEMPORARY
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             CountsFieldGroupTitle(text = stringResource(R.string.counts_group_identity))
+            // Permanent RFID vs temporary tag: a kid born before its permanent RFID is available is
+            // recorded with a provisional tag now and promoted to the RFID later (Convert tab).
+            CountsSegmented(
+                options = listOf(
+                    BIRTH_ID_KIND_PERMANENT to stringResource(R.string.counts_id_kind_permanent),
+                    BIRTH_ID_KIND_TEMPORARY to stringResource(R.string.counts_id_kind_temporary),
+                ),
+                selectedKey = state.idKind,
+                onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, it)) },
+            )
             CountsTextField(
                 value = state.tag,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
-                label = stringResource(R.string.counts_field_tag1),
+                label = stringResource(
+                    if (isTemporary) R.string.counts_field_temp_tag else R.string.counts_field_tag1,
+                ),
                 required = true,
             )
             CountsSegmented(

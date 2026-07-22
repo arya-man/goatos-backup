@@ -388,12 +388,64 @@ func TestCreateAdminGoatRejectsMissingAnimalIdentifier1(t *testing.T) {
 		RawBody: []byte(fmt.Sprintf(`{"animal_identifier_2":"A2-ONLY","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
 			testPark, testShed)),
 	})
+	// With neither a permanent animal_identifier_1 NOR a temporary_identifier, the create is rejected:
+	// animal_identifier_2 alone is not a primary identity.
 	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" || appErr.Message != "Animal ID 1 is required" {
-		t.Fatalf("err = %v, want invalid_goat_create Animal ID 1 required", err)
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" ||
+		appErr.Message != "a permanent identifier (animal_identifier_1) or a temporary_identifier is required" {
+		t.Fatalf("err = %v, want invalid_goat_create requiring a permanent-or-temporary identifier", err)
 	}
 	if len(repo.validateAdminGoatCreateCmds) != 0 || len(repo.createAdminGoatCmds) != 0 {
-		t.Fatalf("missing Animal ID 1 must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+		t.Fatalf("missing primary identity must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+	}
+}
+
+// TestCreateAdminGoatAcceptsTemporaryIdentifierOnly proves a newborn can be created with only a
+// temporary tag: it is stored as a temporary_tag identifier (primary within its own type) and NO
+// animal_identifier_1 is written, so the kid still reads as untagged until it is promoted.
+func TestCreateAdminGoatAcceptsTemporaryIdentifierOnly(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-temp-only",
+		TraceID:        testTrace,
+		RawBody: []byte(fmt.Sprintf(`{"temporary_identifier":"TEMP-42","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"birth","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
+			testPark, testShed)),
+	})
+	if err != nil {
+		t.Fatalf("CreateAdminGoat with temporary_identifier: %v", err)
+	}
+	if len(repo.createAdminGoatCmds) != 1 {
+		t.Fatalf("create calls = %d, want 1", len(repo.createAdminGoatCmds))
+	}
+	got := repo.createAdminGoatCmds[0].Identifiers
+	if len(got) != 1 || got[0].IdentifierType != "temporary_tag" || got[0].IdentifierValue != "TEMP-42" || !got[0].IsPrimary {
+		t.Fatalf("create identifiers = %#v, want only a primary temporary_tag", got)
+	}
+}
+
+// TestCreateAdminGoatRejectsBothPermanentAndTemporary proves the two are mutually exclusive: a kid
+// has one primary identity, not a temp AND a permanent at the same time.
+func TestCreateAdminGoatRejectsBothPermanentAndTemporary(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-both-ids",
+		TraceID:        testTrace,
+		RawBody: []byte(fmt.Sprintf(`{"animal_identifier_1":"RFID-1","temporary_identifier":"TEMP-1","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"birth","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
+			testPark, testShed)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" ||
+		appErr.Message != "provide either a permanent animal_identifier_1 or a temporary_identifier, not both" {
+		t.Fatalf("err = %v, want rejection of both permanent and temporary identifiers", err)
+	}
+	if len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("both-identifiers must fail before repo create, create=%d", len(repo.createAdminGoatCmds))
 	}
 }
 

@@ -27,6 +27,8 @@ import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsEvidenceRefDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_PERMANENT
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
@@ -141,6 +143,7 @@ class BirthDeathViewModel @Inject constructor(
         if (!beginEdit()) return
         _state.update { current ->
             when (field) {
+                BirthDeathField.ID_KIND -> current.copy(idKind = value)
                 BirthDeathField.TAG -> current.copy(tag = value)
                 BirthDeathField.SPECIES -> current.copy(species = value)
                 BirthDeathField.SEX -> current.copy(sex = value)
@@ -366,7 +369,10 @@ class BirthDeathViewModel @Inject constructor(
         groupKey = current.tag.trim(),
         idempotencyKey = key,
         request = CountsBirthEventRequestDto(
-            animalIdentifier1 = current.tag.trim(),
+            // Exactly one primary identity is sent: a permanent RFID or a provisional temporary tag,
+            // per the operator's toggle. The backend rejects both-or-neither.
+            animalIdentifier1 = current.tag.trim().takeIf { current.idKind == BIRTH_ID_KIND_PERMANENT },
+            temporaryIdentifier = current.tag.trim().takeIf { current.idKind == BIRTH_ID_KIND_TEMPORARY },
             // A single identifier is enough for a newborn; the secondary tag field was removed.
             animalIdentifier2 = null,
             species = current.species,
