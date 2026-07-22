@@ -66,11 +66,12 @@ test("vaccination schedule and operator labels are backend-contract owned", () =
   }
 });
 
-test("vaccination schedule no longer opens the retired aggregate drawer", () => {
-  assert.equal(source.includes("LocalOverlayLink"), false);
-  assert.equal(source.includes("ScheduleLocalDrawer"), false);
+test("vaccination schedule opens the local drawer from operator-day rows", () => {
+  assert.match(source, /LocalOverlayLink/);
+  assert.match(source, /ScheduleLocalDrawer/);
+  assert.match(source, /drawerRows\(operatorDayRows, pageContract\)/);
+  assert.match(source, /#schedule_event=/);
   assert.equal(source.includes("VaccineChipOverflow"), false);
-  assert.equal(source.includes("#schedule_event="), false);
 });
 
 test("vaccination schedule renders one visible row per operator day", () => {
