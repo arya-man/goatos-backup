@@ -714,6 +714,26 @@
   .schedule-move-form select,.schedule-move-form input{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:0 10px;font:inherit;font-size:14px;text-transform:none;letter-spacing:0}
   .schedule-move-form .btn{justify-content:center}
   .schedule-move-vaccines{display:flex;flex-wrap:wrap;gap:6px}
+  .move-date-picker{position:relative}
+  .move-date-picker summary{list-style:none}
+  .move-date-picker summary::-webkit-details-marker{display:none}
+  .move-date-button{display:flex;align-items:center;justify-content:space-between;width:100%;height:40px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);padding:0 10px;font:inherit;font-size:14px;text-transform:none;letter-spacing:0;cursor:pointer}
+  .move-date-button:hover,.move-date-picker[open] .move-date-button{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
+  .move-date-button .ic{width:16px;height:16px;color:var(--brand)}
+  .move-date-popover{position:absolute;left:0;top:calc(100% + 8px);z-index:95;width:min(318px,calc(100vw - 56px));padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 18px 48px rgba(0,0,0,.42)}
+  .move-date-head{display:grid;grid-template-columns:34px minmax(0,1fr) 34px;align-items:center;gap:8px;margin-bottom:10px}
+  .move-date-head b{text-align:center;color:var(--ink);font-size:14px;font-weight:850;text-transform:none;letter-spacing:0}
+  .move-date-head button{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .move-date-head button:hover{border-color:var(--brand);color:var(--brand)}
+  .move-date-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .move-date-dow{text-align:center;color:var(--faint);font-size:10px;font-weight:850;text-transform:uppercase;padding:2px 0}
+  .move-date-spacer{height:34px}
+  .move-date-day{height:34px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+  .move-date-day:hover{border-color:var(--brand);color:var(--brand)}
+  .move-date-day.today{border-color:var(--info);color:var(--info)}
+  .move-date-day.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand)}
+  .move-date-day:disabled{cursor:not-allowed;opacity:.28;color:var(--faint);border-color:var(--line2);background:var(--bg)}
+  .move-date-error{display:block;margin-top:6px;color:var(--danger);font-size:11px;font-weight:750;text-transform:none;letter-spacing:0}
   .schedule-chip-list{display:flex;align-items:center;align-content:center;gap:6px;flex-wrap:nowrap;min-width:0;max-width:100%;overflow:hidden}
   .schedule-chip-list-compact .schedule-mini-chip{max-width:104px}
   .schedule-mini-chip{display:inline-flex;align-items:center;min-width:0;max-width:180px;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 82%,var(--bg));border-radius:999px;padding:4px 8px;font-size:12px;line-height:1.1;color:var(--muted);font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

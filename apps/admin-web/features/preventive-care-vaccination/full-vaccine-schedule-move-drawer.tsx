@@ -10,7 +10,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { CalendarDays, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { NativeDateInput } from "./native-date-input";
+import { ThemedDatePicker } from "./themed-date-picker";
 
 export type ScheduleMoveDrawerRow = {
   eventId: string;
@@ -135,7 +135,15 @@ export function ScheduleMoveDrawer({
           </label>
           <label>
             <span>{copy(pageContract, "schedule.postpone.new_date")}</span>
-            <NativeDateInput name="override_date" label={copy(pageContract, "schedule.postpone.new_date")} min={displayedRow.plannedDate} required />
+            <ThemedDatePicker
+              name="override_date"
+              label={copy(pageContract, "schedule.postpone.new_date")}
+              min={displayedRow.plannedDate}
+              previousMonthLabel={copy(pageContract, "schedule.move.previous_month")}
+              nextMonthLabel={copy(pageContract, "schedule.move.next_month")}
+              invalidFutureDateText={copy(pageContract, "schedule.move.invalid_future_date")}
+              required
+            />
           </label>
           <div className="schedule-move-vaccines">
             {displayedRow.vaccineNames.map((name) => <Tag key={name} tone="teal">{name}</Tag>)}

@@ -373,6 +373,14 @@ cross-domain questions or missing API coverage. When a SQL pattern becomes
 frequent or business-critical, promote it into a named Mesha read API or governed
 Cube metric.
 
+Leadership assistant read API coverage for vaccination drive date changes:
+CEO/CXO "move vaccine date" commands persist a
+`vaccination_drive_date_overrides` row keyed by park, vaccine, and original
+drive date. The vaccination schedule read model applies that override
+immediately: sibling vaccines that remain on the original day stay visible
+there, while the moved vaccine appears under the override date so the assistant
+and UI do not keep offering the old vaccine/date pair in a loop.
+
 ---
 
 ## Integration status pointer (2026-07-22)
