@@ -684,6 +684,28 @@ WHERE tenant_id=$1 AND planned_date=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, te
 	if overridePPR != 26 {
 		t.Fatalf("override-date PPR raw assignment animals = %d, want 26", overridePPR)
 	}
+
+	if _, err := repo.UpsertVaccinationDriveDateOverride(ctx, domain.VaccineDriveDateOverride{
+		TenantID: tenantID, ParkID: cbePark, VaccineCode: "PPR", OriginalDriveDate: planned, OverrideDate: planned,
+		Reason: "admin restores PPR", CreatedBy: operatorA,
+	}); err != nil {
+		t.Fatalf("revert UpsertVaccinationDriveDateOverride: %v", err)
+	}
+
+	restoredOriginalPPR := countRows(t, ctx, pool, `
+SELECT COALESCE(sum(animal_count), 0)::int
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND planned_date=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenantID, planned, versions[1].ruleID)
+	if restoredOriginalPPR != 26 {
+		t.Fatalf("restored original-date PPR raw assignment animals = %d, want 26", restoredOriginalPPR)
+	}
+	restoredOverridePPR := countRows(t, ctx, pool, `
+SELECT COALESCE(sum(animal_count), 0)::int
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND planned_date=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenantID, override, versions[1].ruleID)
+	if restoredOverridePPR != 0 {
+		t.Fatalf("restored override-date PPR raw assignment animals = %d, want 0", restoredOverridePPR)
+	}
 }
 
 func testStringPtr(value string) *string {

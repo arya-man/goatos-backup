@@ -471,6 +471,36 @@
   .kpi .val{font-size:26px;font-weight:740;letter-spacing:-.6px;margin-top:7px}
   .kpi .val small{font-size:13px;color:var(--faint);font-weight:600}
   .kpi .dl{margin-top:4px;font-size:12px;font-weight:650}
+  .people-availability-card{overflow:hidden}
+  .people-availability-body{overflow:visible}
+  .people-availability-list{display:grid;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:10px;overflow:hidden}
+  .people-operator-row{display:grid;grid-template-columns:minmax(180px,1fr) minmax(250px,1.25fr);gap:12px 16px;align-items:center;background:var(--panel);padding:12px 14px;min-width:0}
+  .people-operator-main{display:flex;align-items:center;gap:10px;min-width:0}
+  .people-operator-main>.ic{width:18px;height:18px;color:var(--brand);flex:none}
+  .people-operator-text{display:grid;gap:2px;min-width:0}
+  .people-operator-text b,.people-operator-text span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .people-operator-text span{color:var(--muted);font-size:12px;font-weight:650}
+  .people-operator-meta{grid-column:1;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+  .people-operator-meta .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .people-week-grid{grid-column:2;grid-row:1 / span 2;display:grid;grid-template-columns:repeat(7,minmax(44px,1fr));gap:6px;min-width:0}
+  .people-week-cell{min-width:0;min-height:54px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);display:grid;place-items:center;padding:6px 4px;text-align:center}
+  .people-week-cell span{color:var(--muted);font-size:10.5px;font-weight:800;line-height:1;text-transform:uppercase}
+  .people-week-cell b{font-size:11.5px;line-height:1.15;white-space:nowrap}
+  .people-week-cell.on{background:var(--okx);border-color:color-mix(in srgb,var(--brand) 35%,var(--line2));color:var(--brand-d)}
+  .people-week-cell.off{background:var(--warnx);border-color:color-mix(in srgb,var(--amber) 38%,var(--line2));color:var(--warn)}
+  .people-availability-empty{padding:16px;text-align:center}
+  @media(max-width:920px){
+    .people-operator-row{grid-template-columns:1fr}
+    .people-operator-meta,.people-week-grid{grid-column:1;grid-row:auto}
+  }
+  @media(max-width:560px){
+    .people-operator-row{padding:11px 12px}
+    .people-week-grid{grid-template-columns:repeat(7,minmax(36px,1fr));gap:4px}
+    .people-week-cell{min-height:46px;padding:5px 2px;border-radius:7px}
+    .people-week-cell span{font-size:9.5px}
+    .people-week-cell b{font-size:10px}
+    .people-availability-kpis .kpi .lab{align-items:flex-start;line-height:1.2}
+  }
   .herd-kpi-grid{display:grid;grid-template-columns:repeat(8,minmax(118px,1fr));gap:10px}
   .herd-kpi-grid .kpi{padding:11px 12px;border-radius:12px}
   .herd-kpi-grid .kpi .lab{font-size:11px;font-weight:800;letter-spacing:.15px}

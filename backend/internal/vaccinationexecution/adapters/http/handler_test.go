@@ -178,6 +178,14 @@ func TestUpsertDriveDateOverrideRequiresActorAndPostpone(t *testing.T) {
 		t.Fatalf("override not carried: %#v", writer.lastOverride)
 	}
 
+	revert := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-08","override_date":"2026-08-08","reason":"restore"}`))
+	revert = revert.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(revert.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	revertRec := httptest.NewRecorder()
+	h.UpsertDriveDateOverride(revertRec, revert)
+	if revertRec.Code != http.StatusOK {
+		t.Fatalf("revert status=%d body=%s", revertRec.Code, revertRec.Body.String())
+	}
+
 	bad := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-08","override_date":"2026-08-01","reason":"bad"}`))
 	bad = bad.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(bad.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
 	badRec := httptest.NewRecorder()
