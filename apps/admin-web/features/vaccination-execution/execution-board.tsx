@@ -50,6 +50,15 @@ interface ParkGroup {
   attention: number;
 }
 
+interface PhysicalShedGroup {
+  key: string;
+  physicalShed: string;
+  rows: VaccinationExecutionRow[];
+  animals: number;
+  severity: VaccinationExecutionSeverity;
+  operators: string[];
+}
+
 function groupByPark(rows: VaccinationExecutionRow[]): ParkGroup[] {
   const byId = new Map<string, ParkGroup>();
   for (const r of rows) {
@@ -66,6 +75,37 @@ function groupByPark(rows: VaccinationExecutionRow[]): ParkGroup[] {
   return Array.from(byId.values()).sort(
     (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || b.attention - a.attention,
   );
+}
+
+function physicalShedName(row: VaccinationExecutionRow): string {
+  return (row.physicalShed || row.shedName || "").trim() || row.shedName;
+}
+
+function partitionLabel(row: VaccinationExecutionRow): string {
+  const partition = (row.partition || "").trim();
+  return partition && partition !== "whole" ? partition : row.shedName;
+}
+
+function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup[] {
+  const byKey = new Map<string, PhysicalShedGroup>();
+  for (const row of rows) {
+    const physicalShed = physicalShedName(row);
+    const key = `${row.parkId}|${physicalShed}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, physicalShed, rows: [], animals: 0, severity: "ok", operators: [] };
+      byKey.set(key, group);
+    }
+    group.rows.push(row);
+    group.animals += row.targetCount;
+    if (SEVERITY_RANK[row.severity] > SEVERITY_RANK[group.severity]) group.severity = row.severity;
+    const operatorName = row.owner?.operatorName?.trim();
+    if (operatorName && !group.operators.includes(operatorName)) group.operators.push(operatorName);
+  }
+  return Array.from(byKey.values()).sort((a, b) => {
+    if (SEVERITY_RANK[b.severity] !== SEVERITY_RANK[a.severity]) return SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+    return a.physicalShed.localeCompare(b.physicalShed, undefined, { numeric: true });
+  });
 }
 
 // Owner chain: operator (ground) -> park head -> verifier (Video Verification Team).
@@ -121,20 +161,22 @@ function executionActionTitle(pageContract: AdminUiPageContract, row: Vaccinatio
 
 function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract; labels: string[] }) {
   const driveLabel = executionDriveLabel(row);
+  const shedLabel = physicalShedName(row);
+  const partition = partitionLabel(row);
   return (
     <LocalOverlayLink
       href={drawerHref}
       scroll={false}
       className="pexr"
-      aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${row.shedName}`}
-      title={`${row.shedName} · ${driveLabel} · ${row.nextAction}`}
+      aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${shedLabel} ${partition}`}
+      title={`${shedLabel} · ${partition} · ${driveLabel} · ${row.nextAction}`}
     >
       <div className="pexc pexc-shed">
         <div className="pexc-h">{labels[0]}</div>
         <span className="lk small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <Warehouse className="ic" style={{ width: 14 }} aria-hidden="true" />
-          <ClipText title={row.shedName} className="inline">
-            {row.shedName}
+          <Layers className="ic" style={{ width: 14 }} aria-hidden="true" />
+          <ClipText title={`${shedLabel} · ${partition}`} className="inline">
+            {partition}
           </ClipText>
         </span>
         <ClipText title={row.animalStage} className="muted small" style={{ marginTop: 2 }}>
@@ -362,7 +404,9 @@ export async function VaccinationExecutionBoard({
       ) : (
         <>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {parks.map((park) => (
+          {parks.map((park) => {
+            const physicalSheds = groupByPhysicalShed(park.rows);
+            return (
             <section className="card" key={park.parkId}>
               <div className="hd">
                 <MapPin className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
@@ -391,14 +435,31 @@ export async function VaccinationExecutionBoard({
                     <div key={label}>{label}</div>
                   ))}
                 </div>
-                {park.rows.map((row, idx) => (
-                  <ExecutionRow
-                    key={`${row.shedId}-${row.driveId ?? idx}`}
-                    row={row}
-                    drawerHref={hrefWith({ shed_event: shedEventId(row) })}
-                    pageContract={pageContract}
-                    labels={labels}
-                  />
+                {physicalSheds.map((shedGroup) => (
+                  <div key={shedGroup.key} className="physical-shed-group">
+                    <div className="physical-shed-group-head">
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <Warehouse className="ic" style={{ width: 14, color: "var(--brand)", flexShrink: 0 }} aria-hidden="true" />
+                        <b>
+                          <ClipText title={shedGroup.physicalShed}>{shedGroup.physicalShed}</ClipText>
+                        </b>
+                        <Tag tone={optionTone(pageContract, "severity_chips", shedGroup.severity) as Tone}>{optionLabel(pageContract, "severity_chips", shedGroup.severity)}</Tag>
+                      </div>
+                      <span className="small muted">
+                        {shedGroup.rows.length} partitions · {shedGroup.animals} animals
+                        {shedGroup.operators.length ? ` · ${shedGroup.operators.join(", ")}` : ""}
+                      </span>
+                    </div>
+                    {shedGroup.rows.map((row, idx) => (
+                      <ExecutionRow
+                        key={`${row.shedId}-${row.driveId ?? idx}`}
+                        row={row}
+                        drawerHref={hrefWith({ shed_event: shedEventId(row) })}
+                        pageContract={pageContract}
+                        labels={labels}
+                      />
+                    ))}
+                  </div>
                 ))}
               </div>
               <div className="bd" style={{ paddingTop: 12 }}>
@@ -412,7 +473,7 @@ export async function VaccinationExecutionBoard({
                 </Link>
               </div>
             </section>
-          ))}
+          )})}
         </div>
         <VaccinationTablePager
           pageContract={pageContract}

@@ -1306,16 +1306,6 @@ func normalizeAssignmentShed(raw string) (string, string) {
 	if physical, partition, ok := splitAssignmentPartSuffix(name); ok {
 		return physical, partition
 	}
-	parts := strings.Fields(name)
-	if len(parts) >= 2 {
-		last := parts[len(parts)-1]
-		if _, err := strconv.Atoi(last); err == nil {
-			physical := strings.TrimSpace(strings.Join(parts[:len(parts)-1], " "))
-			if physical != "" {
-				return physical, last
-			}
-		}
-	}
 	return name, "whole"
 }
 
@@ -1323,10 +1313,6 @@ func splitAssignmentPartSuffix(name string) (string, string, bool) {
 	lower := strings.ToLower(name)
 	marker := " - part "
 	idx := strings.LastIndex(lower, marker)
-	if idx < 0 {
-		marker = " part "
-		idx = strings.LastIndex(lower, marker)
-	}
 	if idx < 0 {
 		return "", "", false
 	}
@@ -1338,7 +1324,7 @@ func splitAssignmentPartSuffix(name string) (string, string, bool) {
 	if _, err := strconv.Atoi(partition); err != nil {
 		return "", "", false
 	}
-	return physical, partition, true
+	return physical, "Part " + partition, true
 }
 
 func firstUnbatchedParkID(rows []domain.UnbatchedDue) string {

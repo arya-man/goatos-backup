@@ -10,8 +10,10 @@
 //     -- they cover the duty of whichever seat they stand in for -- so they are
 //     skipped. Positions whose prefix maps to no built module are skipped and
 //     reported, never guessed.
-//   - duty_type = 'manage' when the seat's position_tier is a supervisory tier
-//     (manager | head | director | cxo), else 'execute'.
+//   - duty_type = 'execute' for surfaced vaccination operator positions even
+//     when their HR/title tier is manager/head; that tier does not remove them
+//     from drive execution. Other modules still use 'manage' for supervisory
+//     tiers (manager | head | director | cxo), else 'execute'.
 //   - capability_code is the execution permission a temporary backup grant for
 //     that seat confers. Only pc.vaccination is a built + surfaced module today
 //     (scope-lock), so only the preventive_care prefix carries
@@ -234,7 +236,7 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 			continue
 		}
 		dutyType := "execute"
-		if manageTiers[p.positionTier] {
+		if mp.moduleCode != "pc.vaccination" && manageTiers[p.positionTier] {
 			dutyType = "manage"
 		}
 		out = append(out, dutyRow{

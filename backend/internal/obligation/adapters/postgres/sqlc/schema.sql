@@ -3366,6 +3366,22 @@ CREATE TABLE public.goats (
 
 
 --
+-- Name: goat_shed_partitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_shed_partitions (
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    partition_label text DEFAULT 'whole'::text NOT NULL,
+    source_shed_name text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT goat_shed_partitions_partition_nonblank CHECK ((btrim(partition_label) <> ''::text)),
+    CONSTRAINT goat_shed_partitions_source_nonblank CHECK ((btrim(source_shed_name) <> ''::text))
+);
+
+
+--
 -- Name: herd_register_goat_projection; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6227,6 +6243,14 @@ ALTER TABLE ONLY public.goat_location_history
 
 
 --
+-- Name: goat_shed_partitions goat_shed_partitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_shed_partitions
+    ADD CONSTRAINT goat_shed_partitions_pkey PRIMARY KEY (tenant_id, goat_id);
+
+
+--
 -- Name: goat_merge_links goat_merge_links_merged_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8252,6 +8276,13 @@ CREATE INDEX goat_identifiers_lookup_idx ON public.goat_identifiers USING btree 
 --
 
 CREATE UNIQUE INDEX goat_identifiers_primary_per_goat_unique ON public.goat_identifiers USING btree (goat_id, identifier_type) WHERE (is_primary_for_goat AND (status = 'active'::text));
+
+
+--
+-- Name: goat_shed_partitions_shed_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_shed_partitions_shed_partition_idx ON public.goat_shed_partitions USING btree (tenant_id, shed_id, partition_label);
 
 
 --
@@ -11610,6 +11641,22 @@ ALTER TABLE ONLY public.goats
 
 ALTER TABLE ONLY public.goats
     ADD CONSTRAINT goats_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: goat_shed_partitions goat_shed_partitions_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_shed_partitions
+    ADD CONSTRAINT goat_shed_partitions_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id) ON DELETE CASCADE;
+
+
+--
+-- Name: goat_shed_partitions goat_shed_partitions_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_shed_partitions
+    ADD CONSTRAINT goat_shed_partitions_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id) ON DELETE RESTRICT;
 
 
 --

@@ -132,6 +132,16 @@ round trip per partition. Operator capacity is counted as unique animals per
 available operator per business date; multi-vaccine animals do not multiply the
 assignment write volume.
 
+Do not model raw partition-bearing shed names as separate canonical buildings.
+`Gandhi 1/2/3` are partitions under `Gandhi`; `Godel 1 - Part 3` is partition
+`Part 3` under physical shed `Godel 1`. Splitting them into separate `locations`
+rows multiplies work, breaks operator ownership, and makes UI grouping lie.
+
+Do not report drive assignment rows as the complete future schedule until the
+missing-obligation audit is clean. Adult ET+TT dose 1 history must always have
+same-goat adult ET+TT dose 2 work; otherwise the assignment table is just a
+partial projection.
+
 - connecting to the database or writing grants/roster/config before the exact
   selected source directory passes a DB-free preflight;
 - seeding a private/raw sheet directly instead of a sanitized committed fixture
@@ -555,3 +565,4 @@ one-to-five shed-level artifacts. A seeder-only or client-only proof-grain
 change is a false-green seed and is blocked by the seed fixture guard.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
+<!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->

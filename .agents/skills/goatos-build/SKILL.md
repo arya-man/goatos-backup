@@ -110,6 +110,8 @@ Permanent scale and guard-authoring rules:
   days after adult ET+TT dose 1. Do not treat `ET+TT Booster` as kid-only,
   optional, or as the 182-day repeat; the repeat starts only after ET+TT dose 2
   / course completion.
+  Post-seed guard: accepted `et_tt_adult_w1` without same-goat
+  `et_tt_adult_w2` obligation/completion is a broken DB and must block handoff.
 - Vaccination drive capacity is per available operator per business date and
   counts unique animals, not doses or vaccine obligation rows. Persist generated
   operator/shed/partition assignments set-wise; if the safe buffer would be
@@ -469,3 +471,4 @@ one product; this skill is the navigation layer.
   exercising a disposable tree.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
+<!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->

@@ -13,6 +13,7 @@ import {
   isDatedVaccination,
   parseCSV,
   parseDate,
+  SHED_PARTITION_NAME_PATTERN_CONTRACT,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
@@ -63,6 +64,16 @@ const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
 // Vaccination proof grain is validated through the committed fixture manifest:
 // proof_mode=shed_level_video, subject_scope=shed, 1..5 shed videos, camera +
 // gallery allowed. Per-goat scan timestamps remain required runtime facts.
+
+function normalizeShedPartitionName(raw) {
+  const name = String(raw ?? "").trim().replace(/\s+/g, " ");
+  if (!name) return { physical: "", partition: "whole" };
+  const partMatch = /^(.*?)\s*-\s*Part\s+(\d+)$/i.exec(name);
+  if (partMatch) return { physical: partMatch[1].trim(), partition: `Part ${partMatch[2]}` };
+  const numberMatch = /^(.*?)\s+(\d+)$/.exec(name);
+  if (numberMatch) return { physical: numberMatch[1].trim(), partition: numberMatch[2] };
+  return { physical: name, partition: "whole" };
+}
 
 function arraysEqual(left, right) {
   return left.length === right.length && left.every((value, index) => String(value ?? "").trim() === String(right[index] ?? "").trim());
@@ -147,6 +158,7 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   const goatAliases = new Map();
   const goatIdentityProblems = [];
   const shedCounts = new Map();
+  const rawPartitionExamples = [];
   for (const [offset, row] of goats.slice(1).entries()) {
     const rowNumber = offset + 2;
     const key = sourceAnimalKey(row, goatColumns);
@@ -161,8 +173,21 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     if (oldID && !/^(none|na|n\/a)$/i.test(oldID)) goatAliases.set(normalized(suffix && !/^(none|na|n\/a)$/i.test(suffix) ? `${suffix}-${oldID}` : oldID), key);
     const shedKey = `${cell(row, goatColumns, "farm")}\0${cell(row, goatColumns, "shed")}`;
     shedCounts.set(shedKey, (shedCounts.get(shedKey) ?? 0) + 1);
+    const rawShed = cell(row, goatColumns, "shed");
+    const normalizedShed = normalizeShedPartitionName(rawShed);
+    if (normalizedShed.partition !== "whole") {
+      pushSample(rawPartitionExamples, `${rawShed} -> ${normalizedShed.physical} / ${normalizedShed.partition}`);
+    }
   }
   checks.push(makeCheck("animal_identity_unique", goatIdentityProblems.length, "Animal source identities must be present and unique.", "Fix blank/duplicate RFID or legacy identity keys before transformation.", goatIdentityProblems));
+  checks.push(makeCheck(
+    "shed_partition_name_pattern_contract",
+    0,
+    SHED_PARTITION_NAME_PATTERN_CONTRACT,
+    "Seeder must write the normalized physical shed as the canonical location and preserve the parsed partition in drive/read-model assignment metadata.",
+    rawPartitionExamples,
+    "warning",
+  ));
 
   const vaccByKey = new Map();
   const vaccinationIdentityProblems = [];

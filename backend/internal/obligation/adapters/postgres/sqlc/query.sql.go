@@ -353,7 +353,12 @@ SELECT oi.obligation_id::text AS obligation_id,
        oi.scope_type,
        COALESCE(oi.scope_id::text, '')::text AS scope_id,
        COALESCE(g.park_id::text, '')::text AS park_id,
-       COALESCE(shed.name, '')::text AS shed_name,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
        COALESCE(oi.target_id::text, '')::text AS target_id,
        CASE
          WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
@@ -384,6 +389,10 @@ LEFT JOIN locations shed
   ON shed.tenant_id = oi.tenant_id
  AND shed.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
  AND shed.location_type = 'shed'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = shed.location_id
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = g.current_location_id

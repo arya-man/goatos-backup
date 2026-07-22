@@ -85,6 +85,12 @@ starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
 2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
 spacing after PPR.
 
+Hard seed/generation guard: after real vaccination seeding, any accepted
+`et_tt_adult_w1` completion without a same-goat `et_tt_adult_w2` obligation or
+completion is a broken database, not a warning. Do not report future drives from
+`vaccination_drive_assignments` alone; first audit missing required obligations
+against `protocol_rules` and accepted history, especially adult ET+TT dose 2.
+
 Confirmed movement rule (maintainer decision 2026-07-19): goats never move
 between parks — shed moves exist only within one park; leaving a park is a
 terminal transferred/sold exit, never a move. Initial placement is exempt. See
@@ -441,6 +447,13 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
+- Vaccination seed shed names must normalize raw partition labels before
+  canonical `locations` writes. `Gandhi 1`, `Gandhi 2`, `Gandhi 3` are one
+  physical shed `Gandhi` with partitions `1`, `2`, `3`; `Godel 1 - Part 3`
+  is physical shed `Godel 1` with partition `Part 3`. Never seed those raw
+  partition strings as separate physical shed buildings. Drive planning and UI
+  must show physical shed -> partition -> operator assignment, with capacity
+  counted as unique animals per assigned operator/day.
 - Vaccination drive batching is park-level, animal-first, and safe-window-bound.
   Shed count is never a merge constraint; it is display/proof detail. A 1-2
   animal drive is valid only after proving no compatible same-park animal group
