@@ -67,7 +67,10 @@ detect_docker_database_url() {
   local port
   port="$(printf '%s\n' "$candidates" | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' | head -n 1)"
   if [ -n "$port" ]; then
-    printf 'postgres://postgres:goatos@127.0.0.1:%s/goatos?sslmode=disable\n' "$port"
+    # Maintainer decision 2026-07-21: the local dev stack uses the dedicated `goatosdb` database
+    # (same goatos-local-current container) so our migrate/seed/dev work can never corrupt the
+    # real `goatos` dataset. Same host/port/credentials, isolated database.
+    printf 'postgres://postgres:goatos@127.0.0.1:%s/goatosdb?sslmode=disable\n' "$port"
   fi
 }
 
