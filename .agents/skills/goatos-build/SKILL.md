@@ -134,9 +134,10 @@ Permanent scale and guard-authoring rules:
   into HRMS, parks, APIs, or UI just because the full fixture has both centers.
   Strict source-backed shed ownership applies to active sheds that contain live
   source goats; empty baseline catalog sheds are not vaccination drive truth.
-  In the reviewed CPT roster, Preventive Care Manager, Backup Manager, and Park
-  Head are all vaccination operators; do not treat Backup Manager/Sagar as
-  support-only for drive assignment.
+  In CPT operator-drive rehearsal seeds, Amit, Darshan, and Sagar are all
+  manager-tier vaccination operators; do not treat Amit as park-head-only or
+  Sagar as backup/support-only for drive assignment. Preserve the source
+  week-offs: Amit Friday, Darshan Sunday, Sagar Saturday.
 - Vaccination operator availability/capacity is a sweep-session fact. Load it
   once per `(tenant, park, business_date, cap_per_operator)` and pass/cache it
   through date scoring, `ConductedBy` selection, effective cap calculation, and

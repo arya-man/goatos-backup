@@ -391,6 +391,10 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
       expect(rosterByCenterPosition.has(`${center}\0${position}`), `missing ${center} ${position}`, problems);
     }
   }
+  // The full source fixture keeps the original timetable seat names. CPT-only
+  // vaccination rehearsal seeds must map those reviewed CPT seats to equal
+  // manager-tier vaccination operators: Amit Friday off, Darshan Sunday off,
+  // Sagar Saturday off.
 
   const managerHeader = headerMap(bundle.shedManagers[0] ?? []);
   const managerSheds = new Map();

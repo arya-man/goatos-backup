@@ -78,10 +78,11 @@ CPT-only operator-drive rehearsal data is valid when the source center is CPT
 only and the reviewed roster contains exactly the three vaccination
 operators/managers required for that seed. Do not synthesize Coimbatore/CBE
 owners just because the full production fixture also covers CBE.
-The three CPT vaccination operators are the reviewed Preventive Care Manager,
-Backup Manager, and Park Head seats. Even though Backup Manager is a backup slot
-for generic HRMS coverage, it carries `pc.vaccination` execute duty for
-operator-cap drive assignment in this seed model.
+The three CPT vaccination operators are Amit, Darshan, and Sagar as
+manager-tier vaccination operators. Do not infer "support", park-head, or backup
+ownership from their old HRMS seat labels in this rehearsal. Their recurring
+week-offs come from the CPT timetable: Amit = Friday, Darshan = Sunday,
+Sagar = Saturday.
 For source-backed rehearsals, strict shed-position validation is scoped to
 active sheds that contain live goats from the selected source. Empty baseline
 catalog sheds created by migrations are not vaccination drive truth and must not

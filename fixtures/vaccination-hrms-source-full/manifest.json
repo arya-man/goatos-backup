@@ -111,6 +111,11 @@
       "date": "2026-07-22",
       "change": "fixture/source validation aggregates shed-manager coverage at physical-shed grain and supports CPT-only operator-roster rehearsal seeds",
       "vaccination_hrms_source_impact": "raw fixture bytes unchanged. The manifest shed count now records physical sheds, not raw partition labels; committed fixtures still require reviewed manager/backup coverage after physical-shed aggregation, while private CPT-only rehearsal bundles may derive vaccination drive ownership from the reviewed Amit/Darshan/Sagar operator roster without inventing CBE rows."
+    },
+    {
+      "date": "2026-07-22",
+      "change": "CPT operator-drive rehearsal maps Amit, Darshan, and Sagar as equal manager-tier vaccination operators with source week-offs",
+      "vaccination_hrms_source_impact": "raw fixture bytes unchanged. The full source fixture still preserves the reviewed timetable seat names, but CPT-only rehearsal seeding must convert Amit, Darshan, and Sagar into vaccination_operator_* positions with execute duty and week-offs Amit=Friday, Darshan=Sunday, Sagar=Saturday. Operator availability is then read from DB HRMS rows before drive assignment splitting."
     }
   ]
 }
