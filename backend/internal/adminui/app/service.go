@@ -224,7 +224,7 @@ func chromeCopy() map[string]string {
 		"theme.switch_to_light":         "Switch to light theme",
 		"account.open_menu":             "Open account menu",
 		"ceo_ai.title":                  "Ask Mesha",
-		"ceo_ai.subtitle":               "CEO/CXO · read-only",
+		"ceo_ai.subtitle":               "Ask about your operations",
 		"ceo_ai.hello":                  "Ask about Mesha operational data. This first version is read-only and leadership-only.",
 		"ceo_ai.hello_meta":             "CEO/CXO analyst",
 		"ceo_ai.checking":               "Checking Mesha data...",
