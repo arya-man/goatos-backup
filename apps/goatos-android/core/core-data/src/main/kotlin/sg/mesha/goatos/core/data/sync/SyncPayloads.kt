@@ -172,3 +172,18 @@ data class ShiftingCancelPayload(
     @SerialName("shifting_event_id") val shiftingEventId: String,
     @SerialName("reason") val reason: String,
 )
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_PROMOTE_IDENTIFIER].
+ * Assigns a permanent RFID to a temporary-tagged goat, atomically retiring the temp tag. The temp
+ * tag to retire is found server-side, so only the [permanentIdentifier] and the goat's [rowVersion]
+ * are carried; [goatId] is the path target and the outbox group key.
+ */
+@Serializable
+data class PromoteIdentifierPayload(
+    @SerialName("goat_id") val goatId: String,
+    @SerialName("permanent_identifier") val permanentIdentifier: String,
+    // Optional second permanent RFID (animal_identifier_2). Null = attach only the primary.
+    @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
+    @SerialName("row_version") val rowVersion: Int,
+)

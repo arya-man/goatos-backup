@@ -91,6 +91,9 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// two-tab Counts module while Admin/CEO get all three.
 			{key: "birth_death", labelKey: "nav.birth_death", href: "/counts/birth-death", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
+			// Awaiting RFID: the list of temporary-tagged goats waiting to be promoted to a permanent
+			// RFID. A capture surface like the two above, so it follows CountsWrite.
+			{key: "awaiting_rfid", labelKey: "nav.awaiting_rfid", href: "/counts/promote", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
 			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
 			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
@@ -424,6 +427,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.counts":         "Counts",
 		"nav.birth_death":    "Birth/Death",
 		"nav.shifting":       "Shifting",
+		"nav.awaiting_rfid":  "Awaiting RFID",
 		"nav.approval":       "Approval",
 		"nav.feed_direction": "Feed Direction",
 		"nav.feed_packing":   "Feed Packing",
@@ -448,6 +452,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.counts":         "गिनती",
 		"nav.birth_death":    "जन्म/मृत्यु",
 		"nav.shifting":       "शिफ्टिंग",
+		"nav.awaiting_rfid":  "RFID प्रतीक्षा में",
 		"nav.approval":       "अनुमोदन",
 		"nav.feed_direction": "फ़ीड दिशा",
 		"nav.feed_packing":   "फ़ीड पैकिंग",
@@ -472,6 +477,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.counts":         "ಎಣಿಕೆ",
 		"nav.birth_death":    "ಜನನ/ಮರಣ",
 		"nav.shifting":       "ಸ್ಥಳಾಂತರ",
+		"nav.awaiting_rfid":  "RFID ಬಾಕಿ ಇದೆ",
 		"nav.approval":       "ಅನುಮೋದನೆ",
 		"nav.feed_direction": "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":   "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
@@ -496,6 +502,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.counts":         "లెక్కలు",
 		"nav.birth_death":    "జననం/మరణం",
 		"nav.shifting":       "షిఫ్టింగ్",
+		"nav.awaiting_rfid":  "RFID కోసం వేచి ఉంది",
 		"nav.approval":       "ఆమోదం",
 		"nav.feed_direction": "ఫీడ్ దిశ",
 		"nav.feed_packing":   "ఫీడ్ ప్యాకింగ్",

@@ -219,6 +219,7 @@ class SyncEngine(
         OutboxOpType.COUNTS_APPROVAL_REJECT -> dispatchCountsApprovalReject(item)
         OutboxOpType.SHIFTING_COMPLETE -> dispatchShiftingComplete(item)
         OutboxOpType.SHIFTING_CANCEL -> dispatchShiftingCancel(item)
+        OutboxOpType.COUNTS_PROMOTE_IDENTIFIER -> dispatchPromoteIdentifier(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -418,6 +419,25 @@ class SyncEngine(
             payload.shiftingEventId,
             item.idempotencyKey,
             payload.destinationTag,
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * Assigns a permanent RFID to a temporary-tagged goat, atomically retiring the temp. Drained
+     * under the stored stable idempotency key: a server-committed-but-client-unrecorded retry returns
+     * the original promotion (`idempotent_replay=true`) instead of retagging twice. A stale
+     * row_version or a goat that no longer carries a temp tag is a 409 — terminal by
+     * [recordFailure]'s check, so it surfaces to the operator instead of being retried forever.
+     */
+    private suspend fun dispatchPromoteIdentifier(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PromoteIdentifierPayload>(item.payloadJson)
+        val response = api.promoteCountsIdentifier(
+            payload.goatId,
+            item.idempotencyKey,
+            payload.permanentIdentifier,
+            payload.rowVersion,
+            payload.animalIdentifier2,
         )
         return syncJson.encodeToString(response)
     }

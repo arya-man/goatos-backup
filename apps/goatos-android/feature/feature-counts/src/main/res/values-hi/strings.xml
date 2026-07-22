@@ -83,6 +83,11 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">पशु पहचानकर्ता 1</string>
+    <string name="counts_field_tag2">पशु पहचानकर्ता 2 (वैकल्पिक)</string>
+    <string name="counts_hint_tag2">दूसरा स्थायी RFID। यदि नवजात के पास केवल एक टैग है तो खाली छोड़ें।</string>
+    <string name="counts_field_temp_tag">अस्थायी टैग</string>
+    <string name="counts_id_kind_permanent">स्थायी RFID</string>
+    <string name="counts_id_kind_temporary">अस्थायी टैग</string>
     <string name="counts_field_breed">नस्ल</string>
     <string name="counts_field_dob">जन्म तिथि (YYYY-MM-DD)</string>
     <string name="counts_field_park">पार्क</string>

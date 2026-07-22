@@ -145,6 +145,7 @@ class BirthDeathViewModel @Inject constructor(
             when (field) {
                 BirthDeathField.ID_KIND -> current.copy(idKind = value)
                 BirthDeathField.TAG -> current.copy(tag = value)
+                BirthDeathField.TAG2 -> current.copy(tag2 = value)
                 BirthDeathField.SPECIES -> current.copy(species = value)
                 BirthDeathField.SEX -> current.copy(sex = value)
                 BirthDeathField.BREED -> current.copy(breed = value)
@@ -373,8 +374,10 @@ class BirthDeathViewModel @Inject constructor(
             // per the operator's toggle. The backend rejects both-or-neither.
             animalIdentifier1 = current.tag.trim().takeIf { current.idKind == BIRTH_ID_KIND_PERMANENT },
             temporaryIdentifier = current.tag.trim().takeIf { current.idKind == BIRTH_ID_KIND_TEMPORARY },
-            // A single identifier is enough for a newborn; the secondary tag field was removed.
-            animalIdentifier2 = null,
+            // An optional SECOND permanent RFID for a newborn given two ear tags. Permanent path only:
+            // a temporary tag never carries a second permanent RFID (the backend rejects that pairing).
+            animalIdentifier2 = current.tag2.trim()
+                .takeIf { current.idKind == BIRTH_ID_KIND_PERMANENT && it.isNotBlank() },
             species = current.species,
             // Placement ids come from the destinations catalog, not free text — never a typed UUID.
             parkId = current.parkId.ifBlank { null },
@@ -474,6 +477,12 @@ class BirthDeathViewModel @Inject constructor(
 
     private fun birthValidation(state: BirthDeathUiState): String? = when {
         state.tag.isBlank() -> "Enter the newborn's identifier."
+        // Optional second permanent RFID (permanent path only). When present it must differ from the
+        // first — the backend enforces this too, but catching it here saves the round trip.
+        state.idKind == BIRTH_ID_KIND_PERMANENT &&
+            state.tag2.isNotBlank() &&
+            state.tag2.trim().equals(state.tag.trim(), ignoreCase = true) ->
+            "The second RFID must differ from the first."
         !isIsoDate(state.dob) -> "Enter the date of birth as YYYY-MM-DD."
         // Entry date is auto-stamped to today's business date, so dob <= entry_date reduces to
         // dob <= today. Mirrors the backend rule so the operator sees it before the round trip; the

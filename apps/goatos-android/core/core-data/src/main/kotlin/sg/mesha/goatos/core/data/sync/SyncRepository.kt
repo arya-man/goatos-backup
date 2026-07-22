@@ -250,6 +250,22 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
 
     /**
+     * Enqueues a Counts identifier PROMOTE (`POST /app/counts/goats/{goat_id}/promote-identifier`).
+     * Assigns [permanentIdentifier] to the temporary-tagged goat [groupKey], atomically retiring its
+     * temp tag. The caller derives a STABLE [idempotencyKey] from the goat id (never a timestamp-
+     * suffixed one) — a fresh key on resend would attempt a second retag. Under the stable key the
+     * backend returns the original promotion with `idempotent_replay=true`. [rowVersion] is the goat's
+     * optimistic-concurrency token from the awaiting-RFID row, so a stale in-hand record is rejected.
+     */
+    suspend fun enqueuePromoteIdentifier(
+        groupKey: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String? = null,
+    ): AppResult<String> = AppResult.Err("identifier promotion sync is not configured")
+
+    /**
      * Enqueues a Shifting EXECUTION cancel (`POST /app/counts/shifting-events/{id}/cancel`). Retires
      * an authorized movement; moves nothing. [reason] is REQUIRED server-side. Same group-key +
      * stable-key contract as [enqueueShiftingComplete].
@@ -588,6 +604,26 @@ class DefaultSyncRepository(
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
             ShiftingCancelPayload(shiftingEventId = groupKey, reason = reason),
+        ),
+    )
+
+    override suspend fun enqueuePromoteIdentifier(
+        groupKey: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.COUNTS_PROMOTE_IDENTIFIER,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            PromoteIdentifierPayload(
+                goatId = groupKey,
+                permanentIdentifier = permanentIdentifier.trim(),
+                animalIdentifier2 = secondaryIdentifier?.trim()?.ifBlank { null },
+                rowVersion = rowVersion,
+            ),
         ),
     )
 

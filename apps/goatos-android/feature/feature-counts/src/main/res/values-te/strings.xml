@@ -83,6 +83,11 @@
 
     <!-- Field labels -->
     <string name="counts_field_tag1">జంతువు గుర్తింపుదారు 1</string>
+    <string name="counts_field_tag2">జంతువు గుర్తింపుదారు 2 (ఐచ్ఛికం)</string>
+    <string name="counts_hint_tag2">రెండవ శాశ్వత RFID. నవజాతకు ఒకే ట్యాగ్ ఉంటే ఖాళీగా వదిలేయండి.</string>
+    <string name="counts_field_temp_tag">తాత్కాలిక ట్యాగ్</string>
+    <string name="counts_id_kind_permanent">శాశ్వత RFID</string>
+    <string name="counts_id_kind_temporary">తాత్కాలిక ట్యాగ్</string>
     <string name="counts_field_breed">జాతి</string>
     <string name="counts_field_dob">పుట్టిన తేదీ (YYYY-MM-DD)</string>
     <string name="counts_field_park">పార్క్</string>

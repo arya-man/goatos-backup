@@ -40,6 +40,8 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.DefaultCountsApprovalRepository
+import sg.mesha.goatos.core.data.AwaitingRfidRepository
+import sg.mesha.goatos.core.data.DefaultAwaitingRfidRepository
 import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
@@ -311,6 +313,13 @@ object AppModule {
         api: AppApi,
         database: GoatDatabase,
     ): ShiftingPendingRepository = DefaultShiftingPendingRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun provideAwaitingRfidRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): AwaitingRfidRepository = DefaultAwaitingRfidRepository(api, database)
 
     @Provides
     @Singleton
