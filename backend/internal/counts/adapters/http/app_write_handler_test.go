@@ -239,6 +239,13 @@ func (f *fakeGoatValidator) PrepareCriticalDeathExit(ctx context.Context, in ide
 	return cmd, nil
 }
 
+func (f *fakeGoatValidator) PromoteTemporaryIdentifier(_ context.Context, in identityapp.PromoteTemporaryIdentifierInput) (*identitydomain.AdminGoatResponse, error) {
+	if in.IdempotencyKey == "" {
+		return nil, identityapp.BadRequest("missing_idempotency_key", "Idempotency-Key header is required")
+	}
+	return &identitydomain.AdminGoatResponse{Goat: identitydomain.GoatSummary{GoatID: in.GoatID}}, nil
+}
+
 // stubIdentityRepo satisfies identity's repository port. ExitGoat is deliberately implemented and
 // counted even though the submit path must never reach it: a non-zero call count is the alarm that
 // someone re-wired an apply into a submit route.

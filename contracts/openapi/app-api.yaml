@@ -4079,6 +4079,49 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/counts/goats/{goat_id}/promote-identifier:
+    post:
+      tags:
+        - Counts
+      operationId: promoteAppCountsIdentifier
+      summary: Assign a permanent RFID to a temporary-tagged goat (temp -> permanent).
+      description: >-
+        Promotes a goat that currently carries a temporary tag to a permanent RFID. In ONE
+        transaction the server retires the goat's active temporary_tag and attaches the supplied
+        permanent_identifier as its primary animal_identifier_1, emitting both goat.identifier.retired
+        and goat.identifier.added. Applied directly (NOT an approval): this is the operator's retag,
+        gated on CountsWrite. The temp tag to retire is found server-side; the caller sends only the
+        permanent RFID and the goat's row_version. Idempotent via the Idempotency-Key header: an exact
+        replay returns idempotent_replay=true and moves nothing; a same-key/different-payload replay is
+        409. A goat with no active temporary tag is rejected with 409 no_temporary_identifier.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromoteIdentifierRequest"
+      responses:
+        "200":
+          description: The permanent RFID was assigned (or the call was an idempotent replay).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoteIdentifierResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/shifting-events/pending-execution:
     get:
       tags:
@@ -12829,6 +12872,38 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EvidenceRef"
+    PromoteIdentifierRequest:
+      description: >-
+        Assign a permanent RFID to a temporary-tagged goat. The temporary tag to retire is found
+        server-side, so only the permanent RFID and the goat's current row_version are sent.
+      type: object
+      additionalProperties: false
+      required:
+        - permanent_identifier
+        - row_version
+      properties:
+        permanent_identifier:
+          description: The permanent RFID to attach as the goat's primary animal_identifier_1.
+          type: string
+          minLength: 1
+          maxLength: 200
+        row_version:
+          description: The goat's current optimistic-concurrency token (from the temporary-tagged list).
+          type: integer
+          minimum: 1
+    PromoteIdentifierResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - idempotent_replay
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        idempotent_replay:
+          description: True when this returned a prior identical promotion rather than a new one.
+          type: boolean
     RecordDeathEventRequest:
       description: >-
         The guardrailed critical-death exit. lifecycle_status and exit_reason are constants: the
