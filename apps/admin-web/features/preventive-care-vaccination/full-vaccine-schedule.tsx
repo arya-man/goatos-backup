@@ -34,6 +34,7 @@ type OperatorDayScheduleRow = {
   vaccineCodes: string[];
   capacity: string;
   sheds: Array<{
+    id?: string;
     name: string;
     animals: number;
     partitions: Array<{ label: string; animals: number }>;
@@ -93,7 +94,7 @@ function scheduleDrawerHref(closeHref: string, row: OperatorDayScheduleRow): str
   return `${closeHref}#schedule_event=${encodeURIComponent(row.key)}`;
 }
 
-function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract): ScheduleDrawerRow[] {
+function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope): ScheduleDrawerRow[] {
   return rows.map((row) => ({
     eventId: row.key,
     date: row.plannedDate,
@@ -101,10 +102,16 @@ function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageCon
     totalSheds: row.sheds.length,
     totalAnimals: row.animals,
     vaccines: row.vaccineNames,
-    sheds: row.sheds.map((shed) => ({
-      label: shedPartitionTitle(pageContract, shed),
-      count: shed.animals,
-    })),
+    sheds: row.sheds.map((shed) => {
+      const href = shed.id
+        ? scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shed.id)}`, scope, { mode: "park", park: row.parkId })
+        : undefined;
+      return {
+        label: shedPartitionTitle(pageContract, shed),
+        count: shed.animals,
+        href,
+      };
+    }),
   }));
 }
 
@@ -147,9 +154,9 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
     }
     group.capacity = strongerCapacity(group.capacity, row.capacity);
 
-    let shed = group.sheds.find((item) => item.name === row.physicalShed);
+    let shed: OperatorDayScheduleRow["sheds"][number] | undefined = group.sheds.find((item) => item.name === row.physicalShed);
     if (!shed) {
-      shed = { name: row.physicalShed, animals: 0, partitions: [] };
+      shed = { id: row.shedId ?? undefined, name: row.physicalShed, animals: 0, partitions: [] };
       group.sheds.push(shed);
     }
     shed.animals += row.animals;
@@ -272,7 +279,7 @@ export async function VaccinationFullSchedule({
   const maxOperatorDayDoses = Math.max(1, ...operatorDayRows.map((row) => row.totalDoses));
   const closeHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
   const selectedScheduleEvent = one(searchParams ?? {}, "schedule_event");
-  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract);
+  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope);
 
   function yearHref(nextYear: number) {
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(month) });
