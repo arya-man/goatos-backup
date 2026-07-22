@@ -200,6 +200,10 @@ type fakeGoatValidator struct {
 	lastCreate       identityapp.CreateAdminGoatInput
 	lastDeath        identityapp.ExitGoatInput
 	lastDeathCommand identityports.ExitGoatCommand
+
+	lastTempList identityapp.ListTemporaryTaggedGoatsInput
+	tempItems    []identitydomain.TemporaryTaggedGoat
+	tempNext     *string
 }
 
 func newFakeGoatValidator() *fakeGoatValidator {
@@ -244,6 +248,15 @@ func (f *fakeGoatValidator) PromoteTemporaryIdentifier(_ context.Context, in ide
 		return nil, identityapp.BadRequest("missing_idempotency_key", "Idempotency-Key header is required")
 	}
 	return &identitydomain.AdminGoatResponse{Goat: identitydomain.GoatSummary{GoatID: in.GoatID}}, nil
+}
+
+func (f *fakeGoatValidator) ListTemporaryTaggedGoats(_ context.Context, in identityapp.ListTemporaryTaggedGoatsInput) (*identitydomain.TemporaryTaggedGoatsResult, error) {
+	f.lastTempList = in
+	items := f.tempItems
+	if items == nil {
+		items = []identitydomain.TemporaryTaggedGoat{}
+	}
+	return &identitydomain.TemporaryTaggedGoatsResult{Items: items, NextCursor: f.tempNext, TraceID: in.TraceID}, nil
 }
 
 // stubIdentityRepo satisfies identity's repository port. ExitGoat is deliberately implemented and

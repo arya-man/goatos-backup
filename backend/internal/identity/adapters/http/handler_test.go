@@ -526,6 +526,10 @@ func (r *handlerRepo) SearchGoats(_ context.Context, params ports.SearchGoatsPar
 	return []domain.GoatSummary{handlerPassport().Summary}, nil, nil
 }
 
+func (handlerRepo) ListTemporaryTaggedGoats(context.Context, ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	return nil, nil, nil
+}
+
 func (handlerRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {
 	return nil, nil
 }

@@ -127,6 +127,28 @@ type GoatSearchResult struct {
 	TraceID    string        `json:"trace_id"`
 }
 
+// TemporaryTaggedGoat is one row of the operator "Awaiting RFID" list: a goat that still carries an
+// active temporary tag and is waiting to be promoted to a permanent RFID. It is a deliberately
+// narrow projection (not a full GoatSummary): the promote screen needs only enough to identify the
+// animal, show the temp tag being replaced, and send an optimistic-concurrency-safe promote.
+type TemporaryTaggedGoat struct {
+	GoatID string `json:"goat_id"`
+	// DisplayID doubles as the keyset cursor: the list is ordered by display_id.
+	DisplayID string `json:"display_id"`
+	// TemporaryIdentifier is the active temporary tag value being retired on promotion.
+	TemporaryIdentifier string `json:"temporary_identifier"`
+	// LocationDisplay is the animal's own shed (then park) name, matching the search read's shape.
+	LocationDisplay string `json:"location_display"`
+	// RowVersion is echoed back verbatim in the promote call so a stale in-hand row is rejected.
+	RowVersion int32 `json:"row_version"`
+}
+
+type TemporaryTaggedGoatsResult struct {
+	Items      []TemporaryTaggedGoat `json:"items"`
+	NextCursor *string               `json:"next_cursor"`
+	TraceID    string                `json:"trace_id"`
+}
+
 type ResolveIdentifierResult struct {
 	ResolutionState string        `json:"resolution_state"`
 	GoatSummary     *GoatSummary  `json:"goat_summary"`

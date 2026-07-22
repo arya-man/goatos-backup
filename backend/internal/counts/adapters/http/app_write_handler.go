@@ -68,6 +68,13 @@ const (
 	// naming locations.read here would lock out every operator who lacks it.
 	appShiftingDestinationsRoute = "/app/counts/shifting/destinations"
 
+	// appTemporaryTaggedGoatsRoute lists goats that still carry an active temporary tag (the operator
+	// "Awaiting RFID" list that the Convert/promote flow acts on). Like the destinations cascade it is
+	// a READ on the write surface, gated on CountsWrite: the operator who may promote is exactly the
+	// operator who must see the list, and RolesAuthorize ANDs a route's permissions -- naming
+	// counts.read here (leadership-only) would 403 every field operator.
+	appTemporaryTaggedGoatsRoute = "/app/counts/goats/temporary-tagged"
+
 	appShiftingEventCommand = "counts.app.shifting_event"
 	appBirthEventCommand    = "counts.app.birth_event"
 	appDeathEventCommand    = "counts.app.death_event"
@@ -113,6 +120,10 @@ type GoatLifecycleValidator interface {
 	// retiring the temp. Applied directly (not an approval): it is the operator's retag action, like
 	// the admin identifier flow. *identityapp.Service satisfies it.
 	PromoteTemporaryIdentifier(ctx context.Context, in identityapp.PromoteTemporaryIdentifierInput) (*identitydomain.AdminGoatResponse, error)
+	// ListTemporaryTaggedGoats backs the operator "Awaiting RFID" list -- the goats a promote can be
+	// run against. It is a READ on the write surface (gated on CountsWrite): the operator who may
+	// promote is exactly the operator who must see the list. *identityapp.Service satisfies it.
+	ListTemporaryTaggedGoats(ctx context.Context, in identityapp.ListTemporaryTaggedGoatsInput) (*identitydomain.TemporaryTaggedGoatsResult, error)
 }
 
 type AppWriteHandler struct {
@@ -144,6 +155,7 @@ func (h *AppWriteHandler) WithApprovalWorkflow(approvals ApprovalWorkflow, valid
 
 func RegisterAppWrites(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appShiftingDestinationsRoute, h.ListShiftingDestinations)
+	mux.HandleFunc("GET "+appTemporaryTaggedGoatsRoute, h.ListTemporaryTaggedGoats)
 	mux.HandleFunc("POST "+appShiftingEventRoute, h.RecordShiftingEvent)
 	mux.HandleFunc("POST "+appBirthEventRoute, h.RecordBirthEvent)
 	mux.HandleFunc("POST "+appDeathEventRoute, h.RecordDeathEvent)

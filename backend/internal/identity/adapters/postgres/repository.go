@@ -199,6 +199,67 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 	return items, next, nil
 }
 
+// ListTemporaryTaggedGoats returns one keyset page of goats that still carry an active temporary tag
+// (the operator "Awaiting RFID" list). The INNER JOIN to the active temporary_tag identifier is the
+// driving set -- kept small and index-selective by goat_identifiers_active_temporary_tag_idx -- and
+// the page is keyset-ordered by g.display_id exactly like SearchGoats so next_cursor is the last
+// row's display_id.
+func (r *Repository) ListTemporaryTaggedGoats(ctx context.Context, params ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	args := []any{params.TenantID, params.Limit + 1}
+	where := []string{"g.tenant_id = $1::uuid", "g.merged_into_goat_id IS NULL"}
+	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) != "" {
+		args = append(args, strings.TrimSpace(*params.Cursor))
+		where = append(where, fmt.Sprintf("g.display_id > $%d", len(args)))
+	}
+
+	query := `SELECT
+  g.goat_id::text,
+  g.display_id,
+  tt.identifier_value,
+  -- Shed first, then park, matching SearchGoats' location_display shape.
+  COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
+  g.row_version
+FROM goats g
+JOIN goat_identifiers tt ON tt.tenant_id = g.tenant_id
+  AND tt.goat_id = g.goat_id
+  AND tt.identifier_type = 'temporary_tag'
+  AND tt.status = 'active'
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+WHERE ` + strings.Join(where, " AND ") + `
+ORDER BY g.display_id ASC
+LIMIT $2`
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	items := make([]domain.TemporaryTaggedGoat, 0, params.Limit)
+	for rows.Next() {
+		var row domain.TemporaryTaggedGoat
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &row.TemporaryIdentifier, &row.LocationDisplay, &row.RowVersion); err != nil {
+			return nil, nil, err
+		}
+		items = append(items, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	var next *string
+	if len(items) > params.Limit {
+		cursor := items[params.Limit-1].DisplayID
+		next = &cursor
+		items = items[:params.Limit]
+	}
+	return items, next, nil
+}
+
 func (r *Repository) FindIdentifierMatches(ctx context.Context, params ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

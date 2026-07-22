@@ -4122,6 +4122,52 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/counts/goats/temporary-tagged:
+    get:
+      tags:
+        - Counts
+      operationId: listAppCountsTemporaryTaggedGoats
+      summary: List goats awaiting a permanent RFID (still carrying an active temporary tag).
+      description: >-
+        The operator "Awaiting RFID" work list: goats that were tagged at birth with a provisional
+        temporary tag and have not yet been promoted to a permanent RFID. Each row carries what the
+        promote form needs -- the goat, its display id, the temporary tag being replaced, the
+        animal's location, and its current row_version (echoed back verbatim to POST
+        /app/counts/goats/{goat_id}/promote-identifier so a stale in-hand row is rejected).
+        Keyset-paginated with a maximum page size of 20: this is read from a phone, so a client
+        asking for more receives one screen of work, not the whole backlog. Gated on CountsWrite --
+        the operator who may promote is exactly the operator who sees the list. Tenant-scoped.
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          description: Server-capped at 20.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Keyset cursor from a previous page's next_cursor (the last row's display_id).
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        "200":
+          description: One page of goats awaiting a permanent RFID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemporaryTaggedGoatsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/shifting-events/pending-execution:
     get:
       tags:
@@ -13265,6 +13311,52 @@ components:
             True when the movement had already reached this state and this call changed nothing. A
             replayed completion relocates nobody a second time.
           type: boolean
+    TemporaryTaggedGoatsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TemporaryTaggedGoat"
+        next_cursor:
+          description: >-
+            Present only when another page exists. The last row's display_id; pass back as ?cursor=.
+          type: string
+    TemporaryTaggedGoat:
+      description: One goat awaiting a permanent RFID (it still carries an active temporary tag).
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - temporary_identifier
+        - location_display
+        - row_version
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        display_id:
+          type: string
+          pattern: ^G-[0-9]{6,}$
+        temporary_identifier:
+          description: The active temporary tag value that promotion will retire.
+          type: string
+          minLength: 1
+          maxLength: 200
+        location_display:
+          description: The animal's own shed (then park) name.
+          type: string
+        row_version:
+          description: >-
+            The goat's current optimistic-concurrency token. Sent back verbatim in the promote call
+            so a stale in-hand row is rejected instead of clobbering a newer change.
+          type: integer
+          format: int32
+          minimum: 1
     CountsShiftingPendingExecutionResponse:
       type: object
       additionalProperties: false

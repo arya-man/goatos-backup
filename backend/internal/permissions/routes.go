@@ -292,6 +292,10 @@ var protectedRoutes = []Route{
 	{OperationID: "recordAppCountsBirthEvent", Method: "POST", Pattern: "/app/counts/birth-events", Permissions: []string{CountsWrite}},
 	{OperationID: "recordAppCountsDeathEvent", Method: "POST", Pattern: "/app/counts/death-events", Permissions: []string{CountsWrite}},
 	{OperationID: "promoteAppCountsIdentifier", Method: "POST", Pattern: "/app/counts/goats/{goat_id}/promote-identifier", Permissions: []string{CountsWrite}},
+	// The "Awaiting RFID" list is a READ on the write surface, gated on CountsWrite for the same
+	// reason as the destinations catalog above: the operator who may promote is the operator who must
+	// see the list, and CountsRead is leadership-only.
+	{OperationID: "listAppCountsTemporaryTaggedGoats", Method: "GET", Pattern: "/app/counts/goats/temporary-tagged", Permissions: []string{CountsWrite}},
 
 	// Counts lifecycle approval surface. The three routes above now RECORD a pending request; these
 	// decide it.
