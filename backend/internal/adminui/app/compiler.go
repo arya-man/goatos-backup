@@ -1063,7 +1063,11 @@ func scopeSummary(grants []permissions.ActiveGrant, parkCount int) string {
 	for _, grant := range grants {
 		if grant.ScopeType == "tenant" {
 			if parkCount > 0 {
-				return fmt.Sprintf("tenant scope · %d active parks", parkCount)
+				label := "active parks"
+				if parkCount == 1 {
+					label = "active park"
+				}
+				return fmt.Sprintf("tenant scope · %d %s", parkCount, label)
 			}
 			return "tenant scope"
 		}
