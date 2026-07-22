@@ -2,6 +2,7 @@ package safety
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -33,20 +34,19 @@ func DefaultSemaphoreConfig() SemaphoreConfig {
 	}
 }
 
-// NewSemaphore builds a Semaphore. MaxConcurrent < 1 is coerced to 1.
-func NewSemaphore(cfg SemaphoreConfig) *Semaphore {
-	n := cfg.MaxConcurrent
-	if n < 1 {
-		n = 1
+// NewSemaphore builds a Semaphore. MaxConcurrent must be >= 1.
+func NewSemaphore(cfg SemaphoreConfig) (*Semaphore, error) {
+	if cfg.MaxConcurrent < 1 {
+		return nil, fmt.Errorf("semaphore config: MaxConcurrent must be >= 1, got %d", cfg.MaxConcurrent)
 	}
 	s := &Semaphore{
-		tokens:         make(chan struct{}, n),
+		tokens:         make(chan struct{}, cfg.MaxConcurrent),
 		acquireTimeout: cfg.AcquireTimeout,
 	}
-	for i := 0; i < n; i++ {
+	for i := 0; i < cfg.MaxConcurrent; i++ {
 		s.tokens <- struct{}{}
 	}
-	return s
+	return s, nil
 }
 
 // Acquire takes a slot, waiting up to AcquireTimeout (and honoring ctx

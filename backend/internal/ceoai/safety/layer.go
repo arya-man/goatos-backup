@@ -2,6 +2,7 @@ package safety
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -59,10 +60,14 @@ func DefaultConfig() Config {
 
 // NewLayer builds the composed safety layer. store (usage) and purger
 // (retention) may be nil for local/CI (in-memory usage, no retention loop).
-func NewLayer(cfg Config, store UsageStore, purger ConversationPurger, clock Clock, log *slog.Logger) *Layer {
+func NewLayer(cfg Config, store UsageStore, purger ConversationPurger, clock Clock, log *slog.Logger) (*Layer, error) {
 	var retention *RetentionCleaner
 	if purger != nil {
 		retention = NewRetentionCleaner(purger, cfg.Retention, clock, log)
+	}
+	sem, err := NewSemaphore(cfg.Semaphore)
+	if err != nil {
+		return nil, fmt.Errorf("safety layer: %w", err)
 	}
 	return &Layer{
 		Injection: NewInjectionScanner(cfg.InjectionExtraPatterns...),
@@ -70,10 +75,10 @@ func NewLayer(cfg Config, store UsageStore, purger ConversationPurger, clock Clo
 		Limiter:   NewLimiter(cfg.Limiter),
 		Budgeter:  NewBudgeter(cfg.Budget, store, clock),
 		Breaker:   NewCircuitBreaker("vertex", cfg.Breaker, clock),
-		Sem:       NewSemaphore(cfg.Semaphore),
+		Sem:       sem,
 		Retention: retention,
 		log:       log,
-	}
+	}, nil
 }
 
 // AdmitResult carries the outcome of the pre-model admission gate plus a release

@@ -249,7 +249,7 @@ func TestJudge_BreakerOpensAndRecovers(t *testing.T) {
 // TestJudge_ConcurrencyShedsWithoutUnboundedGoroutines floods the semaphore and
 // proves load is shed (ErrOverloaded) and goroutine count stays bounded.
 func TestJudge_ConcurrencyShedsWithoutUnboundedGoroutines(t *testing.T) {
-	sem := NewSemaphore(SemaphoreConfig{MaxConcurrent: 4, AcquireTimeout: 0}) // fail-fast
+	sem, _ := NewSemaphore(SemaphoreConfig{MaxConcurrent: 4, AcquireTimeout: 0}) // fail-fast
 	ctx := context.Background()
 
 	before := runtime.NumGoroutine()
@@ -396,7 +396,10 @@ func TestJudge_RetentionDeletesOnlyExpired(t *testing.T) {
 // question end-to-end while holding NO leaked concurrency slot.
 func TestJudge_EndToEndLayerAdmitFlow(t *testing.T) {
 	clk := &judgeClock{t: time.Now()}
-	layer := NewLayer(DefaultConfig(), nil, nil, clk.Clock(), nil)
+	layer, err := NewLayer(DefaultConfig(), nil, nil, clk.Clock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	id := Identity{TenantID: "t", ActorID: "a", Role: "operator"}
 

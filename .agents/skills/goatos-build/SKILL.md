@@ -29,6 +29,13 @@ mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
 document an explicit exclusion. `make leadership-assistant-coverage-guard`
 enforces this in local CI.
 
+CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce
+`ceo_ai.*` reporting views (vaccination_shed_status, vaccination_dose_pickup,
+action_center, vaccination_operator_status) that read canonical vaccination/
+procurement/obligation/workforce tables but do NOT modify the vaccination seed/
+config/SOP schema. These migrations support the leadership assistant's
+operational read path and are not part of the vaccination protocol contract.
+
 ## Required First Step — 4-Layer Lookup
 
 Work layers in order. Stop when the question is answered. Never jump to files first.

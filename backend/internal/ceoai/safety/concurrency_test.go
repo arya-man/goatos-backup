@@ -7,7 +7,7 @@ import (
 )
 
 func TestSemaphoreBoundsConcurrency(t *testing.T) {
-	s := NewSemaphore(SemaphoreConfig{MaxConcurrent: 2, AcquireTimeout: 0})
+	s, _ := NewSemaphore(SemaphoreConfig{MaxConcurrent: 2, AcquireTimeout: 0})
 	ctx := context.Background()
 
 	r1, err := s.Acquire(ctx)
@@ -39,7 +39,7 @@ func TestSemaphoreBoundsConcurrency(t *testing.T) {
 }
 
 func TestSemaphoreWaitsThenSheds(t *testing.T) {
-	s := NewSemaphore(SemaphoreConfig{MaxConcurrent: 1, AcquireTimeout: 30 * time.Millisecond})
+	s, _ := NewSemaphore(SemaphoreConfig{MaxConcurrent: 1, AcquireTimeout: 30 * time.Millisecond})
 	ctx := context.Background()
 	r1, err := s.Acquire(ctx)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestSemaphoreWaitsThenSheds(t *testing.T) {
 }
 
 func TestSemaphoreReleaseIdempotent(t *testing.T) {
-	s := NewSemaphore(SemaphoreConfig{MaxConcurrent: 1})
+	s, _ := NewSemaphore(SemaphoreConfig{MaxConcurrent: 1})
 	r, err := s.Acquire(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestSemaphoreReleaseIdempotent(t *testing.T) {
 }
 
 func TestSemaphoreHonorsContextCancel(t *testing.T) {
-	s := NewSemaphore(SemaphoreConfig{MaxConcurrent: 1, AcquireTimeout: time.Second})
+	s, _ := NewSemaphore(SemaphoreConfig{MaxConcurrent: 1, AcquireTimeout: time.Second})
 	r1, _ := s.Acquire(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

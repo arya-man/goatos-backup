@@ -1,3 +1,5 @@
+// Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
+// (migrations 000024-000027) to load and validate vaccination source data.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
