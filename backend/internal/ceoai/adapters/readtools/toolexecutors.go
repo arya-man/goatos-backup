@@ -2,6 +2,7 @@ package readtools
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
@@ -27,21 +28,23 @@ func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
 func (e *countsBreakdownExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
 	// Call the real counts reader to get actual data.
 	if e.countsBySpeciesReader == nil {
-		// Fallback: return empty results so caller knows tool exists but has no data.
+		// Unwired reader: return error instead of silently returning empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("counts data reader not wired"),
 		}, nil
 	}
 
 	facts, err := e.countsBySpeciesReader(ctx, actor.TenantID)
 	if err != nil {
-		// Log but don't fail hard; return empty facts so the orchestrator can try other routes.
+		// Propagate the error so it's logged and triggers fallback; do not swallow into empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      err,
 		}, nil
 	}
 
@@ -68,19 +71,23 @@ func (e *vaccinationShedSummaryExecutor) Spec() ports.ToolSpec {
 
 func (e *vaccinationShedSummaryExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
 	if e.vaccinationDataReader == nil {
+		// Unwired reader: return error instead of silently returning empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("vaccination data reader not wired"),
 		}, nil
 	}
 
 	facts, err := e.vaccinationDataReader(ctx, actor.TenantID)
 	if err != nil {
+		// Propagate the error so it's logged and triggers fallback; do not swallow into empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      err,
 		}, nil
 	}
 
@@ -107,19 +114,23 @@ func (e *vaccinationExecutionExecutor) Spec() ports.ToolSpec {
 
 func (e *vaccinationExecutionExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
 	if e.vaccinationDataReader == nil {
+		// Unwired reader: return error instead of silently returning empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("vaccination data reader not wired"),
 		}, nil
 	}
 
 	facts, err := e.vaccinationDataReader(ctx, actor.TenantID)
 	if err != nil {
+		// Propagate the error so it's logged and triggers fallback; do not swallow into empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      err,
 		}, nil
 	}
 
@@ -146,19 +157,23 @@ func (e *feedDirectionTodayExecutor) Spec() ports.ToolSpec {
 
 func (e *feedDirectionTodayExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
 	if e.feedDataReader == nil {
+		// Unwired reader: return error instead of silently returning empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("feed data reader not wired"),
 		}, nil
 	}
 
 	facts, err := e.feedDataReader(ctx, actor.TenantID)
 	if err != nil {
+		// Propagate the error so it's logged and triggers fallback; do not swallow into empty.
 		return domain.ToolResult{
 			Surface:  "Mesha read API",
 			ToolName: sub.ToolName,
 			Facts:    []domain.Fact{},
+			Err:      err,
 		}, nil
 	}
 
