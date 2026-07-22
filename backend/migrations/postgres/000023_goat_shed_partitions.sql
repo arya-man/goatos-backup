@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE IF NOT EXISTS goat_shed_partitions (
   tenant_id uuid NOT NULL,
   goat_id uuid NOT NULL,
@@ -22,3 +23,7 @@ CREATE TABLE IF NOT EXISTS goat_shed_partitions (
 
 CREATE INDEX IF NOT EXISTS goat_shed_partitions_shed_partition_idx
   ON goat_shed_partitions (tenant_id, shed_id, partition_label);
+
+-- +goose Down
+DROP INDEX IF EXISTS goat_shed_partitions_shed_partition_idx;
+DROP TABLE IF EXISTS goat_shed_partitions;
