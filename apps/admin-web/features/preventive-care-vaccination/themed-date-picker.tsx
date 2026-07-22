@@ -132,7 +132,9 @@ export function ThemedDatePicker({
           </button>
         </div>
         <div className="move-date-grid">
-          {["S", "M", "T", "W", "T", "F", "S"].map((day) => <span key={day} className="move-date-dow">{day}</span>)}
+          {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+            <span key={`dow-${index}`} className="move-date-dow">{day}</span>
+          ))}
           {days.map((day) => {
             const key = dateKey(day);
             if (!sameMonth(day, cursor)) {

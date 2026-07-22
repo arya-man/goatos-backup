@@ -380,6 +380,9 @@ drive date. The vaccination schedule read model applies that override
 immediately: sibling vaccines that remain on the original day stay visible
 there, while the moved vaccine appears under the override date so the assistant
 and UI do not keep offering the old vaccine/date pair in a loop.
+The admin schedule move drawer uses a themed local date picker; weekday labels
+must keep stable unique keys because the drawer can be opened without any move
+being submitted, and render-only warnings must not surface as operator errors.
 
 ---
 
