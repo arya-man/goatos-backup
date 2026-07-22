@@ -8124,6 +8124,10 @@ export interface operations {
                 page_size?: number;
                 /** @description Keyset cursor from a previous page's next_cursor (the last row's display_id). */
                 cursor?: string;
+                /** @description Optional location filter: narrow the list to goats currently placed in this park. A malformed id is rejected with 400. Chosen from the shifting-destinations catalog on the client (park -> shed cascade), never free text. */
+                park_id?: string;
+                /** @description Optional location filter: narrow the list to goats currently placed in this shed. A shed belongs to exactly one park, so shed_id alone is sufficient. A malformed id is rejected with 400. */
+                shed_id?: string;
             };
             header?: never;
             path?: never;

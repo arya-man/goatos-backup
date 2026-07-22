@@ -280,6 +280,56 @@ func TestAddGoatIdentifierRejectsOldEvidenceIDsAndMissingScope(t *testing.T) {
 	}
 }
 
+func TestListTemporaryTaggedGoatsPassesLocationFilter(t *testing.T) {
+	const (
+		tenant = "10000000-0000-4000-8000-000000000001"
+		park   = "20000000-0000-4000-8000-000000000002"
+		shed   = "30000000-0000-4000-8000-000000000003"
+	)
+	repo := &fakeRepo{temporaryTaggedItems: []domain.TemporaryTaggedGoat{{GoatID: "g-1", DisplayID: "G-000001"}}}
+	svc := NewService(repo)
+
+	result, err := svc.ListTemporaryTaggedGoats(context.Background(), ListTemporaryTaggedGoatsInput{
+		TenantID: tenant,
+		Limit:    20,
+		// Spaces exercise the TrimSpace path.
+		ParkID: " " + park + " ",
+		ShedID: shed,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result.Items))
+	}
+	if repo.lastTemporaryTaggedParams.ParkID != park {
+		t.Fatalf("park_id not passed through trimmed: %q", repo.lastTemporaryTaggedParams.ParkID)
+	}
+	if repo.lastTemporaryTaggedParams.ShedID != shed {
+		t.Fatalf("shed_id not passed through: %q", repo.lastTemporaryTaggedParams.ShedID)
+	}
+}
+
+func TestListTemporaryTaggedGoatsRejectsMalformedLocationFilter(t *testing.T) {
+	const tenant = "10000000-0000-4000-8000-000000000001"
+	svc := NewService(&fakeRepo{})
+
+	_, err := svc.ListTemporaryTaggedGoats(context.Background(), ListTemporaryTaggedGoatsInput{
+		TenantID: tenant, Limit: 20, ParkID: "not-a-uuid",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_park_id" {
+		t.Fatalf("expected invalid_park_id 400, got %v", err)
+	}
+
+	_, err = svc.ListTemporaryTaggedGoats(context.Background(), ListTemporaryTaggedGoatsInput{
+		TenantID: tenant, Limit: 20, ShedID: "bogus",
+	})
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_shed_id" {
+		t.Fatalf("expected invalid_shed_id 400, got %v", err)
+	}
+}
+
 func TestRetireGoatIdentifierValidationAndCommand(t *testing.T) {
 	identifierID := "30000000-0000-4000-8000-000000000001"
 	repo := &fakeRepo{
@@ -1206,6 +1256,8 @@ type fakeRepo struct {
 	createAdminGoatResult       *ports.AdminGoatMutationResult
 	createAdminGoatErr          error
 	createAdminGoatCmds         []ports.CreateAdminGoatCommand
+	temporaryTaggedItems        []domain.TemporaryTaggedGoat
+	lastTemporaryTaggedParams   ports.ListTemporaryTaggedGoatsParams
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -1229,8 +1281,9 @@ func (f *fakeRepo) SearchGoats(context.Context, ports.SearchGoatsParams) ([]doma
 	return nil, nil, nil
 }
 
-func (f *fakeRepo) ListTemporaryTaggedGoats(context.Context, ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
-	return nil, nil, nil
+func (f *fakeRepo) ListTemporaryTaggedGoats(_ context.Context, params ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	f.lastTemporaryTaggedParams = params
+	return f.temporaryTaggedItems, nil, nil
 }
 
 func (f *fakeRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {

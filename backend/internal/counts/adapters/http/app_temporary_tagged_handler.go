@@ -64,7 +64,11 @@ func (h *AppWriteHandler) ListTemporaryTaggedGoats(w http.ResponseWriter, r *htt
 		TenantID: tenantID,
 		Limit:    pageSize,
 		Cursor:   cursor,
-		TraceID:  appTraceID(r),
+		// Optional location filter (park -> shed cascade). Identity validates the UUIDs and rejects a
+		// malformed value with a 400.
+		ParkID:  strings.TrimSpace(r.URL.Query().Get("park_id")),
+		ShedID:  strings.TrimSpace(r.URL.Query().Get("shed_id")),
+		TraceID: appTraceID(r),
 	})
 	if err != nil {
 		h.writeAppError(w, r, err)

@@ -4153,6 +4153,26 @@ paths:
           schema:
             type: string
             maxLength: 512
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Optional location filter: narrow the list to goats currently placed in this park. A
+            malformed id is rejected with 400. Chosen from the shifting-destinations catalog on the
+            client (park -> shed cascade), never free text.
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          description: >-
+            Optional location filter: narrow the list to goats currently placed in this shed. A shed
+            belongs to exactly one park, so shed_id alone is sufficient. A malformed id is rejected
+            with 400.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: One page of goats awaiting a permanent RFID.
