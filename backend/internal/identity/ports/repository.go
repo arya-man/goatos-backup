@@ -79,6 +79,11 @@ type ListTemporaryTaggedGoatsParams struct {
 	TenantID string
 	Limit    int
 	Cursor   *string
+	// ParkID / ShedID optionally narrow the list to one location (the operator's "Awaiting RFID"
+	// park -> shed filter). Empty means no filter on that dimension. A shed belongs to exactly one
+	// park, so ShedID alone is sufficient, but both may be sent by the park -> shed cascade.
+	ParkID string
+	ShedID string
 }
 
 type ResolveIdentifierParams struct {

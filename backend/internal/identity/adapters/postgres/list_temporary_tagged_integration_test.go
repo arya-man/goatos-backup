@@ -104,4 +104,26 @@ func TestListTemporaryTaggedGoatsWithDockerPostgres(t *testing.T) {
 	if page2[0].DisplayID == page1[0].DisplayID {
 		t.Fatalf("keyset page 2 repeated page 1 row %q", page1[0].DisplayID)
 	}
+
+	// Location filter (operator "Awaiting RFID" park -> shed cascade). Both temp goats are placed in
+	// cbeLocation / adminCreateShedLocation by adminGoatCreateCommand, so filtering by that park+shed
+	// returns both, and filtering by a different real shed returns none.
+	filtered, _, err := repo.ListTemporaryTaggedGoats(ctx, ports.ListTemporaryTaggedGoatsParams{
+		TenantID: meshaTenant, Limit: 20, ParkID: cbeLocation, ShedID: adminCreateShedLocation,
+	})
+	if err != nil {
+		t.Fatalf("location-filtered list: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 goats for the placement shed, got %d: %+v", len(filtered), filtered)
+	}
+	empty, _, err := repo.ListTemporaryTaggedGoats(ctx, ports.ListTemporaryTaggedGoatsParams{
+		TenantID: meshaTenant, Limit: 20, ShedID: adminMoveTargetShed,
+	})
+	if err != nil {
+		t.Fatalf("non-matching-shed list: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected no goats in an unrelated shed, got %d: %+v", len(empty), empty)
+	}
 }

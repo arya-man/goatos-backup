@@ -214,6 +214,16 @@ func (r *Repository) ListTemporaryTaggedGoats(ctx context.Context, params ports.
 		args = append(args, strings.TrimSpace(*params.Cursor))
 		where = append(where, fmt.Sprintf("g.display_id > $%d", len(args)))
 	}
+	// Optional location filter (operator "Awaiting RFID" park -> shed cascade). The bind param is
+	// cast to uuid, not the indexed column, so g.park_id / g.shed_id stay SARGable.
+	if strings.TrimSpace(params.ParkID) != "" {
+		args = append(args, strings.TrimSpace(params.ParkID))
+		where = append(where, fmt.Sprintf("g.park_id = $%d::uuid", len(args)))
+	}
+	if strings.TrimSpace(params.ShedID) != "" {
+		args = append(args, strings.TrimSpace(params.ShedID))
+		where = append(where, fmt.Sprintf("g.shed_id = $%d::uuid", len(args)))
+	}
 
 	query := `SELECT
   g.goat_id::text,

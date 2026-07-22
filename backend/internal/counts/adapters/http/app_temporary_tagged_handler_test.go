@@ -79,6 +79,23 @@ func TestListTemporaryTaggedGoatsCapsPageSize(t *testing.T) {
 	}
 }
 
+func TestListTemporaryTaggedGoatsThreadsLocationFilter(t *testing.T) {
+	validator := newFakeGoatValidator()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), newFakeApprovalWorkflow(), validator)
+
+	park := "20000000-0000-4000-8000-000000000002"
+	shed := "30000000-0000-4000-8000-000000000003"
+	if rec := getTemporaryTagged(t, mux, "park_id="+park+"&shed_id="+shed); rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if validator.lastTempList.ParkID != park {
+		t.Fatalf("expected park_id %q, got %q", park, validator.lastTempList.ParkID)
+	}
+	if validator.lastTempList.ShedID != shed {
+		t.Fatalf("expected shed_id %q, got %q", shed, validator.lastTempList.ShedID)
+	}
+}
+
 func TestListTemporaryTaggedGoatsRejectsBadPageSize(t *testing.T) {
 	validator := newFakeGoatValidator()
 	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), newFakeApprovalWorkflow(), validator)
