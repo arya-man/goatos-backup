@@ -357,7 +357,25 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 		var vaccineKeys []string
 		var vaccineCodes []string
 		var capacity string
-		if err := rows.Scan(&planned, &row.OperatorID, &row.OperatorName, &row.ParkID, &row.ParkName, &shedID, &row.PhysicalShed, &row.PartitionLabel, &row.Animals, &vaccineKeys, &vaccineCodes, &row.TotalDoses, &capacity); err != nil {
+		if err := rows.Scan(
+			&planned,
+			&row.OperatorID,
+			&row.OperatorName,
+			&row.ParkID,
+			&row.ParkName,
+			&shedID,
+			&row.PhysicalShed,
+			&row.PartitionLabel,
+			&row.Animals,
+			&row.DueAnimals,
+			&row.DoneAnimals,
+			&row.DeferredAnimals,
+			&row.OverdueAnimals,
+			&vaccineKeys,
+			&vaccineCodes,
+			&row.TotalDoses,
+			&capacity,
+		); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan drive assignment: %w", err)
 		}
 		if planned.Valid {
@@ -410,6 +428,20 @@ SELECT
   vda.physical_shed,
   vda.partition_label,
   vda.animal_count,
+  CASE
+    WHEN batch.status IN ('planned', 'in_progress')
+     AND vda.planned_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN vda.animal_count
+    ELSE 0
+  END AS due_animals,
+  CASE WHEN batch.status = 'completed' THEN vda.animal_count ELSE 0 END AS done_animals,
+  0 AS deferred_animals,
+  CASE
+    WHEN batch.status IN ('planned', 'in_progress')
+     AND vda.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+    THEN vda.animal_count
+    ELSE 0
+  END AS overdue_animals,
   COALESCE(assignment_vaccines.vaccine_keys, ARRAY[]::text[]),
   COALESCE(assignment_vaccines.vaccine_codes, ARRAY[]::text[]),
   vda.total_doses,
@@ -423,6 +455,9 @@ JOIN locations park
   ON park.tenant_id = vda.tenant_id
  AND park.location_id = vda.park_id
  AND park.location_type = 'park'
+LEFT JOIN obligation_batches batch
+  ON batch.tenant_id = vda.tenant_id
+ AND batch.batch_id = vda.batch_id
 LEFT JOIN LATERAL (
   SELECT
     ARRAY_AGG(DISTINCT pd.name || E'\x1f' || pr.dose_code ORDER BY pd.name || E'\x1f' || pr.dose_code) AS vaccine_keys,
