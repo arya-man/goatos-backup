@@ -106,7 +106,14 @@ export function ScheduleMoveDrawer({
 
   return (
     <div className="schedule-drawer-backdrop schedule-move-backdrop" role="presentation" aria-hidden={!drawerOpen} style={{ opacity: drawerOpen ? 1 : 0 }}>
-      <button type="button" className="schedule-drawer-close-layer" aria-label={copy(pageContract, "schedule.move.close")} onClick={closeDrawer} />
+      <button
+        type="button"
+        className="schedule-drawer-close-layer"
+        aria-label={copy(pageContract, "schedule.move.close")}
+        disabled={!drawerOpen}
+        tabIndex={drawerOpen ? 0 : -1}
+        onClick={closeDrawer}
+      />
       <aside className="schedule-side-drawer schedule-move-drawer" role="dialog" aria-modal="false" aria-hidden={!drawerOpen} inert={!drawerOpen} aria-labelledby="schedule-move-title" style={{ transform: drawerOpen ? "translateX(0)" : "translateX(100%)" }}>
         <div className="schedule-drawer-head">
           <div style={{ minWidth: 0 }}>

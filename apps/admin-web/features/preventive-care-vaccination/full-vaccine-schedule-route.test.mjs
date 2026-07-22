@@ -155,6 +155,13 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.match(css, /background:var\(--panel\)/);
 });
 
+test("closed vaccination schedule drawers do not intercept page clicks", () => {
+  assert.match(css, /\.schedule-drawer-backdrop\[aria-hidden="true"\]\{[^}]*pointer-events\s*:\s*none/);
+  assert.match(css, /\.schedule-drawer-backdrop\[aria-hidden="true"\]\{[^}]*visibility\s*:\s*hidden/);
+  assert.match(moveDrawerSource, /disabled=\{!drawerOpen\}/);
+  assert.match(moveDrawerSource, /tabIndex=\{drawerOpen \? 0 : -1\}/);
+});
+
 test("vaccination schedule year navigation is bounded at 2025", () => {
   assert.match(source, /const MIN_SCHEDULE_YEAR = 2025/);
   assert.match(source, /boundedInt\(one\(searchParams \?\? \{\}, "schedule_year"\), CURRENT_YEAR, MIN_SCHEDULE_YEAR, CURRENT_YEAR \+ 5\)/);
