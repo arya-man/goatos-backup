@@ -4564,6 +4564,40 @@ paths:
   # Additive block. Tenant + actor scope come ONLY from the authenticated session,
   # never from the request body or path. All reads/writes are actor-scoped: one
   # leadership user can never see or mutate another's threads.
+  /ceo-ai/starters:
+    get:
+      operationId: listCeoStarters
+      summary: Leadership capability probe + starter questions
+      description: >
+        Returns the backend-owned, tenant/role-aware starter questions the
+        assistant can truthfully answer. Doubles as the leadership capability
+        probe the admin-web client uses to decide whether to render the
+        assistant launcher: 200 means the session is authorized leadership
+        (ceo_internal); 403 means it is not, so the launcher stays hidden.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Backend-owned starter questions for this leadership session
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - starters
+                properties:
+                  starters:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /ceo-ai/conversations:
     post:
       operationId: createCeoConversation
