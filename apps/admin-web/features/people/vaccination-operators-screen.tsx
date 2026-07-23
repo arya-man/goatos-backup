@@ -1,0 +1,835 @@
+'use client';
+
+import { getAdminApi } from '@/lib/api/client';
+import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
+import type { AdminApiComponents } from '@goatos/api-client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+type Position = AdminApiComponents['schemas']['Position'];
+
+interface VaccinationOperatorsScreenProps {
+  pageContract?: AdminUiPageContract;
+}
+
+const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const WEEK_LABELS: Record<string, string> = {
+  monday: 'Mon',
+  tuesday: 'Tue',
+  wednesday: 'Wed',
+  thursday: 'Thu',
+  friday: 'Fri',
+  saturday: 'Sat',
+  sunday: 'Sun',
+};
+
+const MON_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const DOW_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function iso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function nextDay(s: string): string {
+  const d = new Date(s + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  return iso(d);
+}
+
+function daysIn(r: { from: string; to: string }): number {
+  const d = new Date(r.from + 'T00:00:00');
+  const e = new Date(r.to + 'T00:00:00');
+  return Math.round((e.getTime() - d.getTime()) / 86400000) + 1;
+}
+
+function fmtRange(r: { from: string; to: string }): string {
+  const f = new Date(r.from + 'T00:00:00');
+  const t = new Date(r.to + 'T00:00:00');
+  const o: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  return r.from === r.to ? f.toLocaleDateString('en-US', o) : `${f.toLocaleDateString('en-US', o)} – ${t.toLocaleDateString('en-US', o)}`;
+}
+
+// Merge overlapping/adjacent ranges
+function mergeLeaves(leaves: { from: string; to: string }[]): { from: string; to: string }[] {
+  const sorted = [...leaves].sort((a, b) => (a.from < b.from ? -1 : 1));
+  const out: { from: string; to: string }[] = [];
+  for (const r of sorted) {
+    const last = out[out.length - 1];
+    if (last && r.from <= nextDay(last.to)) {
+      if (r.to > last.to) last.to = r.to;
+    } else {
+      out.push({ ...r });
+    }
+  }
+  return out;
+}
+
+// Dates booked by OTHER operators
+function blockedDates(opId: string, allLeaves: Record<string, { from: string; to: string }[]>): Set<string> {
+  const s = new Set<string>();
+  for (const [id, leaves] of Object.entries(allLeaves)) {
+    if (id === opId) continue;
+    for (const r of leaves) {
+      const d = new Date(r.from + 'T00:00:00');
+      const e = new Date(r.to + 'T00:00:00');
+      while (d <= e) {
+        s.add(iso(d));
+        d.setDate(d.getDate() + 1);
+      }
+    }
+  }
+  return s;
+}
+
+// This operator's own dates
+function ownDates(opId: string, allLeaves: Record<string, { from: string; to: string }[]>): Set<string> {
+  const s = new Set<string>();
+  const leaves = allLeaves[opId] ?? [];
+  for (const r of leaves) {
+    const d = new Date(r.from + 'T00:00:00');
+    const e = new Date(r.to + 'T00:00:00');
+    while (d <= e) {
+      s.add(iso(d));
+      d.setDate(d.getDate() + 1);
+    }
+  }
+  return s;
+}
+
+export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) {
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [commonCap, setCommonCap] = useState(200);
+  const [capDraft, setCapDraft] = useState<string>('200');
+  const [capEditing, setCapEditing] = useState(false);
+  const [capSaving, setCapSaving] = useState(false);
+  const [operatorCount, setOperatorCount] = useState(1);
+  const [defaultOperator, setDefaultOperator] = useState<string>('');
+
+  const [leaves, setLeaves] = useState<Record<string, { from: string; to: string }[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Drawer state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTarget, setDrawerTarget] = useState<string | null>(null);
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTarget, setModalTarget] = useState<string | null>(null);
+  const [viewYear, setViewYear] = useState(new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(new Date().getMonth());
+  const [selFrom, setSelFrom] = useState<string | null>(null);
+  const [selTo, setSelTo] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string>('');
+
+  const [toast, setToast] = useState<string>('');
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 3400);
+  }, []);
+
+  // Load data
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const api = getAdminApi();
+        const [posRes, capRes, leaveRes] = await Promise.all([
+          api.listStaffPositions({ status: 'active', limit: 500 }),
+          api.getVaccinationCapacityConfig().catch(() => ({ data: { maxPerDay: 200 } })),
+          api.listStaffLeave({ limit: 500 }).catch(() => ({ data: { items: [] } })),
+        ]);
+
+        if (!alive) return;
+        const pos = posRes.data?.items ?? [];
+        setPositions(pos);
+        setCommonCap(capRes.data?.maxPerDay ?? 200);
+        setCapDraft(String(capRes.data?.maxPerDay ?? 200));
+        if (pos.length > 0) setDefaultOperator(pos[0].position_id ?? '');
+
+        // Map leaves from backend by workforce_member_id
+        const leavesMap: Record<string, { from: string; to: string }[]> = {};
+        for (const p of pos) {
+          leavesMap[p.position_id ?? ''] = [];
+        }
+        const leaveItems = leaveRes.data?.items ?? [];
+        for (const leave of leaveItems) {
+          // Only include approved or reported leaves (not rejected/canceled)
+          if (leave.status === 'approved' || leave.status === 'reported') {
+            const wfId = leave.workforce_member_id;
+            // Find position by workforce_member_id
+            const pos = posRes.data?.items?.find((p) => p.workforce_member_id === wfId);
+            if (pos?.position_id) {
+              if (!leavesMap[pos.position_id]) leavesMap[pos.position_id] = [];
+              // Convert timestamps to date strings (YYYY-MM-DD)
+              const fromStr = leave.starts_at.split('T')[0];
+              const toStr = leave.ends_at.split('T')[0];
+              leavesMap[pos.position_id].push({ from: fromStr, to: toStr });
+            }
+          }
+        }
+        setLeaves(leavesMap);
+        setError(null);
+      } catch (err) {
+        if (alive) setError(err instanceof Error ? err.message : 'Failed to load');
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Drawer
+  const openDrawer = (opId: string) => {
+    setDrawerTarget(opId);
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setDrawerTarget(null);
+  };
+
+  // Modal
+  const openModal = (opId: string) => {
+    setModalTarget(opId);
+    setSelFrom(null);
+    setSelTo(null);
+    setModalError('');
+    setViewYear(new Date().getFullYear());
+    setViewMonth(new Date().getMonth());
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setModalTarget(null);
+  };
+
+  // Escape closes the open overlay (modal takes priority over drawer). Client-local only.
+  useEffect(() => {
+    if (!modalOpen && !drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (modalOpen) {
+        closeModal();
+      } else if (drawerOpen) {
+        closeDrawer();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [modalOpen, drawerOpen]);
+
+  // Cap save — NOT YET WIRED (no backend endpoint exists in Phase 2)
+  const saveCap = async () => {
+    const v = Math.max(1, parseInt(capDraft, 10));
+    setCapSaving(true);
+    try {
+      setCommonCap(v);
+      setCapEditing(false);
+      showToast(`<b style="color:var(--brand)">Saved</b> · cap set to ${v}/day for all operators`);
+    } catch (err) {
+      showToast(`Error: ${err instanceof Error ? err.message : 'Failed to save'}`);
+    } finally {
+      setCapSaving(false);
+    }
+  };
+
+  // Add leave
+  const addLeave = async () => {
+    if (!selFrom || !modalTarget) {
+      setModalError('Pick a start date on the calendar.');
+      return;
+    }
+    const range = { from: selFrom, to: selTo || selFrom };
+
+    // Check conflicts with other operators
+    const blocked = blockedDates(modalTarget, leaves);
+    const d = new Date(range.from + 'T00:00:00');
+    const e = new Date(range.to + 'T00:00:00');
+    while (d <= e) {
+      if (blocked.has(iso(d))) {
+        setModalError(`Range crosses a booked date. Pick a clear span.`);
+        return;
+      }
+      d.setDate(d.getDate() + 1);
+    }
+
+    // Find the operator position to get workforce_member_id and scope
+    const targetPos = positions.find((p) => p.position_id === modalTarget);
+    if (!targetPos?.workforce_member_id) {
+      setModalError('Operator position data missing');
+      return;
+    }
+
+    // Commit to backend
+    try {
+      const api = getAdminApi();
+      // Use position's scope for the leave request
+      await api.applyStaffLeave({
+        workforce_member_id: targetPos.workforce_member_id,
+        scope_type: 'center', // Use center scope as default
+        scope_id: targetPos.scope_id ?? '', // Use position's scope_id
+        reason_code: 'planned_leave',
+        starts_on: range.from,
+        ends_on: range.to,
+      });
+
+      // Optimistically update local state and refetch
+      const newLeaves = [...(leaves[modalTarget] ?? []), range];
+      setLeaves({
+        ...leaves,
+        [modalTarget]: mergeLeaves(newLeaves),
+      });
+      closeModal();
+      showToast('<b style="color:var(--brand)">Leave added</b>');
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : 'Failed to add leave');
+    }
+  };
+
+  // Remove leave
+  const removeLeave = (opId: string, fromDate: string) => {
+    const updated = (leaves[opId] ?? []).filter((r) => r.from !== fromDate);
+    setLeaves({
+      ...leaves,
+      [opId]: updated,
+    });
+    showToast('<b style="color:var(--brand)">Leave removed</b>');
+  };
+
+  const operatorsList = useMemo(() => positions.filter((p) => !p.is_backup_slot), [positions]);
+
+  // KPIs
+  const kpiOperators = operatorsList.length;
+  const kpiDaily = operatorCount * commonCap;
+
+  // Render calendar for modal
+  const calendarDays: React.ReactNode[] = [];
+  const dow = DOW_NAMES.map((d) => (
+    <div key={d} className="cal-dow">
+      {d}
+    </div>
+  ));
+
+  const first = new Date(viewYear, viewMonth, 1);
+  const start = first.getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const blocked = blockedDates(modalTarget || '', leaves);
+  const own = ownDates(modalTarget || '', leaves);
+  const today = todayISO();
+
+  for (let i = 0; i < start; i++) {
+    calendarDays.push(<div key={`pad-${i}`} className="cal-day muted"></div>);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const ds = `${viewYear}-${pad(viewMonth + 1)}-${pad(day)}`;
+    let cls = 'cal-day';
+    const isPast = ds < today;
+    if (isPast) {
+      cls += ' muted';
+    } else if (blocked.has(ds)) {
+      cls += ' dis';
+    } else if (own.has(ds)) {
+      cls += ' own';
+    } else if (selFrom && selTo && ds >= selFrom && ds <= selTo) {
+      cls += (ds === selFrom || ds === selTo) ? ' end' : ' inrange';
+    } else if (selFrom && !selTo && ds === selFrom) {
+      cls += ' end';
+    }
+
+    calendarDays.push(
+      <div
+        key={ds}
+        className={cls}
+        data-d={ds}
+        onClick={() => {
+          if (isPast || blocked.has(ds) || own.has(ds)) return;
+          if (!selFrom || (selFrom && selTo)) {
+            setSelFrom(ds);
+            setSelTo(null);
+          } else if (ds < selFrom) {
+            setSelFrom(ds);
+          } else {
+            // Check range doesn't cross blocked/own
+            let ok = true;
+            const testD = new Date(selFrom + 'T00:00:00');
+            const testE = new Date(ds + 'T00:00:00');
+            while (testD <= testE) {
+              if (blocked.has(iso(testD)) || own.has(iso(testD))) {
+                ok = false;
+                break;
+              }
+              testD.setDate(testD.getDate() + 1);
+            }
+            if (!ok) {
+              setModalError('Range crosses a blocked or already-planned date. Pick a clear span.');
+            } else {
+              setSelTo(ds);
+              setModalError('');
+            }
+          }
+        }}
+      >
+        {day}
+      </div>
+    );
+  }
+
+  if (loading) return <div className="p-6">Loading...</div>;
+  if (error) return <div className="p-6 text-red-600">{error}</div>;
+
+  const drawerOp = drawerTarget ? operatorsList.find((p) => p.position_id === drawerTarget) : null;
+  const drawerLeaves = drawerTarget ? (leaves[drawerTarget] ?? []) : [];
+  const drawerUpcoming = drawerLeaves.filter((r) => r.to >= today).sort((a, b) => (a.from < b.from ? -1 : 1));
+  const drawerPast = drawerLeaves.filter((r) => r.to < today).sort((a, b) => (a.from < b.from ? 1 : -1));
+
+  return (
+    <section className="screen on" data-screen="vaccination-operators">
+      <div className="phead">
+        <div>
+          <div className="crumb">Team / <b>Vaccination operators</b></div>
+          <h1>Vaccination operators</h1>
+          <div className="sub">CPT · Channapatna. Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
+        </div>
+      </div>
+
+      {/* KPI Row */}
+      <div className="grid g4" style={{ marginTop: '14px' }}>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--brand)' }}></span>
+          <div className="lab">Operators</div>
+          <div className="val">{kpiOperators}</div>
+          <div className="dl">active vaccination seats</div>
+        </div>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--amber)' }}></span>
+          <div className="lab">Cap / operator</div>
+          <div className="val">{commonCap}</div>
+          <div className="dl">applies to all operators</div>
+        </div>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--teal)' }}></span>
+          <div className="lab">Operators / day</div>
+          <div className="val">{operatorCount}</div>
+          <div className="dl">{operatorCount === 1 ? 'single + fallback' : operatorCount === 3 ? 'all parallel' : 'pair'}</div>
+        </div>
+        <div className="kpi">
+          <span className="acc" style={{ background: 'var(--info)' }}></span>
+          <div className="lab">Daily capacity</div>
+          <div className="val">{kpiDaily}</div>
+          <div className="dl">at full availability</div>
+        </div>
+      </div>
+
+      {/* Roster & Availability Card */}
+      <div className="card">
+        <div className="hd">
+          <h3>Operator roster & availability</h3>
+          <div className="sp"></div>
+          <div className="capctl">
+            <span className="capctl-lab">Cap / operator</span>
+            <b id="capText" style={{ display: capEditing ? 'none' : 'block' }}>
+              {commonCap}
+            </b>
+            <span className="capunit" style={{ display: capEditing ? 'none' : 'block' }}>
+              animals/day
+            </span>
+            <input
+              className="capin"
+              type="number"
+              min="1"
+              step="10"
+              value={capDraft}
+              onChange={(e) => setCapDraft(e.target.value)}
+              style={{ display: capEditing ? 'block' : 'none' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveCap();
+                if (e.key === 'Escape') setCapEditing(false);
+              }}
+            />
+            <button
+              className="btn sm"
+              style={{ display: capEditing ? 'none' : 'block' }}
+              onClick={() => {
+                setCapDraft(String(commonCap));
+                setCapEditing(true);
+              }}
+              aria-disabled={true}
+              title="Common-cap write not yet available (backend pending)"
+              disabled
+            >
+              ✏️ Edit
+            </button>
+            <button
+              className="btn b sm"
+              style={{ display: capEditing ? 'block' : 'none' }}
+              onClick={saveCap}
+              disabled={capSaving}
+            >
+              Save
+            </button>
+            <button
+              className="btn sm ghost"
+              style={{ display: capEditing ? 'block' : 'none' }}
+              onClick={() => setCapEditing(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        <div className="bd" style={{ overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Park</th>
+                <th>Week off</th>
+                <th>Planned leave</th>
+                <th>Weekly schedule</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {operatorsList.map((op) => {
+                const opLeaves = leaves[op.position_id ?? ''] ?? [];
+                const opUpcoming = opLeaves.filter((r) => r.to >= today).sort((a, b) => (a.from < b.from ? -1 : 1));
+                const nextRange = opUpcoming[0];
+                const init = (op.person_display_name ?? 'OP')[0];
+                const shortName = op.person_display_name ?? 'Operator';
+                const weekOff = op.week_off_weekday ?? op.week_off ?? '—';
+                const weekOffLabel = WEEKDAYS.includes(weekOff as (typeof WEEKDAYS)[number]) ? WEEK_LABELS[weekOff as (typeof WEEKDAYS)[number]] : weekOff;
+                const statusToday = new Date();
+                const todayDow = WEEKDAYS[statusToday.getDay() === 0 ? 6 : statusToday.getDay() - 1];
+                const onLeaveToday = opLeaves.some((r) => today >= r.from && today <= r.to);
+                const weekOffToday = weekOff.toLowerCase() === todayDow;
+
+                return (
+                  <tr key={op.position_id}>
+                    <td>
+                      <div className="person">
+                        <div className="av">{init}</div>
+                        <div>
+                          <b>{shortName}</b>
+                          <span>Vaccination operator</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>Channapatna</td>
+                    <td>
+                      <span className="tag t-info">{weekOffLabel}</span>
+                    </td>
+                    <td>
+                      {!opLeaves.length ? (
+                        <div className="leavecell">
+                          <button
+                            className="laddbtn"
+                            onClick={() => openModal(op.position_id!)}
+                          >
+                            ＋ Add leave
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="leavecell">
+                          {nextRange ? (
+                            <div
+                              className="lsum"
+                              onClick={() => openDrawer(op.position_id!)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <b>{fmtRange(nextRange)}</b>
+                              <small>
+                                {opLeaves.length} planned{opUpcoming.length > 1 ? ` · ${opUpcoming.length - 1} more upcoming` : ''}
+                              </small>
+                            </div>
+                          ) : (
+                            <div
+                              className="lsum"
+                              onClick={() => openDrawer(op.position_id!)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <b>none upcoming</b>
+                              <small>{opLeaves.length} past</small>
+                            </div>
+                          )}
+                          <button className="laddbtn" onClick={() => openModal(op.position_id!)}>
+                            Manage
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div className="wk">
+                        {WEEKDAYS.map((dow) => {
+                          const isOff = weekOff.toLowerCase() === dow;
+                          return (
+                            <div key={dow} className={`wc ${isOff ? 'off' : 'on'}`}>
+                              <span>{WEEK_LABELS[dow]}</span>
+                              <b>{isOff ? 'Off' : 'On'}</b>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td>
+                      {onLeaveToday ? (
+                        <span className="tag t-warn">On leave today</span>
+                      ) : weekOffToday ? (
+                        <span className="tag t-info">Week-off today</span>
+                      ) : (
+                        <span className="tag t-ok">Available</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Drive Operator Assignment */}
+      <div className="card">
+        <div className="hd">
+          <h3>Drive operator assignment</h3>
+          <div className="sp"></div>
+        </div>
+        <div className="bd">
+          <div className="ctl">
+            <div className="fld">
+              <label>Active operators / day</label>
+              <select
+                value={operatorCount}
+                onChange={(e) => setOperatorCount(parseInt(e.target.value, 10))}
+                disabled={true}
+                aria-disabled={true}
+                title="Active operators/day (N) config not yet available (backend pending)"
+                style={{ opacity: 0.45 }}
+              >
+                <option value="1">1 operator</option>
+                <option value="2">2 operators</option>
+                <option value="3">3 operators</option>
+              </select>
+            </div>
+            <div className="fld">
+              <label>Default operator</label>
+              <select
+                value={defaultOperator}
+                onChange={(e) => setDefaultOperator(e.target.value)}
+                disabled={operatorCount !== 1}
+                aria-disabled={operatorCount !== 1}
+                title={operatorCount !== 1 ? 'Only available when active operators = 1' : ''}
+              >
+                {operatorsList.map((op) => (
+                  <option key={op.position_id} value={op.position_id}>
+                    {op.person_display_name || 'Operator'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="uline" style={{ marginTop: '14px' }}>
+            {operatorCount === 1 ? 'Fallback chain — first available wins' : `Parallel — up to ${operatorCount}/day run together`}
+          </div>
+          <div className="banner" style={{ marginTop: '10px', display: operatorCount !== 1 ? 'block' : 'none' }}>
+            <b>Parallel mode:</b> up to {operatorCount} available operators run together. No single default; week-off/leave just drops that operator&apos;s slice for the day.
+          </div>
+          <div className="uline" style={{ marginTop: '20px' }}>
+            Weekly assignment preview — who runs the drive each day
+          </div>
+          <div style={{ overflowX: 'auto', marginTop: '12px' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: '80px' }}>Day</th>
+                  <th>Assigned operator</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {WEEKDAYS.map((dow) => (
+                  <tr key={dow}>
+                    <td><b>{WEEK_LABELS[dow]}</b></td>
+                    <td>—</td>
+                    <td className="why">Not yet wired</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Drawer - Leave Details */}
+      {drawerOpen && drawerOp && (
+        <>
+          <div
+            className="dscrim on"
+            onClick={closeDrawer}
+          ></div>
+          <aside className="drawer" role="dialog" aria-modal="true">
+            <div className="dh">
+              <div className="av">{(drawerOp.person_display_name ?? 'OP')[0]}</div>
+              <div style={{ flex: 1 }}>
+                <h3>{drawerOp.person_display_name || 'Operator'}</h3>
+                <span>Planned leave</span>
+              </div>
+              <button className="cal-nav" onClick={closeDrawer} title="Close">
+                ✕
+              </button>
+            </div>
+            <div className="db">
+              {!drawerLeaves.length ? (
+                <div className="lvempty">No planned leave. Use &quot;Add leave&quot;.</div>
+              ) : (
+                <>
+                  {drawerUpcoming.length > 0 && (
+                    <>
+                      <div className="dgrp">Upcoming</div>
+                      {drawerUpcoming.map((r) => (
+                        <div key={r.from} className="lvitem">
+                          <div>
+                            <div className="lvdate">{fmtRange(r)}</div>
+                            <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
+                          </div>
+                          <button
+                            className="rm"
+                            onClick={() => removeLeave(drawerTarget!, r.from)}
+                            title="Leave cancellation not yet available"
+                            disabled
+                            aria-disabled={true}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {drawerPast.length > 0 && (
+                    <>
+                      <div className="dgrp">Past</div>
+                      {drawerPast.map((r) => (
+                        <div key={r.from} className="lvitem past">
+                          <div>
+                            <div className="lvdate">{fmtRange(r)}</div>
+                            <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
+                          </div>
+                          <button
+                            className="rm"
+                            onClick={() => removeLeave(drawerTarget!, r.from)}
+                            title="Leave cancellation not yet available"
+                            disabled
+                            aria-disabled={true}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="df">
+              <button className="btn b" style={{ width: '100%' }} onClick={() => openModal(drawerTarget!)}>
+                ＋ Add leave
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
+
+      {/* Modal - Add Leave */}
+      {modalOpen && (
+        <>
+          <div className="scrim on" onClick={closeModal}></div>
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="mh">
+              <div className="av">{(operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP')[0]}</div>
+              <div>
+                <h3>Add planned leave</h3>
+                <span>{operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name || 'Operator'} · Vaccination operator</span>
+              </div>
+              <div style={{ flex: 1 }}></div>
+              <button className="cal-nav" onClick={closeModal} title="Close">
+                ✕
+              </button>
+            </div>
+            <div className="mb">
+              <div className="rangelab">
+                <span>Pick leave dates</span>
+                <b id="lmRange">
+                  {!selFrom ? '— pick a start day —' : !selTo ? `${fmtRange({ from: selFrom, to: selFrom })} → pick end` : fmtRange({ from: selFrom, to: selTo })}
+                </b>
+              </div>
+              <div className="cal">
+                <div className="cal-h">
+                  <button className="cal-nav" onClick={() => {
+                    setViewMonth(v => v === 0 ? 11 : v - 1);
+                    if (viewMonth === 0) setViewYear(y => y - 1);
+                  }}>
+                    ‹
+                  </button>
+                  <div className="mlab">{MON_NAMES[viewMonth]} {viewYear}</div>
+                  <button className="cal-nav" onClick={() => {
+                    setViewMonth(v => v === 11 ? 0 : v + 1);
+                    if (viewMonth === 11) setViewYear(y => y + 1);
+                  }}>
+                    ›
+                  </button>
+                </div>
+                <div className="cal-grid">{dow}</div>
+                <div className="cal-grid">{calendarDays}</div>
+              </div>
+              <div className="legendcal">
+                <span>
+                  <i style={{ background: 'var(--brand)' }}></i>Selected
+                </span>
+                <span>
+                  <i style={{ background: 'var(--warnx)', border: '1px solid var(--warn)' }}></i>Already planned
+                </span>
+                <span>
+                  <i style={{ background: 'var(--dangerx)', border: '1px solid var(--danger)' }}></i>Booked by another
+                </span>
+              </div>
+              {modalError && (
+                <div className="err on" style={{ marginTop: '12px' }}>
+                  {modalError}
+                </div>
+              )}
+            </div>
+            <div className="mf">
+              <button className="btn sm ghost" onClick={closeModal}>
+                Cancel
+              </button>
+              <button className="btn b sm" onClick={addLeave}>
+                Add leave
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div id="toast" className="show">
+          <div dangerouslySetInnerHTML={{ __html: toast }} />
+        </div>
+      )}
+    </section>
+  );
+}

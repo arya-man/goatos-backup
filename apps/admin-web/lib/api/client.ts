@@ -152,5 +152,42 @@ export function getAdminApi() {
       const body = (await response.json()) as AdminApiComponents['schemas']['ImportPositionsResponse'];
       return { data: body };
     },
+
+    // listStaffLeave fetches planned leave/absence records for operators.
+    async listStaffLeave(
+      params?: AdminApiPaths['/admin/roster/leave']['get']['parameters']['query']
+    ) {
+      const query = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) {
+            query.append(k, String(v));
+          }
+        });
+      }
+      const url = `/api/admin/roster/leave${query.toString() ? '?' + query.toString() : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveListResponse'];
+      return { data: body };
+    },
+
+    // applyStaffLeave adds a new leave/absence period for an operator.
+    async applyStaffLeave(
+      requestBody: AdminApiComponents['schemas']['ApplyStaffLeaveRequest']
+    ) {
+      const response = await fetch('/api/admin/roster/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to apply leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
+      return { data: body };
+    },
   };
 }

@@ -1923,6 +1923,10 @@ export type StaffPositionsQuery = NonNullable<AdminApiPaths["/admin/roster/posit
 export type UpdatePositionRequest = AdminApiComponents["schemas"]["UpdatePositionRequest"];
 export type BackupConfigQuery = NonNullable<AdminApiPaths["/admin/roster/backup-config"]["get"]["parameters"]["query"]>;
 export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"]["get"]["parameters"]["query"]>;
+export type StaffLeave = AdminApiComponents["schemas"]["StaffLeave"];
+export type StaffLeaveListResponse = AdminApiComponents["schemas"]["StaffLeaveListResponse"];
+export type ApplyStaffLeaveRequest = AdminApiComponents["schemas"]["ApplyStaffLeaveRequest"];
+export type StaffLeaveQuery = NonNullable<AdminApiPaths["/admin/roster/leave"]["get"]["parameters"]["query"]>;
 
 export async function listStaffPositions(
   params: StaffPositionsQuery = {},
@@ -1964,6 +1968,35 @@ export async function updateStaffPosition(
       method: "PATCH",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function listStaffLeave(
+  params: StaffLeaveQuery = {},
+): Promise<ApiResult<StaffLeaveListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<StaffLeaveListResponse>("/admin/roster/leave", {
+      cache: "no-store",
+      query: compactQuery({ ...params, limit: params.limit ?? 500 }),
+    }),
+  );
+}
+
+export async function applyStaffLeave(
+  body: ApplyStaffLeaveRequest,
+): Promise<ApiResult<AdminApiComponents["schemas"]["StaffLeaveResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>("/admin/roster/leave", {
+      method: "POST",
+      cache: "no-store",
       body,
     }),
   );
