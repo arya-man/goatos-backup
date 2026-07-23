@@ -94,8 +94,11 @@ The committed CPT operator-drive rehearsal packet lives at
 generate open drive work only on `2026-07-23` or later. The packet includes
 `cpt-operator-roster.json`, which explicitly seeds Amit Kumar, Darshan Talwar,
 and Sagar Mahoor as equal vaccination operators at `200` unique animals per
-operator per day, plus Chandrakant as director-only monitoring scope. It also
-reuses the founder/CXO `ceo_internal` grant cohort documented in
+operator per day, plus Chandrakant as director-only monitoring scope. Its
+`default_operator_assignment` is scheduler-consumed: N=1, Darshan is the default
+drive operator, Sagar is the primary fallback when Darshan is unavailable or on
+weekly off, and Amit remains in HRMS as a secondary fallback rather than being
+removed from the roster. It also reuses the founder/CXO `ceo_internal` grant cohort documented in
 `docs/runbooks/auth.md`: `ravi@mesha.sg`, `manohark@mesha.sg`,
 `manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
 The packet also includes `expected-drive-schedules.json`, a machine-readable
@@ -634,6 +637,6 @@ Do not push a seed change that bypasses these gates.
 
 <!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
 <!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->
-<!-- Coupling review 2026-07-23: migration 000035 introduces vaccination_operator_shift_config and vaccination_operator_assignment_config tables for operator shift scheduling (shift_label/shift_start_minute/shift_end_minute) and default assignment rules (active_operators_per_day, default_operator_code). These rows are consumed by the drive scheduler when selecting daily operators and do not change source fixture bytes, seed validation, or operator-roster contract schema verification; the validator and seed-roster-real accept and seed these fields when present in cpt-operator-roster.json. -->
+<!-- Coupling review 2026-07-23: migration 000035 introduces vaccination_operator_shift_config and vaccination_operator_assignment_config tables for operator shift scheduling (shift_label/shift_start_minute/shift_end_minute) and default assignment rules (default_operator_assignment.active_operators_per_day, default_operator_assignment.default_operator_code). These rows are consumed by the drive scheduler when selecting daily operators and do not change raw animal/vaccination source bytes; the validator and seed-roster-real accept and seed these fields when present in cpt-operator-roster.json. -->
 
 <!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->

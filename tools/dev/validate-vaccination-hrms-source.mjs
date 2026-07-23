@@ -511,12 +511,17 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
       if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
-      const activeOpsPerDay = contract?.operator_assignment_config?.active_operators_per_day;
+      const assignmentConfig = contract?.default_operator_assignment;
+      const activeOpsPerDay = assignmentConfig?.active_operators_per_day;
       if (activeOpsPerDay != null && !(Number.isInteger(activeOpsPerDay) && activeOpsPerDay >= 1 && activeOpsPerDay <= 3)) pushSample(operatorRosterProblems, `active_operators_per_day must be an integer between 1 and 3 when set, got ${activeOpsPerDay}`);
-      const defaultOpCode = String(contract?.operator_assignment_config?.default_operator_code || "").trim();
+      const defaultOpCode = String(assignmentConfig?.default_operator_code || "").trim();
       if (defaultOpCode && !/^vaccination_operator_[a-z0-9_]+$/.test(defaultOpCode)) pushSample(operatorRosterProblems, `default_operator_code must match vaccination_operator_<name> pattern, got ${defaultOpCode}`);
       if (defaultOpCode && !operatorCodes.has(defaultOpCode)) pushSample(operatorRosterProblems, `default_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${defaultOpCode}`);
-      if (contract?.operator_assignment_config && !hasPMShift) pushSample(operatorRosterProblems, "operator_assignment_config requires one pm shift operator for default-off fallback identity");
+      const fallbackOpCode = String(assignmentConfig?.fallback_operator_code || "").trim();
+      if (fallbackOpCode && !operatorCodes.has(fallbackOpCode)) pushSample(operatorRosterProblems, `fallback_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${fallbackOpCode}`);
+      const secondaryFallbackOpCode = String(assignmentConfig?.secondary_fallback_operator_code || "").trim();
+      if (secondaryFallbackOpCode && !operatorCodes.has(secondaryFallbackOpCode)) pushSample(operatorRosterProblems, `secondary_fallback_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${secondaryFallbackOpCode}`);
+      if (assignmentConfig && !hasPMShift) pushSample(operatorRosterProblems, "default_operator_assignment requires one pm shift operator for default-off fallback identity");
     } catch (err) {
       pushSample(operatorRosterProblems, `unparseable cpt-operator-roster.json: ${err.message}`);
     }
@@ -524,8 +529,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "operator_roster_contract",
     operatorRosterProblems.length,
-    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed assignment config (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (1..1440), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional active_operators_per_day 1..3, default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when assignment config is present.",
+    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (1..1440), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when default_operator_assignment is present.",
     operatorRosterProblems,
   ));
 
