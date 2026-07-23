@@ -727,6 +727,91 @@ ORDER BY operator_id`, tenantID, batchID)
 	}
 }
 
+// TestReplaceVaccinationDriveAssignmentsForBatchRemovesStaleRowNotInNewSet is the F2 repository-level
+// proof: ReplaceVaccinationDriveAssignmentsForBatch must delete every existing
+// vaccination_drive_assignments row for (tenant, batch) and insert exactly the supplied set --
+// never leaving a row whose shed/partition/operator key is absent from the new set. This is the
+// bug at the old repository.go:3504 create-tx upsert: it persisted a row for EVERY selected
+// obligation's shed (via newBatch.DriveAssignments, built before attachedIDs was known), and the
+// later scoped upsert (ON CONFLICT DO UPDATE) could only add/update the attached shed's key -- it
+// could never remove the other shed's now-stale row, since that key never appears in the scoped
+// upsert's own INSERT/SELECT input.
+func TestReplaceVaccinationDriveAssignmentsForBatchRemovesStaleRowNotInNewSet(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.assignmentreplace", 1)
+
+	const goatID = "10000000-0000-4000-8000-00000000f341"
+	const shedID = "00000000-0000-4000-8000-00000000d341"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "assignment-replace-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+
+	planned := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	_, batchID := seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, planned, planned, "assignment-replace")
+
+	// Simulate the OLD bug: the create path persisted a row for BOTH the attached shed (Gandhi/1)
+	// AND a selected-but-never-attached shed (Godel/2) because the pre-attach set was written
+	// unfiltered.
+	attachedShed := domain.DriveAssignment{
+		BatchID: batchID, PlannedDate: planned, ParkID: cbePark, ShedID: testStringPtr(shedID),
+		PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 1, VaccineRuleIDs: []string{versions[0].ruleID},
+		TotalDoses: 1, CapacityStatus: "within_cap",
+	}
+	staleUnattachedShed := domain.DriveAssignment{
+		BatchID: batchID, PlannedDate: planned, ParkID: cbePark, ShedID: testStringPtr(shedID),
+		PhysicalShed: "Godel", PartitionLabel: "2", AnimalCount: 1, VaccineRuleIDs: []string{versions[0].ruleID},
+		TotalDoses: 1, CapacityStatus: "within_cap",
+	}
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{attachedShed, staleUnattachedShed}); err != nil {
+		t.Fatalf("seed pre-attach (buggy) upsert: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != 2 {
+		t.Fatalf("seeded row count = %d, want 2 (both sheds present before replace)", got)
+	}
+
+	// F2 fix: the post-attach write replaces the whole batch's row set with only the attached shed.
+	if err := repo.ReplaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, []domain.DriveAssignment{attachedShed}); err != nil {
+		t.Fatalf("ReplaceVaccinationDriveAssignmentsForBatch: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+SELECT physical_shed, partition_label
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND batch_id=$2
+ORDER BY physical_shed`, tenantID, batchID)
+	if err != nil {
+		t.Fatalf("query assignments after replace: %v", err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var physicalShed, partition string
+		if err := rows.Scan(&physicalShed, &partition); err != nil {
+			t.Fatalf("scan assignment: %v", err)
+		}
+		got = append(got, physicalShed+"/"+partition)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("assignment rows: %v", err)
+	}
+	if len(got) != 1 || got[0] != "Gandhi/1" {
+		t.Fatalf("assignments after replace = %#v, want exactly [\"Gandhi/1\"] -- the stale Godel/2 row must be gone", got)
+	}
+
+	// Idempotent/replay-safe: replacing again with the identical set leaves the same single row.
+	if err := repo.ReplaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, []domain.DriveAssignment{attachedShed}); err != nil {
+		t.Fatalf("re-replace: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != 1 {
+		t.Fatalf("row count after re-replace = %d, want still 1 (idempotent)", got)
+	}
+}
+
 func TestUpsertVaccinationDriveDateOverrideSplitsMixedRawAssignmentMembership(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

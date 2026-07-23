@@ -78,6 +78,51 @@ func (r *Repository) UpsertVaccinationDriveAssignments(ctx context.Context, tena
 	return nil
 }
 
+// ReplaceVaccinationDriveAssignmentsForBatch persists the FINAL, attached-only drive-assignment
+// row set for one (tenant, batch) atomically: delete every existing row for that batch, then
+// insert exactly the supplied set, all inside one transaction. This is the F2 fix's persistence
+// half -- an upsert alone can only add/update keys present in the new set, so a row for an
+// obligation that was selected but did not actually attach (a shed/partition/operator key absent
+// from the new set) would survive forever. Replace removes it. Idempotent/replay-safe: calling it
+// twice with the identical assignment set leaves the same rows in place.
+func (r *Repository) ReplaceVaccinationDriveAssignmentsForBatch(ctx context.Context, tenantID, batchID string, assignments []domain.DriveAssignment) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return fmt.Errorf("obligation: batch id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("obligation: begin drive assignment replace tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if _, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignments
+WHERE tenant_id = $1 AND batch_id = $2`, tenant, batch); err != nil {
+		return fmt.Errorf("obligation: delete stale drive assignments: %w", err)
+	}
+	if len(assignments) > 0 {
+		if err := upsertVaccinationDriveAssignmentsTx(ctx, tx, tenant, assignments); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("obligation: commit drive assignment replace: %w", err)
+	}
+	committed = true
+	return nil
+}
+
 func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, assignments []domain.DriveAssignment) error {
 	batchIDs := make([]pgtype.UUID, 0, len(assignments))
 	plannedDates := make([]time.Time, 0, len(assignments))

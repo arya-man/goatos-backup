@@ -210,6 +210,16 @@ type vaccinationDriveAssignmentWriter interface {
 	UpsertVaccinationDriveAssignments(ctx context.Context, tenantID string, assignments []domain.DriveAssignment) error
 }
 
+// vaccinationDriveAssignmentReplacer replaces the ENTIRE drive-assignment row set for one
+// (tenant, batch) atomically: delete existing rows for that batch, then insert exactly the
+// supplied set. Used after a batch attach/merge so a row for an obligation that was SELECTED
+// but did NOT actually attach (different shed/partition/operator key than the attached set)
+// can never survive as a stale row -- an upsert alone only ever adds/updates keys present in
+// the new set and can never remove a key that has disappeared from it.
+type vaccinationDriveAssignmentReplacer interface {
+	ReplaceVaccinationDriveAssignmentsForBatch(ctx context.Context, tenantID, batchID string, assignments []domain.DriveAssignment) error
+}
+
 type vaccinationDriveDateOverrideReader interface {
 	ActiveVaccinationDriveDateOverride(ctx context.Context, tenantID, parkID, vaccineCode string, originalDate time.Time) (*domain.VaccineDriveDateOverride, error)
 }
@@ -296,6 +306,24 @@ func (s *SweeperService) writeVaccinationDriveAssignments(ctx context.Context, t
 	return writer.UpsertVaccinationDriveAssignments(ctx, tenantID, assignments)
 }
 
+// replaceVaccinationDriveAssignmentsForBatch persists the FINAL, attached-only assignment set for
+// one batch, replacing anything previously written for it. This is the post-attach write: it must
+// run AFTER attachedIDs is known and must never be seeded with the pre-attach (all-selected-rows)
+// assignment set (see batchDueGroup), or a row for a non-attached obligation would already be
+// persisted by the create path and this replace would just re-affirm it as "current".
+func (s *SweeperService) replaceVaccinationDriveAssignmentsForBatch(ctx context.Context, tenantID, batchID string, assignments []domain.DriveAssignment) error {
+	if strings.TrimSpace(batchID) == "" {
+		return nil
+	}
+	if replacer, ok := s.repo.(vaccinationDriveAssignmentReplacer); ok {
+		return replacer.ReplaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, assignments)
+	}
+	// Fallback for repos that only implement the legacy upsert-only writer (e.g. test fakes):
+	// upsert is not a full replace (it cannot remove a stale key that disappeared from the new
+	// set), but it is still strictly better than doing nothing.
+	return s.writeVaccinationDriveAssignments(ctx, tenantID, assignments)
+}
+
 func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Context, tenantID string, batch domain.NewBatch, capPerOperator int32, assignments []domain.DriveAssignment, session *SweepSession) ([]domain.DriveAssignment, error) {
 	if len(assignments) == 0 || batch.PlannedDate == nil || strings.TrimSpace(batch.ScopeID) == "" {
 		return assignments, nil
@@ -349,6 +377,14 @@ func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantI
 }
 
 func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallbackCap int32) int32 {
+	// fallbackCap only applies when NO operators were found at all (callers already
+	// early-return on len(operators) == 0, but keep this defensive for direct callers).
+	// When operators WERE found but every one has 0 remaining capacity, the correct
+	// answer is 0 -- NOT the fallback batch cap. Falling back here would let the
+	// planner create/lock a drive onto operators who are all already at capacity.
+	if len(operators) == 0 {
+		return fallbackCap
+	}
 	var total int32
 	for _, operator := range operators {
 		// Cap is remaining usable capacity (after persisted load). Use it directly; if it's 0, the operator is at capacity.
@@ -356,10 +392,21 @@ func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallb
 			total += operator.Cap
 		}
 	}
-	if total <= 0 {
-		total = fallbackCap
-	}
 	return total
+}
+
+// driveOperatorCapacityExhausted reports whether capPlanner is the F1-fixed "operators were found
+// but every one has 0 remaining capacity" result, as opposed to a genuinely uncapped/unconfigured
+// drive planner. Both cases leave MaxGoatsPerDrive == 0, which limitUnbatchedSelectionByDriveAnimals
+// (and its many other callers/tests) intentionally treat as "no cap configured -- do not limit".
+// operatorCapacityPlanner only ever returns MaxGoatsPerDrive == 0 for an ORIGINALLY-capped planner
+// (original.MaxGoatsPerDrive > 0) when totalVaccinationOperatorCap found operators and they are all
+// exhausted (see totalVaccinationOperatorCap); an originally-uncapped planner is returned unchanged
+// by that function's own top guard and never becomes exactly 0 through this path. This lets every
+// call site short-circuit to "admit nothing" instead of falling into the ambiguous-zero unlimited
+// branch, closing F1 on the real production caller instead of only inside the isolated function.
+func driveOperatorCapacityExhausted(original, scaled domain.DrivePlannerSettings) bool {
+	return original.MaxGoatsPerDrive > 0 && scaled.MaxGoatsPerDrive <= 0
 }
 
 func leastLoadedDriveOperator(operators []domain.DriveOperatorCapacity, loads map[string]int32) string {
@@ -947,6 +994,16 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		_ = release(ctx)
 		return false, 0, err
 	}
+	if driveOperatorCapacityExhausted(planner, capPlanner) {
+		// F1: operators were found but every one has 0 remaining capacity. Do NOT fall through to
+		// limitUnbatchedSelectionByDriveAnimals, which treats MaxGoatsPerDrive == 0 as "no cap
+		// configured" and would admit the full selection onto already-exhausted operators.
+		session.releaseClaims(shotClaims)
+		if err := release(ctx); err != nil {
+			return false, 0, err
+		}
+		return false, 0, nil
+	}
 	cappedIDs := limitUnbatchedSelectionByDriveAnimals(operationalAsOf, g.rows, selectedIDs, plannedDate, capPlanner, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
@@ -1011,12 +1068,19 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			return batched, obligations, assignErr
 		}
 		driveAssignments := driveAssignmentsForUnbatched("pending", newBatch, selectedRows)
-		driveAssignments, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments, session)
-		if assignErr != nil {
+		if _, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments, session); assignErr != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, assignErr
 		}
-		newBatch.DriveAssignments = driveAssignments
+		// F2 fix: do NOT set newBatch.DriveAssignments here. selectedRows is the PRE-attach
+		// candidate set, not what actually attaches -- createBatchWithAttachedIDs only attaches
+		// rows still eligible (batch_id IS NULL, status in scheduled/due/in_progress/missed) inside
+		// its own transaction, so passing the unfiltered set would let the create path persist a
+		// drive-assignment row for an obligation that never attached (different shed/partition/
+		// operator key than what actually attached). Leave DriveAssignments empty on the create
+		// call; the real, attached-only set is computed and persisted below via a replace scoped
+		// to (tenant, batch) once attachedIDs is known.
+		newBatch.DriveAssignments = nil
 		batchID, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, newBatch, chunk, cellsByObligation)
 		if createErr != nil {
 			session.releaseClaims(claimChunk)
@@ -1026,11 +1090,14 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			session.releaseClaims(claimChunk)
 			continue
 		}
-		// Scope drive assignments to only those obligations that actually attached.
-		// Rebuild from the attached subset to avoid persisting assignments for non-attached obligations.
+		// Scope drive assignments to only those obligations that actually attached, then REPLACE
+		// (not upsert) the batch's whole drive-assignment row set with exactly that scoped set, so
+		// no row for a selected-but-unattached obligation (a different shed/partition/operator key)
+		// can survive -- idempotent/replay-safe: re-running the same attach recomputes and
+		// re-replaces the identical set.
 		attachedRows := selectedUnbatchedRows(selectedRows, attachedIDs)
 		scopedAssignments := driveAssignmentsForUnbatched(batchID, newBatch, attachedRows)
-		if err := s.writeVaccinationDriveAssignments(ctx, tenantID, scopedAssignments); err != nil {
+		if err := s.replaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, scopedAssignments); err != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, err
 		}
@@ -1085,6 +1152,16 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 				_ = visitRelease(ctx)
 				return plannedDate, nil, nil, noopRelease, err
 			}
+			if driveOperatorCapacityExhausted(planner, capPlanner) {
+				// F1: operators found but all exhausted for this candidate day -- it cannot admit
+				// anything, so skip it exactly like the "no feasible ids" case rather than falling
+				// into limitUnbatchedSelectionByDriveAnimals' ambiguous MaxGoatsPerDrive==0 branch.
+				if err := visitRelease(ctx); err != nil {
+					return plannedDate, nil, nil, noopRelease, err
+				}
+				probe = probe.AddDate(0, 0, 1)
+				continue
+			}
 			driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, &day, capPlanner.MaxGoatsPerDrive, session)
 			if err != nil {
 				_ = visitRelease(ctx)
@@ -1126,6 +1203,15 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 	if err != nil {
 		_ = visitRelease(ctx)
 		return bestDate, nil, nil, noopRelease, err
+	}
+	if driveOperatorCapacityExhausted(planner, capPlanner) {
+		// F1: operators found but all exhausted on the chosen best date -- admit nothing rather
+		// than falling into limitUnbatchedSelectionByDriveAnimals' ambiguous MaxGoatsPerDrive==0
+		// "no cap configured" branch.
+		if err := visitRelease(ctx); err != nil {
+			return bestDate, nil, nil, noopRelease, err
+		}
+		return bestDate, nil, nil, noopRelease, nil
 	}
 	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, bestDate, capPlanner.MaxGoatsPerDrive, session)
 	if err != nil {
