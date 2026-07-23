@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
@@ -205,19 +206,13 @@ private fun ModuleTabs(
 
 @Composable
 private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.verify_queue_title),
-                color = MeshaColors.Ink,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.W800,
-            )
+    // Uses the shared MeshaScreenHeader so this L0 root gets the module-drawer HAMBURGER (and a
+    // drill would get Up) automatically from the shell's LocalDrawerOpener — exactly like every
+    // other screen. The old hand-rolled Row skipped it, leaving the verifier with no way back to
+    // another module (or, on a drill, no Up).
+    MeshaScreenHeader(
+        title = stringResource(R.string.verify_queue_title),
+        below = {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
                 lastSyncedAt = state.lastSyncedAt,
@@ -225,23 +220,25 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
                 isOffline = state.isOffline,
                 modifier = Modifier.padding(top = 2.dp),
             )
-        }
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MeshaColors.Surf2)
-                .clickable(onClick = onRefresh),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MeshaIcons.Refresh,
-                contentDescription = stringResource(R.string.verify_queue_refresh),
-                tint = MeshaColors.Muted,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
+        },
+        actions = {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MeshaColors.Surf2)
+                    .clickable(onClick = onRefresh),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Refresh,
+                    contentDescription = stringResource(R.string.verify_queue_refresh),
+                    tint = MeshaColors.Muted,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        },
+    )
 }
 
 @Composable
