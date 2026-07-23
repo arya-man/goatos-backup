@@ -2746,3 +2746,165 @@ func TestPartialAttachScopesVaccinationDriveAssignmentsToAttachedIDs(t *testing.
 		t.Fatalf("scopedAssignments BatchID = %s, want batch-id-scoped", scopedAssignments[0].BatchID)
 	}
 }
+
+// P1 fail-closed leak (Codex): preflight.selectBestUnbatchedDriveDateWithVisitCap probe loop
+// (line ~306-310) calls operatorCapacityPlanner then lockAndRefreshDriveCapacity WITHOUT
+// checking driveOperatorCapacityExhausted, so cap 0 (exhausted) is treated as "uncapped/do not limit",
+// admitting all animals onto a no-operator day. This test reproduces that leak and asserts the fix
+// properly skips the day (admits nothing).
+func TestPreflightProbeLoopFailsClosedOnOperatorCapExhausted(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			rowsByVersion: map[string][]domain.UnbatchedDue{
+				"v-test": {
+					{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-1", DueAt: planned, WindowEnd: &winEnd},
+					{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-2", DueAt: planned, WindowEnd: &winEnd},
+				},
+			},
+			attachAll: true,
+		},
+		returnErr: domain.ErrOperatorAssignmentConfigPresentButEmpty, // Config present but zero operators
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{
+		Enabled:                   true,
+		MaxGoatsPerDrive:          200, // Cap configured
+		MaxShotsPerAnimalPerDrive: 10,
+	}
+
+	// Preflight: this should NOT find and lock a best date if all dates have no-operator exhaustion.
+	// Before fix: selects obl-1 + obl-2 on planned date (cap 0 treated as unbounded → admits all).
+	// After fix: no selection (date skipped on driveOperatorCapacityExhausted check).
+	session := NewSweepSession()
+	_, selectedIDs, _, err := svc.preflightBestUnbatchedDriveDateWithVisitCap(
+		context.Background(),
+		"tenant-1", planned, repo.rowsByVersion["v-test"],
+		[]string{"goat-1", "goat-2"},
+		&planned,
+		planner,
+		RuleVaccineIdentity{VaccineCode: "Test Vaccine", VaccinePriority: 1},
+		1, // cellsPerObligation
+		session,
+	)
+	if err != nil {
+		t.Fatalf("preflightBestUnbatchedDriveDateWithVisitCap: %v", err)
+	}
+	// When operators are exhausted on all feasible dates, selectedIDs must be empty (no animals selected).
+	// The function may return plannedDate (as a reference point), but selectedIDs should be nil/empty to signal
+	// that no animals can be admitted.
+	if len(selectedIDs) != 0 {
+		t.Fatalf("leak: selectedIDs=%v, want empty (operators exhausted, must admit nothing)", selectedIDs)
+	}
+}
+
+// P1 fail-closed leak (Codex): preflight chosen-best-date path (line ~343-347) same pattern as probe loop.
+func TestPreflightBestDateFailsClosedOnOperatorCapExhausted(t *testing.T) {
+	// Setup identical to probe test, but no other feasible dates so the best-date re-evaluation fires.
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC) // Same day, no overflow window
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			rowsByVersion: map[string][]domain.UnbatchedDue{
+				"v-test": {
+					{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-1", DueAt: planned, WindowEnd: &winEnd},
+				},
+			},
+			attachAll: true,
+		},
+		returnErr: domain.ErrOperatorAssignmentConfigPresentButEmpty,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{
+		Enabled:                   true,
+		MaxGoatsPerDrive:          200,
+		MaxShotsPerAnimalPerDrive: 10,
+	}
+
+	session := NewSweepSession()
+	_, selectedIDs, _, err := svc.preflightBestUnbatchedDriveDateWithVisitCap(
+		context.Background(),
+		"tenant-1", planned, repo.rowsByVersion["v-test"],
+		[]string{"goat-1"},
+		&planned,
+		planner,
+		RuleVaccineIdentity{VaccineCode: "Test Vaccine", VaccinePriority: 1},
+		1,
+		session,
+	)
+	if err != nil {
+		t.Fatalf("preflightBestUnbatchedDriveDateWithVisitCap: %v", err)
+	}
+	// When operators are exhausted on all feasible dates (including the only feasible date),
+	// selectedIDs must be empty to signal that no animals can be admitted.
+	if len(selectedIDs) != 0 {
+		t.Fatalf("leak: selectedIDs=%v, want empty (operators exhausted on only feasible date)", selectedIDs)
+	}
+}
+
+// P1 fail-closed leak (Codex): park_consolidation.parkMergeStep (line ~142) and selectBestParkDriveDateWithCapacity
+// (line ~519) call operatorCapacityPlanner then lockAndRefreshDriveCapacity WITHOUT driveOperatorCapacityExhausted check.
+func TestParkConsolidationFailsClosedOnOperatorCapExhausted(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			parkRows: []domain.ParkConsolidationCandidate{
+				{
+					ObligationID:      "obl-park-1",
+					RuleID:            "rule-1",
+					TargetID:          "goat-1",
+					ParkID:            "park-1",
+					ShedName:          "shed-a",
+					TargetSpecies:     "goat",
+					TargetAnimalStage: "kid",
+					DueAt:             planned,
+				},
+				{
+					ObligationID:      "obl-park-2",
+					RuleID:            "rule-1",
+					TargetID:          "goat-2",
+					ParkID:            "park-1",
+					ShedName:          "shed-a",
+					TargetSpecies:     "goat",
+					TargetAnimalStage: "kid",
+					DueAt:             planned,
+				},
+			},
+		},
+		returnErr: domain.ErrOperatorAssignmentConfigPresentButEmpty, // Config present, zero operators
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{
+		Enabled:          true,
+		MaxGoatsPerDrive: 200,
+	}
+	cfg := SweepConfig{
+		VaccineCode:  "Test Vaccine",
+		DrivePlanner: planner,
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-1": {DosesPerGoat: 1},
+		},
+		ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinParkMergeTargets: 1,
+		},
+	}
+
+	// Park consolidation should NOT admit animals when operators are exhausted.
+	result, err := svc.consolidateParkDrivesWithVisitCounts(
+		context.Background(),
+		"tenant-1", "version-1", cfg,
+		time.Time{}, planned,
+		planner,
+		NewSweepSession(),
+		time.Time{},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("consolidateParkDrivesWithVisitCounts: %v", err)
+	}
+	if result.ParkBatches != 0 || result.ParkObligations != 0 {
+		t.Fatalf("leak: park result=%#v, want 0 batches/obligations (operators exhausted, must skip day)", result)
+	}
+}
