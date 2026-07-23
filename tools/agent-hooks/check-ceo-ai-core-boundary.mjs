@@ -54,7 +54,7 @@ const SQL_RES = [
 // Client-layer coupling to the assistant surface.
 const CLIENT_RES = [
   /["'`]\/(?:api\/)?ceo-ai(?:\/|["'`])/gi, // "/api/ceo-ai/..." or "/ceo-ai/..."
-  /\b(?:import|from|require)\b[^\n;]*['"][^'"\n]*\/ceo-ai[-/]/gi, // import ... "@/.../ceo-ai-chat" | ".../features/ceo-ai/..."
+  /\b(?:import|from|require)\b[^\n;]*['"][^'"\n]*\/ceo-ai(?:[-/]|['"`])/gi, // "@/.../ceo-ai-chat" | ".../features/ceo-ai/..." | barrel "@/features/ceo-ai"
 ];
 
 const IGNORE_RE =
@@ -212,6 +212,7 @@ function runSelfTest() {
     { name: "client_bare_route", kind: "client", pass: false, src: 'forwardStream("/ceo-ai/starters", init)' },
     { name: "client_import", kind: "client", pass: false, src: 'import { CEOAIChat } from "@/components/ceo-ai-chat";' },
     { name: "client_feature_import", kind: "client", pass: false, src: 'import x from "@/features/ceo-ai/panel";' },
+    { name: "client_barrel_import", kind: "client", pass: false, src: 'import { CeoAiPanel } from "@/features/ceo-ai";' },
     { name: "client_unrelated_ok", kind: "client", pass: true, src: 'const r = await fetch("/api/vaccination/action-center");' },
     { name: "client_comment_ok", kind: "client", pass: true, src: '// see /api/ceo-ai/ask for the assistant proxy' },
     {
