@@ -967,6 +967,13 @@ func (s *Service) GetOperatorAssignmentConfig(ctx context.Context, tenantID, par
 	return OperatorAssignmentConfigView{Config: cfg, Shifts: shifts}, nil
 }
 
+// AuthorizedParkOptions returns the park vocabulary a caller may act in: the tenant's active parks,
+// narrowed to parkIDs when the caller holds park-scoped grants (an empty parkIDs means a tenant-wide
+// actor, i.e. no narrowing). Backend-owned option list -- callers render it, never assemble it.
+func (s *Service) AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]domain.ParkOption, error) {
+	return s.repo.AuthorizedParkOptions(ctx, tenantID, parkIDs)
+}
+
 // ListOperatorShifts returns every operator's authored shift row for a park (used standalone by the
 // weekly-preview read path even before a default is configured).
 func (s *Service) ListOperatorShifts(ctx context.Context, tenantID, parkID string) ([]domain.OperatorShift, error) {

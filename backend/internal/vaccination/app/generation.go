@@ -264,6 +264,7 @@ type GenerationService struct {
 	evidence        CompletionEvidenceReader
 	crossVaccineGap CrossVaccineGapReader
 	crossHistory    CrossVaccineGapHistoryReader
+	preArrival      PreArrivalHistoryWriter
 	runs            GenerationRunRecorder
 	page            int32
 }
@@ -282,9 +283,20 @@ func NewGenerationService(proto ProtocolReader, goats GoatLister, obl Obligation
 	if historyReader, ok := goats.(CrossVaccineGapHistoryReader); ok {
 		s.crossHistory = historyReader
 	}
+	if writer, ok := goats.(PreArrivalHistoryWriter); ok {
+		s.preArrival = writer
+	}
 	if recorder, ok := goats.(GenerationRunRecorder); ok {
 		s.runs = recorder
 	}
+	return s
+}
+
+// WithPreArrivalHistoryWriter overrides the auto-wired pre-arrival accepted-history writer
+// (BUG-017). Production discovers it off the vaccination repository; this exists for composition
+// roots that inject a different adapter.
+func (s *GenerationService) WithPreArrivalHistoryWriter(w PreArrivalHistoryWriter) *GenerationService {
+	s.preArrival = w
 	return s
 }
 

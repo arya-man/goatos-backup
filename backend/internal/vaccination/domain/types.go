@@ -338,3 +338,60 @@ type ShedCompletionSummary struct {
 	BlockingReason   *string
 	SubmitState      string // draft | submitted | verified | closed
 }
+
+// --- BUG-017: pre-arrival accepted-history channel -------------------------------------------
+//
+// Procurement forwards a supplier-attested pre-arrival vaccination card in the `goat.created`
+// payload key `trusted_vaccination_history`. Those claims have no proof artifact and no
+// holding-farm warm-up window, so they can never satisfy the proof-backed
+// `procurement_hf_vaccination_evidence` trust gate. They land in their own reviewed channel
+// (`vaccination_prearrival_history_entries`) where each claim is validated against the published
+// protocol rules and the animal's INDEPENDENTLY classified schedule path before it may become
+// accepted history.
+
+// PreArrivalHistoryReviewAccepted / PreArrivalHistoryReviewRejected are the two terminal review
+// states of a pre-arrival claim. Only accepted entries feed vaccination generation.
+const (
+	PreArrivalHistoryReviewAccepted = "accepted"
+	PreArrivalHistoryReviewRejected = "rejected"
+)
+
+// PreArrivalHistorySourceProcurementHandoff is the only source system that writes this channel today.
+const PreArrivalHistorySourceProcurementHandoff = "procurement_pc_handoff"
+
+// PreArrivalHistoryEntry is one reviewed supplier claim. RuleID/ProtocolVersionID are empty when
+// the claim could not be resolved to a published rule; such an entry is always rejected.
+type PreArrivalHistoryEntry struct {
+	VaccineCode        string
+	DoseCode           string
+	Sequence           int32
+	AdministeredAt     time.Time
+	SchedulePath       string
+	ProtocolVersionID  string
+	RuleID             string
+	ReviewStatus       string
+	RejectionReason    string
+	Claim              []byte
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// PreArrivalHistoryIngest is one goat's reviewed pre-arrival claim set, persisted atomically.
+type PreArrivalHistoryIngest struct {
+	TenantID      string
+	GoatID        string
+	SourceSystem  string
+	SourceEventID string
+	ReviewedBy    *string
+	ReviewedAt    time.Time
+	Entries       []PreArrivalHistoryEntry
+}
+
+// PreArrivalHistoryIngestResult reports what the write actually did. Replayed counts entries that
+// already existed with an identical fingerprint (exact replay: no new side effects).
+type PreArrivalHistoryIngestResult struct {
+	Accepted int
+	Rejected int
+	Inserted int
+	Replayed int
+}

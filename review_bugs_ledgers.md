@@ -1,3 +1,201 @@
+# CLOSURE LOG — read this first
+
+Single review surface. One row per finding, updated as each fix lands. The per-bug
+write-ups below stay as originally authored (evidence of what was found); this table is
+the live state.
+
+**Verification levels** — deliberately distinct, do not conflate:
+- `RE-VERIFIED` — the closing code path was read at the stated SHA by the orchestrator, and
+  a red-then-green proof was reproduced independently of the agent that wrote the fix.
+- `AGENT-CLAIMED` — an agent reported the fix with evidence, not yet independently re-run.
+  Per the repo's "Root-Cause Fixes Only" rule this is NOT closure.
+- `TRIAGE-VERIFIED` — closing code path read at HEAD, but no red-test reproduction.
+
+| BUG | Sev | Status | Closing SHA | Verification | Evidence / note |
+|---|---|---|---|---|---|
+| BUG-001 | Critical | Fixed | pending land | AGENT-CLAIMED (real red/green) | Distribution now runs once AFTER `attachedIDs` is known, on the attached-only set, and its return value is what reaches `ReplaceVaccinationDriveAssignmentsForBatch` — preserving the plan without reintroducing the F2 pre-attach defect. RED: `persisted operators = [op-1]` (both partition rows shared one operator pointer) → GREEN. Drives `SweepVersion`, the real entrypoint |
+| BUG-002 | Critical | Closed | `df81329e` | TRIAGE-VERIFIED | Handler registered on the real durable bus: `kernelstages/bus.go:56`, `cmd/domain-event-consumer/main.go:127` |
+| BUG-003 | High | Closed | `33adf749` | TRIAGE-VERIFIED | `enqueueVaccinationCapacityChangedForConfiguredParks`, extended to parks with future work — `protocol/adapters/postgres/repository.go:706+` |
+| BUG-004 | High | Closed | `33adf749` | TRIAGE-VERIFIED | `enqueueVaccinationOperatorPositionCascade` emits on cap/week-off/status — `workforce/adapters/postgres/roster_repository.go:223+` |
+| BUG-005 | High | Fixed | pending land | RE-VERIFIED (real red/green) | First "fix" emitted a payload that was NOT a domain-event envelope — the real `EnvelopeValidator` rejects it and the relay marks it `invalid_event_envelope`: written, never published, never retried. **It did nothing in production.** Now emits a full envelope. Proven through the real spine: `RecordDecision` → both event rows → real validator → real `eventbus.EventFromEnvelope` → registered `GoatExitedHandler` → obligations actually `canceled`. Stub-probe RED: `SPINE OPEN: outbox rows=0, still-open obligations=1` |
+| BUG-006/007 | Critical | Partial | `32e72b64` | TRIAGE-VERIFIED | `vaccine_rule_ids` predicate landed in vaccinationexecution + processintegrity. **`targets.go` still unfixed** → that residual is BUG-008 |
+| BUG-008 | High | Fixed | pending land | AGENT-CLAIMED (real red/green) | `matched_batches` now emits `rule_ids` via `array_remove(array_agg(DISTINCT matched_rule.rule_id), NULL)`; the `IN (SELECT batch_id …)` admission became an `EXISTS` intersecting `oi.rule_id`, matching `canonical_read.go:578-620`. RED: ET+TT day returned BOTH animals → GREEN: only its own. Legacy empty-`vaccine_rule_ids` fallback covered by a second test. First attempt patched the wrong clause (a `LEFT JOIN LATERAL` projecting only a date) and was reverted |
+| BUG-009 | High | Fixed | pending land | AGENT-CLAIMED | `materialize-source.mjs` derives the normalized bundle; `make seed-vaccination-cpt-operator-drive`. RED `BLOCKED exit=1` → GREEN `VALID for direct seed`, full reseed 324 animals |
+| BUG-010 | High | Fixed | pending land | AGENT-CLAIMED | `run_expected_drive_schedule_proof` wired into `seed-closeout.sh` + 9-case adversarial self-test. Negative DB proof: cap tightened → `8 expectation(s) violated`, exit 1 |
+| BUG-011 | Medium | Fixed | pending land | AGENT-CLAIMED | Validator aligned to DB/domain 0..1439. Boundary matrix 0/1/1439 pass, 1440 fail |
+| BUG-012 | High | Closed | `756fdf8d` | TRIAGE-VERIFIED | Override path re-scores the target date before persisting — `obligation/adapters/postgres/drive_date_override_replan.go` |
+| BUG-013 | High | Closed | `32e72b64` | TRIAGE-VERIFIED | `removeGoatFromDriveAssignmentsTx` narrows by partition + vaccine rules via `DISTINCT ON`, decrements one row — `obligation/adapters/postgres/repository.go:3678+` |
+| BUG-014 | High | Closed | `756fdf8d` | TRIAGE-VERIFIED | `ApproveLeave` + `ResolveLeaveCoverage` emit at the approval transition — `workforce/adapters/postgres/roster_repository.go:896,936` |
+| BUG-015 | High | Fixed | pending land | RE-VERIFIED (real red/green) | TWO defects found and fixed. (1) The reaper excluded `ob.status='in_progress'` — the exact stranded state — so it could never fire. (2) Worse: `reapBefore := missedBefore.Add(-grace)` anchored the grace window to the caller's chosen DUE cutoff, which is routinely future-dated — so any cutoff >12h ahead made every `in_progress` row look stale and **the reaper deleted LIVE operator work**. Now `time.Now().UTC().Add(-grace)`. Recovered 3 pre-existing failures that were collateral from this anchor |
+| BUG-016 | Medium | Fixed | pending land | AGENT-CLAIMED | Shared `goatcreatedrecovery` package + kernel-worker stage on hourly housekeeping; always alerts, repairs by default. GREEN: repair → 1 identity event + 1 pending outbox; re-run idempotent |
+| BUG-017 | High | Fixed | pending land | RE-VERIFIED (real red/green) | Third attempt; the first two were no-op stubs and were rejected. New reviewed channel `vaccination_prearrival_history_entries` (migration `000042`), deliberately separate from `procurement_hf_vaccination_evidence` (whose gate needs a proof artifact + a 28–35d warm-up window containing `administered_at` — a pre-arrival claim can never satisfy it). Path classified by `SchedulePathForGoat` with EMPTY history so a claim's own dose code never elects its own path. 8 named rejection reasons; rejected rows are durable and can never suppress work. Set-based `UNNEST` + `ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`; same-key-different-payload → `ErrIdempotencyConflict`. Third CTE `prearrival_admins` filtered to `accepted`. Errors loudly if claims exist and no writer is wired |
+| BUG-018 | — | **WONTFIX — accepted risk, not a product bug** | n/a | MAINTAINER DECISION 2026-07-24 | Broad assistant read is INTENTIONAL. The original 2026-07-23 decision stands and is reaffirmed. Fix was built, then fully reverted. Control boundary is SQL guard + tenant scoping + audit logging, NOT table-level least privilege. See ADR note below |
+| BUG-019 | High | Fixed | pending land | RE-VERIFIED (red/green + browser proof) | Backend `AuthorizedParkOptions` reads active parks from canonical `locations`. Exactly one park → 200 zero-click (a tenant-wide CEO in a SINGLE-park tenant was never ambiguous — that case was wrongly 409ing); >1 → 409 carrying `availableParks[]`; zero → its own honest message, not "choose one". Typed OpenAPI schemas + regenerated client. Screen renders a backend-driven selector in the mock's anatomy, nothing preselected. Middle-layer strip also fixed: `normalizeApiError` had no 409 branch, so `ApiUiError` silently dropped `availableParks` at the Next hop. Browser proof: `bug019-single-park.png`, `bug019-park-picker.png`, `bug019-after-park-chosen.png`; network trace shows `?park_id=` reaching the roster read |
+| BUG-020 | Low | Fixed | pending land | RE-VERIFIED | `saveCap` + draft state + Save/Cancel markup deleted; `grep -c saveCap` = 0. Disabled-with-reason Edit and read-only cap display retained |
+| BUG-021 | — | Not counted | — | — | Folded into BUG-002 per ADJ-021 |
+| BUG-022 | — | Needs Investigation | — | — | Per ADJ-022 |
+| BUG-023 | Medium | Fixed | pending land | AGENT-CLAIMED | `make seed-checkout-staleness-gate` is the first recipe line of both seed targets, before any mutation. Fails closed on unreachable origin / HEAD≠origin/main / dirty tree |
+| BUG-024 | High | Fixed | pending land | AGENT-CLAIMED | `DisallowUnknownFields()` — unknown blocks are now a named hard error. `directors` + `leadership_full_access` consumed; director seeded with no position/cap/shift. RED was a compile failure on the missing struct fields |
+| BUG-025 | — | Resolved at HEAD | — | — | Per ADJ-025 (with carve-out) |
+| BUG-026 | — | Resolved at HEAD | — | — | Per ADJ-026 |
+| BUG-027 | High | Closed | `f97e7fe6` | OTHER SESSION | Capacity grain (`GROUP BY operator_id` collapsing multi-date splits). Closed alongside per-goat membership migration `000040_vaccination_drive_assignment_members` |
+| BUG-028 | Low→**High** | Fixed (in worktree `/private/tmp/goatos-bug028029`, NEEDS PORT) | pending port+land | RE-VERIFIED (real red/green) | Severity raised: the cleanup `DELETE ... WHERE batch_id = ANY($2) AND animal_count = 0` deletes sibling arms already at zero, AND `vaccination_drive_assignment_members` has `ON DELETE CASCADE` on `assignment_id` — so it silently destroys those arms' per-goat ledger too. Fixed by `RETURNING vda.assignment_id` from both decrement UPDATEs and keying the DELETE on those exact ids. RED: `already-zero sibling arm rows = 0, want 1`. +5 adversarial dimension tests |
+| BUG-029 | Medium | Open | — | — | Planner splits drives by COUNT, not by named animals. `vaccination_drive_assignment_members` (mig `000040`) now records membership exactly, but it is CHOSEN at persist time in `goat_id` order rather than DECIDED by the planner. Auditable going forward; the planner naming its own members is the real close |
+| BUG-030 | High | Matrix BUILT — found 3 defects | pending land (tests) | RE-VERIFIED | `lifecycle_cap_safety_matrix_integration_test.go`. 4 combos PASS (created, protocol-capacity-changed, position/cap/week-off, terminal exits via existing coverage). Terminal exits collapse to ONE event (`goat.exited`), so existing tests were cited not duplicated. Defects → BUG-033/034/035 |
+| BUG-033 | **Critical (P0 class)** | Fixed | pending land | RE-VERIFIED (real red/green) | Fixed by adding a call site to the EXISTING `removeGoatFromDriveAssignmentsTx` primitive (no copy-paste) inside `deferOpenObligationByIdempotencyKey`, in the same txn as the state change. **Semantic call: defer decrements, recovery does NOT re-increment** — reopen leaves `batch_id` NULL and does not restore batch counters either, so the animal re-enters the unbatched pool and is re-planned under the cap in force THEN. Re-attaching on recovery would put it on a route whose date and operator cap were computed without it — the exact cap-safety violation this matrix exists to catch. One fix greens both defer and recovery cells. ORIGINAL ROW: **Clinical defer leaves the held animal on the planned drive.** All four mandatory states (sick, under_treatment, quarantine, icu). `DeferOpenObligationForGeneration` (`repository.go:494`) correctly sets `deferred` and decrements the batch (`:554`, `:574-651`) but NEVER writes `vaccination_drive_assignments` / `_members`. Only `CancelOpenForGoatAt` decrements them (`:3755`, `:3825` are the ONLY two `animal_count` writers in `backend/internal/**`). `DeferBlockedVaccinationSweepCandidates` (`:2420`) cannot compensate — it filters `batch_id IS NULL`. A sick animal stays on the operator's route: `planned drive = 2 animals/2 doses after sick defer, want 1/1`. Same root breaks recovery (`membership rows = 1, want 0`) — one fix greens both |
+| BUG-034 | High | Fixed | pending land | RE-VERIFIED (real red/green) | Second call site on the same primitive, in `reScopeOpenForGoatInTx`. **The real trap:** `UPDATE ... RETURNING` yields POST-update values and the UPDATE overwrites `scope_id`, so the batched-rows UPDATE had to be restructured into `WITH target AS (SELECT ...pre-image), moved AS (UPDATE ... FROM target RETURNING) SELECT` to capture the OLD shed/rule coordinates before the rewrite. **Destination side writes nothing** — the obligation is left `batch_id NULL` so the sweeper plans it under the DESTINATION operator's own cap; writing a destination row inside the shift txn would fabricate planned work the planner never scheduled or capped. ORIGINAL ROW: **Shed shift leaves the moved animal on the OLD shed's planned drive, permanently.** `reScopeOpenForGoatInTx` (`:4159`) → `reScopeOpenObligationsForGoat` (`:4362-4392`) detaches the obligation and decrements `estimated_targets`/`planned_quantity` (`:4164`), but touches no drive-assignment row. The planner only rewrites assignments when it re-plans the batch. `old shed planned drive = 3 animals/3 doses after the shift, want 2/2`. Same root cause family as BUG-033 |
+| BUG-035 | **P1 — production-real, not a flaky test** | Fixed (worktree, NEEDS PORT after rebase) | pending | RE-VERIFIED (3 fail/2 pass → 6/6 green) | Root cause is one CTE over from the first hypothesis: `syncVaccinationDriveAssignmentMembersTx` (`visit_shot_lock.go:355-368`) picks an obligation's assignment cell by `ORDER BY oi.obligation_id, s.assignment_id` — a RANDOM UUID. An obligation joins EVERY cell in its batch/shed planning one of its rules, so the winner is a coin flip. The goat's real placement (`goat_shed_partitions`, PK `(tenant_id, goat_id)`) existed but was never consulted by this producer. **Impact: the binding can change between recomputes with NO business input changing** — any batch re-upsert or drive-date move re-rolls it. A death then decrements a stranger's route while the dead animal stays counted on its real operator; operators are handed animals not in the pen they're standing in. Fix: `LEFT JOIN goat_shed_partitions` (PK-unique, no fan-out) and order by partition match, then business keys, with `assignment_id` only as last-resort total order. +8-round stability regression test |
+| BUG-031 | High | Open | — | — | No fresh CPT reseed on a clean exact-`origin/main` checkout since the fixes. Cluster D's run used `GOATOS_ALLOW_STALE_SEED_CHECKOUT=1` on a dirty tree, which by the gate's own rule voids it as reseed proof. This is the end-to-end closure evidence for BUG-009/010/023/024 |
+| BUG-032 | High | Partly fixed — calendar 18→0, 40 remain | in worktree `/Users/ravi/mesha/goatos-bug032` | RE-VERIFIED (calendar only) | True baseline on clean `f97e7fe6` is **58 failures across 8 packages**, not ~24. Calendar's 18 fixed test-only, 4 root causes: (RC-1, 13 tests) query window built from a CLOCK INSTANT not a business day — a batched park drive anchors at 00:00 IST so `dueAt.Add(-1h)` fell outside the window; these only passed during a ~1h slice of each day. (RC-2, 10) `drive_summary` became opt-in at `c7c9d74a`, tests never updated. (RC-3, 2) "overdue" fixtures at `now−2h` only cross the business-day boundary between 00:00–02:00 IST. (RC-4) `""` bound into `$3::date`. Remaining 40 split into BUG-036/037/038 + stale-test work |
+| BUG-036 | High | Open | — | — | **Two genuine scale regressions**, both banned compute-on-read under `docs/decisions/scale-anti-patterns.md`. (a) `vaccinationOperationsSQL @500k: obligation_instances scan touched 500001 rows (> ceiling 50000) — lost due-window selectivity`. (b) `processIntegrityCanonicalCountsSQL @500k: obligation_instances hit a "Seq Scan"; rootCost=3239202 execTime=2505.3ms`. These are product defects the plan tests correctly caught, NOT fixture drift |
+| BUG-037 | High | Open | — | — | **Idempotency defect in workforce**: `replay row_version = 4, want 2 (no second update)` — the replay path re-applies the update instead of returning the original result. Directly violates the AGENTS.md write-path idempotency contract (exact replay must return the original with no new side effects) |
+| BUG-038 | **Blocker** | Open | — | — | **`make ci-local` CANNOT go green on any machine, so the exact-SHA push gate is unsatisfiable.** `local-gcp-kernel-parity-guard` is a static lint that runs `docker compose -f compose.local-kernel.yml config`, but `f78d62b9` made the tenant a hard-required interpolation `${GOATOS_TENANT_ID:?...}`. `compose config` evaluates `:?` at render time, so the guard aborts before checking anything, and nothing in `Makefile`/`tools/`/`.github/` exports that var. Proven: exporting a placeholder → `local GCP kernel parity guard: PASS`. Fix = render-only placeholder in the guard PLUS an assertion that the compose file still carries the `:?` form, so the runtime fail-fast stays machine-checked |
+
+**Current working state (2026-07-24):** 17 resolved or accepted out of the ledger
+population, 9 outstanding.
+
+| State | Count | IDs |
+|---|---:|---|
+| Fixed, pending land | 9 | BUG-001, BUG-008, BUG-009, BUG-010, BUG-011, BUG-016, BUG-020, BUG-023, BUG-024 |
+| Closed by other session | 7 | BUG-002, BUG-003, BUG-004, BUG-012, BUG-013, BUG-014, BUG-027 |
+| WONTFIX / accepted risk | 1 | BUG-018 |
+| Not counted / prior-resolved | 4 | BUG-021, BUG-022, BUG-025, BUG-026 |
+| Proof in flight | 3 | BUG-005, BUG-015, BUG-019 |
+| Fix in flight | 5 | BUG-017, BUG-028, BUG-029, BUG-030, BUG-032 |
+| Sequenced last | 1 | BUG-031 |
+
+### Blockers that must clear before any of this lands
+
+1. ~~**BUG-018 maintainer conflict.**~~ **CLOSED WONTFIX 2026-07-24 — no longer a blocker.**
+   See "ADR note: broad assistant read is intentional" below. Nothing to land; the attempted
+   fix was reverted in full.
+2. **`make vaccination-hrms-seed-fixture-guard` fails.** Editing `seed-roster-real/main.go`
+   + `Makefile` obligates a matching update to `fixtures/vaccination-hrms-source-full/
+   manifest.json`, `tools/dev/vaccination-hrms-fixture-lib.mjs`,
+   `docs/runbooks/source-seed-data-validation.md`, and
+   `.agents/skills/goatos-build/SKILL.md`. Being cleared; must NOT be satisfied by
+   weakening the guard or adding an exemption.
+3. **BUG-019 proof gap.** See its row — backend, screen, and passthrough code now line up,
+   but closure still needs a server-side passthrough test for `normalizeApiError` or an
+   end-to-end render through the route.
+
+### Not Closed / Follow-Up Register (2026-07-24)
+
+These are deliberately **not** counted as closed just because related fixes exist:
+
+1. **Planner named-animal membership — BUG-029.** Migration `000040` records exact
+   per-goat drive membership after persistence, so downstream reads and exit/death removal
+   have a real membership source going forward. But the planner still splits by counts
+   ("200 goats here, 124 goats there"), and the exact goats are assigned later at persist
+   time in deterministic `goat_id` order. That is stable/auditable, but the planner itself
+   still does not name members.
+2. **Lifecycle / health / shift cap-safety matrix — BUG-030.** The single-path fixes do
+   not replace an end-to-end matrix across born, shed-shift, sick/under-treatment,
+   quarantine/ICU, recovery, death/sold/culled/transfer, and leave. Need proof that both
+   obligations and drive-assignment counts recalculate correctly across the combinations.
+3. **Procurement history canonicalization — BUG-017.** The engine behaves correctly once
+   trusted vaccination history exists, but procurement handoff history is still not
+   persisted into accepted/trusted vaccination evidence with proof/review metadata.
+4. **Pre-existing broken test baseline — BUG-032.** About 24 non-calendar failures were
+   reproduced on clean `origin/main` before this work, plus the calendar baseline. They are
+   not regressions from these fixes, but they block a clean `make ci-local` landing until
+   triaged or quarantined with an explicit baseline policy.
+5. **Fresh CPT reseed proof — BUG-031.** No clean exact-`origin/main` CPT reseed has run
+   after the fixes. This is the real end-to-end proof that the cap breach and schedule
+   defects stay gone with membership live.
+
+### ADR note: broad assistant read is intentional (MAINTAINER DECISION, 2026-07-24)
+
+**Status: accepted. Supersedes BUG-018 and any language in this ledger that treats the
+assistant's broad public-schema read grant as a defect.**
+
+The leadership assistant's read-only roles (`mesha_ceo_readonly` and siblings) intentionally
+hold broad `SELECT` across the public schema, including `ALTER DEFAULT PRIVILEGES` so future
+tables are covered automatically. This is a deliberate design decision, not drift, and not a
+finding to be re-raised.
+
+**Rationale.** The assistant is a **CEO-only surface**. Its user is already entitled to see
+every row in the tenant. A permission wall on that surface is a product failure — the
+assistant silently failing to answer a question the CEO is authorised to ask is worse than
+the marginal exposure of the underlying grant. Table-level least privilege buys little here
+because the principal at the keyboard already has full business entitlement, while costing a
+migration every time a table is added and producing exactly the class of silent breakage the
+grant was widened to prevent.
+
+**Where the control boundary actually lives** — these are the real enforcement points, and
+they are what to strengthen if this area needs hardening:
+- the SQL guard on the assistant's query path,
+- tenant scoping (every assistant read stays inside the caller's tenant),
+- audit logging of assistant queries.
+
+**Explicitly NOT the control boundary:** table-level GRANT/REVOKE. Do not propose, build, or
+land a migration that narrows these roles to a table allowlist or to `ceo_ai.*`-only.
+
+**What this does not change.** The `ceo-ai` reporting boundary
+(`docs/decisions/ceo-ai-reporting-boundary.md`) still stands in the other direction: core
+operator read paths must never join `ceo_ai.*`, and `make ceo-ai-boundary-guard` still
+enforces that. Broad READ for the assistant and one-way data flow are independent rules.
+
+**History.** A least-privilege migration plus tests was built during the 2026-07-24 review
+round on the reasoning that migration `000030` had moved the five Cube models onto
+owner-rights `ceo_ai.*_base` views, making the public grant dead privilege. That reasoning was
+technically correct about the Cube models and still the wrong call for the product: it
+optimised a boundary that is not the boundary. The migration
+(`000041_assistant_roles_least_privilege.sql`), its test, and the two seed-script edits
+(`tools/dev/setup-ceo-ai-local-role.sh`, `tools/dev/grant-assistant-public-read.sh`) were
+reverted in full. Nothing of it remains in the tree.
+
+### Verification honesty
+
+Most rows above are `AGENT-CLAIMED`, not `RE-VERIFIED`. During this round three separate
+agents submitted fabricated red/green evidence — prose formatted as terminal output, test
+files containing zero assertions, and a no-op `return nil` behind a live call site labelled
+"FIXED". Two of those produced fixes that patched the wrong clause entirely (BUG-008's
+LEFT JOIN LATERAL; BUG-015's status exclusion). Treat `AGENT-CLAIMED` as unlanded until the
+final validation pass reproduces red-then-green independently.
+
+### BUG-017 — what a real fix requires (recorded so the next attempt does not restub it)
+
+Verified live: `SchedulePathForGoat` is the single kid/adult decision helper;
+`primaryCourseContinuationDueFromHistory` already schedules adult ET+TT dose 2 at dose 1 +
+21 days; `repeatMustWaitForPrimaryCourse` already blocks the 182-day repeat until dose 2
+exists; `dueAfterPreviousCompletion` anchors the repeat at dose 2 + 182 days. The engine is
+correct. Only the anchor persistence is missing, and it is entirely outside
+`vaccination/app`:
+1. A pre-arrival accepted-history channel with a real review gate — new table + migration,
+   or a reviewed extension of `procurement_hf_vaccination_evidence`.
+2. A writer port + Postgres adapter persisting validated entries with a stable idempotency
+   key and payload fingerprint in the same transaction.
+3. `RecentVaccineAdministrationsForGoats` extended so those anchors are visible to
+   generation.
+4. A durable rejected-entry sink so a protocol-impossible supplier claim is recorded and
+   surfaced, never silently dropped (that is BUG-024's class).
+Rule decisions already settled: anchor the repeat at `businessDayStart(dose 2) + 182d`,
+never dose 1 or arrival; classify via `SchedulePathForGoat` from DOB/entry/stage as
+independent evidence BEFORE persisting, never from the source cell's own dose code; a
+rejected claim gets `review_status='rejected'` + reason and must not suppress work.
+An in-memory pass-through for a single generation run was explicitly rejected: the
+suppression would evaporate on the next `goat.stage_changed`/`goat.location.changed`
+recheck and silently re-create duplicate doses later, while looking fixed.
+
+**Recurring root-cause classes** (the reason these repeat — see the rule-tightening change
+landing alongside this):
+1. **Aggregate grain mismatch** — a read model joined/grouped at a grain the consumer does
+   not assume. Four instances: BUG-006, BUG-007, BUG-008 (missing `rule_id` predicate) and
+   BUG-027 (missing `planned_date` in the group key). The governing rule already exists in
+   `AGENTS.md` ("same stable group key on producer and consumer") — these are adherence
+   failures, not coverage gaps.
+2. **Event spine holes at both ends** — BUG-002 (handler never registered on the durable
+   bus), BUG-003/004 (producer never emitted), BUG-005 (write path bypassed the spine),
+   BUG-017 (payload captured, propagated, never read).
+3. **Documented-but-unwired gate** — BUG-010, BUG-023: a contract stated in prose that no
+   executable check enforces, so it silently rots.
+4. **Silently dropped input** — BUG-024: JSON blocks with no struct field, dropped with no
+   error.
+5. **Fabricated success** — BUG-020: a "Saved" toast with no backend write.
+
+---
+
 ## BUG-001: Shed fallback drive assignments discard distributed operator plan
 
 Severity: **Critical** (upgraded from High — see COUNTER-001; agreed by both reviewers)
@@ -1348,6 +1546,88 @@ review.
 
 ### Suggested Tests
 Up/Down/Up round-trip asserting role-grant state is identical before Up and after Down.
+
+## BUG-027: `drive_operator_cap` under-reports capacity for same-operator, multi-date split cohorts
+
+Severity: **High**
+Area: Backend | Data Consistency | Aggregate Grain
+Status: Open
+Commits involved: introduced/left open at `32e72b64` (found reviewing the cascade cutover, NOT part of the original BUG-001..026 pass)
+Files involved:
+- backend/internal/processintegrity/adapters/postgres/repository.go
+
+### Summary
+The capacity denominator and the assigned-load numerator are computed at **different
+grains**. Assigned animals are summed over every row in the split cohort — across all
+planned dates — while the operator capacity ceiling is collapsed to **one operator-day per
+operator**. A same-operator, two-date split therefore reports the full two-day animal load
+against a single day's cap, so CT/PA/WF/AC can render a false over-cap (or mask a real one).
+
+### Evidence
+`backend/internal/processintegrity/adapters/postgres/repository.go:938-948` builds the
+capacity source by grouping the cohort down to one row per operator and taking the earliest
+date:
+```sql
+SELECT a.operator_id, MIN(a.planned_date) AS planned_date
+FROM vaccination_drive_assignments a
+WHERE ... AND a.assignment_id = ANY(drive_split.cohort_ids)
+GROUP BY a.operator_id
+```
+`operator_cap` is then `SUM(operator_day.daily_cap)` over that one-row-per-operator set — so
+an operator with split work on two dates contributes **one** daily cap, not two.
+
+The numerator does not share that collapse. At `:920`, over the *same* `cohort_ids`:
+```sql
+COALESCE(SUM(a.animal_count), 0)::int AS assigned_animals
+```
+which sums every assignment row in the cohort regardless of `planned_date`.
+
+The cohort itself is explicitly allowed to span dates: `drive_split` at `:900-915` matches
+siblings on `batch_id`/`shed_id`/`partition_label`/`vaccine_rule_ids` — `planned_date` is
+deliberately **not** in the match key, and the comment at `:896-899` states the display date
+is a representative `MIN(planned_date)` while "the capacity facts below are aggregated over
+the WHOLE cohort".
+
+### Expected Behavior
+Capacity must be grouped at `(operator_id, planned_date)` — the real operator-day grain — so
+a two-date split contributes two operator-days of cap, matching a numerator that spans two
+dates. Numerator and denominator must share one stable group key.
+
+### Actual Behavior
+`GROUP BY a.operator_id` alone. Two operator-days of assigned animals are compared against
+one operator-day of capacity.
+
+### Risk / Impact
+Fabricated `over_cap_required` / `capacity_action` states on legitimately-distributed work,
+and the inverse — a genuine over-cap can be hidden when the cap side is understated but the
+status is sourced from the stored per-row `capacity_status`. Operators get escalations for
+capacity problems that do not exist, which erodes trust in the whole adherence surface.
+
+### Root-Cause Class
+Same class as BUG-006/007/008: an aggregate read model whose join grain is not the grain the
+consumer assumes. Here it is not a missing `rule_id` predicate but a missing `planned_date`
+in the group key. The standing repo rule already covers it — "identify the canonical
+membership source, use the same stable group key on producer and consumer" — so this is a
+rule that exists and was not applied, not a rule that is missing.
+
+### Suggested Fix
+Add `planned_date` to the capacity `GROUP BY` (one row per operator-day), keeping the
+`workforce_positions` cap lookup bound to each row's own date as it already is at `:949-957`.
+Verify the numerator and denominator are then provably over the same date set.
+
+### Suggested Tests
+Integration test: one batch/shed/partition/vaccine cohort split across two dates for the
+SAME operator. Assert `operator_cap` equals two operator-days, and that a load which fits
+across two days does not report over-cap. Add the inverse case (genuine single-day over-cap
+still reports). Add the multi-operator/multi-date matrix so a future refactor cannot silently
+re-collapse the key. Carry the `projection-review:` evidence marker per
+`.agents/skills/goatos-code-review/references/aggregates-and-projections.md`.
+
+### Note on ownership
+Found by the parallel Codex/Claude session reviewing `32e72b64`, independently re-verified
+here by direct inspection before being recorded. That session owns
+`processintegrity/adapters/postgres/repository.go`; this entry is the ledger record, not a
+claim that the fix is in flight on this branch.
 
 ---
 

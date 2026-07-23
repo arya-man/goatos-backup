@@ -43,6 +43,41 @@ export const OPERATOR_ASSIGNMENT_CONFIG_ACTIVE_OPERATORS_FIELD = "active_operato
 export const OPERATOR_ASSIGNMENT_CONFIG_DEFAULT_OPERATOR_FIELD = "default_operator_code";
 export const OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED = true;
 export const OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY = true;
+// Minutes-of-day are 0..1439 on BOTH bounds, for start AND end. The DB CHECK in
+// 000035_vaccination_operator_assignment_config.sql and the domain validator in
+// vaccinationexecution/domain/operator_assignment.go both use that range; the
+// source validator previously accepted 1..1440 for the end minute, so a
+// source-valid 1440 passed preflight and then failed at the seed boundary while
+// an invalid 0 was rejected at preflight and accepted downstream (BUG-011).
+export const OPERATOR_SHIFT_MINUTE_MIN = 0;
+export const OPERATOR_SHIFT_MINUTE_MAX_EXCLUSIVE = 1440;
+export const OPERATOR_SHIFT_MINUTES_ARE_SAME_RANGE_AT_SOURCE_DB_AND_DOMAIN = true;
+// The operator-roster contract is a loader contract, not just a data file:
+// backend/cmd/seed-roster-real decodes cpt-operator-roster.json with
+// DisallowUnknownFields, so a declared block with no consuming struct field is a
+// hard, named failure instead of an encoding/json silent drop (BUG-024). Any new
+// block added to the contract must be consumed by the seeder in the same change.
+export const OPERATOR_ROSTER_LOADER_REJECTS_UNKNOWN_BLOCKS = true;
+// Blocks the seeder now genuinely consumes (previously parsed and discarded):
+// `directors[]` seeds monitoring-only workforce_members with NO workforce_positions
+// row — zero vaccination_daily_animal_cap, zero shift config, zero field capacity,
+// asserted rather than assumed; `leadership_full_access` seeds tenant-scoped
+// auth_pending_email_grants through the same path as seed-dev-email-grants, so a
+// park-only rehearsal reseed produces its own CEO/CXO grants.
+export const OPERATOR_ROSTER_DIRECTORS_FIELD = "directors";
+export const OPERATOR_ROSTER_DIRECTOR_HAS_ZERO_EXECUTION_CAPACITY = true;
+export const OPERATOR_ROSTER_LEADERSHIP_FIELD = "leadership_full_access";
+export const OPERATOR_ROSTER_LEADERSHIP_GRANT_SCOPE = "tenant";
+// A reseed proof is only valid from an origin/main-identical, clean checkout:
+// `make seed-checkout-staleness-gate` runs read-only BEFORE any DB mutation in
+// both seed targets and fails closed (BUG-023). GOATOS_ALLOW_STALE_SEED_CHECKOUT=1
+// is a loud throwaway-experiment escape hatch and voids the proof.
+export const SEED_CHECKOUT_STALENESS_GATE_TARGET = "seed-checkout-staleness-gate";
+// Documented expected-drive-schedule comparison is now executable: seed-closeout
+// runs the packet's check-expected-drive-schedules.mjs against real DB rows when
+// GOATOS_EXPECTED_DRIVE_SCHEDULES points at the packet expectation file (BUG-010).
+export const EXPECTED_DRIVE_SCHEDULE_PROOF_ENV = "GOATOS_EXPECTED_DRIVE_SCHEDULES";
+export const EXPECTED_DRIVE_SCHEDULE_PROOF_IS_EXECUTED_IN_SEED_CLOSEOUT = true;
 export const HEALTH_CASE_LOG_NORMALIZATION = Object.freeze({
   Open: "sick",
   Extended: "under_treatment",
@@ -490,3 +525,14 @@ export function updateManifestHashes(directory, manifest) {
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
+
+// Coupling review 2026-07-24 (BUG-009/010/011/023/024): the seed pipeline gained
+// `make seed-vaccination-cpt-operator-drive` (executable CPT rehearsal chain), the
+// read-only `seed-checkout-staleness-gate` ahead of every DB write, an executed
+// expected-drive-schedule proof inside seed-closeout, DisallowUnknownFields on the
+// operator-roster loader, newly consumed `directors` / `leadership_full_access`
+// blocks, and a shift end-minute range corrected to 0..1439. None of it changes the
+// committed jun-26 fixture bytes: that bundle ships no cpt-operator-roster.json, so
+// the loader/contract changes are a no-op for it and every manifest hash, row count,
+// and correction-ledger entry is unchanged. Recorded in
+// fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.

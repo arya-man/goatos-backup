@@ -3016,3 +3016,47 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' 
 
 	return cfg, nil
 }
+
+// authorizedParkOptionsSQL reads the tenant's active parks from canonical `locations`, optionally
+// narrowed to the caller's park-scoped grants. BOUNDED configuration catalog (a handful of parks per
+// tenant, sized by parks the business physically operates, not by herd size) so it is returned whole
+// and deliberately not paginated. The park-id predicate keeps the indexed column BARE and casts the
+// bound array instead (`location_id = ANY($2::uuid[])`), so a column-side cast can never disable the
+// index; an empty array means "no grant narrowing" (tenant-wide actor).
+const authorizedParkOptionsSQL = `
+SELECT location_id::text,
+       COALESCE(location_code, '') AS code,
+       name
+FROM locations
+WHERE tenant_id = $1::uuid
+  AND location_type = 'park'
+  AND status = 'active'
+  AND (cardinality($2::uuid[]) = 0 OR location_id = ANY($2::uuid[]))
+ORDER BY name ASC, location_id ASC;`
+
+// AuthorizedParkOptions returns the park vocabulary the caller may act in (see ports.Repository).
+func (r *Repository) AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]domain.ParkOption, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	ids := parkIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	rows, err := r.pool.Query(ctx, authorizedParkOptionsSQL, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: authorized park options: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.ParkOption, 0, 8)
+	for rows.Next() {
+		var p domain.ParkOption
+		if err := rows.Scan(&p.ParkID, &p.Code, &p.Name); err != nil {
+			return nil, fmt.Errorf("vaccination execution: authorized park options scan: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: authorized park options rows: %w", err)
+	}
+	return out, nil
+}

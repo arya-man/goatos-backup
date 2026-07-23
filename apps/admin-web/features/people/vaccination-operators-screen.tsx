@@ -1,11 +1,14 @@
 'use client';
 
 import { getAdminApi } from '@/lib/api/client';
+import { type ParkScopeOption } from '@/lib/api/park-scope';
+import { loadVaccinationOperatorsScreen } from './vaccination-operators-scope';
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 type Position = AdminApiComponents['schemas']['Position'];
+type StaffLeave = AdminApiComponents['schemas']['StaffLeaveListResponse']['items'][number];
 
 interface VaccinationOperatorsScreenProps {
   pageContract?: AdminUiPageContract;
@@ -116,12 +119,19 @@ function ownDates(opId: string, allLeaves: Record<string, { from: string; to: st
 export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [commonCap, setCommonCap] = useState(200);
-  const [capDraft, setCapDraft] = useState<string>('200');
-  const [capEditing, setCapEditing] = useState(false);
-  const [capSaving, setCapSaving] = useState(false);
   const [operatorCount, setOperatorCount] = useState(1);
   const [defaultOperator, setDefaultOperator] = useState<string>('');
   const [assignmentConfig, setAssignmentConfig] = useState<VaccinationOperatorAssignmentConfig | null>(null);
+  // Park scope as RESOLVED BY THE BACKEND (BUG-019) — never inferred from row data.
+  const [parkId, setParkId] = useState<string | null>(null);
+  // Backend-owned park vocabulary, present ONLY when the caller's scope covers several parks.
+  // A park-scoped actor never sees these and never clicks anything (parkChoices stays null).
+  const [parkChoices, setParkChoices] = useState<ParkScopeOption[] | null>(null);
+  const [parkChoiceMessage, setParkChoiceMessage] = useState('');
+  // The park the actor picked. There is deliberately NO local default: a pre-selected park would be
+  // this screen inventing scope, which is the defect BUG-019 is about.
+  const [chosenParkId, setChosenParkId] = useState<string | null>(null);
+  const [parkDraft, setParkDraft] = useState('');
   const [rowVersion, setRowVersion] = useState(0);
   const [configSaving, setConfigSaving] = useState(false);
 
@@ -154,46 +164,49 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     let alive = true;
     const load = async () => {
       try {
+        // Re-entering the effect after a park is chosen must show the loading state again rather
+        // than flashing the previous (unscoped) render. Set inside the async body, not the effect
+        // body, so it is not a synchronous cascading render.
+        setLoading(true);
         const api = getAdminApi();
-        const [posRes, capRes, leaveRes] = await Promise.all([
-          api.listStaffPositions({ status: 'active', limit: 500 }),
-          api.getVaccinationCapacityConfig().catch(() => ({ data: { maxPerDay: 200 } })),
-          api.listStaffLeave({ limit: 500 }).catch(() => ({ data: { items: [] } })),
-        ]);
 
+        // BUG-019: park scope is BACKEND-owned. `loadVaccinationOperatorsScreen` asks the backend to
+        // resolve the caller's scope (no park_id on the first call), then scopes EVERY downstream read
+        // — roster, capacity KPI, weekly preview, default-operator dropdown — to exactly that park.
+        // Deriving the park from the first row of an unscoped roster blended every park of a
+        // multi-park tenant into one screen. When the caller's scope covers several parks the backend
+        // returns the parks they may choose from, and this screen renders that selector rather than
+        // dying — a tenant-wide (ceo_internal) actor must still be able to use the screen.
+        const result = await loadVaccinationOperatorsScreen(api, chosenParkId ?? undefined);
         if (!alive) return;
-        const pos = posRes.data?.items ?? [];
-        setPositions(pos);
-        setCommonCap(capRes.data?.maxPerDay ?? 200);
-        setCapDraft(String(capRes.data?.maxPerDay ?? 200));
-        // Initialize default operator from the first NON-BACKUP operator's workforce_member_id.
-        // operatorsList and orderedOps filter out backup slots; if the first position returned is a
-        // backup slot, defaultOperator would reference an option not in operatorsList, so orderedOps
-        // falls back to raw order and the DEFAULT/weekly preview highlights the wrong operator.
-        const firstNonBackupOp = pos.find((p) => !p.is_backup_slot);
-        if (firstNonBackupOp?.workforce_member_id) setDefaultOperator(firstNonBackupOp.workforce_member_id);
-
-        // Extract park ID from the first position's scope_id (all positions should be from the same park)
-        let parkId: string | null = null;
-        if (pos.length > 0 && pos[0].scope_type === 'center') {
-          parkId = pos[0].scope_id;
+        if (result.state === 'needs_park_selection') {
+          setParkChoices(result.parks);
+          setParkChoiceMessage(result.message);
+          setParkId(null);
+          setError(null);
+          return;
+        }
+        setParkChoices(null);
+        const resolvedParkId = result.parkId;
+        const config = (result.config as VaccinationOperatorAssignmentConfig | null) ?? null;
+        setParkId(resolvedParkId);
+        if (config) {
+          setAssignmentConfig(config);
+          setRowVersion(config.rowVersion);
+          setOperatorCount(config.activeOperatorsPerDay);
+          // Store as workforce_member_id (from config), not position_id
+          setDefaultOperator(config.defaultOperatorId);
         }
 
-        // Load assignment config if we have a park ID
-        if (parkId) {
-          try {
-            const configRes = await api.getVaccinationOperatorAssignmentConfig(parkId);
-            if (configRes.data) {
-              setAssignmentConfig(configRes.data);
-              setRowVersion(configRes.data.rowVersion);
-              setOperatorCount(configRes.data.activeOperatorsPerDay);
-              // Store as workforce_member_id (from config), not position_id
-              setDefaultOperator(configRes.data.defaultOperatorId);
-            }
-          } catch (err) {
-            // Config may not exist yet; continue with defaults
-            console.error('Failed to load operator assignment config:', err);
-          }
+        const pos = (result.positions as Position[]) ?? [];
+        setPositions(pos);
+        setCommonCap(result.commonCap);
+        if (!config) {
+          // No config authored yet: fall back to the first NON-BACKUP operator of
+          // THIS park. operatorsList/orderedOps filter out backup slots, so a
+          // backup-slot default would highlight the wrong operator.
+          const firstNonBackupOp = pos.find((p) => !p.is_backup_slot);
+          if (firstNonBackupOp?.workforce_member_id) setDefaultOperator(firstNonBackupOp.workforce_member_id);
         }
 
         // Map leaves from backend by workforce_member_id
@@ -201,19 +214,19 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         for (const p of pos) {
           leavesMap[p.position_id ?? ''] = [];
         }
-        const leaveItems = leaveRes.data?.items ?? [];
+        const leaveItems = (result.leaveItems as StaffLeave[]) ?? [];
         for (const leave of leaveItems) {
           // Only include approved or reported leaves (not rejected/canceled)
           if (leave.status === 'approved' || leave.status === 'reported') {
             const wfId = leave.workforce_member_id;
             // Find position by workforce_member_id
-            const pos = posRes.data?.items?.find((p) => p.workforce_member_id === wfId);
-            if (pos?.position_id) {
-              if (!leavesMap[pos.position_id]) leavesMap[pos.position_id] = [];
+            const match = pos.find((p) => p.workforce_member_id === wfId);
+            if (match?.position_id) {
+              if (!leavesMap[match.position_id]) leavesMap[match.position_id] = [];
               // Convert timestamps to date strings (YYYY-MM-DD)
               const fromStr = leave.starts_at.split('T')[0];
               const toStr = leave.ends_at.split('T')[0];
-              leavesMap[pos.position_id].push({ from: fromStr, to: toStr });
+              leavesMap[match.position_id].push({ from: fromStr, to: toStr });
             }
           }
         }
@@ -229,7 +242,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [chosenParkId]);
 
   // Drawer
   const openDrawer = (opId: string) => {
@@ -272,21 +285,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [modalOpen, drawerOpen]);
-
-  // Cap save — NOT YET WIRED (no backend endpoint exists in Phase 2)
-  const saveCap = async () => {
-    const v = Math.max(1, parseInt(capDraft, 10));
-    setCapSaving(true);
-    try {
-      setCommonCap(v);
-      setCapEditing(false);
-      showToast(`<b style="color:var(--brand)">Saved</b> · cap set to ${v}/day for all operators`);
-    } catch (err) {
-      showToast(`Error: ${err instanceof Error ? err.message : 'Failed to save'}`);
-    } finally {
-      setCapSaving(false);
-    }
-  };
 
   // Persist operator count and default operator to backend
   const persistOperatorConfig = async () => {
@@ -397,9 +395,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   };
 
   const operatorsList = useMemo(() => positions.filter((p) => !p.is_backup_slot), [positions]);
-
-  // Get park ID from positions for wiring persistence
-  const parkId: string | null = positions.length > 0 && positions[0].scope_type === 'center' ? positions[0].scope_id : null;
 
   // Get shift for an operator by workforce_member_id
   const getShiftForOperator = (workforceMemberId: string): VaccinationOperatorShift | undefined => {
@@ -562,6 +557,69 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   if (loading) return <div className="p-6">Loading...</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
 
+  // BUG-019: a caller whose authorized scope covers several parks must CHOOSE one before any roster,
+  // capacity KPI, weekly preview, or default-operator dropdown is rendered — those are all park-scoped
+  // and blending them was the defect. The options, their labels, and the reason copy are backend-owned
+  // (409 `park_scope_ambiguous`); this screen only renders them and sends the chosen parkId back.
+  // Nothing is preselected, so no local default can be silently overwritten by a later response.
+  if (parkChoices) {
+    return (
+      <section className="screen on" data-screen="vaccination-operators">
+        <div className="phead">
+          <div>
+            <div className="crumb">Team / <b>Vaccination operators</b></div>
+            <h1>Vaccination operators</h1>
+            <div className="sub">{parkChoiceMessage}</div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="hd">
+            <h3>Choose a park</h3>
+            <div className="sp"></div>
+          </div>
+          <div className="bd">
+            <div className="ctl">
+              <div className="fld">
+                <label>Park</label>
+                <select
+                  value={parkDraft}
+                  onChange={(e) => setParkDraft(e.target.value)}
+                  aria-label="Park scope"
+                >
+                  <option value="">— select a park —</option>
+                  {parkChoices.map((park) => (
+                    <option key={park.parkId} value={park.parkId}>
+                      {park.code ? `${park.code} · ${park.name}` : park.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                className="btn b sm"
+                style={{ marginTop: '16px' }}
+                onClick={() => setChosenParkId(parkDraft)}
+                disabled={!parkDraft}
+                aria-disabled={!parkDraft}
+                title={!parkDraft ? 'Select a park to load its roster' : 'Load this park’s roster'}
+              >
+                Continue
+              </button>
+            </div>
+            <div className="note" style={{ marginTop: '10px' }}>
+              Roster, operator caps, the weekly assignment preview, and the default operator are all
+              per-park. One park is loaded at a time so no two parks are ever mixed on this screen.
+            </div>
+            {parkChoices.length === 0 && (
+              <div className="lvempty" style={{ marginTop: '12px' }}>
+                No park is available for your access yet.
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   const drawerOp = drawerTarget ? operatorsList.find((p) => p.position_id === drawerTarget) : null;
   const drawerLeaves = drawerTarget ? (leaves[drawerTarget] ?? []) : [];
   const drawerUpcoming = drawerLeaves.filter((r) => r.to >= today).sort((a, b) => (a.from < b.from ? -1 : 1));
@@ -610,54 +668,21 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         <div className="hd">
           <h3>Operator roster & availability</h3>
           <div className="sp"></div>
+          {/* BUG-020: the cap edit form is NOT rendered at all until a real
+              write endpoint exists. It previously stayed mounted behind a
+              disabled Edit button and its Save handler reported a fabricated
+              "Saved" toast with no backend call. */}
           <div className="capctl">
             <span className="capctl-lab">Cap / operator</span>
-            <b id="capText" style={{ display: capEditing ? 'none' : 'block' }}>
-              {commonCap}
-            </b>
-            <span className="capunit" style={{ display: capEditing ? 'none' : 'block' }}>
-              animals/day
-            </span>
-            <input
-              className="capin"
-              type="number"
-              min="1"
-              step="10"
-              value={capDraft}
-              onChange={(e) => setCapDraft(e.target.value)}
-              style={{ display: capEditing ? 'block' : 'none' }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') saveCap();
-                if (e.key === 'Escape') setCapEditing(false);
-              }}
-            />
+            <b id="capText">{commonCap}</b>
+            <span className="capunit">animals/day</span>
             <button
               className="btn sm"
-              style={{ display: capEditing ? 'none' : 'block' }}
-              onClick={() => {
-                setCapDraft(String(commonCap));
-                setCapEditing(true);
-              }}
               aria-disabled={true}
               title="Common-cap write not yet available (backend pending)"
               disabled
             >
               ✏️ Edit
-            </button>
-            <button
-              className="btn b sm"
-              style={{ display: capEditing ? 'block' : 'none' }}
-              onClick={saveCap}
-              disabled={capSaving}
-            >
-              Save
-            </button>
-            <button
-              className="btn sm ghost"
-              style={{ display: capEditing ? 'block' : 'none' }}
-              onClick={() => setCapEditing(false)}
-            >
-              Cancel
             </button>
           </div>
         </div>

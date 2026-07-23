@@ -23,6 +23,24 @@ import (
 
 const defaultQueryTimeout = 3 * time.Second
 
+const (
+	// goatExited* describe the domain-event envelope this module emits for a terminal procurement
+	// decision. They must stay aligned with contracts/jsonschema/domain-event-envelope.schema.json;
+	// cmd/outbox-relay rejects a message that does not validate against it.
+	goatExitedSchemaVersion = "1.0.0"
+	goatExitedSchemaRef     = "domain-event-envelope.v1"
+	domainEventTimeFormat   = "2006-01-02T15:04:05.000000Z"
+)
+
+// nullableUUID returns the trimmed value or nil, so an absent actor serializes as JSON null rather
+// than an empty string (the envelope schema types actor_id as uuid-or-null).
+func nullableUUID(v *string) any {
+	if trimmed := stringPtrValue(v); trimmed != "" {
+		return trimmed
+	}
+	return nil
+}
+
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
@@ -890,6 +908,89 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 			in.TenantID, in.GoatID, lifecycle, in.DecidedAt, exitReason); err != nil {
 			return domain.Decision{}, fmt.Errorf("procurement: update goat exit lifecycle: %w", err)
 		}
+
+		// BUG-005 FIX: Emit goat.exited event so obligation cancellation handler fires
+		exitEventID, err := newUUID(ctx, tx)
+		if err != nil {
+			return domain.Decision{}, fmt.Errorf("procurement: generate goat.exited event id: %w", err)
+		}
+		now := time.Now().UTC()
+		exitPayload, err := json.Marshal(map[string]any{
+			"goat_id":     in.GoatID,
+			"reason":      exitReason,
+			"exit_reason": exitReason,
+			"lifecycle":   lifecycle,
+		})
+		if err != nil {
+			return domain.Decision{}, fmt.Errorf("procurement: marshal goat.exited payload: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `
+INSERT INTO goat_identity_events (
+  identity_event_id, tenant_id, goat_id, event_type, event_version,
+  occurred_at, recorded_at, actor_id, source_system, source_record_id,
+  payload, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'goat.exited', 1,
+  $4::timestamptz, $5::timestamptz, nullif($6::text, '')::uuid, 'procurement_source_entry', $7,
+  $8::jsonb, $9
+)`,
+			exitEventID, in.TenantID, in.GoatID, in.DecidedAt, now,
+			stringPtrValue(in.DecidedBy), "procurement_decision:"+decision.DecisionID, exitPayload,
+			"procurement_terminal_decision:"+decision.DecisionID); err != nil {
+			return domain.Decision{}, fmt.Errorf("procurement: emit goat.exited identity event: %w", err)
+		}
+		// Emit durable outbox message so the domain event consumer processes the exit.
+		//
+		// The outbox payload MUST be a full domain-event envelope, not the bare business payload:
+		// cmd/outbox-relay validates every message against
+		// contracts/jsonschema/domain-event-envelope.schema.json and marks a non-conforming message
+		// FAILED ('invalid_event_envelope') instead of publishing it, and the consumer's
+		// eventbus.EventFromEnvelope reads event_type / visibility_scope.tenant_id / aggregate_id out
+		// of the envelope to route the event to the obligation SM-3 handler. A bare payload here is a
+		// message that is written, never delivered, and never retried.
+		exitIdempotencyKey := "procurement_terminal_decision:" + decision.DecisionID
+		exitEnvelope, err := json.Marshal(map[string]any{
+			"event_id":        exitEventID,
+			"event_type":      "goat.exited",
+			"schema_version":  goatExitedSchemaVersion,
+			"schema_ref":      goatExitedSchemaRef,
+			"aggregate_type":  "goat",
+			"aggregate_id":    in.GoatID,
+			"occurred_at":     in.DecidedAt.UTC().Format(domainEventTimeFormat),
+			"recorded_at":     now.Format(domainEventTimeFormat),
+			"producer":        map[string]any{"service": "goatos-api", "module": "procurement", "version": nil},
+			"idempotency_key": exitIdempotencyKey,
+			"actor":           map[string]any{"actor_type": "human", "actor_id": nullableUUID(in.DecidedBy), "actor_ref": nil},
+			"subject_type":    "goat",
+			"subject_id":      in.GoatID,
+			"visibility_scope": map[string]any{
+				"tenant_id": in.TenantID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "decision",
+				"evidence_id":   decision.DecisionID,
+			}},
+			"payload":  json.RawMessage(exitPayload),
+			"trace_id": exitIdempotencyKey,
+		})
+		if err != nil {
+			return domain.Decision{}, fmt.Errorf("procurement: marshal goat.exited envelope: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, status
+) VALUES (
+  $1::uuid, $2::uuid, 'goat.exited', $7, 'goat', $3::uuid,
+  'identity.events', $4::jsonb, $5::jsonb, $6, 'pending'
+)`,
+			in.TenantID, exitEventID, in.GoatID,
+			exitEnvelope,
+			[]byte(`{}`),
+			exitIdempotencyKey,
+			goatExitedSchemaVersion); err != nil {
+			return domain.Decision{}, fmt.Errorf("procurement: emit goat.exited outbox message: %w", err)
+		}
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "source_entry_decision", decision.DecisionID); err != nil {
@@ -1124,15 +1225,15 @@ RETURNING review_id::text, tenant_id::text, load_id::text, park_location_id::tex
 	}
 	// Batch insert arrival_intake_review_goats via UNNEST
 	type arrivalGoatInput struct {
-		goatID          *string
-		animalID2       *string
-		animalID1       *string
-		itemKey         string
-		arrivalState    string
-		healthFlag      *string
-		weightFlag      *string
-		proofRefID      *string
-		notes           string
+		goatID       *string
+		animalID2    *string
+		animalID1    *string
+		itemKey      string
+		arrivalState string
+		healthFlag   *string
+		weightFlag   *string
+		proofRefID   *string
+		notes        string
 	}
 	goatInputs := make([]arrivalGoatInput, 0, len(in.Goats))
 	goatIDsForUpdate := make([]string, 0, len(in.Goats))

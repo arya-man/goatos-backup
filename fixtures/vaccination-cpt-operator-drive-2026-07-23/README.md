@@ -18,6 +18,8 @@ reverse-engineer the whole timetable workbook.
 | `raw/CPT_Nuanced Timetable.xlsx` | Supplied CPT timetable workbook. |
 | `cpt-operator-roster.json` | Normalized seed contract for operators, director, capacity, week-offs, CEO/CXO grants, and the N=1 Darshan-default drive assignment. |
 | `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, PPR after 14 days, same-day ET+TT+PPR cap check, Darshan Sunday fallback, and N=2 capacity sanity. |
+| `materialize-source.mjs` | Deterministic transform: raw source + roster contract -> the normalized seed bundle the validator and seed commands actually read. Output goes outside `fixtures/` (gitignored `build/`) because it carries reviewed runtime staff names. |
+| `check-expected-drive-schedules.mjs` | DB-proving gate run by `tools/dev/seed-closeout.sh`; fails the closeout when seeded rows violate `expected-drive-schedules.json`. |
 | `LOCAL_DB_RESEED_VALIDATION.md` | Exhaustive local DB reseed contract: required inputs, HRMS shape, all vaccine-family reporting, exact ET+TT/PPR final schedule, SQL proof queries, and automatic failure cases. |
 
 The `Adult` filename is a source label only. The seed must still use the
@@ -181,8 +183,10 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
 
 1. Start from the latest `main` commit containing this packet.
 2. Use `2026-07-23` as the backend business date / `AS_OF` for this rehearsal.
-3. Normalize these raw files into the canonical seed bundle or use the
-   CPT-specific seed command that consumes this packet.
+3. Run the CPT-specific seed command that consumes this packet:
+   `make seed-vaccination-cpt-operator-drive`. It materializes the normalized
+   bundle from these raw files, refuses to run from a non-`origin/main` checkout,
+   and ends in a DB-proving expected-drive-schedules gate.
 4. Run the DB-free source audit before any DB write.
 5. Seed the five CEO/CXO pending email grants with `role=ceo_internal`.
 6. Seed only the three CPT vaccination operators plus Chandrakant as director.

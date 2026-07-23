@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { cache } from "react";
 import { resolveFirebaseIdToken } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
+import type { ParkScopeOption } from "./park-scope";
 import { AdminBootstrapCache } from "./admin-bootstrap-cache";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
@@ -173,6 +174,12 @@ export type ApiUiError = {
   message: string;
   traceId?: string;
   retryable?: boolean;
+  // BUG-019: a 409 `park_scope_ambiguous` is not a plain failure — the backend is handing back
+  // the park menu a tenant-wide actor must choose from. `normalizeApiError` otherwise reshapes
+  // every error into this fixed type, which DROPPED the menu before it reached the browser and
+  // left the CEO on a dead-end screen. Park options stay backend-owned (golden frontend rule);
+  // this field only carries them through the Next.js hop intact.
+  availableParks?: ParkScopeOption[];
 };
 
 export type ApiResult<T> =
@@ -1155,14 +1162,14 @@ export async function getVaccinationCapacityConfig(): Promise<ApiResult<Vaccinat
 
 // Admin vaccination operator assignment config (N + default operator per park, shift assignments).
 // Returns the park's active-operators-per-day + default-operator config plus every operator's shift.
-export async function getVaccinationOperatorAssignmentConfig(parkId: string): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
+export async function getVaccinationOperatorAssignmentConfig(parkId?: string): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
       method: "GET",
-      query: { park_id: parkId },
+      query: parkId ? { park_id: parkId } : {},
       cache: "no-store",
     }),
   );
@@ -2136,6 +2143,21 @@ function normalizeApiError(error: unknown): ApiUiError {
         retryable: envelope?.retryable,
       };
     }
+    if (error.status === 409 && code === "park_scope_ambiguous") {
+      // BUG-019: carry the backend-owned park menu through this hop. Reshaping to a bare
+      // message here is what stranded tenant-wide CEO/CXO accounts: the backend correctly
+      // refused to guess a park AND supplied the choices, but the choices were dropped, so
+      // the screen had nothing to render and threw.
+      return {
+        kind: "bad_request",
+        status: error.status,
+        code,
+        message: envelope?.message ?? "Your scope covers more than one park; choose one to continue.",
+        traceId: envelope?.trace_id,
+        retryable: envelope?.retryable,
+        availableParks: parseParkScopeOptions(envelope),
+      };
+    }
     if (error.status === 400) {
       return {
         kind: "bad_request",
@@ -2175,6 +2197,22 @@ function normalizeApiError(error: unknown): ApiUiError {
     kind: "api_error",
     message: error instanceof Error ? error.message : "Unexpected API error.",
   };
+}
+
+// parseParkScopeOptions reads the backend-owned park menu off a 409 `park_scope_ambiguous`
+// envelope. Returns undefined rather than [] when absent, so "backend sent no menu" stays
+// distinguishable from "backend sent an empty menu" — zero authorized parks is a genuinely
+// different situation from several, and the screen must not report it as "choose one".
+function parseParkScopeOptions(envelope: ErrorEnvelope | null): ParkScopeOption[] | undefined {
+  const raw = (envelope as { availableParks?: unknown } | null)?.availableParks;
+  if (!Array.isArray(raw)) return undefined;
+  const parks = raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const { parkId, code, name } = entry as Partial<ParkScopeOption>;
+    if (typeof parkId !== "string" || typeof name !== "string") return [];
+    return [{ parkId, code: typeof code === "string" ? code : "", name }];
+  });
+  return parks;
 }
 
 function parseEnvelope(body: unknown): ErrorEnvelope | null {

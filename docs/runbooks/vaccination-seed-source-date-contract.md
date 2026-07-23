@@ -342,10 +342,38 @@ GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
 make seed-vaccination-source-full
 ```
 
-After seeding this CPT rehearsal packet, validate the resulting DB schedule
-against
+For the CPT operator-drive rehearsal packet the canonical command is its own
+target — the committed packet stores raw source filenames under `raw/`, and this
+target performs the transformation into the normalized bundle every validator and
+seed command consumes:
+
+```bash
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
+GOATOS_ENV=local \
+GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
+make seed-vaccination-cpt-operator-drive
+```
+
+That target: (1) runs `seed-checkout-staleness-gate` — a reseed from a checkout
+that is not clean `origin/main` is refused BEFORE any DB mutation; (2)
+materializes `build/cpt-operator-drive-source` from `raw/` +
+`cpt-operator-roster.json` (gitignored, outside `fixtures/`, because it carries
+reviewed runtime staff names); (3) runs the DB-free source preflight; (4) seeds
+roster + vaccination + position duties; (5) runs `seed-closeout` with
+`GOATOS_EXPECTED_DRIVE_SCHEDULES` set.
+
+DB validation against
 `fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json`
-before accepting the seed as correct.
+is no longer a manual step: `tools/dev/seed-closeout.sh` runs
+`check-expected-drive-schedules.mjs` against real rows and FAILS the closeout on a
+per-operator/day animal-cap breach, an operator fan-out beyond
+`active_operators_per_day`, a drive operator outside the contract, drive work
+before the contract business date, a CBE/Coimbatore park row, a superseded/empty
+shell batch presented as schedule, or a missing/mismatched operator shift config.
+Set `GOATOS_EXPECTED_DRIVE_VARIANT=<variant id>` to additionally compare the exact
+per-date rows of one named variant, after applying that variant's drive-policy
+input (the ET+TT-only/PPR-moved plan exists only after the date override; natural
+kernel interleaving is a mismatch report, not a seed defect).
 
 For an already-seeded database after additive migrations, do not rerun source
 seed just to fill derived tables. Apply the migrations, then run:

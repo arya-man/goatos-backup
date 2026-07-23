@@ -247,3 +247,12 @@ func ResolveOperatorsForDriveDay(businessDate time.Time, cfg OperatorAssignmentC
 	}
 	return DayResolution{}, fmt.Errorf("no vaccination operator available for %s (%s): all operators week-off or on leave", businessDate.Format("2006-01-02"), weekday)
 }
+
+// ParkOption is one selectable park in the backend-owned park-scope vocabulary returned when a
+// caller's authorized scope spans more than one park. Ids and labels are canonical Postgres
+// `locations` data compiled by the backend -- never a frontend-assembled or Go-hardcoded list.
+type ParkOption struct {
+	ParkID string `json:"parkId"`
+	Code   string `json:"code"`
+	Name   string `json:"name"`
+}

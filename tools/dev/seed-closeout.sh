@@ -141,6 +141,41 @@ run_vaccination_drive_batching() {
   run_goat_shed_integrity_proof
 }
 
+# BUG-010: the CPT operator-drive contract documented a DB comparison against
+# expected-drive-schedules.json that nothing ever ran, so a reseed could finish "clean" while
+# breaching the per-operator animal cap, fanning out past active_operators_per_day, assigning
+# an operator outside the contract, materializing pre-business-date drive work, or presenting
+# superseded / zero-obligation shell batches as the schedule. This runs that comparison
+# against real rows and FAILS the closeout. Opt-in by expectation file, because the
+# expectation set is packet-specific: set GOATOS_EXPECTED_DRIVE_SCHEDULES (the CPT reseed
+# target does). Set GOATOS_EXPECTED_DRIVE_VARIANT=<variant id> to additionally compare the
+# exact per-date rows of one named variant after applying that variant's drive-policy input.
+run_expected_drive_schedule_proof() {
+  local expected="${GOATOS_EXPECTED_DRIVE_SCHEDULES:-}"
+  if [ -z "${expected// }" ]; then
+    echo "==> seed-closeout: skip expected-drive-schedules proof (GOATOS_EXPECTED_DRIVE_SCHEDULES not set)"
+    return
+  fi
+  if [ ! -f "$expected" ]; then
+    echo "seed-closeout: GOATOS_EXPECTED_DRIVE_SCHEDULES=${expected} does not exist" >&2
+    exit 2
+  fi
+  local checker
+  checker="$(cd "$(dirname "$expected")" && pwd)/check-expected-drive-schedules.mjs"
+  if [ ! -f "$checker" ]; then
+    echo "seed-closeout: expected-drive packet $(dirname "$expected") has no check-expected-drive-schedules.mjs" >&2
+    exit 2
+  fi
+  echo "==> seed-closeout: expected-drive-schedules proof (${expected})"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    node %q --self-test\n' "$checker"
+    printf '    GOATOS_TENANT_ID=%q node %q --expected %q\n' "$tenant_id" "$checker" "$expected"
+    return
+  fi
+  node "$checker" --self-test
+  GOATOS_TENANT_ID="$tenant_id" node "$checker" --expected "$expected"
+}
+
 run_calendar_projectors() {
   if [ "${GOATOS_SEED_CLOSEOUT_RUN_CALENDAR:-1}" = "0" ]; then
     echo "==> seed-closeout: skip calendar projectors (GOATOS_SEED_CLOSEOUT_RUN_CALENDAR=0)"
@@ -177,6 +212,7 @@ run_go_cmd seed-shed-profiles -tenant-id "$tenant_id"
 run_goat_shed_integrity_proof
 run_required_projectors
 run_vaccination_drive_batching
+run_expected_drive_schedule_proof
 run_calendar_projectors
 run_counts_projectors
 echo "seed-closeout: complete"
