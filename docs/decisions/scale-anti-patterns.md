@@ -726,3 +726,5 @@ one requires human review and regression test coverage.
 
 <!-- Coupling review 2026-07-23: the seed-roster-real operator-roster overlay does not alter scale posture. It is a bounded per-park recast of a fixed set of resolved roster seats into per-person vaccination_operator_<name> positions during seeding (no per-row I/O, no request-path query, no new read model); drive splitting continues to read DB-backed operator availability. No scale anti-pattern is introduced or relaxed. -->
 <!-- Coupling review 2026-07-23: vaccination operator assignment config is scheduler-consumed, not config-only. The bounded point lookup filters the already-loaded daily operator-capacity candidate set by active_operators_per_day/default_operator_code and shift fallback identity; it does not introduce tenant-wide scans, per-animal reads, or time-of-day drive splitting. -->
+
+<!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->

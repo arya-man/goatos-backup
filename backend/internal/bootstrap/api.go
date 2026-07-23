@@ -522,6 +522,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	bus := eventbus.NewInProcessBus()
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
+	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
+	// Operator-config auto-cascade producers (backend/internal/obligation/app/operator_config_replan.go
+	// is the consumer registered above): wire the SAME in-process bus into the services whose writes
+	// change vaccination operator N/default-operator or leave, so the consumer fires without a manual
+	// recompute CLI run.
+	vaccExecService.WithBus(bus)
+	rosterService.WithBus(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)

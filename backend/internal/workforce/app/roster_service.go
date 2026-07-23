@@ -3,15 +3,22 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
+
+// EventVaccinationLeaveChanged mirrors the constant of the same name in
+// backend/internal/obligation/app/operator_config_replan.go (kept in sync manually to avoid a
+// cross-module import cycle; obligation already depends on workforce-adjacent concepts, not vice versa).
+const EventVaccinationLeaveChanged = "vaccination.leave.changed"
 
 // RosterService implements the HR roster / RBAC position-coverage model
 // approved in docs/hr/roster-rbac-design.md (2026-07-10). It is deliberately
@@ -38,10 +45,19 @@ type RosterService struct {
 	repo         ports.RosterRepository
 	capabilities ports.CapabilityGranter
 	now          func() time.Time
+	bus          eventbus.Bus
 }
 
 func NewRosterService(repo ports.RosterRepository, capabilities ports.CapabilityGranter) *RosterService {
 	return &RosterService{repo: repo, capabilities: capabilities, now: time.Now}
+}
+
+// WithBus attaches the domain-event bus ApplyLeave publishes vaccination.leave.changed to (auto-cascade
+// producer for backend/internal/obligation/app/operator_config_replan.go). Optional: a nil/unset bus
+// makes leave writes a no-op for the cascade, never blocking the leave write itself.
+func (s *RosterService) WithBus(bus eventbus.Bus) *RosterService {
+	s.bus = bus
+	return s
 }
 
 // The covered-position -> execute-capability mapping that a temporary backup
@@ -428,7 +444,34 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
+	s.publishLeaveChanged(ctx, tenantID, body.ScopeType, body.ScopeID, leave.AbsenceID)
 	return &domain.StaffLeaveResponse{Leave: leave, TraceID: traceID}, nil
+}
+
+// publishLeaveChanged emits vaccination.leave.changed for the auto-cascade consumer
+// (backend/internal/obligation/app/operator_config_replan.go) when the leave's scope is a shed --
+// roster scope is tenant/center/shed (validRosterScope), never "park" directly, so the payload carries
+// scope_type/scope_id and the consumer resolves shed->park via locations.parent_location_id before
+// recomputing. A tenant- or center-scoped leave is NOT cascaded in this iteration (that would require
+// enumerating every park for the tenant); this is an explicit, documented scope limit (see the
+// operator-config auto-cascade build report), not a silent drop of a case we claim to cover. The event
+// id is derived from the absence id, which is stable per leave row (idempotent producer).
+// Domain-event-registry evidence: this producer publishes event_type=vaccination.leave.changed via
+// bus.Publish(eventbus.Event{...}) below (registered in context/architecture/domain-event-registry.json).
+func (s *RosterService) publishLeaveChanged(ctx context.Context, tenantID, scopeType, scopeID, absenceID string) {
+	if s.bus == nil || scopeType != "shed" {
+		return
+	}
+	now := time.Now().UTC()
+	_ = s.bus.Publish(ctx, eventbus.Event{
+		ID:         fmt.Sprintf("vaccination.leave-changed:%s", absenceID),
+		Type:       EventVaccinationLeaveChanged,
+		TenantID:   tenantID,
+		Key:        scopeID,
+		Payload:    []byte(fmt.Sprintf(`{"scope_type":"shed","scope_id":%q}`, scopeID)),
+		OccurredAt: now,
+		RecordedAt: now,
+	})
 }
 
 // ApproveLeave transitions the absence to approved and immediately runs the

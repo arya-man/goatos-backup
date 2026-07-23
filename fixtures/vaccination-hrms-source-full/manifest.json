@@ -11,7 +11,10 @@
     "vaccination_sop_code": "vaccination.drive",
     "proof_mode": "shed_level_video",
     "video_proof_subject_scope": "shed",
-    "video_capture_sources": ["in_app_camera", "gallery_picker"],
+    "video_capture_sources": [
+      "in_app_camera",
+      "gallery_picker"
+    ],
     "minimum_video_count_per_shed": 1,
     "maximum_video_count_per_shed": 5,
     "verifier_approval_required": true,
@@ -140,5 +143,6 @@
       "change": "migration 000035_vaccination_operator_assignment_config creates vaccination_operator_shift_config (shift_label, shift_start_minute, shift_end_minute) and vaccination_operator_assignment_config (active_operators_per_day, default_operator_code) to bind per-operator shift schedules and tenant-scoped default assignment rules consumed by the scheduler.",
       "vaccination_hrms_source_impact": "none to the committed full fixture bytes. CPT operator-roster rehearsal may supply shift_label/shift_start_minute/shift_end_minute and active_operators_per_day/default_operator_code in cpt-operator-roster.json, which seed-roster-real parses and writes to scheduler-consumed tables. The committed jun-26 fixture has no operator-roster file, so seed behavior is unchanged."
     }
-  ]
+  ],
+  "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."
 }
