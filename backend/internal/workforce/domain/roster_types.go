@@ -17,12 +17,15 @@ type Position struct {
 	IsBackupSlot      bool    `json:"is_backup_slot"`
 	BackupGroupCode   *string `json:"backup_group_code"`
 	WeekOffWeekday    *string `json:"week_off_weekday"`
-	Status            string  `json:"status"`
-	ValidFrom         string  `json:"valid_from"`
-	ValidTo           *string `json:"valid_to"`
-	RowVersion        int     `json:"row_version"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
+	// VaccinationDailyAnimalCap is an optional HRMS-authored animal/day cap for vaccination
+	// execution seats. Nil means use the tenant default from vaccination_capacity_config.
+	VaccinationDailyAnimalCap *int    `json:"vaccination_daily_animal_cap,omitempty"`
+	Status                    string  `json:"status"`
+	ValidFrom                 string  `json:"valid_from"`
+	ValidTo                   *string `json:"valid_to"`
+	RowVersion                int     `json:"row_version"`
+	CreatedAt                 string  `json:"created_at"`
+	UpdatedAt                 string  `json:"updated_at"`
 
 	// Enriched fields (read from related tables at list time)
 	PersonDisplayName  *string        `json:"person_display_name,omitempty"`
@@ -113,13 +116,14 @@ type CreatePositionRequest struct {
 // week_off_weekday, valid_to). RowVersion is the optimistic-lock guard;
 // idempotency_key enables request-level dedup.
 type UpdatePositionRequest struct {
-	RowVersion      int     `json:"row_version"`
-	PositionTier    *string `json:"position_tier"`
-	BackupGroupCode *string `json:"backup_group_code"`
-	WeekOffWeekday  *string `json:"week_off_weekday"`
-	ValidTo         *string `json:"valid_to"`
-	Status          *string `json:"status"`
-	IdempotencyKey  *string `json:"idempotency_key"`
+	RowVersion                int     `json:"row_version"`
+	PositionTier              *string `json:"position_tier"`
+	BackupGroupCode           *string `json:"backup_group_code"`
+	WeekOffWeekday            *string `json:"week_off_weekday"`
+	VaccinationDailyAnimalCap *int    `json:"vaccination_daily_animal_cap"`
+	ValidTo                   *string `json:"valid_to"`
+	Status                    *string `json:"status"`
+	IdempotencyKey            *string `json:"idempotency_key"`
 }
 
 // UpsertBackupConfigRequest assigns/replaces the holder of a backup-slot seat

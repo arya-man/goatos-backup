@@ -120,7 +120,7 @@ WHERE tenant_id=$1 AND protocol_version_id IN ($2::uuid, $3::uuid)`, fxTenant, v
 		cfg.VaccineCode = d.vaccine
 		cfg.DrivePlanner = obldomain.DrivePlannerSettings{
 			Enabled:                   true,
-			MaxGoatsPerDrive:          1,
+			MaxGoatsPerDrive:          200,
 			VaccinePriority:           d.priority,
 			MaxBatchingHoldDays:       7,
 			MaxBatchingHoldCount:      1,
@@ -204,17 +204,17 @@ VALUES
   ($1, 'story_an_vacc_operator_c', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active')`,
 		fxTenant)
 	fx.exec("story-an vaccination positions", `
-INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, status, valid_from)
+INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES
-  ($1, $2, 'center', $5, 'story_an_vacc_operator_a', 'manager', 'friday', 'active', '2026-01-01'),
-  ($1, $3, 'center', $5, 'story_an_vacc_operator_b', 'manager', 'sunday', 'active', '2026-01-01'),
-  ($1, $4, 'center', $5, 'story_an_vacc_operator_c', 'manager', 'saturday', 'active', '2026-01-01')`,
+  ($1, $2, 'center', $5, 'story_an_vacc_operator_a', 'manager', 'friday', 1, 'active', '2026-01-01'),
+  ($1, $3, 'center', $5, 'story_an_vacc_operator_b', 'manager', 'sunday', 1, 'active', '2026-01-01'),
+  ($1, $4, 'center', $5, 'story_an_vacc_operator_c', 'manager', 'saturday', 1, 'active', '2026-01-01')`,
 		fxTenant, opA, opB, opC, fxPark)
 }
 
 func assertAvailableOperatorsAN(t *testing.T, fx *Fixture, date time.Time, want []string) {
 	t.Helper()
-	got, err := fx.Obl.AvailableVaccinationOperatorsForDrive(fx.Ctx, fxTenant, fxPark, date, 1)
+	got, err := fx.Obl.AvailableVaccinationOperatorsForDrive(fx.Ctx, fxTenant, fxPark, date, 200)
 	if err != nil {
 		t.Fatalf("available vaccination operators for %s: %v", date.Format("2006-01-02"), err)
 	}
@@ -222,8 +222,11 @@ func assertAvailableOperatorsAN(t *testing.T, fx *Fixture, date time.Time, want 
 		t.Fatalf("available operators for %s = %v, want %v", date.Format("2006-01-02"), got, want)
 	}
 	seen := map[string]bool{}
-	for _, id := range got {
-		seen[id] = true
+	for _, operator := range got {
+		seen[operator.OperatorID] = true
+		if operator.Cap != 1 {
+			t.Fatalf("available operator %s cap = %d, want HRMS cap 1 despite fallback 200", operator.OperatorID, operator.Cap)
+		}
 	}
 	for _, id := range want {
 		if !seen[id] {

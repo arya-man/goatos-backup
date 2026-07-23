@@ -203,7 +203,7 @@ type batchCellsCreator interface {
 }
 
 type vaccinationOperatorLister interface {
-	AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]string, error)
+	AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error)
 }
 
 type vaccinationDriveAssignmentWriter interface {
@@ -250,7 +250,7 @@ func (s *SweeperService) createBatchWithAttachedIDs(ctx context.Context, in doma
 	return batchID, nil, fmt.Errorf("obligation: repository attached %d/%d rows but did not return exact attached IDs; refusing to guess sweep claims", attached, len(obligationIDs))
 }
 
-func (s *SweeperService) availableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32, session *SweepSession) ([]string, error) {
+func (s *SweeperService) availableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, plannedDate time.Time, capPerOperator int32, session *SweepSession) ([]domain.DriveOperatorCapacity, error) {
 	if strings.TrimSpace(parkID) == "" {
 		return nil, nil
 	}
@@ -267,7 +267,7 @@ func (s *SweeperService) availableVaccinationOperatorsForDrive(ctx context.Conte
 		return nil, err
 	}
 	session.rememberVaccinationOperators(tenantID, parkID, plannedDate, capPerOperator, operators)
-	return cloneOperatorIDs(operators), nil
+	return cloneDriveOperatorCapacities(operators), nil
 }
 
 func (s *SweeperService) assignVaccinationOperator(ctx context.Context, in *domain.NewBatch, capPerOperator int32, session *SweepSession) error {
@@ -278,8 +278,8 @@ func (s *SweeperService) assignVaccinationOperator(ctx context.Context, in *doma
 	if err != nil {
 		return err
 	}
-	if len(operators) > 0 && strings.TrimSpace(operators[0]) != "" {
-		operatorID := strings.TrimSpace(operators[0])
+	if len(operators) > 0 && strings.TrimSpace(operators[0].OperatorID) != "" {
+		operatorID := strings.TrimSpace(operators[0].OperatorID)
 		in.ConductedBy = &operatorID
 	}
 	return nil
@@ -305,7 +305,7 @@ func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Conte
 		return nil, err
 	}
 	if len(operators) == 0 && batch.ConductedBy != nil && strings.TrimSpace(*batch.ConductedBy) != "" {
-		operators = append(operators, strings.TrimSpace(*batch.ConductedBy))
+		operators = append(operators, domain.DriveOperatorCapacity{OperatorID: strings.TrimSpace(*batch.ConductedBy), Cap: capPerOperator})
 	}
 	if len(operators) == 0 {
 		return assignments, nil
@@ -326,11 +326,11 @@ func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, 
 	if err != nil {
 		return planner, err
 	}
-	if len(operators) <= 1 {
+	if len(operators) == 0 {
 		return planner, nil
 	}
 	scaled := planner
-	scaled.MaxGoatsPerDrive = planner.MaxGoatsPerDrive * int32(len(operators))
+	scaled.MaxGoatsPerDrive = totalVaccinationOperatorCap(operators, planner.MaxGoatsPerDrive)
 	return scaled, nil
 }
 
@@ -342,29 +342,40 @@ func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantI
 	if err != nil {
 		return capPerOperator, err
 	}
-	if len(operators) <= 1 {
+	if len(operators) == 0 {
 		return capPerOperator, nil
 	}
-	return capPerOperator * int32(len(operators)), nil
+	return totalVaccinationOperatorCap(operators, capPerOperator), nil
 }
 
-func leastLoadedDriveOperator(operators []string, loads map[string]int32) string {
-	chosen := operators[0]
-	for _, operatorID := range operators[1:] {
-		if loads[operatorID] < loads[chosen] {
+func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallbackCap int32) int32 {
+	var total int32
+	for _, operator := range operators {
+		cap := operator.Cap
+		if cap <= 0 {
+			cap = fallbackCap
+		}
+		if cap > 0 {
+			total += cap
+		}
+	}
+	return total
+}
+
+func leastLoadedDriveOperator(operators []domain.DriveOperatorCapacity, loads map[string]int32) string {
+	chosen := operators[0].OperatorID
+	for _, operator := range operators[1:] {
+		operatorID := strings.TrimSpace(operator.OperatorID)
+		if operatorID != "" && loads[operatorID] < loads[chosen] {
 			chosen = operatorID
 		}
 	}
 	return chosen
 }
 
-func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.Time, capPerOperator int32, operators []string, assignments []domain.DriveAssignment, session *SweepSession) ([]domain.DriveAssignment, error) {
+func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.Time, capPerOperator int32, operators []domain.DriveOperatorCapacity, assignments []domain.DriveAssignment, session *SweepSession) ([]domain.DriveAssignment, error) {
 	if len(assignments) == 0 || len(operators) == 0 {
 		return assignments, nil
-	}
-	capacity := int(capPerOperator)
-	if capacity <= 0 {
-		capacity = int(^uint(0) >> 1)
 	}
 	blocks := make([]vaccexecapp.DriveWorkBlock, 0, len(assignments))
 	byID := make(map[string]domain.DriveAssignment, len(assignments))
@@ -390,13 +401,20 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		})
 	}
 	ops := make([]vaccexecapp.DriveOperator, 0, len(operators))
-	for _, operatorID := range operators {
-		operatorID = strings.TrimSpace(operatorID)
+	for _, operator := range operators {
+		operatorID := strings.TrimSpace(operator.OperatorID)
 		if operatorID == "" {
 			continue
 		}
+		capacity := int(operator.Cap)
+		if capacity <= 0 {
+			capacity = int(capPerOperator)
+		}
+		if capacity <= 0 {
+			capacity = int(^uint(0) >> 1)
+		}
 		remaining := capacity
-		if capPerOperator > 0 {
+		if capacity > 0 {
 			remaining -= int(session.vaccinationOperatorLoad(tenantID, parkID, plannedDate, operatorID))
 			if remaining < 0 {
 				remaining = 0

@@ -43,7 +43,7 @@ func positionSelectSQL(where string) string {
 	return `
 SELECT p.position_id::text, p.workforce_member_id::text, p.scope_type, p.scope_id::text, p.position_code,
        p.position_tier, p.is_backup_slot, p.backup_group_code, p.week_off_weekday, p.status,
-       p.valid_from, p.valid_to, p.row_version, p.created_at, p.updated_at,
+       p.vaccination_daily_animal_cap, p.valid_from, p.valid_to, p.row_version, p.created_at, p.updated_at,
        COALESCE(wm.display_name, NULL) as person_display_name,
        COALESCE(wm.hr_designation_grade, NULL) as hr_designation_grade,
        COALESCE(l.name, NULL) as center_label
@@ -59,17 +59,22 @@ func scanPositions(rows pgx.Rows) ([]domain.Position, error) {
 	for rows.Next() {
 		var item domain.Position
 		var backupGroup, weekOff, personDisplayName, hrDesignationGrade, centerLabel pgtype.Text
+		var vaccinationDailyAnimalCap pgtype.Int4
 		var validFrom time.Time
 		var validTo pgtype.Timestamptz
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&item.PositionID, &item.WorkforceMemberID, &item.ScopeType, &item.ScopeID, &item.PositionCode,
 			&item.PositionTier, &item.IsBackupSlot, &backupGroup, &weekOff, &item.Status,
-			&validFrom, &validTo, &item.RowVersion, &createdAt, &updatedAt,
+			&vaccinationDailyAnimalCap, &validFrom, &validTo, &item.RowVersion, &createdAt, &updatedAt,
 			&personDisplayName, &hrDesignationGrade, &centerLabel); err != nil {
 			return nil, err
 		}
 		item.BackupGroupCode = textPtr(backupGroup)
 		item.WeekOffWeekday = textPtr(weekOff)
+		if vaccinationDailyAnimalCap.Valid {
+			cap := int(vaccinationDailyAnimalCap.Int32)
+			item.VaccinationDailyAnimalCap = &cap
+		}
 		item.PersonDisplayName = textPtr(personDisplayName)
 		item.HrDesignationGrade = textPtr(hrDesignationGrade)
 		item.CenterLabel = textPtr(centerLabel)
@@ -188,11 +193,16 @@ func (r *Repository) UpdatePosition(ctx context.Context, cmd ports.UpdatePositio
 	defer rollback(ctx, tx)
 
 	idemKey := cmd.IdempotencyKey
+	capFingerprint := ""
+	if cmd.VaccinationDailyAnimalCap != nil {
+		capFingerprint = fmt.Sprintf("%d", *cmd.VaccinationDailyAnimalCap)
+	}
 	fingerprint := requestFingerprint(
 		cmd.PositionID, fmt.Sprintf("%d", cmd.RowVersion),
 		fmt.Sprintf("%t", cmd.SetPositionTier), cmd.PositionTier,
 		fmt.Sprintf("%t", cmd.SetBackupGroup), cmd.BackupGroupCode,
 		fmt.Sprintf("%t", cmd.SetWeekOff), cmd.WeekOffWeekday,
+		fmt.Sprintf("%t", cmd.SetVaccinationDailyAnimalCap), capFingerprint,
 		fmt.Sprintf("%t", cmd.SetValidTo), cmd.ValidTo,
 		fmt.Sprintf("%t", cmd.SetStatus), cmd.Status,
 	)
@@ -213,14 +223,16 @@ UPDATE workforce_positions
 SET position_tier     = CASE WHEN $4 THEN $5 ELSE position_tier END,
     backup_group_code = CASE WHEN $6 THEN nullif($7, '') ELSE backup_group_code END,
     week_off_weekday  = CASE WHEN $8 THEN nullif($9, '') ELSE week_off_weekday END,
-    valid_to          = CASE WHEN $10 THEN nullif($11, '')::timestamptz ELSE valid_to END,
-    status            = CASE WHEN $12 THEN $13 ELSE status END,
+    vaccination_daily_animal_cap = CASE WHEN $10 THEN $11::int ELSE vaccination_daily_animal_cap END,
+    valid_to          = CASE WHEN $12 THEN nullif($13, '')::timestamptz ELSE valid_to END,
+    status            = CASE WHEN $14 THEN $15 ELSE status END,
     updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND position_id = $2::uuid AND row_version = $3 AND status = 'active'`,
 		cmd.TenantID, cmd.PositionID, cmd.RowVersion,
 		cmd.SetPositionTier, cmd.PositionTier,
 		cmd.SetBackupGroup, cmd.BackupGroupCode,
 		cmd.SetWeekOff, cmd.WeekOffWeekday,
+		cmd.SetVaccinationDailyAnimalCap, cmd.VaccinationDailyAnimalCap,
 		cmd.SetValidTo, cmd.ValidTo,
 		cmd.SetStatus, cmd.Status)
 	if err != nil {

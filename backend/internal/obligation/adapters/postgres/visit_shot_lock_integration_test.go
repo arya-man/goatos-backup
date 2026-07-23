@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +15,27 @@ import (
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
+
+func TestAvailableVaccinationOperatorsOneToManyPageBoundaryScheduledDateParkScopeStatusMatrixHonorsHRMSCaps(t *testing.T) {
+	source, err := os.ReadFile("visit_shot_lock.go")
+	if err != nil {
+		t.Fatalf("read visit_shot_lock.go: %v", err)
+	}
+	sql := string(source)
+	for _, required := range []string{
+		"COALESCE(MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))",
+		"count(DISTINCT oi.target_id)::int AS animals",
+		"ob.planned_date = $3::date",
+		"ob.scope_type = 'park'",
+		"ob.status IN ('planned', 'in_progress')",
+		"oi.status IN ('scheduled', 'due', 'in_progress')",
+		"LEFT JOIN load l ON l.workforce_member_id = c.workforce_member_id",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("AvailableVaccinationOperatorsForDrive query missing %q", required)
+		}
+	}
+}
 
 // seedShotCapVersions creates n independent vaccination protocol versions (one rule each) --
 // standing in for n different vaccines' obligation-sweeper versions -- and returns their

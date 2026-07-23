@@ -100,6 +100,11 @@ targets, process-integrity rows, and the schedule ledger.
   preflight loops, assignment distribution, and combo alignment; that re-creates
   park x candidate-date x helper fan-out and hides the cost behind "only three
   operators."
+  Operator capacity itself is HRMS-authored per active execution seat
+  (`workforce_positions.vaccination_daily_animal_cap`) with
+  `vaccination_capacity_config.max_per_day` only as the fallback default. Do
+  not multiply a hardcoded/default cap by operator count in UI or backend once
+  per-seat caps are available.
 - infinite paging loops without cursor/progress proof
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds

@@ -370,8 +370,8 @@ func pages() []domain.PageContract {
 			}),
 		page("people", "/people", "/people", "People / HRMS", "Vaccination operators, director roles, and weekly timetable", "authority-screen",
 			[]domain.TableContract{
-				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "status"}, "position_id"),
-				table("timetable", "Operator Timetable", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "status"}, "position_id"),
+				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
+				table("timetable", "Operator Timetable", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
 			}),
 		page("sops", "/sops", "/sops", "SOP Library", "Vaccination SOP policy and form-builder surface.", "authority-screen",
 			[]domain.TableContract{table("sop-library", "SOP Library", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),

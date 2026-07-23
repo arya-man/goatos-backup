@@ -94,6 +94,13 @@ Friday, Darshan = Sunday, and Sagar = Saturday. Chandrakant is a Preventive
 Care Director and contributes no field capacity unless explicitly assigned as
 an operator.
 
+After seeding, HRMS may override an operator seat's vaccination animal/day cap
+through `workforce_positions.vaccination_daily_animal_cap`. Runtime scheduling
+uses this order: HRMS position cap first, then `vaccination_capacity_config` as
+the tenant default, then the code fallback. People/HRMS must show and edit the
+same per-seat cap the sweeper uses; vaccination screens must not keep their own
+frontend-only operator-cap value.
+
 The five founder/CXO accounts remain tenant-scoped `ceo_internal` grants:
 `ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`,
 `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
@@ -262,3 +269,4 @@ post-seed proofs confirm the importer and runtime produced the intended result.
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 read canonical vaccination/procurement/obligation/workforce tables to create leadership assistant views (vaccination_shed_status, vaccination_dose_pickup, action_center, vaccination_operator_status). They do not modify the vaccination seed/config/SOP schema or contracts, so no fixture/source-data change is required. -->
 
 <!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
+<!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->

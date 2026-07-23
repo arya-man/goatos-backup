@@ -26,7 +26,7 @@ type SweepSession struct {
 	vaccinationOperatorLoads     map[string]int32
 	driveCellCounts              map[string]int32
 	driveLoaded                  map[string]struct{}
-	vaccinationOperatorAvailable map[string][]string
+	vaccinationOperatorAvailable map[string][]domain.DriveOperatorCapacity
 	// loaded marks every visitShotCountKey whose starting count has already been resolved once
 	// in this session -- either seeded from the persisted, cross-pass/cross-worker committed
 	// shot count (see seedResolved/SweeperService.seedAndLockVisitShots, VAX-REV-01) or, for a
@@ -74,7 +74,7 @@ func NewSweepSession() *SweepSession {
 		vaccinationOperatorLoads:     make(map[string]int32),
 		driveCellCounts:              make(map[string]int32),
 		driveLoaded:                  make(map[string]struct{}),
-		vaccinationOperatorAvailable: make(map[string][]string),
+		vaccinationOperatorAvailable: make(map[string][]domain.DriveOperatorCapacity),
 		loaded:                       make(map[string]struct{}),
 	}
 }
@@ -97,14 +97,14 @@ func vaccinationOperatorAvailabilityKey(tenantID, parkID string, plannedDate tim
 	}, "\x00")
 }
 
-func cloneOperatorIDs(values []string) []string {
+func cloneDriveOperatorCapacities(values []domain.DriveOperatorCapacity) []domain.DriveOperatorCapacity {
 	if len(values) == 0 {
 		return nil
 	}
-	return append([]string(nil), values...)
+	return append([]domain.DriveOperatorCapacity(nil), values...)
 }
 
-func (s *SweepSession) cachedVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]string, bool) {
+func (s *SweepSession) cachedVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, bool) {
 	if s == nil {
 		return nil, false
 	}
@@ -112,14 +112,14 @@ func (s *SweepSession) cachedVaccinationOperators(tenantID, parkID string, plann
 	if !ok {
 		return nil, false
 	}
-	return cloneOperatorIDs(values), true
+	return cloneDriveOperatorCapacities(values), true
 }
 
-func (s *SweepSession) rememberVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32, operators []string) {
+func (s *SweepSession) rememberVaccinationOperators(tenantID, parkID string, plannedDate time.Time, capPerOperator int32, operators []domain.DriveOperatorCapacity) {
 	if s == nil {
 		return
 	}
-	s.vaccinationOperatorAvailable[vaccinationOperatorAvailabilityKey(tenantID, parkID, plannedDate, capPerOperator)] = cloneOperatorIDs(operators)
+	s.vaccinationOperatorAvailable[vaccinationOperatorAvailabilityKey(tenantID, parkID, plannedDate, capPerOperator)] = cloneDriveOperatorCapacities(operators)
 }
 
 func (s *SweepSession) vaccinationOperatorLoad(tenantID, parkID string, plannedDate time.Time, operatorID string) int32 {

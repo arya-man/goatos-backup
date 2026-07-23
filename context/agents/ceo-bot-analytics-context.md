@@ -438,6 +438,15 @@ The admin schedule move drawer uses a themed local date picker; weekday labels
 must keep stable unique keys because the drawer can be opened without any move
 being submitted, and render-only warnings must not surface as operator errors.
 
+Leadership assistant read API coverage for vaccination operator capacity:
+operator capacity is HRMS-owned at
+`workforce_positions.vaccination_daily_animal_cap` per active operator
+position. `vaccination_capacity_config.max_per_day` is only the fallback when a
+position has no explicit cap. CEO/CXO answers about overload, timetable
+capacity, or "how many animals can this operator take" must cite the HRMS
+position cap used by the scheduler, not multiply a hardcoded default by the
+operator count.
+
 ---
 
 ## Integration status pointer (2026-07-22)

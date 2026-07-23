@@ -122,6 +122,11 @@
       "date": "2026-07-23",
       "change": "seed-roster-real consumes the cpt-operator-roster.json contract via an operator-roster overlay: when a source dir ships that file, the park's resolved seats are recast into per-person vaccination_operator_<name> positions (manager tier, not backup) with contract-owned week-offs, the strict PC-manager/backup/park-head requirement is waived for that contract-covered center, and seed-vaccination-source-full skips shed-manager seat seeding for the operator-roster park (ownership derives from the operator roster).",
       "vaccination_hrms_source_impact": "none to the committed jun-26 fixture (it ships no cpt-operator-roster.json, so the overlay is a no-op and the generic timetable seat model + shed-manager seeding are unchanged). The validator gains an operator_roster_contract check that only triggers when the contract file is present; committed-fixture and adversarial self-test runs are unaffected."
+    },
+    {
+      "date": "2026-07-23",
+      "change": "workforce_positions gained vaccination_daily_animal_cap and seed-roster-real now maps an optional operator-roster animal_cap_per_day into that HRMS position field. Scheduling reads per-operator HRMS caps first, falling back to tenant vaccination_capacity_config/default only when an operator has no explicit cap.",
+      "vaccination_hrms_source_impact": "none to the committed full fixture bytes: it still ships the generic timetable/roster source without cpt-operator-roster.json, so no fixture hash or row count changes. Private operator-roster rehearsal bundles may provide animal_cap_per_day, which is validated as a positive integer and becomes the runtime scheduling cap for that operator."
     }
   ]
 }

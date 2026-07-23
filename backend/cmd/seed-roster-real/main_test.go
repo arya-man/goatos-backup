@@ -50,6 +50,8 @@ func cptSeatAssignments() []rosterAssignment {
 func cptContract() *operatorRosterContract {
 	c := &operatorRosterContract{}
 	c.SourceScope.ParkCode = "CPT"
+	defaultCap := 200
+	c.OperatorCapacity.DefaultAnimalsPerDay = &defaultCap
 	c.Operators = []operatorRosterOperator{
 		{Code: "vaccination_operator_amit", DisplayName: "Amit Kumar", Tier: "manager", WeekOff: "friday"},
 		{Code: "vaccination_operator_darshan", DisplayName: "Darshan Talwar", Tier: "manager", WeekOff: "sunday"},
@@ -91,6 +93,31 @@ func TestApplyOperatorRosterOverlayRecastsSeats(t *testing.T) {
 		}
 		if a.weekOffWeekday != w.weekOff {
 			t.Errorf("%s: week-off = %q, want %q", a.jun26Name, a.weekOffWeekday, w.weekOff)
+		}
+		if a.vaccinationCap == nil || *a.vaccinationCap != 200 {
+			t.Errorf("%s: vaccination cap = %v, want 200", a.jun26Name, a.vaccinationCap)
+		}
+	}
+}
+
+func TestApplyOperatorRosterOverlayUsesPerOperatorCap(t *testing.T) {
+	assignments := cptSeatAssignments()
+	contract := cptContract()
+	amitCap := 1
+	contract.Operators[0].AnimalCapPerDay = &amitCap
+
+	if _, err := applyOperatorRosterOverlay(contract, assignments); err != nil {
+		t.Fatalf("overlay errored on per-operator cap: %v", err)
+	}
+	for _, a := range assignments {
+		if a.jun26Name == "Amit" {
+			if a.vaccinationCap == nil || *a.vaccinationCap != 1 {
+				t.Fatalf("Amit cap = %v, want per-operator cap 1", a.vaccinationCap)
+			}
+			continue
+		}
+		if a.vaccinationCap == nil || *a.vaccinationCap != 200 {
+			t.Fatalf("%s cap = %v, want default cap 200", a.jun26Name, a.vaccinationCap)
 		}
 	}
 }
