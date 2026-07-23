@@ -18,7 +18,6 @@ export type ChatMessage = {
   messageId?: string;
   citations?: CeoAiCitation[];
   chart?: CeoAiChart;
-  feedback?: "up" | "down";
   // Coarse live progress status shown under the streaming placeholder before the
   // first answer token (planning / querying / synthesizing). Cleared once answer
   // text arrives. Never carries chain-of-thought — only a coarse route label.
@@ -46,7 +45,7 @@ export type StoredMessage = {
 
 // All user-visible copy for the assistant surface. The subset shared with the
 // backend admin-web contract (title/subtitle/starters/etc.) is passed in from
-// `mesha-shell`; the thread/feedback/state strings are local literals for this
+// `mesha-shell`; the thread and state strings are local literals for this
 // leadership-only surface, documented as an exception in
 // context/frontend/admin-web-backend-ui-contract.md (Verification-style: no
 // backend page contract for the assistant chrome exists yet).

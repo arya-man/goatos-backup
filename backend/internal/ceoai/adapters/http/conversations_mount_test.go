@@ -34,12 +34,6 @@ func (fakeConvStore) ListMessages(context.Context, persistence.ListMessagesQuery
 	return persistence.MessagePage{Items: []persistence.Message{{ID: "m1", Role: persistence.RoleUser, Content: "hi"}}}, nil
 }
 
-type fakeFeedbackStore struct{}
-
-func (fakeFeedbackStore) Upsert(context.Context, persistence.NewFeedback) (persistence.Feedback, error) {
-	return persistence.Feedback{ID: "f1"}, nil
-}
-
 func leadershipReq(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	ctx := httpmiddleware.WithTenantID(r.Context(), "t1")
@@ -58,14 +52,14 @@ func operatorReq(method, path string) *http.Request {
 
 // TestConversationHandlerMountsThreadSurface is the launcher-visibility root-cause
 // proof. The admin-web probe gates the assistant bubble on GET /ceo-ai/starters;
-// before this fix no such route (nor conversations/feedback) was registered, so
+// before this fix no such route (nor conversations) was registered, so
 // the probe 404'd, allowed!==true, and NO leadership user could ever see or open
 // the assistant. This asserts the real handler is REACHABLE on the mux the live
 // server builds, returns 200 for leadership (bubble shows) and 403 for a
-// non-leadership session (bubble hidden), and that the whole thread + feedback
-// surface resolves rather than 404ing.
+// non-leadership session (bubble hidden), and that the whole thread surface
+// resolves rather than 404ing.
 func TestConversationHandlerMountsThreadSurface(t *testing.T) {
-	h := NewConversationHandler(fakeConvStore{}, fakeFeedbackStore{}, nil, slog.Default())
+	h := NewConversationHandler(fakeConvStore{}, nil, slog.Default())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -98,7 +92,6 @@ func TestConversationHandlerMountsThreadSurface(t *testing.T) {
 		{http.MethodGet, "/ceo-ai/conversations/c1/messages", ""},
 		{http.MethodPatch, "/ceo-ai/conversations/c1", `{"title":"Renamed"}`},
 		{http.MethodDelete, "/ceo-ai/conversations/c1", ""},
-		{http.MethodPost, "/ceo-ai/messages/m1/feedback", `{"rating":"up"}`},
 	}
 	for _, c := range cases {
 		rec = httptest.NewRecorder()
@@ -113,10 +106,10 @@ func TestConversationHandlerMountsThreadSurface(t *testing.T) {
 }
 
 // TestStartersServeWithoutStores proves the leadership probe/launcher gate is
-// never blocked by an unwired conversation/feedback store: with nil stores the
+// never blocked by an unwired conversation store: with nil store the
 // starters route still returns 200 for leadership.
 func TestStartersServeWithoutStores(t *testing.T) {
-	h := NewConversationHandler(nil, nil, nil, slog.Default())
+	h := NewConversationHandler(nil, nil, slog.Default())
 	mux := http.NewServeMux()
 	h.Register(mux)
 

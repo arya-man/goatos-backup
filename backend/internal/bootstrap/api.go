@@ -480,12 +480,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Audit:     ceoobs.NewAuditTraceSink(ceoTraceStore),
 		Telemetry: ceoobs.NewMetrics(),
 		Traces:    ceoTraceStore,
-		// Thread + feedback surface backing GET/POST /ceo-ai/conversations*,
-		// POST /ceo-ai/messages/{id}/feedback, and the leadership starters probe
-		// GET /ceo-ai/starters (the launcher visibility gate).
-		ConvStore:     ceoai.NewConversationHTTPStore(pool, cfg.Postgres.QueryTimeout),
-		FeedbackStore: ceoai.NewFeedbackHTTPStore(pool, cfg.Postgres.QueryTimeout),
-		Logger:        log,
+		// Thread surface backing GET/POST /ceo-ai/conversations* and the leadership
+		// starters probe GET /ceo-ai/starters (the launcher visibility gate).
+		ConvStore: ceoai.NewConversationHTTPStore(pool, cfg.Postgres.QueryTimeout),
+		Logger:    log,
 	}
 	if ceoVertex != nil {
 		ceoOpts.Provider = ceoVertex
