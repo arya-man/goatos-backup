@@ -210,3 +210,15 @@ the Cube tier-1 read path for these KPIs:
 `ceo_ai.vaccination_operator_status` in migration 000027. No new leadership KPI,
 table, or exclusion is introduced by 000030 — it is a read-path plumbing fix so
 the existing governed metrics resolve under the read-only Cube role.
+
+## Assistant DB roles: full read on public (maintainer decision 2026-07-23)
+
+The leadership assistant is internal, CEO/CXO-only, and READ-ONLY. Its two DB
+roles (`mesha_cube_readonly` for Cube, `mesha_ceo_readonly` for MCP Toolbox /
+SQL fallback) are granted SELECT on ALL of `public` (current + future tables)
+plus `ceo_ai.*`, via migration `000031_assistant_roles_public_read.sql` and
+`tools/dev/setup-ceo-ai-local-role.sh`. This removes the prior "ceo_ai.* only /
+public revoked" restriction so no current or future Cube model or read query
+ever fails with `permission denied`. Access stays read-only (SELECT only +
+`default_transaction_read_only=on`; no write/DDL). This supersedes the "Cube
+never reads raw Postgres" boundary for these two read-only roles.
