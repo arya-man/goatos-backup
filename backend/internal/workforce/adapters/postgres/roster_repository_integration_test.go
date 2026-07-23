@@ -415,6 +415,24 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	if replay.Position.RowVersion != 2 {
 		t.Fatalf("replay row_version = %d, want 2 (no second update)", replay.Position.RowVersion)
 	}
+	// The replay must return the ORIGINAL response body, not a fresh read of the record's CURRENT
+	// state: two unrelated edits (the cap set + the cap clear) landed between the first call and this
+	// replay, and their effects must not leak out under this key (BUG-037).
+	if replay.Position.PositionTier != "head" || replay.Position.WeekOffWeekday == nil || *replay.Position.WeekOffWeekday != "sunday" {
+		t.Fatalf("replay body = tier %q week_off %v, want the original head/sunday",
+			replay.Position.PositionTier, replay.Position.WeekOffWeekday)
+	}
+	if replay.Position.VaccinationDailyAnimalCap != nil {
+		t.Fatalf("replay vaccination_daily_animal_cap = %v, want the original nil (later edits must not leak into a replay)",
+			replay.Position.VaccinationDailyAnimalCap)
+	}
+	// ...and the replay must not have written anything: current state is still the post-clear v4.
+	if current, err := repo.GetPositionByID(ctx, rosterTenant, posID); err != nil {
+		t.Fatalf("GetPositionByID after replay: %v", err)
+	} else if current.RowVersion != capCleared.Position.RowVersion {
+		t.Fatalf("stored row_version after replay = %d, want unchanged %d (no side effects on replay)",
+			current.RowVersion, capCleared.Position.RowVersion)
+	}
 
 	// Same key, different payload -> idempotency conflict.
 	otherTier := "director"

@@ -3768,7 +3768,6 @@ func removeGoatFromDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgt
 	shedKeys := make([]string, 0, len(removals))
 	ruleIDArgs := make([]string, 0, len(removals))
 	obligationIDArgs := make([]string, 0, len(removals))
-	affectedBatches := make(map[string]struct{}, len(removals))
 	for key, doses := range removals {
 		shedKey := key.shedID
 		if strings.TrimSpace(shedKey) == "" {
@@ -3780,12 +3779,29 @@ func removeGoatFromDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgt
 			ruleIDArgs = append(ruleIDArgs, dose.ruleID)
 			obligationIDArgs = append(obligationIDArgs, dose.obligationID)
 		}
-		affectedBatches[key.batchID] = struct{}{}
+	}
+	// The EXACT set of assignment rows THIS exit decremented, collected from the RETURNING clause of
+	// each decrementing statement. It is the only correct input to the delete-emptied-rows step
+	// below: a row this exit never touched cannot have been emptied by this exit.
+	touchedAssignmentIDs := make([]string, 0, len(removals))
+	collectTouched := func(rows pgx.Rows, err error) error {
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if scanErr := rows.Scan(&id); scanErr != nil {
+				return scanErr
+			}
+			touchedAssignmentIDs = append(touchedAssignmentIDs, id)
+		}
+		return rows.Err()
 	}
 	if len(batchIDs) > 0 {
 		// EXACT: decrement the assignment rows this animal is a PROVEN member of. One set-based
 		// statement over the canceled obligation_ids; no per-goat loop.
-		if _, err := tx.Exec(ctx, `
+		if err := collectTouched(tx.Query(ctx, `
 -- projection-review: membership=vaccination_drive_assignment_members rows for THIS tenant+goat whose obligation_id is one of the obligations just canceled -- the exact per-goat drive ledger, not an inferred bucket; group_key=assignment_id (one decrement per assignment row the animal is a member of); join_cardinality=members->assignment is many-to-ONE on the assignment PK and members is UNIQUE (tenant_id, obligation_id), so an obligation can sit in at most one assignment row and the animal can subtract at most one animal per row; total_doses subtracts count(DISTINCT rule_id) because total_doses is a DISTINCT (target, rule) dose-key count; pagination=n/a (single transactional write bounded by the exiting animal's own canceled obligations); scope=the assignment row's own park/shed/partition/operator/date, unchanged.
 WITH member AS (
   SELECT m.assignment_id, count(DISTINCT o.rule_id)::int AS doses
@@ -3804,11 +3820,12 @@ SET animal_count = GREATEST(0, vda.animal_count - 1),
     updated_at = now()
 FROM member
 WHERE vda.tenant_id = $1
-  AND vda.assignment_id = member.assignment_id`,
-			tenant, goat, obligationIDArgs); err != nil {
+  AND vda.assignment_id = member.assignment_id
+RETURNING vda.assignment_id::text`,
+			tenant, goat, obligationIDArgs)); err != nil {
 			return fmt.Errorf("obligation: remove exited animal from drive assignment members: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `
+		if err := collectTouched(tx.Query(ctx, `
 -- projection-review: membership=one (batch, shed scope, rule) tuple per obligation-rule canceled for the exiting animal, regrouped to one removal bucket per (batch, shed scope); group_key=(batch_id, COALESCE(shed_id, nil-uuid)) narrowed to ONE assignment_id per bucket via DISTINCT ON, so the aggregate row the animal actually sits in is the only row decremented; join_cardinality=removal->assignment is many-to-many by construction (the read model has no goat-level membership), so the join is collapsed by DISTINCT ON to at most ONE assignment row per bucket -- one exiting animal can therefore never subtract more than one animal in total per (batch, shed); pagination=n/a (single transactional write bounded by the exiting animal's own batches); scope=the assignment row's own park/shed/partition/operator/date, unchanged -- rows for other partitions, operators, dates, or vaccines are never touched.
 WITH removal_raw AS (
   SELECT r.batch_id, r.shed_key, r.rule_id, r.obligation_id
@@ -3874,8 +3891,9 @@ SET animal_count = GREATEST(0, vda.animal_count - 1),
     updated_at = now()
 FROM candidate
 WHERE vda.tenant_id = $1
-  AND vda.assignment_id = candidate.assignment_id`,
-			tenant, batchIDs, shedKeys, ruleIDArgs, goat, obligationIDArgs); err != nil {
+  AND vda.assignment_id = candidate.assignment_id
+RETURNING vda.assignment_id::text`,
+			tenant, batchIDs, shedKeys, ruleIDArgs, goat, obligationIDArgs)); err != nil {
 			return fmt.Errorf("obligation: remove exited animal from drive assignments: %w", err)
 		}
 		// The exact ledger must never keep a dead animal: drop the membership rows for the
@@ -3889,17 +3907,28 @@ WHERE tenant_id = $1
 			return fmt.Errorf("obligation: delete exited animal drive assignment members: %w", err)
 		}
 	}
-	emptiedBatchIDs := make([]string, 0, len(affectedBatches))
-	for batchID := range affectedBatches {
-		emptiedBatchIDs = append(emptiedBatchIDs, batchID)
+	if len(touchedAssignmentIDs) == 0 {
+		return nil
 	}
 	// A zero-animal assignment row is phantom planned work: it still renders as a drive on the
-	// shed/operator day screens and still names an operator for that date.
+	// shed/operator day screens and still names an operator for that date. Delete ONLY the rows THIS
+	// exit actually emptied.
+	//
+	// GRAIN: the row identity is assignment_id, NOT batch_id. batch_id is a coarser grain -- the
+	// persisted uniqueness key is (tenant, batch, planned_date, park, shed, physical_shed,
+	// partition_label, operator), so one batch legitimately holds MANY assignment rows. Deleting
+	// `batch_id = ANY(...) AND animal_count = 0` therefore also destroys sibling arms of the same
+	// batch that already stood at zero and that this exit never decremented -- a different partition,
+	// operator or date the exiting animal was never in -- taking their operator/date/partition record
+	// and (via the vaccination_drive_assignment_members assignment_id ON DELETE CASCADE) their exact
+	// per-goat membership ledger with them. touchedAssignmentIDs is the RETURNING output of this
+	// exit's own decrements, so only a row this exit drove to zero can be deleted here.
 	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=the assignment_ids RETURNED by this exit's own two decrementing UPDATEs (exact-member pass + legacy-fallback pass) -- the exact set of rows this exit subtracted an animal from; producer-unique=(assignment_id) [vaccination_drive_assignments PK], consumer-match=(tenant_id, assignment_id) -- the same stable row key, not the coarser batch_id; join_cardinality=touched-id list -> assignment is many-to-ONE on the PK and each UPDATE returns at most one row per assignment_id, so the delete predicate ranges over exactly the rows just decremented; numerator/denominator=n/a (no ratio or cap check; animal_count = 0 is evaluated on the same row whose animal_count this transaction wrote); pagination=n/a (single transactional write bounded by the exiting animal's own assignment rows); scope=only rows this exit emptied -- sibling arms of the same batch, including ones already at zero, are never in the key set.
 DELETE FROM vaccination_drive_assignments
 WHERE tenant_id = $1
-  AND batch_id = ANY($2::uuid[])
-  AND animal_count = 0`, tenant, emptiedBatchIDs); err != nil {
+  AND assignment_id = ANY($2::uuid[])
+  AND animal_count = 0`, tenant, touchedAssignmentIDs); err != nil {
 		return fmt.Errorf("obligation: delete emptied drive assignments: %w", err)
 	}
 	return nil

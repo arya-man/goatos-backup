@@ -208,7 +208,7 @@ func TestNotificationSentEventSubjectType_RealPostgres(t *testing.T) {
 		"subject_type":            "notification_request",
 		"subject_id":              requestID,
 		"notification_request_id": requestID, // Top-level field for test assertion
-		"tenant_id":               tenantID,   // Top-level field for test assertion
+		"tenant_id":               tenantID,  // Top-level field for test assertion
 		"channel":                 "local-stub",
 		"delivery_attempts":       1,
 		"payload":                 envelopePayload,
@@ -318,7 +318,7 @@ func TestNotificationSentEventEnvelope_RealPostgres(t *testing.T) {
 		"subject_type":            "notification_request",
 		"subject_id":              requestID,
 		"notification_request_id": requestID, // Top-level field for test assertion
-		"tenant_id":               tenantID,   // Top-level field for test assertion
+		"tenant_id":               tenantID,  // Top-level field for test assertion
 		"channel":                 "local-stub",
 		"delivery_attempts":       1,
 		"payload":                 envelopePayload,
