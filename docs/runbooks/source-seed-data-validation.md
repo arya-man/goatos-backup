@@ -212,6 +212,9 @@ transform may repair surrounding mock metadata but must never change a dated,
   vaccination fixture contract is `proof_mode=shed_level_video`: every goat scan
   still carries its own timestamp, but video proof is one-to-five shed-level
   clips with both in-app camera and gallery picker allowed by backend policy.
+  Seeder, backend, Android, and verifier changes that drift back to mandatory
+  per-goat videos must fail until the SOP and fixture contract are deliberately
+  changed together.
 
 These repairs are fixture-specific and recorded in `corrections.json`. They do
 not authorize production ingestion to rewrite business history. Production

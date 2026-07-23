@@ -457,7 +457,9 @@ one product; this skill is the navigation layer.
   into Android. Current source fixture contract is shed-level video proof:
   one-to-five shed videos (camera or gallery) plus per-goat scan timestamps.
   Do not hardcode per-goat video proof in seeders, Android, verifier bridge, or
-  assistant copy.
+  assistant copy. Any change to this proof grain must update the migration,
+  committed fixture manifest, validator, runbook, Android UI, and verifier path
+  in the same patch.
 - Local vaccination proof after a seed/reseed/import/change of goat shed, goat
   health state, goat lifecycle, source history, protocol rules, or HRMS
   ownership must run the same closeout chain: generation, sweeper drive

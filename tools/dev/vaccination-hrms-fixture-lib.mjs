@@ -212,7 +212,7 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.minimum_migration === "000008", "manifest.minimum_migration must be 000008", problems);
   expect(manifest.contracts?.source_policy_sha256 === SEED_SOURCE_POLICY_SHA256, "manifest source policy digest differs from contracts/vaccination-seed-source-policy.json", problems);
   expect(manifest.contracts?.vaccination_sop_code === "vaccination.drive", "manifest must bind vaccination.drive SOP", problems);
-  expect(manifest.contracts?.proof_mode === "shed_level_video", "manifest proof_mode must be shed_level_video", problems);
+  expect(manifest.contracts?.proof_mode === "shed_level_video", "manifest proof_mode must be shed_level_video so seed, SOP, Android, and verifier all use one-to-five shed videos instead of per-goat videos", problems);
   expect(manifest.contracts?.video_proof_subject_scope === "shed", "manifest video proof subject must be shed", problems);
   expect(Array.isArray(manifest.contracts?.video_capture_sources) && manifest.contracts.video_capture_sources.includes("in_app_camera") && manifest.contracts.video_capture_sources.includes("gallery_picker"), "manifest shed video proof must allow camera and gallery picker", problems);
   expect(manifest.contracts?.minimum_video_count_per_shed === 1, "manifest must require at least one video per shed", problems);
