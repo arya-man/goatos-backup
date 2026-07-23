@@ -361,11 +361,21 @@ WITH a AS (
    AND ((oi.scope_type = 'shed' AND s.shed_id = oi.scope_id)
      OR (oi.scope_type <> 'shed' AND s.shed_id IS NULL))
    AND (cardinality(s.vaccine_rule_ids) = 0 OR oi.rule_id = ANY(s.vaccine_rule_ids))
+  -- The animal's OWN physical placement. assignment_id is a random UUID, so ranking candidate
+  -- cells by it made the goat -> cell binding nondeterministic run to run whenever one batch/shed
+  -- held several cells that plan the same vaccine (different partition/operator/date). The goat's
+  -- shed partition is the stable business key for "where this animal actually is"; only when the
+  -- animal has no partition row do we fall back to the cell's own business keys.
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = oi.tenant_id
+   AND gsp.goat_id = oi.target_id
   WHERE oi.tenant_id = $1
     AND oi.batch_id = ANY($2::uuid[])
     AND oi.target_type = 'goat'
     AND oi.status <> 'canceled'
-  ORDER BY oi.obligation_id, s.assignment_id
+  ORDER BY oi.obligation_id,
+           (gsp.partition_label IS NOT NULL AND s.partition_label = gsp.partition_label) DESC,
+           s.physical_shed, s.partition_label, s.assignment_id
 ), goat_rank AS (
   SELECT d.*, dense_rank() OVER (
     PARTITION BY d.batch_id, d.park_id, COALESCE(d.shed_id, `+zeroUUIDLiteral+`), d.physical_shed, d.partition_label

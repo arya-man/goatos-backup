@@ -133,6 +133,12 @@ func (r *Repository) CreatePosition(ctx context.Context, cmd ports.CreatePositio
 		if err := tx.Commit(ctx); err != nil {
 			return domain.Position{}, err
 		}
+		if original, ok, err := replayPosition(reservation); err != nil {
+			return domain.Position{}, err
+		} else if ok {
+			return original, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading by result id.
 		return r.queryOnePosition(contextWithoutCancel(ctx), `
 WHERE p.tenant_id = $1::uuid AND p.position_id = $2::uuid
 LIMIT 1`, cmd.TenantID, reservation.resultID)
@@ -170,7 +176,11 @@ RETURNING position_id::text`,
 	}); err != nil {
 		return domain.Position{}, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionCreate, idemKey, "workforce_position", positionID); err != nil {
+	createdPosition, err := txPosition(ctx, tx, cmd.TenantID, positionID)
+	if err != nil {
+		return domain.Position{}, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionCreate, idemKey, "workforce_position", positionID, createdPosition); err != nil {
 		return domain.Position{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -217,6 +227,12 @@ func (r *Repository) UpdatePosition(ctx context.Context, cmd ports.UpdatePositio
 		if err := tx.Commit(ctx); err != nil {
 			return domain.Position{}, false, err
 		}
+		if original, ok, err := replayPosition(reservation); err != nil {
+			return domain.Position{}, false, err
+		} else if ok {
+			return original, true, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading current state.
 		pos, err := r.GetPositionByID(contextWithoutCancel(ctx), cmd.TenantID, cmd.PositionID)
 		return pos, true, err
 	}
@@ -260,7 +276,11 @@ SELECT EXISTS (SELECT 1 FROM workforce_positions WHERE tenant_id = $1::uuid AND 
 	}); err != nil {
 		return domain.Position{}, false, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionUpdate, idemKey, "workforce_position", cmd.PositionID); err != nil {
+	updatedPosition, err := txPosition(ctx, tx, cmd.TenantID, cmd.PositionID)
+	if err != nil {
+		return domain.Position{}, false, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionUpdate, idemKey, "workforce_position", cmd.PositionID, updatedPosition); err != nil {
 		return domain.Position{}, false, err
 	}
 	if err := enqueueVaccinationOperatorPositionCascade(ctx, tx, cmd); err != nil {
@@ -269,8 +289,9 @@ SELECT EXISTS (SELECT 1 FROM workforce_positions WHERE tenant_id = $1::uuid AND 
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Position{}, false, err
 	}
-	pos, err := r.GetPositionByID(contextWithoutCancel(ctx), cmd.TenantID, cmd.PositionID)
-	return pos, false, err
+	// Return the state THIS transaction produced (the same value recorded as the replay snapshot),
+	// not a post-commit re-read that a concurrent writer may already have moved past.
+	return updatedPosition, false, nil
 }
 
 // enqueueVaccinationOperatorPositionCascade enqueues vaccination.capacity.changed and/or
@@ -876,6 +897,12 @@ func (r *Repository) ApplyLeave(ctx context.Context, cmd ports.ApplyLeaveCommand
 		if err := tx.Commit(ctx); err != nil {
 			return domain.StaffLeave{}, err
 		}
+		if original, ok, err := replayLeave(reservation); err != nil {
+			return domain.StaffLeave{}, err
+		} else if ok {
+			return original, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading by result id.
 		return r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, reservation.resultID)
 	}
 
@@ -896,7 +923,11 @@ RETURNING absence_id::text`,
 	}); err != nil {
 		return domain.StaffLeave{}, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApply, idemKey, "workforce_absence", absenceID); err != nil {
+	appliedLeave, err := txLeave(ctx, tx, cmd.TenantID, absenceID)
+	if err != nil {
+		return domain.StaffLeave{}, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApply, idemKey, "workforce_absence", absenceID, appliedLeave); err != nil {
 		return domain.StaffLeave{}, err
 	}
 
@@ -1002,6 +1033,12 @@ func (r *Repository) ApproveLeave(ctx context.Context, cmd ports.ApproveLeaveCom
 		if err := tx.Commit(ctx); err != nil {
 			return domain.StaffLeave{}, false, err
 		}
+		if original, ok, err := replayLeave(reservation); err != nil {
+			return domain.StaffLeave{}, false, err
+		} else if ok {
+			return original, true, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading current state.
 		leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
 		return leave, true, err
 	}
@@ -1020,7 +1057,14 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND row_version = $3 AND st
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "roster.leave.approve", "workforce_absence", cmd.AbsenceID, nil, map[string]any{"row_version": cmd.RowVersion}); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApprove, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
+	// No snapshot recorded here, deliberately. The RESULT of approve/resolve-coverage is not what
+	// this transaction alone produces: the service runs coverage auto-resolution (a further
+	// row_version bump) and the temporary-capability grant after this commit, and the response the
+	// first caller saw reflects THAT composite state. Recording the in-transaction row here would
+	// make a replay return a strictly earlier leave than the original response. Replays therefore
+	// fall back to reading the settled record; owning a true original snapshot for these two paths
+	// requires the SERVICE layer to record it once the composite operation completes.
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApprove, idemKey, "workforce_absence", cmd.AbsenceID, nil); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
 	// Approval -- not the earlier 'reported' apply -- is the transition that actually
@@ -1164,6 +1208,12 @@ func (r *Repository) ResolveLeaveCoverage(ctx context.Context, cmd ports.Resolve
 		if err := tx.Commit(ctx); err != nil {
 			return domain.StaffLeave{}, false, err
 		}
+		if original, ok, err := replayLeave(reservation); err != nil {
+			return domain.StaffLeave{}, false, err
+		} else if ok {
+			return original, true, nil
+		}
+		// Pre-000043 key with no recorded snapshot: fall back to reading current state.
 		leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
 		return leave, true, err
 	}
@@ -1191,7 +1241,14 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND status IN ('approved', 
 	}); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
-	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveResolve, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
+	// No snapshot recorded here, deliberately. The RESULT of approve/resolve-coverage is not what
+	// this transaction alone produces: the service runs coverage auto-resolution (a further
+	// row_version bump) and the temporary-capability grant after this commit, and the response the
+	// first caller saw reflects THAT composite state. Recording the in-transaction row here would
+	// make a replay return a strictly earlier leave than the original response. Replays therefore
+	// fall back to reading the settled record; owning a true original snapshot for these two paths
+	// requires the SERVICE layer to record it once the composite operation completes.
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveResolve, idemKey, "workforce_absence", cmd.AbsenceID, nil); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
 	// Coverage resolution changes WHO actually covers the scope for the window (a

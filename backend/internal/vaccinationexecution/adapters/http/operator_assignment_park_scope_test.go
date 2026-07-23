@@ -105,7 +105,7 @@ func TestOperatorAssignmentConfigAmbiguousScopeReturnsAuthorizedParkOptions(t *t
 		t.Fatalf("expected 409 park_scope_ambiguous, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var body struct {
-		Code          string                 `json:"code"`
+		Code           string                 `json:"code"`
 		AvailableParks []vaccexecd.ParkOption `json:"availableParks"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {

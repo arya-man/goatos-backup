@@ -47,7 +47,7 @@ func TestHasTenantWidePermissionLogic(t *testing.T) {
 			desc:           "park-scoped grant should NOT satisfy tenant-wide check",
 		},
 		{
-			name: "no_grants",
+			name:   "no_grants",
 			grants: []permissions.ActiveGrant{
 				// No grants
 			},

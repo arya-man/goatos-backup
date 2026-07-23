@@ -265,6 +265,7 @@ telemetry-guard-audit:
 	python3 tools/telemetry-guard/telemetry-guard.py --all
 
 local-gcp-kernel-parity-guard:
+	bash tools/agent-hooks/check-local-gcp-kernel-parity.test.sh
 	bash tools/agent-hooks/check-local-gcp-kernel-parity.sh
 
 # clinical-defer-guard: block the C35-010 medical-safety anti-pattern — a PARTIAL

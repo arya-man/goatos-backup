@@ -1504,6 +1504,14 @@ LIMIT ($5::int + 1);
 // current verification status. A dose administered before as_of but accepted after as_of is bounded out of
 // "completed" via completed_at, but its as_of verification sub-state is not yet reconstructed.
 //
+// SERVING SHAPE (BUG-036a): the effective-due-date window is bounded by an INDEX-USABLE superset on
+// bare obligation_instances columns (due_at window OR a batch id from due_window_batches) before the
+// exact COALESCE bound is applied as a residual filter, and the per-obligation drive-assignment
+// LATERAL is pre-aggregated once per (batch, shed) in drive_assignment_dates. Without both, the
+// planner had to read the whole obligation table per request. Gated by
+// TestVaccinationOperationsAggregateQueryPlanUsesIndexesAtScale at ~500k rows and by the
+// EffectiveDueWindowSuperset case in make validate-sqlc-plans.
+//
 // This is now the request-path serving read (VaccinationOperations), not only the projector replay.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 cohorts) canonical operations list, query-plan-tested (canonical_read_plan_test.go).
 const vaccinationOperationsSQL = `
@@ -1575,6 +1583,53 @@ asof_terminal AS (
     AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
+drive_assignment_dates AS (
+  -- ONE representative planned date per (batch, shed), pre-aggregated ONCE instead of probed per
+  -- obligation. This was a LEFT JOIN LATERAL ... LIMIT 1 correlated on (oi.batch_id, g.shed_id): a
+  -- per-row index probe into vaccination_drive_assignments, i.e. one round trip per obligation row,
+  -- which dominated the plan cost at the 500k envelope even after the due window became index-bound.
+  -- Distinct (batch, shed) pairs are bounded by planned DRIVES, not by animals, so collapsing to one
+  -- row per pair up front is strictly cheaper and set-based. DISTINCT ON reproduces the LATERAL's
+  -- ORDER BY ... LIMIT 1 tie-break exactly, so the selected assignment date is unchanged.
+  SELECT DISTINCT ON (assignment.batch_id, assignment.shed_id)
+    assignment.batch_id,
+    assignment.shed_id,
+    (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+  ORDER BY assignment.batch_id,
+           assignment.shed_id,
+           assignment.planned_date ASC,
+           assignment.partition_label ASC,
+           assignment.operator_id ASC NULLS LAST,
+           assignment.assignment_id ASC
+),
+due_window_batches AS (
+  -- SARGABLE PRE-FILTER SOURCE for the effective-due-date window below. The serving predicate is
+  -- COALESCE(assignment_planned_at, batch_planned_date, oi.due_at) <= $3, whose first two arms come from a
+  -- LEFT JOIN / LEFT JOIN LATERAL output. A predicate over a join output is not index-usable, so the
+  -- planner was forced to materialize EVERY obligation row of the tenant before it could filter -- a full
+  -- 500k sequential scan of obligation_instances (BUG-036a).
+  -- An obligation's effective date can only differ from oi.due_at when a batch or a drive assignment
+  -- overrides it, and BOTH override sources hang off oi.batch_id (ob.batch_id = oi.batch_id, and the
+  -- LATERAL assignment join keys on assignment.batch_id = oi.batch_id). Therefore:
+  --   effective_due <= $3 AND oi.due_at > $3  =>  oi.batch_id is a batch planned <= $3 (by the batch row
+  --   itself or by one of its drive assignments).
+  -- Collecting those batch ids from the SMALL planning tables lets the driving scan ride
+  -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) and
+  -- obligation_instances_batch_idx (tenant_id, batch_id, status) instead of reading the whole table.
+  -- This is a strict SUPERSET: the exact COALESCE predicate is still applied afterwards, so no row that
+  -- qualified before is dropped and no new row is admitted. Serving shape only, semantics unchanged.
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  WHERE ob.tenant_id = $1::uuid
+    AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $3::timestamptz
+  UNION
+  SELECT assignment.batch_id
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+    AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $3::timestamptz
+),
 raw AS (
   SELECT
     oi.obligation_id,
@@ -1621,18 +1676,9 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
-  LEFT JOIN LATERAL (
-    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
-    FROM vaccination_drive_assignments assignment
-    WHERE assignment.tenant_id = oi.tenant_id
-      AND assignment.batch_id = oi.batch_id
-      AND assignment.shed_id = g.shed_id
-    ORDER BY assignment.planned_date ASC,
-             assignment.partition_label ASC,
-             assignment.operator_id ASC NULLS LAST,
-             assignment.assignment_id ASC
-    LIMIT 1
-  ) vda ON true
+  LEFT JOIN drive_assignment_dates vda
+    ON vda.batch_id = oi.batch_id
+   AND vda.shed_id = g.shed_id
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -1640,6 +1686,18 @@ raw AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    -- INDEX-USABLE SUPERSET of the effective-due-date bound below. Both arms are bare
+    -- obligation_instances column predicates, so the planner can BitmapOr
+    -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) with
+    -- obligation_instances_batch_idx (tenant_id, batch_id, status) and prune the table instead of
+    -- scanning it whole. The batch list is materialized as an InitPlan ARRAY (not a correlated
+    -- IN-subquery) precisely so it stays a constant the index can be probed with.
+    AND (
+      oi.due_at <= $3::timestamptz
+      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
+    )
+    -- Exact effective-due-date bound (unchanged). Kept as the authoritative filter so a batch/assignment
+    -- that moved the date LATER than $3 is still excluded even though the superset admitted it.
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
 ),
 located AS (
