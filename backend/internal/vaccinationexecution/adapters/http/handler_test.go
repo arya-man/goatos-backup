@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
@@ -133,6 +134,10 @@ func (f *fakeReader) ShedAnimals(_ context.Context, q domain.ShedAnimalQuery) (d
 
 func (f *fakeReader) CapacityConfig(_ context.Context, _ string) (domain.CapacityConfig, error) {
 	return f.capacityCfg, nil
+}
+
+func (f *fakeReader) GetOperatorAssignmentConfig(_ context.Context, _, _ string) (vaccexecapp.OperatorAssignmentConfigView, error) {
+	return vaccexecapp.OperatorAssignmentConfigView{}, vaccexecapp.ErrOperatorAssignmentConfigNotFound
 }
 
 func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obligationdomain.RecoveryReschedule) (string, bool, error) {

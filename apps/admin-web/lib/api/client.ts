@@ -84,6 +84,30 @@ export function getAdminApi() {
       return { data: body };
     },
 
+    async getVaccinationOperatorAssignmentConfig(parkId: string) {
+      const query = new URLSearchParams({ park_id: parkId });
+      const response = await fetch(`/api/vaccination/operator-assignment/config?${query.toString()}`, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch vaccination operator assignment config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
+      return { data: body };
+    },
+
+    async putVaccinationOperatorAssignmentConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationOperatorAssignmentConfigRequest']) {
+      const response = await fetch('/api/vaccination/operator-assignment/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update vaccination operator assignment config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
+      return { data: body };
+    },
+
     // getStaffPositionProfile backs the People position row-click drawer: the
     // enriched seat plus its holder's currently-active coverage window.
     async getStaffPositionProfile(positionId: string) {

@@ -3,13 +3,16 @@
 import { getAdminApi } from '@/lib/api/client';
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 import type { AdminApiComponents } from '@goatos/api-client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 type Position = AdminApiComponents['schemas']['Position'];
 
 interface VaccinationOperatorsScreenProps {
   pageContract?: AdminUiPageContract;
 }
+
+type VaccinationOperatorAssignmentConfig = import('@goatos/api-client').AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
+type VaccinationOperatorShift = import('@goatos/api-client').AppApiComponents['schemas']['VaccinationOperatorShift'];
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 const WEEK_LABELS: Record<string, string> = {
@@ -36,6 +39,12 @@ function iso(d: Date): string {
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
+}
+
+function minutesToHHMM(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${pad(hours)}:${pad(mins)}`;
 }
 
 function nextDay(s: string): string {
@@ -112,6 +121,9 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   const [capSaving, setCapSaving] = useState(false);
   const [operatorCount, setOperatorCount] = useState(1);
   const [defaultOperator, setDefaultOperator] = useState<string>('');
+  const [assignmentConfig, setAssignmentConfig] = useState<VaccinationOperatorAssignmentConfig | null>(null);
+  const [rowVersion, setRowVersion] = useState(0);
+  const [configSaving, setConfigSaving] = useState(false);
 
   const [leaves, setLeaves] = useState<Record<string, { from: string; to: string }[]>>({});
   const [loading, setLoading] = useState(true);
@@ -154,7 +166,31 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         setPositions(pos);
         setCommonCap(capRes.data?.maxPerDay ?? 200);
         setCapDraft(String(capRes.data?.maxPerDay ?? 200));
-        if (pos.length > 0) setDefaultOperator(pos[0].position_id ?? '');
+        // Initialize default operator with first operator's workforce_member_id
+        if (pos.length > 0) setDefaultOperator(pos[0].workforce_member_id ?? '');
+
+        // Extract park ID from the first position's scope_id (all positions should be from the same park)
+        let parkId: string | null = null;
+        if (pos.length > 0 && pos[0].scope_type === 'center') {
+          parkId = pos[0].scope_id;
+        }
+
+        // Load assignment config if we have a park ID
+        if (parkId) {
+          try {
+            const configRes = await api.getVaccinationOperatorAssignmentConfig(parkId);
+            if (configRes.data) {
+              setAssignmentConfig(configRes.data);
+              setRowVersion(configRes.data.rowVersion);
+              setOperatorCount(configRes.data.activeOperatorsPerDay);
+              // Store as workforce_member_id (from config), not position_id
+              setDefaultOperator(configRes.data.defaultOperatorId);
+            }
+          } catch (err) {
+            // Config may not exist yet; continue with defaults
+            console.error('Failed to load operator assignment config:', err);
+          }
+        }
 
         // Map leaves from backend by workforce_member_id
         const leavesMap: Record<string, { from: string; to: string }[]> = {};
@@ -248,6 +284,51 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     }
   };
 
+  // Persist operator count and default operator to backend
+  const persistOperatorConfig = async () => {
+    if (!parkId || !assignmentConfig) {
+      showToast('Configuration not ready. Please refresh.');
+      return;
+    }
+
+    setConfigSaving(true);
+    try {
+      const api = getAdminApi();
+      const result = await api.putVaccinationOperatorAssignmentConfig({
+        parkId,
+        activeOperatorsPerDay: operatorCount,
+        defaultOperatorId: defaultOperator,
+        rowVersion,
+      });
+      if (result.data) {
+        setRowVersion(result.data.rowVersion);
+        showToast(`<b style="color:var(--brand)">Saved</b> · ${operatorCount} operator${operatorCount !== 1 ? 's' : ''}/day, default set`);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to save';
+      if (errMsg.includes('409') || errMsg.includes('conflict')) {
+        // Row version conflict — refetch config
+        showToast('Configuration changed elsewhere. Reloading...');
+        try {
+          const api = getAdminApi();
+          const refreshResult = await api.getVaccinationOperatorAssignmentConfig(parkId);
+          if (refreshResult.data) {
+            setAssignmentConfig(refreshResult.data);
+            setRowVersion(refreshResult.data.rowVersion);
+            setOperatorCount(refreshResult.data.activeOperatorsPerDay);
+            setDefaultOperator(refreshResult.data.defaultOperatorId);
+          }
+        } catch (reloadErr) {
+          console.error('Failed to reload config:', reloadErr);
+        }
+      } else {
+        showToast(`Error: ${errMsg}`);
+      }
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
   // Add leave
   const addLeave = async () => {
     if (!selFrom || !modalTarget) {
@@ -312,6 +393,90 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   };
 
   const operatorsList = useMemo(() => positions.filter((p) => !p.is_backup_slot), [positions]);
+
+  // Get park ID from positions for wiring persistence
+  const parkId: string | null = positions.length > 0 && positions[0].scope_type === 'center' ? positions[0].scope_id : null;
+
+  // Get shift for an operator by workforce_member_id
+  const getShiftForOperator = (workforceMemberId: string): VaccinationOperatorShift | undefined => {
+    return assignmentConfig?.shifts.find((s) => s.operatorId === workforceMemberId);
+  };
+
+  // Drive-operator ordering + weekly assignment preview — backend-config-driven
+  // (N + default from config, PM fallback from config shifts, fallback chain ordered by shift)
+  const weekOffOf = (op: Position): string => (op.week_off_weekday ?? op.week_off ?? '').toLowerCase();
+  const firstName = (op?: Position): string => (op?.person_display_name ?? 'Operator').split(' ')[0];
+
+  const orderedOps = useMemo(() => {
+    // For N=1, default is from backend config (stored as workforce_member_id)
+    // For N>1, just use the roster order
+    if (operatorCount !== 1) {
+      return [...operatorsList];
+    }
+
+    // Map defaultOperator (workforce_member_id) to Position
+    const defaultPos = operatorsList.find((op) => op.workforce_member_id === defaultOperator);
+    if (!defaultPos) return [...operatorsList];
+
+    const rest = operatorsList.filter((op) => op.position_id !== defaultPos.position_id);
+    return [defaultPos, ...rest];
+  }, [operatorsList, operatorCount, defaultOperator]);
+
+  const weeklyPlan = useMemo(() => {
+    // Find PM operator for fallback chains
+    let pmOp: Position | undefined;
+    if (assignmentConfig?.shifts) {
+      const pmShift = assignmentConfig.shifts.find((s) => s.shiftLabel === 'pm');
+      if (pmShift) {
+        pmOp = operatorsList.find((op) => op.workforce_member_id === pmShift.operatorId);
+      }
+    }
+
+    // Map a recurring weekday to its next real occurrence (today or forward within 7 days),
+    // so date-range leave applies to the preview the same way the backend resolves per date.
+    const dateForDow = (dow: string): string => {
+      const target = WEEKDAYS.indexOf(dow as (typeof WEEKDAYS)[number]);
+      const now = new Date();
+      const todayIdx = (now.getDay() + 6) % 7; // Monday=0
+      const delta = (target - todayIdx + 7) % 7;
+      const d = new Date(now);
+      d.setDate(d.getDate() + delta);
+      return iso(d);
+    };
+    const onLeaveForDate = (op: Position, dateStr: string): boolean =>
+      (leaves[op.position_id ?? ''] ?? []).some((r) => dateStr >= r.from && dateStr <= r.to);
+
+    return WEEKDAYS.map((dow) => {
+      const dateStr = dateForDow(dow);
+      const isWeekOff = (o: Position) => weekOffOf(o) === dow;
+      const isOnLeave = (o: Position) => onLeaveForDate(o, dateStr);
+      const avail = orderedOps.filter((o) => !isWeekOff(o) && !isOnLeave(o));
+      const chosen = avail.slice(0, operatorCount);
+      if (operatorCount === 1) {
+        if (!chosen.length) return { dow, ops: [], reason: 'no operator available', kind: 'danger' as const };
+        const op = chosen[0];
+        const def = orderedOps[0];
+        if (op.position_id === def?.position_id) return { dow, ops: chosen, reason: 'default', kind: 'brand' as const };
+        const fallbackName = pmOp ? firstName(pmOp) : firstName(op);
+        const defName = def ? firstName(def) : 'Default';
+        // Distinguish WHY the default dropped out: leave vs recurring week-off.
+        const defWhy = def && isOnLeave(def) ? 'on leave' : 'week-off';
+        const kind = defWhy === 'on leave' ? ('warn' as const) : ('info' as const);
+        return { dow, ops: chosen, reason: `${defName} ${defWhy} → ${fallbackName} covers`, kind };
+      }
+      const off = orderedOps.filter((o) => isWeekOff(o) || isOnLeave(o));
+      return {
+        dow,
+        ops: chosen,
+        reason: off.length
+          ? `${chosen.length} on · ${off.map((o) => `${firstName(o)} ${isOnLeave(o) ? 'leave' : 'off'}`).join(', ')}`
+          : `all ${operatorCount} parallel`,
+        kind: off.length ? ('info' as const) : ('brand' as const),
+      };
+    });
+  }, [orderedOps, operatorCount, assignmentConfig, operatorsList, leaves]);
+
+  const kindColor: Record<string, string> = { brand: 'var(--brand)', info: 'var(--info)', warn: 'var(--warn)', danger: 'var(--danger)' };
 
   // KPIs
   const kpiOperators = operatorsList.length;
@@ -498,6 +663,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               <tr>
                 <th>Person</th>
                 <th>Park</th>
+                <th>Shift</th>
                 <th>Week off</th>
                 <th>Planned leave</th>
                 <th>Weekly schedule</th>
@@ -530,6 +696,16 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                       </div>
                     </td>
                     <td>Channapatna</td>
+                    <td>
+                      {(() => {
+                        const shift = getShiftForOperator(op.workforce_member_id ?? '');
+                        if (!shift) return '—';
+                        const startTime = minutesToHHMM(shift.shiftStartMinute);
+                        const endTime = minutesToHHMM(shift.shiftEndMinute);
+                        const label = shift.shiftLabel.charAt(0).toUpperCase() + shift.shiftLabel.slice(1);
+                        return `${label} · ${startTime}–${endTime}`;
+                      })()}
+                    </td>
                     <td>
                       <span className="tag t-info">{weekOffLabel}</span>
                     </td>
@@ -615,10 +791,8 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               <select
                 value={operatorCount}
                 onChange={(e) => setOperatorCount(parseInt(e.target.value, 10))}
-                disabled={true}
-                aria-disabled={true}
-                title="Active operators/day (N) config not yet available (backend pending)"
-                style={{ opacity: 0.45 }}
+                disabled={configSaving}
+                title="Drives the live preview below."
               >
                 <option value="1">1 operator</option>
                 <option value="2">2 operators</option>
@@ -630,20 +804,48 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               <select
                 value={defaultOperator}
                 onChange={(e) => setDefaultOperator(e.target.value)}
-                disabled={operatorCount !== 1}
-                aria-disabled={operatorCount !== 1}
-                title={operatorCount !== 1 ? 'Only available when active operators = 1' : ''}
+                disabled={operatorCount !== 1 || configSaving}
+                aria-disabled={operatorCount !== 1 || configSaving}
+                title={operatorCount !== 1 ? 'Only available when active operators = 1' : 'CEO default. Drives the live preview.'}
               >
                 {operatorsList.map((op) => (
-                  <option key={op.position_id} value={op.position_id}>
+                  <option key={op.position_id} value={op.workforce_member_id ?? op.position_id}>
                     {op.person_display_name || 'Operator'}
                   </option>
                 ))}
               </select>
             </div>
+            <button
+              className="btn b sm"
+              onClick={persistOperatorConfig}
+              disabled={configSaving}
+              style={{ marginTop: '16px' }}
+            >
+              Save configuration
+            </button>
+          </div>
+          <div className="note" style={{ marginTop: '10px' }}>
+            Live preview of the assignment logic from the roster + week-offs. Configure and save active-operators
+            and default operator settings to the backend.
           </div>
           <div className="uline" style={{ marginTop: '14px' }}>
             {operatorCount === 1 ? 'Fallback chain — first available wins' : `Parallel — up to ${operatorCount}/day run together`}
+          </div>
+          <div className="chain" style={{ marginTop: '10px' }}>
+            {orderedOps.map((op, i) => (
+              <Fragment key={op.position_id}>
+                {i > 0 && <span className="carrow">{operatorCount === 1 ? '→' : '+'}</span>}
+                <div className={`cnode${operatorCount === 1 && i === 0 ? ' default' : ''}${i >= operatorCount ? ' down' : ''}`}>
+                  <div className="av">{(op.person_display_name ?? 'OP')[0]}</div>
+                  <div>
+                    <b>
+                      {firstName(op)} {operatorCount === 1 && i === 0 && <span className="badge-def">DEFAULT</span>}
+                    </b>
+                    <small>off: {WEEK_LABELS[weekOffOf(op)] ?? '—'}</small>
+                  </div>
+                </div>
+              </Fragment>
+            ))}
           </div>
           <div className="banner" style={{ marginTop: '10px', display: operatorCount !== 1 ? 'block' : 'none' }}>
             <b>Parallel mode:</b> up to {operatorCount} available operators run together. No single default; week-off/leave just drops that operator&apos;s slice for the day.
@@ -661,11 +863,22 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                 </tr>
               </thead>
               <tbody>
-                {WEEKDAYS.map((dow) => (
-                  <tr key={dow}>
-                    <td><b>{WEEK_LABELS[dow]}</b></td>
-                    <td>—</td>
-                    <td className="why">Not yet wired</td>
+                {weeklyPlan.map((p) => (
+                  <tr key={p.dow}>
+                    <td><b>{WEEK_LABELS[p.dow]}</b></td>
+                    <td>
+                      {p.ops.length ? (
+                        p.ops.map((o) => (
+                          <span key={o.position_id} className="op" style={{ marginRight: '14px' }}>
+                            <span className="dot" style={{ background: kindColor[p.kind] }}></span>
+                            {firstName(o)}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="tag t-danger">— none —</span>
+                      )}
+                    </td>
+                    <td className="why">{p.reason}</td>
                   </tr>
                 ))}
               </tbody>
