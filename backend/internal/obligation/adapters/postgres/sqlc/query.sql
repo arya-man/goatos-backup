@@ -23,15 +23,37 @@ ORDER BY obligation_id
 LIMIT 1;
 
 -- name: ListOpenObligationsByGoat :many
--- Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Uses
--- obligation_instances_target_idx (tenant_id, target_type, target_id, status).
+-- Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Vaccination
+-- drive rows must emit the live assignment planned date, not the original obligation due_at.
 SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protocol_version_id,
        rule_id::text AS rule_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id,
-       COALESCE(batch_id::text, '')::text AS batch_id, due_at, status, "sequence"
-FROM obligation_instances
-WHERE tenant_id = @tenant_id AND target_type = 'goat' AND target_id = @target_id
-  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
-ORDER BY due_at ASC, obligation_id ASC
+       COALESCE(batch_id::text, '')::text AS batch_id,
+       COALESCE(vda.assignment_planned_at, oi.due_at)::timestamptz AS due_at,
+       status, "sequence"
+FROM obligation_instances oi
+LEFT JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+ AND g.merged_into_goat_id IS NULL
+LEFT JOIN LATERAL (
+  SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = oi.tenant_id
+    AND assignment.batch_id = oi.batch_id
+    AND assignment.shed_id = g.shed_id
+    AND (
+      cardinality(assignment.vaccine_rule_ids) = 0
+      OR oi.rule_id = ANY(assignment.vaccine_rule_ids)
+    )
+  ORDER BY assignment.planned_date ASC,
+           assignment.partition_label ASC,
+           assignment.operator_id ASC NULLS LAST,
+           assignment.assignment_id ASC
+  LIMIT 1
+) vda ON true
+WHERE oi.tenant_id = @tenant_id AND oi.target_type = 'goat' AND oi.target_id = @target_id
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+ORDER BY COALESCE(vda.assignment_planned_at, oi.due_at)::timestamptz ASC, obligation_id ASC
 LIMIT @row_limit;
 
 -- name: GetObligationBoosterContext :one
