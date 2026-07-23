@@ -649,6 +649,76 @@ change is a false-green seed and is blocked by the seed fixture guard.
 Client screens must not fetch all target animals just to prove this point; shed
 proof upload stays shed-grain while animal evidence stays the paged scan roster.
 
+## Config-present must fail closed, never fall back to defaults
+
+A critical anti-pattern at any scale: when a config/policy/capacity row EXISTS
+for a scope but resolution yields an EMPTY result, code must **fail closed**
+(defer/flag/zero-capacity/reject) rather than silently falling back to the
+unconfigured/default behavior.
+
+This pattern guards against two distinct failure cases:
+
+1. **Silent misconfiguration**: A park/operator/stage config exists but is
+   incomplete or empty. The code must not treat "no active results" as "no config
+   present" and fall through to base defaults. The presence of the config row
+   itself signals that the operator intended to override the default; an empty
+   result means the override failed or is incomplete.
+
+2. **Data inconsistency**: A scheduler, filter, or policy read returns zero
+   candidates where the config explicitly claims there should be results. This
+   mismatch is a data integrity red flag, not a "gracefully degrade to defaults"
+   moment.
+
+**Concrete failure case (vaccination operator assignment):**
+`visit_shot_lock.go` filters the global operator-capacity candidate set by
+applied `active_operators_per_day` config. If the config row exists for the park
+but the filter yields **zero executable operators**, the sweeper must NOT treat
+`len(operators)==0` as "no config present" and fall back to base operator
+capacity. Instead, it must:
+
+- Defer the work (flag as pending config resolution)
+- Log the mismatch (capacity available but no permitted operators for this drive)
+- Fail the assignment or escalate to leadership review
+
+The seeded fixture and database proof must always distinguish:
+- "No config for this park" → use base capacity
+- "Config exists but filter returned empty" → FAIL CLOSED (do not use base capacity)
+
+Code pattern (Go pseudocode):
+```go
+// WRONG: silently degrades to defaults when config is present but empty
+config := findVaccinationOperatorConfig(tenant, park, date)
+if config == nil {
+  return baseCapacity  // correct: no config, use default
+}
+operators := filterActiveOperators(config)
+if len(operators) == 0 {
+  return baseCapacity  // WRONG: config exists but is empty, should fail closed
+}
+```
+
+```go
+// CORRECT: fails closed when config is present but filter returns empty
+config := findVaccinationOperatorConfig(tenant, park, date)
+if config == nil {
+  return baseCapacity  // correct: no config, use default
+}
+operators := filterActiveOperators(config)
+if len(operators) == 0 {
+  return nil, ErrConfigPresentButEmpty  // CORRECT: config exists but is incomplete
+}
+```
+
+This pattern is enforced at review time by the code-review skill
+(`.agents/skills/goatos-code-review/references/`) and must appear in every
+pull request that reads config and filters results. Regression test: any query
+that reads a config row must have an E2E case where the config exists but the
+filter yields zero results, and that case must document the expected fail-closed
+behavior (deferral, escalation, or explicit rejection).
+
+`make scale-guard` catches the raw N+1 and compute-on-read anti-patterns; this
+one requires human review and regression test coverage.
+
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create read-only SQL views (ceo_ai.vaccination_operator_status, vaccination_shed_status, vaccination_dose_pickup, action_center) that query canonical vaccination/obligation/workforce tables. They do not modify the seed source data, HRMS schema, vaccination protocol rules, or SOP contracts. The reported reads stay tenant-scoped, indexed, and bounded by the 5k-50k envelope exemption for canonical-read screens; they are not full-tenant recomputes or projection-drift anti-patterns. -->
