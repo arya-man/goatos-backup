@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
@@ -786,6 +788,79 @@ RETURNING absence_id::text`,
 	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApply, idemKey, "workforce_absence", absenceID); err != nil {
 		return domain.StaffLeave{}, err
 	}
+
+	// Enqueue vaccination.leave.changed event to outbox_messages for durable cascade
+	// (only shed-scoped leaves trigger cascade). If enqueue fails, the whole write fails.
+	if cmd.Body.ScopeType == "shed" && cmd.Body.ScopeID != "" {
+		now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+		eventID := platformoutbox.DeterministicUUID("vaccination.leave.changed:" + cmd.TenantID + ":" + absenceID)
+		idempotencyKey := "vaccination.leave.changed:" + absenceID
+		payload := map[string]any{
+			"absence_id":  absenceID,
+			"scope_type":  cmd.Body.ScopeType,
+			"scope_id":    cmd.Body.ScopeID,
+			"reason_code": cmd.Body.ReasonCode,
+		}
+		// Conformant domain-event envelope (contracts/jsonschema/domain-event-envelope.schema.json,
+		// additionalProperties:false). subject is the shed (a location); aggregate is the absence row.
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     "vaccination.leave.changed",
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "absence",
+			"aggregate_id":   absenceID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "workforce",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "human",
+				"actor_id":   cmd.ActorID,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   cmd.Body.ScopeID,
+			"visibility_scope": map[string]any{
+				"tenant_id": cmd.TenantID,
+				"shed_id":   cmd.Body.ScopeID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   cmd.Body.ScopeID,
+			}},
+			"payload":  payload,
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return domain.StaffLeave{}, fmt.Errorf("workforce: marshal leave-changed envelope: %w", err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "workforce.ApplyLeave",
+			"schema_version":  "1.0.0",
+			"absence_id":      absenceID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return domain.StaffLeave{}, fmt.Errorf("workforce: marshal headers: %w", err)
+		}
+		_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, 'vaccination.leave.changed', '1.0.0', 'absence', $3::uuid,
+  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.leave.changed' DO NOTHING`,
+			cmd.TenantID, eventID, absenceID, envelope, headers, idempotencyKey)
+		if err != nil {
+			return domain.StaffLeave{}, fmt.Errorf("workforce: enqueue leave-changed to outbox: %w", err)
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return domain.StaffLeave{}, err
 	}

@@ -991,27 +991,23 @@ func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID s
 	if code, message, ok := cfg.Validate(knownDefault); !ok {
 		return domain.OperatorAssignmentConfig{}, code, message, nil
 	}
-	// Read the config BEFORE the write so the auto-cascade only fires on an actual N or
-	// default-operator change, never on a no-op replay of the same values (idempotent producer).
-	before, foundBefore, err := s.repo.OperatorAssignmentConfig(ctx, tenantID, cfg.ParkID)
-	if err != nil {
-		return domain.OperatorAssignmentConfig{}, "", "", err
-	}
+	// Cascade events (vaccination.capacity.changed, vaccination.roster.changed) are now durably
+	// enqueued to outbox_messages by the repository within the same transaction as the config write.
+	// The outbox relay will deliver them asynchronously to the OperatorConfigReplanHandler.
 	updated, err := s.repo.UpsertOperatorAssignmentConfig(ctx, tenantID, cfg)
 	if err != nil {
 		return domain.OperatorAssignmentConfig{}, "", "", err
 	}
-	s.publishOperatorAssignmentConfigCascade(ctx, tenantID, before, foundBefore, updated)
 	return updated, "", "", nil
 }
 
-// publishOperatorAssignmentConfigCascade emits vaccination.capacity.changed (N changed) and/or
-// vaccination.roster.changed (default operator changed) for the auto-cascade consumer
-// (backend/internal/obligation/app/operator_config_replan.go). The event id is derived from the
-// resulting row_version, which UpsertOperatorAssignmentConfig increments on every real change -- a
-// stable, idempotent identity for this exact mutation outcome. Publish failures are logged-and-
-// swallowed here (best-effort, in-process): the config write itself has already succeeded and must
-// never be rolled back by a downstream cascade-notification problem.
+// publishOperatorAssignmentConfigCascade is DEPRECATED: cascade events are now durably enqueued
+// to outbox_messages within the config write transaction (see UpsertOperatorAssignmentConfig in the
+// postgres adapter). This method is kept for backward compatibility and testing only.
+// It emits vaccination.capacity.changed (N changed) and/or vaccination.roster.changed (default operator
+// changed) for the auto-cascade consumer (backend/internal/obligation/app/operator_config_replan.go).
+// The event id is derived from the resulting row_version, which UpsertOperatorAssignmentConfig
+// increments on every real change -- a stable, idempotent identity for this exact mutation outcome.
 // Domain-event-registry evidence: this producer publishes event_type=vaccination.capacity.changed and
 // event_type=vaccination.roster.changed via bus.Publish(eventbus.Event{...}) below (registered in
 // context/architecture/domain-event-registry.json).

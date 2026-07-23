@@ -83,6 +83,14 @@ function migrationCouplesToSeedContract(diff) {
     .filter((line) =>
       /\b(CREATE\s+(OR\s+REPLACE\s+)?(TABLE|VIEW|MATERIALIZED\s+VIEW)|ALTER\s+TABLE|DROP\s+(TABLE|VIEW|MATERIALIZED\s+VIEW))\b/i.test(line),
     );
+  // No canonical-table DDL at all → not a seed/config/SOP contract change, even
+  // though a term matched. This covers operational-infra migrations that only
+  // CREATE INDEX / CREATE OR REPLACE FUNCTION / add a trigger on a non-seed table
+  // (e.g. outbox_messages) and merely NAME a canonical table in a comment, index
+  // predicate, or validation-function body (event-type strings like
+  // 'vaccination.leave.changed'). An index or trigger-function change carries no
+  // seed data contract, so it needs no fixture/runbook companions.
+  if (addedDdl.length === 0) return false;
   // Only-ceo_ai reporting-view DDL → not a seed contract change.
   if (addedDdl.length > 0 && addedDdl.every((line) => /\bceo_ai\./i.test(line))) return false;
   return true;
@@ -213,6 +221,24 @@ function runSelfTest() {
   ]]);
   if (couplingProblems(["backend/migrations/postgres/000998_alter_goats.sql"], canonicalMigration).length !== REQUIRED_COMPANIONS.length) {
     throw new Error("contract coupling self-test missed a canonical seed-table migration");
+  }
+  // An index-only migration that merely NAMES a canonical table in its predicate
+  // (e.g. a partial unique index keyed on a vaccination event_type) must NOT couple.
+  const indexOnlyMigration = new Map([[
+    "backend/migrations/postgres/000997_cascade_index.sql",
+    "+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS outbox_leave_idx\n+  ON public.outbox_messages (tenant_id, idempotency_key)\n+  WHERE (event_type = 'vaccination.leave.changed');\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000997_cascade_index.sql"], indexOnlyMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged an index-only migration naming a vaccination event_type");
+  }
+  // A trigger-function-replace migration that references canonical tables in its
+  // body (referential-integrity checks) but does no seed-table DDL must NOT couple.
+  const functionOnlyMigration = new Map([[
+    "backend/migrations/postgres/000996_validate_fn.sql",
+    "+CREATE OR REPLACE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger AS $$\n+BEGIN\n+  IF NEW.aggregate_type = 'absence' THEN\n+    IF NOT EXISTS (SELECT 1 FROM workforce_absences WHERE absence_id = NEW.aggregate_id) THEN\n+      RAISE EXCEPTION 'vaccination cascade absence missing';\n+    END IF;\n+  END IF;\n+  RETURN NEW;\n+END; $$ LANGUAGE plpgsql;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000996_validate_fn.sql"], functionOnlyMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a trigger-function-only migration referencing canonical tables");
   }
   const makefile = fs.readFileSync(path.join(repo, "Makefile"), "utf8");
   if (seedOrderingProblems(makefile).length) throw new Error(`baseline seed ordering invalid: ${seedOrderingProblems(makefile).join("; ")}`);

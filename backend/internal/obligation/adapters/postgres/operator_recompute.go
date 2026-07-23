@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
@@ -157,14 +158,12 @@ WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
 	return int(markedCount), nil
 }
 
-// ClaimOperatorConfigReplanWatermark is the idempotency claim for the operator-config auto-cascade
-// consumer (operator_config_replan.go). It inserts a (tenant_id, event_id) dedupe row in its own short
-// transaction; ON CONFLICT DO NOTHING means a replay of the SAME event_id claims 0 rows, so the caller
-// skips re-invoking RecomputeFutureVaccinationDrives. This mirrors claimGoatShiftWatermark's
-// watermark-claim pattern but keys strictly on event identity (not occurred_at ordering) because the
-// mutation already emits a stable, idempotent event id -- two DIFFERENT config-changing events for the
-// same park both deserve their own release pass, they just must never each be applied twice.
-func (r *Repository) ClaimOperatorConfigReplanWatermark(ctx context.Context, tenantID, parkID, eventType, eventID string) (bool, error) {
+// ClaimOperatorConfigReplanWatermarkPending claims the watermark in PENDING state (before recompute).
+// Returns true if claimed, false if already exists. A replay of the SAME event_id claims 0 rows,
+// and the caller should skip re-invoking RecomputeFutureVaccinationDrives (already pending/succeeded).
+// This is the first phase of the two-phase watermark: claim PENDING, run recompute, mark SUCCEEDED.
+// If recompute fails, watermark stays PENDING for retriable redelivery.
+func (r *Repository) ClaimOperatorConfigReplanWatermarkPending(ctx context.Context, tenantID, parkID, eventType, eventID string) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
@@ -182,14 +181,74 @@ func (r *Repository) ClaimOperatorConfigReplanWatermark(ctx context.Context, ten
 	}
 
 	tag, err := r.pool.Exec(ctx, `
-INSERT INTO obligation_operator_config_replan_watermarks (tenant_id, event_id, park_id, event_type)
-VALUES ($1::uuid, $2, $3::uuid, $4)
+INSERT INTO obligation_operator_config_replan_watermarks (tenant_id, event_id, park_id, event_type, status)
+VALUES ($1::uuid, $2, $3::uuid, $4, 'pending')
 ON CONFLICT (tenant_id, event_id) DO NOTHING
 `, tenantUUID, eventID, parkUUID, eventType)
 	if err != nil {
-		return false, fmt.Errorf("obligation: claim replan watermark: %w", err)
+		return false, fmt.Errorf("obligation: claim replan watermark pending: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// MarkOperatorConfigReplanWatermarkSucceeded marks the watermark as SUCCEEDED (after successful recompute).
+// Called only if recompute succeeds; on recompute failure, watermark stays PENDING for retriable redelivery.
+// This is the second phase of the two-phase watermark: succeeds means exact replays become no-ops.
+func (r *Repository) MarkOperatorConfigReplanWatermarkSucceeded(ctx context.Context, tenantID, eventID string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: mark watermark succeeded tenant id: %w", err)
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return fmt.Errorf("obligation: mark watermark succeeded: empty event id")
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+UPDATE obligation_operator_config_replan_watermarks
+SET status = 'succeeded'
+WHERE tenant_id = $1::uuid AND event_id = $2
+`, tenantUUID, eventID)
+	if err != nil {
+		return fmt.Errorf("obligation: mark replan watermark succeeded: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("obligation: mark replan watermark succeeded: watermark not found for event %s", eventID)
+	}
+	return nil
+}
+
+// GetOperatorConfigReplanWatermarkStatus returns the status of a watermark (pending/succeeded) or empty string if not found.
+// Used to determine whether to retry a failed recompute (pending) or skip (succeeded).
+func (r *Repository) GetOperatorConfigReplanWatermarkStatus(ctx context.Context, tenantID, eventID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: get watermark status tenant id: %w", err)
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return "", fmt.Errorf("obligation: get watermark status: empty event id")
+	}
+
+	var status string
+	err = r.pool.QueryRow(ctx, `
+SELECT status FROM obligation_operator_config_replan_watermarks
+WHERE tenant_id = $1::uuid AND event_id = $2
+`, tenantUUID, eventID).Scan(&status)
+	if err == pgx.ErrNoRows {
+		// Watermark doesn't exist - first time seeing this event
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("obligation: get replan watermark status: %w", err)
+	}
+	return status, nil
 }
 
 // ParkIDForShed resolves a shed location id to its parent park location id (locations.parent_location_id),

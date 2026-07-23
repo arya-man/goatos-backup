@@ -16,6 +16,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -2850,15 +2851,25 @@ func (r *Repository) OperatorShifts(ctx context.Context, tenantID, parkID string
 }
 
 // UpsertOperatorAssignmentConfig idempotently writes the park's assignment config with optimistic
-// concurrency. cfg.RowVersion == 0 means "first write, row must not already exist"; any other value must
-// match the currently stored row_version or ports.ErrOperatorAssignmentConfigConflict is returned.
+// concurrency and durably enqueues cascade events (vaccination.capacity.changed, vaccination.roster.changed)
+// to outbox_messages in the same transaction. cfg.RowVersion == 0 means "first write, row must not already
+// exist"; any other value must match the currently stored row_version or ports.ErrOperatorAssignmentConfigConflict
+// is returned. The config write and event enqueue are atomic: if either fails, the whole write fails.
 func (r *Repository) UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	// Begin transaction for atomic config write + outbox enqueue
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: begin config update tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var newVersion int64
 	if cfg.RowVersion == 0 {
-		var newVersion int64
-		err := r.pool.QueryRow(ctx, `
+		// Insert: new config for this park
+		err := tx.QueryRow(ctx, `
 INSERT INTO vaccination_operator_assignment_config
   (tenant_id, park_id, active_operators_per_day, default_operator_id, row_version, updated_at)
 VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 1, now())
@@ -2871,11 +2882,9 @@ RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.De
 			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: insert operator assignment config: %w", err)
 		}
 		cfg.RowVersion = newVersion
-		return cfg, nil
-	}
-
-	var newVersion int64
-	err := r.pool.QueryRow(ctx, `
+	} else {
+		// Update: config already exists, optimistic lock on row_version
+		err := tx.QueryRow(ctx, `
 UPDATE vaccination_operator_assignment_config
 SET active_operators_per_day = $3,
     default_operator_id = $4::uuid,
@@ -2883,12 +2892,87 @@ SET active_operators_per_day = $3,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND row_version = $5
 RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.RowVersion).Scan(&newVersion)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+		}
+		if err != nil {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: update operator assignment config: %w", err)
+		}
+		cfg.RowVersion = newVersion
 	}
+
+	// Enqueue cascade events to outbox_messages (same transaction as config write).
+	// This ensures at-least-once delivery: the event is durably queued and will be retried
+	// by the outbox relay even if the handler fails initially.
+	idempotencyKey := fmt.Sprintf("vaccination.operator-assignment-config.capacity:%s:%d", cfg.ParkID, newVersion)
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	payload := map[string]any{
+		"park_id": cfg.ParkID,
+	}
+	// Conformant domain-event envelope (contracts/jsonschema/domain-event-envelope.schema.json,
+	// additionalProperties:false). subject is the park (a location); aggregate is the park config.
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     "vaccination.capacity.changed",
+		"schema_version": "1.0.0",
+		"schema_ref":     "domain-event-envelope.v1",
+		"aggregate_type": "park",
+		"aggregate_id":   cfg.ParkID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "vaccination-execution",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "location",
+		"subject_id":   cfg.ParkID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+			"park_id":   cfg.ParkID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "location",
+			"evidence_id":   cfg.ParkID,
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
 	if err != nil {
-		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: update operator assignment config: %w", err)
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: marshal capacity-changed envelope: %w", err)
 	}
-	cfg.RowVersion = newVersion
+	headers, err := json.Marshal(map[string]any{
+		"producer":        "vaccination-execution.UpsertOperatorAssignmentConfig",
+		"schema_version":  "1.0.0",
+		"park_id":         cfg.ParkID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: marshal headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, 'vaccination.capacity.changed', '1.0.0', 'park', $3::uuid,
+  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacity.changed' DO NOTHING`,
+		tenantID, eventID, cfg.ParkID, envelope, headers, idempotencyKey)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: enqueue capacity-changed to outbox: %w", err)
+	}
+
+	// Commit: if we reach here, both config write and outbox enqueue are atomic
+	if err := tx.Commit(ctx); err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: commit config update tx: %w", err)
+	}
+
 	return cfg, nil
 }

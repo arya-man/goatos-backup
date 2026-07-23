@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -444,34 +443,10 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	s.publishLeaveChanged(ctx, tenantID, body.ScopeType, body.ScopeID, leave.AbsenceID)
+	// Cascade event (vaccination.leave.changed) is now durably enqueued to outbox_messages
+	// by the repository within the same transaction as the leave write. The outbox relay
+	// will deliver it asynchronously to the OperatorConfigReplanHandler.
 	return &domain.StaffLeaveResponse{Leave: leave, TraceID: traceID}, nil
-}
-
-// publishLeaveChanged emits vaccination.leave.changed for the auto-cascade consumer
-// (backend/internal/obligation/app/operator_config_replan.go) when the leave's scope is a shed --
-// roster scope is tenant/center/shed (validRosterScope), never "park" directly, so the payload carries
-// scope_type/scope_id and the consumer resolves shed->park via locations.parent_location_id before
-// recomputing. A tenant- or center-scoped leave is NOT cascaded in this iteration (that would require
-// enumerating every park for the tenant); this is an explicit, documented scope limit (see the
-// operator-config auto-cascade build report), not a silent drop of a case we claim to cover. The event
-// id is derived from the absence id, which is stable per leave row (idempotent producer).
-// Domain-event-registry evidence: this producer publishes event_type=vaccination.leave.changed via
-// bus.Publish(eventbus.Event{...}) below (registered in context/architecture/domain-event-registry.json).
-func (s *RosterService) publishLeaveChanged(ctx context.Context, tenantID, scopeType, scopeID, absenceID string) {
-	if s.bus == nil || scopeType != "shed" {
-		return
-	}
-	now := time.Now().UTC()
-	_ = s.bus.Publish(ctx, eventbus.Event{
-		ID:         fmt.Sprintf("vaccination.leave-changed:%s", absenceID),
-		Type:       EventVaccinationLeaveChanged,
-		TenantID:   tenantID,
-		Key:        scopeID,
-		Payload:    []byte(fmt.Sprintf(`{"scope_type":"shed","scope_id":%q}`, scopeID)),
-		OccurredAt: now,
-		RecordedAt: now,
-	})
 }
 
 // ApproveLeave transitions the absence to approved and immediately runs the
