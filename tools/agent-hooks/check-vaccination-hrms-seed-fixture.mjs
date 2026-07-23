@@ -68,13 +68,33 @@ function makefileTouchesSeedPipeline(diff) {
     .some((line) => SEED_MAKEFILE_TERMS.test(line));
 }
 
+// A migration couples to the vaccination-seed/config/SOP contract only when it
+// actually does DDL on a CANONICAL (public) seed table. A migration that ONLY
+// creates/alters/drops ceo_ai.* reporting views does not change that contract,
+// even though its view SELECTs necessarily reference canonical table names
+// (goats/species/vaccination/...) that match RELEVANT_MIGRATION_TERMS. Without
+// this, adding a read-only ceo_ai reporting view falsely demands seed fixture +
+// runbook companions (e.g. migration 000030 cube source views).
+function migrationCouplesToSeedContract(diff) {
+  if (!RELEVANT_MIGRATION_TERMS.test(diff)) return false;
+  const addedDdl = diff
+    .split("\n")
+    .filter((line) => /^\+/.test(line) && !/^\+\+\+/.test(line))
+    .filter((line) =>
+      /\b(CREATE\s+(OR\s+REPLACE\s+)?(TABLE|VIEW|MATERIALIZED\s+VIEW)|ALTER\s+TABLE|DROP\s+(TABLE|VIEW|MATERIALIZED\s+VIEW))\b/i.test(line),
+    );
+  // Only-ceo_ai reporting-view DDL → not a seed contract change.
+  if (addedDdl.length > 0 && addedDdl.every((line) => /\bceo_ai\./i.test(line))) return false;
+  return true;
+}
+
 export function couplingProblems(files, diffs = new Map()) {
   const relevant =
     files.some((file) => file !== "Makefile" && CONTRACT_SOURCES.includes(file)) ||
     (files.includes("Makefile") && makefileTouchesSeedPipeline(diffs.get("Makefile") ?? "")) ||
     files.some((file) => {
       if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) return false;
-      return RELEVANT_MIGRATION_TERMS.test(diffs.get(file) ?? "");
+      return migrationCouplesToSeedContract(diffs.get(file) ?? "");
     });
   if (!relevant) return [];
   return REQUIRED_COMPANIONS
@@ -171,6 +191,23 @@ function runSelfTest() {
   );
   if (coupled.length !== REQUIRED_COMPANIONS.length) throw new Error("contract coupling self-test failed to require all companions");
   if (couplingProblems(["README.md"]).length !== 0) throw new Error("contract coupling self-test flagged unrelated docs");
+  // ceo_ai-only reporting-view migration must NOT couple, even when its view
+  // SELECT references canonical seed table names.
+  const ceoAiOnlyMigration = new Map([[
+    "backend/migrations/postgres/000999_ceo_ai_view.sql",
+    "+CREATE OR REPLACE VIEW ceo_ai.vaccination_obligations_base AS\n+SELECT g.species FROM obligation_instances o LEFT JOIN goats g ON g.goat_id = o.target_id;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000999_ceo_ai_view.sql"], ceoAiOnlyMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a ceo_ai-only reporting-view migration");
+  }
+  // A migration that ALTERs a canonical (public) seed table must still couple.
+  const canonicalMigration = new Map([[
+    "backend/migrations/postgres/000998_alter_goats.sql",
+    "+ALTER TABLE goats ADD COLUMN species text;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000998_alter_goats.sql"], canonicalMigration).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test missed a canonical seed-table migration");
+  }
   const makefile = fs.readFileSync(path.join(repo, "Makefile"), "utf8");
   if (seedOrderingProblems(makefile).length) throw new Error(`baseline seed ordering invalid: ${seedOrderingProblems(makefile).join("; ")}`);
   const bypass = makefile.replace(
