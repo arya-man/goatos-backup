@@ -114,6 +114,15 @@ operators = 400 and 3 available operators = 600). It is not the final drive
 assignment cap; with `active_operators_per_day=1`, the final scheduled drive cap
 is 200 unique animals/day.
 
+For local DB reseed proof, the packet's exhaustive contract is
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md`.
+Follow it before staging. It explicitly rejects the failure shapes observed in
+the 2026-07-24 validation attempt: stale checkout validation, throwaway
+two-operator roster overrides, Amit missing cap/shift config, Sagar week-off
+changed to Monday, PPR or other vaccine families mixed into the final
+`2026-07-24` ET+TT-only drive, planned operator/date rows over 200 distinct
+animals, and using post-cascade superseded empty batches as clean seed proof.
+
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
 into an explicit seed-intake park/shed instead of leaving a live animal without a

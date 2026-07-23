@@ -18,6 +18,7 @@ reverse-engineer the whole timetable workbook.
 | `raw/CPT_Nuanced Timetable.xlsx` | Supplied CPT timetable workbook. |
 | `cpt-operator-roster.json` | Normalized seed contract for operators, director, capacity, week-offs, CEO/CXO grants, and the N=1 Darshan-default drive assignment. |
 | `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, PPR after 14 days, same-day ET+TT+PPR cap check, Darshan Sunday fallback, and N=2 capacity sanity. |
+| `LOCAL_DB_RESEED_VALIDATION.md` | Exhaustive local DB reseed contract: required inputs, HRMS shape, all vaccine-family reporting, exact ET+TT/PPR final schedule, SQL proof queries, and automatic failure cases. |
 
 The `Adult` filename is a source label only. The seed must still use the
 published Goat OS vaccination rule engine for kids, adults, boosters, sick/ICU,
@@ -104,6 +105,10 @@ given whole partitions where possible.
 ## Expected Fresh-Seed Shape
 
 ## Local Reseed Instruction For This Scenario
+
+Read `LOCAL_DB_RESEED_VALIDATION.md` first. That file is the exhaustive local DB
+validation contract for this packet. If this README and the exhaustive contract
+appear to disagree, stop and fix the docs before seeding; do not improvise.
 
 Use this packet as one CPT-only source bundle:
 
