@@ -338,6 +338,64 @@ tools:
         default: 15
 
   # ----------------------------------------------------------------------------
+  # 4b. Pre-arrival vaccination history trust -> ceo_ai.vaccination_prearrival_history_review
+  # Supplier-claim data quality for PROCURED animals (accepted vs rejected).
+  # ----------------------------------------------------------------------------
+  mesha_prearrival_history_review:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Pre-arrival vaccination history review outcomes for PROCURED animals:
+      how many supplier-attested vaccination claims were ACCEPTED as trusted
+      history (so the animal was not re-vaccinated from scratch) versus
+      REJECTED, with the rejection reason and the schedule path (kid /
+      adult_procurement). Counts are per CLAIM; distinct_animals counts the
+      animals behind those claims. Use for "how many procured animals arrived
+      with vaccination history we could trust", "what share of supplier
+      vaccination claims did we reject", "why are supplier vaccination claims
+      being rejected", "supplier vaccination data quality". Rejected is never a
+      silent drop - every rejected claim carries a reason. Note: raw vaccine
+      config codes are never returned by this tool.
+    statement: |
+      SELECT
+        reviewed_date_ist,
+        source_system,
+        schedule_path,
+        review_status,
+        rejection_reason,
+        claims,
+        distinct_animals,
+        earliest_administered_date,
+        latest_administered_date
+      FROM ceo_ai.vaccination_prearrival_history_review
+      WHERE tenant_id = $1::uuid
+        AND ($2::date IS NULL OR reviewed_date_ist >= $2)
+        AND ($3::date IS NULL OR reviewed_date_ist <= $3)
+        AND ($4::text IS NULL OR review_status = $4)
+      ORDER BY reviewed_date_ist DESC, claims DESC, review_status
+      LIMIT LEAST($5::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: reviewed_from
+        type: string
+        description: Optional inclusive ISO start date (Asia/Kolkata) of the review window.
+        required: false
+      - name: reviewed_to
+        type: string
+        description: Optional inclusive ISO end date (Asia/Kolkata) of the review window.
+        required: false
+      - name: review_status
+        type: string
+        description: Optional exact status - accepted or rejected.
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum grouped rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
   # 5. Feed direction -> ceo_ai.feed_direction_current
   # ----------------------------------------------------------------------------
   mesha_feed_direction_summary:
@@ -942,6 +1000,7 @@ toolsets:
     - mesha_capacity_summary
     - mesha_vaccination_due_summary
     - mesha_vaccination_dose_pickup
+    - mesha_prearrival_history_review
     - mesha_feed_direction_summary
     - mesha_shifting_summary
     - mesha_procurement_summary

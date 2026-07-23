@@ -7,7 +7,10 @@
     "expect": {
       "aggregate_first": true,
       "ist": true,
-      "tiers_any_of": ["cube", "api"]
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
     }
   },
   {
@@ -18,7 +21,10 @@
     "expect": {
       "aggregate_first": true,
       "ist": true,
-      "tiers_any_of": ["cube", "api"]
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
     }
   },
   {
@@ -28,7 +34,10 @@
     "notes": "Shed list sorted by overdue; aggregate rollup, not a per-animal dump.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["cube", "api"]
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
     }
   },
   {
@@ -38,7 +47,9 @@
     "notes": "Explain the operational cause (stale, proof missing, verification pending, capacity blocked, owner), not just a number.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api"]
+      "tiers_any_of": [
+        "api"
+      ]
     }
   },
   {
@@ -49,7 +60,10 @@
     "expect": {
       "aggregate_first": true,
       "ist": true,
-      "tiers_any_of": ["cube", "api"]
+      "tiers_any_of": [
+        "cube",
+        "api"
+      ]
     }
   },
   {
@@ -60,7 +74,10 @@
     "expect": {
       "aggregate_first": true,
       "ist": true,
-      "tiers_any_of": ["api", "toolbox"]
+      "tiers_any_of": [
+        "api",
+        "toolbox"
+      ]
     }
   },
   {
@@ -70,7 +87,29 @@
     "notes": "Proof/verification backlog by shed/owner/status.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "sql"]
+      "tiers_any_of": [
+        "api",
+        "sql"
+      ]
+    }
+  },
+  {
+    "id": "prearrival-history-rejected-share",
+    "class": "prearrival_history_review",
+    "question": "How many pre-arrival vaccination claims from suppliers did we reject, and why?",
+    "notes": "Pre-arrival supplier vaccination history for PROCURED animals. Counts are per CLAIM (an animal can carry several claims); accepted claims become trusted history and suppress a re-dose, rejected claims always carry a reason and never suppress due work. Routes to the Toolbox tool mesha_prearrival_history_review over ceo_ai.vaccination_prearrival_history_review (no governed Cube KPI for this yet); read-only SQL fallback over the same view is acceptable. Raw vaccine config codes must not appear in the answer.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "grounded": true,
+      "tiers_any_of": [
+        "toolbox",
+        "sql"
+      ]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.vaccination_prearrival_history_entries WHERE tenant_id = :'tenant_id'::uuid AND review_status = 'rejected'"
     }
   }
 ]

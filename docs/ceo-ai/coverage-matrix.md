@@ -127,6 +127,7 @@ tracked as gaps below.
 | vaccination_shed_status | draft | planned_sessions (park-level batches → shed derivation approx) |
 | vaccination_dose_pickup | draft | vaccine_label (needs display-label mapping — gap G2) |
 | vaccination_operator_status | draft | — (operator-grain drive load/capacity/overdue/utilization over `vaccination_drive_assignments`; migration 000026) |
+| vaccination_prearrival_history_review | draft | vaccine_label (raw protocol `vaccine_code` only at this grain — typed NULL + TODO; joining the published rule label would fan the trust buckets out per vaccine). Supplier pre-arrival vaccination-claim trust for PROCURED animals over `vaccination_prearrival_history_entries` (migration 000043); Toolbox tool `mesha_prearrival_history_review`; golden eval `prearrival-history-rejected-share` |
 | feed_direction_current | draft | — (directive only; actuals → gap G7 feed_adherence) |
 | counts_movement_daily | draft | transfers_out (derived from terminal exits — partial) |
 | procurement_pipeline | draft | batch_label (no stored load label — gap) |
@@ -157,6 +158,7 @@ tracked as gaps below.
 | inventory_items, inventory_stock, inventory_stock_movements | inventory_stock_position |
 | workforce_members, workforce_positions, workforce_absences, workforce_roster_assignments, org_role_catalog | workforce_coverage_status |
 | vaccination_drive_assignment_members | EXCLUDED (operational scheduler-written membership) — the exact obligation/goat set behind each `vaccination_drive_assignments` row. It exists so a death/sale/cull decrements the exact assignment arm and so CT/PA/WF/AC can report an animal's own operator-day instead of inferring it from an aggregate. Leadership never reads membership directly; it reads the drive/operator aggregates this table makes correct (`view:vaccination_operator_status`, `GET /vaccination/schedule`). |
+| vaccination_prearrival_history_entries (migration 000041) | vaccination_prearrival_history_review — COVERED, not excluded. The accepted/rejected split on supplier-attested pre-arrival vaccination claims for PROCURED animals is a real leadership signal (trusted-history share, rejected-claim rate and reason = supplier data quality + avoided re-injection). Coverage: `ceo_ai.vaccination_prearrival_history_review` (migration 000043) → MCP Toolbox tool `mesha_prearrival_history_review` (in `mesha_ceo_toolset`) → read-only SQL fallback over the same view. No governed Cube metric yet: rejected-rate is not an official tracked KPI today, so this stays tier-3/4 (add a Cube metric if leadership starts trending it). Golden eval question: `prearrival-history-rejected-share` (`tools/ceo-ai/eval/golden/vaccination.json`). |
 | audit_log | audit_activity_summary |
 | breeds, animal_stage_lookup, vaccines, parties, vaccination_capacity_config | reference/config — EXCLUDED (support tables, surfaced via joins, not standalone leadership reads) |
 
@@ -380,3 +382,68 @@ new leadership KPI, table, read API route, Cube metric, `ceo_ai.*` view, or MCP
 Toolbox tool; the leadership assistant read surface, read-only SQL fallback, and
 tool catalog are unchanged. Explicit documented exclusion — no coverage-matrix
 mapping required.
+
+## Pre-arrival vaccination history: covered table + excluded write/repair surfaces (2026-07-24)
+
+The pre-arrival supplier vaccination-history change (migration 000041) and the
+`goat.created` recovery change land together. They split cleanly into ONE covered
+leadership surface and a set of write-path / internal-repair / vocabulary
+surfaces that are excluded for stated, checkable reasons.
+
+**COVERED — `table:vaccination_prearrival_history_entries`.** See section C: the
+accepted-vs-rejected split on supplier-attested pre-arrival vaccination claims is
+a genuine leadership question ("how many procured animals arrived with trusted
+vaccination history", "what share of supplier claims did we reject and why").
+Coverage artifact: `ceo_ai.vaccination_prearrival_history_review` view
+(migration 000043, tenant-scoped, IST review day, accepted and rejected buckets
+never collapsed, rejection_reason preserved) → MCP Toolbox tool
+`mesha_prearrival_history_review` registered in `mesha_ceo_toolset` → read-only
+SQL fallback over the same view. Golden eval question:
+`prearrival-history-rejected-share`.
+
+**EXCLUDED — the writer for that table (WRITE path, not a leadership read).**
+
+- `func:IngestPreArrivalHistory`
+  (`backend/internal/vaccination/adapters/postgres/prearrival_history.go`) —
+  the idempotent INSERT that persists an accepted or rejected claim. It is a
+  mutation entry point; the leadership assistant is read-only and refuses every
+  write. Leadership reads its OUTPUT through the covered view above, never this
+  function.
+- `func:WithPreArrivalHistoryWriter`
+  (`backend/internal/vaccination/app/generation.go`) — a constructor option that
+  injects that writer into `GenerationService`. Dependency wiring on the same
+  write path; it exposes no data and no read route.
+
+**EXCLUDED — `goat.created` recovery (internal repair machinery, not a KPI).**
+
+The `goatcreatedrecovery` package (`backend/internal/identity/goatcreatedrecovery/recovery.go`)
+and its kernel-worker stage (`backend/internal/kernelstages/goat_created_recovery.go`)
+detect goats whose `goat.created` domain event was lost and re-emit it so the
+downstream projections/obligations converge:
+
+- `func:ScanCandidates` — finds goats missing the event.
+- `func:Recover` — re-emits the missing events.
+- `func:BackfillOne` — repairs a single goat transactionally.
+- `func:NewGoatCreatedRecoveryStage`, `func:Name`, `func:Run` — the worker-stage
+  constructor and the `Stage` interface methods that schedule the sweep.
+
+Reason: this is self-healing plumbing for an internal event-delivery defect. It
+adds NO business fact — it restores facts that already exist — so a leadership
+answer computed before and after a repair differs only by the underlying data
+being correct, which the already-covered census/vaccination views report. A
+repair COUNT is at most an ops-health signal, and Goat OS already routes
+ops-health/kernel-health (DLQ, escalations, stuck work) through
+`ceo_ai.ops_exception_queue` / `action_center_current`; adding a per-repair
+leadership metric would put internal defect telemetry into the leadership KPI
+matrix, which section D/G12 explicitly rejects (device fleet / ops-admin
+telemetry is not a leadership KPI). No new table, read API, Cube metric,
+`ceo_ai.*` view, or Toolbox tool.
+
+**EXCLUDED — `func:AuthorizedParkOptions`**
+(`backend/internal/vaccinationexecution/app/service.go`) — returns the list of
+parks the calling user is permitted to choose from, for an admin-web selector.
+It is a scope/vocabulary helper derived from the caller's grants: no counts, no
+business measure, no time dimension, nothing to trend or compare. It is the same
+category as the already-excluded `GET /app/counts/shifting/destinations`
+operator picker. The leadership assistant derives park scope from the
+server-side session, never from a UI picker endpoint.
