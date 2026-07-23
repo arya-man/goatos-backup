@@ -1911,10 +1911,16 @@ paths:
         Phase 1 CONFIG-ONLY: read a park's N-active-operators-per-day + default-operator config plus
         every operator's authored shift, for the admin Config screen. Not yet consumed by the drive
         scheduler (Phase 5).
+      description: >-
+        park_id is OPTIONAL: omit it and the backend resolves the caller's single authorized park
+        scope and echoes it back as parkId, which is the park the client must scope its roster reads
+        to. An actor whose grants do not resolve to exactly one park (for example a tenant-wide CEO
+        grant in a multi-park tenant) receives 409 park_scope_ambiguous and must pass park_id
+        explicitly -- the client must never blend several parks' rosters into one view.
       parameters:
         - name: park_id
           in: query
-          required: true
+          required: false
           schema:
             type: string
             format: uuid
@@ -1933,6 +1939,15 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          description: >-
+            The caller's scope does not resolve to exactly one park. The body carries the parks the
+            caller may choose from so the client renders a backend-owned selector and re-requests with
+            park_id; it must never assemble or label a park list of its own.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationParkScopeAmbiguous"
         "500":
           $ref: "#/components/responses/ServerError"
     put:
@@ -11977,6 +11992,51 @@ components:
             - saturday
             - sunday
           description: Lowercase weekday name; absent when the operator has no week-off.
+    VaccinationParkScopeOption:
+      type: object
+      additionalProperties: false
+      description: >-
+        One selectable park in the backend-owned park-scope vocabulary. Ids and labels are canonical
+        Postgres `locations` rows compiled by the backend; clients render them and send parkId back.
+      required:
+        - parkId
+        - code
+        - name
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: Short park code (may be empty when the park has none).
+        name:
+          type: string
+          description: Display name for the park option.
+    VaccinationParkScopeAmbiguous:
+      type: object
+      additionalProperties: false
+      description: >-
+        409 body for a read whose park scope the caller must choose. availableParks is the exact set
+        the caller is authorized for; an empty array means the caller has no active park scope at all
+        (a grant problem), which is a different situation from having several.
+      required:
+        - code
+        - message
+        - trace_id
+        - availableParks
+      properties:
+        code:
+          type: string
+          enum: [park_scope_ambiguous]
+        message:
+          type: string
+          description: Backend-owned user-facing reason. Clients render this text; they do not compose their own.
+        trace_id:
+          type: string
+        availableParks:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationParkScopeOption"
     VaccinationOperatorAssignmentConfig:
       type: object
       additionalProperties: false
@@ -11984,11 +12044,19 @@ components:
         Phase 1 CONFIG-ONLY: a park's N-active-operators-per-day + CEO-set default operator, plus every
         operator's authored shift. Not yet consumed by the drive scheduler (Phase 5).
       required:
+        - parkId
         - activeOperatorsPerDay
         - defaultOperatorId
         - rowVersion
         - shifts
       properties:
+        parkId:
+          type: string
+          format: uuid
+          description: >-
+            The park this config belongs to, as RESOLVED by the backend (echoing an explicit park_id,
+            or the caller's single authorized park scope). Clients scope their roster/capacity reads
+            to this value instead of inferring a park from returned rows.
         activeOperatorsPerDay:
           type: integer
           minimum: 1

@@ -127,3 +127,7 @@ func TestUpdateOperatorAssignmentConfig_RejectsN1WithNullDefault(t *testing.T) {
 		t.Fatalf("got code=%s, want missing_default_operator", code)
 	}
 }
+
+func (*operatorConfigFakeRepo) AuthorizedParkOptions(context.Context, string, []string) ([]domain.ParkOption, error) {
+	return nil, nil
+}

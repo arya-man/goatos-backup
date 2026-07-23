@@ -20,6 +20,11 @@ import (
 )
 
 type fakeReader struct {
+	operatorCfg         *vaccexecapp.OperatorAssignmentConfigView
+	lastOperatorCfgPark string
+	parks               []domain.ParkOption
+	parksErr            error
+
 	rows          []domain.ExecutionRow
 	executionPage domain.ExecutionResponse
 	detail        domain.ShedDrilldown
@@ -136,8 +141,32 @@ func (f *fakeReader) CapacityConfig(_ context.Context, _ string) (domain.Capacit
 	return f.capacityCfg, nil
 }
 
-func (f *fakeReader) GetOperatorAssignmentConfig(_ context.Context, _, _ string) (vaccexecapp.OperatorAssignmentConfigView, error) {
-	return vaccexecapp.OperatorAssignmentConfigView{}, vaccexecapp.ErrOperatorAssignmentConfigNotFound
+func (f *fakeReader) GetOperatorAssignmentConfig(_ context.Context, _, parkID string) (vaccexecapp.OperatorAssignmentConfigView, error) {
+	f.lastOperatorCfgPark = parkID
+	if f.operatorCfg == nil {
+		return vaccexecapp.OperatorAssignmentConfigView{}, vaccexecapp.ErrOperatorAssignmentConfigNotFound
+	}
+	return *f.operatorCfg, nil
+}
+
+func (f *fakeReader) AuthorizedParkOptions(_ context.Context, _ string, parkIDs []string) ([]domain.ParkOption, error) {
+	if f.parksErr != nil {
+		return nil, f.parksErr
+	}
+	if len(parkIDs) == 0 {
+		return f.parks, nil
+	}
+	allowed := make(map[string]bool, len(parkIDs))
+	for _, id := range parkIDs {
+		allowed[id] = true
+	}
+	var out []domain.ParkOption
+	for _, p := range f.parks {
+		if allowed[p.ParkID] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obligationdomain.RecoveryReschedule) (string, bool, error) {

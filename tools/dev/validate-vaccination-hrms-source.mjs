@@ -507,7 +507,12 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         if (op?.shift_label != null && !/^(am|pm|rover)$/.test(shiftLabel)) pushSample(operatorRosterProblems, `${label}: shift_label must be am, pm, or rover`);
         if (shiftLabel === "pm") hasPMShift = true;
         if (op?.shift_start_minute != null && !(Number.isInteger(op.shift_start_minute) && op.shift_start_minute >= 0 && op.shift_start_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_start_minute must be 0..1439`);
-        if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute > 0 && op.shift_end_minute <= 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 1..1440`);
+        // BUG-011: minutes-of-day are 0..1439 on BOTH bounds. The DB CHECK
+        // (000035_vaccination_operator_assignment_config.sql:39-42) and the domain
+        // (vaccinationexecution/domain/operator_assignment.go Validate) both accept
+        // 0..1439; a source-valid 1440 used to pass here and then fail at the seed
+        // boundary, while an invalid 0 was rejected here but accepted downstream.
+        if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute >= 0 && op.shift_end_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 0..1439`);
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
       if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
@@ -548,7 +553,7 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     "operator_roster_contract",
     operatorRosterProblems.length,
     `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (1..1440), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when default_operator_assignment is present.",
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when default_operator_assignment is present.",
     operatorRosterProblems,
   ));
 

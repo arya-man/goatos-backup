@@ -1103,11 +1103,17 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			session.releaseClaims(claimChunk)
 			return batched, obligations, assignErr
 		}
-		driveAssignments := driveAssignmentsForUnbatched("pending", newBatch, selectedRows)
-		if _, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments, session); assignErr != nil {
-			session.releaseClaims(claimChunk)
-			return batched, obligations, assignErr
-		}
+		// BUG-001: the cap-aware DISTRIBUTED plan is what must be persisted. This path used to
+		// compute it here on the PRE-attach candidate set and then throw the result away, and then
+		// rebuild the persisted rows from driveAssignmentsForUnbatched -- which stamps the batch's
+		// single ConductedBy operator on EVERY row, collapsing every operator split the planner
+		// produced. Distribution now runs exactly ONCE, below, on the rows that ACTUALLY attached,
+		// and its return value is the row set handed to the replace. Running it once also keeps the
+		// session's per-operator/day load bookkeeping (rememberVaccinationDriveAssignmentLoads)
+		// counted once, against real attached animal counts rather than the pre-attach candidates.
+		// The park path preserves the distributed rows the same way
+		// (park_consolidation.go: newBatch.DriveAssignments = distributed).
+		//
 		// F2 fix: do NOT set newBatch.DriveAssignments here. selectedRows is the PRE-attach
 		// candidate set, not what actually attaches -- createBatchWithAttachedIDs only attaches
 		// rows still eligible (batch_id IS NULL, status in scheduled/due/in_progress/missed) inside
@@ -1133,7 +1139,43 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		// re-replaces the identical set.
 		attachedRows := selectedUnbatchedRows(selectedRows, attachedIDs)
 		scopedAssignments := driveAssignmentsForUnbatched(batchID, newBatch, attachedRows)
-		if err := s.replaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, scopedAssignments); err != nil {
+		// projection-review: BUG-001 -- the persisted drive-assignment row set is the DISTRIBUTED
+		// plan's grain, not the batch's single-operator grain.
+		//
+		//   Producer unique columns : distributeVaccinationDriveAssignments output ->
+		//                             (batch_id, planned_date, park_id, shed_id, physical_shed,
+		//                              partition_label, operator_id)
+		//   Consumer match columns  : ReplaceVaccinationDriveAssignmentsForBatch -> DELETE by
+		//                             (tenant_id, batch_id) then INSERT on the SAME seven columns
+		//                             (unique index vaccination_drive_assignments_batch_shed_part_
+		//                             operator_uq, migration 000022). Identical column lists, so no
+		//                             two produced rows can collide and silently collapse.
+		//   Row multiplicity        : attachedRows = 1 row per ATTACHED obligation (the many side);
+		//                             driveAssignmentsForUnbatched PRE-AGGREGATES it to 1 row per
+		//                             (park, shed, physical shed, partition) over a de-duplicated
+		//                             animal-target set; distribution then fans ONE such bucket into
+		//                             1..N operator rows carrying DISJOINT animal slices, so
+		//                             sum(animal_count) over the output still equals the bucket's
+		//                             unique animal count (asserted end-to-end in
+		//                             TestShedFallbackPersistsDistributedOperatorSplit).
+		//   Numerator/denominator   : the operator cap check ranges over ONE key set on both sides --
+		//                             numerator = animals placed on operator O for
+		//                             (tenant, park=batch.ScopeID, plannedDate, O); denominator =
+		//                             that same operator's remaining cap read at the SAME
+		//                             (tenant, park, plannedDate, O) key via
+		//                             availableVaccinationOperatorsForDrive minus
+		//                             session.vaccinationOperatorLoad at that key.
+		//
+		// BUG-001: persist the DISTRIBUTED (cap-aware, per-operator) plan, not the single-operator
+		// rebuild. distributeVaccinationDriveAssignments returns the attached rows re-keyed by the
+		// operator/animal-count split the planner produced; when no operator list is available it
+		// returns the input unchanged, so the legacy single-operator shape still persists.
+		distributedAssignments, distributeErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, scopedAssignments, session)
+		if distributeErr != nil {
+			session.releaseClaims(claimChunk)
+			return batched, obligations, distributeErr
+		}
+		if err := s.replaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, distributedAssignments); err != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, err
 		}

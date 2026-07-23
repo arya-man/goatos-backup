@@ -53,6 +53,11 @@ type Repository interface {
 	// OperatorShifts returns the authored shift rows for every operator with a shift-config row in this
 	// park, ordered by shift label then operator id.
 	OperatorShifts(ctx context.Context, tenantID, parkID string) ([]domain.OperatorShift, error)
+
+	// AuthorizedParkOptions returns the tenant's active parks, optionally narrowed to the caller's
+	// park-scoped grants. It is a BOUNDED configuration catalog (a handful of parks), read straight
+	// from canonical `locations` -- the park id/label vocabulary any park-scope chooser renders.
+	AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]domain.ParkOption, error)
 	// UpsertOperatorAssignmentConfig idempotently writes the park's assignment config. When rowVersion is
 	// 0 the row must not already exist (first write); otherwise rowVersion must match the current stored
 	// value or ErrOperatorAssignmentConfigConflict is returned.

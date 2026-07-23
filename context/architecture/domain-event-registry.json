@@ -30,20 +30,23 @@
   "events": [
     {
       "eventType": "goat.created",
-      "producer": "identity admin goat create",
+      "producer": "identity admin goat create / procurement accepted-intake PC handoff",
       "producerFiles": [
-        "backend/internal/identity/adapters/postgres/admin_goat_create.go"
+        "backend/internal/identity/adapters/postgres/admin_goat_create.go",
+        "backend/internal/procurement/adapters/postgres/goat_created_outbox.go"
       ],
       "consumers": [
         {
           "module": "vaccination",
-          "file": "backend/internal/vaccination/app/generation_handler.go"
+          "file": "backend/internal/vaccination/app/generation_handler.go",
+          "notes": "GoatCreatedHandler.HandleEvent reads the payload key trusted_vaccination_history (written by the procurement producer) and routes it through GenerationService.ingestPreArrivalHistory (backend/internal/vaccination/app/prearrival_history.go), which reviews each supplier claim and persists it as accepted or rejected pre-arrival history before generation runs (BUG-017)."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
-        "backend/internal/vaccination/adapters/postgres/generation_integration_test.go"
+        "backend/internal/vaccination/adapters/postgres/generation_integration_test.go",
+        "backend/internal/vaccination/adapters/postgres/prearrival_history_integration_test.go"
       ],
       "surfaces": [
         "backend",

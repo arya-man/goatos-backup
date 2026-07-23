@@ -19,6 +19,32 @@ source and copying/normalizing them into this same contract shape. A validation
 run that uses only the goat/vaccination JSON files and omits
 `cpt-operator-roster.json` is invalid.
 
+## Canonical Reseed Command
+
+```bash
+DATABASE_URL='postgres://.../goatos?sslmode=disable' \
+GOATOS_ENV=local \
+GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
+make seed-vaccination-cpt-operator-drive
+```
+
+The raw filenames above are NOT what the validator and seed commands read: they
+require a normalized root-level bundle (`goats.json`, `vaccination.json`,
+`attendance-jun-26.json`, `timetable-goats-team-v1.json`,
+`roster-name-mapping.jun26-review.csv`,
+`shed-manager-mapping.jul11-vaccination.csv`). `materialize-source.mjs`
+performs that transformation deterministically from `raw/` plus
+`cpt-operator-roster.json` into `build/cpt-operator-drive-source` (gitignored,
+outside `fixtures/`, because it carries reviewed runtime staff names and receives
+the seed's audit output). The HRMS files are DERIVED from the roster contract, so
+the contract stays the single source of truth for operators, week-offs, and caps.
+Do not hand-author them.
+
+The target refuses to mutate the database from a checkout that is not clean
+`origin/main` (`make seed-checkout-staleness-gate`), and its closeout runs the
+DB-proving `check-expected-drive-schedules.mjs` gate against
+`expected-drive-schedules.json`.
+
 ## Required HRMS Seed Shape
 
 Seed all of these people exactly:
@@ -201,7 +227,9 @@ The last query must return zero rows.
 
 Treat the validation as failed if any of these happen:
 
-- the checkout SHA is not latest `origin/main`;
+- the checkout SHA is not latest `origin/main` (now machine-enforced by
+  `make seed-checkout-staleness-gate`, which runs before any DB mutation;
+  `GOATOS_ALLOW_STALE_SEED_CHECKOUT=1` bypasses it and voids the proof);
 - a throwaway roster override is used;
 - Amit is missing, uncapped, or has no shift config;
 - Sagar week-off is anything other than Saturday;
@@ -209,6 +237,11 @@ Treat the validation as failed if any of these happen:
 - PPR appears on 2026-07-24 or 2026-07-25 in the final scenario;
 - non-ET+TT/PPR vaccines are omitted from the report;
 - superseded empty batches are used as schedule proof;
+  (the cap, operator fan-out, contract-operator, pre-business-date, forbidden-park,
+  shell-batch, and operator-shift-config failures above are now enforced in
+  `seed-closeout` by `check-expected-drive-schedules.mjs` and FAIL the closeout;
+  the PPR-date and vaccine-family report rows are checked when
+  `GOATOS_EXPECTED_DRIVE_VARIANT` names the applied variant);
 - leave/cascade mutation runs on the same DB before clean reseed proof;
 - a test says PASS but executed zero tests;
 - the report relies on UI screenshots before DB rows.

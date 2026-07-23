@@ -133,6 +133,57 @@ writes are allowed only through registered canonical producers or approved seed
 closeout paths. Future shifting, dead-birth, feed-direction, procurement, and
 vaccination changes must plug into this same event spine.
 
+Register BOTH ends, every time (Claude AND Codex): a producer with no consumer
+on both durable buses is a silent drop, a consumer with no producer is dead
+code, and a payload KEY no consumer parses is an accept-and-discard that reads
+to the next author as already honored. Delete the unread key and its struct
+field, or name the handler that reads it in the registry. See
+`.agents/skills/domain-event-architecture/SKILL.md` and
+`docs/decisions/scale-anti-patterns.md` -> "Operator-cascade wiring
+anti-patterns".
+
+## Grain Predicates and Executable Gates (Mandatory, Claude AND Codex)
+
+Three defect classes recur across unrelated modules and must be checked on every
+change that reads a plan/aggregate row, writes a rule into a doc, or loads a
+committed fixture:
+
+1. **Write the grain proof down; the grain rule itself already exists.** The
+   aggregate rule above ("identify the canonical membership source, use the same
+   stable group key on producer and consumer, prove every join is 1:1 or
+   pre-aggregate the many side") is not new, and FIVE instances shipped anyway —
+   so this is an adherence failure, not a missing rule, and restating the
+   principle a sixth time fixes nothing. What is mandatory now is the written
+   proof, next to the `projection-review:` marker: (a) the producer's unique
+   column list and the consumer's match/group column list, side by side; (b) the
+   row multiplicity of every joined side; (c) for any ratio or cap check, the key
+   set each of numerator and denominator ranges over, shown identical. Check all
+   three of `WHERE`, `GROUP BY`, and the compared-against key set — a complete
+   predicate with a collapsed `GROUP BY` is the same defect one clause over
+   (BUG-027: cohort spans N dates, `GROUP BY a.operator_id` collapses cap to one
+   operator-day). If those three lines cannot be written, the query is not
+   reviewable. `ORDER BY ... LIMIT 1` over rows the producer can legitimately
+   duplicate fabricates an answer — the fix is an exact membership source, not a
+   better ranking. Both sub-shapes, all five sites, and the mandatory
+   mixed-vaccine / two-partition / two-date fixture:
+   `docs/decisions/scale-anti-patterns.md` -> "Read-model grain is not the grain
+   the consumer assumes".
+2. **A documented rule with no executable check is not a gate.** When a runbook,
+   validation doc, or fixture README states an automatic-failure condition or a
+   required step, grep for the code that enforces it in the same change. If
+   there is none, the finding is the missing check. Enforcement belongs in the
+   `make` target that performs the mutation.
+3. **Fixture/contract loaders must fail loud on unknown keys.** `encoding/json`
+   drops unmatched keys silently, so a fixture block with no struct field seeds
+   nothing and still reports success. Loaders of committed fixtures use
+   `Decoder.DisallowUnknownFields()` or an explicit schema pass.
+
+A guard is only as strong as what it can see. A literal-token grep sold as an
+architectural boundary enforces the string from the original incident, not the
+rule; when the rule is "package A must not depend on package B", check the
+import graph, and state every remaining blind spot in the guard's own header
+comment with a self-test fixture for each.
+
 ## Root-Cause Fixes Only — No Partial / Surface Fixes (Mandatory, Claude AND Codex)
 
 When fixing ANY reported bug (review finding, audit item, regression):

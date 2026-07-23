@@ -295,8 +295,10 @@ func run(args []string) error {
 	st.ModuleGrantsInserted = ist.ModuleGrantsInserted
 
 	fmt.Printf("seeded real roster:\n"+
-		"  members_inserted=%d positions_inserted=%d leaves_inserted=%d department_matches=%d module_grants_inserted=%d\n",
-		st.MembersInserted, st.PositionsInserted, st.LeavesInserted, st.DepartmentMatches, st.ModuleGrantsInserted)
+		"  members_inserted=%d positions_inserted=%d leaves_inserted=%d department_matches=%d module_grants_inserted=%d\n"+
+		"  contract_directors_seeded=%d leadership_grants_seeded=%d\n",
+		st.MembersInserted, st.PositionsInserted, st.LeavesInserted, st.DepartmentMatches, st.ModuleGrantsInserted,
+		ist.DirectorsInserted, ist.LeadershipGrants)
 	return nil
 }
 
@@ -559,33 +561,87 @@ func loadRosterWeekOffs(sourcePath string) (map[string]string, error) {
 // without disturbing the members, animals, vaccination history, or the generic
 // jun-26 model used by every other center/source.
 type operatorRosterOperator struct {
-	Code             string `json:"code"`
-	DisplayName      string `json:"display_name"`
-	Role             string `json:"role"`
-	Tier             string `json:"tier"`
-	WeekOff          string `json:"week_off"`
-	AnimalCapPerDay  *int   `json:"animal_cap_per_day"`
-	ShiftLabel       string `json:"shift_label"`        // am | pm | rover (scheduler-consumed operator assignment)
-	ShiftStartMinute *int   `json:"shift_start_minute"` // minutes-of-day, 0-1439
-	ShiftEndMinute   *int   `json:"shift_end_minute"`   // minutes-of-day, 0-1439
+	Code                 string   `json:"code"`
+	DisplayName          string   `json:"display_name"`
+	EmailHint            string   `json:"email_hint"`
+	Role                 string   `json:"role"`
+	Tier                 string   `json:"tier"`
+	CanExecuteVaccinaton bool     `json:"can_execute_vaccination"`
+	ParkScope            []string `json:"park_scope"`
+	WeekOff              string   `json:"week_off"`
+	AnimalCapPerDay      *int     `json:"animal_cap_per_day"`
+	ShiftLabel           string   `json:"shift_label"`        // am | pm | rover (scheduler-consumed operator assignment)
+	ShiftStartMinute     *int     `json:"shift_start_minute"` // minutes-of-day, 0-1439
+	ShiftEndMinute       *int     `json:"shift_end_minute"`   // minutes-of-day, 0-1439
+}
+
+// operatorRosterDirector is a monitoring-only person declared by the contract. A director is
+// deliberately NOT an operator: he is seeded as a workforce member with NO workforce_positions
+// row, no vaccination_daily_animal_cap, and no vaccination_operator_shift_config row, so he adds
+// zero field execution capacity. That property is now ENFORCED here rather than holding by
+// accident because nothing consumed the block (BUG-024).
+type operatorRosterDirector struct {
+	Code                 string   `json:"code"`
+	DisplayName          string   `json:"display_name"`
+	Role                 string   `json:"role"`
+	CanExecuteVaccinaton bool     `json:"can_execute_vaccination"`
+	ParkScope            []string `json:"park_scope"`
+	TimetableRequired    bool     `json:"timetable_required"`
+	Notes                []string `json:"notes"`
+}
+
+// operatorRosterLeadership is the CEO/CXO tenant-scoped full-access block. Seeded through the
+// same auth_pending_email_grants path as backend/cmd/seed-dev-email-grants, so a CPT-only
+// reseed produces the leadership grants its own validation doc requires.
+type operatorRosterLeadership struct {
+	GrantRole     string   `json:"grant_role"`
+	ScopeType     string   `json:"scope_type"`
+	WorkforceHint string   `json:"workforce_hint"`
+	Emails        []string `json:"emails"`
 }
 
 type operatorRosterContract struct {
 	Schema           string `json:"schema"`
+	BusinessDate     string `json:"business_date"`
 	OperatorCapacity struct {
-		DefaultAnimalsPerDay *int `json:"default_animals_per_day"`
+		Unit                  string `json:"unit"`
+		DefaultAnimalsPerDay  *int   `json:"default_animals_per_day"`
+		DoseCountIsNotCapaity bool   `json:"dose_count_is_not_capacity"`
 	} `json:"operator_capacity"`
 	SourceScope struct {
-		ParkCode string `json:"park_code"`
+		Tenant           string   `json:"tenant"`
+		ParkCode         string   `json:"park_code"`
+		ParkName         string   `json:"park_name"`
+		CentersAllowed   []string `json:"centers_allowed"`
+		CentersForbidden []string `json:"centers_forbidden"`
+		Notes            []string `json:"notes"`
 	} `json:"source_scope"`
 	Operators []operatorRosterOperator `json:"operators"`
 	// DefaultOperatorAssignment is the CEO-set default operator + N-active-operators for this park
 	// (vaccination_operator_assignment_config). Optional -- absent means the seed does not author an
 	// assignment config row (never a silent default).
 	DefaultOperatorAssignment *struct {
-		ActiveOperatorsPerDay int    `json:"active_operators_per_day"`
-		DefaultOperatorCode   string `json:"default_operator_code"`
+		ActiveOperatorsPerDay         int      `json:"active_operators_per_day"`
+		DefaultOperatorCode           string   `json:"default_operator_code"`
+		FallbackOperatorCode          string   `json:"fallback_operator_code"`
+		FallbackWhen                  string   `json:"fallback_when"`
+		SecondaryFallbackOperatorCode string   `json:"secondary_fallback_operator_code"`
+		SecondaryFallbackWhen         string   `json:"secondary_fallback_when"`
+		DriveGrain                    string   `json:"drive_grain"`
+		ShiftLabelSemantics           string   `json:"shift_label_semantics"`
+		Notes                         []string `json:"notes"`
 	} `json:"default_operator_assignment"`
+	Directors             []operatorRosterDirector  `json:"directors"`
+	LeadershipFullAccess  *operatorRosterLeadership `json:"leadership_full_access"`
+	WeeklyCapacityExample []struct {
+		Weekday                    string   `json:"weekday"`
+		Date                       string   `json:"date"`
+		AvailableOperators         []string `json:"available_operators"`
+		OperatorOff                []string `json:"operator_off"`
+		TotalCapacityAnimals       int      `json:"total_capacity_animals"`
+		DriveAssignedOperatorCount int      `json:"drive_assigned_operator_count"`
+		DriveCapacityAnimals       int      `json:"drive_capacity_animals"`
+	} `json:"weekly_capacity_examples"`
 }
 
 // loadOperatorRoster returns the parsed operator-roster contract when the source
@@ -600,14 +656,54 @@ func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
 		return nil, fmt.Errorf("read operator roster: %w", err)
 	}
 	var contract operatorRosterContract
-	if err := json.Unmarshal(raw, &contract); err != nil {
-		return nil, fmt.Errorf("parse operator roster: %w", err)
+	// BUG-024 root cause: encoding/json silently drops keys with no matching struct field, so
+	// the contract's `directors` and `leadership_full_access` blocks were parsed, discarded,
+	// and never seeded -- with no error and no warning. DisallowUnknownFields turns any block
+	// this command does not consume into a hard, named failure instead of a silent drop.
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&contract); err != nil {
+		return nil, fmt.Errorf("parse operator roster (every declared block must be consumed by this seeder; add the field or remove the block): %w", err)
 	}
 	if strings.TrimSpace(contract.SourceScope.ParkCode) == "" {
 		return nil, fmt.Errorf("operator roster missing source_scope.park_code")
 	}
 	if len(contract.Operators) == 0 {
 		return nil, fmt.Errorf("operator roster has no operators")
+	}
+	operatorCodes := make(map[string]bool, len(contract.Operators))
+	operatorKeys := make(map[string]bool, len(contract.Operators))
+	for _, op := range contract.Operators {
+		operatorCodes[op.Code] = true
+		operatorKeys[operatorNameKey(op.DisplayName)] = true
+	}
+	for _, director := range contract.Directors {
+		if strings.TrimSpace(director.Code) == "" || strings.TrimSpace(director.DisplayName) == "" {
+			return nil, fmt.Errorf("operator roster director requires code and display_name")
+		}
+		// The director-has-no-execution-capacity rule is an invariant, not an accident.
+		if director.CanExecuteVaccinaton {
+			return nil, fmt.Errorf("operator roster director %s declares can_execute_vaccination=true; a director adds no field capacity unless seeded as an explicit operator", director.Code)
+		}
+		if operatorCodes[director.Code] || operatorKeys[operatorNameKey(director.DisplayName)] {
+			return nil, fmt.Errorf("operator roster director %s is also declared as a vaccination operator", director.Code)
+		}
+	}
+	if lead := contract.LeadershipFullAccess; lead != nil {
+		if len(lead.Emails) == 0 {
+			return nil, fmt.Errorf("operator roster leadership_full_access declares no emails")
+		}
+		if strings.TrimSpace(lead.GrantRole) == "" {
+			return nil, fmt.Errorf("operator roster leadership_full_access requires grant_role")
+		}
+		if scope := strings.TrimSpace(lead.ScopeType); scope != "" && scope != "tenant" {
+			return nil, fmt.Errorf("operator roster leadership_full_access scope_type %q is unsupported; only tenant-scoped leadership grants are seeded", scope)
+		}
+		for _, email := range lead.Emails {
+			if !strings.Contains(email, "@") {
+				return nil, fmt.Errorf("operator roster leadership_full_access email %q is not an email address", email)
+			}
+		}
 	}
 	return &contract, nil
 }
@@ -962,6 +1058,8 @@ type importStats struct {
 	LeavesInserted       int
 	DepartmentMatches    int
 	ModuleGrantsInserted int
+	DirectorsInserted    int
+	LeadershipGrants     int
 }
 
 // ---- department -> module grants (seed coupling for mig 000002) ----
@@ -1285,10 +1383,126 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		return ist, fmt.Errorf("seed operator assignment config: %w", err)
 	}
 
+	// BUG-024: the contract's directors / leadership_full_access blocks used to be parsed and
+	// thrown away. Same transaction as the roster import: a roster that commits its operators
+	// without the monitoring director and the CEO/CXO grants is exactly the half-seeded HRMS
+	// state LOCAL_DB_RESEED_VALIDATION.md forbids.
+	directors, grants, err := seedContractDirectorsAndLeadership(ctx, tx, tenantID, centerLocationID, operatorRoster, resolveDept, assignments)
+	if err != nil {
+		return ist, fmt.Errorf("seed contract directors/leadership: %w", err)
+	}
+	ist.DirectorsInserted = directors
+	ist.LeadershipGrants = grants
+
 	if err := tx.Commit(ctx); err != nil {
 		return ist, fmt.Errorf("commit: %w", err)
 	}
 	return ist, nil
+}
+
+// seedContractDirectorsAndLeadership seeds the operator-roster contract blocks that the seeder
+// previously dropped on the floor (BUG-024):
+//
+//   - `directors[]`  -> a workforce_members row per director with hr_designation_grade=director,
+//     scoped to the contract park, and deliberately NO workforce_positions row: no operational
+//     position means no vaccination_daily_animal_cap and no shift config, so the director carries
+//     zero field execution capacity. If a director somehow resolved to a roster seat, that is a
+//     broken source and a hard error, not a silently seeded operator.
+//   - `leadership_full_access` -> tenant-scoped auth_pending_email_grants rows, the same table and
+//     shape backend/cmd/seed-dev-email-grants writes, so a CPT-only reseed no longer depends on
+//     GOATOS_DEV_DASHBOARD_ADMIN_EMAILS being set by hand.
+//
+// No-ops for sources without the contract. Returns (directorsSeeded, leadershipGrantsSeeded).
+func seedContractDirectorsAndLeadership(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID string,
+	centerLocationID map[string]string,
+	contract *operatorRosterContract,
+	resolveDept func(string) (*string, error),
+	assignments []rosterAssignment,
+) (int, int, error) {
+	if contract == nil {
+		return 0, 0, nil
+	}
+	park := strings.TrimSpace(contract.SourceScope.ParkCode)
+
+	seatKeys := map[string]bool{}
+	for _, a := range assignments {
+		if a.isResolved {
+			seatKeys[operatorNameKey(a.jun26Name)] = true
+		}
+	}
+
+	directorsSeeded := 0
+	for _, director := range contract.Directors {
+		if seatKeys[operatorNameKey(director.DisplayName)] {
+			return 0, 0, fmt.Errorf("director %s resolved to an operational roster seat; a monitoring director must hold no operational position", director.Code)
+		}
+		deptID, err := resolveDept("preventive_care")
+		if err != nil {
+			return 0, 0, fmt.Errorf("resolve director department: %w", err)
+		}
+		var locationID *string
+		if id, ok := centerLocationID[park]; ok && id != "" {
+			locationID = &id
+		}
+		grade := "director"
+		id := detUUID("workforce_member", "operator_roster_director", tenantID, director.Code)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status,
+				primary_role_hint, primary_location_id, department_id, hr_designation_grade, updated_at)
+			VALUES ($1,$2,$3,$4,'active','pc_director',$5,$6,$7,now())
+			ON CONFLICT (workforce_member_id) DO UPDATE SET
+				display_code = EXCLUDED.display_code,
+				display_name = EXCLUDED.display_name,
+				status = EXCLUDED.status,
+				primary_role_hint = EXCLUDED.primary_role_hint,
+				primary_location_id = EXCLUDED.primary_location_id,
+				department_id = EXCLUDED.department_id,
+				hr_designation_grade = EXCLUDED.hr_designation_grade,
+				updated_at = now()`,
+			id, tenantID, strings.ToUpper(strings.ReplaceAll(director.Code, "_", "-")), director.DisplayName,
+			locationID, deptID, grade); err != nil {
+			return 0, 0, fmt.Errorf("insert director %s: %w", director.Code, err)
+		}
+		// Fail closed if a previous/parallel path gave this director an operational position:
+		// the "director has zero execution capacity" rule must be asserted, not assumed.
+		var positions int
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM workforce_positions WHERE tenant_id=$1 AND workforce_member_id=$2 AND status='active'`,
+			tenantID, id).Scan(&positions); err != nil {
+			return 0, 0, fmt.Errorf("verify director %s has no operational position: %w", director.Code, err)
+		}
+		if positions != 0 {
+			return 0, 0, fmt.Errorf("director %s holds %d active workforce position(s); a monitoring director must have none", director.Code, positions)
+		}
+		directorsSeeded++
+	}
+
+	grantsSeeded := 0
+	if lead := contract.LeadershipFullAccess; lead != nil {
+		emails := append([]string(nil), lead.Emails...)
+		sort.Strings(emails)
+		for _, raw := range emails {
+			email := strings.ToLower(strings.TrimSpace(raw))
+			if email == "" {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `
+INSERT INTO auth_pending_email_grants (
+  tenant_id, email, normalized_email, role, scope_type, scope_id, status, valid_from, source
+) VALUES ($1, $2, $2, $3, 'tenant', $1, 'active', now(), 'cpt_operator_roster_contract')
+ON CONFLICT (tenant_id, normalized_email, role, scope_type, scope_id)
+  WHERE status = 'active' AND valid_to IS NULL
+DO UPDATE SET email = EXCLUDED.email, source = EXCLUDED.source, updated_at = now()`,
+				tenantID, email, lead.GrantRole); err != nil {
+				return 0, 0, fmt.Errorf("upsert leadership grant: %w", err)
+			}
+			grantsSeeded++
+		}
+	}
+	return directorsSeeded, grantsSeeded, nil
 }
 
 // seedOperatorAssignmentConfig upserts vaccination_operator_shift_config for every operator in the

@@ -331,6 +331,79 @@ scope, generated vaccination work, drive batching, zero in-window unbatched
 work, and the live canonical-read APIs. Source validation prevents bad input;
 post-seed proofs confirm the importer and runtime produced the intended result.
 
+### Checkout staleness gate (runs before the first DB write)
+
+Both `make seed-vaccination-source-full` and
+`make seed-vaccination-cpt-operator-drive` invoke `make
+seed-checkout-staleness-gate` as their first recipe step. It is read-only and
+fails closed when `origin/main` cannot be fetched, when `HEAD` is not identical
+to `origin/main`, or when the working tree is dirty. This makes the
+"the checkout SHA is not the latest origin/main" automatic-failure condition
+stated in the CPT packet's `LOCAL_DB_RESEED_VALIDATION.md` an executable gate
+rather than a documented intention: a stale or dirty checkout can no longer
+produce a "clean reseed proof" built from out-of-date rule/seed code.
+`GOATOS_ALLOW_STALE_SEED_CHECKOUT=1` bypasses it loudly and is only for a
+throwaway experiment — a run that used it is not a valid reseed proof.
+
+### CPT operator-drive rehearsal target
+
+`make seed-vaccination-cpt-operator-drive` is the canonical executable form of
+the CPT rehearsal. The committed packet
+(`fixtures/vaccination-cpt-operator-drive-2026-07-23/`) is documented around
+`raw/` filenames while the validator and both seed commands require the
+normalized root-level bundle, so the target first materializes that bundle into
+a gitignored `build/` directory, then runs the documented chain — strict source
+audit, `seed-roster-real`, `seed-vaccination-real`, `seed-position-duties`,
+`seed-closeout` — against the materialized bundle. Business date `2026-07-23`,
+CPT/Channapatna only, three equal vaccination operators at 200 unique
+animals/day each, and a director-only monitoring person, all read from the
+committed contract and never synthesized.
+
+### Expected-drive-schedule proof
+
+`tools/dev/seed-closeout.sh` now runs the packet's
+`check-expected-drive-schedules.mjs` (self-test first, then the real comparison
+against DB rows) whenever `GOATOS_EXPECTED_DRIVE_SCHEDULES` points at a packet
+expectation file; the CPT target sets it. A missing expectation file or a
+packet without the checker is a hard closeout failure, not a skip. This closes
+the case where a documented DB comparison was never executed, so a reseed could
+finish "clean" while breaching a per-operator animal cap, fanning out past
+`active_operators_per_day`, assigning an operator outside the contract,
+materializing pre-business-date drive work, or presenting superseded or
+zero-obligation shell batches as the schedule.
+
+### Operator-roster contract is a loader contract
+
+`backend/cmd/seed-roster-real` decodes `cpt-operator-roster.json` with
+`Decoder.DisallowUnknownFields()`. A block declared in the contract with no
+consuming struct field is now a hard, named seed failure instead of an
+`encoding/json` silent drop. Two blocks that were previously parsed and
+discarded are now genuinely consumed:
+
+- `directors[]` seeds monitoring-only `workforce_members` rows with **no**
+  `workforce_positions` row — therefore no `vaccination_daily_animal_cap` and no
+  shift config, so a director contributes zero field execution capacity. That
+  invariant is asserted (a director that resolves to an operational seat, or
+  that declares `can_execute_vaccination: true`, fails the seed) rather than
+  holding by accident because nothing read the block.
+- `leadership_full_access` seeds tenant-scoped `auth_pending_email_grants` rows
+  through the same path and shape as `backend/cmd/seed-dev-email-grants`, so a
+  park-only rehearsal reseed produces the CEO/CXO `ceo_internal` grants its own
+  validation doc requires without depending on a hand-set environment variable.
+
+Adding any new block to the contract now requires adding its consuming field in
+the same change; otherwise the seed refuses to start.
+
+### Operator shift minutes are 0..1439 on both bounds
+
+`shift_start_minute` and `shift_end_minute` are minutes-of-day and share one
+range: `0..1439` inclusive, at the source validator, the migration `000035`
+`CHECK`, and the `vaccinationexecution` domain validator. The source audit
+previously accepted `1..1440` for the end minute, so a source-valid `1440`
+passed preflight and then failed at the seed boundary, while an invalid `0` was
+rejected at preflight but accepted downstream. Keep the three ranges identical;
+a divergence is a preflight that does not predict the seed.
+
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 read canonical vaccination/procurement/obligation/workforce tables to create leadership assistant views (vaccination_shed_status, vaccination_dose_pickup, action_center, vaccination_operator_status). They do not modify the vaccination seed/config/SOP schema or contracts, so no fixture/source-data change is required. -->
@@ -339,3 +412,5 @@ post-seed proofs confirm the importer and runtime produced the intended result.
 <!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->
 
 <!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->
+
+<!-- Coupling review 2026-07-24 (BUG-009/010/011/023/024): seed pipeline gained make seed-vaccination-cpt-operator-drive, the read-only seed-checkout-staleness-gate ahead of every DB write, an executed expected-drive-schedule proof inside seed-closeout, DisallowUnknownFields on the operator-roster loader with newly consumed directors / leadership_full_access blocks, and a shift end-minute range corrected to 0..1439. No committed jun-26 fixture bytes change: that bundle ships no cpt-operator-roster.json, so every manifest hash, count, and correction-ledger entry is unchanged. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->

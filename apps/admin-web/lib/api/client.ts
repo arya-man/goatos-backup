@@ -2,6 +2,7 @@
 // This is a thin wrapper around fetch that calls the backend admin API endpoints.
 
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents } from '@goatos/api-client';
+import { parkScopeAmbiguousFromBody } from './park-scope';
 
 /**
  * getAdminApi returns a client-side API object that can fetch roster and other admin endpoints.
@@ -84,10 +85,19 @@ export function getAdminApi() {
       return { data: body };
     },
 
-    async getVaccinationOperatorAssignmentConfig(parkId: string) {
-      const query = new URLSearchParams({ park_id: parkId });
-      const response = await fetch(`/api/vaccination/operator-assignment/config?${query.toString()}`, { cache: 'no-store' });
+    // parkId is OPTIONAL: omitting it lets the BACKEND resolve the caller's park
+    // scope and echo it back as `parkId` (BUG-019). Clients scope park-dependent
+    // reads to that resolved value instead of inferring a park from row data.
+    async getVaccinationOperatorAssignmentConfig(parkId?: string) {
+      const query = new URLSearchParams(parkId ? { park_id: parkId } : {});
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const response = await fetch(`/api/vaccination/operator-assignment/config${suffix}`, { cache: 'no-store' });
       if (!response.ok) {
+        // A 409 park_scope_ambiguous is NOT a failure — it is the backend handing back the park
+        // vocabulary this caller must choose from. Surface it as a typed error so the screen can
+        // render the backend-owned selector instead of dead-ending on a thrown message.
+        const ambiguous = parkScopeAmbiguousFromBody(response.status, await response.clone().json().catch(() => null));
+        if (ambiguous) throw ambiguous;
         throw new Error(`Failed to fetch vaccination operator assignment config: ${response.statusText}`);
       }
       const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];

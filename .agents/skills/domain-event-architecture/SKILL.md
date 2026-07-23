@@ -49,6 +49,21 @@ Hard rule:
   WRITE PATH: a sibling endpoint already emitting the event does not cover a new
   one. See `docs/decisions/scale-anti-patterns.md` -> "Operator-cascade wiring
   anti-patterns".
+- The spine has TWO ends and both leak. Walk them in the same review: for every
+  event type, name the production **producer** (a write path that enqueues to
+  `outbox_messages` in its own transaction) AND the **consumer registered on
+  both durable buses**. An event with a consumer and no producer is dead code;
+  a producer with no durable consumer is a silent drop. Also walk the third
+  hole: a payload KEY that no consumer parses. It reads as "already honored"
+  and is not. Either a registry-named handler reads the key, or the key and its
+  struct field are deleted and the ignore decision is written into the registry
+  entry. Concrete failure: `trusted_vaccination_history`
+  (`backend/internal/procurement/adapters/postgres/goat_created_outbox.go:34-43`)
+  is captured, persisted, propagated, and read by nobody, so procured adults are
+  scheduled the full primary course from scratch. A write that must not bypass
+  the spine at all is the same defect one step earlier: a terminal decision that
+  mutates live-animal state must publish its lifecycle event, not just update
+  its own module's tables.
 - A shed-movement writer activates the prospective
   `shifting_completion_to_vaccination` contract. It must resolve the destination
   operational stage from active `shed_profiles -> animal_stage_lookup`, snapshot
