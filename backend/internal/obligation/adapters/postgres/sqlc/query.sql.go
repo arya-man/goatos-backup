@@ -287,12 +287,15 @@ func (q *Queries) ListDueObligations(ctx context.Context, arg ListDueObligations
 }
 
 const listOpenObligationsByGoat = `-- name: ListOpenObligationsByGoat :many
-SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protocol_version_id,
-       rule_id::text AS rule_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id,
-       COALESCE(batch_id::text, '')::text AS batch_id,
-       COALESCE(vda.assignment_planned_at, oi.due_at)::timestamptz AS due_at,
-       status, "sequence"
+SELECT oi.obligation_id::text AS obligation_id, oi.protocol_version_id::text AS protocol_version_id,
+       oi.rule_id::text AS rule_id, oi.scope_type, COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       COALESCE(oi.batch_id::text, '')::text AS batch_id,
+       COALESCE(vda.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz AS due_at,
+       oi.status, oi."sequence"
 FROM obligation_instances oi
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
 LEFT JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
@@ -315,7 +318,7 @@ LEFT JOIN LATERAL (
 ) vda ON true
 WHERE oi.tenant_id = $1 AND oi.target_type = 'goat' AND oi.target_id = $2
   AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
-ORDER BY COALESCE(vda.assignment_planned_at, oi.due_at)::timestamptz ASC, obligation_id ASC
+ORDER BY COALESCE(vda.assignment_planned_at, (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at)::timestamptz ASC, oi.obligation_id ASC
 LIMIT $3
 `
 
@@ -338,7 +341,8 @@ type ListOpenObligationsByGoatRow struct {
 }
 
 // Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Vaccination
-// drive rows must emit the live assignment planned date, not the original obligation due_at.
+// drive rows must emit the live assignment planned date or batch planned date, not the original
+// obligation due_at.
 func (q *Queries) ListOpenObligationsByGoat(ctx context.Context, arg ListOpenObligationsByGoatParams) ([]ListOpenObligationsByGoatRow, error) {
 	rows, err := q.db.Query(ctx, listOpenObligationsByGoat, arg.TenantID, arg.TargetID, arg.RowLimit)
 	if err != nil {

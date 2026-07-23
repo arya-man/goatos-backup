@@ -39,7 +39,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /goats/search | EXCLUDED | Record-level lookup; leadership stays aggregate |
 | GET /goats/{goat_id} | EXCLUDED | Single-animal detail |
 | GET /goats/{goat_id}/passport | EXCLUDED | Per-animal history detail; admin-web goat rosters may open this as an operator/local-drawer detail, but CEO assistant answers stay aggregate unless a leader explicitly asks for a named animal record |
-| GET /goats/{goat_id}/vaccination-passport | EXCLUDED | Per-animal vaccination history/open-obligation detail for Goat Passport drawers; not a leadership aggregate tool. Assistant coverage/read API note: when this detail is opened from Calendar/Herd/Shed rosters, open obligation dates must use the same assignment-effective `vaccination_drive_assignments.planned_date` as the schedule/calendar read models, not stale raw `obligation_instances.due_at`. |
+| GET /goats/{goat_id}/vaccination-passport | EXCLUDED | Per-animal vaccination history/open-obligation detail for Goat Passport drawers; not a leadership aggregate tool. Assistant coverage/read API note: when this detail is opened from Calendar/Herd/Shed rosters, open obligation dates must use the canonical vaccination effective-date chain: `vaccination_drive_assignments.planned_date`, then `obligation_batches.planned_date`, then raw `obligation_instances.due_at` only as the final legacy fallback. |
 | GET /goats/{goat_id}/timeline | EXCLUDED | Per-animal audit trail |
 | GET /identifiers/{type}/{value}/resolve | EXCLUDED | Scan-time resolution utility |
 | GET /vaccination/execution | api + Cube:vaccination_due/overdue | Due/overdue by shed |
