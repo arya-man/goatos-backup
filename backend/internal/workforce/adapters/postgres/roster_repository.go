@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -262,11 +263,121 @@ SELECT EXISTS (SELECT 1 FROM workforce_positions WHERE tenant_id = $1::uuid AND 
 	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionUpdate, idemKey, "workforce_position", cmd.PositionID); err != nil {
 		return domain.Position{}, false, err
 	}
+	if err := enqueueVaccinationOperatorPositionCascade(ctx, tx, cmd); err != nil {
+		return domain.Position{}, false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Position{}, false, err
 	}
 	pos, err := r.GetPositionByID(contextWithoutCancel(ctx), cmd.TenantID, cmd.PositionID)
 	return pos, false, err
+}
+
+// enqueueVaccinationOperatorPositionCascade enqueues vaccination.capacity.changed and/or
+// vaccination.roster.changed to outbox_messages (same transaction as the position update) when the
+// edited position is a vaccination operator seat (position_code LIKE 'vaccination_operator_%',
+// park-scoped as scope_type='center') and the edit touched a field the operator-config auto-cascade
+// cares about: vaccination_daily_animal_cap (capacity), or week_off_weekday/status/valid_to
+// (availability/roster). Mirrors the envelope shape vaccinationexecution's
+// UpsertOperatorAssignmentConfig already uses for the same two event types (park-scoped
+// aggregate_type, payload={"park_id":...}), so OperatorConfigReplanHandler consumes both producers
+// identically. Before this, editing an operator's cap/week-off/status/valid-to directly on
+// workforce_positions silently updated the seat with zero notification to vaccination-execution
+// capacity/roster consumers -- the only wired producers were UpsertOperatorAssignmentConfig (N/
+// default-operator) and ApplyLeave (leave), not this position-edit path.
+func enqueueVaccinationOperatorPositionCascade(ctx context.Context, tx pgx.Tx, cmd ports.UpdatePositionCommand) error {
+	capacityChanged := cmd.SetVaccinationDailyAnimalCap
+	rosterChanged := cmd.SetWeekOff || cmd.SetStatus || cmd.SetValidTo
+	if !capacityChanged && !rosterChanged {
+		return nil
+	}
+
+	var positionCode, scopeType, scopeID string
+	var rowVersion int
+	if err := tx.QueryRow(ctx, `
+SELECT position_code, scope_type, scope_id::text, row_version
+FROM workforce_positions
+WHERE tenant_id = $1::uuid AND position_id = $2::uuid`, cmd.TenantID, cmd.PositionID,
+	).Scan(&positionCode, &scopeType, &scopeID, &rowVersion); err != nil {
+		return fmt.Errorf("workforce: read updated position for cascade: %w", err)
+	}
+	if !strings.HasPrefix(positionCode, "vaccination_operator_") || scopeType != "center" || scopeID == "" {
+		return nil
+	}
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	enqueue := func(eventType string) error {
+		idempotencyKey := fmt.Sprintf("workforce.position-update.%s:%s:%d", eventType, cmd.PositionID, rowVersion)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     eventType,
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   scopeID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "workforce",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "human",
+				"actor_id":   cmd.ActorID,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   scopeID,
+			"visibility_scope": map[string]any{
+				"tenant_id": cmd.TenantID,
+				"park_id":   scopeID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   scopeID,
+			}},
+			"payload":  map[string]any{"park_id": scopeID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("workforce: marshal %s envelope: %w", eventType, err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "workforce.UpdatePosition",
+			"schema_version":  "1.0.0",
+			"park_id":         scopeID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("workforce: marshal %s headers: %w", eventType, err)
+		}
+		sql := `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'park', $4::uuid,
+  'vaccination.events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' DO NOTHING`
+		if _, err := tx.Exec(ctx, sql, cmd.TenantID, eventID, eventType, scopeID, envelope, headers, idempotencyKey); err != nil {
+			return fmt.Errorf("workforce: enqueue %s to outbox: %w", eventType, err)
+		}
+		return nil
+	}
+
+	if capacityChanged {
+		if err := enqueue("vaccination.capacity.changed"); err != nil {
+			return err
+		}
+	}
+	if rosterChanged {
+		if err := enqueue("vaccination.roster.changed"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Repository) GetPositionByID(ctx context.Context, tenantID, positionID string) (domain.Position, error) {

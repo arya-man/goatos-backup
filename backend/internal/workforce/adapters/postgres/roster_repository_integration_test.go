@@ -670,3 +670,101 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 		}
 	}
 }
+
+// TestUpdatePositionEnqueuesVaccinationOperatorCascade reproduces a real gap found on the CPT
+// operator-drive validation: editing vaccination_daily_animal_cap or week_off_weekday directly on a
+// vaccination_operator_* workforce_positions seat (the admin HRMS "Config" screen's real write
+// path, PATCH /admin/roster/positions/{id}) silently updated the seat with zero cascade -- unlike
+// UpsertOperatorAssignmentConfig (N/default-operator) and ApplyLeave, which both already enqueue
+// vaccination.capacity.changed/vaccination.roster.changed. A non-vaccination position edit (e.g.
+// preventive_care_manager, exercised earlier in this file) must NOT enqueue either event.
+func TestUpdatePositionEnqueuesVaccinationOperatorCascade(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const tenantID = rosterTenant
+	const parkID = "00000000-0000-4000-8000-0000000000c2"
+	const memberID = "00000000-0000-4000-8000-0000000000c3"
+	const actorID = rosterActor
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'PARK-CASCADE', 'Cascade Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, parkID, tenantID); err != nil {
+		t.Fatalf("seed park location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1, $2, 'OP-CASCADE-01', 'Cascade Operator', 'active', 'operator')`, memberID, tenantID); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	created, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{
+		TenantID: tenantID, ActorID: actorID,
+		Body: domain.CreatePositionRequest{
+			WorkforceMemberID: memberID, ScopeType: "center", ScopeID: parkID,
+			PositionCode: "vaccination_operator_cascadetest", PositionTier: "manager",
+		},
+	}, "t-cascade-create")
+	if err != nil {
+		t.Fatalf("CreatePosition: %v", err)
+	}
+	posID := created.Position.PositionID
+
+	countOutbox := func(eventType string) int {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1::uuid AND event_type=$2`, tenantID, eventType).Scan(&n); err != nil {
+			t.Fatalf("count outbox %s: %v", eventType, err)
+		}
+		return n
+	}
+
+	if n := countOutbox("vaccination.capacity.changed") + countOutbox("vaccination.roster.changed"); n != 0 {
+		t.Fatalf("cascade outbox rows before any edit = %d, want 0", n)
+	}
+
+	cap := 150
+	if _, err := svc.UpdatePosition(ctx, tenantID, actorID, posID, domain.UpdatePositionRequest{
+		RowVersion: 1, VaccinationDailyAnimalCap: domain.NullInt{Set: true, Value: &cap},
+	}, "t-cascade-cap"); err != nil {
+		t.Fatalf("UpdatePosition cap: %v", err)
+	}
+	if n := countOutbox("vaccination.capacity.changed"); n != 1 {
+		t.Fatalf("vaccination.capacity.changed outbox rows after cap edit = %d, want 1 (editing a vaccination_operator_* seat's cap must enqueue the same event UpsertOperatorAssignmentConfig uses)", n)
+	}
+
+	weekOff := "sunday"
+	if _, err := svc.UpdatePosition(ctx, tenantID, actorID, posID, domain.UpdatePositionRequest{
+		RowVersion: 2, WeekOffWeekday: &weekOff,
+	}, "t-cascade-weekoff"); err != nil {
+		t.Fatalf("UpdatePosition week-off: %v", err)
+	}
+	if n := countOutbox("vaccination.roster.changed"); n != 1 {
+		t.Fatalf("vaccination.roster.changed outbox rows after week-off edit = %d, want 1", n)
+	}
+
+	// A non-vaccination position (already created above in the sibling test as
+	// preventive_care_manager) must never enqueue either cascade event on the same edit shape.
+	pcCreated, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{
+		TenantID: tenantID, ActorID: actorID,
+		Body: domain.CreatePositionRequest{
+			WorkforceMemberID: memberID, ScopeType: "center", ScopeID: parkID,
+			PositionCode: "goats_head", PositionTier: "head",
+		},
+	}, "t-cascade-noop-create")
+	if err != nil {
+		t.Fatalf("CreatePosition non-vaccination: %v", err)
+	}
+	if _, err := svc.UpdatePosition(ctx, tenantID, actorID, pcCreated.Position.PositionID, domain.UpdatePositionRequest{
+		RowVersion: 1, WeekOffWeekday: &weekOff,
+	}, "t-cascade-noop-update"); err != nil {
+		t.Fatalf("UpdatePosition non-vaccination: %v", err)
+	}
+	if n := countOutbox("vaccination.capacity.changed") + countOutbox("vaccination.roster.changed"); n != 2 {
+		t.Fatalf("cascade outbox rows after editing a non-vaccination position = %d, want unchanged 2 (non-vaccination position edits must not enqueue either cascade event)", n)
+	}
+}

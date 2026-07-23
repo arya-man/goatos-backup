@@ -768,6 +768,92 @@ func TestSyncVaccinationCapacityConfigUpsertsAndReturnsStored(t *testing.T) {
 	}
 }
 
+// TestPublishVersionWithCapacityEnqueuesCapacityChangedForEveryConfiguredPark reproduces a real
+// gap: publishing a version with capacity synced vaccination_capacity_config (tenant-scoped)
+// transactionally, but never told OperatorConfigReplanHandler anything changed -- so a park's
+// already-planned future vaccination drives were never released/replanned to reflect the new
+// capacity policy. vaccination_capacity_config has no park scope (PK is tenant_id alone), so the
+// fix fans out vaccination.capacity.changed to every park that has an operator-assignment config
+// in the tenant. A park with NO operator-assignment config must get no event (nothing to replan).
+func TestPublishVersionWithCapacityEnqueuesCapacityChangedForEveryConfiguredPark(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const parkA = "00000000-0000-4000-8000-0000000cb001"
+	const parkB = "00000000-0000-4000-8000-0000000cb002"
+	const parkUnconfigured = "00000000-0000-4000-8000-0000000cb003"
+	const operatorA = "00000000-0000-4000-8000-0000000cb011"
+	const operatorB = "00000000-0000-4000-8000-0000000cb012"
+
+	for _, park := range []string{parkA, parkB, parkUnconfigured} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', $1, 'Park ' || $1, 'active')
+ON CONFLICT (location_id) DO NOTHING`, park, testTenantID); err != nil {
+			t.Fatalf("seed park %s: %v", park, err)
+		}
+	}
+	for i, op := range []string{operatorA, operatorB} {
+		park := []string{parkA, parkB}[i]
+		if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+VALUES ($1::uuid, $2::uuid, $3, 'Cascade Op', 'active', 'operator', $4::uuid)
+ON CONFLICT (workforce_member_id) DO NOTHING`, op, testTenantID, "OP-PUB-CAP-"+string(rune('A'+i)), park); err != nil {
+			t.Fatalf("seed operator %d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_operator_assignment_config (tenant_id, park_id, active_operators_per_day, default_operator_id, row_version)
+VALUES ($1::uuid, $2::uuid, 1, $3::uuid, 1)
+ON CONFLICT (tenant_id, park_id) DO NOTHING`, testTenantID, park, op); err != nil {
+			t.Fatalf("seed operator-assignment config for park %d: %v", i, err)
+		}
+	}
+
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.capacity.publishcascade", Name: "Capacity Publish Cascade",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	versionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+
+	capacity := domain.PublishedCapacity{
+		MaxPerDay: 175, CapacityScope: "tenant", MaxBufferDays: 5,
+		OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap",
+	}
+	if err := repo.PublishVersionWithCapacity(ctx, testTenantID, versionID, nil, capacity, "capacity-publish-cascade-key"); err != nil {
+		t.Fatalf("publish with capacity: %v", err)
+	}
+
+	for _, park := range []string{parkA, parkB} {
+		n := countRows(ctx, t, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'vaccination.capacity.changed' AND aggregate_id = $2::uuid`,
+			testTenantID, park)
+		if n != 1 {
+			t.Fatalf("vaccination.capacity.changed outbox rows for configured park %s = %d, want 1", park, n)
+		}
+	}
+	n := countRows(ctx, t, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'vaccination.capacity.changed' AND aggregate_id = $2::uuid`,
+		testTenantID, parkUnconfigured)
+	if n != 0 {
+		t.Fatalf("vaccination.capacity.changed outbox rows for unconfigured park = %d, want 0", n)
+	}
+}
+
 // TestPublishVersionWithCapacityRollsBackOnSyncFailure is the atomicity regression guard for the
 // publish/capacity-sync split-transaction bug: when the in-transaction capacity sync FAILS, the whole
 // publish must roll back — the version stays draft, NO publish side effect (outbox event) is emitted,
