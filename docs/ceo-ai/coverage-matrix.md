@@ -216,16 +216,22 @@ the existing governed metrics resolve under the read-only Cube role.
 
 The leadership assistant is internal, CEO/CXO-only, and READ-ONLY. Its two DB
 roles (`mesha_cube_readonly` for Cube, `mesha_ceo_readonly` for MCP Toolbox /
-SQL fallback) are granted SELECT on ALL of `public` (current + future tables)
-plus `ceo_ai.*`, via migration `000031_assistant_roles_public_read.sql` and
+SQL fallback) are granted SELECT on ALL current tables in `public` plus
+`ceo_ai.*`, and — for every current object owner the grant admin can cover —
+future objects those owners create (`ALTER DEFAULT PRIVILEGES ... ON TABLES`
+also covers future views). Applied via migration
+`000031_assistant_roles_public_read.sql` and
 `tools/dev/setup-ceo-ai-local-role.sh`. The migration is guarded (`IF EXISTS`)
 so it only grants roles that already exist; in stg/prod the roles are created as
 a separate provisioning step, so after creating them run
 `make grant-assistant-public-read` (idempotent) to guarantee the grant lands.
 `make grant-assistant-public-read` sets `ALTER DEFAULT PRIVILEGES FOR ROLE
-<owner>` for every current table owner, so future tables created by those owners
-are covered too; a brand-new table-owner role (or an owner the grant admin is not
-a member of) is not covered until the grant is re-run with sufficient privileges.
+<owner>` for every current owner discovered across tables, views, and
+materialized views, so future objects created by those owners are covered too.
+Future coverage is therefore per-covered-owner, not blanket: a brand-new object
+owner (or an owner the grant admin is not a member of) is not covered until the
+grant is re-run with sufficient privileges, and the script now FAILS non-zero on
+any missing role or skipped owner unless `ALLOW_PARTIAL=1` is set.
 This removes the prior "ceo_ai.* only / public revoked" restriction so current
 Cube models and read queries — and future ones over covered owners' tables — do
 not fail with `permission denied`. Access stays read-only (SELECT only +
