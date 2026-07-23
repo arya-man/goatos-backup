@@ -588,6 +588,22 @@ func TestCountsBreakdownLifecycleFacetStatusMatrixIsWholeHerdVocabularyNotNarrow
 	if lifecycleCounts["alive"] != 2 || lifecycleCounts["sold"] != 1 || lifecycleCounts["dead"] != 1 || lifecycleCounts["culled"] != 1 {
 		t.Fatalf("facets.lifecycle counts=%+v, want alive=2 sold=1 dead=1 culled=1", lifecycleCounts)
 	}
+	// Assert human labels are present for all lifecycle statuses.
+	expectedLabels := map[string]string{
+		"alive":  "Live",
+		"sold":   "Sold",
+		"dead":   "Dead",
+		"culled": "Culled",
+	}
+	for _, point := range got.Facets.Lifecycle {
+		expectedLabel, exists := expectedLabels[point.Key]
+		if !exists {
+			continue
+		}
+		if point.Label != expectedLabel {
+			t.Errorf("lifecycle status %s: label=%q, want %q", point.Key, point.Label, expectedLabel)
+		}
+	}
 
 	// Explicitly selecting a non-live lifecycle must still return the FULL vocabulary, not just
 	// the selected one — the same invariant TestCountsBreakdownFacetsIgnoreActiveDimensionFilters
@@ -640,6 +656,23 @@ ON CONFLICT (location_id) DO NOTHING`, goatUUID(90+i), countsTenant, fmt.Sprintf
 	if sum != 3 {
 		t.Fatalf("sum(facets.lifecycle counts)=%d, want 3 — the whole herd, exactly once per animal", sum)
 	}
+	// Assert human labels are correct even with decoy locations.
+	for _, p := range got.Facets.Lifecycle {
+		switch p.Key {
+		case "alive":
+			if p.Label != "Live" {
+				t.Errorf("alive: label=%q, want Live", p.Label)
+			}
+		case "sold":
+			if p.Label != "Sold" {
+				t.Errorf("sold: label=%q, want Sold", p.Label)
+			}
+		case "dead":
+			if p.Label != "Dead" {
+				t.Errorf("dead: label=%q, want Dead", p.Label)
+			}
+		}
+	}
 }
 
 // Facets are a whole-result rollup, independent of the detail page's limit/offset — proven
@@ -667,6 +700,19 @@ func TestCountsBreakdownLifecycleFacetPaginationIsIndependentOfPageBoundary(t *t
 			"a 1-row page's lifecycle facet has %d entries, want the same %d as the full result — facets must not shrink with the detail page",
 			len(page.Facets.Lifecycle), len(full.Facets.Lifecycle),
 		)
+	}
+	// Assert human labels are the same across all page sizes.
+	for _, p := range page.Facets.Lifecycle {
+		var fullLabel string
+		for _, fp := range full.Facets.Lifecycle {
+			if fp.Key == p.Key {
+				fullLabel = fp.Label
+				break
+			}
+		}
+		if p.Label != fullLabel {
+			t.Errorf("lifecycle %s: paged label=%q, full label=%q — labels must be consistent", p.Key, p.Label, fullLabel)
+		}
 	}
 }
 
@@ -697,6 +743,19 @@ func TestCountsBreakdownLifecycleFacetScopeHierarchyIgnoresParkAndShedScope(t *t
 			"facets.lifecycle=%+v is missing 'sold' — the lifecycle vocabulary must not be narrowed by an active park/shed scope",
 			scoped.Facets.Lifecycle,
 		)
+	}
+	// Assert human labels are correct even when scope is narrowed by park/shed.
+	for _, p := range scoped.Facets.Lifecycle {
+		switch p.Key {
+		case "alive":
+			if p.Label != "Live" {
+				t.Errorf("alive: label=%q, want Live", p.Label)
+			}
+		case "sold":
+			if p.Label != "Sold" {
+				t.Errorf("sold: label=%q, want Sold", p.Label)
+			}
+		}
 	}
 }
 
