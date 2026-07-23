@@ -62,7 +62,8 @@
       ".claude/",
       ".codex/",
       "context/",
-      "docs/"
+      "docs/",
+      "fixtures/"
     ],
     "files": [
       ".gitignore",
