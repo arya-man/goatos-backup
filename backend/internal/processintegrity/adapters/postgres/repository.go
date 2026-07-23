@@ -1197,7 +1197,7 @@ all_rows AS (
     NULLIF(protocol_name || CASE WHEN dose_label <> '' THEN ' - ' || dose_label ELSE '' END, '') AS drive_name,
     sop_version_id,
     proof_policy,
-    due_at,
+    execution_due_at AS due_at,
     window_start,
     window_end,
     expected_count,
