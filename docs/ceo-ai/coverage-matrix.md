@@ -185,3 +185,28 @@ table/API/feature is incomplete until it appears in this matrix as a coverage
 path or an explicit exclusion, and the `leadership-assistant-coverage-guard`
 passes. Use `node tools/ceo-ai/scaffold-coverage.mjs <module>` to generate the
 stubs and this row.
+
+## Cube governed-metric source views (migration 000030)
+
+The Cube semantic layer connects to Postgres as the `mesha_cube_readonly` role,
+which has SELECT on `ceo_ai.*` only (`public` is revoked). Cube models therefore
+MUST read `ceo_ai.*` views, never raw `public` tables — otherwise every governed
+metric fails with `permission denied for table ...` and the assistant returns
+`cube: could not be retrieved.` (see `docs/runbooks/cube-local.md`).
+
+Migration `000030_ceo_ai_cube_source_views.sql` adds the thin per-cube source
+views below (grain/columns identical to the cube models they back), completing
+the Cube tier-1 read path for these KPIs:
+
+| Cube (tier-1 metrics) | ceo_ai source view (tier-2) | Canonical source |
+|---|---|---|
+| `kpi_vaccination.*` (due/overdue/due_today/completed/compliance) | `ceo_ai.vaccination_obligations_base` | `obligation_instances` |
+| `kpi_animals.*` (active/total/mortality) | `ceo_ai.animals_base` | `goats` |
+| `kpi_feed.*` (feed quantity/cost draft) | `ceo_ai.feed_completions_base` | `feed_direction_completions` |
+| `kpi_procurement.*` (procurement animals/cost draft) | `ceo_ai.procurement_loads_base` | `procurement_loads` |
+| `kpi_workforce.*` (task count/completion draft) | `ceo_ai.workforce_tasks_base` | `sop_tasks` |
+
+`kpi_vaccination_operator.*` was already repointed to
+`ceo_ai.vaccination_operator_status` in migration 000027. No new leadership KPI,
+table, or exclusion is introduced by 000030 — it is a read-path plumbing fix so
+the existing governed metrics resolve under the read-only Cube role.
