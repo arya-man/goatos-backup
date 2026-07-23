@@ -59,7 +59,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /vaccination/verification-queue | api + view:verification_queue_status | Proof gaps |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |
 | GET /control-tower/vaccination | api + view:action_center_current | Leadership control tower |
-| GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/* |
+| GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/*. Runtime contract: operator execution and scan rosters must filter split-shed work by `vaccination_drive_assignments` plus `goat_shed_partitions`, so one operator cannot see another operator's partition animals inside the same batch/shed. |
 | GET /calendar/vaccination/events | api | Calendar timeline (dots) |
 | Calendar vaccination date markers | api | Leadership assistant read API coverage: month/week marker dots use the same assignment-effective schedule date as the calendar event list and vaccination operator schedule, so leadership answers and client overview counts do not report stale batch/obligation dates after a drive move. |
 | GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail; admin-web Calendar drive target rosters must still open the shared Goat Passport local drawer with per-goat vaccination history |

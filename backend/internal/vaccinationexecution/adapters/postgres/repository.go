@@ -1101,6 +1101,10 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -1119,6 +1123,10 @@ raw AS (
         WHEN oi.scope_type = 'shed' THEN oi.scope_id
         ELSE NULL
       END
+      AND (
+        assignment.partition_label = 'whole'
+        OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
+      )
       AND (
         $15::text = ''
         OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
@@ -1146,6 +1154,7 @@ raw AS (
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
     AND COALESCE(st.state, '') <> 'canceled'
+    AND ($15::text = '' OR vda.assignment_planned_at IS NOT NULL)
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
@@ -1841,7 +1850,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 }
 
 const scanRosterSQL = `
--- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed; group_key=(tenant_id,shed_id,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional task_id/batch_id pinning, and authorized park filter.
+-- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed, additionally bounded to the operator's drive-assignment partition when operator-scoped; group_key=(tenant_id,shed_id,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional task_id/batch_id pinning, operator partition, and authorized park filter.
 WITH operator_scope_member AS (
   SELECT wm.workforce_member_id
   FROM workforce_members wm
@@ -1896,12 +1905,20 @@ JOIN goats g
  AND oi.target_type = 'goat'
  AND g.merged_into_goat_id IS NULL
  AND g.lifecycle_status = 'alive'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
 LEFT JOIN LATERAL (
   SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
   FROM vaccination_drive_assignments assignment
   WHERE assignment.tenant_id = oi.tenant_id
     AND assignment.batch_id = oi.batch_id
     AND assignment.shed_id = g.shed_id
+    AND (
+      assignment.partition_label = 'whole'
+      OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
+    )
     AND (
       $9::text = ''
       OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
@@ -1944,17 +1961,7 @@ WHERE oi.tenant_id = $1::uuid
   )
   AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
-  AND (
-    $9::text = ''
-    OR EXISTS (
-      SELECT 1
-      FROM vaccination_drive_assignments assignment
-      WHERE assignment.tenant_id = oi.tenant_id
-        AND assignment.batch_id = oi.batch_id
-        AND assignment.shed_id = g.shed_id
-        AND assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
-    )
-  )
+  AND ($9::text = '' OR vda.assignment_planned_at IS NOT NULL)
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
     OR (g.goat_id = NULLIF($5, '')::uuid AND oi.obligation_id > NULLIF($6, '')::uuid)
