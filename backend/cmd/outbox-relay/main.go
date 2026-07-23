@@ -153,6 +153,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		calendarService := calendarapp.NewService(calendarRepo)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
+		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
 		vaccinationapp.NewGoatRecheckHandler(generation).Register(bus)
 		vaccinationapp.NewProtocolPublishedHandler(generation).Register(bus)

@@ -32,11 +32,14 @@ type OperatorConfigChangePayload struct {
 }
 
 // operatorConfigReplanRepository is the narrow seam this handler needs: the existing, tested release
-// path (RecomputeFutureVaccinationDrives) plus the watermark claim that makes replay a no-op. Reusing
-// RecomputeFutureVaccinationDrives means this handler never duplicates its release SQL or its
-// per-tenant advisory lock (same granularity as the sweeper -- see operator_recompute.go).
+// path (RecomputeFutureVaccinationDrives) plus the two-phase watermark (pending→succeeded) that makes
+// replay safe and recompute failures retriable. Reusing RecomputeFutureVaccinationDrives means this
+// handler never duplicates its release SQL or its per-tenant advisory lock (same granularity as the
+// sweeper -- see operator_recompute.go).
 type operatorConfigReplanRepository interface {
-	ClaimOperatorConfigReplanWatermark(ctx context.Context, tenantID, parkID, eventType, eventID string) (bool, error)
+	ClaimOperatorConfigReplanWatermarkPending(ctx context.Context, tenantID, parkID, eventType, eventID string) (claimed bool, err error)
+	GetOperatorConfigReplanWatermarkStatus(ctx context.Context, tenantID, eventID string) (status string, err error)
+	MarkOperatorConfigReplanWatermarkSucceeded(ctx context.Context, tenantID, eventID string) error
 	RecomputeFutureVaccinationDrives(ctx context.Context, tenantID, parkID string, effectiveFrom time.Time) (int, error)
 }
 
@@ -113,13 +116,25 @@ func (h *OperatorConfigReplanHandler) HandleEvent(ctx context.Context, e eventbu
 		return fmt.Errorf("obligation: operator config change event missing stable event id (idempotency requires one)")
 	}
 
-	applied, err := h.repo.ClaimOperatorConfigReplanWatermark(ctx, e.TenantID, parkID, e.Type, eventID)
+	// Two-phase watermark: claim as PENDING first. If already claimed (replayed event), check status:
+	// - If SUCCEEDED: exact replay, no-op (matching watermark-claim contract)
+	// - If PENDING: recompute failed on prior attempt, retry now
+	claimed, err := h.repo.ClaimOperatorConfigReplanWatermarkPending(ctx, e.TenantID, parkID, e.Type, eventID)
 	if err != nil {
 		return err
 	}
-	if !applied {
-		// Exact replay of an already-processed event: no-op, matching the watermark-claim contract.
-		return nil
+	if !claimed {
+		// Watermark already exists: check if it's SUCCEEDED (no-op) or PENDING (retry recompute)
+		status, err := h.repo.GetOperatorConfigReplanWatermarkStatus(ctx, e.TenantID, eventID)
+		if err != nil {
+			return err
+		}
+		if status == "succeeded" {
+			// Exact replay of an already-processed event: no-op, matching the watermark-claim contract.
+			return nil
+		}
+		// status is "pending" or unknown: either recompute failed on prior attempt (retry) or
+		// we're in an inconsistent state. In both cases, proceed to retry recompute.
 	}
 
 	effectiveFrom, err := resolveEffectiveFrom(p.EffectiveFrom, e.OccurredAt)
@@ -127,8 +142,22 @@ func (h *OperatorConfigReplanHandler) HandleEvent(ctx context.Context, e eventbu
 		return err
 	}
 
+	// Recompute: if this fails, the watermark stays PENDING so a redelivery will retry.
 	_, err = h.repo.RecomputeFutureVaccinationDrives(ctx, e.TenantID, parkID, effectiveFrom)
-	return err
+	if err != nil {
+		// Recompute failed: leave watermark in PENDING state for redelivery to retry
+		return err
+	}
+
+	// Recompute succeeded: mark watermark as SUCCEEDED so exact replays become no-ops
+	if err := h.repo.MarkOperatorConfigReplanWatermarkSucceeded(ctx, e.TenantID, eventID); err != nil {
+		// This should rarely fail (the watermark row was just created). If it does, we log but
+		// don't fail the handler: the event was processed, redelivery will see a PENDING watermark
+		// and will retry the recompute. Return the error so a human can investigate.
+		return fmt.Errorf("obligation: mark replan watermark succeeded: %w", err)
+	}
+
+	return nil
 }
 
 // resolveEffectiveFrom parses an authored YYYY-MM-DD business date, or falls back to "today" (Asia/

@@ -11,11 +11,12 @@ import (
 )
 
 // fakeOperatorConfigReplanRepo is an in-memory double for operatorConfigReplanRepository +
-// shedParkResolver. claimed tracks (tenantID, eventID) so a second claim attempt for the same key
-// returns applied=false, exactly like the real ON CONFLICT DO NOTHING watermark row.
+// shedParkResolver. claimed tracks (tenantID, eventID) with "pending"/"succeeded" status
+// so a second claim attempt for the same key returns applied=false, exactly like the real
+// ON CONFLICT DO NOTHING watermark row.
 type fakeOperatorConfigReplanRepo struct {
 	mu             sync.Mutex
-	claimed        map[string]bool
+	claimed        map[string]string // event key -> "pending" or "succeeded"
 	recomputeCalls []recomputeCall
 	shedToPark     map[string]string
 	recomputeErr   error
@@ -27,18 +28,40 @@ type recomputeCall struct {
 }
 
 func newFakeOperatorConfigReplanRepo() *fakeOperatorConfigReplanRepo {
-	return &fakeOperatorConfigReplanRepo{claimed: map[string]bool{}, shedToPark: map[string]string{}}
+	return &fakeOperatorConfigReplanRepo{claimed: map[string]string{}, shedToPark: map[string]string{}}
 }
 
-func (f *fakeOperatorConfigReplanRepo) ClaimOperatorConfigReplanWatermark(_ context.Context, tenantID, _parkID, _eventType, eventID string) (bool, error) {
+func (f *fakeOperatorConfigReplanRepo) ClaimOperatorConfigReplanWatermarkPending(_ context.Context, tenantID, _parkID, _eventType, eventID string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	key := tenantID + ":" + eventID
-	if f.claimed[key] {
+	if _, exists := f.claimed[key]; exists {
 		return false, nil
 	}
-	f.claimed[key] = true
+	f.claimed[key] = "pending"
 	return true, nil
+}
+
+func (f *fakeOperatorConfigReplanRepo) MarkOperatorConfigReplanWatermarkSucceeded(_ context.Context, tenantID, eventID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := tenantID + ":" + eventID
+	if _, exists := f.claimed[key]; !exists {
+		return fmt.Errorf("watermark not found for event %s", eventID)
+	}
+	f.claimed[key] = "succeeded"
+	return nil
+}
+
+func (f *fakeOperatorConfigReplanRepo) GetOperatorConfigReplanWatermarkStatus(_ context.Context, tenantID, eventID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := tenantID + ":" + eventID
+	status, exists := f.claimed[key]
+	if !exists {
+		return "", nil // not found
+	}
+	return status, nil
 }
 
 func (f *fakeOperatorConfigReplanRepo) RecomputeFutureVaccinationDrives(_ context.Context, tenantID, parkID string, effectiveFrom time.Time) (int, error) {
