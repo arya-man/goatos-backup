@@ -23,7 +23,7 @@
 //
 // Exit codes:
 //
-//	0 = success (batches released + swept)
+//	0 = success (future planned batches released; run obligation-sweeper to re-plan)
 //	1 = argument/DB error (operator's responsibility to fix and retry)
 package main
 
