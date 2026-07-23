@@ -69,6 +69,17 @@
       "notes": "Detects Go test files with stray build constraints (// +build pgtest, //go:build pgtest, etc.) that cause them to be silently excluded from CI runs. Postgres tests must gate at runtime via GOATOS_RUN_POSTGRES_TESTS=1 + pgtest.SkipIfNoDocker(), not via build tags."
     },
     {
+      "id": "operator-cap-fail-closed",
+      "script": "tools/agent-hooks/check-operator-cap-fail-closed.mjs",
+      "makeTarget": "operator-cap-fail-closed-guard",
+      "realCheck": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs",
+      "selfTest": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "operator-cap-fail-closed-guard",
+      "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
+    },
+    {
       "id": "frontend-foundations",
       "script": "tools/agent-hooks/check-frontend-foundations.mjs",
       "makeTarget": "frontend-foundations-guard",

@@ -135,6 +135,7 @@ run_common() {
 run_backend() {
   step "backend-foundations-guard" make backend-foundations-guard
   step "test-execution-integrity-guard" make test-execution-integrity-guard
+  step "operator-cap-fail-closed-guard" make operator-cap-fail-closed-guard
   step "backend go mod verify" bash -c 'cd backend && go mod verify'
   step "backend go vet" bash -c 'cd backend && go vet ./...'
   step "backend govulncheck" bash -c 'cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...'
