@@ -61,6 +61,12 @@ and is only a secondary fallback if both Darshan and Sagar cannot cover.
 Shift labels identify fallback/coverage identity only. The vaccination drive is
 business-date grained, not morning/afternoon time-grained.
 
+Capacity examples use simple roster math: each available vaccination operator
+adds 200 animals/day of available HRMS field capacity, so 3 available operators
+= 600 and 2 available operators = 400. The configured CPT drive scenario is
+separate: `active_operators_per_day=1`, so only one available operator is
+assigned to the drive and the scheduled drive cap is 200 animals/day.
+
 Chandrakant is director/monitoring scope. He may see multiple parks such as CPT
 and CBE, but he does not add field execution capacity unless a separate explicit
 operator assignment is created.
@@ -97,10 +103,48 @@ given whole partitions where possible.
 
 ## Expected Fresh-Seed Shape
 
+## Local Reseed Instruction For This Scenario
+
+Use this packet as one CPT-only source bundle:
+
+- `raw/CPT-Adult-goats.json`
+- `raw/CPT-Adult-vaccination.json`
+- `cpt-operator-roster.json`
+- `expected-drive-schedules.json` for post-seed validation
+
+Do not seed this scenario from only the two animal/vaccination JSON files. The
+operator roster JSON is required because it carries the HRMS execution contract:
+three vaccination operators exist, each contributes 200 animals/day of available
+field capacity while available, and the drive assignment uses only one active
+operator per business date.
+
+Required seed contract:
+
+- keep Amit Kumar, Darshan Talwar, and Sagar Mahoor as vaccination operators;
+- keep Chandrakant as director/monitoring only;
+- keep the five founder/CXO tenant grants;
+- set per-operator animal cap to 200 unique animals/day;
+- set `default_operator_assignment.active_operators_per_day=1`;
+- set Darshan as the default drive operator;
+- set Sagar as primary fallback only when Darshan is unavailable or on weekly off;
+- keep Amit as secondary fallback when both Darshan and Sagar cannot cover;
+- treat drive planning as business-date based, not AM/PM time based;
+- use shift labels only to identify fallback coverage.
+
+For the final validation plan, schedule ET+TT only from `2026-07-24`. Do not
+pair PPR with ET+TT on `2026-07-24`; move PPR to `2026-08-07`, exactly 14 days
+later. With `active_operators_per_day=1`, the scheduled drive cap is 200 unique
+animals per day even when more operators are available in HRMS.
+
+The `weekly_capacity_examples` rows are raw HRMS availability examples:
+`total_capacity_animals = available_operators.length * 200`. They are not the
+scheduled drive cap. The scheduled drive cap is
+`drive_capacity_animals = active_operators_per_day * 200`.
+
 For a fresh local/dev seed with `AS_OF=2026-07-23`, the first open drive should
-start on `2026-07-23`, not `2026-07-22`. The planner should use all three
-available operators on Thursday and split by physical shed/partition at animal
-capacity grain.
+start on `2026-07-23`, not `2026-07-22`. For the final `2026-07-24` validation
+drive, the planner must use only the single assigned operator for that business
+date, while still keeping all three operators in HRMS availability.
 
 The source packet contains 324 animal rows. The planner may schedule fewer open
 animals on a given date depending on accepted history, booster eligibility,

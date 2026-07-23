@@ -132,6 +132,17 @@ debugging discussion:
   Darshan resumes Monday;
 - N=2 sanity: `active_operators_per_day=2` gives 400 same-day animal capacity.
 
+For the final local reseed validation, do not use only the animal/vaccination
+JSON files. The CPT packet's `cpt-operator-roster.json` is required seed input.
+It keeps Amit, Darshan, and Sagar as HRMS vaccination operators while
+`default_operator_assignment.active_operators_per_day=1` assigns only one
+operator to a drive day. `weekly_capacity_examples.total_capacity_animals`
+means raw available HRMS field capacity (`available_operators.length * 200`);
+it does not override the final drive cap. The final scheduled drive capacity is
+`active_operators_per_day * 200 = 200` unique animals/day. For the final plan,
+ET+TT starts on `2026-07-24`; PPR must be separated to `2026-08-07`, not paired
+with ET+TT on `2026-07-24`.
+
 If seeded DB output does not match that sample under the same inputs, treat it
 as a seed/scheduler validation failure until a changed source/rule/config input
 is documented in the same patch.
