@@ -221,9 +221,13 @@ plus `ceo_ai.*`, via migration `000031_assistant_roles_public_read.sql` and
 so it only grants roles that already exist; in stg/prod the roles are created as
 a separate provisioning step, so after creating them run
 `make grant-assistant-public-read` (idempotent) to guarantee the grant lands.
-Default privileges cover only tables created by the migration role. This removes the prior "ceo_ai.* only /
-public revoked" restriction so no current or future Cube model or read query
-ever fails with `permission denied`. Access stays read-only (SELECT only +
+`make grant-assistant-public-read` sets `ALTER DEFAULT PRIVILEGES FOR ROLE
+<owner>` for every current table owner, so future tables created by those owners
+are covered too; a brand-new table-owner role (or an owner the grant admin is not
+a member of) is not covered until the grant is re-run with sufficient privileges.
+This removes the prior "ceo_ai.* only / public revoked" restriction so current
+Cube models and read queries — and future ones over covered owners' tables — do
+not fail with `permission denied`. Access stays read-only (SELECT only +
 `default_transaction_read_only=on`; no write/DDL). This supersedes the "Cube
 never reads raw Postgres" boundary for these two read-only roles.
 
