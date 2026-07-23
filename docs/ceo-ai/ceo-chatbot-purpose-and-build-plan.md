@@ -300,6 +300,14 @@ coverage through read APIs, MCP business tools, and `ceo_ai.*` reporting views.
 This is not a starter-only list. The assistant must cover every current and
 future leadership-relevant module.
 
+The `GET /ceo-ai/starters` default questions are backend-owned and truthful to
+the governed Cube metrics + `ceo_ai.*` read tools the assistant currently routes
+to. They include chart-oriented prompts ("Plot vaccination overdue by park",
+"Chart vaccinations due today by park") that resolve to an existing dimensioned
+metric (due/overdue counts by park) so the runtime can emit a grounded bar chart
+without inventing data. Adding a starter must not imply coverage the read APIs /
+MCP Toolbox / SQL fallback cannot answer.
+
 Required coverage includes:
 
 - `ceo_ai.animal_current_scope`
