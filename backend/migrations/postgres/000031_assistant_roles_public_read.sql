@@ -15,8 +15,19 @@
 -- UPDATE/DELETE/DDL is granted. This supersedes the "Cube never reads raw
 -- Postgres" restriction for these two read-only roles only.
 --
--- Idempotent + guarded: applies only to roles that exist, so it is safe in
--- local, stg, and prod (roles are provisioned per-environment).
+-- ORDERING (P1): this is GUARDED with IF EXISTS. A role that does NOT yet exist
+-- when this migration runs receives NO grant here. Cloud Deploy running the
+-- migration ALONE does not guarantee the grant lands. Create the Cloud SQL
+-- readonly roles BEFORE migrating, or re-apply afterward (idempotent) with:
+--     make grant-assistant-public-read   (tools/dev/grant-assistant-public-read.sh)
+-- The local path (tools/dev/setup-ceo-ai-local-role.sh) creates the roles then
+-- grants in the correct order already.
+--
+-- DEFAULT PRIVILEGES SCOPE (P2): ALTER DEFAULT PRIVILEGES below covers only
+-- tables created by the SAME role that executes this migration. This assumes all
+-- schema migrations run as one owner (the migration role). Tables later created
+-- by a DIFFERENT owner do NOT auto-grant SELECT and need a re-run of the grant
+-- command above.
 -- ===========================================================================
 DO $grants$
 DECLARE
