@@ -63,6 +63,20 @@ MESHA_CUBE_READONLY_DB_URL='postgres://mesha_cube_readonly:...@/goatos?host=/clo
   tools/dev/setup-ceo-ai-secrets.sh
 ```
 
+**Then apply the read-only grants (required).** Migration `000031` is guarded
+(`IF EXISTS`) and no-ops for a role that did not exist when it ran — so creating
+the Cloud SQL roles is not enough on its own. Right after the roles exist, apply
+the idempotent grant with an admin DSN:
+
+```bash
+ADMIN_DSN='postgres://<admin>:...@/goatos?host=/cloudsql/...' \
+  make grant-assistant-public-read
+```
+
+This grants both readonly roles SELECT on all of `public` + `ceo_ai` (read-only;
+no write/DDL). Re-run it any time roles are recreated or tables are added by a
+new owner (default privileges only cover the migration role's own tables).
+
 ## GitHub Actions secrets (`vgoats/goatos`)
 
 Set for CI eval/integration jobs (names only):

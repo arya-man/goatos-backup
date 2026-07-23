@@ -217,7 +217,11 @@ The leadership assistant is internal, CEO/CXO-only, and READ-ONLY. Its two DB
 roles (`mesha_cube_readonly` for Cube, `mesha_ceo_readonly` for MCP Toolbox /
 SQL fallback) are granted SELECT on ALL of `public` (current + future tables)
 plus `ceo_ai.*`, via migration `000031_assistant_roles_public_read.sql` and
-`tools/dev/setup-ceo-ai-local-role.sh`. This removes the prior "ceo_ai.* only /
+`tools/dev/setup-ceo-ai-local-role.sh`. The migration is guarded (`IF EXISTS`)
+so it only grants roles that already exist; in stg/prod the roles are created as
+a separate provisioning step, so after creating them run
+`make grant-assistant-public-read` (idempotent) to guarantee the grant lands.
+Default privileges cover only tables created by the migration role. This removes the prior "ceo_ai.* only /
 public revoked" restriction so no current or future Cube model or read query
 ever fails with `permission denied`. Access stays read-only (SELECT only +
 `default_transaction_read_only=on`; no write/DDL). This supersedes the "Cube

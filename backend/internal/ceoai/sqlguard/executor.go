@@ -24,8 +24,12 @@ type Row = map[string]any
 
 // PoolConfig describes the dedicated read-only pool for the fallback executor.
 // It intentionally does NOT reuse the app's DATABASE_URL/app role: the fallback
-// must connect as mesha_ceo_readonly, which has no write grants and no access to
-// public.* (see mcp-toolbox-plan.md "Database Role").
+// must connect as mesha_ceo_readonly, which has read-only (SELECT-only) grants
+// and no write/DDL. As of migration 000031 this role holds SELECT on all of
+// public.* AND ceo_ai.* (internal CEO-only assistant; maintainer decision
+// 2026-07-23) — query scope is still constrained by this SQL guard (single
+// SELECT, tenant predicate, LIMIT, ceo_ai allowlist), not by table grants. See
+// mcp-toolbox-plan.md "Database Role".
 type PoolConfig struct {
 	// DatabaseURL is a full DSN for the mesha_ceo_readonly role. When empty it is
 	// assembled from the MESHA_MCP_DB_* / MESHA_DATABASE_NAME env vars.
