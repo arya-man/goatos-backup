@@ -4803,6 +4803,8 @@ export interface components {
             park_id: string;
         };
         CountsBreakdownFacets: {
+            /** @description Distinct lifecycle_status values present in the whole tenant herd (alive/dead/sold/ culled/transferred), independent of the currently-selected lifecycle filter — this is what lets a client offer Live/Sold/Culled/Dead/Transferred as filter options rather than only ever showing the live herd. */
+            lifecycle: components["schemas"]["CountsBreakdownSeriesPoint"][];
             /** @description Distinct management_stage values actually present, so a filter cannot offer a dead option. */
             stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
             breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
