@@ -1,0 +1,160 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
+)
+
+// RecomputeFutureVaccinationDrives is a one-time admin operation that recomputes existing future
+// vaccination drive batches + operator assignments to match the CURRENT operator-assignment config.
+//
+// This method:
+// 1. Acquires the per-tenant advisory lock (same granularity as the sweeper)
+// 2. Selects all planned-status future batches with planned_date >= effectiveFrom for the park
+// 3. Releases those obligations back to unbatched (batch_id = NULL, conducted_by = NULL)
+// 4. Deletes their vaccination_drive_assignments
+// 5. Marks the batches as cancelled/superseded
+// 6. Returns the count of released batches
+//
+// REQUIREMENTS (caller enforces):
+// - Called OUTSIDE the live event cascade (no domain events fired)
+// - Called when the sweeper is idle (no concurrent writers)
+// - Caller re-sweeps after release to re-batch under current config
+// - Does NOT modify clinical due dates or medical defer flags
+// - Idempotent: second run with same config produces same state
+//
+// NOT re-planning inside this method (caller invokes the existing sweeper re-plan path separately).
+func (r *Repository) RecomputeFutureVaccinationDrives(ctx context.Context, tenantID, parkID string, effectiveFrom time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	// Canonicalize tenant and park IDs to prevent advisory lock collisions (RV-03)
+	tenantCanon, err := canonicalUUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: recompute tenant id: %w", err)
+	}
+	tenantUUID, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: recompute tenant uuid: %w", err)
+	}
+	parkUUID, err := pgconv.UUID(parkID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: recompute park uuid: %w", err)
+	}
+
+	// Acquire the per-tenant advisory lock (same as sweeper uses)
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: acquire recompute lock connection: %w", err)
+	}
+	defer conn.Release()
+
+	var acquired bool
+	if err := conn.QueryRow(ctx, "SELECT pg_advisory_lock(hashtext($1))", tenantSweepLockNamespace+tenantCanon).Scan(&acquired); err != nil {
+		return 0, fmt.Errorf("obligation: acquire tenant-sweep lock for recompute: %w", err)
+	}
+	if !acquired {
+		return 0, fmt.Errorf("obligation: could not acquire tenant-sweep advisory lock for recompute (another sweeper may be running)")
+	}
+	defer func() {
+		_ = conn.QueryRow(ctx, "SELECT pg_advisory_unlock(hashtext($1))", tenantSweepLockNamespace+tenantCanon).Scan(&acquired)
+	}()
+
+	// Prepare effective date boundary (business day start)
+	effectiveDateKey := biztime.BusinessDayStart(effectiveFrom).Format("2006-01-02")
+
+	// Begin transaction to atomically release and update
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin recompute tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Select all planned-status future batches for this park
+	// that have planned_date >= effectiveFrom
+	rows, err := tx.Query(ctx, `
+SELECT batch_id::text
+FROM obligation_batches
+WHERE tenant_id = $1
+  AND scope_type = 'park'
+  AND scope_id = $2
+  AND status = 'planned'
+  AND planned_date >= $3::date
+ORDER BY batch_id
+`, tenantUUID, parkUUID, effectiveDateKey)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: select future batches for recompute: %w", err)
+	}
+
+	var batchIDs []string
+	for rows.Next() {
+		var batchID string
+		if err := rows.Scan(&batchID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("obligation: scan batch id: %w", err)
+		}
+		batchIDs = append(batchIDs, batchID)
+	}
+	rows.Close()
+
+	if len(batchIDs) == 0 {
+		// No batches to release; commit and return
+		if err := tx.Commit(ctx); err != nil {
+			return 0, fmt.Errorf("obligation: commit empty recompute tx: %w", err)
+		}
+		return 0, nil
+	}
+
+	// Convert batch IDs to UUIDs
+	batchUUIDs := make([]pgtype.UUID, len(batchIDs))
+	for i, id := range batchIDs {
+		uuid, err := pgconv.UUID(id)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: parse batch id %s: %w", id, err)
+		}
+		batchUUIDs[i] = uuid
+	}
+
+	// 1. Release obligations back to unbatched (batch_id = NULL)
+	_, err = tx.Exec(ctx, `
+UPDATE obligation_instances
+SET batch_id = NULL
+WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
+`, tenantUUID, batchUUIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: release obligations from batches: %w", err)
+	}
+
+	// 2. Delete vaccination_drive_assignments for these batches
+	delTag, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignments
+WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
+`, tenantUUID, batchUUIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: delete drive assignments: %w", err)
+	}
+	_ = delTag.RowsAffected() // not critical, but logged for debugging
+
+	// 3. Mark batches as cancelled/superseded (terminal status)
+	markTag, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET status = 'superseded', conducted_by = NULL
+WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
+`, tenantUUID, batchUUIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: mark batches superseded: %w", err)
+	}
+	markedCount := markTag.RowsAffected()
+
+	// Commit the transaction
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit recompute tx: %w", err)
+	}
+
+	return int(markedCount), nil
+}
