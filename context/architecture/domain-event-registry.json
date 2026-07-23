@@ -424,9 +424,9 @@
     },
     {
       "eventType": "vaccination.capacity.changed",
-      "producer": "vaccination-execution operator assignment config write (N/active-operators-per-day change)",
+      "producer": "vaccination-execution operator assignment config write (N/active-operators-per-day change), durable outbox enqueue",
       "producerFiles": [
-        "backend/internal/vaccinationexecution/app/service.go"
+        "backend/internal/vaccinationexecution/adapters/postgres/repository.go"
       ],
       "consumers": [
         {
@@ -437,7 +437,8 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/obligation/app/operator_config_replan_test.go",
-        "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go"
+        "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go",
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_config_cascade_outbox_test.go"
       ],
       "surfaces": [
         "backend",
@@ -447,9 +448,9 @@
     },
     {
       "eventType": "vaccination.roster.changed",
-      "producer": "vaccination-execution operator assignment config write (default-operator change)",
+      "producer": "vaccination-execution operator assignment config write (default-operator change), durable outbox enqueue",
       "producerFiles": [
-        "backend/internal/vaccinationexecution/app/service.go"
+        "backend/internal/vaccinationexecution/adapters/postgres/repository.go"
       ],
       "consumers": [
         {
@@ -460,7 +461,8 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/obligation/app/operator_config_replan_test.go",
-        "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go"
+        "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go",
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_config_cascade_outbox_test.go"
       ],
       "surfaces": [
         "backend",
@@ -472,7 +474,7 @@
       "eventType": "vaccination.leave.changed",
       "producer": "workforce roster leave apply (shed-scoped absence add)",
       "producerFiles": [
-        "backend/internal/workforce/app/roster_service.go"
+        "backend/internal/workforce/adapters/postgres/roster_repository.go"
       ],
       "consumers": [
         {

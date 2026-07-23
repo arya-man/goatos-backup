@@ -601,27 +601,33 @@ func TestDriveCapacityRelockObservesConcurrentCommit(t *testing.T) {
 		t.Fatalf("A probe release: %v", err)
 	}
 
-	// Worker B commits a 2-cell batch on the same park/date in the gap.
-	goatID := "34000000-0000-4000-8000-000000000001"
-	seedCapacityGoatInPark(t, ctx, pool, goatID, cbePark)
-	obl := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatID, "relock-1", due)
+	// Worker B commits a 2-ANIMAL batch on the same park/date in the gap. Drive capacity is
+	// counted as DISTINCT animals per operator/day (the ratified operator-capacity unit); doses
+	// live in planned_quantity and are NOT the capacity unit. So B must add two distinct goats
+	// for the count to rise by 2 -- one goat with a 2-dose obligation would raise it by only 1.
+	goatB1 := "34000000-0000-4000-8000-000000000001"
+	goatB2 := "34000000-0000-4000-8000-000000000002"
+	seedCapacityGoatInPark(t, ctx, pool, goatB1, cbePark)
+	seedCapacityGoatInPark(t, ctx, pool, goatB2, cbePark)
+	oblB1 := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatB1, "relock-1", due)
+	oblB2 := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatB2, "relock-2", due)
 	if _, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
 		TenantID: tenantID, ProtocolVersionID: versionID,
 		ScopeType: "park", ScopeID: cbePark, Session: "relock",
 		PlannedDate: &planned, Status: "planned",
-		EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
-	}, []string{obl}, map[string]int32{obl: 2}); err != nil || len(attached) != 1 {
+		EstimatedTargets: 2, PlannedQuantity: "2", QuantityUnit: "dose",
+	}, []string{oblB1, oblB2}, map[string]int32{oblB1: 1, oblB2: 1}); err != nil || len(attached) != 2 {
 		t.Fatalf("B commit: attached=%d err=%v", len(attached), err)
 	}
 
-	// Worker A final re-lock must observe B's cells.
+	// Worker A final re-lock must observe B's two animals (fresh persisted count).
 	countA2, releaseA2, err := repo.LockDriveCapacity(ctx, tenantID, cbePark, planned)
 	if err != nil {
 		t.Fatalf("A final lock: %v", err)
 	}
 	defer func() { _ = releaseA2(ctx) }()
 	if countA2 != countA1+2 {
-		t.Fatalf("final re-lock count = %d, want %d (+2 cells committed by B in the probe gap)", countA2, countA1+2)
+		t.Fatalf("final re-lock count = %d, want %d (+2 animals committed by B in the probe gap)", countA2, countA1+2)
 	}
 }
 
