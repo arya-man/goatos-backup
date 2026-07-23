@@ -15,6 +15,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 )
 
@@ -117,7 +118,31 @@ func replanVaccinationDriveAssignmentsForDateMoveTx(
 		return err
 	}
 	planned := planMovedDriveAssignments(rows, availableOperatorsAfterMovedInLoad(operators, movedInLoad), to)
-	return insertPlannedDriveAssignmentsTx(ctx, tx, tenant, to, planned)
+	if err := insertPlannedDriveAssignmentsTx(ctx, tx, tenant, to, planned); err != nil {
+		return err
+	}
+	// A date move re-splits the SAME work across two calendar days (some rules stay on `from`, the
+	// moved rules land on `to`), so per-goat membership for every touched batch must be recomputed in
+	// this same transaction. Without it the two dates carry counts only, and no downstream action can
+	// say which exact goat is vaccinated on which day by which operator.
+	batchIDs, err := movedDriveAssignmentBatchUUIDs(rows)
+	if err != nil {
+		return err
+	}
+	return syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, batchIDs)
+}
+
+// movedDriveAssignmentBatchUUIDs is the distinct batch id set touched by one date move.
+func movedDriveAssignmentBatchUUIDs(rows []movedDriveAssignment) ([]pgtype.UUID, error) {
+	out := make([]pgtype.UUID, 0, len(rows))
+	for _, row := range rows {
+		batchID, err := pgconv.UUID(row.batchID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: moved drive assignment batch id: %w", err)
+		}
+		out = append(out, batchID)
+	}
+	return dedupUUIDs(out), nil
 }
 
 func selectMovedDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant, park pgtype.UUID, vaccineCode string, from time.Time) ([]movedDriveAssignment, error) {

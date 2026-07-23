@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
@@ -381,6 +383,201 @@ func TestCanonicalRowsOperatorDayCapacityPageBoundaryStatusBucketsParkScope(t *t
 		statusCap, _ := read(10)
 		if statusCap != fullCap {
 			t.Errorf("drive_operator_cap = %d for obligation status %q, want a stable %d (operator-day capacity must not drift with the work's status bucket)", statusCap, status, fullCap)
+		}
+	}
+}
+
+const (
+	piAssignmentArmA = "71000000-0000-4000-8000-0000000000b1"
+	piAssignmentArmB = "71000000-0000-4000-8000-0000000000b2"
+)
+
+// seedSamePartitionSplitWithMembership seeds the adversarial same-partition split: ONE batch, ONE
+// shed, ONE partition ('2'), split across TWO operators on TWO dates -- and then records the EXACT
+// per-goat membership (migration 000040 vaccination_drive_assignment_members) saying this goat's
+// obligation belongs to the SECOND arm.
+func seedSamePartitionSplitWithMembership(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	execPI(t, ctx, pool, "split operator",
+		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+		 VALUES ($1, $2, 'OP-PI-2', 'Operator PI Two', 'active', 'operator', $3)`,
+		piOperatorTwo, piTenant, piShed)
+	execPI(t, ctx, pool, "split operator position cap",
+		`INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
+		   position_code, position_tier, status, valid_from, vaccination_daily_animal_cap)
+		 VALUES ($1, $2, $3, 'center', $4, 'vaccination_operator', 'assistant', 'active',
+		   TIMESTAMPTZ '2026-06-01 00:00:00+05:30', 150)`,
+		piPositionTwo, piTenant, piOperatorTwo, piPark)
+	execPI(t, ctx, pool, "goat partition",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '2', 'Process Shed - Part 2')`,
+		piTenant, piGoat, piShed)
+
+	// SAME partition '2' of the SAME shed on the SAME batch, split across two operators/dates.
+	execPI(t, ctx, pool, "split arm A",
+		`INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+		   physical_shed, partition_label, animal_count, capacity_status, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, $3, DATE '2026-06-24', $4, $5, $6, 'Process Shed', '2', 40, 'within_cap', ARRAY[$7::uuid], 40)`,
+		piAssignmentArmA, piTenant, piBatch, piOperator, piPark, piShed, piRule)
+	execPI(t, ctx, pool, "split arm B",
+		`INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+		   physical_shed, partition_label, animal_count, capacity_status, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, $3, DATE '2026-06-25', $4, $5, $6, 'Process Shed', '2', 7, 'over_cap_required', ARRAY[$7::uuid], 7)`,
+		piAssignmentArmB, piTenant, piBatch, piOperatorTwo, piPark, piShed, piRule)
+
+	// The exact truth the split previously could not express: THIS goat's obligation is arm B's work.
+	execPI(t, ctx, pool, "exact drive membership -> arm B",
+		`INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+		 VALUES ($1, $2, $3, $4)`,
+		piTenant, piAssignmentArmB, piObligation, piGoat)
+}
+
+// TestCanonicalRowsBindExactDriveMembershipOnSamePartitionSplitExecutionDate is the closure of the
+// gap documented on TestCanonicalRowsAggregateSamePartitionSplitDriveAssignments.
+//
+// Before migration 000040 the drive row stored only "N animals here, M animals there" -- it could not
+// say WHICH goats sat in the Jul-24 arm and which in the Jul-25 arm, so the projection fell back to a
+// deterministic representative (earliest date / lowest operator) plus a whole-cohort aggregate. That
+// made the per-animal operator and execution date FUZZY on every same-partition split.
+//
+// With vaccination_drive_assignment_members the binding is EXACT: (tenant_id, obligation_id) is
+// UNIQUE, so exactly one assignment row covers this obligation. The projection must report THAT arm's
+// operator and planned_date -- not the earliest-date representative -- and the drive_* capacity facts
+// must describe the animal's OWN operator-day, not the merged split cohort.
+func TestCanonicalRowsBindExactDriveMembershipOnSamePartitionSplitExecutionDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	seedSamePartitionSplitWithMembership(t, ctx, pool)
+
+	repo := NewRepository(pool, 10*time.Second)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	row := rowByBatchSubstr(result.Rows, piBatch)
+	if row == nil {
+		t.Fatalf("batch row missing: %#v", result.Rows)
+	}
+
+	if row.Owner.OperatorID == nil || *row.Owner.OperatorID != piOperatorTwo {
+		t.Errorf("operator = %v want %s (exact membership names arm B; the earliest-date representative is arm A and is now WRONG)", row.Owner.OperatorID, piOperatorTwo)
+	}
+	if row.Owner.OperatorName == nil || *row.Owner.OperatorName != "Operator PI Two" {
+		t.Errorf("operator name = %v want %q", row.Owner.OperatorName, "Operator PI Two")
+	}
+	gotDate := row.DueAt.In(biztime.DefaultLocation()).Format("2006-01-02")
+	if gotDate != "2026-06-25" {
+		t.Errorf("execution date = %s want 2026-06-25 (arm B's planned_date, not the earliest arm)", gotDate)
+	}
+	// Capacity facts describe the animal's OWN arm, not the merged 40+7 cohort.
+	if row.DriveAnimalsAssigned != 7 {
+		t.Errorf("drive_animals_assigned = %d want 7 (arm B's own load; 47 means the split cohort is still being aggregated over an exactly-known member)", row.DriveAnimalsAssigned)
+	}
+	if row.DriveAvailableOperators != 1 {
+		t.Errorf("drive_available_operators = %d want 1 (this animal has exactly ONE operator; 2 means the other arm leaked in)", row.DriveAvailableOperators)
+	}
+	if row.DriveOperatorCap != 150 {
+		t.Errorf("drive_operator_cap = %d want 150 (arm B operator's own operator-day cap; 250 means both arms' caps were summed)", row.DriveOperatorCap)
+	}
+	if row.DriveCapacityState != domain.DriveCapacityStateOverCapRequired {
+		t.Errorf("drive_capacity_state = %q want %q (arm B's own capacity_status)", row.DriveCapacityState, domain.DriveCapacityStateOverCapRequired)
+	}
+}
+
+// TestCanonicalRowsExactDriveMembershipOneToManyPageBoundaryParkScopeStatusBuckets is the adversarial
+// grain proof for the exact-membership binding added above.
+//
+//   - OneToMany: one shed/partition/batch fans out to MANY assignment arms; membership must select
+//     exactly one of them for this animal and never sum the siblings.
+//   - PageBoundary: the per-grain rollup is computed from the grain's own membership, so it must be
+//     identical on a size-1 page and a full page.
+//   - ParkScope: a same-operator, same-date assignment in ANOTHER park must never contribute.
+//   - StatusBuckets: capacity describes the operator-day, not work progress, so it must not drift as
+//     the obligation moves through status buckets.
+func TestCanonicalRowsExactDriveMembershipOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	seedSamePartitionSplitWithMembership(t, ctx, pool)
+
+	// OneToMany: a THIRD arm of the same partition/batch/shed, same operator as arm B on a third date.
+	execPI(t, ctx, pool, "split arm C",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+		   physical_shed, partition_label, animal_count, capacity_status, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, DATE '2026-06-26', $3, $4, $5, 'Process Shed', '2', 55, 'capacity_action', ARRAY[$6::uuid], 55)`,
+		piTenant, piBatch, piOperatorTwo, piPark, piShed, piRule)
+
+	// ParkScope: same operator, same date as arm B, DIFFERENT park/batch.
+	otherPark := "71000000-0000-4000-8000-0000000000c1"
+	otherBatch := "71000000-0000-4000-8000-0000000000c2"
+	execPI(t, ctx, pool, "other park location",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1, $2, 'park', 'PI-OTHER-PARK-M', 'Other Park M', 'active')`,
+		otherPark, piTenant)
+	execPI(t, ctx, pool, "other park batch",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+		 VALUES ($1, $2, $3, 'park', $4, 'planned', DATE '2026-06-25', $5)`,
+		otherBatch, piTenant, piVersion, otherPark, piOperatorTwo)
+	execPI(t, ctx, pool, "out-of-scope assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+		   physical_shed, partition_label, animal_count, capacity_status, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, DATE '2026-06-25', $3, $4, NULL, 'Other Shed', '2', 99, 'over_cap_required', ARRAY[$5::uuid], 99)`,
+		piTenant, otherBatch, piOperatorTwo, otherPark, piRule)
+
+	repo := NewRepository(pool, 10*time.Second)
+	read := func(limit int) (int, int, int) {
+		t.Helper()
+		result, err := listAtAsOf(t, ctx, repo, domain.Query{
+			TenantID:  piTenant,
+			AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			Limit:     limit,
+		})
+		if err != nil {
+			t.Fatalf("ListRows(limit=%d) error = %v", limit, err)
+		}
+		row := rowByBatchSubstr(result.Rows, piBatch)
+		if row == nil {
+			t.Fatalf("batch row missing at limit=%d: %#v", limit, result.Rows)
+		}
+		return row.DriveAnimalsAssigned, row.DriveOperatorCap, row.DriveAvailableOperators
+	}
+
+	assigned, cap, operators := read(10)
+	if assigned != 7 {
+		t.Errorf("drive_animals_assigned = %d want 7 (exactly arm B; arms A/C and the other park must not contribute)", assigned)
+	}
+	if cap != 150 {
+		t.Errorf("drive_operator_cap = %d want 150 (ONE operator-day: arm B only)", cap)
+	}
+	if operators != 1 {
+		t.Errorf("drive_available_operators = %d want 1", operators)
+	}
+
+	pagedAssigned, pagedCap, pagedOperators := read(1)
+	if pagedAssigned != assigned || pagedCap != cap || pagedOperators != operators {
+		t.Errorf("page-size dependence: limit=1 gave (%d,%d,%d), limit=10 gave (%d,%d,%d)",
+			pagedAssigned, pagedCap, pagedOperators, assigned, cap, operators)
+	}
+
+	for _, status := range []string{"due", "in_progress", "missed", "completed"} {
+		execPI(t, ctx, pool, "status "+status,
+			`UPDATE obligation_instances SET status = $2 WHERE tenant_id = $1::uuid`, piTenant, status)
+		statusAssigned, statusCap, _ := read(10)
+		if statusCap != cap || statusAssigned != assigned {
+			t.Errorf("status %q drifted capacity: assigned=%d cap=%d want assigned=%d cap=%d", status, statusAssigned, statusCap, assigned, cap)
 		}
 	}
 }

@@ -394,3 +394,158 @@ WHERE tenant_id=$1 AND batch_id=$2 AND partition_label=$3 AND planned_date=$4 AN
 		t.Fatalf("sibling row (other vaccine) = %d/%d, want 3/3 untouched", animals, doses)
 	}
 }
+
+// TestGoatExitedDecrementsTheExactMemberDriveAssignmentRow is the EXACTNESS proof for the SM-3
+// planned-drive removal. vaccination_drive_assignments is an aggregate row ("Gandhi A, 200 animals,
+// Jul 24, Darshan") and, before vaccination_drive_assignment_members existed, it did not store WHICH
+// animals it covered. When the planner splits one shed/partition across two dates/operators, the
+// (batch, shed) bucket holds several rows that are IDENTICAL on every goat-bindable dimension the
+// old heuristic could see (same partition, same vaccine rules) and differ only by planned_date and
+// operator. The heuristic then picks the earliest planned_date -- deterministic, but not provable,
+// and wrong whenever the exiting animal was actually planned into the LATER arm.
+//
+// Fixture: one batch, one shed, partition "A", rule A, split across two arms --
+//
+//	R_EARLY 2026-10-05, operator 1, 5 animals  (what the earliest-date heuristic would pick)
+//	R_LATE  2026-10-06, operator 2, 4 animals  (where the exiting animal is ACTUALLY a member)
+//
+// The exiting goat's membership row points at R_LATE. Only R_LATE may lose an animal, and the
+// membership row must be gone afterwards so the exact ledger never keeps a dead animal.
+func TestGoatExitedDecrementsTheExactMemberDriveAssignmentRow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		exitingGoat = "10000000-0000-4000-8000-00000000fd01"
+		shedID      = "00000000-0000-4000-8000-00000000dd01"
+		operatorOne = "20000000-0000-4000-8000-000000000d01"
+		operatorTwo = "20000000-0000-4000-8000-000000000d02"
+	)
+	seedParkConsolidationShed(t, ctx, pool, shedID, "goat-exit-member-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, exitingGoat)
+	for id, code := range map[string]string{operatorOne: "OP-MEM-1", operatorTwo: "OP-MEM-2"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1, $2, $3, $3, 'active', 'operator')`, id, tenantID, code); err != nil {
+			t.Fatalf("seed operator %s: %v", code, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1, $2, $3, 'A', 'Gandhi A')`, tenantID, exitingGoat, shedID); err != nil {
+		t.Fatalf("seed goat partition: %v", err)
+	}
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.exitmember", Name: "Exit member", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleA, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", DueWindowDays: 7,
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule A: %v", err)
+	}
+
+	early := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	late := early.AddDate(0, 0, 1)
+	obligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleA,
+		TargetType: "goat", TargetID: exitingGoat, ScopeType: "shed", ScopeID: shedID,
+		DueAt: late, Status: "scheduled", IdempotencyKey: "exit-member-dose-a", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert obligation: applied=%v err=%v", applied, err)
+	}
+	opOne := operatorOne
+	opTwo := operatorTwo
+	batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "shed", ScopeID: shedID,
+		Session: "exit-member-drive", PlannedDate: &early, Status: "planned",
+		EstimatedTargets: 9, PlannedQuantity: "9", QuantityUnit: "dose", ConductedBy: &opOne,
+	}, []string{obligationID})
+	if err != nil || attached != 1 {
+		t.Fatalf("create batch: attached=%d err=%v", attached, err)
+	}
+
+	shed := shedID
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{
+		{BatchID: batchID, PlannedDate: early, OperatorID: &opOne, ParkID: cbePark, ShedID: &shed,
+			PhysicalShed: "Gandhi", PartitionLabel: "A", AnimalCount: 5,
+			VaccineRuleIDs: []string{ruleA}, TotalDoses: 5, CapacityStatus: "within_cap"},
+		{BatchID: batchID, PlannedDate: late, OperatorID: &opTwo, ParkID: cbePark, ShedID: &shed,
+			PhysicalShed: "Gandhi", PartitionLabel: "A", AnimalCount: 4,
+			VaccineRuleIDs: []string{ruleA}, TotalDoses: 4, CapacityStatus: "within_cap"},
+	}); err != nil {
+		t.Fatalf("seed drive assignments: %v", err)
+	}
+
+	// EXACT membership: the exiting animal is planned into the LATE arm, not the early one the
+	// (matched_rules, planned_date, assignment_id) heuristic would otherwise pick.
+	var lateAssignmentID string
+	if err := pool.QueryRow(ctx, `
+SELECT assignment_id::text FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND batch_id=$2 AND planned_date=$3`, tenantID, batchID, late).Scan(&lateAssignmentID); err != nil {
+		t.Fatalf("read late assignment id: %v", err)
+	}
+	// The producer already recorded deterministic membership when the assignments were written
+	// (it hands goats to split arms in goat_id order). This test deliberately RE-POINTS that
+	// membership at the LATE arm so the exiting animal's true assignment disagrees with what the
+	// legacy (matched_rules, planned_date, assignment_id) heuristic would pick -- that disagreement
+	// is exactly what proves the exit path now follows membership instead of the heuristic.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (tenant_id, obligation_id) DO UPDATE SET assignment_id = EXCLUDED.assignment_id`,
+		tenantID, lateAssignmentID, obligationID, exitingGoat); err != nil {
+		t.Fatalf("seed drive assignment membership: %v", err)
+	}
+
+	bus := eventbus.NewInProcessBus()
+	oblapp.NewGoatExitedHandler(repo).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID: "event-exit-member", Type: oblapp.EventGoatExited, TenantID: tenantID, Key: exitingGoat,
+		OccurredAt: time.Date(2026, 10, 1, 6, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.exited: %v", err)
+	}
+
+	read := func(date time.Time) (int, int) {
+		t.Helper()
+		var animals, doses int
+		if err := pool.QueryRow(ctx, `
+SELECT animal_count, total_doses FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND batch_id=$2 AND planned_date=$3`, tenantID, batchID, date).Scan(&animals, &doses); err != nil {
+			t.Fatalf("read assignment %s: %v", date.Format("2006-01-02"), err)
+		}
+		return animals, doses
+	}
+	if animals, doses := read(late); animals != 3 || doses != 3 {
+		t.Fatalf("EXACT member arm (%s) animal_count/total_doses = %d/%d, want 3/3 -- the arm the animal is actually a member of must be the one decremented",
+			late.Format("2006-01-02"), animals, doses)
+	}
+	if animals, doses := read(early); animals != 5 || doses != 5 {
+		t.Fatalf("non-member arm (%s) = %d/%d, want 5/5 untouched -- the earliest-date heuristic must not win over exact membership",
+			early.Format("2006-01-02"), animals, doses)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM vaccination_drive_assignment_members WHERE tenant_id=$1 AND goat_id=$2`, tenantID, exitingGoat); got != 0 {
+		t.Fatalf("membership rows for exited animal = %d, want 0 (the exact ledger must not keep a dead animal)", got)
+	}
+}
