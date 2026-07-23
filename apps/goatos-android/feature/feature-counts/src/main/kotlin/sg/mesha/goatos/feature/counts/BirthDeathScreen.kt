@@ -4,6 +4,7 @@ package sg.mesha.goatos.feature.counts
 // counts_death_* analytics events and the CrashReporter non-fatal on every enqueue failure.
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,18 +12,29 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.LocalDate
+import java.time.ZoneOffset
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /**
@@ -131,6 +143,17 @@ fun BirthDeathScreen(
     onEvent: (BirthDeathEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Absent-field default only: prefill the entry date to today ONCE, the moment the birth form
+    // is opened with no entry date set yet. This fires a normal EditField event, exactly what the
+    // operator would have produced by typing it -- it never overwrites a value the operator
+    // already entered or cleared.
+    LaunchedEffect(state.mode) {
+        if (state.mode == BirthDeathMode.BIRTH && state.entryDate.isBlank()) {
+            val today = LocalDate.now(ZoneOffset.UTC).toString()
+            onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, today))
+        }
+    }
+
     Column(
         modifier = modifier.fillMaxSize().background(MeshaColors.PageBg),
     ) {
@@ -196,18 +219,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
     onEvent: (BirthDeathEvent) -> Unit,
 ) {
     item(key = "birth-identity") {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            CountsFieldGroupTitle(text = stringResource(R.string.counts_group_identity))
+        var expanded by remember { mutableStateOf(state.secondTag.isNotBlank() || state.breed.isNotBlank()) }
+        FormGroupCard(title = stringResource(R.string.counts_group_identity)) {
             CountsTextField(
                 value = state.tag,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
                 label = stringResource(R.string.counts_field_tag1),
                 required = true,
-            )
-            CountsTextField(
-                value = state.secondTag,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.SECOND_TAG, it)) },
-                label = stringResource(R.string.counts_field_tag2),
             )
             CountsSegmented(
                 options = listOf(
@@ -225,26 +243,35 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 selectedKey = state.sex,
                 onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.SEX, it)) },
             )
-            CountsTextField(
-                value = state.breed,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, it)) },
-                label = stringResource(R.string.counts_field_breed),
-            )
+            FormExpanderToggle(expanded = expanded, onToggle = { expanded = !expanded })
+            if (expanded) {
+                CountsTextField(
+                    value = state.secondTag,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.SECOND_TAG, it)) },
+                    label = stringResource(R.string.counts_field_tag2),
+                )
+                CountsTextField(
+                    value = state.breed,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, it)) },
+                    label = stringResource(R.string.counts_field_breed),
+                )
+            }
         }
     }
     item(key = "birth-dates") {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            CountsFieldGroupTitle(text = stringResource(R.string.counts_group_dates))
+        FormGroupCard(title = stringResource(R.string.counts_group_dates)) {
             // The backend requires dob <= entry_date and rejects a violation; the hint states the
-            // rule so an operator can fix it before submitting, but the server stays the authority.
-            CountsTextField(
+            // rule so an operator can fix it before submitting, but the server stays the
+            // authority. Both fields write the SAME YYYY-MM-DD ISO string the identity wire
+            // contract already expects -- the M3 date picker changes only how it is entered.
+            CountsDateField(
                 value = state.dob,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, it)) },
                 label = stringResource(R.string.counts_field_dob),
                 required = true,
                 supporting = stringResource(R.string.counts_hint_dob),
             )
-            CountsTextField(
+            CountsDateField(
                 value = state.entryDate,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, it)) },
                 label = stringResource(R.string.counts_field_entry_date),
@@ -256,8 +283,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
     // Changing the park resets the shed — a shed id from another park is never a valid pairing, and
     // shed NAMES repeat across parks so the entries are keyed by shed_id.
     item(key = "birth-placement") {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            CountsFieldGroupTitle(text = stringResource(R.string.counts_group_placement))
+        var damExpanded by remember { mutableStateOf(state.damId.isNotBlank()) }
+        FormGroupCard(title = stringResource(R.string.counts_group_placement)) {
             val selectedPark = state.destinationParks.firstOrNull { it.parkId == state.parkId }
             CountsDropdownField(
                 label = stringResource(R.string.counts_field_park),
@@ -286,14 +313,61 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
             state.destinationsMessage?.let { message ->
                 Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
             }
-            // Dam stays an OPTIONAL free-text field (see report): unlike placement and the death
-            // target it is not a required, safety-critical id, and it is left blank in practice.
-            CountsTextField(
-                value = state.damId,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, it)) },
-                label = stringResource(R.string.counts_field_dam_optional),
-            )
+            FormExpanderToggle(expanded = damExpanded, onToggle = { damExpanded = !damExpanded }, label = stringResource(R.string.counts_field_dam_optional))
+            if (damExpanded) {
+                // Dam stays an OPTIONAL free-text field (see report): unlike placement and the
+                // death target it is not a required, safety-critical id, and it is left blank in
+                // practice.
+                CountsTextField(
+                    value = state.damId,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, it)) },
+                    label = stringResource(R.string.counts_field_dam_optional),
+                )
+            }
         }
+    }
+}
+
+/** A titled card grouping a set of related fields — Identity/Dates/Placement, per the redesign. */
+@Composable
+private fun FormGroupCard(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        CountsFieldGroupTitle(text = title)
+        content()
+    }
+}
+
+/** Collapses an optional field group under an on-demand expander rather than always showing it. */
+@Composable
+private fun FormExpanderToggle(expanded: Boolean, onToggle: () -> Unit, label: String? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = label ?: stringResource(R.string.counts_more_fields),
+            color = MeshaColors.Muted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.W700,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = MeshaIcons.ChevronDown,
+            contentDescription = null,
+            tint = MeshaColors.Muted,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 
@@ -346,8 +420,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
 
     // 3. Account of death.
     item(key = "death-account") {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            CountsFieldGroupTitle(text = stringResource(R.string.counts_group_account_of_death))
+        FormGroupCard(title = stringResource(R.string.counts_group_account_of_death)) {
             CountsTextField(
                 value = state.reason,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.REASON, it)) },
@@ -378,10 +451,10 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Surf2)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = stringResource(R.string.counts_group_recording_death_for),
@@ -392,8 +465,8 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
         Text(
             text = animal.displayId.ifBlank { animal.tag },
             color = MeshaColors.Ink,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.W700,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.W800,
         )
         if (animal.tag.isNotBlank()) {
             ReadOnlyFact(label = stringResource(R.string.counts_field_tag1), value = animal.tag)
