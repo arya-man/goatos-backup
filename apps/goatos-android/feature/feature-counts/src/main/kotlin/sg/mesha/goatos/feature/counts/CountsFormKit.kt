@@ -4,7 +4,6 @@ package sg.mesha.goatos.feature.counts
 // owning screens' ViewModels (BirthDeathViewModel / ShiftingViewModel) wire analytics + Crashlytics.
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -98,12 +97,17 @@ internal fun CountsTextField(
     supporting: String? = null,
     isError: Boolean = false,
 ) {
+    // Modernized to a tonal filled field (no hairline border) matching the mock's coherent
+    // form chrome; behavior/params are unchanged so every screen benefits without call-site edits.
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 54.dp),
         singleLine = true,
         isError = isError,
+        shape = RoundedCornerShape(14.dp),
         label = { Text(if (required) "$label *" else label) },
         supportingText = supporting?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(
@@ -112,8 +116,11 @@ internal fun CountsTextField(
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = MeshaColors.Ink,
             unfocusedTextColor = MeshaColors.Ink,
-            focusedBorderColor = MeshaColors.Brand,
-            unfocusedBorderColor = MeshaColors.Hair,
+            focusedContainerColor = MeshaColors.Surf2,
+            unfocusedContainerColor = MeshaColors.Surf2,
+            disabledContainerColor = MeshaColors.Surf3,
+            focusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = Color.Transparent,
             focusedLabelColor = MeshaColors.Brand,
             unfocusedLabelColor = MeshaColors.Muted,
             cursorColor = MeshaColors.Brand,
@@ -129,23 +136,25 @@ internal fun CountsSegmented(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Filled track with a selected pill — same coherent segmented look across all Counts screens.
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .heightIn(min = 54.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf2)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         options.forEach { (key, label) ->
             val selected = key == selectedKey
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(9.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(if (selected) MeshaColors.Brand else Color.Transparent)
                     .clickable { onSelect(key) }
-                    .padding(vertical = 9.dp),
+                    .padding(vertical = 13.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -169,7 +178,8 @@ internal fun CountsSubmitButton(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .heightIn(min = 54.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(if (enabled) MeshaColors.Brand else MeshaColors.Surf3)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 15.dp),
@@ -272,11 +282,11 @@ internal fun CountsDropdownField(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (enabled) MeshaColors.Surf else MeshaColors.Surf3)
-                    .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
+                    .heightIn(min = 54.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (enabled) MeshaColors.Surf2 else MeshaColors.Surf3)
                     .clickable(enabled = enabled) { expanded = true }
-                    .padding(horizontal = 12.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
