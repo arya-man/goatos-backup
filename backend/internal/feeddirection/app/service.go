@@ -20,6 +20,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,6 +66,12 @@ type Service struct {
 	// pinned-date fixture must never depend on when the test suite happens to run.
 	now         Clock
 	generatedBy string
+	// completions is the OPTIONAL feed-completion store (the module's only write path). Without it,
+	// the serve path overlays no completion state and CompleteSession is unavailable -- a pure
+	// generation unit test wires only config+counts. Production wires it.
+	completions ports.CompletionStore
+	// proofs is the OPTIONAL validator for attached video proofs. Nil skips validation.
+	proofs ports.ProofValidator
 }
 
 func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *Service {
@@ -123,6 +130,170 @@ func (s *Service) WithGeneratedBy(by string) *Service {
 	return s
 }
 
+// WithCompletionStore wires the feed-completion table. Without it the serve path overlays no
+// completion state and CompleteSession returns ports.ErrCompletionUnavailable.
+func (s *Service) WithCompletionStore(store ports.CompletionStore) *Service {
+	s.completions = store
+	return s
+}
+
+// WithProofValidator wires optional video-proof validation. Nil skips validation.
+func (s *Service) WithProofValidator(proofs ports.ProofValidator) *Service {
+	s.proofs = proofs
+	return s
+}
+
+// CompleteSession records that one shed-session's feed direction was carried out. It validates the
+// request, resolves/normalizes the park and date, validates any attached video proof, then delegates
+// the canonical write + audit + outbox to the completion store. Idempotent via the client key.
+func (s *Service) CompleteSession(ctx context.Context, in CompleteSessionInput) (ports.CompleteSessionResult, error) {
+	if s.completions == nil {
+		return ports.CompleteSessionResult{}, ports.ErrCompletionUnavailable
+	}
+	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID)
+	if err != nil {
+		return ports.CompleteSessionResult{}, err
+	}
+	in.ParkID = resolvedPark
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ShedID = strings.TrimSpace(in.ShedID)
+	in.Workflow = strings.TrimSpace(in.Workflow)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+
+	if in.TenantID == "" || in.ParkID == "" {
+		return ports.CompleteSessionResult{}, ports.ErrParkRequired
+	}
+	if in.ShedID == "" {
+		return ports.CompleteSessionResult{}, ports.ErrShedRequired
+	}
+	if in.TargetDate.IsZero() {
+		return ports.CompleteSessionResult{}, ports.ErrInvalidTargetDate
+	}
+	in.TargetDate = biztime.BusinessDayStart(in.TargetDate)
+	if in.SessionNo < 1 {
+		return ports.CompleteSessionResult{}, ports.ErrInvalidSession
+	}
+	// A completion records ONE concrete workflow. Empty ("both") is a read filter, never a completion.
+	switch in.Workflow {
+	case domain.WorkflowNormal, domain.WorkflowExperiment:
+	case "":
+		return ports.CompleteSessionResult{}, ports.ErrWorkflowRequired
+	default:
+		return ports.CompleteSessionResult{}, ports.ErrInvalidWorkflow
+	}
+	if in.IdempotencyKey == "" {
+		return ports.CompleteSessionResult{}, ports.ErrIdempotencyRequired
+	}
+
+	// Video is OPTIONAL. When present and a validator is wired, each ref must resolve to a real,
+	// completed, tenant-owned upload before the completion is written.
+	if s.proofs != nil && len(in.ProofRefs) > 0 {
+		ids := make([]string, 0, len(in.ProofRefs))
+		for _, ref := range in.ProofRefs {
+			id := strings.TrimSpace(ref.ProofID)
+			if id == "" {
+				return ports.CompleteSessionResult{}, ports.ErrInvalidProof
+			}
+			ids = append(ids, id)
+		}
+		if err := s.proofs.ValidateFeedProofs(ctx, in.TenantID, ids); err != nil {
+			return ports.CompleteSessionResult{}, err
+		}
+	}
+
+	return s.completions.CompleteSession(ctx, ports.CompleteSessionParams{
+		TenantID:       in.TenantID,
+		ParkID:         in.ParkID,
+		ShedID:         in.ShedID,
+		SessionNo:      in.SessionNo,
+		TargetDate:     in.TargetDate,
+		Workflow:       in.Workflow,
+		ProofRefs:      in.ProofRefs,
+		CompletedBy:    strings.TrimSpace(in.CompletedBy),
+		IdempotencyKey: in.IdempotencyKey,
+		ActorID:        in.ActorID,
+		ActorType:      in.ActorType,
+		TraceID:        in.TraceID,
+	})
+}
+
+// CompleteSessionInput is the app-level completion request the HTTP handler builds from the body plus
+// the authenticated actor context.
+type CompleteSessionInput struct {
+	TenantID       string
+	ParkID         string
+	ShedID         string
+	SessionNo      int32
+	TargetDate     time.Time
+	Workflow       string
+	ProofRefs      []domain.ProofRef
+	CompletedBy    string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
+}
+
+// overlayDirectionCompleted flips DirectionRow.Completed for any shed-session with a recorded
+// completion. ONE bounded read (ListCompletedSessions), skipped when the store is unwired or the page
+// is empty -- so it never touches the beyond-horizon/never-issued paths that have no rows, and it is a
+// separate read from the config snapshot (read-count invariant preserved).
+func (s *Service) overlayDirectionCompleted(ctx context.Context, tenantID, parkID string, asOf time.Time, rows []domain.DirectionRow) error {
+	if s.completions == nil || len(rows) == 0 {
+		return nil
+	}
+	completed, err := s.completions.ListCompletedSessions(ctx, tenantID, parkID, asOf)
+	if err != nil {
+		return err
+	}
+	set := newCompletedSet(completed)
+	for i := range rows {
+		if set.has(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow) {
+			rows[i].Completed = true
+		}
+	}
+	return nil
+}
+
+// overlayPackingCompleted is the packing twin of overlayDirectionCompleted.
+func (s *Service) overlayPackingCompleted(ctx context.Context, tenantID, parkID string, asOf time.Time, rows []domain.PackingRow) error {
+	if s.completions == nil || len(rows) == 0 {
+		return nil
+	}
+	completed, err := s.completions.ListCompletedSessions(ctx, tenantID, parkID, asOf)
+	if err != nil {
+		return err
+	}
+	set := newCompletedSet(completed)
+	for i := range rows {
+		if set.has(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow) {
+			rows[i].Completed = true
+		}
+	}
+	return nil
+}
+
+// completedSet is an in-memory membership index over one park-day's completions, keyed by the
+// shed-session-workflow grain the completion is recorded at.
+type completedSet map[string]struct{}
+
+func newCompletedSet(items []ports.CompletedSession) completedSet {
+	set := make(completedSet, len(items))
+	for _, c := range items {
+		set[completedKey(c.ShedID, c.SessionNo, c.Workflow)] = struct{}{}
+	}
+	return set
+}
+
+func (s completedSet) has(shedID string, sessionNo int32, workflow string) bool {
+	_, ok := s[completedKey(shedID, sessionNo, workflow)]
+	return ok
+}
+
+func completedKey(shedID string, sessionNo int32, workflow string) string {
+	return shedID + "|" + strconv.Itoa(int(sessionNo)) + "|" + workflow
+}
+
 // Preview serves one page of feed direction rows for a feed day.
 //
 // THIS IS NOW A SERVE PATH, NOT A LIVE CALCULATOR. For a real target date it reads the FROZEN issued
@@ -151,6 +322,9 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 		page, err = s.servePreview(ctx, normalized)
 	}
 	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	if err := s.overlayDirectionCompleted(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, page.Items); err != nil {
 		return domain.PreviewPage{}, err
 	}
 	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
@@ -211,6 +385,9 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 		page, err = s.servePacking(ctx, normalized)
 	}
 	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	if err := s.overlayPackingCompleted(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, page.Items); err != nil {
 		return domain.PackingPage{}, err
 	}
 	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)

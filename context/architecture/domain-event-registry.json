@@ -22,7 +22,8 @@
     "obligation.missed",
     "goat.obligations_canceled",
     "obligation.rescoped",
-    "protocol.version.published"
+    "protocol.version.published",
+    "feed.direction.completed"
   ],
   "events": [
     {
@@ -177,6 +178,15 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": ["backend/internal/protocol/adapters/postgres/repository_integration_test.go", "backend/internal/vaccination/adapters/postgres/generation_integration_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "feed.direction.completed",
+      "producer": "feed-direction shed-session completion (POST /feed-direction/complete): feeddirection.Repository.CompleteSession writes the canonical feed_direction_session_completions row, the audit row, and the transactional outbox message in one transaction, idempotent on both the request key and the shed-session natural key",
+      "producerFiles": ["backend/internal/feeddirection/adapters/postgres/completions.go"],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": ["backend/internal/feeddirection/adapters/postgres/completions_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
     }
   ],
   "allowedHerdMutationWriters": [
@@ -211,10 +221,10 @@
     },
     {
       "feature": "feed_direction",
-      "requiredEvents": ["goat.location.changed", "goat.stage_changed", "goat.health.changed", "goat.reproductive.changed", "protocol.version.published"],
+      "requiredEvents": ["goat.location.changed", "goat.stage_changed", "goat.health.changed", "goat.reproductive.changed", "protocol.version.published", "feed.direction.completed"],
       "requiredConsumers": [],
       "surfaces": ["backend", "frontend", "mobile"],
-      "e2eScenarios": ["location/stage/health/reproductive changes recompute feed work", "offline mobile command converges through backend event"]
+      "e2eScenarios": ["location/stage/health/reproductive changes recompute feed work", "offline mobile command converges through backend event", "operator marks a shed-session fed (optional video) -> feed.direction.completed produced -> serve path reports the row completed"]
     }
   ],
   "movementIntegrationContracts": [

@@ -900,6 +900,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that one shed-session's feed direction was carried out.
+         * @description Marks ONE shed's ONE feeding session on ONE feed day as fed ("feed direction completed"), with OPTIONAL video proof. The completion grain is the operator's unit of work -- (park, shed, session_no, target_date, workflow) -- not the ration grain: one shed's session is done or it is not, regardless of how many ration rows it printed. After a completion the `/feed-direction/preview` and `/feed-packing/worklist` rows for that shed-session report `completed: true`.
+         *
+         *     Idempotent on two axes: the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`), and the shed-session natural key (a second completion of the same shed-session, under any key, is a no-op that returns `applied: false`).
+         *
+         *     Video is OPTIONAL: `proof_refs` may be empty. When present, each reference must resolve to a real, completed upload minted through `/app/proofs/*`; the bytes live in GCS and only the reference is recorded here.
+         */
+        post: operations["completeFeedDirectionSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/ration-rates": {
         parameters: {
             query?: never;
@@ -2146,6 +2170,8 @@ export interface components {
             blocked: boolean;
             /** @description A movement this row's projected head count already assumes came due before the target date and still has not been executed. */
             overdue_pending: boolean;
+            /** @description True when this shed-session has a recorded completion (`feed.direction.completed`). The ration numbers are generated the same way; this reports that the feeding was carried out. A whole shed-session is completed at once, so every ration grain of the same (shed, session) reports `completed` together. */
+            completed: boolean;
         };
         FeedDirectionFeedItemTotal: {
             feed_item: string;
@@ -2277,7 +2303,51 @@ export interface components {
              * @enum {string}
              */
             status: "ready" | "blocked" | "empty";
+            /** @description True when this shed-session has a recorded completion (`feed.direction.completed`). Orthogonal to `status`: a completed line was still ready/blocked/empty underneath, so a client can show a "completed" badge without losing the packing state. This packing line IS one shed-session, so it maps 1:1 to the completion. */
+            completed: boolean;
             blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
+        };
+        FeedDirectionCompleteRequest: {
+            /**
+             * Format: uuid
+             * @description The park the shed belongs to. Optional: when omitted the server resolves the tenant's default park, matching the read routes. Exactly one park per completion.
+             */
+            park_id?: string;
+            /**
+             * Format: uuid
+             * @description The shed whose feeding session was carried out.
+             */
+            shed_id: string;
+            /** @description The feeding session that was completed. A concrete session (>= 1); session 0 ("every session") is a read filter, never a completion target. */
+            session_no: number;
+            /**
+             * Format: date
+             * @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+             */
+            target_date: string;
+            /**
+             * @description The dispatch workflow completed. REQUIRED (unlike the read filter, where empty means "both"): a completion records ONE concrete workflow.
+             * @enum {string}
+             */
+            workflow: "normal" | "experiment";
+            /** @description OPTIONAL video proof. May be empty (completed with no video). Each reference carries a server-minted `proof_id` from `/app/proofs/*`; the bytes live in GCS. */
+            proof_refs?: components["schemas"]["FeedDirectionProofRef"][];
+        };
+        FeedDirectionProofRef: {
+            /** @description The server-minted proof id of a completed upload. */
+            proof_id: string;
+            proof_type?: string;
+            subject_type?: string;
+            subject_id?: string;
+            upload_state?: string;
+        };
+        FeedDirectionCompleteResponse: {
+            /** Format: uuid */
+            completion_id: string;
+            /** @enum {string} */
+            status: "completed";
+            /** @description False on an idempotent replay or when the shed-session was already completed by an earlier request -- the original completion is returned and no new side effects ran. */
+            applied: boolean;
         };
         FeedPackingWorklistSummary: {
             /**
@@ -7086,6 +7156,38 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeFeedDirectionSession: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedDirectionCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description The shed-session is recorded completed (or was already completed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionCompleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

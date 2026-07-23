@@ -39,6 +39,7 @@ import (
 	feeddirectioncounts "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/counts"
 	feeddirectionhttp "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/http"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	feeddirectionproof "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/proof"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
@@ -342,7 +343,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
-	proofService := proofapp.NewService(proofpg.NewRepository(pool, cfg.Postgres.QueryTimeout), proofStorage)
+	proofRepo := proofpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	proofService := proofapp.NewService(proofRepo, proofStorage)
 	proofHandler := proofhttp.NewHandler(proofService, log)
 	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService)
@@ -417,6 +419,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	).
 		WithIssueStore(feedDirectionRepo).
 		WithScheduleReader(feedDirectionRepo).
+		WithCompletionStore(feedDirectionRepo).
+		WithProofValidator(feeddirectionproof.NewValidator(proofRepo)).
 		WithGeneratedBy("goatos-api")
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
