@@ -681,7 +681,10 @@ WHERE tenant_id = $1 AND park_id = $2`, tenant, park)
 		return nil, fmt.Errorf("obligation: operator shift config rows: %w", err)
 	}
 	if len(shifts) == 0 {
-		return operators, nil
+		// Config row exists but no shift rows: the resolver can't determine the
+		// default/cover operator, so we cannot honor the config. Fail closed rather
+		// than silently returning the unfiltered operator list (fail-open).
+		return nil, domain.ErrOperatorAssignmentConfigPresentButEmpty
 	}
 
 	leaveRows, err := r.pool.Query(ctx, `
@@ -720,6 +723,13 @@ WHERE tenant_id = $1
 		if operator, ok := byID[strings.TrimSpace(operatorID)]; ok {
 			filtered = append(filtered, operator)
 		}
+	}
+	if len(filtered) == 0 {
+		// Config present but the resolved operator(s) are not in the executable
+		// candidate set (all off/leave with no cover, or resolved-but-not-executable):
+		// fail closed so the sweeper defers this day instead of planning at base cap
+		// with a possibly-unassigned drive.
+		return nil, domain.ErrOperatorAssignmentConfigPresentButEmpty
 	}
 	return filtered, nil
 }

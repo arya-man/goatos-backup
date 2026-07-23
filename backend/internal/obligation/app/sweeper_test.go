@@ -239,6 +239,62 @@ func TestOperatorCapacityPlannerScalesByAvailableOperators(t *testing.T) {
 	}
 }
 
+// Fail-closed regression (Codex P1): when a park HAS operator-assignment config but the
+// resolver yields zero executable operators (all off/leave, missing shift config, or the
+// resolved operator is not in the candidate set), availableVaccinationOperatorsForDrive
+// returns domain.ErrOperatorAssignmentConfigPresentButEmpty. operatorCapacityPlanner must
+// then fail CLOSED by scaling MaxGoatsPerDrive to 0 so driveOperatorCapacityExhausted fires
+// and the sweeper defers the day — it must NOT silently return the original base cap.
+func TestOperatorCapacityPlannerFailsClosedOnConfigPresentButEmpty(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		returnErr:     domain.ErrOperatorAssignmentConfigPresentButEmpty,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	original := domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, original, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner returned error, want fail-closed nil error: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 0 {
+		t.Fatalf("fail-closed cap = %d, want 0 (must NOT fall back to base cap 200)", planner.MaxGoatsPerDrive)
+	}
+	if !driveOperatorCapacityExhausted(original, planner) {
+		t.Fatalf("driveOperatorCapacityExhausted = false, want true so the sweeper skips this day (fail closed)")
+	}
+
+	// effectiveOperatorAnimalCap must also fail closed to zero usable capacity.
+	cap, err := svc.effectiveOperatorAnimalCap(context.Background(), "tenant-1", "park-1", &planned, 200, NewSweepSession())
+	if err != nil {
+		t.Fatalf("effectiveOperatorAnimalCap returned error, want fail-closed: %v", err)
+	}
+	if cap != 0 {
+		t.Fatalf("effectiveOperatorAnimalCap = %d, want 0 (fail closed)", cap)
+	}
+}
+
+// Config-ABSENT must stay unchanged: no config row => nil error, empty operator list =>
+// the planner keeps its base cap (least-loaded fallback), NOT fail-closed.
+func TestOperatorCapacityPlannerConfigAbsentKeepsBaseCap(t *testing.T) {
+	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}} // no operators, no error
+	svc := NewSweeperService(repo, nil, nil)
+	original := domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, original, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 200 {
+		t.Fatalf("config-absent cap = %d, want unchanged 200 (least-loaded fallback)", planner.MaxGoatsPerDrive)
+	}
+	if driveOperatorCapacityExhausted(original, planner) {
+		t.Fatalf("driveOperatorCapacityExhausted = true for config-absent park, want false")
+	}
+}
+
 func TestOperatorCapacityPlannerHonorsSingleOperatorHRMSCap(t *testing.T) {
 	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
 	repo := &fakeVaccinationOperatorListRepo{
@@ -2057,11 +2113,15 @@ type fakeVaccinationOperatorListRepo struct {
 	operators         []string
 	operatorCaps      map[string]int32
 	zeroCapOperators  map[string]bool
+	returnErr         error
 	operatorListCalls int
 }
 
 func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(_ context.Context, _, _ string, _ time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
 	f.operatorListCalls++
+	if f.returnErr != nil {
+		return nil, f.returnErr
+	}
 	out := make([]domain.DriveOperatorCapacity, 0, len(f.operators))
 	for _, operatorID := range f.operators {
 		cap := capPerOperator

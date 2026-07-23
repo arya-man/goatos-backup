@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -352,6 +353,16 @@ func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, 
 	}
 	operators, err := s.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, planner.MaxGoatsPerDrive, session)
 	if err != nil {
+		if errors.Is(err, domain.ErrOperatorAssignmentConfigPresentButEmpty) {
+			// Config present but no executable operator: fail closed. Scale to 0 so
+			// driveOperatorCapacityExhausted fires and the sweeper defers this day,
+			// instead of planning at base cap. (This runs before
+			// limitUnbatchedSelectionByDriveAnimals, so the F1 "cap<=0 == unbounded"
+			// path is never reached.)
+			scaled := planner
+			scaled.MaxGoatsPerDrive = 0
+			return scaled, nil
+		}
 		return planner, err
 	}
 	if len(operators) == 0 {
@@ -368,6 +379,10 @@ func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantI
 	}
 	operators, err := s.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, capPerOperator, session)
 	if err != nil {
+		if errors.Is(err, domain.ErrOperatorAssignmentConfigPresentButEmpty) {
+			// Config present but no executable operator: fail closed with zero usable cap.
+			return 0, nil
+		}
 		return capPerOperator, err
 	}
 	if len(operators) == 0 {
