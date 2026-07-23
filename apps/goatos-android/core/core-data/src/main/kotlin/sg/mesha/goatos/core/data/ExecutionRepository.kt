@@ -406,7 +406,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     secondaryTag = secondaryTag,
     normalizedPrimaryTag = canonicalRosterTag(primaryTag),
     normalizedSecondaryTag = secondaryTag?.let(::canonicalRosterTag)?.takeIf { it.isNotBlank() },
-    vaccineLabel = humanVaccinationLabel(vaccineLabel),
+    vaccineLabel = humanizeVaccineLabel(vaccineLabel),
     status = status,
     scannedAtMs = scannedAt?.let(::parseServerInstantMs),
     obligationId = obligationId,
@@ -414,7 +414,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     updatedAt = now,
 )
 
-private fun humanVaccinationLabel(raw: String): String {
+private fun humanizeVaccineLabel(raw: String): String {
     val trimmed = raw.trim()
     if (trimmed.isBlank()) return trimmed
     val withoutPrefix = trimmed

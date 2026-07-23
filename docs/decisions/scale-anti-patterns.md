@@ -626,6 +626,8 @@ manifest, source validator, backend proof gate, Android form runner, and
 verifier bridge must all agree that scans remain per goat while video proof is
 one-to-five shed-level artifacts. A seeder-only or client-only proof-grain
 change is a false-green seed and is blocked by the seed fixture guard.
+Client screens must not fetch all target animals just to prove this point; shed
+proof upload stays shed-grain while animal evidence stays the paged scan roster.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->

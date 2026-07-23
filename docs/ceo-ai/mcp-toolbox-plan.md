@@ -529,6 +529,13 @@ summarize physical sheds and partitions inside that operator-day row. The raw
 partition-grain rows remain the drilldown/execution detail, not the top-level
 schedule row count.
 
+Vaccination proof-grain changes are leadership-visible because they affect
+operator accountability and verifier evidence. Leadership assistant MCP Toolbox
+fallbacks and Mesha read API coverage must describe the backend-owned contract:
+dose pickup/count summaries remain read-model answers, per-goat scan timestamps
+are the administration-time evidence, and the current SOP proof mode is
+shed-level video with one required and at most five clips.
+
 ### Coverage update: vaccination shed partitions
 
 Vaccination shed names from seed data can encode partitions: `Gandhi 1` means

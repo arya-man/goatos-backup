@@ -583,7 +583,7 @@ At minimum, this contract is guarded by:
   `proof_mode=shed_level_video`, shed proof subject, one required shed video
   with a maximum of five, and camera + gallery capture sources. This does not
   change source vaccination dates; per-goat scan timestamps remain the
-  administration-time truth.
+  administration-time truth and must be persisted/displayed for scanned animals.
 - `backend/cmd/seed-vaccination-real/main_test.go`: source dates on or before
   the business date import as trusted anchor history, while future business
   dates do not; open work materialized by the seed is strictly future-only.

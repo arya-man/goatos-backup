@@ -65,7 +65,8 @@ const DERIVED_DRIVE_ASSIGNMENT_CONTRACT = "vaccination_drive_assignments are gen
 const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
 // Vaccination proof grain is validated through the committed fixture manifest:
 // proof_mode=shed_level_video, subject_scope=shed, 1..5 shed videos, camera +
-// gallery allowed. Per-goat scan timestamps remain required runtime facts.
+// gallery allowed. Per-goat scan timestamps remain required runtime facts and
+// are the vaccination administration time shown back to the operator.
 
 function normalizeShedPartitionName(raw) {
   const name = String(raw ?? "").trim().replace(/\s+/g, " ");
