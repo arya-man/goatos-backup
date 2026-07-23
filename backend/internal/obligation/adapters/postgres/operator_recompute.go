@@ -54,15 +54,12 @@ func (r *Repository) RecomputeFutureVaccinationDrives(ctx context.Context, tenan
 	}
 	defer conn.Release()
 
-	var acquired bool
-	if err := conn.QueryRow(ctx, "SELECT pg_advisory_lock(hashtext($1))", tenantSweepLockNamespace+tenantCanon).Scan(&acquired); err != nil {
+	// pg_advisory_lock blocks until acquired, returns void, so use SELECT to execute it
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))", tenantSweepLockNamespace+tenantCanon); err != nil {
 		return 0, fmt.Errorf("obligation: acquire tenant-sweep lock for recompute: %w", err)
 	}
-	if !acquired {
-		return 0, fmt.Errorf("obligation: could not acquire tenant-sweep advisory lock for recompute (another sweeper may be running)")
-	}
 	defer func() {
-		_ = conn.QueryRow(ctx, "SELECT pg_advisory_unlock(hashtext($1))", tenantSweepLockNamespace+tenantCanon).Scan(&acquired)
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock(hashtext($1))", tenantSweepLockNamespace+tenantCanon)
 	}()
 
 	// Prepare effective date boundary (business day start)
