@@ -20,6 +20,8 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
@@ -393,6 +395,12 @@ interface AppApiService {
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
     ): FeedPackingWorklistPageDto
+
+    @POST("feed-direction/complete")
+    suspend fun completeFeedDirectionSession(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto
 
     @POST("app/counts/birth-events")
     suspend fun recordCountsBirthEvent(
@@ -781,6 +789,11 @@ class RetrofitAppApi(
         offset: Int?,
     ): FeedPackingWorklistPageDto =
         service.getFeedPackingWorklist(parkId, targetDate, session, workflow, limit, offset)
+
+    override suspend fun completeFeedDirectionSession(
+        idempotencyKey: String,
+        request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto = service.completeFeedDirectionSession(idempotencyKey, request)
 
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,

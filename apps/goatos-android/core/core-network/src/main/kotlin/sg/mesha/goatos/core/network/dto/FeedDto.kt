@@ -146,6 +146,9 @@ data class FeedDirectionRowDto(
     @SerialName("session_total_kg") val sessionTotalKg: String = "",
     @SerialName("blocked") val blocked: Boolean = false,
     @SerialName("overdue_pending") val overduePending: Boolean = false,
+    // True when this shed-session has a recorded completion (feed.direction.completed). Backend-owned;
+    // a whole shed-session is completed at once, so every grain of the same (shed, session) carries it.
+    @SerialName("completed") val completed: Boolean = false,
 ) {
     /**
      * Stable identity of this row within a filter scope. Used as the Room primary key and the
@@ -200,6 +203,8 @@ data class FeedPackingRowDto(
     @SerialName("items") val items: List<FeedItemQuantityDto> = emptyList(),
     @SerialName("total_kg") val totalKg: String = "",
     @SerialName("status") val status: String = "",
+    // Orthogonal to [status]: a completed line was still ready/blocked/empty underneath. Backend-owned.
+    @SerialName("completed") val completed: Boolean = false,
     @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
 ) {
     val grainKey: String
@@ -234,6 +239,47 @@ data class FeedPackingWorklistPageDto(
     @SerialName("limit") val limit: Int = 0,
     @SerialName("offset") val offset: Int = 0,
     @SerialName("has_more") val hasMore: Boolean = false,
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /feed-direction/complete
+// ---------------------------------------------------------------------------
+
+/**
+ * One OPTIONAL video-proof reference on a completion. The proof itself is minted and uploaded through
+ * the generic app/proofs upload pipeline; only the returned [proofId] is carried here.
+ */
+@Serializable
+data class FeedProofRefDto(
+    @SerialName("proof_id") val proofId: String,
+    @SerialName("proof_type") val proofType: String? = null,
+    @SerialName("subject_type") val subjectType: String? = null,
+    @SerialName("subject_id") val subjectId: String? = null,
+    @SerialName("upload_state") val uploadState: String? = null,
+)
+
+/**
+ * The completion body: which shed-session, on which feed day and workflow, was carried out. Grain is
+ * (park, shed, session, target_date, workflow). [parkId] may be null (the server resolves the default
+ * park). [proofRefs] is optional (video optional). The Idempotency-Key header, not the body, carries
+ * the replay key.
+ */
+@Serializable
+data class FeedDirectionCompleteRequestDto(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    @SerialName("session_no") val sessionNo: Int,
+    @SerialName("target_date") val targetDate: String,
+    @SerialName("workflow") val workflow: String,
+    @SerialName("proof_refs") val proofRefs: List<FeedProofRefDto> = emptyList(),
+)
+
+/** The completion result. [applied] is false on an idempotent replay or an already-completed session. */
+@Serializable
+data class FeedDirectionCompleteResponseDto(
+    @SerialName("completion_id") val completionId: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("applied") val applied: Boolean = false,
 )
 
 /** The two dispatch workflows a feed row can belong to. `""` (unset filter) means both. */

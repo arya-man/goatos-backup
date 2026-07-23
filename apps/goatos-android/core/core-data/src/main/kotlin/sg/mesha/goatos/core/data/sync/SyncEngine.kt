@@ -13,6 +13,7 @@ import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
@@ -220,6 +221,7 @@ class SyncEngine(
         OutboxOpType.SHIFTING_COMPLETE -> dispatchShiftingComplete(item)
         OutboxOpType.SHIFTING_CANCEL -> dispatchShiftingCancel(item)
         OutboxOpType.COUNTS_PROMOTE_IDENTIFIER -> dispatchPromoteIdentifier(item)
+        OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -419,6 +421,21 @@ class SyncEngine(
             payload.shiftingEventId,
             item.idempotencyKey,
             payload.destinationTag,
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchFeedDirectionComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedDirectionCompletePayload>(item.payloadJson)
+        val response = api.completeFeedDirectionSession(
+            item.idempotencyKey,
+            FeedDirectionCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                sessionNo = payload.sessionNo,
+                targetDate = payload.targetDate,
+                workflow = payload.workflow,
+            ),
         )
         return syncJson.encodeToString(response)
     }

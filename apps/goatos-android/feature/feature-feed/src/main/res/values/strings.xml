@@ -29,4 +29,11 @@
     <string name="feed_session_total">Session total</string>
     <string name="feed_pack_total">Pack total</string>
     <string name="feed_blocked_label">Blocked</string>
+    <string name="feed_completed_badge">Completed</string>
+    <string name="feed_complete_back">‹ Back</string>
+    <string name="feed_complete_caption">Record an optional video, then mark this feeding done.</string>
+    <string name="feed_complete_record_video">Record video (optional)</string>
+    <string name="feed_complete_video_recording">Recording…</string>
+    <string name="feed_complete_video_recorded">Video recorded</string>
+    <string name="feed_complete_done">Mark fed — Done</string>
 </resources>

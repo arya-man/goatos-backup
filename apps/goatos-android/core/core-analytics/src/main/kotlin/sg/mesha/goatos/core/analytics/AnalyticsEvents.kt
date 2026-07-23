@@ -120,6 +120,18 @@ object AnalyticsEvents {
      *  is `set`/`cleared`. */
     const val FEED_FILTER_APPLIED = "feed_filter_applied"
 
+    /** The feed-direction completion detail was opened (a shed-session row was tapped). */
+    const val FEED_COMPLETE_OPENED = "feed_complete_opened"
+
+    /** An optional video was captured on the feed completion detail. */
+    const val FEED_COMPLETE_VIDEO_CAPTURED = "feed_complete_video_captured"
+
+    /** A shed-session was marked fed (feed.direction.completed enqueued). */
+    const val FEED_DIRECTION_COMPLETED = "feed_direction_completed"
+
+    /** A feed completion could not be queued. [Params.REASON] carries a coarse, non-PII cause. */
+    const val FEED_COMPLETE_FAILURE = "feed_complete_failure"
+
     /** The Counts approver's pending-decision queue was opened. */
     const val COUNTS_APPROVAL_QUEUE_VIEWED = "counts_approval_queue_viewed"
 

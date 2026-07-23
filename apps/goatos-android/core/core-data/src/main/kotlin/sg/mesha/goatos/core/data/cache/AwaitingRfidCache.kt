@@ -64,7 +64,7 @@ interface AwaitingRfidItemDao {
      * so this never materializes the whole cached list into memory — the DB read is bounded exactly
      * like the network page.
      */
-    @Query("SELECT * FROM awaiting_rfid_items ORDER BY sortIndex ASC, goatId ASC")
+    @Query("SELECT * FROM awaiting_rfid_items ORDER BY sortIndex ASC, goatId ASC") // mobile-guard:ignore: Room PagingSource — Room applies its own per-page LIMIT/OFFSET, so the observed read is a bounded ~20-row keyset window, never the whole table
     fun pagingSource(): PagingSource<Int, AwaitingRfidItemEntity>
 
     /** Bounded peek used to report list depth/emptiness without loading the table. */

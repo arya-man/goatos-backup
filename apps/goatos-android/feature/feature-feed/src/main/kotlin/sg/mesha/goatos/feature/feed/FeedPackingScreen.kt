@@ -40,6 +40,9 @@ import sg.mesha.goatos.core.ui.EmptyTone
 @Immutable
 data class FeedPackingRowUi(
     val grainKey: String,
+    val parkId: String,
+    val shedId: String,
+    val sessionNo: Int,
     val shedLabel: String,
     val sessionLabel: String,
     val workflow: String,
@@ -49,6 +52,7 @@ data class FeedPackingRowUi(
     val totalKg: String,
     /** "ready" | "blocked" | "empty" */
     val status: String,
+    val completed: Boolean,
 )
 
 @Immutable
@@ -84,6 +88,16 @@ sealed interface FeedPackingEvent {
 
     /** The session_no to filter to; 0 = every session. */
     data class SelectSession(val sessionNo: Int) : FeedPackingEvent
+
+    /** Tap a packing line to open its shed-session completion detail. */
+    data class OpenRow(
+        val parkId: String,
+        val shedId: String,
+        val sessionNo: Int,
+        val workflow: String,
+        val shedLabel: String,
+        val sessionLabel: String,
+    ) : FeedPackingEvent
     data object ClearFilters : FeedPackingEvent
 }
 
@@ -125,7 +139,20 @@ fun FeedPackingScreen(
             }
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
-                rows[index]?.let { row -> FeedPackingRowCard(row) }
+                rows[index]?.let { row ->
+                    FeedPackingRowCard(row) {
+                        onEvent(
+                            FeedPackingEvent.OpenRow(
+                                parkId = row.parkId,
+                                shedId = row.shedId,
+                                sessionNo = row.sessionNo,
+                                workflow = row.workflow,
+                                shedLabel = row.shedLabel,
+                                sessionLabel = row.sessionLabel,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -260,7 +287,7 @@ private fun FeedPackingSummaryCard(summary: FeedPackingSummaryUi) {
 }
 
 @Composable
-private fun FeedPackingRowCard(row: FeedPackingRowUi) {
+private fun FeedPackingRowCard(row: FeedPackingRowUi, onOpen: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -268,11 +295,13 @@ private fun FeedPackingRowCard(row: FeedPackingRowUi) {
             .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
+            .clickable(onClick = onOpen)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(text = row.shedLabel, color = MeshaColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
+            if (row.completed) FeedCompletedChip()
             FeedWorkflowChip(row.workflow)
         }
         val subtitle = buildList {

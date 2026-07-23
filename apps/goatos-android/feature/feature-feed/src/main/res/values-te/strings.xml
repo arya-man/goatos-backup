@@ -29,4 +29,11 @@
     <string name="feed_session_total">సెషన్ మొత్తం</string>
     <string name="feed_pack_total">ప్యాక్ మొత్తం</string>
     <string name="feed_blocked_label">నిరోధించబడింది</string>
+    <string name="feed_completed_badge">పూర్తయింది</string>
+    <string name="feed_complete_back">‹ వెనుకకు</string>
+    <string name="feed_complete_caption">ఐచ్ఛిక వీడియోను రికార్డ్ చేయండి, ఆపై ఈ దాణాను పూర్తయినట్లు గుర్తించండి.</string>
+    <string name="feed_complete_record_video">వీడియో రికార్డ్ చేయండి (ఐచ్ఛికం)</string>
+    <string name="feed_complete_video_recording">రికార్డ్ అవుతోంది…</string>
+    <string name="feed_complete_video_recorded">వీడియో రికార్డ్ చేయబడింది</string>
+    <string name="feed_complete_done">దాణా ఇవ్వబడింది — పూర్తయింది</string>
 </resources>

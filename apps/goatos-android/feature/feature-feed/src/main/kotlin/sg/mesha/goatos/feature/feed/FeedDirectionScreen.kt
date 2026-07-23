@@ -56,6 +56,11 @@ data class FeedItemQtyUi(
 @Immutable
 data class FeedDirectionRowUi(
     val grainKey: String,
+    // Completion identity (a whole shed-session is completed at once). Carried so a row tap can build
+    // the completion request without re-parsing grainKey.
+    val parkId: String,
+    val shedId: String,
+    val sessionNo: Int,
     val shedLabel: String,
     val shedTag: String,
     val breed: String,
@@ -69,6 +74,7 @@ data class FeedDirectionRowUi(
     val sessionTotalKg: String,
     val blocked: Boolean,
     val overduePending: Boolean,
+    val completed: Boolean,
 )
 
 /** One feed item's whole-scope total. */
@@ -128,6 +134,16 @@ sealed interface FeedDirectionEvent {
 
     /** The session_no to filter to; 0 = every session. */
     data class SelectSession(val sessionNo: Int) : FeedDirectionEvent
+
+    /** Tap a row to open its shed-session completion detail. */
+    data class OpenRow(
+        val parkId: String,
+        val shedId: String,
+        val sessionNo: Int,
+        val workflow: String,
+        val shedLabel: String,
+        val sessionLabel: String,
+    ) : FeedDirectionEvent
     data object ClearFilters : FeedDirectionEvent
 }
 
@@ -175,7 +191,20 @@ fun FeedDirectionScreen(
             }
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
-                rows[index]?.let { row -> FeedDirectionRowCard(row) }
+                rows[index]?.let { row ->
+                    FeedDirectionRowCard(row) {
+                        onEvent(
+                            FeedDirectionEvent.OpenRow(
+                                parkId = row.parkId,
+                                shedId = row.shedId,
+                                sessionNo = row.sessionNo,
+                                workflow = row.workflow,
+                                shedLabel = row.shedLabel,
+                                sessionLabel = row.sessionLabel,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -396,7 +425,7 @@ private fun FeedDirectionSummaryCard(summary: FeedDirectionSummaryUi) {
 internal fun String?.toKgOrZero(): Double = this?.trim()?.toDoubleOrNull() ?: 0.0
 
 @Composable
-private fun FeedDirectionRowCard(row: FeedDirectionRowUi) {
+private fun FeedDirectionRowCard(row: FeedDirectionRowUi, onOpen: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -404,11 +433,13 @@ private fun FeedDirectionRowCard(row: FeedDirectionRowUi) {
             .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
+            .clickable(onClick = onOpen)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(text = row.shedLabel, color = MeshaColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
+            if (row.completed) FeedCompletedChip()
             FeedWorkflowChip(row.workflow)
         }
         val subtitle = buildList {
@@ -474,6 +505,22 @@ internal fun FeedWorkflowChip(workflow: String) {
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+    )
+}
+
+/** A "Completed" pill shown on a shed-session that has a recorded feed.direction.completed. */
+@Composable
+internal fun FeedCompletedChip() {
+    Text(
+        text = stringResource(R.string.feed_completed_badge),
+        color = MeshaColors.Ok,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.W700,
+        modifier = Modifier
+            .padding(end = 6.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(MeshaColors.OkX)
             .padding(horizontal = 10.dp, vertical = 3.dp),
     )
 }

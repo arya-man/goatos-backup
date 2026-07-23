@@ -250,6 +250,21 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
 
     /**
+     * Enqueue a feed-direction shed-session completion. [groupKey] is the shed-session key so two
+     * completions of the same shed-session drain strictly oldest-first. The optional video is a
+     * SEPARATE [enqueueProofUpload], not carried here.
+     */
+    suspend fun enqueueFeedDirectionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): AppResult<String> = AppResult.Err("feed completion sync is not configured")
+
+    /**
      * Enqueues a Counts identifier PROMOTE (`POST /app/counts/goats/{goat_id}/promote-identifier`).
      * Assigns [permanentIdentifier] to the temporary-tagged goat [groupKey], atomically retiring its
      * temp tag. The caller derives a STABLE [idempotencyKey] from the goat id (never a timestamp-
@@ -604,6 +619,29 @@ class DefaultSyncRepository(
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
             ShiftingCancelPayload(shiftingEventId = groupKey, reason = reason),
+        ),
+    )
+
+    override suspend fun enqueueFeedDirectionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_DIRECTION_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            FeedDirectionCompletePayload(
+                parkId = parkId?.trim()?.ifBlank { null },
+                shedId = shedId.trim(),
+                sessionNo = sessionNo,
+                targetDate = targetDate.trim(),
+                workflow = workflow.trim(),
+            ),
         ),
     )
 
