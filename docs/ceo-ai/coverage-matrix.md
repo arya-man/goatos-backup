@@ -80,10 +80,11 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /procurement/source-entry/loads | api + view:procurement_pipeline / Cube:procurement_cost | Open loads / pipeline; API tier executor wired (procurement_source_entry_loads tool) |
 | GET /procurement/source-entry/loads/{load_id} | api + view:source_entry_health_status | Load drilldown |
 | GET /admin/roster/positions | api + view:workforce_coverage_status | Who owns which shed |
-| GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail |
+| GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail. Repo read `GetPositionByID` backs this single-seat drawer only; leadership capacity/coverage answers aggregate through `GET /admin/roster/positions` + `view:workforce_coverage_status`, never a named individual seat. |
 | GET /admin/roster/coverage | api + view:workforce_coverage_status | Coverage matrix; API tier executor wired (admin_roster_coverage tool) |
 | GET /admin/roster/leave | api + view:workforce_coverage_status | Absence exposure |
 | GET /admin/roster/leave/{absence_id} | EXCLUDED | Single-record detail |
+| POST /admin/roster/leave/{absence_id}/resolve-coverage | EXCLUDED | Single-absence coverage mutation (`ResolveLeaveCoverage`), not a leadership read. It is a vaccination-planning-effective transition: it enqueues `vaccination.leave.changed` in the same transaction so the operator-config replan consumer releases/re-plans that park's future drives. Leadership sees the RESULT through `view:workforce_coverage_status` and the vaccination operator/date surfaces, never this write. |
 | GET /admin/roster/backup-config | EXCLUDED | Config |
 | GET /admin/roster/vaccination-owner | api + view:workforce_coverage_status | Accountability mapping |
 | GET /app/roster/timetable, /app/roster/my-coverage | EXCLUDED | Self-scoped operator schedule |
