@@ -149,6 +149,14 @@ data class CountsFiltersUi(
     val selectedBreedLabel: String? = null,
     val selectedLifecycleLabel: String? = null,
     val shedFilterSupported: Boolean = false,
+    /**
+     * The FULL shed-facet list (not narrowed by park) used for display subtotals. The [sheds] field
+     * above is cascaded (narrowed to the selected park), which makes the dropdown work correctly. But
+     * the subtotal divider needs per-shed counts regardless of park selection, so it looks up each
+     * shed's subtotal in this full list, not the cascaded one. On the default all-parks view, this
+     * allows shed subtotals to render even when [sheds] is empty (because no park is selected).
+     */
+    val shedSubtotals: List<CountsFilterOptionUi> = emptyList(),
 ) {
     val hasActiveFilter: Boolean
         get() = selectedParkId.isNotBlank() || selectedShedId.isNotBlank() ||
@@ -590,17 +598,18 @@ private fun CountsFiltersSheet(
 
 /**
  * Shed group header + backend subtotal micro-bar, rendered once per shed as the paged list
- * scrolls into a new shed. [row]'s own shed subtotal comes from [CountsFiltersUi.sheds] — the
- * SAME per-shed rollup the shed filter dropdown uses — never a sum of the rows currently paged
- * into this screen.
+ * scrolls into a new shed. [row]'s own shed subtotal comes from [CountsFiltersUi.shedSubtotals] —
+ * the FULL per-shed rollup independent of park selection — never a sum of the rows currently paged
+ * into this screen. This allows subtotals to render on the all-parks view even when the cascaded
+ * [CountsFiltersUi.sheds] dropdown is empty (because no park is selected).
  */
 @Composable
 private fun CountsShedSubtotalDivider(row: CountsBreakdownRowUi, filters: CountsFiltersUi) {
-    val shedFacet = filters.sheds.firstOrNull { it.key == row.shedId }
+    val shedFacet = filters.shedSubtotals.firstOrNull { it.key == row.shedId }
     val shedLabel = row.shedLabel.ifBlank { stringResource(R.string.counts_shed_unassigned) }
     val subtotal = shedFacet?.count
-    val shareOfHerd = if (subtotal != null && filters.sheds.isNotEmpty()) {
-        val maxShed = filters.sheds.maxOf { it.count }.coerceAtLeast(1)
+    val shareOfHerd = if (subtotal != null && filters.shedSubtotals.isNotEmpty()) {
+        val maxShed = filters.shedSubtotals.maxOf { it.count }.coerceAtLeast(1)
         (subtotal.toFloat() / maxShed).coerceIn(0f, 1f)
     } else {
         null

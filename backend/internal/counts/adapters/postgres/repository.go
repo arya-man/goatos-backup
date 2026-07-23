@@ -2750,7 +2750,22 @@ SELECT * FROM (
 //	scope        = tenant_id plus lifecycle_status only, same as its sibling branches.
 const countsBreakdownFacetsSQL = `
 SELECT 'lifecycle' AS dimension, g.lifecycle_status AS series_key,
-       g.lifecycle_status AS series_label, count(*) AS series_count,
+       CASE g.lifecycle_status
+         WHEN 'alive' THEN 'Live'
+         WHEN 'sick' THEN 'Sick'
+         WHEN 'under_treatment' THEN 'Under Treatment'
+         WHEN 'quarantine' THEN 'Quarantine'
+         WHEN 'icu' THEN 'ICU'
+         WHEN 'dead' THEN 'Dead'
+         WHEN 'sold' THEN 'Sold'
+         WHEN 'culled' THEN 'Culled'
+         WHEN 'transferred' THEN 'Transferred'
+         WHEN 'lost' THEN 'Lost'
+         WHEN 'merged' THEN 'Merged'
+         WHEN 'inactive' THEN 'Inactive'
+         ELSE initcap(g.lifecycle_status)
+       END AS series_label,
+       count(*) AS series_count,
        ''::text AS park_key
 FROM goats g
 WHERE g.tenant_id = $1::uuid

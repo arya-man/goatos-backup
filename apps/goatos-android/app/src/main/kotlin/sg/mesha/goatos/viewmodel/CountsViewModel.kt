@@ -320,9 +320,17 @@ class CountsViewModel @Inject constructor(
         val parkOptions = parks.map { CountsFilterOptionUi(it.key, it.label, it.count) }
         val breedOptions = breeds.map { CountsFilterOptionUi(it.key, it.label, it.count) }
         val lifecycleOptions = lifecycle.map { CountsFilterOptionUi(it.key, it.label, it.count) }
+        // The shed dropdown is cascaded to the selected park for correctness: shed names repeat
+        // across parks, so a flat list is ambiguous. Selecting a park resets the shed, and a shed
+        // id left over from another park would filter to the wrong cohort.
         val shedOptions = sheds
             .filter { it.parkId.isNotBlank() && it.parkId == selection.parkId }
             .map { CountsFilterOptionUi(it.key, it.label, it.count) }
+        // The shed subtotals are the FULL shed list, not narrowed by park. The subtotal divider
+        // renders a shed's head count regardless of the current park selection, so it looks up from
+        // this full list. On the all-parks view, this allows subtotals to render even when
+        // shedOptions is empty (because no park is selected).
+        val shedSubtotals = sheds.map { CountsFilterOptionUi(it.key, it.label, it.count) }
         return CountsFiltersUi(
             parks = parkOptions,
             sheds = shedOptions,
@@ -341,6 +349,7 @@ class CountsViewModel @Inject constructor(
             // Supported only once the backend ships sheds WITH park attribution — without it the
             // cascade cannot be built and the dropdown stays disabled rather than ambiguous.
             shedFilterSupported = sheds.any { it.parkId.isNotBlank() },
+            shedSubtotals = shedSubtotals,
         )
     }
 

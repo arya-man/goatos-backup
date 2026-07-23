@@ -502,6 +502,60 @@ func TestCountsBreakdownFacetsIgnoreActiveDimensionFilters(t *testing.T) {
 	}
 }
 
+// Lifecycle facet labels must render human-readable text, not raw DB tokens. The series_key stays
+// as the raw status (for filtering) while series_label carries the display label.
+func TestCountsBreakdownLifecycleFacetRendersHumanLabels(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	// Seed every lifecycle status and assert each has a human-readable label.
+	statuses := []struct {
+		status, expectedLabel string
+	}{
+		{"alive", "Live"},
+		{"sick", "Sick"},
+		{"under_treatment", "Under Treatment"},
+		{"quarantine", "Quarantine"},
+		{"icu", "ICU"},
+		{"dead", "Dead"},
+		{"sold", "Sold"},
+		{"culled", "Culled"},
+		{"transferred", "Transferred"},
+		{"lost", "Lost"},
+		{"inactive", "Inactive"},
+	}
+	for i, s := range statuses {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", s.status, "K1", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	// Get the facets with no filter applied — should include all statuses and all labels.
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	if len(got.Facets.Lifecycle) != len(statuses) {
+		t.Fatalf("lifecycle facets=%d, want %d", len(got.Facets.Lifecycle), len(statuses))
+	}
+
+	for _, s := range statuses {
+		found := false
+		for _, facet := range got.Facets.Lifecycle {
+			if facet.Key == s.status {
+				found = true
+				if facet.Label != s.expectedLabel {
+					t.Errorf("status %s: label=%q, want %q", s.status, facet.Label, s.expectedLabel)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("status %s not found in facets: %+v", s.status, got.Facets.Lifecycle)
+		}
+	}
+}
+
 // The lifecycle facet is the vocabulary behind the census lifecycle filter (Live/Sold/Culled/
 // Dead/Transferred). It must report every distinct lifecycle_status present in the WHOLE tenant
 // herd, independent of the currently-selected lifecycle filter — otherwise selecting "Sold" would
