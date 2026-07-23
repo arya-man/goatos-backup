@@ -15,6 +15,8 @@ import {
   isDatedVaccination,
   parseCSV,
   parseDate,
+  HEALTH_CASE_LOG_NORMALIZATION,
+  CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING,
   SHED_PARTITION_NAME_PATTERN_CONTRACT,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
@@ -63,6 +65,7 @@ const FULL_ACCESS_GRANT_ROLE = "ceo_internal";
 const FULL_ACCESS_WORKFORCE_HINT = "cxo";
 const DERIVED_DRIVE_ASSIGNMENT_CONTRACT = "vaccination_drive_assignments are generated after validation from animal eligibility plus operator timetable/leave; source bundles must not include manual drive-assignment rows";
 const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+const HEALTH_CASE_LOG_CONTRACT = `health_status case-log values normalize as Open->${HEALTH_CASE_LOG_NORMALIZATION.Open}, Extended->${HEALTH_CASE_LOG_NORMALIZATION.Extended}, Closed->${HEALTH_CASE_LOG_NORMALIZATION.Closed}, Fine->${HEALTH_CASE_LOG_NORMALIZATION.Fine}; Closed/Fine are resolved/healthy and must not become recovering`;
 // Vaccination proof grain is validated through the committed fixture manifest:
 // proof_mode=shed_level_video, subject_scope=shed, 1..5 shed videos, camera +
 // gallery allowed. Per-goat scan timestamps remain required runtime facts and
@@ -157,6 +160,13 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   if (!arraysEqual(managers[0] ?? [], MANAGER_HEADER)) schemaProblems.push("shed-manager-mapping.jul11-vaccination.csv header/order");
   if (!arraysEqual(timetable[0] ?? [], TIMETABLE_HEADER)) schemaProblems.push("timetable-goats-team-v1.json header/order");
   checks.push(makeCheck("source_schema", schemaProblems.length, "Every consumed header, vaccine/dose column, and column order must match the reviewed source schema.", "Stop and update the policy, validator, transform, failing tests, and docs together; never guess what a moved/new column means.", schemaProblems));
+  checks.push(makeCheck(
+    "health_case_log_normalization_contract",
+    CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING ? 0 : 1,
+    HEALTH_CASE_LOG_CONTRACT,
+    "Keep source case-log vocabulary separate from canonical clinical state: Closed is resolved/healthy, never recovering or deferred.",
+    [],
+  ));
 
   const goatByKey = new Map();
   const goatAliases = new Map();

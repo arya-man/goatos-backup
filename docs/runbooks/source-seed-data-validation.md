@@ -179,6 +179,10 @@ and bounded row-number examples that do not print staff PII:
   finish cutoff;
 - vaccination before DOB or before the published minimum age;
 - delivery, abortion, health, weight, or lifecycle events before DOB;
+- health case-log normalization: `Open -> sick`, `Extended -> under_treatment`,
+  `Closed -> healthy`, and `Fine -> healthy`. `Closed` is resolved history and
+  `Fine` is explicit healthy status; neither may become `recovering` or any
+  other defer state;
 - death/sale before DOB and vaccination after death/sale;
 - mother references that are unresolved, self-referential, not an older female,
   or only ambiguous legacy identifiers;
@@ -221,6 +225,10 @@ transform may repair surrounding mock metadata but must never change a dated,
   uses accepted same-vaccine history, entry date, or adult catch-up as designed.
 - If vaccination occurs after a mock death/sale, keep the vaccination and remove
   the contradictory terminal fact, restoring the animal to Alive.
+- Preserve health case-log semantics. `Closed` means the source case is
+  resolved and normalizes to `healthy`; `Fine` is explicit healthy status. Only
+  explicit active case states such as `Open` or `Extended` may produce clinical
+  defer states.
 - Synchronize vaccination-row location/demographic copies from the corrected
   animal row; do not touch vaccination cells.
 - Keep only reviewed, resolvable maternal links. Blank ambiguous mock links.

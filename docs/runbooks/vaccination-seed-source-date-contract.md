@@ -265,6 +265,10 @@ Example with backend business date `2026-07-11`:
   every completed and future/open date even when goat-level rows exceed the
   event page limit. Completed-only dates use the purple history color, while
   dates containing both history and open work use the mixed state.
+- Health case-log source vocabulary is normalized before scheduling decisions:
+  `Open -> sick`, `Extended -> under_treatment`, `Closed -> healthy`, and
+  `Fine -> healthy`. `Closed` means resolved history and `Fine` means explicit
+  healthy status; neither may defer an otherwise eligible animal.
 - `vaccination_capacity_config` owns session splitting and needs-review
   classification. Changing cap, buffer, scope, or overflow policy requires
   regenerating or re-reading future planning state against the new config.
@@ -280,7 +284,9 @@ respect the full current rule and operations model:
 - active `vaccination.matrix` scope and rule availability;
 - species, breed, sex, DOB/age, stage/tag, current park and shed;
 - lifecycle state, including dead, sold, missing, and active filtering;
-- health defer states such as sick, ICU, and quarantine;
+- health defer states such as sick, ICU, quarantine, and explicit
+  under-treatment states; resolved `Closed` and explicit `Fine` source cases
+  are not health defers;
 - pregnancy and lactation holds;
 - procurement warm-up and holding-park trust rules;
 - minimum dose gaps, cross-vaccine gaps, and latest safe date;

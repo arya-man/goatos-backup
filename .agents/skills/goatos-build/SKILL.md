@@ -322,6 +322,10 @@ one product; this skill is the navigation layer.
   validator, adversarial self-test, transform, fixture hashes,
   `docs/runbooks/source-seed-data-validation.md`, source-date contract, and
   anti-pattern docs in the same patch; the coupling guard must fail otherwise.
+  For vaccination `health_status` source data, keep case-log vocabulary separate
+  from clinical state: `Open -> sick`, `Extended -> under_treatment`,
+  `Closed -> healthy`, `Fine -> healthy`. Never seed `Closed` or `Fine` as
+  `recovering` or as a defer.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the
