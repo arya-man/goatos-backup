@@ -522,6 +522,24 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       const secondaryFallbackOpCode = String(assignmentConfig?.secondary_fallback_operator_code || "").trim();
       if (secondaryFallbackOpCode && !operatorCodes.has(secondaryFallbackOpCode)) pushSample(operatorRosterProblems, `secondary_fallback_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${secondaryFallbackOpCode}`);
       if (assignmentConfig && !hasPMShift) pushSample(operatorRosterProblems, "default_operator_assignment requires one pm shift operator for default-off fallback identity");
+      if (assignmentConfig && Number.isInteger(activeOpsPerDay) && Number.isInteger(cap)) {
+        const examples = Array.isArray(contract?.weekly_capacity_examples) ? contract.weekly_capacity_examples : [];
+        for (const example of examples) {
+          const label = example?.weekday || example?.date || "weekly_capacity_examples row";
+          const availableCount = Array.isArray(example?.available_operators) ? example.available_operators.length : null;
+          const expectedRawCapacity = availableCount == null ? null : availableCount * cap;
+          if (expectedRawCapacity != null && example?.total_capacity_animals !== expectedRawCapacity) {
+            pushSample(operatorRosterProblems, `${label}: total_capacity_animals must equal available_operators.length * default_animals_per_day (${expectedRawCapacity}), got ${example?.total_capacity_animals}`);
+          }
+          if (example?.drive_assigned_operator_count !== activeOpsPerDay) {
+            pushSample(operatorRosterProblems, `${label}: drive_assigned_operator_count must equal default_operator_assignment.active_operators_per_day (${activeOpsPerDay}), got ${example?.drive_assigned_operator_count}`);
+          }
+          const expectedDriveCapacity = activeOpsPerDay * cap;
+          if (example?.drive_capacity_animals !== expectedDriveCapacity) {
+            pushSample(operatorRosterProblems, `${label}: drive_capacity_animals must equal active_operators_per_day * default_animals_per_day (${expectedDriveCapacity}), got ${example?.drive_capacity_animals}`);
+          }
+        }
+      }
     } catch (err) {
       pushSample(operatorRosterProblems, `unparseable cpt-operator-roster.json: ${err.message}`);
     }

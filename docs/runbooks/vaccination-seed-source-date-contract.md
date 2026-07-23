@@ -108,7 +108,11 @@ ET+TT-only on `2026-07-24`, and PPR moved to `2026-08-07`. That produces ET+TT
 rows of 200 animals on `2026-07-24` and 124 animals on `2026-07-25`, plus PPR
 rows of 200 animals on `2026-08-07` and 124 animals on `2026-08-08`. Darshan is
 available Friday/Saturday and off Sunday; dose counts must not inflate animal
-capacity.
+capacity. The roster's `weekly_capacity_examples.total_capacity_animals` is raw
+HRMS availability math (`available_operators.length * 200`, so 2 available
+operators = 400 and 3 available operators = 600). It is not the final drive
+assignment cap; with `active_operators_per_day=1`, the final scheduled drive cap
+is 200 unique animals/day.
 
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement

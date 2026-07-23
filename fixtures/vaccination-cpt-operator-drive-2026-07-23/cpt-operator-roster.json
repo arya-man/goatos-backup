@@ -105,25 +105,33 @@
       "weekday": "thursday",
       "date": "2026-07-23",
       "available_operators": ["Amit Kumar", "Darshan Talwar", "Sagar Mahoor"],
-      "total_capacity_animals": 600
+      "total_capacity_animals": 600,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
     },
     {
       "weekday": "friday",
       "available_operators": ["Darshan Talwar", "Sagar Mahoor"],
       "operator_off": ["Amit Kumar"],
-      "total_capacity_animals": 400
+      "total_capacity_animals": 400,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
     },
     {
       "weekday": "saturday",
       "available_operators": ["Amit Kumar", "Darshan Talwar"],
       "operator_off": ["Sagar Mahoor"],
-      "total_capacity_animals": 400
+      "total_capacity_animals": 400,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
     },
     {
       "weekday": "sunday",
       "available_operators": ["Amit Kumar", "Sagar Mahoor"],
       "operator_off": ["Darshan Talwar"],
-      "total_capacity_animals": 400
+      "total_capacity_animals": 400,
+      "drive_assigned_operator_count": 1,
+      "drive_capacity_animals": 200
     }
   ]
 }
