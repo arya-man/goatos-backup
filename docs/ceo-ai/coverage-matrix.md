@@ -277,3 +277,17 @@ scoping fix are internal vaccination sweeper/planner correctness fixes. They add
 new leadership KPI, table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox
 tool — the leadership assistant read surface is unchanged. Explicit documented
 exclusion; no coverage-matrix mapping required.
+
+## Explicit exclusion: counts lifecycle facet display-label + shed-subtotal follow-up (2026-07-23)
+
+Follow-up fixing two P2 review findings on the already-covered
+`GET /counts/breakdown` read API. (1) The lifecycle facet now maps raw
+`lifecycle_status` tokens to human display labels (alive→"Live", sold→"Sold",
+dead→"Dead", culled→"Culled", etc.) in `series_label` while `series_key` stays
+the raw token — a presentation-only change to the existing facet contract.
+(2) The Android census carries the full (park-unnarrowed) shed facet in a
+`shedSubtotals` display field so the per-shed subtotal renders on the default
+all-parks view. Neither adds a new table, read API route, Cube metric,
+`ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read surface,
+read-only SQL fallback, and tool catalog are unchanged. Explicit documented
+exclusion — no coverage-matrix mapping required.
