@@ -258,6 +258,19 @@ func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t 
 	}
 }
 
+func TestDriveLevelOverdueUsesBusinessDate(t *testing.T) {
+	businessDatePredicate := "(due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date"
+	if !strings.Contains(calendarCanonicalEventsCTE, businessDatePredicate) {
+		t.Fatalf("drive grouping must classify overdue by India business date, not by same-day timestamp")
+	}
+	if strings.Contains(calendarCanonicalEventsCTE, "status IN ('scheduled', 'due', 'overdue') AND due_at < now()") {
+		t.Fatalf("park drive grouping must not make a same-business-day drive overdue after midnight")
+	}
+	if strings.Contains(calendarCanonicalEventsCTE, "WHEN grouped.due_at < now()") {
+		t.Fatalf("batch drive severity must not warn solely because today's midnight timestamp is in the past")
+	}
+}
+
 // TestObligationBatchPlannedDateTimezoneIndependent is the R50-012 DB proof. planned_date is a
 // bare DATE column; the canonical read must resolve it to an instant via an explicit
 // `(planned_date::timestamp AT TIME ZONE 'Asia/Kolkata')` conversion, never a bare

@@ -311,14 +311,18 @@ catchup_drive_events AS (
       max(COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days))) AS window_end,
       CASE
         WHEN bool_or(oi.status = 'missed') THEN 'missed'
-        WHEN bool_or(oi.status IN ('scheduled', 'due') AND oi.due_at < now()) THEN 'overdue'
+        WHEN bool_or(
+          oi.status IN ('scheduled', 'due')
+          AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+        ) THEN 'overdue'
         WHEN bool_or(oi.status = 'in_progress') THEN 'in_progress'
         WHEN bool_or(oi.status = 'deferred') THEN 'deferred'
         WHEN bool_or(oi.status = 'due') THEN 'due'
         ELSE 'scheduled'
       END AS status,
       CASE
-        WHEN bool_or(oi.status = 'missed') OR bool_or(oi.due_at < now()) THEN 'critical'
+        WHEN bool_or(oi.status = 'missed')
+          OR bool_or((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date) THEN 'critical'
         WHEN min(oi.due_at) <= now() + interval '24 hours' THEN 'warning'
         ELSE 'info'
       END AS severity
@@ -403,7 +407,8 @@ batch_events AS (
       ELSE grouped.batch_status
     END AS status,
     CASE
-      WHEN grouped.due_at < now() AND grouped.batch_status <> 'completed' THEN 'warning'
+      WHEN grouped.batch_status <> 'completed'
+        AND (grouped.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date THEN 'warning'
       ELSE 'info'
     END AS severity,
     grouped.due_at,
@@ -682,7 +687,10 @@ park_drive_groups AS (
     bool_or(status = 'in_progress') AS has_in_progress,
     bool_or(status = 'deferred') AS has_deferred,
     bool_or(status IN ('proof_pending', 'verification_pending', 'rejected', 'rework_due')) AS has_review,
-    bool_or(status IN ('scheduled', 'due', 'overdue') AND due_at < now()) AS has_overdue,
+    bool_or(
+      status IN ('scheduled', 'due', 'overdue')
+      AND (due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+    ) AS has_overdue,
     jsonb_agg(event_id ORDER BY event_id) AS source_event_ids,
     count(DISTINCT shed_id) FILTER (WHERE shed_id IS NOT NULL)::int AS shed_count,
     NULLIF(min(shed_id::text) FILTER (WHERE shed_id IS NOT NULL), '')::uuid AS primary_shed_id,
