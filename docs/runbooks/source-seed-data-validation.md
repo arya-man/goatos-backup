@@ -74,6 +74,19 @@ The reviewed CPT-only rehearsal packet is committed at:
 fixtures/vaccination-cpt-operator-drive-2026-07-23/
 ```
 
+Before reseeding this CPT packet, read and follow its exhaustive local DB
+contract:
+
+```text
+fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md
+```
+
+That contract is authoritative for this rehearsal's local DB proof. It covers
+the required source files, HRMS roster shape, all generated vaccine-family
+counts to report, final ET+TT/PPR schedule, SQL validation queries, and
+automatic failure cases. Do not replace it with a throwaway roster override or a
+post-cascade mutated DB snapshot.
+
 It contains the exact supplied source files:
 
 - `raw/CPT-Adult-goats.json`
