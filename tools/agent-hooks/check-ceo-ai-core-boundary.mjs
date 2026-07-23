@@ -53,8 +53,16 @@ const SQL_RES = [
 
 // Client-layer coupling to the assistant surface.
 const CLIENT_RES = [
-  /["'`]\/(?:api\/)?ceo-ai(?:\/|["'`])/gi, // "/api/ceo-ai/..." or "/ceo-ai/..."
-  /\b(?:import|from|require)\b[^\n;]*['"][^'"\n]*\/ceo-ai(?:[-/]|['"`])/gi, // "@/.../ceo-ai-chat" | ".../features/ceo-ai/..." | barrel "@/features/ceo-ai"
+  // `/api/ceo-ai` is an unambiguous assistant route: the `api/ceo-ai` sequence
+  // never appears in a feature import path like `@/features/ceo-ai`. Matches
+  // anywhere in a string/template, incl. `${base}/api/ceo-ai/ask`.
+  /\/api\/ceo-ai(?:\/|["'`])/gi,
+  // A bare `/ceo-ai/` route only at a string/template boundary (preceded by a
+  // quote, backtick, or `}` from `${...}`) — so `features/ceo-ai/` (a module
+  // path, caught by the import regex instead) does NOT false-positive.
+  /(?<=["'`}])\/ceo-ai(?:\/|["'`])/gi,
+  // Assistant client-module import: "@/.../ceo-ai-chat" | ".../features/ceo-ai/..." | barrel "@/features/ceo-ai"
+  /\b(?:import|from|require)\b[^\n;]*['"][^'"\n]*\/ceo-ai(?:[-/]|['"`])/gi,
 ];
 
 const IGNORE_RE =
@@ -210,6 +218,7 @@ function runSelfTest() {
     // --- client kind ---
     { name: "client_api_route", kind: "client", pass: false, src: 'const r = await fetch("/api/ceo-ai/ask", opts);' },
     { name: "client_bare_route", kind: "client", pass: false, src: 'forwardStream("/ceo-ai/starters", init)' },
+    { name: "client_template_route", kind: "client", pass: false, src: "const url = `${base}/api/ceo-ai/ask`;" },
     { name: "client_import", kind: "client", pass: false, src: 'import { CEOAIChat } from "@/components/ceo-ai-chat";' },
     { name: "client_feature_import", kind: "client", pass: false, src: 'import x from "@/features/ceo-ai/panel";' },
     { name: "client_barrel_import", kind: "client", pass: false, src: 'import { CeoAiPanel } from "@/features/ceo-ai";' },
