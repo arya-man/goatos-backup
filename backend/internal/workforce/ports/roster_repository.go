@@ -35,16 +35,18 @@ type UpdatePositionCommand struct {
 	RowVersion     int
 	IdempotencyKey string
 
-	SetPositionTier bool
-	PositionTier    string
-	SetBackupGroup  bool
-	BackupGroupCode string
-	SetWeekOff      bool
-	WeekOffWeekday  string
-	SetValidTo      bool
-	ValidTo         string
-	SetStatus       bool
-	Status          string
+	SetPositionTier              bool
+	PositionTier                 string
+	SetBackupGroup               bool
+	BackupGroupCode              string
+	SetWeekOff                   bool
+	WeekOffWeekday               string
+	SetVaccinationDailyAnimalCap bool
+	VaccinationDailyAnimalCap    *int
+	SetValidTo                   bool
+	ValidTo                      string
+	SetStatus                    bool
+	Status                       string
 }
 
 type ApplyLeaveCommand struct {

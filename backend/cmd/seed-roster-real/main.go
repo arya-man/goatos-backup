@@ -137,6 +137,7 @@ type rosterAssignment struct {
 	unresolved     bool   // true if confidence was UNRESOLVED
 	designation    string // Jun-26 Designation (for diagnostics/notes only)
 	weekOffWeekday string
+	vaccinationCap *int
 }
 
 type leaveWindow struct {
@@ -558,15 +559,19 @@ func loadRosterWeekOffs(sourcePath string) (map[string]string, error) {
 // without disturbing the members, animals, vaccination history, or the generic
 // jun-26 model used by every other center/source.
 type operatorRosterOperator struct {
-	Code        string `json:"code"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
-	Tier        string `json:"tier"`
-	WeekOff     string `json:"week_off"`
+	Code            string `json:"code"`
+	DisplayName     string `json:"display_name"`
+	Role            string `json:"role"`
+	Tier            string `json:"tier"`
+	WeekOff         string `json:"week_off"`
+	AnimalCapPerDay *int   `json:"animal_cap_per_day"`
 }
 
 type operatorRosterContract struct {
-	Schema      string `json:"schema"`
+	Schema           string `json:"schema"`
+	OperatorCapacity struct {
+		DefaultAnimalsPerDay *int `json:"default_animals_per_day"`
+	} `json:"operator_capacity"`
 	SourceScope struct {
 		ParkCode string `json:"park_code"`
 	} `json:"source_scope"`
@@ -641,6 +646,14 @@ func applyOperatorRosterOverlay(contract *operatorRosterContract, assignments []
 		}
 		if wk := normalizeWeekday(op.WeekOff); wk != "" {
 			a.weekOffWeekday = wk
+		}
+		cap := contract.OperatorCapacity.DefaultAnimalsPerDay
+		if op.AnimalCapPerDay != nil {
+			cap = op.AnimalCapPerDay
+		}
+		if cap != nil && *cap > 0 {
+			v := *cap
+			a.vaccinationCap = &v
 		}
 		matched[operatorNameKey(a.jun26Name)] = true
 	}
@@ -1116,6 +1129,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		center         string
 		def            positionDef
 		weekOffWeekday string
+		vaccinationCap *int
 	}
 
 	for _, a := range assignments {
@@ -1133,7 +1147,8 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 			center         string
 			def            positionDef
 			weekOffWeekday string
-		}{posID: posID, mID: mID, center: a.center, def: a.position, weekOffWeekday: a.weekOffWeekday})
+			vaccinationCap *int
+		}{posID: posID, mID: mID, center: a.center, def: a.position, weekOffWeekday: a.weekOffWeekday, vaccinationCap: a.vaccinationCap})
 	}
 
 	if err := batch(ctx, tx, positionRows, 200, func(b *pgx.Batch, p struct {
@@ -1142,6 +1157,7 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 		center         string
 		def            positionDef
 		weekOffWeekday string
+		vaccinationCap *int
 	}) {
 		var backupGroup *string
 		if p.def.backupGroup != "" {
@@ -1156,8 +1172,8 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 
 		b.Queue(`
 			INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
-				position_code, position_tier, is_backup_slot, backup_group_code, week_off_weekday, status, valid_from, updated_at)
-			VALUES ($1,$2,$3,'center',$4,$5,$6,$7,$8,$9,'active',now(),now())
+				position_code, position_tier, is_backup_slot, backup_group_code, week_off_weekday, vaccination_daily_animal_cap, status, valid_from, updated_at)
+			VALUES ($1,$2,$3,'center',$4,$5,$6,$7,$8,$9,$10,'active',now(),now())
 			ON CONFLICT (position_id) DO UPDATE SET
 				workforce_member_id = EXCLUDED.workforce_member_id,
 				scope_type = EXCLUDED.scope_type,
@@ -1167,10 +1183,11 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 				is_backup_slot = EXCLUDED.is_backup_slot,
 				backup_group_code = EXCLUDED.backup_group_code,
 				week_off_weekday = EXCLUDED.week_off_weekday,
+				vaccination_daily_animal_cap = EXCLUDED.vaccination_daily_animal_cap,
 				status = EXCLUDED.status,
 				valid_to = NULL,
 				updated_at = now()`,
-			p.posID, tenantID, p.mID, centerLocationID[p.center], p.def.code, p.def.tier, p.def.isBackupSlot, backupGroup, weekOff)
+			p.posID, tenantID, p.mID, centerLocationID[p.center], p.def.code, p.def.tier, p.def.isBackupSlot, backupGroup, weekOff, p.vaccinationCap)
 	}); err != nil {
 		return ist, fmt.Errorf("insert positions: %w", err)
 	}

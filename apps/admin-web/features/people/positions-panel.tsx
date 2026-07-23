@@ -3,7 +3,7 @@
 import { getAdminApi } from '@/lib/api/client';
 import { optionalCopy, type AdminUiPageContract } from '@/lib/admin-ui-contract';
 import type { AdminApiComponents } from '@goatos/api-client';
-import { CalendarDays, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
+import { CalendarDays, Save, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 type BasePosition = AdminApiComponents['schemas']['Position'];
@@ -51,6 +51,9 @@ function weekOff(pos: Position): string {
 export function PositionsPanel({ pageContract }: PositionsPanelProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [operatorCap, setOperatorCap] = useState(DEFAULT_OPERATOR_CAP);
+  const [draftCaps, setDraftCaps] = useState<Record<string, string>>({});
+  const [savingCap, setSavingCap] = useState<string | null>(null);
+  const [capError, setCapError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,11 +89,42 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
 
   const operators = roster.filter((pos) => !isDirector(pos));
   const directors = roster.filter(isDirector);
-  const totalCapacity = operators.length * operatorCap;
+  const capForPosition = (pos: Position) => pos.vaccination_daily_animal_cap ?? operatorCap;
+  const totalCapacity = operators.reduce((sum, pos) => sum + capForPosition(pos), 0);
+  const customCapCount = operators.filter((pos) => pos.vaccination_daily_animal_cap != null).length;
   const title = pageContract?.tables?.find((t) => t.id === 'positions')?.title ?? 'Vaccination Operators';
   const subtitle =
     optionalCopy(pageContract, 'people.operator_roster.subtitle') ??
     'Operator availability drives vaccination planning. Directors monitor; they do not add field capacity unless explicitly assigned.';
+
+  async function saveOperatorCap(pos: Position) {
+    const raw = (draftCaps[pos.position_id] ?? String(capForPosition(pos))).trim();
+    const nextCap = Number(raw);
+    if (!Number.isInteger(nextCap) || nextCap < 1 || nextCap > 100000) {
+      setCapError('Drive cap must be a whole number between 1 and 100000 animals/day.');
+      return;
+    }
+    setSavingCap(pos.position_id);
+    setCapError(null);
+    try {
+      const api = getAdminApi();
+      const response = await api.updateStaffPosition(pos.position_id, {
+        row_version: pos.row_version,
+        vaccination_daily_animal_cap: nextCap,
+      });
+      const updated = response.data.position as Position;
+      setPositions((current) => current.map((item) => (item.position_id === updated.position_id ? { ...item, ...updated } : item)));
+      setDraftCaps((current) => {
+        const next = { ...current };
+        delete next[pos.position_id];
+        return next;
+      });
+    } catch (err) {
+      setCapError(err instanceof Error ? err.message : 'Failed to save operator cap');
+    } finally {
+      setSavingCap(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -132,7 +166,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
           <span className="acc" style={{ background: 'var(--amber)' }}></span>
           <div className="lab"><Stethoscope className="ic" aria-hidden="true" />Cap / operator</div>
           <div className="val">{operatorCap}</div>
-          <div className="dl">animals per day</div>
+          <div className="dl">default · {customCapCount} custom</div>
         </div>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--brand)' }}></span>
@@ -156,6 +190,12 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
           <span className="pill b">operator cap · timetable · role</span>
         </div>
         <div className="bd" style={{ padding: 0 }}>
+          {capError ? (
+            <div className="note" style={{ color: 'var(--danger)', margin: '12px 14px' }}>
+              <TriangleAlert className="ic" style={{ marginRight: 8 }} aria-hidden="true" />
+              {capError}
+            </div>
+          ) : null}
           <table>
             <thead>
               <tr>
@@ -177,13 +217,43 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
               ) : (
                 roster.map((pos) => {
                   const director = isDirector(pos);
+                  const cap = capForPosition(pos);
+                  const draft = draftCaps[pos.position_id] ?? String(cap);
+                  const changed = Number(draft) !== cap;
                   return (
                     <tr key={pos.position_id}>
                       <td><b>{personName(pos)}</b></td>
                       <td>{roleLabel(pos)}</td>
                       <td>{pos.center_label || '—'}</td>
                       <td>{director ? '—' : weekOff(pos)}</td>
-                      <td>{director ? 'monitor only' : `${operatorCap} animals/day`}</td>
+                      <td>
+                        {director ? (
+                          'monitor only'
+                        ) : (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <input
+                              aria-label={`${personName(pos)} drive cap`}
+                              inputMode="numeric"
+                              min={1}
+                              max={100000}
+                              style={{ width: 96 }}
+                              type="number"
+                              value={draft}
+                              onChange={(event) => setDraftCaps((current) => ({ ...current, [pos.position_id]: event.target.value }))}
+                            />
+                            <span className="tag t-teal">animals/day</span>
+                            <button
+                              className="btn"
+                              disabled={!changed || savingCap === pos.position_id}
+                              onClick={() => void saveOperatorCap(pos)}
+                              type="button"
+                            >
+                              <Save className="ic" aria-hidden="true" />
+                              {savingCap === pos.position_id ? 'Saving' : 'Save'}
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td><span className="tag t-ok">{pos.status}</span></td>
                     </tr>
                   );
@@ -192,7 +262,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
             </tbody>
           </table>
           <div className="note" style={{ margin: '12px 14px' }}>
-            Weekly off and leave remove an operator from that date&apos;s drive capacity. Chandrakant/director roles monitor across parks and do not count as field capacity unless explicitly assigned an execution role.
+            HRMS drive cap is the scheduler source of truth for vaccination animal/day capacity. Weekly off and leave remove an operator from that date&apos;s drive capacity.
           </div>
         </div>
       </div>

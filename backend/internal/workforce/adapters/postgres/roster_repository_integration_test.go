@@ -371,6 +371,26 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	if updated.Position.BackupGroupCode == nil || *updated.Position.BackupGroupCode != backupGroup {
 		t.Fatalf("backup_group_code = %v, want unchanged %q", updated.Position.BackupGroupCode, backupGroup)
 	}
+	operatorCap := 125
+	capKey := "idem-update-cap-001"
+	capUpdated, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
+		RowVersion: 2, VaccinationDailyAnimalCap: &operatorCap, IdempotencyKey: &capKey,
+	}, "t-update-cap")
+	if err != nil {
+		t.Fatalf("UpdatePosition vaccination_daily_animal_cap: %v", err)
+	}
+	if capUpdated.Position.VaccinationDailyAnimalCap == nil || *capUpdated.Position.VaccinationDailyAnimalCap != operatorCap {
+		t.Fatalf("vaccination_daily_animal_cap = %v, want %d", capUpdated.Position.VaccinationDailyAnimalCap, operatorCap)
+	}
+	capReplay, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
+		RowVersion: 2, VaccinationDailyAnimalCap: &operatorCap, IdempotencyKey: &capKey,
+	}, "t-update-cap-replay")
+	if err != nil {
+		t.Fatalf("UpdatePosition cap replay: %v", err)
+	}
+	if capReplay.Position.RowVersion != capUpdated.Position.RowVersion {
+		t.Fatalf("cap replay row_version = %d, want %d", capReplay.Position.RowVersion, capUpdated.Position.RowVersion)
+	}
 	if updated.Position.RowVersion != 2 {
 		t.Fatalf("row_version = %d, want 2", updated.Position.RowVersion)
 	}
@@ -414,7 +434,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	// Clear the week-off (non-nil empty pointer) at the current row_version.
 	clear := ""
 	cleared, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
-		RowVersion: 2, WeekOffWeekday: &clear,
+		RowVersion: capUpdated.Position.RowVersion, WeekOffWeekday: &clear,
 	}, "t-update-clear")
 	if err != nil {
 		t.Fatalf("UpdatePosition clear: %v", err)

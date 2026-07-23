@@ -1920,6 +1920,7 @@ export type CoverageListResponse = {
   trace_id: string;
 };
 export type StaffPositionsQuery = NonNullable<AdminApiPaths["/admin/roster/positions"]["get"]["parameters"]["query"]>;
+export type UpdatePositionRequest = AdminApiComponents["schemas"]["UpdatePositionRequest"];
 export type BackupConfigQuery = NonNullable<AdminApiPaths["/admin/roster/backup-config"]["get"]["parameters"]["query"]>;
 export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"]["get"]["parameters"]["query"]>;
 
@@ -1947,6 +1948,25 @@ export async function getStaffPositionProfile(
   const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/roster/positions/${encodeURIComponent(positionId)}` as keyof AdminApiPaths & string;
   return request(() => client.request<PositionProfileResponse>(path, { cache: "no-store" }));
+}
+
+export async function updateStaffPosition(
+  positionId: string,
+  body: UpdatePositionRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminApiComponents["schemas"]["PositionResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/roster/positions/${encodeURIComponent(positionId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["PositionResponse"]>(path, {
+      method: "PATCH",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
 }
 
 export async function listBackupConfig(

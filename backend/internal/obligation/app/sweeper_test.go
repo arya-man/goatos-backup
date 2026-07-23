@@ -187,6 +187,44 @@ func TestDistributeVaccinationDriveAssignmentsSplitsOversizedPartitionWithPlanne
 	}
 }
 
+func TestDistributeVaccinationDriveAssignmentsHonorsPerOperatorCaps(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		operators:     []string{"op-low", "op-high"},
+		operatorCaps:  map[string]int32{"op-low": 1, "op-high": 3},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	assignments := []domain.DriveAssignment{{
+		BatchID:        "batch-1",
+		PlannedDate:    planned,
+		ParkID:         "park-1",
+		ShedID:         strPtr("shed-1"),
+		PhysicalShed:   "Gandhi",
+		PartitionLabel: "1",
+		AnimalCount:    4,
+		CapacityStatus: "within_cap",
+	}}
+
+	got, err := svc.distributeVaccinationDriveAssignments(context.Background(), "tenant-1", domain.NewBatch{
+		ScopeID:     "park-1",
+		PlannedDate: &planned,
+	}, 200, assignments, NewSweepSession())
+	if err != nil {
+		t.Fatalf("distribute assignments: %v", err)
+	}
+	totals := map[string]int32{}
+	for _, assignment := range got {
+		if assignment.OperatorID == nil {
+			t.Fatalf("assignment missing operator: %#v", assignment)
+		}
+		totals[*assignment.OperatorID] += assignment.AnimalCount
+	}
+	if totals["op-low"] != 1 || totals["op-high"] != 3 {
+		t.Fatalf("operator totals = %#v, want op-low cap 1 and op-high cap 3", totals)
+	}
+}
+
 func TestOperatorCapacityPlannerScalesByAvailableOperators(t *testing.T) {
 	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
@@ -198,6 +236,24 @@ func TestOperatorCapacityPlannerScalesByAvailableOperators(t *testing.T) {
 	}
 	if planner.MaxGoatsPerDrive != 600 {
 		t.Fatalf("effective animal cap = %d, want 600 for 3 operators at 200 each", planner.MaxGoatsPerDrive)
+	}
+}
+
+func TestOperatorCapacityPlannerHonorsSingleOperatorHRMSCap(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		operators:     []string{"op-1"},
+		operatorCaps:  map[string]int32{"op-1": 1},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 1 {
+		t.Fatalf("effective animal cap = %d, want HRMS single-operator cap 1", planner.MaxGoatsPerDrive)
 	}
 }
 
@@ -1900,12 +1956,21 @@ type fakeDateVisitShotLockerRepo struct {
 type fakeVaccinationOperatorListRepo struct {
 	*fakeSweepRepo
 	operators         []string
+	operatorCaps      map[string]int32
 	operatorListCalls int
 }
 
-func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(context.Context, string, string, time.Time, int32) ([]string, error) {
+func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(_ context.Context, _, _ string, _ time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
 	f.operatorListCalls++
-	return append([]string(nil), f.operators...), nil
+	out := make([]domain.DriveOperatorCapacity, 0, len(f.operators))
+	for _, operatorID := range f.operators {
+		cap := capPerOperator
+		if f.operatorCaps != nil && f.operatorCaps[operatorID] > 0 {
+			cap = f.operatorCaps[operatorID]
+		}
+		out = append(out, domain.DriveOperatorCapacity{OperatorID: operatorID, Cap: cap})
+	}
+	return out, nil
 }
 
 func (f *fakeDateVisitShotLockerRepo) CountVisitShotsForTargets(_ context.Context, _ string, targetIDs []string, date time.Time) (map[string]int32, error) {
