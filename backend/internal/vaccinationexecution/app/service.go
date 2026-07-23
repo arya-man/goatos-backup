@@ -920,10 +920,8 @@ func businessDatePtr(t *time.Time) *string {
 	return &d
 }
 
-// ---- Phase 1 CONFIG-ONLY: vaccination operator shift + assignment config ----
-// Not yet consumed by the drive/obligation scheduler -- see the Phase 5 TODOs in
-// backend/internal/obligation/adapters/postgres/sweeper.go and
-// backend/internal/vaccinationexecution/app/operator_drive_planner.go.
+// ---- Vaccination operator shift + assignment config ----
+// The admin config screen authors these rows; the drive/obligation scheduler consumes them.
 
 // ErrOperatorAssignmentConfigNotFound is returned when no config row is authored yet for the park (never
 // silently defaulted -- the caller renders "not configured", not a fabricated default operator).

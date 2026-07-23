@@ -1,9 +1,7 @@
 -- +goose Up
--- Phase 1 CONFIG-ONLY: persist the vaccination operator shift + N-active-operators-per-day default
--- assignment config. Consumption by the drive/obligation scheduler is Phase 5 (see TODOs in
--- backend/internal/obligation/adapters/postgres/sweeper.go and
--- backend/internal/vaccinationexecution/app/operator_drive_planner.go); this migration only adds the
--- config tables + read path.
+-- Persist the vaccination operator shift + N-active-operators-per-day default assignment config.
+-- The admin config screen authors these rows, and the drive/obligation scheduler consumes them
+-- when choosing the operator set for each business day.
 
 CREATE TABLE IF NOT EXISTS public.vaccination_operator_assignment_config (
   tenant_id uuid NOT NULL,
@@ -59,9 +57,9 @@ CREATE INDEX IF NOT EXISTS vaccination_operator_shift_config_tenant_park_idx
   ON public.vaccination_operator_shift_config (tenant_id, park_id);
 
 COMMENT ON TABLE public.vaccination_operator_assignment_config IS
-  'Phase-1 CONFIG-ONLY: N active operators/day + CEO-set default operator per park. Not yet consumed by the drive scheduler (Phase 5).';
+  'N active operators/day + CEO-set default operator per park. Consumed by the drive scheduler when planning daily operator assignment.';
 COMMENT ON TABLE public.vaccination_operator_shift_config IS
-  'Phase-1 CONFIG-ONLY: per-operator shift window (minutes-of-day) + week-off weekday, per park. Not yet consumed by the drive scheduler (Phase 5).';
+  'Per-operator shift window (minutes-of-day) + week-off weekday, per park. Consumed by the drive scheduler when resolving default/PM/shift fallback.';
 
 -- +goose Down
 DROP TABLE IF EXISTS public.vaccination_operator_shift_config;

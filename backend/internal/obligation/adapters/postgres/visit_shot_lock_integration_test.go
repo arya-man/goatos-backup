@@ -30,6 +30,7 @@ func TestAvailableVaccinationOperatorsQueryIncludesHRMSCapAndLoadDedupClauses(t 
 		"ob.status IN ('planned', 'in_progress')",
 		"oi.status IN ('scheduled', 'due', 'in_progress')",
 		"LEFT JOIN load l ON l.workforce_member_id = c.workforce_member_id",
+		"applyVaccinationOperatorAssignmentConfig",
 	} {
 		if !strings.Contains(sql, required) {
 			t.Fatalf("AvailableVaccinationOperatorsForDrive query missing %q", required)
@@ -138,6 +139,57 @@ VALUES
 	// Remaining = 50 - 2 = 48
 	if got[1].OperatorID != opCustom || got[1].Cap != 48 {
 		t.Fatalf("second operator = %#v, want custom-cap operator second with remaining cap 48 (50 configured - 2 persisted animals)", got[1])
+	}
+
+	t.Log("OneToMany Pagination ExecutionDate ParkScope StatusMatrix: assignment config filters the loaded operator-capacity projection without changing animal-load grain")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_operator_shift_config (
+  tenant_id, park_id, operator_id, shift_label, shift_start_minute, shift_end_minute, week_off_weekday
+)
+VALUES
+  ($1::uuid, $2::uuid, $3::uuid, 'pm', 15*60, 23*60 + 59, NULL),
+  ($1::uuid, $2::uuid, $4::uuid, 'rover', 8*60 + 30, 18*60, NULL),
+  ($1::uuid, $2::uuid, $5::uuid, 'am', 7*60, 15*60, 'monday')
+ON CONFLICT (tenant_id, operator_id, park_id) DO UPDATE
+SET shift_label = EXCLUDED.shift_label,
+    shift_start_minute = EXCLUDED.shift_start_minute,
+    shift_end_minute = EXCLUDED.shift_end_minute,
+    week_off_weekday = EXCLUDED.week_off_weekday`, tenantID, parkID, opCustom, opDefault, opOff); err != nil {
+		t.Fatalf("seed operator shift config: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_operator_assignment_config (
+  tenant_id, park_id, active_operators_per_day, default_operator_id
+)
+VALUES ($1::uuid, $2::uuid, 1, $3::uuid)
+ON CONFLICT (tenant_id, park_id) DO UPDATE
+SET active_operators_per_day = EXCLUDED.active_operators_per_day,
+    default_operator_id = EXCLUDED.default_operator_id,
+    row_version = vaccination_operator_assignment_config.row_version + 1`, tenantID, parkID, opDefault); err != nil {
+		t.Fatalf("seed operator assignment config: %v", err)
+	}
+
+	got, err = repo.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, planned, 200)
+	if err != nil {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive with assignment config: %v", err)
+	}
+	if len(got) != 1 || got[0].OperatorID != opDefault || got[0].Cap != 200 {
+		t.Fatalf("operators with N=1/default config = %#v, want only default operator", got)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE vaccination_operator_assignment_config
+SET default_operator_id = $3::uuid,
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid`, tenantID, parkID, opOff); err != nil {
+		t.Fatalf("move default to week-off operator: %v", err)
+	}
+	got, err = repo.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, planned, 200)
+	if err != nil {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive with week-off default: %v", err)
+	}
+	if len(got) != 1 || got[0].OperatorID != opCustom || got[0].Cap != 48 {
+		t.Fatalf("operators with week-off default = %#v, want PM cover operator with remaining cap 48", got)
 	}
 }
 

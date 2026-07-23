@@ -48,12 +48,11 @@ type Reader interface {
 	// CapacityConfig backs the admin Config screen's read of the tenant daily operator animal cap.
 	CapacityConfig(ctx context.Context, tenantID string) (vaccexecd.CapacityConfig, error)
 	// OperatorAssignmentConfig backs the admin Config screen's read of the park's N-active-operators +
-	// default-operator config plus every operator's authored shift (Phase 1 config-only).
+	// default-operator config plus every operator's authored shift.
 	GetOperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (vaccexecapp.OperatorAssignmentConfigView, error)
 }
 
-// OperatorAssignmentConfigWriter is the Phase 1 config-only write slice for the operator assignment
-// admin screen.
+// OperatorAssignmentConfigWriter is the write slice for the operator assignment admin screen.
 type OperatorAssignmentConfigWriter interface {
 	UpdateOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg vaccexecd.OperatorAssignmentConfig) (vaccexecd.OperatorAssignmentConfig, string, string, error)
 }
@@ -97,7 +96,7 @@ func NewHandler(reader Reader, writer Writer, log ...*slog.Logger) *Handler {
 	return &Handler{reader: reader, writer: writer, log: l, clock: time.Now}
 }
 
-// WithOperatorAssignmentConfigWriter attaches the Phase 1 config-only operator assignment write path.
+// WithOperatorAssignmentConfigWriter attaches the operator assignment write path.
 // Kept as a separate opt-in setter (rather than a NewHandler parameter) so existing call sites are
 // unaffected; a handler without this set 500s the PUT route rather than silently no-op-ing.
 func (h *Handler) WithOperatorAssignmentConfigWriter(w OperatorAssignmentConfigWriter) *Handler {
@@ -1173,10 +1172,9 @@ type operatorAssignmentConfigResponse struct {
 	Shifts                []vaccexecd.OperatorShift `json:"shifts"`
 }
 
-// GetOperatorAssignmentConfig returns the park's Phase 1 CONFIG-ONLY N-active-operators + default
-// operator config, plus every operator's authored shift. Read authority is enforced at the permission
-// layer (config authority: CEO/CXO). NOT yet consumed by the drive scheduler -- see the Phase 5 TODOs in
-// backend/internal/obligation/adapters/postgres/sweeper.go.
+// GetOperatorAssignmentConfig returns the park's N-active-operators + default operator config, plus
+// every operator's authored shift. Read authority is enforced at the permission layer (config authority:
+// CEO/CXO). The drive scheduler consumes the saved row when selecting daily operators.
 func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Request) {
 	parkID := r.URL.Query().Get("park_id")
 	if !uuidutil.IsUUIDString(parkID) {

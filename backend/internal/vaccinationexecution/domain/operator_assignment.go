@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// ---- Phase 1 CONFIG-ONLY: vaccination operator shift + N-active-operators-per-day default assignment ----
+// ---- Vaccination operator shift + N-active-operators-per-day default assignment ----
 //
 // Business rule (CPT/Channapatna single-operator drive, maintainer-authoritative 2026-07-23):
 //   - Operators carry a SHIFT (am/pm/rover) + a week-off weekday.
@@ -18,10 +18,7 @@ import (
 //     (this is a config write, not a one-day override).
 //
 // This file is domain-only and pure (no I/O, no clock reads beyond the passed-in businessDate). It is
-// consumed by the app-layer config service for the weekly-preview read path. It is NOT yet consumed by
-// the drive/obligation scheduler -- see the Phase 5 TODOs in
-// backend/internal/obligation/adapters/postgres/sweeper.go and
-// backend/internal/vaccinationexecution/app/operator_drive_planner.go.
+// consumed by both the admin weekly-preview read path and the drive/obligation scheduler.
 
 // OperatorAssignmentConfig is the backend-owned N-active-operators-per-day + default-operator config
 // (vaccination_operator_assignment_config). RowVersion is the optimistic-concurrency token for admin
@@ -138,6 +135,7 @@ func mustLoadLocation(name string) *time.Location {
 //   - else the PM/afternoon-shift operator, if available
 //   - else remaining shift-config operators (rover, then any other), by shift order, if available
 //   - error if no operator is available at all
+//   - returns at most cfg.ActiveOperatorsPerDay operator ids; N=1 is the CPT default-operator flow
 //
 // It performs no I/O and reads no wall clock; businessDate must already be an Asia/Kolkata calendar date.
 func ResolveOperatorsForDriveDay(businessDate time.Time, cfg OperatorAssignmentConfig, shifts []OperatorShift, todaysLeaves []OperatorLeaveWindow) (DayResolution, error) {
@@ -171,19 +169,36 @@ func ResolveOperatorsForDriveDay(businessDate time.Time, cfg OperatorAssignmentC
 		return true
 	}
 
+	limit := cfg.ActiveOperatorsPerDay
+	if limit <= 0 {
+		limit = MinActiveOperatorsPerDay
+	}
+	if limit > MaxActiveOperatorsPerDay {
+		limit = MaxActiveOperatorsPerDay
+	}
+	selected := make([]string, 0, limit)
+	add := func(operatorID string) {
+		if len(selected) >= limit || operatorID == "" || !available(operatorID) {
+			return
+		}
+		for _, existing := range selected {
+			if existing == operatorID {
+				return
+			}
+		}
+		selected = append(selected, operatorID)
+	}
+
 	def := cfg.DefaultOperatorID
+	reason := ReasonFallbackShiftOrder
 	if def != "" && available(def) {
-		return DayResolution{
-			BusinessDate:       businessDate.Format("2006-01-02"),
-			Weekday:            weekday,
-			AvailableOperators: []string{def},
-			Reason:             ReasonDefaultAvailable,
-		}, nil
+		add(def)
+		reason = ReasonDefaultAvailable
 	}
 
 	// Default unavailable: PM-shift operator covers, if available.
 	var pmCoverReason ResolutionReason
-	if def != "" {
+	if len(selected) == 0 && def != "" {
 		if s, ok := shiftByID[def]; ok && s.WeekOffWeekday == weekday {
 			pmCoverReason = ReasonDefaultWeekOff
 		} else {
@@ -193,13 +208,12 @@ func ResolveOperatorsForDriveDay(businessDate time.Time, cfg OperatorAssignmentC
 		pmCoverReason = ReasonFallbackShiftOrder
 	}
 	for _, s := range shifts {
-		if s.ShiftLabel == "pm" && available(s.OperatorID) {
-			return DayResolution{
-				BusinessDate:       businessDate.Format("2006-01-02"),
-				Weekday:            weekday,
-				AvailableOperators: []string{s.OperatorID},
-				Reason:             pmCoverReason,
-			}, nil
+		if s.ShiftLabel == "pm" {
+			before := len(selected)
+			add(s.OperatorID)
+			if before == 0 && len(selected) > 0 {
+				reason = pmCoverReason
+			}
 		}
 	}
 
@@ -216,15 +230,20 @@ func ResolveOperatorsForDriveDay(businessDate time.Time, cfg OperatorAssignmentC
 		return ordered[i].OperatorID < ordered[j].OperatorID
 	})
 	for _, s := range ordered {
-		if available(s.OperatorID) {
-			return DayResolution{
-				BusinessDate:       businessDate.Format("2006-01-02"),
-				Weekday:            weekday,
-				AvailableOperators: []string{s.OperatorID},
-				Reason:             ReasonFallbackShiftOrder,
-			}, nil
+		before := len(selected)
+		add(s.OperatorID)
+		if before == 0 && len(selected) > 0 {
+			reason = ReasonFallbackShiftOrder
 		}
 	}
 
+	if len(selected) > 0 {
+		return DayResolution{
+			BusinessDate:       businessDate.Format("2006-01-02"),
+			Weekday:            weekday,
+			AvailableOperators: selected,
+			Reason:             reason,
+		}, nil
+	}
 	return DayResolution{}, fmt.Errorf("no vaccination operator available for %s (%s): all operators week-off or on leave", businessDate.Format("2006-01-02"), weekday)
 }

@@ -117,6 +117,23 @@ func TestResolveOperatorsForDriveDay_PMAlsoUnavailable_FallsBackToShiftOrder(t *
 	}
 }
 
+func TestResolveOperatorsForDriveDay_NTwoUsesDefaultThenShiftFill(t *testing.T) {
+	cfg := OperatorAssignmentConfig{ParkID: "cpt", ActiveOperatorsPerDay: 2, DefaultOperatorID: "darshan", RowVersion: 1}
+	got, err := ResolveOperatorsForDriveDay(mustDate(t, "2026-07-24"), cfg, cptShifts(), nil) // Friday: Amit off, Darshan + Sagar available
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"darshan", "sagar"}
+	if len(got.AvailableOperators) != len(want) {
+		t.Fatalf("got operators %v, want %v", got.AvailableOperators, want)
+	}
+	for i := range want {
+		if got.AvailableOperators[i] != want[i] {
+			t.Fatalf("got operators %v, want %v", got.AvailableOperators, want)
+		}
+	}
+}
+
 func TestResolveOperatorsForDriveDay_NoOperatorAvailable_Errors(t *testing.T) {
 	cfg := OperatorAssignmentConfig{ParkID: "cpt", ActiveOperatorsPerDay: 1, DefaultOperatorID: "darshan", RowVersion: 1}
 	leaves := []OperatorLeaveWindow{

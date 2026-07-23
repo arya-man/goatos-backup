@@ -513,7 +513,7 @@ one product; this skill is the navigation layer.
   shift_end_minute) seeds into `vaccination_operator_shift_config` via the
   operator-roster overlay; operator assignment config (active_operators_per_day,
   default_operator_code) seeds into `vaccination_operator_assignment_config`
-  (Phase-1 config-only, not yet scheduled by the planner). HRMS edits,
+  (scheduler-consumed operator assignment config). HRMS edits,
   operator-roster seed overlays, planner assignment splitting, timetable
   capacity, admin-web display, and leadership reads must all use the same
   per-position cap field. Any change to cap source, shift fields, or assignment

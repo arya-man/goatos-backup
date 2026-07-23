@@ -324,7 +324,7 @@ carried the label). This change REMOVES a `ceo_ai.*` dependency from a core read
 path rather than adding a leadership surface. Explicit documented exclusion — no
 coverage-matrix mapping required.
 
-## Explicit exclusion: vaccination operator shift + assignment config (Phase 1 config-only, 2026-07-23)
+## Explicit exclusion: vaccination operator shift + assignment config (admin config, 2026-07-23)
 
 Adds two new tables (`vaccination_operator_assignment_config`,
 `vaccination_operator_shift_config`, migration 000035) plus
@@ -332,6 +332,7 @@ Adds two new tables (`vaccination_operator_assignment_config`,
 authoring config (CPT/Channapatna operator shift + N-active-operators-per-day
 default), analogous to the already-excluded `vaccination_capacity_config` admin
 Config screen surface — it is not a leadership KPI, business outcome metric, or
-reporting dimension, and the drive/obligation scheduler does not yet consume it
-(Phase 5). No new leadership-relevant table, official KPI, or reporting view is
-introduced. Explicit documented exclusion — no coverage-matrix mapping required.
+reporting dimension. The drive/obligation scheduler consumes it for daily
+operator assignment, but no new leadership-relevant table, official KPI, or
+reporting view is introduced. Explicit documented exclusion — no coverage-matrix
+mapping required.
