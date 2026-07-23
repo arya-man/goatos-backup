@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -917,4 +918,67 @@ func businessDatePtr(t *time.Time) *string {
 	}
 	d := biztime.BusinessDate(*t)
 	return &d
+}
+
+// ---- Vaccination operator shift + assignment config ----
+// The admin config screen authors these rows; the drive/obligation scheduler consumes them.
+
+// ErrOperatorAssignmentConfigNotFound is returned when no config row is authored yet for the park (never
+// silently defaulted -- the caller renders "not configured", not a fabricated default operator).
+var ErrOperatorAssignmentConfigNotFound = errors.New("vaccination execution: operator assignment config: not found")
+
+// ErrOperatorAssignmentConfigConflict re-exports ports.ErrOperatorAssignmentConfigConflict so HTTP callers
+// only need to import the app package. See ports.ErrOperatorAssignmentConfigConflict for the contract.
+var ErrOperatorAssignmentConfigConflict = ports.ErrOperatorAssignmentConfigConflict
+
+// OperatorAssignmentConfigView is the combined read-model for the admin config screen: the N/default
+// config plus every operator's authored shift.
+type OperatorAssignmentConfigView struct {
+	Config domain.OperatorAssignmentConfig `json:"config"`
+	Shifts []domain.OperatorShift          `json:"shifts"`
+}
+
+// GetOperatorAssignmentConfig returns the park's assignment config + shifts. Returns
+// ErrOperatorAssignmentConfigNotFound when the park has no config row yet.
+func (s *Service) GetOperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (OperatorAssignmentConfigView, error) {
+	shifts, err := s.repo.OperatorShifts(ctx, tenantID, parkID)
+	if err != nil {
+		return OperatorAssignmentConfigView{}, err
+	}
+	cfg, found, err := s.repo.OperatorAssignmentConfig(ctx, tenantID, parkID)
+	if err != nil {
+		return OperatorAssignmentConfigView{}, err
+	}
+	if !found {
+		return OperatorAssignmentConfigView{}, ErrOperatorAssignmentConfigNotFound
+	}
+	return OperatorAssignmentConfigView{Config: cfg, Shifts: shifts}, nil
+}
+
+// ListOperatorShifts returns every operator's authored shift row for a park (used standalone by the
+// weekly-preview read path even before a default is configured).
+func (s *Service) ListOperatorShifts(ctx context.Context, tenantID, parkID string) ([]domain.OperatorShift, error) {
+	return s.repo.OperatorShifts(ctx, tenantID, parkID)
+}
+
+// UpdateOperatorAssignmentConfig validates then idempotently writes the park's N + default-operator
+// config (validate-or-reject: never silently defaulted). Returns the same 400-shaped (code, message)
+// pair as CapacityConfig.Validate on invalid input.
+func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, string, string, error) {
+	shifts, err := s.repo.OperatorShifts(ctx, tenantID, cfg.ParkID)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
+	knownDefault := false
+	for _, sh := range shifts {
+		if sh.OperatorID == cfg.DefaultOperatorID {
+			knownDefault = true
+			break
+		}
+	}
+	if code, message, ok := cfg.Validate(knownDefault); !ok {
+		return domain.OperatorAssignmentConfig{}, code, message, nil
+	}
+	updated, err := s.repo.UpsertOperatorAssignmentConfig(ctx, tenantID, cfg)
+	return updated, "", "", err
 }

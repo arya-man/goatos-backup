@@ -1077,13 +1077,15 @@ func TestReconcileDatedFactsFailsLoudlyOnASilentDrop(t *testing.T) {
 
 func TestNormalizeHealthMapsCaseLogVocabulary(t *testing.T) {
 	for raw, want := range map[string]string{
-		"Open":     "sick",
-		"Extended": "under_treatment",
-		"Closed":   "recovering",
-		"open":     "sick",
-		"CLOSED":   "recovering",
-		"Healthy":  "healthy",
-		"ICU":      "icu",
+		"Open":       "sick",
+		"Extended":   "under_treatment",
+		"Closed":     "healthy",
+		"Fine":       "healthy",
+		"open":       "sick",
+		"CLOSED":     "healthy",
+		"Healthy":    "healthy",
+		"Recovering": "recovering",
+		"ICU":        "icu",
 	} {
 		got := normalizeHealth(raw)
 		if got == nil {

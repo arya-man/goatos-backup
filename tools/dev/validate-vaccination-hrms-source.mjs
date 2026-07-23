@@ -15,7 +15,11 @@ import {
   isDatedVaccination,
   parseCSV,
   parseDate,
+  HEALTH_CASE_LOG_NORMALIZATION,
+  CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING,
   SHED_PARTITION_NAME_PATTERN_CONTRACT,
+  OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED,
+  OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
@@ -63,6 +67,7 @@ const FULL_ACCESS_GRANT_ROLE = "ceo_internal";
 const FULL_ACCESS_WORKFORCE_HINT = "cxo";
 const DERIVED_DRIVE_ASSIGNMENT_CONTRACT = "vaccination_drive_assignments are generated after validation from animal eligibility plus operator timetable/leave; source bundles must not include manual drive-assignment rows";
 const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+const HEALTH_CASE_LOG_CONTRACT = `health_status case-log values normalize as Open->${HEALTH_CASE_LOG_NORMALIZATION.Open}, Extended->${HEALTH_CASE_LOG_NORMALIZATION.Extended}, Closed->${HEALTH_CASE_LOG_NORMALIZATION.Closed}, Fine->${HEALTH_CASE_LOG_NORMALIZATION.Fine}; Closed/Fine are resolved/healthy and must not become recovering`;
 // Vaccination proof grain is validated through the committed fixture manifest:
 // proof_mode=shed_level_video, subject_scope=shed, 1..5 shed videos, camera +
 // gallery allowed. Per-goat scan timestamps remain required runtime facts and
@@ -157,6 +162,13 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   if (!arraysEqual(managers[0] ?? [], MANAGER_HEADER)) schemaProblems.push("shed-manager-mapping.jul11-vaccination.csv header/order");
   if (!arraysEqual(timetable[0] ?? [], TIMETABLE_HEADER)) schemaProblems.push("timetable-goats-team-v1.json header/order");
   checks.push(makeCheck("source_schema", schemaProblems.length, "Every consumed header, vaccine/dose column, and column order must match the reviewed source schema.", "Stop and update the policy, validator, transform, failing tests, and docs together; never guess what a moved/new column means.", schemaProblems));
+  checks.push(makeCheck(
+    "health_case_log_normalization_contract",
+    CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING ? 0 : 1,
+    HEALTH_CASE_LOG_CONTRACT,
+    "Keep source case-log vocabulary separate from canonical clinical state: Closed is resolved/healthy, never recovering or deferred.",
+    [],
+  ));
 
   const goatByKey = new Map();
   const goatAliases = new Map();
@@ -475,9 +487,13 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       if (ops.length === 0) pushSample(operatorRosterProblems, "no operators declared");
       const weekdays = new Set();
       const validWeekdays = new Set(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
+      const operatorCodes = new Set();
+      let hasPMShift = false;
       for (const op of ops) {
         const label = op?.code || op?.display_name || "operator";
-        if (!/^vaccination_operator_[a-z0-9_]+$/.test(String(op?.code || ""))) pushSample(operatorRosterProblems, `${label}: code must be vaccination_operator_<name>`);
+        const code = String(op?.code || "");
+        if (!/^vaccination_operator_[a-z0-9_]+$/.test(code)) pushSample(operatorRosterProblems, `${label}: code must be vaccination_operator_<name>`);
+        else operatorCodes.add(code);
         if (op?.tier !== "manager") pushSample(operatorRosterProblems, `${label}: tier must be manager (equal operator)`);
         if (op?.can_execute_vaccination !== true) pushSample(operatorRosterProblems, `${label}: can_execute_vaccination must be true`);
         const wk = String(op?.week_off || "").toLowerCase();
@@ -487,9 +503,20 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         if (op?.animal_cap_per_day != null && !(Number.isInteger(op.animal_cap_per_day) && op.animal_cap_per_day >= 1 && op.animal_cap_per_day <= 100000)) {
           pushSample(operatorRosterProblems, `${label}: animal_cap_per_day must be an integer between 1 and 100000 when set, got ${op.animal_cap_per_day}`);
         }
+        const shiftLabel = String(op?.shift_label || "").toLowerCase();
+        if (op?.shift_label != null && !/^(am|pm|rover)$/.test(shiftLabel)) pushSample(operatorRosterProblems, `${label}: shift_label must be am, pm, or rover`);
+        if (shiftLabel === "pm") hasPMShift = true;
+        if (op?.shift_start_minute != null && !(Number.isInteger(op.shift_start_minute) && op.shift_start_minute >= 0 && op.shift_start_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_start_minute must be 0..1439`);
+        if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute > 0 && op.shift_end_minute <= 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 1..1440`);
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
       if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
+      const activeOpsPerDay = contract?.operator_assignment_config?.active_operators_per_day;
+      if (activeOpsPerDay != null && !(Number.isInteger(activeOpsPerDay) && activeOpsPerDay >= 1 && activeOpsPerDay <= 3)) pushSample(operatorRosterProblems, `active_operators_per_day must be an integer between 1 and 3 when set, got ${activeOpsPerDay}`);
+      const defaultOpCode = String(contract?.operator_assignment_config?.default_operator_code || "").trim();
+      if (defaultOpCode && !/^vaccination_operator_[a-z0-9_]+$/.test(defaultOpCode)) pushSample(operatorRosterProblems, `default_operator_code must match vaccination_operator_<name> pattern, got ${defaultOpCode}`);
+      if (defaultOpCode && !operatorCodes.has(defaultOpCode)) pushSample(operatorRosterProblems, `default_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${defaultOpCode}`);
+      if (contract?.operator_assignment_config && !hasPMShift) pushSample(operatorRosterProblems, "operator_assignment_config requires one pm shift operator for default-off fallback identity");
     } catch (err) {
       pushSample(operatorRosterProblems, `unparseable cpt-operator-roster.json: ${err.message}`);
     }
@@ -497,8 +524,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "operator_roster_contract",
     operatorRosterProblems.length,
-    "cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, bounded default and optional per-person animal cap.",
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, default_animals_per_day is 1..100000, and any animal_cap_per_day override is 1..100000.",
+    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed assignment config (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (1..1440), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional active_operators_per_day 1..3, default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when assignment config is present.",
     operatorRosterProblems,
   ));
 

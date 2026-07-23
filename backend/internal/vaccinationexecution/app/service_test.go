@@ -29,6 +29,19 @@ func (r fakeRepo) ShedSummary(_ context.Context, _ domain.ShedSummaryQuery) ([]d
 	return r.shedRows, nil
 }
 
+func (r fakeRepo) OperatorAssignmentConfig(_ context.Context, _, _ string) (domain.OperatorAssignmentConfig, bool, error) {
+	return domain.OperatorAssignmentConfig{}, false, nil
+}
+
+func (r fakeRepo) OperatorShifts(_ context.Context, _, _ string) ([]domain.OperatorShift, error) {
+	return nil, nil
+}
+
+func (r fakeRepo) UpsertOperatorAssignmentConfig(_ context.Context, _ string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error) {
+	cfg.RowVersion++
+	return cfg, nil
+}
+
 func (r fakeRepo) CapacityConfig(_ context.Context, _ string) (domain.CapacityConfig, error) {
 	if r.err != nil {
 		return domain.CapacityConfig{}, r.err

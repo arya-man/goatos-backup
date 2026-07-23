@@ -284,7 +284,7 @@ func run(args []string) error {
 		return nil
 	}
 
-	ist, err := importRoster(ctx, pool, *tenantID, members, assignments, leaves)
+	ist, err := importRoster(ctx, pool, *tenantID, members, assignments, leaves, operatorRoster)
 	if err != nil {
 		return fmt.Errorf("import: %w", err)
 	}
@@ -559,12 +559,15 @@ func loadRosterWeekOffs(sourcePath string) (map[string]string, error) {
 // without disturbing the members, animals, vaccination history, or the generic
 // jun-26 model used by every other center/source.
 type operatorRosterOperator struct {
-	Code            string `json:"code"`
-	DisplayName     string `json:"display_name"`
-	Role            string `json:"role"`
-	Tier            string `json:"tier"`
-	WeekOff         string `json:"week_off"`
-	AnimalCapPerDay *int   `json:"animal_cap_per_day"`
+	Code             string `json:"code"`
+	DisplayName      string `json:"display_name"`
+	Role             string `json:"role"`
+	Tier             string `json:"tier"`
+	WeekOff          string `json:"week_off"`
+	AnimalCapPerDay  *int   `json:"animal_cap_per_day"`
+	ShiftLabel       string `json:"shift_label"`        // am | pm | rover (scheduler-consumed operator assignment)
+	ShiftStartMinute *int   `json:"shift_start_minute"` // minutes-of-day, 0-1439
+	ShiftEndMinute   *int   `json:"shift_end_minute"`   // minutes-of-day, 0-1439
 }
 
 type operatorRosterContract struct {
@@ -576,6 +579,13 @@ type operatorRosterContract struct {
 		ParkCode string `json:"park_code"`
 	} `json:"source_scope"`
 	Operators []operatorRosterOperator `json:"operators"`
+	// DefaultOperatorAssignment is the CEO-set default operator + N-active-operators for this park
+	// (vaccination_operator_assignment_config). Optional -- absent means the seed does not author an
+	// assignment config row (never a silent default).
+	DefaultOperatorAssignment *struct {
+		ActiveOperatorsPerDay int    `json:"active_operators_per_day"`
+		DefaultOperatorCode   string `json:"default_operator_code"`
+	} `json:"default_operator_assignment"`
 }
 
 // loadOperatorRoster returns the parsed operator-roster contract when the source
@@ -992,7 +1002,7 @@ var defaultDepartmentModules = map[string][]string{
 	"breeding":        {"breeding"},
 }
 
-func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, members map[string]*memberRec, assignments []rosterAssignment, leaves []leaveWindow) (importStats, error) {
+func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, members map[string]*memberRec, assignments []rosterAssignment, leaves []leaveWindow, operatorRoster *operatorRosterContract) (importStats, error) {
 	var ist importStats
 
 	tx, err := pool.Begin(ctx)
@@ -1269,10 +1279,98 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	ist.ModuleGrantsInserted = granted
 
+	// Scheduler-consumed operator shift + N-active-operators-per-day default assignment config.
+	// Same transaction as the roster import (seed-migration coupling): a roster commit without its
+	// shift/default config is a half-seeded state that renders an empty operator-assignment Config
+	// screen and makes the scheduler ignore the intended default/N-operator rule.
+	if err := seedOperatorAssignmentConfig(ctx, tx, tenantID, centerLocationID, operatorRoster, assignments, memberID); err != nil {
+		return ist, fmt.Errorf("seed operator assignment config: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return ist, fmt.Errorf("commit: %w", err)
 	}
 	return ist, nil
+}
+
+// seedOperatorAssignmentConfig upserts vaccination_operator_shift_config for every operator in the
+// contract that declares a shift, plus vaccination_operator_assignment_config when the contract
+// authors a default_operator_assignment. No-ops (contract == nil) for sources without the CPT operator
+// roster overlay. Never invents a default operator -- an authored N with no resolvable
+// default_operator_code is a hard error, not a silent skip.
+func seedOperatorAssignmentConfig(ctx context.Context, tx pgx.Tx, tenantID string, centerLocationID map[string]string, contract *operatorRosterContract, assignments []rosterAssignment, memberID map[string]string) error {
+	if contract == nil {
+		return nil
+	}
+	park := strings.TrimSpace(contract.SourceScope.ParkCode)
+	parkID, ok := centerLocationID[park]
+	if !ok || parkID == "" {
+		return fmt.Errorf("operator assignment config: park %s has no resolved location id", park)
+	}
+
+	// Resolve operatorNameKey -> workforce_member_id the same way applyOperatorRosterOverlay matched
+	// contract operators to resolved roster seats (a.jun26Name is the memberID map's key space).
+	memberIDByOperatorKey := map[string]string{}
+	for _, a := range assignments {
+		if a.center != park || !a.isResolved {
+			continue
+		}
+		if mID, ok := memberID[a.jun26Name]; ok && mID != "" {
+			memberIDByOperatorKey[operatorNameKey(a.jun26Name)] = mID
+		}
+	}
+
+	operatorIDByCode := map[string]string{}
+	for _, op := range contract.Operators {
+		if op.ShiftLabel == "" || op.ShiftStartMinute == nil || op.ShiftEndMinute == nil {
+			continue // this operator's contract row does not author a shift; skip (validate-or-reject at the row level, not the whole seed)
+		}
+		mID, ok := memberIDByOperatorKey[operatorNameKey(op.DisplayName)]
+		if !ok || mID == "" {
+			return fmt.Errorf("operator assignment config: operator %s (%s) has no resolved workforce member id", op.Code, op.DisplayName)
+		}
+		operatorIDByCode[op.Code] = mID
+		weekOff := normalizeWeekday(op.WeekOff)
+		var weekOffArg any
+		if weekOff != "" {
+			weekOffArg = weekOff
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_operator_shift_config
+  (tenant_id, operator_id, park_id, shift_label, shift_start_minute, shift_end_minute, week_off_weekday, updated_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, now())
+ON CONFLICT (tenant_id, operator_id, park_id) DO UPDATE SET
+  shift_label = EXCLUDED.shift_label,
+  shift_start_minute = EXCLUDED.shift_start_minute,
+  shift_end_minute = EXCLUDED.shift_end_minute,
+  week_off_weekday = EXCLUDED.week_off_weekday,
+  updated_at = now();`,
+			tenantID, mID, parkID, op.ShiftLabel, *op.ShiftStartMinute, *op.ShiftEndMinute, weekOffArg); err != nil {
+			return fmt.Errorf("upsert shift config for %s: %w", op.Code, err)
+		}
+	}
+
+	if contract.DefaultOperatorAssignment == nil {
+		return nil
+	}
+	defaultID, ok := operatorIDByCode[contract.DefaultOperatorAssignment.DefaultOperatorCode]
+	if !ok || defaultID == "" {
+		return fmt.Errorf("operator assignment config: default_operator_code %q does not resolve to a seeded shift operator",
+			contract.DefaultOperatorAssignment.DefaultOperatorCode)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_operator_assignment_config
+  (tenant_id, park_id, active_operators_per_day, default_operator_id, row_version, updated_at)
+VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 1, now())
+ON CONFLICT (tenant_id, park_id) DO UPDATE SET
+  active_operators_per_day = EXCLUDED.active_operators_per_day,
+  default_operator_id = EXCLUDED.default_operator_id,
+  row_version = vaccination_operator_assignment_config.row_version + 1,
+  updated_at = now();`,
+		tenantID, parkID, contract.DefaultOperatorAssignment.ActiveOperatorsPerDay, defaultID); err != nil {
+		return fmt.Errorf("upsert operator assignment config: %w", err)
+	}
+	return nil
 }
 
 // grantDefaultDepartmentModules upserts defaultDepartmentModules into
