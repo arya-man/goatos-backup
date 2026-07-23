@@ -723,7 +723,18 @@ SELECT park_id::text FROM vaccination_operator_assignment_config WHERE tenant_id
 		return fmt.Errorf("protocol: iterate parks for capacity-changed cascade: %w", err)
 	}
 
+	if len(parkIDs) == 0 {
+		return nil
+	}
+
+	// Build the per-park rows in memory, then insert them in ONE set-based statement (UNNEST).
+	// A tx.Exec per park would be an N+1 write inside a loop (banned by make scale-guard).
 	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	eventIDs := make([]string, 0, len(parkIDs))
+	aggregateIDs := make([]string, 0, len(parkIDs))
+	envelopes := make([]string, 0, len(parkIDs))
+	headerRows := make([]string, 0, len(parkIDs))
+	idempotencyKeys := make([]string, 0, len(parkIDs))
 	for _, parkID := range parkIDs {
 		idempotencyKey := fmt.Sprintf("protocol.version-publish.capacity:%s:%s", versionID, parkID)
 		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
@@ -772,16 +783,25 @@ SELECT park_id::text FROM vaccination_operator_assignment_config WHERE tenant_id
 		if err != nil {
 			return fmt.Errorf("protocol: marshal capacity-changed headers: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `
+		eventIDs = append(eventIDs, eventID)
+		aggregateIDs = append(aggregateIDs, parkID)
+		envelopes = append(envelopes, string(envelope))
+		headerRows = append(headerRows, string(headers))
+		idempotencyKeys = append(idempotencyKeys, idempotencyKey)
+	}
+
+	if _, err := tx.Exec(ctx, `
 INSERT INTO outbox_messages (
   tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
   topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
-) VALUES ($1::uuid, $2::uuid, 'vaccination.capacity.changed', '1.0.0', 'park', $3::uuid,
-  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
+)
+SELECT $1::uuid, e.event_id::uuid, 'vaccination.capacity.changed', '1.0.0', 'park', e.aggregate_id::uuid,
+       'vaccination.events', e.payload::jsonb, e.headers::jsonb, e.idempotency_key, e.idempotency_key, 'pending', now()
+FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
+  AS e(event_id, aggregate_id, payload, headers, idempotency_key)
 ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacity.changed' DO NOTHING`,
-			tenantID, eventID, parkID, envelope, headers, idempotencyKey); err != nil {
-			return fmt.Errorf("protocol: enqueue capacity-changed to outbox: %w", err)
-		}
+		tenantID, eventIDs, aggregateIDs, envelopes, headerRows, idempotencyKeys); err != nil {
+		return fmt.Errorf("protocol: enqueue capacity-changed to outbox: %w", err)
 	}
 	return nil
 }
