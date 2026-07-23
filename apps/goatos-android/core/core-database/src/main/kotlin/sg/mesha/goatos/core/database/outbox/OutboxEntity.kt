@@ -75,6 +75,17 @@ enum class OutboxOpType {
      * never drain concurrently or out of order.
      */
     COUNTS_PROMOTE_IDENTIFIER,
+
+    /**
+     * Feed direction completion (`POST /feed-direction/complete`): an operator marks one shed-session
+     * as fed. The completion carries only the shed-session identity; the OPTIONAL video flows
+     * separately through [PROOF_UPLOAD] (mirroring [SHIFTING_COMPLETE]). Its caller derives a STABLE
+     * idempotency key so a server-committed-but-client-unrecorded retry returns the original
+     * completion, and the shed-session natural key makes a second completion a backend no-op. The
+     * shed-session key is the outbox group key so two completions of the same shed-session drain
+     * strictly oldest-first.
+     */
+    FEED_DIRECTION_COMPLETE,
 }
 
 /**

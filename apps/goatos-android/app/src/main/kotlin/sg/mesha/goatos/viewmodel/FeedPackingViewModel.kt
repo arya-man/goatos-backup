@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedPackingQuery
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.network.dto.FeedFilterOptionsDto
@@ -44,6 +45,7 @@ import javax.inject.Inject
 @HiltViewModel
 class FeedPackingViewModel @Inject constructor(
     private val repo: FeedRepository,
+    private val feedCompletionStore: FeedCompletionLocalStore,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -98,11 +100,16 @@ class FeedPackingViewModel @Inject constructor(
         FeedPackingUiState(title = TITLE, emptyMessage = LOADING_MESSAGE),
     )
 
+    // Combined with the optimistic local-completion set — a just-completed shed-session shows
+    // completed immediately (offline-first), converging on the backend flag once the write syncs.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val rows: Flow<PagingData<FeedPackingRowUi>> = _filters
-        .flatMapLatest { selection -> repo.packingRows(selection.toQuery(targetDate)) }
-        .map { page -> page.map { it.toRowUi() } }
-        .cachedIn(viewModelScope)
+    val rows: Flow<PagingData<FeedPackingRowUi>> =
+        combine(_filters, feedCompletionStore.completedKeys) { selection, completed -> selection to completed }
+            .flatMapLatest { (selection, completed) ->
+                repo.packingRows(selection.toQuery(targetDate))
+                    .map { page -> page.map { it.toRowUi(completed) } }
+            }
+            .cachedIn(viewModelScope)
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_VIEWED)
@@ -125,6 +132,8 @@ class FeedPackingViewModel @Inject constructor(
             is FeedPackingEvent.SelectPark -> selectPark(event.parkId)
             is FeedPackingEvent.SelectWorkflow -> selectWorkflow(event.workflow)
             is FeedPackingEvent.SelectSession -> selectSession(event.sessionNo)
+            // Row-tap navigation is handled by the NavHost (opens the completion detail).
+            is FeedPackingEvent.OpenRow -> Unit
             FeedPackingEvent.ClearFilters -> clearFilters()
         }
     }
@@ -195,8 +204,13 @@ class FeedPackingViewModel @Inject constructor(
         totalsByItem = summary.totalKgByFeedItem.map { FeedItemTotalUi(it.feedItem, it.quantityKg, it.blockedCells) },
     )
 
-    private fun sg.mesha.goatos.core.network.dto.FeedPackingRowDto.toRowUi(): FeedPackingRowUi = FeedPackingRowUi(
+    private fun sg.mesha.goatos.core.network.dto.FeedPackingRowDto.toRowUi(
+        locallyCompleted: Set<String>,
+    ): FeedPackingRowUi = FeedPackingRowUi(
         grainKey = grainKey,
+        parkId = parkId,
+        shedId = shedId,
+        sessionNo = sessionNo,
         shedLabel = shedLabel,
         sessionLabel = sessionLabel,
         workflow = workflow,
@@ -205,6 +219,7 @@ class FeedPackingViewModel @Inject constructor(
         items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
         totalKg = totalKg,
         status = status,
+        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, sessionNo, workflow)),
     )
 
     private data class FeedPackingSelection(

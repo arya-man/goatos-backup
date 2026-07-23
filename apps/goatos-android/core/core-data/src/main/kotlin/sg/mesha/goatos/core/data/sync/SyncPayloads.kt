@@ -187,3 +187,18 @@ data class PromoteIdentifierPayload(
     @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
     @SerialName("row_version") val rowVersion: Int,
 )
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_DIRECTION_COMPLETE].
+ * Records that one shed-session's feed direction was carried out. Carries only the shed-session
+ * identity -- the OPTIONAL video is NOT here; it flows separately through PROOF_UPLOAD, exactly like
+ * [ShiftingCompletePayload].
+ */
+@Serializable
+data class FeedDirectionCompletePayload(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    @SerialName("session_no") val sessionNo: Int,
+    @SerialName("target_date") val targetDate: String,
+    @SerialName("workflow") val workflow: String,
+)

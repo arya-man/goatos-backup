@@ -9,6 +9,8 @@ import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
@@ -595,6 +597,16 @@ interface AppApi {
      * paging + whole-scope-summary contract as [getFeedDirectionPreview]; the row grain here is the
      * packing line (shed x session), not the ration grain.
      */
+    /**
+     * POST /feed-direction/complete — record that one shed-session's feed direction was carried out,
+     * with OPTIONAL video proof. Idempotent on [idempotencyKey]: a replay returns the original
+     * result, and the shed-session natural key makes a second completion a no-op (`applied=false`).
+     */
+    suspend fun completeFeedDirectionSession(
+        idempotencyKey: String,
+        request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto
+
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
@@ -989,6 +1001,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         shiftingEventId = shiftingEventId,
         eventStatus = "canceled",
     )
+
+    override suspend fun completeFeedDirectionSession(
+        idempotencyKey: String,
+        request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto =
+        FeedDirectionCompleteResponseDto(completionId = "fake-completion", status = "completed", applied = true)
 
     override suspend fun getFeedDirectionPreview(
         parkId: String,

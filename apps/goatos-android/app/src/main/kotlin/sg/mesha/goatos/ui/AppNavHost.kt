@@ -36,6 +36,8 @@ import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.CountsEvent
 import sg.mesha.goatos.feature.counts.CountsScreen
 import sg.mesha.goatos.feature.feed.FeedDirectionEvent
+import sg.mesha.goatos.feature.feed.FeedCompleteEvent
+import sg.mesha.goatos.feature.feed.FeedCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
@@ -80,6 +82,7 @@ import sg.mesha.goatos.viewmodel.BirthDeathViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
+import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
@@ -163,6 +166,27 @@ object Routes {
     // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
     const val FEED_DIRECTION = "/feed/direction"
     const val FEED_PACKING = "/feed/packing"
+
+    // L2 feed-direction completion detail, reached by tapping a shed-session row on either feed
+    // screen. Path args are the completion grain; labels are query args (URL-encoded, may contain
+    // spaces). Distinct route from the two L0 feed roots (never a prefix reuse).
+    const val FEED_COMPLETE =
+        "/feed/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}"
+
+    fun feedCompleteRoute(
+        parkId: String,
+        shedId: String,
+        sessionNo: Int,
+        workflow: String,
+        targetDate: String,
+        shedLabel: String,
+        sessionLabel: String,
+    ): String {
+        fun e(value: String): String = Uri.encode(value)
+        val park = parkId.ifBlank { "-" }
+        return "/feed/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
+    }
 
     /**
      * The approver's pending-decision queue. Contributed by the counts module in the TRAILING
@@ -949,6 +973,17 @@ fun AppNavHost(
                             vm.onEvent(event)
                             rows.refresh()
                         }
+                        is FeedDirectionEvent.OpenRow -> navController.navigate(
+                            Routes.feedCompleteRoute(
+                                parkId = event.parkId,
+                                shedId = event.shedId,
+                                sessionNo = event.sessionNo,
+                                workflow = event.workflow,
+                                targetDate = state.targetDateLabel,
+                                shedLabel = event.shedLabel,
+                                sessionLabel = event.sessionLabel,
+                            ),
+                        ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -973,10 +1008,55 @@ fun AppNavHost(
                             vm.onEvent(event)
                             rows.refresh()
                         }
+                        is FeedPackingEvent.OpenRow -> navController.navigate(
+                            Routes.feedCompleteRoute(
+                                parkId = event.parkId,
+                                shedId = event.shedId,
+                                sessionNo = event.sessionNo,
+                                workflow = event.workflow,
+                                targetDate = state.targetDateLabel,
+                                shedLabel = event.shedLabel,
+                                sessionLabel = event.sessionLabel,
+                            ),
+                        ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },
             )
+        }
+
+        // L2 feed-direction completion detail: optional video + Mark done. Camera bound only while
+        // composed (operator capture role gated), releasing on leave.
+        composable(
+            route = Routes.FEED_COMPLETE,
+            arguments = listOf(
+                navArgument(FeedCompleteViewModel.ARG_PARK_ID) { type = NavType.StringType },
+                navArgument(FeedCompleteViewModel.ARG_SHED_ID) { type = NavType.StringType },
+                navArgument(FeedCompleteViewModel.ARG_SESSION_NO) { type = NavType.StringType },
+                navArgument(FeedCompleteViewModel.ARG_WORKFLOW) { type = NavType.StringType },
+                navArgument(FeedCompleteViewModel.ARG_TARGET_DATE) { type = NavType.StringType },
+                navArgument(FeedCompleteViewModel.ARG_SHED_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedCompleteViewModel.ARG_SESSION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: FeedCompleteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val onEvent: (FeedCompleteEvent) -> Unit = { event ->
+                when (event) {
+                    FeedCompleteEvent.Back -> navController.popBackStack()
+                    else -> vm.onEvent(event)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                FeedCompleteScreen(state = state, onEvent = onEvent)
+            }
         }
 
         // Approvals were REMOVED from mobile (maintainer decision 2026-07-21): the birth/death/

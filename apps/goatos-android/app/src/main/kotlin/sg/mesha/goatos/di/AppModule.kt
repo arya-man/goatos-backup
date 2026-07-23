@@ -42,6 +42,7 @@ import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.DefaultCountsApprovalRepository
 import sg.mesha.goatos.core.data.AwaitingRfidRepository
 import sg.mesha.goatos.core.data.DefaultAwaitingRfidRepository
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
@@ -330,6 +331,12 @@ object AppModule {
         packingMetaDao: FeedPackingMetaCacheDao,
     ): FeedRepository =
         DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao)
+
+    // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
+    // refresh). A process singleton, not persisted — the outbox is the durable command record.
+    @Provides
+    @Singleton
+    fun provideFeedCompletionLocalStore(): FeedCompletionLocalStore = FeedCompletionLocalStore()
 
     @Provides
     @Singleton
