@@ -5,12 +5,14 @@
 -- DB roles.
 --
 -- MAINTAINER DECISION 2026-07-23: the leadership assistant is an INTERNAL,
--- CEO/CXO-only, READ-ONLY chat. It must never hit a permission wall on any
--- current or future table. The prior boundary (ceo_ai.* SELECT only, public
+-- CEO/CXO-only, READ-ONLY chat. It should not hit a permission wall on current
+-- public tables. The prior boundary (ceo_ai.* SELECT only, public
 -- revoked) caused governed Cube metrics that read public tables to fail with
 -- `permission denied for table ...`. Per the maintainer, remove that schema
--- restriction: grant the assistant roles SELECT on ALL public tables plus
--- default privileges for future tables. Access stays READ-ONLY — only SELECT is
+-- restriction: grant the assistant roles SELECT on ALL current public tables.
+-- Future tables are covered by ALTER DEFAULT PRIVILEGES FOR ROLE <owner>, applied
+-- per current table owner by tools/dev/grant-assistant-public-read.sh (a brand-new
+-- owner role needs a re-run). Access stays READ-ONLY — only SELECT is
 -- granted and the roles carry `default_transaction_read_only = on`; no INSERT/
 -- UPDATE/DELETE/DDL is granted. This supersedes the "Cube never reads raw
 -- Postgres" restriction for these two read-only roles only.
