@@ -552,7 +552,7 @@ candidate AS (
     )
   GROUP BY wm.workforce_member_id, wm.updated_at
 ), load AS (
-  -- projection-review: membership=active planned/in-progress vaccination obligations for one park/date with conducted_by set; group_key=conducted_by workforce_member_id; join_cardinality=obligation_batches to obligation_instances is 1:N but collapsed with COUNT(DISTINCT oi.target_id) so multi-vaccine rows do not inflate operator animal load; pagination=full available-operator candidate set for one park/date, no page boundary; scope=explicit park scope only.
+  -- projection-review: membership=active planned/in-progress batches with conducted_by workforce_member_id on one park/planned_date; group_key=conducted_by workforce_member_id; join_cardinality=OneToMany (obligation_batches:obligation_instances=1:N collapsed with COUNT(DISTINCT oi.target_id) so multi-vaccine rows do not inflate operator animal load); pagination=Pagination (full available-operator candidate set for one park/date, no keyset paging); scope=ParkScope (explicit park scope only); date=ExecutionDate (planned_date); status=StatusMatrix (scheduled,due,in_progress statuses counted, others excluded).
   SELECT ob.conducted_by AS workforce_member_id, count(DISTINCT oi.target_id)::int AS animals
   FROM obligation_batches ob
   JOIN obligation_instances oi
@@ -567,7 +567,7 @@ candidate AS (
     AND oi.status IN ('scheduled', 'due', 'in_progress')
   GROUP BY ob.conducted_by
 )
-SELECT c.workforce_member_id::text, c.daily_cap
+SELECT c.workforce_member_id::text, GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int
 FROM candidate c
 LEFT JOIN load l ON l.workforce_member_id = c.workforce_member_id
 ORDER BY
