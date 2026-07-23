@@ -210,6 +210,12 @@ Calendar leadership drilldowns must keep drive-summary counts and L3 target
 rosters on the same membership rule: assigned drives use typed
 `vaccination_drive_assignments.planned_date`, while unassigned legacy batches
 fall back to `obligation_batches.planned_date` only when no assignment row exists.
+Per-goat vaccination passport/history is deliberately not a CEO aggregate tool:
+admin-web goat rosters such as Counts Herd Register and Calendar drive detail
+may open `/api/goats/{goat_id}/vaccination-passport` inside the shared local
+Goat Passport drawer for operational inspection, but leadership answers should
+stay at aggregate schedule/adherence/exception grain unless the leader
+explicitly asks for a named animal record.
 For CPT operator timetable answers, the backend can label the center as
 `Channapatna` while the position code is `vaccination_operator_*`. Assistant
 coverage and frontend read consumers must treat those rows as CPT vaccination

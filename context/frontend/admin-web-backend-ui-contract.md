@@ -388,7 +388,14 @@ detail because the compact row did not show it. Examples:
   workflow/action surfaces.
 - Vaccination status matrix cell: cell can show a dose/protocol status count.
   Drawer must use the selected cohort/protocol object and reveal the full
-  record/verify context only when IDs needed for actions exist.
+  schedule/proof context needed for action.
+- Goat roster rows: Counts Herd Register, Calendar drive detail, shed execution,
+  and any future animal roster must use the shared Goat Passport local drawer
+  pattern. The compact table may show identifiers/status only, but the drawer
+  must include the goat-wise vaccination passport: next due, open obligations,
+  and vaccination history from `/api/goats/{goat_id}/vaccination-passport`.
+  A roster that shows goats without that drawer is a contract regression, even
+  if a separate full passport route still exists.
 - Shed execution row: row can show shed, owner, proof, verification, next step.
   Drawer shows obligation/batch/task/completion IDs when present and disables
   actions with exact backend reasons when absent.
