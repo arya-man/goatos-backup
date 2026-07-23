@@ -2,7 +2,7 @@
 
 **Status:** Draft v5, refined against source-first counter-review, read-model review, and dependency-closure audit
 **Date:** 2026-06-30
-**Updated:** 2026-07-20 (experiment feed corrected to absolute per-shed kg allocation)
+**Updated:** 2026-07-23 (mobile Direction/Packing surfaces and backend-owned session filters)
 **Vertical:** Feed. Feed Direction is the first Feed module. Parks are a scope
 dimension, not the owning vertical.
 
@@ -38,6 +38,18 @@ Android replacement of every Feed Slack form/prompt. Use the
 [canonical legacy system reference](../../context/source-findings/feed-direction-legacy-system-reference.md)
 for workbook, Slack channel, Apps Script, trigger, wiki, BigQuery, role, field,
 and defect evidence.
+
+**Implementation snapshot (2026-07-23):** This branch now contains active
+Feed Direction and Feed Packing read surfaces in admin-web and Android, the
+Feed-owned ration/session configuration surface, bounded backend reads, and
+offline-capable operator navigation. Direction and Packing expose a session
+filter whose available values and labels come from the active backend session
+template through `FeedFilterOptions`; neither frontend owns a private Session
+1/2 list. The same selection narrows the work rows and returned summary totals,
+and the packing worklist accepts the matching `session` query parameter.
+Unset/zero means all sessions. This implementation snapshot does not by itself
+turn any unresolved `G1`-`G17` source, safety, rollout, or production-evidence
+gate green.
 
 **Design decision:** Ratify the committed `000079_feed_direction_module.sql`
 direction unless the owner explicitly reverses it. Feed Direction reuses the
