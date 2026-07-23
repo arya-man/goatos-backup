@@ -116,10 +116,46 @@ One real E2E per trigger, each asserting raw DB (`obligation_batches` + `vaccina
 - **Leave add** (range) → those days re-scoped/fallback, drives NOT cancelled, obligations preserved; **leave remove** → reversed.
 Each must preserve clinical rules + per-animal shot cap + safe-window, prove idempotency (replay), and include query-plan + latency evidence. Publish on `https://vgoats.github.io/goatos/` per the E2E publishing rule.
 
+## PHASE 0 — FIX F1/F2 FIRST (STILL OPEN on main @867ef93f — verified NOT fixed)
+
+Do this before anything else, with **two parallel agents** (minimal file overlap:
+F1 = `sweeper.go:totalVaccinationOperatorCap` only; F2 = `sweeper.go:~1019` +
+`repository.go:3504` — coordinate the one shared file `sweeper.go`). Red-test-first,
+then independent judge verify, `make ci-local`, `make land-main`.
+
+**F1 — operator capacity leak** (`backend/internal/obligation/app/sweeper.go:351` `totalVaccinationOperatorCap`).
+Current (BUG): sums remaining cap, then `if total <= 0 { total = fallbackCap }`.
+So when operators WERE found but every one has 0 remaining, it returns the full
+fallback batch cap → preflight/planner still creates/locks a drive onto full
+operators. **Fix:** when `len(operators) > 0` but summed remaining == 0, **return 0**
+(do NOT fall back). `fallbackCap` applies only when NO operators were found — and
+callers already handle `len(operators) == 0` separately (see `operatorCapacityPlanner`
+:321, `effectiveOperatorAnimalCap` :337, both early-return on empty). Tests: (a) 3
+operators all 0 remaining → returns 0, planner does NOT create a batch; (b) one has
+remaining>0 → returns that; (c) uncapped operator (unlimited) → returns fallback/unlimited; (d) no operators → fallbackCap (unchanged).
+
+**F2 — stale drive-assignment rows on partial attach** (`sweeper.go:1019-1031` + `repository.go:3504`).
+Current (BUG): `newBatch.DriveAssignments = driveAssignments` (built from ALL
+`selectedRows`) is set BEFORE `createBatchWithAttachedIDs` (:1020), which persists
+them via upsert in the create tx (`repository.go:3504`, upsert not replace). Only
+`attachedIDs` actually attach; `attachedRows` is computed at :1031 AFTER — too late.
+A drive row for an obligation that did NOT attach (different shed/partition/operator
+key) survives as a stale row. **Fix:** do NOT pass `DriveAssignments` into the create
+path — clear/omit them before `createBatchWithAttachedIDs`; AFTER `attachedIDs` is
+known, rebuild assignments filtered to `attachedRows` (:1031) and persist via a
+**replace** path scoped to `(tenant, batch)` (delete existing rows for that batch,
+then insert the attached set) so no stale row can survive; keep it replay-safe
+(idempotent). Test: two selected obligations in DIFFERENT shed/partition; only one
+attaches → DB ends with a drive row ONLY for the attached obligation, none for the
+unattached. (The current test only covers both collapsing into one same-partition
+row — it misses this; add the stale-row case.)
+
+Verify F1+F2 on a FRESH build at the exact SHA (stale :8080 binary hides it).
+
 ## 8. Process (no loops)
 
-Phased; each phase: **red test reproducing the exact failure** → root-cause fix → **independent judge re-verify on the real path** → `make ci-local` on the exact SHA → `make land-main`. Use multiple judge agents at each step. Suggested order:
-1. Confirm F1/F2 landed (other session).
+Phased; each phase: **red test reproducing the exact failure** → root-cause fix → **independent judge re-verify on the real path** → `make ci-local` on the exact SHA → `make land-main`. Use multiple judge agents at each step + the standing lens `operator-cascade-JUDGE-LENS.md`. Order:
+1. **PHASE 0 above — fix F1/F2 first** (still open @867ef93f).
 2. FE merged screen wired to existing endpoints (roster/week-off/leave/cap) + N/default disabled-with-reason. Land.
 3. BE: common-cap-write + OPS-CASCADE-2/-4 + same-date leave BE guard. Land.
 4. BE: N + default-operator config + bootstrap contract → enable FE N/default. Land.
