@@ -487,9 +487,17 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         if (op?.animal_cap_per_day != null && !(Number.isInteger(op.animal_cap_per_day) && op.animal_cap_per_day >= 1 && op.animal_cap_per_day <= 100000)) {
           pushSample(operatorRosterProblems, `${label}: animal_cap_per_day must be an integer between 1 and 100000 when set, got ${op.animal_cap_per_day}`);
         }
+        const shiftLabel = String(op?.shift_label || "").toLowerCase();
+        if (op?.shift_label != null && !/^(am|pm|rover)$/.test(shiftLabel)) pushSample(operatorRosterProblems, `${label}: shift_label must be am, pm, or rover`);
+        if (op?.shift_start_minute != null && !(Number.isInteger(op.shift_start_minute) && op.shift_start_minute >= 0 && op.shift_start_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_start_minute must be 0..1439`);
+        if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute > 0 && op.shift_end_minute <= 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 1..1440`);
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
       if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
+      const activeOpsPerDay = contract?.operator_assignment_config?.active_operators_per_day;
+      if (activeOpsPerDay != null && !(Number.isInteger(activeOpsPerDay) && activeOpsPerDay >= 1 && activeOpsPerDay <= 1000)) pushSample(operatorRosterProblems, `active_operators_per_day must be an integer between 1 and 1000 when set, got ${activeOpsPerDay}`);
+      const defaultOpCode = String(contract?.operator_assignment_config?.default_operator_code || "").trim();
+      if (defaultOpCode && !/^vaccination_operator_[a-z0-9_]+$/.test(defaultOpCode)) pushSample(operatorRosterProblems, `default_operator_code must match vaccination_operator_<name> pattern, got ${defaultOpCode}`);
     } catch (err) {
       pushSample(operatorRosterProblems, `unparseable cpt-operator-roster.json: ${err.message}`);
     }
@@ -497,8 +505,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "operator_roster_contract",
     operatorRosterProblems.length,
-    "cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, bounded default and optional per-person animal cap.",
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, default_animals_per_day is 1..100000, and any animal_cap_per_day override is 1..100000.",
+    "cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional assignment config (active_operators_per_day, default_operator_code).",
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (1..1440), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional active_operators_per_day 1..1000, and optional default_operator_code matching vaccination_operator_<name>.",
     operatorRosterProblems,
   ));
 

@@ -505,15 +505,20 @@ one product; this skill is the navigation layer.
 - Vaccination operator animal capacity is HRMS-owned. The live source is
   `workforce_positions.vaccination_daily_animal_cap` per operator position;
   `vaccination_capacity_config.max_per_day` is only a fallback when HRMS has no
-  explicit cap. HRMS edits, operator-roster seed overlays, planner assignment
-  splitting, timetable capacity, admin-web display, and leadership reads must
-  all use that same per-position field. Any change to cap source or fallback
-  order must update the migration/seed fixture companions, admin UI, scheduler
-  tests, and capacity/date-move E2E in one patch.
-  Clearing `vaccination_daily_animal_cap` to null is a valid HRMS edit that
-  restores tenant-default capacity; never coerce it to zero or silently leave
-  the previous custom cap. Operator-cap SQL proof must be a real Postgres test
-  for custom/null-default/week-off rows; a source-string guard is only a lint.
+  explicit cap. Operator shift configuration (shift_label, shift_start_minute,
+  shift_end_minute) seeds into `vaccination_operator_shift_config` via the
+  operator-roster overlay; operator assignment config (active_operators_per_day,
+  default_operator_code) seeds into `vaccination_operator_assignment_config`
+  (Phase-1 config-only, not yet scheduled by the planner). HRMS edits,
+  operator-roster seed overlays, planner assignment splitting, timetable
+  capacity, admin-web display, and leadership reads must all use the same
+  per-position cap field. Any change to cap source, shift fields, or assignment
+  config must update the migration/seed fixture companions, admin UI, scheduler
+  tests, and capacity/date-move E2E in one patch. Clearing
+  `vaccination_daily_animal_cap` to null is a valid HRMS edit that restores
+  tenant-default capacity; never coerce it to zero or silently leave the
+  previous custom cap. Operator-cap SQL proof must be a real Postgres test for
+  custom/null-default/week-off rows; a source-string guard is only a lint.
 
 ## Must Not
 

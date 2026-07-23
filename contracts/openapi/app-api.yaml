@@ -1902,6 +1902,70 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/operator-assignment/config:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationOperatorAssignmentConfig
+      summary: >-
+        Phase 1 CONFIG-ONLY: read a park's N-active-operators-per-day + default-operator config plus
+        every operator's authored shift, for the admin Config screen. Not yet consumed by the drive
+        scheduler (Phase 5).
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The park's operator assignment config + shifts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorAssignmentConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Vaccination
+      operationId: putVaccinationOperatorAssignmentConfig
+      summary: >-
+        Phase 1 CONFIG-ONLY: write a park's active-operators-per-day + default-operator config
+        (validate-or-reject; optimistic concurrency via rowVersion). Not yet consumed by the drive
+        scheduler (Phase 5).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVaccinationOperatorAssignmentConfigRequest"
+      responses:
+        "200":
+          description: The updated operator assignment config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorAssignmentConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The supplied rowVersion no longer matches the stored config (concurrent edit).
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-direction/generation-preview:
     get:
       tags:
@@ -11869,6 +11933,102 @@ components:
         rowVersion:
           type: integer
           description: Published capacity config row version.
+    VaccinationOperatorShift:
+      type: object
+      additionalProperties: false
+      description: |
+        Phase 1 CONFIG-ONLY: one operator's authored shift window + week-off for a park. Start/end are
+        minutes-of-day (0-1439) so a non-hour-aligned start (e.g. 08:30) is exact.
+      required:
+        - operatorId
+        - displayName
+        - shiftLabel
+        - shiftStartMinute
+        - shiftEndMinute
+      properties:
+        operatorId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          description: Backend-owned operator display name (workforce_members.display_name).
+        shiftLabel:
+          type: string
+          enum:
+            - am
+            - pm
+            - rover
+        shiftStartMinute:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        shiftEndMinute:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        weekOffWeekday:
+          type: string
+          enum:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+          description: Lowercase weekday name; absent when the operator has no week-off.
+    VaccinationOperatorAssignmentConfig:
+      type: object
+      additionalProperties: false
+      description: |
+        Phase 1 CONFIG-ONLY: a park's N-active-operators-per-day + CEO-set default operator, plus every
+        operator's authored shift. Not yet consumed by the drive scheduler (Phase 5).
+      required:
+        - activeOperatorsPerDay
+        - defaultOperatorId
+        - rowVersion
+        - shifts
+      properties:
+        activeOperatorsPerDay:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: N operators active per business day for this park. CPT runs N=1 today.
+        defaultOperatorId:
+          type: string
+          format: uuid
+          description: The CEO-set default operator. Required whenever a config row exists (validate-or-reject, never a silent default).
+        rowVersion:
+          type: integer
+          format: int64
+          description: Optimistic-concurrency token; required on PUT to avoid clobbering a concurrent admin edit.
+        shifts:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationOperatorShift"
+    UpdateVaccinationOperatorAssignmentConfigRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - activeOperatorsPerDay
+        - defaultOperatorId
+        - rowVersion
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        activeOperatorsPerDay:
+          type: integer
+          minimum: 1
+          maximum: 3
+        defaultOperatorId:
+          type: string
+          format: uuid
+        rowVersion:
+          type: integer
+          format: int64
+          description: The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.
     VaccinationShedStatus:
       type: string
       enum:

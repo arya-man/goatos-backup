@@ -768,6 +768,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/operator-assignment/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Phase 1 CONFIG-ONLY: read a park's N-active-operators-per-day + default-operator config plus every operator's authored shift, for the admin Config screen. Not yet consumed by the drive scheduler (Phase 5). */
+        get: operations["getVaccinationOperatorAssignmentConfig"];
+        /** Phase 1 CONFIG-ONLY: write a park's active-operators-per-day + default-operator config (validate-or-reject; optimistic concurrency via rowVersion). Not yet consumed by the drive scheduler (Phase 5). */
+        put: operations["putVaccinationOperatorAssignmentConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/generation-preview": {
         parameters: {
             query?: never;
@@ -4407,6 +4425,56 @@ export interface components {
             rowVersion: number;
         };
         /**
+         * @description Phase 1 CONFIG-ONLY: one operator's authored shift window + week-off for a park. Start/end are
+         *     minutes-of-day (0-1439) so a non-hour-aligned start (e.g. 08:30) is exact.
+         */
+        VaccinationOperatorShift: {
+            /** Format: uuid */
+            operatorId: string;
+            /** @description Backend-owned operator display name (workforce_members.display_name). */
+            displayName: string;
+            /** @enum {string} */
+            shiftLabel: "am" | "pm" | "rover";
+            shiftStartMinute: number;
+            shiftEndMinute: number;
+            /**
+             * @description Lowercase weekday name; absent when the operator has no week-off.
+             * @enum {string}
+             */
+            weekOffWeekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+        };
+        /**
+         * @description Phase 1 CONFIG-ONLY: a park's N-active-operators-per-day + CEO-set default operator, plus every
+         *     operator's authored shift. Not yet consumed by the drive scheduler (Phase 5).
+         */
+        VaccinationOperatorAssignmentConfig: {
+            /** @description N operators active per business day for this park. CPT runs N=1 today. */
+            activeOperatorsPerDay: number;
+            /**
+             * Format: uuid
+             * @description The CEO-set default operator. Required whenever a config row exists (validate-or-reject, never a silent default).
+             */
+            defaultOperatorId: string;
+            /**
+             * Format: int64
+             * @description Optimistic-concurrency token; required on PUT to avoid clobbering a concurrent admin edit.
+             */
+            rowVersion: number;
+            shifts: components["schemas"]["VaccinationOperatorShift"][];
+        };
+        UpdateVaccinationOperatorAssignmentConfigRequest: {
+            /** Format: uuid */
+            parkId: string;
+            activeOperatorsPerDay: number;
+            /** Format: uuid */
+            defaultOperatorId: string;
+            /**
+             * Format: int64
+             * @description The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.
+             */
+            rowVersion: number;
+        };
+        /**
          * @description Merged CEO headline folding capacity and vaccination state by priority (highest first):
          *     needs_review > overdue > split > due > scheduled > on_track
          *
@@ -6752,6 +6820,68 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationOperatorAssignmentConfig: {
+        parameters: {
+            query: {
+                park_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The park's operator assignment config + shifts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorAssignmentConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putVaccinationOperatorAssignmentConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated operator assignment config. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorAssignmentConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The supplied rowVersion no longer matches the stored config (concurrent edit). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             500: components["responses"]["ServerError"];
         };
     };

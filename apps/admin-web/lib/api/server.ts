@@ -85,6 +85,9 @@ export type VaccinationPlannedSession = AppApiComponents["schemas"]["Vaccination
 export type VaccinationShedSortKey = AppApiComponents["schemas"]["VaccinationShedSortKey"];
 export type VaccinationPageInfo = AppApiComponents["schemas"]["VaccinationPageInfo"];
 export type VaccinationCapacityConfig = AppApiComponents["schemas"]["VaccinationCapacityConfig"];
+export type VaccinationOperatorAssignmentConfig = AppApiComponents["schemas"]["VaccinationOperatorAssignmentConfig"];
+export type VaccinationOperatorShift = AppApiComponents["schemas"]["VaccinationOperatorShift"];
+export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
@@ -1147,6 +1150,37 @@ export async function getVaccinationCapacityConfig(): Promise<ApiResult<Vaccinat
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", { cache: "no-store" }),
+  );
+}
+
+// Admin vaccination operator assignment config (N + default operator per park, shift assignments).
+// Returns the park's active-operators-per-day + default-operator config plus every operator's shift.
+export async function getVaccinationOperatorAssignmentConfig(parkId: string): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
+      method: "GET",
+      query: { park_id: parkId },
+      cache: "no-store",
+    }),
+  );
+}
+
+// Admin update vaccination operator assignment config (validate-or-reject, optimistic concurrency via rowVersion).
+export async function putVaccinationOperatorAssignmentConfig(
+  body: UpdateVaccinationOperatorAssignmentConfigRequest
+): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
   );
 }
 

@@ -104,7 +104,8 @@ targets, process-integrity rows, and the schedule ledger.
   (`workforce_positions.vaccination_daily_animal_cap`) with
   `vaccination_capacity_config.max_per_day` only as the fallback default. Do
   not multiply a hardcoded/default cap by operator count in UI or backend once
-  per-seat caps are available.
+  per-seat caps are available. Operator assignment config is a point lookup
+  scoped to `(tenant, park)` with bounded ≤N operators, never a scan or fan-out.
 - infinite paging loops without cursor/progress proof
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds

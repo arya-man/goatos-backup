@@ -127,6 +127,11 @@
       "date": "2026-07-23",
       "change": "workforce_positions gained vaccination_daily_animal_cap and seed-roster-real now maps an optional operator-roster animal_cap_per_day into that HRMS position field. Scheduling reads per-operator HRMS caps first, falling back to tenant vaccination_capacity_config/default only when an operator has no explicit cap.",
       "vaccination_hrms_source_impact": "none to the committed full fixture bytes: it still ships the generic timetable/roster source without cpt-operator-roster.json, so no fixture hash or row count changes. Private operator-roster rehearsal bundles may provide animal_cap_per_day, which is validated as a positive integer and becomes the runtime scheduling cap for that operator."
+    },
+    {
+      "date": "2026-07-23",
+      "change": "migration 000035_vaccination_operator_assignment_config creates vaccination_operator_shift_config (shift_label, shift_start_minute, shift_end_minute) and vaccination_operator_assignment_config (active_operators_per_day, default_operator_code) to bind per-operator shift schedules and tenant-scoped default assignment rules during the Phase-1 config-only phase (not yet consumed by the scheduler).",
+      "vaccination_hrms_source_impact": "none to the committed full fixture bytes; this is Phase-1 config structure only. CPT operator-roster rehearsal may supply shift_label/shift_start_minute/shift_end_minute and active_operators_per_day/default_operator_code in cpt-operator-roster.json, which seed-roster-real parses and writes to the new tables. The committed jun-26 fixture has no operator-roster file, so seed behavior is unchanged."
     }
   ]
 }

@@ -36,6 +36,11 @@ export const OPERATOR_ROSTER_CONTRACT_FILE = "cpt-operator-roster.json";
 export const OPERATOR_ROSTER_OVERLAY_IS_AUTHORITATIVE_FIELD_CAPACITY = true;
 export const OPERATOR_ROSTER_ANIMAL_CAP_FIELD = "animal_cap_per_day";
 export const HRMS_VACCINATION_DAILY_ANIMAL_CAP_FIELD = "workforce_positions.vaccination_daily_animal_cap";
+export const OPERATOR_SHIFT_LABEL_FIELD = "shift_label";
+export const OPERATOR_SHIFT_START_MINUTE_FIELD = "shift_start_minute";
+export const OPERATOR_SHIFT_END_MINUTE_FIELD = "shift_end_minute";
+export const OPERATOR_ASSIGNMENT_CONFIG_ACTIVE_OPERATORS_FIELD = "active_operators_per_day";
+export const OPERATOR_ASSIGNMENT_CONFIG_DEFAULT_OPERATOR_FIELD = "default_operator_code";
 export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
   "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
 export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =

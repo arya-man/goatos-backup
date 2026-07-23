@@ -94,6 +94,19 @@ Friday, Darshan = Sunday, and Sagar = Saturday. Chandrakant is a Preventive
 Care Director and contributes no field capacity unless explicitly assigned as
 an operator.
 
+### Operator Shift Configuration (Phase-1 Config Only)
+
+The `cpt-operator-roster.json` may include operator shift schedules (migration 000035):
+
+- `shift_label` — one of `am` (morning), `pm` (afternoon), or `rover` (flexible)
+- `shift_start_minute` — 0–1439 (start time in minutes after midnight)
+- `shift_end_minute` — 1–1440 (end time in minutes after midnight)
+
+These fields seed into `vaccination_operator_shift_config` and are config-only
+in Phase 1 (not yet consumed by the scheduler). The optional
+`operator_assignment_config` block sets `active_operators_per_day` (max concurrent
+operators) and `default_operator_code` (fallback when no explicit assignment).
+
 After seeding, HRMS may override an operator seat's vaccination animal/day cap
 through `workforce_positions.vaccination_daily_animal_cap`. Runtime scheduling
 uses this order: HRMS position cap first, then `vaccination_capacity_config` as

@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
@@ -46,6 +47,15 @@ type Reader interface {
 	ShedAnimals(ctx context.Context, q vaccexecd.ShedAnimalQuery) (vaccexecd.ShedAnimalPage, error)
 	// CapacityConfig backs the admin Config screen's read of the tenant daily operator animal cap.
 	CapacityConfig(ctx context.Context, tenantID string) (vaccexecd.CapacityConfig, error)
+	// OperatorAssignmentConfig backs the admin Config screen's read of the park's N-active-operators +
+	// default-operator config plus every operator's authored shift (Phase 1 config-only).
+	GetOperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (vaccexecapp.OperatorAssignmentConfigView, error)
+}
+
+// OperatorAssignmentConfigWriter is the Phase 1 config-only write slice for the operator assignment
+// admin screen.
+type OperatorAssignmentConfigWriter interface {
+	UpdateOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg vaccexecd.OperatorAssignmentConfig) (vaccexecd.OperatorAssignmentConfig, string, string, error)
 }
 
 // Writer is the obligation write interface needed for reschedule operations.
@@ -71,10 +81,11 @@ type Writer interface {
 
 // Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
 type Handler struct {
-	reader Reader
-	writer Writer
-	log    *slog.Logger
-	clock  func() time.Time
+	reader       Reader
+	writer       Writer
+	operatorCfgW OperatorAssignmentConfigWriter
+	log          *slog.Logger
+	clock        func() time.Time
 }
 
 // NewHandler constructs the vaccination execution handler.
@@ -84,6 +95,14 @@ func NewHandler(reader Reader, writer Writer, log ...*slog.Logger) *Handler {
 		l = log[0]
 	}
 	return &Handler{reader: reader, writer: writer, log: l, clock: time.Now}
+}
+
+// WithOperatorAssignmentConfigWriter attaches the Phase 1 config-only operator assignment write path.
+// Kept as a separate opt-in setter (rather than a NewHandler parameter) so existing call sites are
+// unaffected; a handler without this set 500s the PUT route rather than silently no-op-ing.
+func (h *Handler) WithOperatorAssignmentConfigWriter(w OperatorAssignmentConfigWriter) *Handler {
+	h.operatorCfgW = w
+	return h
 }
 
 // WithClock overrides the wall clock for tests that need deterministic as-of
@@ -114,6 +133,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
 	mux.HandleFunc("GET /vaccination/capacity-config", h.GetCapacityConfig)
+	mux.HandleFunc("GET /vaccination/operator-assignment/config", h.GetOperatorAssignmentConfig)
+	mux.HandleFunc("PUT /vaccination/operator-assignment/config", h.PutOperatorAssignmentConfig)
 	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
@@ -1141,6 +1162,91 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, cfg)
+}
+
+// operatorAssignmentConfigResponse is the wire shape for GET/PUT operator-assignment config: the N/
+// default config plus every operator's authored shift, so the admin Config screen renders in one call.
+type operatorAssignmentConfigResponse struct {
+	ActiveOperatorsPerDay int                       `json:"activeOperatorsPerDay"`
+	DefaultOperatorID     string                    `json:"defaultOperatorId"`
+	RowVersion            int64                     `json:"rowVersion"`
+	Shifts                []vaccexecd.OperatorShift `json:"shifts"`
+}
+
+// GetOperatorAssignmentConfig returns the park's Phase 1 CONFIG-ONLY N-active-operators + default
+// operator config, plus every operator's authored shift. Read authority is enforced at the permission
+// layer (config authority: CEO/CXO). NOT yet consumed by the drive scheduler -- see the Phase 5 TODOs in
+// backend/internal/obligation/adapters/postgres/sweeper.go.
+func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Request) {
+	parkID := r.URL.Query().Get("park_id")
+	if !uuidutil.IsUUIDString(parkID) {
+		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	view, err := h.reader.GetOperatorAssignmentConfig(r.Context(), tenantID(r), parkID)
+	if err != nil {
+		if errors.Is(err, vaccexecapp.ErrOperatorAssignmentConfigNotFound) {
+			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+				errorEnvelope{Code: "not_found", Message: "no operator assignment config authored for this park yet", TraceID: traceID(r)}, nil)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, operatorAssignmentConfigResponse{
+		ActiveOperatorsPerDay: view.Config.ActiveOperatorsPerDay,
+		DefaultOperatorID:     view.Config.DefaultOperatorID,
+		RowVersion:            view.Config.RowVersion,
+		Shifts:                view.Shifts,
+	})
+}
+
+// updateOperatorAssignmentConfigRequest is the PUT body: N + default operator + the row_version the
+// admin last read (optimistic concurrency -- 0 means "no config exists yet, create it").
+type updateOperatorAssignmentConfigRequest struct {
+	ParkID                string `json:"parkId"`
+	ActiveOperatorsPerDay int    `json:"activeOperatorsPerDay"`
+	DefaultOperatorID     string `json:"defaultOperatorId"`
+	RowVersion            int64  `json:"rowVersion"`
+}
+
+// PutOperatorAssignmentConfig writes the park's N + default operator config. Write authority is enforced
+// at the permission layer (config authority: CEO/CXO). Validate-or-reject: an invalid N or a missing
+// default operator returns 400, never a silently-applied default. A row_version mismatch returns 409.
+func (h *Handler) PutOperatorAssignmentConfig(w http.ResponseWriter, r *http.Request) {
+	if h.operatorCfgW == nil {
+		h.internal(w, r, errors.New("vaccination execution: operator assignment config writer is not wired"))
+		return
+	}
+	var req updateOperatorAssignmentConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.badRequest(w, r, "invalid_body", "request body must be valid JSON")
+		return
+	}
+	if !uuidutil.IsUUIDString(req.ParkID) {
+		h.badRequest(w, r, "invalid_park_id", "parkId must be a UUID")
+		return
+	}
+	updated, code, msg, err := h.operatorCfgW.UpdateOperatorAssignmentConfig(r.Context(), tenantID(r), vaccexecd.OperatorAssignmentConfig{
+		ParkID:                req.ParkID,
+		ActiveOperatorsPerDay: req.ActiveOperatorsPerDay,
+		DefaultOperatorID:     req.DefaultOperatorID,
+		RowVersion:            req.RowVersion,
+	})
+	if code != "" {
+		h.badRequest(w, r, code, msg)
+		return
+	}
+	if err != nil {
+		if errors.Is(err, vaccexecapp.ErrOperatorAssignmentConfigConflict) {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				errorEnvelope{Code: "row_version_conflict", Message: "operator assignment config was updated by someone else; reload and retry", TraceID: traceID(r)}, nil)
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, updated)
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {

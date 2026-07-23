@@ -27,7 +27,10 @@
       "can_execute_vaccination": true,
       "park_scope": ["CPT"],
       "week_off": "friday",
-      "animal_cap_per_day": 200
+      "animal_cap_per_day": 200,
+      "shift_label": "am",
+      "shift_start_minute": 420,
+      "shift_end_minute": 900
     },
     {
       "code": "vaccination_operator_darshan",
@@ -38,7 +41,10 @@
       "can_execute_vaccination": true,
       "park_scope": ["CPT"],
       "week_off": "sunday",
-      "animal_cap_per_day": 200
+      "animal_cap_per_day": 200,
+      "shift_label": "rover",
+      "shift_start_minute": 510,
+      "shift_end_minute": 1080
     },
     {
       "code": "vaccination_operator_sagar",
@@ -49,9 +55,16 @@
       "can_execute_vaccination": true,
       "park_scope": ["CPT"],
       "week_off": "saturday",
-      "animal_cap_per_day": 200
+      "animal_cap_per_day": 200,
+      "shift_label": "pm",
+      "shift_start_minute": 900,
+      "shift_end_minute": 1439
     }
   ],
+  "default_operator_assignment": {
+    "active_operators_per_day": 1,
+    "default_operator_code": "vaccination_operator_darshan"
+  },
   "directors": [
     {
       "code": "preventive_care_director_chandrakant",

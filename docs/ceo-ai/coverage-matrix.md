@@ -323,3 +323,15 @@ MCP Toolbox tool; the `dose_code` on-the-wire contract is unchanged (it already
 carried the label). This change REMOVES a `ceo_ai.*` dependency from a core read
 path rather than adding a leadership surface. Explicit documented exclusion — no
 coverage-matrix mapping required.
+
+## Explicit exclusion: vaccination operator shift + assignment config (Phase 1 config-only, 2026-07-23)
+
+Adds two new tables (`vaccination_operator_assignment_config`,
+`vaccination_operator_shift_config`, migration 000035) plus
+`GET/PUT /vaccination/operator-assignment/config`. This is admin-only
+authoring config (CPT/Channapatna operator shift + N-active-operators-per-day
+default), analogous to the already-excluded `vaccination_capacity_config` admin
+Config screen surface — it is not a leadership KPI, business outcome metric, or
+reporting dimension, and the drive/obligation scheduler does not yet consume it
+(Phase 5). No new leadership-relevant table, official KPI, or reporting view is
+introduced. Explicit documented exclusion — no coverage-matrix mapping required.
