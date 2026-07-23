@@ -218,15 +218,24 @@ ALTER ROLE mesha_ceo_readonly SET default_transaction_read_only = on;
 
 CREATE SCHEMA IF NOT EXISTS ceo_ai;
 
-REVOKE ALL ON SCHEMA public FROM mesha_ceo_readonly;
+-- Maintainer decision 2026-07-23 (migration 000031): the internal CEO-only,
+-- read-only assistant must never hit a permission wall on any current or future
+-- table, so grant read-only SELECT on ALL of public in addition to ceo_ai.
+-- Read-only is still enforced by default_transaction_read_only=on + SELECT-only
+-- grants. This supersedes the earlier "REVOKE ALL ON SCHEMA public" boundary.
+GRANT USAGE ON SCHEMA public TO mesha_ceo_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO mesha_ceo_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT ON TABLES TO mesha_ceo_readonly;
 GRANT USAGE ON SCHEMA ceo_ai TO mesha_ceo_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA ceo_ai TO mesha_ceo_readonly;
 ALTER DEFAULT PRIVILEGES IN SCHEMA ceo_ai
   GRANT SELECT ON TABLES TO mesha_ceo_readonly;
 ```
 
-Do not grant `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `USAGE` on
-sequences, or direct access to `public` tables.
+Do not grant `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, or `USAGE` on
+sequences. Direct `SELECT` on `public` tables is intentionally granted per the
+2026-07-23 maintainer decision above (read-only); write access stays denied.
 
 ## Reporting Schema Coverage Contract
 

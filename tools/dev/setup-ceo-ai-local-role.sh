@@ -16,8 +16,10 @@
 #   * LOGIN with a generated local password
 #   * statement_timeout + idle_in_transaction_session_timeout
 #   * default_transaction_read_only = on
-#   * REVOKE ALL ON SCHEMA public  (no access to raw app tables)
-#   * GRANT USAGE + SELECT on the ceo_ai schema ONLY
+#   * GRANT USAGE + SELECT on ALL of schema public (current + future tables)
+#     — maintainer decision 2026-07-23, matches migration 000031. Read-only is
+#     enforced by default_transaction_read_only=on + SELECT-only grants.
+#   * GRANT USAGE + SELECT on the ceo_ai reporting schema
 #   * NO execute on ceo_ai.run_readonly_sql (denied until the backend validator)
 #
 # Re-runnable: roles are created if missing and their grants re-applied. Passing
@@ -159,13 +161,13 @@ cat > "$ENV_FILE" <<EOF
 # Real staging/prod values come from Google Secret Manager (goatos-stg) and
 # GitHub Actions secrets (vgoats/goatos); this file is for local dev only.
 
-# --- MCP Toolbox / SQL-fallback reader (ceo_ai.* SELECT only) ---
+# --- MCP Toolbox / SQL-fallback reader (public + ceo_ai SELECT only) ---
 MESHA_MCP_DB_USER=${CEO_ROLE}
 MESHA_MCP_DB_PASSWORD=${CEO_PW}
 MESHA_MCP_DB_DSN=${CEO_DSN}
 MESHA_MCP_TOOLSET=mesha_ceo_toolset
 
-# --- Cube Core governed metric layer's DB user (ceo_ai.* SELECT only) ---
+# --- Cube Core governed metric layer's DB user (public + ceo_ai SELECT only) ---
 MESHA_CUBE_DB_USER=${CUBE_ROLE}
 MESHA_CUBE_DB_PASSWORD=${CUBE_PW}
 MESHA_CUBE_DB_DSN=${CUBE_DSN}
