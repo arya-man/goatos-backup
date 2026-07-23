@@ -3,7 +3,8 @@
 // operator-assignment config (default operator, coverage schedules, capacity caps).
 //
 // Usage:
-//   recompute-vaccination-drives -tenant <UUID> -park <UUID> [-from <date>]
+//
+//	recompute-vaccination-drives -tenant <UUID> -park <UUID> [-from <date>]
 //
 // The from date (default today IST) controls the start of the future window to recompute.
 // Batches with planned_date < from are left untouched (historical).
@@ -21,8 +22,9 @@
 // - In-progress/completed batches are LEFT UNTOUCHED
 //
 // Exit codes:
-//   0 = success (batches released + swept)
-//   1 = argument/DB error (operator's responsibility to fix and retry)
+//
+//	0 = success (batches released + swept)
+//	1 = argument/DB error (operator's responsibility to fix and retry)
 package main
 
 import (

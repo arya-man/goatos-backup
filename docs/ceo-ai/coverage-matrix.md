@@ -336,3 +336,13 @@ reporting dimension. The drive/obligation scheduler consumes it for daily
 operator assignment, but no new leadership-relevant table, official KPI, or
 reporting view is introduced. Explicit documented exclusion — no coverage-matrix
 mapping required.
+
+## Explicit exclusion: one-time vaccination drive recompute (ops tool, 2026-07-23)
+
+`func:RecomputeFutureVaccinationDrives`
+(`backend/internal/obligation/adapters/postgres/operator_recompute.go`) and the
+`recompute-vaccination-drives` CLI are an internal one-time maintenance operation
+that releases future `planned` vaccination drive batches so the sweeper re-plans
+them under the current operator-assignment config. They add NO leadership KPI,
+read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the leadership
+assistant read surface is unchanged. Explicit documented exclusion.
