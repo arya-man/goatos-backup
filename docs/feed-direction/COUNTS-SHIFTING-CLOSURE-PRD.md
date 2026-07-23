@@ -2,6 +2,7 @@
 
 **Status:** Draft v1, dependency closure for Feed Direction gate `G2`
 **Date:** 2026-06-30
+**Updated:** 2026-07-23 (operational shifting handoff and temporary-identifier implementation snapshot)
 **Companions:** [Feed Direction Feature Closure Plan](./FEATURE-CLOSURE-PLAN.md),
 [Feed Direction Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md),
 [Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md), and
@@ -13,14 +14,16 @@ Feed Direction cannot build honestly until Counts/Shifting exposes the aggregate
 contract that the source requires. This PRD scopes that work as its own closure
 item instead of hiding it inside Feed.
 
-The committed GoatOS repo already has source-row count sync/projection tables
-and per-goat movement history. It does not yet have the physical Base Count
-anchor, realized ShiftingEvent ledger, one-day horizon projection, and
-fail-closed exception model that Feed Direction needs at shed + breed grain.
-Reviewed ration context is resolved from source-backed shed/cohort reference
-data or reported as a blocker; it is not a separate physical Base Count grain.
-Breed/tag constraint tables without shed placement are ration evidence, not count
-truth.
+The committed GoatOS repo now has source-row count sync/projection tables,
+physical Base Count anchors, a realized ShiftingEvent ledger, bounded
+one-day-horizon projection reads, fail-closed exception work, and per-goat
+movement history. Source parity, owner-reviewed mappings, scale evidence, and
+the remaining `CSG1`-`CSG10` readiness outcomes still govern whether this is
+safe Feed input; table and API presence alone do not close `G2`. Reviewed
+ration context is resolved from source-backed shed/cohort reference data or
+reported as a blocker; it is not a separate physical Base Count grain.
+Breed/tag constraint tables without shed placement are ration evidence, not
+count truth.
 
 Initial Counts/Shifting closure is aggregate-only at shed + breed grain.
 RFID-to-shed per-animal association is a future replacement path, not hidden
@@ -40,6 +43,39 @@ Counts/Shifting must project the destination count impact and surface unresolved
 destination ration context as a blocker. Feed Direction must not quietly
 underfeed those animals, and it must not overfeed as a hidden safety buffer; the
 quantity/session/feed-safety policy closes through `G4`, `G5`, and `G9`.
+
+### 1.1 Operational implementation snapshot (2026-07-23)
+
+The branch also ships operator workflows adjacent to the aggregate Feed-input
+contract:
+
+- Managers review and authorize shifting requests in admin-web. Authorization
+  records intent and does not move an animal.
+- Android exposes a bounded, offline-first **Shifting -> Pending** queue with
+  park and source-shed filters. The operator completes or cancels the authorized
+  movement using stable outbox idempotency keys.
+- Only completion calls the canonical atomic relocation path. Destination
+  stage comes from the authorized destination shed profile; successful
+  completion emits `goat.location.changed` and, where applicable,
+  `goat.stage_changed`, followed by Vaccination rescope and eligibility
+  re-evaluation.
+- Birth capture can currently create a newborn with either a permanent RFID or
+  a provisional `temporary_tag`. Temporary-tagged animals appear in a
+  keyset-paged, park/shed-filterable **Awaiting RFID** queue. Promotion
+  atomically retires the temporary tag and attaches one required plus one
+  optional distinct permanent RFID, with identifier domain events and
+  idempotent replay.
+
+The temporary-tag workflow conflicts with the current canonical statement in
+`context/product/glossary.md` that every accepted/canonical animal already has
+`animal_identifier_1`. This PRD records what is implemented but does not retire
+that business invariant. The maintainer must decide whether newborn temporary
+records are a permitted exception or remain provisional/non-canonical until
+promotion; the glossary and validation rules must then be updated together.
+
+These per-animal operational workflows do not change the initial `G2`
+Feed-consumption grain, which remains aggregate shed + breed/cohort projection
+truth with explicit blockers.
 
 ## 2. Product Outcome
 

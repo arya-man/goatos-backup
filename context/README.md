@@ -110,6 +110,9 @@ Goat OS agent skill bundle and reference map
 Environment, load testing, and doc hygiene
   context/execution/env-load-test-and-doc-hygiene.md
 
+Counts, Shifting, and Feed development documentation audit (2026-07-19 to 2026-07-23)
+  context/execution/counts-shifting-feed-development-doc-audit-2026-07-23.md
+
 Disposable GCP one-million scale test setup, evidence, cleanup, and publication handoff
   context/execution/gcp-disposable-1m-scale-test-handoff-2026-07-13.md
 
