@@ -300,6 +300,14 @@ coverage through read APIs, MCP business tools, and `ceo_ai.*` reporting views.
 This is not a starter-only list. The assistant must cover every current and
 future leadership-relevant module.
 
+The `GET /ceo-ai/starters` default questions are backend-owned and truthful to
+the governed Cube metrics + `ceo_ai.*` read tools the assistant currently routes
+to. They include chart-oriented prompts ("Plot vaccination overdue by park",
+"Chart vaccinations due today by park") that resolve to an existing dimensioned
+metric (due/overdue counts by park) so the runtime can emit a grounded bar chart
+without inventing data. Adding a starter must not imply coverage the read APIs /
+MCP Toolbox / SQL fallback cannot answer.
+
 Required coverage includes:
 
 - `ceo_ai.animal_current_scope`
@@ -469,25 +477,36 @@ Three integration defects were found and fixed root-cause during this pass
    `exit_reason IN ('death','dead','mortality')` but the canonical value is
    `'died'` (`backend/migrations/postgres/000020`).
 
-### Not implemented / pending (do NOT claim as done)
+### Closed since the earlier pass
 
-- Conversation-management + feedback + starters HTTP routes
-  (`GET /ceo-ai/starters`, `GET/POST /ceo-ai/conversations…`,
-  `POST /ceo-ai/messages/{id}/feedback`) are NOT registered on the server (only
-  `POST /ceo-ai/ask` and the admin trace route are). The admin-web capability
-  probe therefore fails closed and hides the chat bubble by design. The
-  persistence store + admin-web proxy/UI already speak the contract; the
-  backend route registration is the remaining wire.
-- API-tier read services (feed/procurement/workforce/verification/action-center)
-  have no in-process `ToolExecutor` yet, so those questions honestly refuse
-  ("no read-service executor") rather than fabricate. Cube-backed KPIs answer;
-  operational read APIs are pending.
-- Cube reads `public.*` today, not the `ceo_ai.*` views (metric formulas are the
-  SSOT and unchanged on that swap).
-- Staging/production deploy is NOT done: `mesha-cube-stg` Cloud Run, the Cloud
+- Message feedback (thumbs up/down) is REMOVED entirely — route, store,
+  `ceo_ai_feedback` table (dropped in `000034`), OpenAPI path/schemas, generated
+  client, and admin-web UI. The assistant no longer collects per-message
+  feedback.
+- Conversation-management + starters HTTP routes (`GET /ceo-ai/starters`,
+  `GET/POST /ceo-ai/conversations…`, messages, rename, delete) are registered
+  and live on the protected mux behind the leadership gate, and `starters` is
+  now in the OpenAPI contract. The admin-web capability probe passes for
+  `ceo_internal` and the launcher renders.
+- Cube reads the `ceo_ai.*` views (migration `000030`) through the read-only
+  role, not raw `public.*`; metric formulas are unchanged.
+- API-tier read executors are wired in-process for procurement
+  (`procurement_source_entry_loads`), workforce (`admin_roster_coverage`),
+  verification (`verification_queue`), and action-center
+  (`action_center_obligations`) on top of the existing read services, so those
+  questions answer locally without depending on the not-yet-deployed MCP
+  Toolbox. Feed was already wired.
+- The generated `packages/api-client` is regenerated and committed to match the
+  ceo-ai OpenAPI (feedback removed, starters added); `make api-client-check`
+  (`git diff --exit-code`) is green.
+
+### Still pending (do NOT claim as done)
+
+- A few lower-traffic tools (`operations_kernel_health`,
+  `operations_audit_summary`, `admin_location_usage`) still route to the MCP
+  Toolbox fallback rather than an in-process executor.
+- Staging/production deploy is intentionally deferred — the maintainer is
+  validating the full path locally first. `mesha-cube-stg` Cloud Run, the Cloud
   Run MCP Toolbox, and any Agent Engine deployment are pending; the two
   `*-readonly` DB DSN secrets hold placeholders; BigQuery/dbt marts for
   historical metrics and prod-scale (1-5M) load certification are future work.
-- The generated `packages/api-client` was regenerated to match the additive
-  OpenAPI ceo-ai endpoints; `make api-client-check` only goes green once that
-  regenerated file is committed (it is a `git diff --exit-code` gate).

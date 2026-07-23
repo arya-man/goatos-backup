@@ -103,6 +103,11 @@ type DriveAssignment struct {
 	Warnings       []string
 }
 
+type DriveOperatorCapacity struct {
+	OperatorID string
+	Cap        int32
+}
+
 type VaccineDriveDateOverride struct {
 	TenantID          string
 	ParkID            string

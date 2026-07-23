@@ -16,8 +16,10 @@
 #   * LOGIN with a generated local password
 #   * statement_timeout + idle_in_transaction_session_timeout
 #   * default_transaction_read_only = on
-#   * REVOKE ALL ON SCHEMA public  (no access to raw app tables)
-#   * GRANT USAGE + SELECT on the ceo_ai schema ONLY
+#   * GRANT USAGE + SELECT on ALL of schema public (current + future tables)
+#     — maintainer decision 2026-07-23, matches migration 000031. Read-only is
+#     enforced by default_transaction_read_only=on + SELECT-only grants.
+#   * GRANT USAGE + SELECT on the ceo_ai reporting schema
 #   * NO execute on ceo_ai.run_readonly_sql (denied until the backend validator)
 #
 # Re-runnable: roles are created if missing and their grants re-applied. Passing
@@ -113,8 +115,13 @@ configure_role() {
     run_admin_sql "ALTER ROLE ${role} SET statement_timeout = '${STATEMENT_TIMEOUT}';"
     run_admin_sql "ALTER ROLE ${role} SET idle_in_transaction_session_timeout = '${IDLE_TX_TIMEOUT}';"
     run_admin_sql "ALTER ROLE ${role} SET default_transaction_read_only = on;"
-    # deny raw app tables, grant only the governed reporting schema
-    run_admin_sql "REVOKE ALL ON SCHEMA public FROM ${role};"
+    # Maintainer decision 2026-07-23: the internal CEO-only assistant must never
+    # hit a permission wall. Grant read-only SELECT on ALL of public (current +
+    # future tables) in addition to the ceo_ai reporting schema. Read-only is
+    # still enforced by default_transaction_read_only=on + SELECT-only grants.
+    run_admin_sql "GRANT USAGE ON SCHEMA public TO ${role};"
+    run_admin_sql "GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${role};"
+    run_admin_sql "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ${role};"
     run_admin_sql "GRANT USAGE ON SCHEMA ceo_ai TO ${role};"
     run_admin_sql "GRANT SELECT ON ALL TABLES IN SCHEMA ceo_ai TO ${role};"
     run_admin_sql "ALTER DEFAULT PRIVILEGES IN SCHEMA ceo_ai GRANT SELECT ON TABLES TO ${role};"
@@ -154,13 +161,13 @@ cat > "$ENV_FILE" <<EOF
 # Real staging/prod values come from Google Secret Manager (goatos-stg) and
 # GitHub Actions secrets (vgoats/goatos); this file is for local dev only.
 
-# --- MCP Toolbox / SQL-fallback reader (ceo_ai.* SELECT only) ---
+# --- MCP Toolbox / SQL-fallback reader (public + ceo_ai SELECT only) ---
 MESHA_MCP_DB_USER=${CEO_ROLE}
 MESHA_MCP_DB_PASSWORD=${CEO_PW}
 MESHA_MCP_DB_DSN=${CEO_DSN}
 MESHA_MCP_TOOLSET=mesha_ceo_toolset
 
-# --- Cube Core governed metric layer's DB user (ceo_ai.* SELECT only) ---
+# --- Cube Core governed metric layer's DB user (public + ceo_ai SELECT only) ---
 MESHA_CUBE_DB_USER=${CUBE_ROLE}
 MESHA_CUBE_DB_PASSWORD=${CUBE_PW}
 MESHA_CUBE_DB_DSN=${CUBE_DSN}
@@ -173,4 +180,4 @@ EOF
 echo "==> wrote ${ENV_FILE} (chmod 600, gitignored)"
 echo "    ${CEO_ROLE}  -> MESHA_MCP_DB_*"
 echo "    ${CUBE_ROLE} -> MESHA_CUBE_DB_*"
-echo "Done. Both roles are read-only over ceo_ai.* only; public is revoked."
+echo "Done. Both roles are READ-ONLY over all of public + ceo_ai (SELECT only)."

@@ -35,13 +35,24 @@
     <string name="counts_filter_park">Park</string>
     <string name="counts_filter_shed">Shed</string>
     <string name="counts_filter_breed">Breed</string>
+    <string name="counts_filter_lifecycle">Status</string>
     <string name="counts_filter_all_parks">All parks</string>
     <string name="counts_filter_all_sheds">All sheds</string>
     <string name="counts_filter_all_breeds">All breeds</string>
+    <string name="counts_filter_all_lifecycles">Live herd</string>
+    <string name="counts_filter_lifecycle_unavailable">Not available</string>
     <string name="counts_filter_park_first">Pick a park first</string>
     <string name="counts_filter_shed_unavailable">Not available</string>
+    <string name="counts_filters_button">Filters</string>
+    <string name="counts_filters_sheet_title">Filter the census</string>
+    <string name="counts_filters_sheet_done">Done</string>
     <string name="counts_empty_message">No animals match this scope</string>
     <string name="counts_error_message">Couldn\'t load counts. Tap refresh to retry.</string>
+    <string name="counts_hero_total_label">Total herd</string>
+    <string name="counts_hero_adults_label">Adults</string>
+    <string name="counts_hero_kids_label">Kids</string>
+    <string name="counts_shed_subtotal_fmt">%1$d in this shed</string>
+    <string name="counts_shed_unassigned">No shed assigned</string>
 
     <!-- Birth / death screen -->
     <string name="counts_birth_death_title">Record birth or death</string>
@@ -57,6 +68,8 @@
     <string name="counts_shifting_subtitle">Move one animal to another shed</string>
     <string name="counts_submit_shifting">Create Shifting</string>
     <string name="counts_shifting_pending_note">Movements you record are submitted for review — they are not authorised on the phone.</string>
+    <string name="counts_shifting_from">FROM</string>
+    <string name="counts_shifting_to">TO</string>
     <string name="counts_priority_high">High</string>
     <string name="counts_priority_low">Low</string>
     <string name="counts_category_growth">Growth</string>
@@ -105,6 +118,7 @@
     <string name="counts_id_kind_temporary">Temporary tag</string>
     <string name="counts_field_breed">Breed</string>
     <string name="counts_field_dob">Date of birth (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">Entry date (YYYY-MM-DD)</string>
     <string name="counts_field_park">Park</string>
     <string name="counts_field_farm">Farm</string>
     <string name="counts_field_current_location">Current location</string>
@@ -138,4 +152,5 @@
     <string name="counts_hint_reason">Between 3 and 500 characters.</string>
     <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animal you select here.</string>
     <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>
+    <string name="counts_more_fields">More details</string>
 </resources>

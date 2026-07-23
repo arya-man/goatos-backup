@@ -114,3 +114,38 @@ Cube to the browser; only the Mesha backend calls it via
 `Load(ctx, tenantID, Query)`. Tenant is signed into a short-lived JWT (never a
 query field), 8s deadline, bounded retries, typed errors. Tests:
 `go test ./internal/ceoai/cubeclient/...` (from `backend/`).
+
+## Troubleshooting: `permission denied for table ...` / assistant says `cube: could not be retrieved.`
+
+**Symptom.** The leadership assistant ("Ask Mesha") answers a KPI question with
+`cube: could not be retrieved.` (the masked form of a Cube error in
+`backend/internal/ceoai/app/orchestrator.go` `strictRecompose`). A direct signed
+`/load` call returns HTTP 200 with
+`{"error":"Error: permission denied for table obligation_instances"}` (or
+`goats` / `feed_direction_completions` / `procurement_loads` / `sop_tasks`).
+
+**Root cause.** Cube connects to Postgres as `mesha_cube_readonly`, which by
+design has `REVOKE ALL ON SCHEMA public` and SELECT on `ceo_ai.*` **only**
+(`tools/dev/setup-ceo-ai-local-role.sh`). A Cube model that runs inline
+`sql:` / `sql_table:` directly against a raw `public` table executes with the
+connecting role's own privileges (no view-owner indirection), so the query is
+denied. This is NOT a secret/URL/health problem — Cube and the JWT are fine.
+
+**Rule.** Every Cube model MUST read from a `ceo_ai.*` view, never a raw `public`
+table. The `ceo_ai.*` views are owned by the migration role, so Postgres runs
+them with owner rights and the read-only Cube role can select them without any
+grant on `public`. Migration `000030_ceo_ai_cube_source_views.sql` added the
+per-cube passthrough source views
+(`ceo_ai.vaccination_obligations_base`, `animals_base`, `feed_completions_base`,
+`procurement_loads_base`, `workforce_tasks_base`) and repointed the
+`vaccination` / `animals` / `feed` / `procurement` / `workforce` cubes to them;
+`operator` was already repointed in `000027`. Same fix applies identically in
+local, stg, and prod because all three use the same read-only-role design.
+
+**Fix / verify locally.**
+1. Apply migrations so the `ceo_ai.*` source views exist (`000030`), then re-run
+   `tools/dev/setup-ceo-ai-local-role.sh` (or rely on the migration's guarded
+   grants) so `mesha_cube_readonly` has SELECT on them.
+2. Restart Cube to reload the model: `docker restart mesha-cube-local`.
+3. Confirm a signed governed query returns data, not a permission error:
+   `POST /cubejs-api/v1/load {"query":{"measures":["kpi_vaccination.due_today"]}}`.

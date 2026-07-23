@@ -28,6 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
@@ -194,9 +195,13 @@ fun ShiftingScreen(
                 onBack = { onEvent(ShiftingEvent.Back) },
             )
         }
+        // The dropdowns below are the pickers; this is only what they currently mean, mirrored.
+        val selectedParkName = state.destinationParks.firstOrNull { it.parkId == state.destinationParkId }?.name
+        val selectedShedName = state.shedsForSelectedPark.firstOrNull { it.shedId == state.destinationShedId }?.name
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 28.dp),
+            modifier = Modifier.fillMaxSize().weight(1f).padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "result") { CountsResultBanner(state.result) }
@@ -236,10 +241,15 @@ fun ShiftingScreen(
                 )
             }
 
-            // --- 2. Current location (read-only, derived from the animal) ---------------------
+            // --- 2. Animal hero: From (current, read-only) -> To (mirrors the destination
+            // dropdowns below; never a second picker of its own) -------------------------------
             state.selectedAnimal?.let { animal ->
-                item(key = "current-location") {
-                    CurrentLocationCard(animal = animal)
+                item(key = "animal-hero") {
+                    ShiftingAnimalHero(
+                        animal = animal,
+                        toParkLabel = selectedParkName,
+                        toShedLabel = selectedShedName,
+                    )
                 }
             }
 
@@ -248,10 +258,9 @@ fun ShiftingScreen(
                 CountsFieldGroupTitle(text = stringResource(R.string.counts_group_to))
             }
             item(key = "destination-park") {
-                val selectedPark = state.destinationParks.firstOrNull { it.parkId == state.destinationParkId }
                 CountsDropdownField(
                     label = stringResource(R.string.counts_field_farm),
-                    selectedLabel = selectedPark?.name,
+                    selectedLabel = selectedParkName,
                     placeholder = stringResource(R.string.counts_select_farm),
                     // Keyed by park_id, and disabled until the catalog is in hand so an operator
                     // cannot open an empty menu and conclude the farm has no parks.
@@ -262,10 +271,9 @@ fun ShiftingScreen(
             }
             item(key = "destination-shed") {
                 val sheds = state.shedsForSelectedPark
-                val selectedShed = sheds.firstOrNull { it.shedId == state.destinationShedId }
                 CountsDropdownField(
                     label = stringResource(R.string.counts_field_shed),
-                    selectedLabel = selectedShed?.name,
+                    selectedLabel = selectedShedName,
                     placeholder = if (state.destinationParkId.isBlank()) {
                         stringResource(R.string.counts_select_farm_first)
                     } else {
@@ -321,30 +329,107 @@ fun ShiftingScreen(
                     Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
                 }
             }
-
-            // --- 6. Create -------------------------------------------------------------------
-            item(key = "submit") {
-                CountsSubmitButton(
-                    label = stringResource(R.string.counts_submit_shifting),
-                    enabled = state.canSubmit,
-                    onClick = { onEvent(ShiftingEvent.Submit) },
-                )
-            }
-            item(key = "notes") {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = stringResource(R.string.counts_shifting_pending_note),
-                        color = MeshaColors.Faint,
-                        fontSize = 11.sp,
-                    )
-                    Text(
-                        text = stringResource(R.string.counts_offline_note),
-                        color = MeshaColors.Faint,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
         }
+
+        // Sticky submit + quiet pending line, pinned OUTSIDE the scroll so it is always reachable
+        // without hunting for it at the bottom of a long form.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MeshaColors.PageBg)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            CountsSubmitButton(
+                label = stringResource(R.string.counts_submit_shifting),
+                enabled = state.canSubmit,
+                onClick = { onEvent(ShiftingEvent.Submit) },
+            )
+            Text(
+                text = stringResource(R.string.counts_shifting_pending_note),
+                color = MeshaColors.Faint,
+                fontSize = 10.sp,
+            )
+        }
+    }
+}
+
+/**
+ * The animal hero: From (current park/shed, read-only) -> To (a live reflection of the
+ * destination dropdowns below — NOT a second picker; selecting nothing yet renders an honest
+ * placeholder rather than inventing a destination).
+ */
+@Composable
+private fun ShiftingAnimalHero(
+    animal: ShiftingAnimalUi,
+    toParkLabel: String?,
+    toShedLabel: String?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MeshaColors.Surf)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(text = animal.displayId, color = MeshaColors.Ink, fontSize = 16.sp, fontWeight = FontWeight.W800)
+        Text(text = animal.tag, color = MeshaColors.Muted, fontSize = 12.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            HeroLocationChip(
+                modifier = Modifier.weight(1f),
+                label = stringResource(R.string.counts_shifting_from),
+                parkLabel = animal.parkName,
+                shedLabel = animal.shedName,
+                fallback = animal.locationLabel,
+                accent = MeshaColors.Faint,
+            )
+            Icon(
+                imageVector = MeshaIcons.ChevronDown,
+                contentDescription = null,
+                tint = MeshaColors.Muted,
+                modifier = Modifier.size(16.dp),
+            )
+            HeroLocationChip(
+                modifier = Modifier.weight(1f),
+                label = stringResource(R.string.counts_shifting_to),
+                parkLabel = toParkLabel.orEmpty(),
+                shedLabel = toShedLabel.orEmpty(),
+                fallback = "",
+                accent = MeshaColors.Brand,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeroLocationChip(
+    label: String,
+    parkLabel: String,
+    shedLabel: String,
+    fallback: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.Surf2)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = label, color = MeshaColors.Faint, fontSize = 10.sp, fontWeight = FontWeight.W700)
+        val hasParts = parkLabel.isNotBlank() || shedLabel.isNotBlank()
+        val display = when {
+            hasParts -> listOf(parkLabel, shedLabel).filter { it.isNotBlank() }.joinToString(" · ")
+            fallback.isNotBlank() -> fallback
+            else -> stringResource(R.string.counts_select_shed)
+        }
+        Text(text = display, color = accent, fontSize = 13.sp, fontWeight = FontWeight.W700)
     }
 }
 
@@ -384,55 +469,6 @@ internal fun AnimalRow(
                 contentDescription = null,
                 tint = MeshaColors.Brand,
                 modifier = Modifier.size(16.dp),
-            )
-        }
-    }
-}
-
-/**
- * Where the selected animal stands RIGHT NOW — fetched with the animal, never typed. This is the
- * operator's confirmation that they picked the right animal, and it is also the movement's source:
- * the backend reads it from the animal itself, so there is nothing here for the client to assert.
- */
-@Composable
-private fun CurrentLocationCard(animal: ShiftingAnimalUi) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Surf2)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.counts_group_current_location),
-            color = MeshaColors.Faint,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.W700,
-        )
-        Text(
-            text = animal.displayId,
-            color = MeshaColors.Ink,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.W700,
-        )
-        // Park and shed are shown as separate labelled facts when the backend supplies them, and
-        // fall back to its own composed location string when it does not — the app never assembles
-        // a location label of its own.
-        val hasParts = animal.parkName.isNotBlank() || animal.shedName.isNotBlank()
-        if (hasParts) {
-            ReadOnlyFact(
-                label = stringResource(R.string.counts_field_farm),
-                value = animal.parkName.ifBlank { stringResource(R.string.counts_location_unknown) },
-            )
-            ReadOnlyFact(
-                label = stringResource(R.string.counts_field_shed),
-                value = animal.shedName.ifBlank { stringResource(R.string.counts_location_unknown) },
-            )
-        } else {
-            ReadOnlyFact(
-                label = stringResource(R.string.counts_field_current_location),
-                value = animal.locationLabel.ifBlank { stringResource(R.string.counts_location_unknown) },
             )
         }
     }

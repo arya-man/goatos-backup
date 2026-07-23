@@ -216,8 +216,8 @@ func scsSeedShedProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tas
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO proof_artifacts
 		   (tenant_id, storage_provider, object_key, scope_type, scope_id, subject_type, subject_id, proof_type, upload_state)
-		 VALUES ($1, 'local', $2, 'task', $3, 'shed', $4, 'video', $5)`,
-		impTenant, objectKey, taskID, shedID, uploadState); err != nil {
+		 VALUES ($1, 'local', $2, 'shed', $3, 'shed', $3, 'video', $4)`,
+		impTenant, objectKey, shedID, uploadState); err != nil {
 		t.Fatalf("shed proof %s: %v", shedID, err)
 	}
 }

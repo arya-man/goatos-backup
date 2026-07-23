@@ -31,17 +31,40 @@ import (
 //     matching drive_summary's total_count = completed + due + overdue + deferred invariant.
 const calendarDriveTargetsSQL = `
 WITH matched_batches AS (
-  SELECT ob.batch_id
+  SELECT DISTINCT ob.batch_id
   FROM obligation_batches ob
   LEFT JOIN locations scope_loc
     ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
+  LEFT JOIN LATERAL (
+    SELECT count(*) > 0 AS has_any_assignment
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = ob.tenant_id
+      AND assignment.batch_id = ob.batch_id
+  ) assignment_presence ON true
+  LEFT JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = ob.tenant_id
+   AND vda.batch_id = ob.batch_id
+   AND vda.planned_date = $3::date
   WHERE ob.tenant_id = $1::uuid
     AND $12::bool
     AND ob.status NOT IN ('superseded', 'canceled')
-    AND to_char((COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+    AND (
+      vda.assignment_id IS NOT NULL
+      OR (
+        NOT COALESCE(assignment_presence.has_any_assignment, false)
+        AND (
+          ob.planned_date = $3::date
+          OR (
+            ob.planned_date IS NULL
+            AND to_char((COALESCE(ob.window_start, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+          )
+        )
+      )
+    )
     AND (
       ($4::uuid IS NOT NULL AND (
-        (ob.scope_type = 'park' AND ob.scope_id = $4::uuid)
+        vda.park_id = $4::uuid
+        OR (ob.scope_type = 'park' AND ob.scope_id = $4::uuid)
         OR (ob.scope_type = 'shed' AND scope_loc.parent_location_id = $4::uuid)
       ))
       OR ($6::uuid IS NOT NULL AND (
@@ -65,7 +88,7 @@ SELECT
   g.exit_reason,
   defer_event.defer_status,
   oi.status,
-  COALESCE(target_batch.planned_date, oi.due_at) AS scheduled_at
+  COALESCE(target_assignment.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at
 FROM obligation_instances oi
 JOIN protocol_versions pv
   ON pv.tenant_id = oi.tenant_id
@@ -101,6 +124,19 @@ LEFT JOIN locations goat_current_grand
 LEFT JOIN obligation_batches target_batch
   ON target_batch.tenant_id = oi.tenant_id
  AND target_batch.batch_id = oi.batch_id
+LEFT JOIN LATERAL (
+  SELECT assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = oi.tenant_id
+    AND assignment.batch_id = oi.batch_id
+    AND assignment.shed_id = g.shed_id
+    AND assignment.planned_date = $3::date
+  ORDER BY assignment.planned_date ASC,
+           assignment.partition_label ASC,
+           assignment.operator_id ASC NULLS LAST,
+           assignment.assignment_id ASC
+  LIMIT 1
+) target_assignment ON true
 LEFT JOIN locations batch_scope_loc
   ON batch_scope_loc.tenant_id = target_batch.tenant_id
  AND batch_scope_loc.location_id = target_batch.scope_id

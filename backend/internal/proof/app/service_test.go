@@ -201,6 +201,33 @@ func TestCreateUploadRejectsVideoWithoutCameraAttestation(t *testing.T) {
 	}
 }
 
+func TestCreateUploadAllowsGalleryForShedSubject(t *testing.T) {
+	repo := &fakeProofRepo{proof: baseProof()}
+	service := NewService(repo, &fakeProofStorage{})
+
+	_, err := service.CreateUpload(context.Background(), domain.CreateUpload{
+		TenantID:    proofTestTenant,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     proofTestTask,
+		SubjectType: "shed",
+		SubjectID:   stringPtr(proofTestShed),
+		UploadedBy:  stringPtr(proofTestActor),
+		Metadata: map[string]any{
+			"capture_source":    "gallery_picker",
+			"captured_start_ms": float64(1000),
+			"captured_end_ms":   float64(2000),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateUpload() error = %v", err)
+	}
+	if repo.created.SubjectType != "shed" || repo.created.Metadata["capture_source"] != "gallery_picker" {
+		t.Fatalf("gallery shed upload not persisted correctly: %#v", repo.created)
+	}
+}
+
 func TestCreateUploadRejectsGalleryForGoatSubject(t *testing.T) {
 	repo := &fakeProofRepo{proof: baseProof()}
 	service := NewService(repo, &fakeProofStorage{})

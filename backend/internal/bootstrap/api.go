@@ -475,6 +475,33 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// never dead-ends on an unwired API executor (P1-2, P1-3).
 	readToolExecs := ceoreadtools.NewToolExecutors()
 
+	// Wire in-process readers for operational domains. The reader functions
+	// themselves live in ceoai_readers.go (unit-tested against fakes in
+	// ceoai_readers_test.go) so this block is just registration.
+	parkResolver := newLocationsParkResolver(locationsService)
+
+	for _, exec := range readToolExecs {
+		switch exec.Spec().Name {
+		case "procurement_source_entry_loads":
+			ceoreadtools.SetProcurementDataReader(exec, buildProcurementReader(procurementService))
+		case "admin_roster_coverage":
+			ceoreadtools.SetWorkforceDataReader(exec, buildWorkforceReader(rosterService))
+		case "verification_queue":
+			ceoreadtools.SetVerificationDataReader(exec, buildVerificationReader(verificationService))
+		case "action_center_obligations":
+			ceoreadtools.SetActionCenterDataReader(exec, buildActionCenterReader(processIntegrityService, parkResolver))
+		case "operations_kernel_health":
+			ceoreadtools.SetOpsKernelHealthDataReader(exec, buildOpsKernelHealthReader(processIntegrityService))
+		case "operations_audit_summary":
+			ceoreadtools.SetOpsAuditSummaryDataReader(exec, buildOpsAuditSummaryReader(operationsAuditService))
+			// admin_location_usage is intentionally left on the Toolbox/fallback
+			// path: locationsService only exposes per-location Usage/ListCapacity
+			// reads (a single location_id argument), not a bounded listing across
+			// parks/sheds suited to a capacity-variance question. Building that
+			// would require a new read model/API, which is out of scope here.
+		}
+	}
+
 	ceoOpts := ceoai.Options{
 		Metrics:   ceoai.NewCubeMetricService(log),
 		ReadTools: readToolExecs,
@@ -484,12 +511,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Audit:     ceoobs.NewAuditTraceSink(ceoTraceStore),
 		Telemetry: ceoobs.NewMetrics(),
 		Traces:    ceoTraceStore,
-		// Thread + feedback surface backing GET/POST /ceo-ai/conversations*,
-		// POST /ceo-ai/messages/{id}/feedback, and the leadership starters probe
-		// GET /ceo-ai/starters (the launcher visibility gate).
-		ConvStore:     ceoai.NewConversationHTTPStore(pool, cfg.Postgres.QueryTimeout),
-		FeedbackStore: ceoai.NewFeedbackHTTPStore(pool, cfg.Postgres.QueryTimeout),
-		Logger:        log,
+		// Thread surface backing GET/POST /ceo-ai/conversations* and the leadership
+		// starters probe GET /ceo-ai/starters (the launcher visibility gate).
+		ConvStore: ceoai.NewConversationHTTPStore(pool, cfg.Postgres.QueryTimeout),
+		Logger:    log,
 	}
 	if ceoVertex != nil {
 		ceoOpts.Provider = ceoVertex

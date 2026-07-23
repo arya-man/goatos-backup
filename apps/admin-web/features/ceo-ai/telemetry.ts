@@ -2,10 +2,10 @@ import { faro } from "@grafana/faro-web-sdk";
 
 // Faro telemetry for the leadership assistant surface, per
 // docs/observability/TELEMETRY_GUARDRAILS.md. Every user-facing interaction on
-// this surface (open, ask, answer, error, feedback) emits a namespaced event.
-// Guarded on `faro.api` so it is a no-op in local/dev where no Faro receiver is
-// configured. Attributes carry only non-sensitive metadata — never the raw
-// question text, actor identity, tokens, or business rows.
+// this surface (open, ask, answer, error) emits a namespaced event. Guarded on
+// `faro.api` so it is a no-op in local/dev where no Faro receiver is configured.
+// Attributes carry only non-sensitive metadata — never the raw question text,
+// actor identity, tokens, or business rows.
 
 export const CeoAiEvents = {
   Open: "ceo_ai_open",
@@ -13,7 +13,6 @@ export const CeoAiEvents = {
   Ask: "ceo_ai_ask",
   Answer: "ceo_ai_answer",
   Error: "ceo_ai_error",
-  Feedback: "ceo_ai_feedback",
   StopGenerating: "ceo_ai_stop_generating",
   NewChat: "ceo_ai_new_chat",
   ResumeChat: "ceo_ai_resume_chat",

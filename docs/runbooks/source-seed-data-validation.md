@@ -66,6 +66,50 @@ Adult ET+TT dose 2 is a post-seed hard gate. Accepted `et_tt_adult_w1` history
 without a same-goat `et_tt_adult_w2` obligation or completion is an invalid
 seed/generation output, even if later unrelated drive rows exist.
 
+## CPT Operator-Drive Rehearsal Packet
+
+The reviewed CPT-only rehearsal packet is committed at:
+
+```text
+fixtures/vaccination-cpt-operator-drive-2026-07-23/
+```
+
+It contains the exact supplied source files:
+
+- `raw/CPT-Adult-goats.json`
+- `raw/CPT-Adult-vaccination.json`
+- `raw/CPT_Nuanced Timetable.xlsx`
+- `cpt-operator-roster.json`
+
+For this packet, the seed/reseed business date is `2026-07-23`. Open
+vaccination drive work must start on `2026-07-23` or later; `2026-07-22` and
+older source dates are history anchors only. The source scope is CPT /
+Channapatna only. Do not synthesize CBE/Coimbatore operators, owners, sheds, or
+park menu rows from the full fixture while seeding this packet.
+
+The roster file is the source of truth for the rehearsal's field capacity:
+Amit Kumar, Darshan Talwar, and Sagar Mahoor are all equal vaccination
+operators with `200` unique animals/day/operator. Their week-offs are Amit =
+Friday, Darshan = Sunday, and Sagar = Saturday. Chandrakant is a Preventive
+Care Director and contributes no field capacity unless explicitly assigned as
+an operator.
+
+After seeding, HRMS may override an operator seat's vaccination animal/day cap
+through `workforce_positions.vaccination_daily_animal_cap`. Runtime scheduling
+uses this order: HRMS position cap first, then `vaccination_capacity_config` as
+the tenant default, then the code fallback. People/HRMS must show and edit the
+same per-seat cap the sweeper uses; vaccination screens must not keep their own
+frontend-only operator-cap value.
+
+The five founder/CXO accounts remain tenant-scoped `ceo_internal` grants:
+`ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`,
+`abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+
+The `Adult` filename is not permission to bypass generic vaccination rules.
+Kids, adults, boosters, combo spacing, sick/ICU/pregnancy/terminal exclusions,
+safe start/end dates, and the `+1 week` buffer must all come from the backend
+vaccination rule engine after seed.
+
 ## Commands
 
 Normalize spreadsheet tabs into the six canonical files, then run:
@@ -175,6 +219,9 @@ transform may repair surrounding mock metadata but must never change a dated,
   vaccination fixture contract is `proof_mode=shed_level_video`: every goat scan
   still carries its own timestamp, but video proof is one-to-five shed-level
   clips with both in-app camera and gallery picker allowed by backend policy.
+  Seeder, backend, Android, and verifier changes that drift back to mandatory
+  per-goat videos must fail until the SOP and fixture contract are deliberately
+  changed together.
 
 These repairs are fixture-specific and recorded in `corrections.json`. They do
 not authorize production ingestion to rewrite business history. Production
@@ -220,3 +267,6 @@ post-seed proofs confirm the importer and runtime produced the intended result.
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 read canonical vaccination/procurement/obligation/workforce tables to create leadership assistant views (vaccination_shed_status, vaccination_dose_pickup, action_center, vaccination_operator_status). They do not modify the vaccination seed/config/SOP schema or contracts, so no fixture/source-data change is required. -->
+
+<!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
+<!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->

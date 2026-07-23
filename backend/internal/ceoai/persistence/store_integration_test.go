@@ -19,15 +19,15 @@ const (
 )
 
 // newTestStores boots an isolated migrated Postgres (real ceo_ai_* tables from
-// migrations 000021+000022) and seeds two tenant rows for the FK. Returns wired stores
-// plus the two tenant ids. Skipped unless pgtest opt-in + Docker.
-func newTestStores(t *testing.T, ctx context.Context) (*PostgresConversationStore, *PostgresFeedbackStore, *pgxpool.Pool, string, string) {
+// migrations 000021+000022) and seeds two tenant rows for the FK. Returns the
+// conversation store, pool, and the two tenant ids. Skipped unless pgtest opt-in + Docker.
+func newTestStores(t *testing.T, ctx context.Context) (*PostgresConversationStore, *pgxpool.Pool, string, string) {
 	t.Helper()
 	pgtest.SkipIfNoDocker(t)
 	pool := pgtest.StartPostgres(t, ctx)
 	tenantA := insertTenant(t, ctx, pool, "Tenant A")
 	tenantB := insertTenant(t, ctx, pool, "Tenant B")
-	return NewPostgresConversationStore(pool, 5*time.Second), NewPostgresFeedbackStore(pool, 5*time.Second), pool, tenantA, tenantB
+	return NewPostgresConversationStore(pool, 5*time.Second), pool, tenantA, tenantB
 }
 
 func insertTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) string {
@@ -43,7 +43,7 @@ func insertTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name st
 
 func TestConversationCreateGetAndActorScope(t *testing.T) {
 	ctx := context.Background()
-	conv, _, _, tenantA, tenantB := newTestStores(t, ctx)
+	conv, _, tenantA, tenantB := newTestStores(t, ctx)
 
 	c, created, err := conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA1, Title: "Morning review"})
 	if err != nil || !created {
@@ -70,7 +70,7 @@ func TestConversationCreateGetAndActorScope(t *testing.T) {
 
 func TestConversationCreateIdempotent(t *testing.T) {
 	ctx := context.Background()
-	conv, _, _, tenantA, _ := newTestStores(t, ctx)
+	conv, _, tenantA, _ := newTestStores(t, ctx)
 
 	first, created1, err := conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA1, Title: "T", IdempotencyKey: "k-1"})
 	if err != nil || !created1 {
@@ -90,7 +90,7 @@ func TestConversationCreateIdempotent(t *testing.T) {
 
 func TestConversationListKeysetPagination(t *testing.T) {
 	ctx := context.Background()
-	conv, _, _, tenantA, _ := newTestStores(t, ctx)
+	conv, _, tenantA, _ := newTestStores(t, ctx)
 
 	ids := make([]string, 0, 5)
 	for i := 0; i < 5; i++ {
@@ -140,7 +140,7 @@ func TestConversationListKeysetPagination(t *testing.T) {
 
 func TestConversationListExcludesOtherActorsAndDeleted(t *testing.T) {
 	ctx := context.Background()
-	conv, _, _, tenantA, _ := newTestStores(t, ctx)
+	conv, _, tenantA, _ := newTestStores(t, ctx)
 
 	mine, _, _ := conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA1})
 	_, _, _ = conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA2}) // other actor
@@ -164,7 +164,7 @@ func TestConversationListExcludesOtherActorsAndDeleted(t *testing.T) {
 
 func TestConversationRenameArchiveDeleteScoped(t *testing.T) {
 	ctx := context.Background()
-	conv, _, _, tenantA, tenantB := newTestStores(t, ctx)
+	conv, _, tenantA, tenantB := newTestStores(t, ctx)
 	c, _, _ := conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA1, Title: "orig"})
 
 	// Wrong actor / tenant cannot rename/delete.
@@ -198,7 +198,7 @@ func TestConversationRenameArchiveDeleteScoped(t *testing.T) {
 
 func TestMessageAppendHistoryAndScope(t *testing.T) {
 	ctx := context.Background()
-	conv, _, _, tenantA, tenantB := newTestStores(t, ctx)
+	conv, _, tenantA, tenantB := newTestStores(t, ctx)
 	c, _, _ := conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA1})
 
 	tc := json.RawMessage(`[{"tool":"cube.active_animals"}]`)
@@ -237,49 +237,11 @@ func TestMessageAppendHistoryAndScope(t *testing.T) {
 	}
 }
 
-func TestFeedbackUpsertIdempotentAndScoped(t *testing.T) {
-	ctx := context.Background()
-	conv, fb, _, tenantA, tenantB := newTestStores(t, ctx)
-	c, _, _ := conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA1})
-	msg, _ := conv.AppendMessage(ctx, NewMessage{ConversationID: c.ID, TenantID: tenantA, ActorID: actorA1, Role: RoleAssistant, Content: "answer"})
-
-	f1, err := fb.Upsert(ctx, NewFeedback{MessageID: msg.ID, TenantID: tenantA, ActorID: actorA1, Rating: RatingUp, Reason: "useful"})
-	if err != nil {
-		t.Fatalf("upsert1: %v", err)
-	}
-	f2, err := fb.Upsert(ctx, NewFeedback{MessageID: msg.ID, TenantID: tenantA, ActorID: actorA1, Rating: RatingDown, Reason: "changed mind"})
-	if err != nil {
-		t.Fatalf("upsert2: %v", err)
-	}
-	if f1.ID != f2.ID {
-		t.Fatalf("idempotent upsert forked rows: %s vs %s", f1.ID, f2.ID)
-	}
-	if f2.Rating != RatingDown || f2.Reason != "changed mind" {
-		t.Fatalf("upsert did not update in place: %+v", f2)
-	}
-
-	// A different actor cannot attach feedback to a message in someone else's thread.
-	if _, err := fb.Upsert(ctx, NewFeedback{MessageID: msg.ID, TenantID: tenantA, ActorID: actorA2, Rating: RatingUp}); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("cross-actor feedback err=%v, want ErrNotFound", err)
-	}
-	if _, err := fb.Upsert(ctx, NewFeedback{MessageID: msg.ID, TenantID: tenantB, ActorID: actorB1, Rating: RatingUp}); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("cross-tenant feedback err=%v, want ErrNotFound", err)
-	}
-
-	got, err := fb.Get(ctx, tenantA, actorA1, msg.ID)
-	if err != nil || got.Rating != RatingDown {
-		t.Fatalf("get feedback: %+v err=%v", got, err)
-	}
-}
-
 func TestPurgeExpiredRemovesSoftDeleted(t *testing.T) {
 	ctx := context.Background()
-	conv, fb, pool, tenantA, _ := newTestStores(t, ctx)
+	conv, pool, tenantA, _ := newTestStores(t, ctx)
 	c, _, _ := conv.Create(ctx, NewConversation{TenantID: tenantA, ActorID: actorA1})
-	msg, _ := conv.AppendMessage(ctx, NewMessage{ConversationID: c.ID, TenantID: tenantA, ActorID: actorA1, Role: RoleAssistant, Content: "a"})
-	if _, err := fb.Upsert(ctx, NewFeedback{MessageID: msg.ID, TenantID: tenantA, ActorID: actorA1, Rating: RatingUp}); err != nil {
-		t.Fatalf("feedback: %v", err)
-	}
+	_, _ = conv.AppendMessage(ctx, NewMessage{ConversationID: c.ID, TenantID: tenantA, ActorID: actorA1, Role: RoleAssistant, Content: "a"})
 	if err := conv.SoftDelete(ctx, tenantA, actorA1, c.ID); err != nil {
 		t.Fatalf("soft-delete: %v", err)
 	}
@@ -293,11 +255,10 @@ func TestPurgeExpiredRemovesSoftDeleted(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("purge n=%d err=%v", n, err)
 	}
-	var msgCount, fbCount int
+	var msgCount int
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM ceo_ai_messages WHERE conversation_id=$1::uuid`, c.ID).Scan(&msgCount)
-	_ = pool.QueryRow(ctx, `SELECT count(*) FROM ceo_ai_feedback WHERE message_id=$1::uuid`, msg.ID).Scan(&fbCount)
-	if msgCount != 0 || fbCount != 0 {
-		t.Fatalf("cascade delete failed: messages=%d feedback=%d", msgCount, fbCount)
+	if msgCount != 0 {
+		t.Fatalf("cascade delete failed: messages=%d", msgCount)
 	}
 }
 
@@ -306,7 +267,7 @@ func TestPurgeExpiredRemovesSoftDeleted(t *testing.T) {
 // batches and converges instead of issuing one unbounded cross-tenant DELETE.
 func TestPurgeExpiredChunksAcrossBatches(t *testing.T) {
 	ctx := context.Background()
-	conv, _, pool, tenantA, _ := newTestStores(t, ctx)
+	conv, pool, tenantA, _ := newTestStores(t, ctx)
 
 	const total = purgeBatchSize + 5 // spans two batches
 	expired := time.Now().Add(-time.Hour).UTC()

@@ -358,12 +358,12 @@ LIMIT $6`, q.ConversationID, q.TenantID, q.ActorID, cursorCreatedAt, cursorID, p
 
 // purgeBatchSize bounds how many expired threads a single retention DELETE claims.
 // The sweep loops in bounded batches so no tick issues one giant cross-tenant DELETE
-// (with its cascade fan-out into ceo_ai_messages/ceo_ai_feedback) that would hold locks
+// (with its cascade fan-out into ceo_ai_messages) that would hold locks
 // on every expired row in one long transaction and block concurrent create/append.
 const purgeBatchSize = 500
 
-// PurgeExpired hard-deletes threads past the retention boundary. Messages and feedback
-// are removed by ON DELETE CASCADE on the child FKs.
+// PurgeExpired hard-deletes threads past the retention boundary. Messages are removed
+// by ON DELETE CASCADE on the child FK.
 //
 // Scale: this is a worker sweep path, so it must not run one unbounded, un-chunked
 // DELETE across all tenants (the banned "polling full scan / unbounded worker tick"

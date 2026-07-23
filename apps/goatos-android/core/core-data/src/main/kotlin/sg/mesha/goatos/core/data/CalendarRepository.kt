@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.currentScheduleDate
 
 const val CALENDAR_SCHEDULE_PAGE_SIZE = 20
 private const val CALENDAR_SCHEDULE_CACHED_QUERIES = 24
@@ -478,7 +479,7 @@ private class CalendarScheduleRemoteMediator(
                         CalendarScheduleEntity(
                             queryKey = queryKey,
                             eventId = item.eventId,
-                            dueAt = item.dueAt,
+                            dueAt = item.currentScheduleDate,
                             dtoJson = json.encodeToString(item),
                             updatedAt = updatedAt,
                         )

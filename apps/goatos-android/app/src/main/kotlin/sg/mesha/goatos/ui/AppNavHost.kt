@@ -65,11 +65,11 @@ import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordScreen
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanScreen
+import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
-import sg.mesha.goatos.feature.submit.FieldKindUi
 import sg.mesha.goatos.feature.timetable.TimetableScreen
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
@@ -115,6 +115,8 @@ object Routes {
      * in their root navigation.
      */
     const val CALENDAR_DRIVE = "/calendar/drive"
+    const val CALENDAR_DRIVE_DATE_ARG = "dateKey"
+    const val CALENDAR_DRIVE_HOSTED_ARG = "calendarHosted"
     const val SCAN = "/scan"
     const val SUBMIT = "/submit"
     const val LEADERSHIP = "/leadership"
@@ -282,6 +284,14 @@ object Routes {
             if (showCompletedHistory) append("&$CALENDAR_DAY_STATUS_ARG=completed")
         }
 
+    fun calendarDriveRoute(dateKey: String?): String =
+        buildString {
+            append("$CALENDAR_DRIVE?$CALENDAR_DRIVE_HOSTED_ARG=true")
+            dateKey?.takeIf { it.isNotBlank() }?.let {
+                append("&$CALENDAR_DRIVE_DATE_ARG=${Uri.encode(it)}")
+            }
+        }
+
     fun rescheduleRoute(obligationId: String?): String =
         if (obligationId.isNullOrBlank()) RESCHEDULE else "$RESCHEDULE?$RESCHEDULE_OBLIGATION_ARG=${Uri.encode(obligationId)}"
 }
@@ -297,13 +307,14 @@ object Routes {
  * backend-href -> route mapping for an FCM push carrying an explicit `target`/`href`, so a
  * notification tap opens exactly where a Calendar tap on the same backend item would.
  */
-internal fun calendarTargetRoute(target: String?): String {
-    if (target.isNullOrBlank()) return Routes.CALENDAR_DRIVE
+internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = null): String {
+    val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
+    if (target.isNullOrBlank()) return fallbackDriveRoute
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
         val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
-        if (taskId.isNullOrBlank()) return Routes.CALENDAR_DRIVE
+        if (taskId.isNullOrBlank()) return fallbackDriveRoute
         return Routes.scanRoute(
             shedId = id.ifBlank { null },
             driveId = uri.getQueryParameter("drive_id") ?: uri.getQueryParameter("driveId"),
@@ -324,7 +335,7 @@ internal fun calendarTargetRoute(target: String?): String {
     val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
     return if (shedId != null && !taskId.isNullOrBlank()) {
         Routes.scanRoute(shedId, taskId = taskId)
-    } else Routes.CALENDAR_DRIVE
+    } else fallbackDriveRoute
 }
 
 /** Extracts a shed id from a backend href, supporting `.../sheds/{id}` and `?shed_id={id}`. */
@@ -339,6 +350,20 @@ private fun shedIdFromTarget(target: String): String? {
         if (it.isNotBlank()) return it
     }
     return null
+}
+
+private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
+    selected == null -> fallbackRoute
+    selected.status == ShedStatus.DONE -> Routes.recordRoute(selected.shedId)
+    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
+    else -> Routes.scanRoute(
+        shedId = selected.shedId,
+        driveId = selected.driveId,
+        batchId = selected.batchId,
+        taskId = selected.taskId,
+        sopVersionId = selected.sopVersionId,
+        taskRowVersion = selected.taskRowVersion,
+    )
 }
 
 /**
@@ -392,7 +417,7 @@ fun AppNavHost(
                             // The paged row carries its backend target directly; navigation is O(1)
                             // and never searches/copies a growing list in ViewModel memory.
                             vm.onEvent(event)
-                            navController.navigate(calendarTargetRoute(event.target)) { launchSingleTop = true }
+                            navController.navigate(calendarTargetRoute(event.target, event.dateKey)) { launchSingleTop = true }
                         }
                         // A MONTH-grid day tap opens the day's own L1 screen (real drill),
                         // never an inline sheet under the grid.
@@ -438,15 +463,16 @@ fun AppNavHost(
                     defaultValue = null
                 },
             ),
-        ) {
+        ) { backStackEntry ->
             val vm: CalendarDayViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val fallbackDateKey = backStackEntry.arguments?.getString(Routes.CALENDAR_DAY_ARG)
             CalendarDayScreen(
                 state = state,
                 onBack = { navController.popBackStack() },
                 onItemTap = { itemId ->
                     val target = state.items.firstOrNull { it.id == itemId }?.target
-                    navController.navigate(calendarTargetRoute(target)) { launchSingleTop = true }
+                    navController.navigate(calendarTargetRoute(target, fallbackDateKey)) { launchSingleTop = true }
                 },
                 onLoadMore = vm::loadMore,
             )
@@ -460,8 +486,42 @@ fun AppNavHost(
         // - /calendar/drive is a hosted child pushed from Calendar.
         // Keeping those routes separate is what guarantees L1+ never inherits the
         // bottom bar merely because Vaccination is also a root tab for this actor.
-        listOf(Routes.VACCINATION, Routes.CALENDAR_DRIVE).forEach { destination ->
-            composable(destination) {
+        composable(Routes.VACCINATION) {
+            val vm: ShedsViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ShedsScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is ShedsEvent.OpenShedRecord -> {
+                            val selected = state.rows.firstOrNull { it.id == event.shedId }
+                            val route = shedExecutionRoute(selected, Routes.VACCINATION)
+                            navController.navigate(route) { launchSingleTop = true }
+                        }
+                        // /vaccination is an L0 backend nav root for operators. It must never
+                        // expose an Up affordance or pop to a previous role/shell state. Hosted
+                        // shed queues (/calendar/drive) handle Back in their own route below.
+                        ShedsEvent.Back -> Unit
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = "${Routes.CALENDAR_DRIVE}?${Routes.CALENDAR_DRIVE_HOSTED_ARG}={${Routes.CALENDAR_DRIVE_HOSTED_ARG}}&${Routes.CALENDAR_DRIVE_DATE_ARG}={${Routes.CALENDAR_DRIVE_DATE_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.CALENDAR_DRIVE_HOSTED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.CALENDAR_DRIVE_DATE_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
                 val vm: ShedsViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
                 ShedsScreen(
@@ -473,19 +533,7 @@ fun AppNavHost(
                                 // the execute loop (Scan → Submit). Mirrors the mock's shed card
                                 // ("View completed record ›" vs "Start / scan").
                                 val selected = state.rows.firstOrNull { it.id == event.shedId }
-                                val route = when {
-                                    selected == null -> destination
-                                    selected.status == ShedStatus.DONE -> Routes.recordRoute(selected.shedId)
-                                    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
-                                    else -> Routes.scanRoute(
-                                        shedId = selected.shedId,
-                                        driveId = selected.driveId,
-                                        batchId = selected.batchId,
-                                        taskId = selected.taskId,
-                                        sopVersionId = selected.sopVersionId,
-                                        taskRowVersion = selected.taskRowVersion,
-                                    )
-                                }
+                                val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
                                 navController.navigate(route) { launchSingleTop = true }
                             }
                             ShedsEvent.Back -> navController.popBackStack()
@@ -493,7 +541,6 @@ fun AppNavHost(
                         }
                     },
                 )
-            }
         }
 
         // Scan — Submit drills to the shed-record submit; Back pops; group/tile/tap stay local.
@@ -552,16 +599,16 @@ fun AppNavHost(
         ) {
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            val needsCaptureBinding = state.formRunner?.fields.orEmpty().any { field ->
-                field.kind == FieldKindUi.GOAT_SCAN || field.kind == FieldKindUi.VIDEO_PROOF
-            }
-            if (state.isCaptureRoleBlocked || !needsCaptureBinding) {
+            BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+            if (state.isCaptureRoleBlocked) {
                 SubmitScreen(state = state, onEvent = vm::onEvent)
             } else {
-                // Capture permissions are operator-only. Verifier/leadership viewers never see
-                // camera/Bluetooth prompts merely for opening a read-only child surface.
+                // Capture permissions are operator-only. On Submit, bind the capture source for
+                // the whole operator surface instead of trying to infer it from the current form
+                // snapshot: form fields arrive asynchronously and SOPs can move proof controls.
+                // Binding is cheap when no proof field is present, but a missing binding makes a
+                // visible Record/Gallery control silently no-op.
                 CaptureAccessGate {
-                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                     SubmitScreen(state = state, onEvent = vm::onEvent)
                 }
             }

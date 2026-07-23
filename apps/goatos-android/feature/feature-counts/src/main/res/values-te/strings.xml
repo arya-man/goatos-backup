@@ -90,6 +90,7 @@
     <string name="counts_id_kind_temporary">తాత్కాలిక ట్యాగ్</string>
     <string name="counts_field_breed">జాతి</string>
     <string name="counts_field_dob">పుట్టిన తేదీ (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">నమోదు తేదీ (YYYY-MM-DD)</string>
     <string name="counts_field_park">పార్క్</string>
     <string name="counts_field_farm">ఫారం</string>
     <string name="counts_field_current_location">ప్రస్తుత స్థానం</string>
@@ -123,4 +124,20 @@
     <string name="counts_hint_reason">3 మరియు 500 అక్షరాల మధ్య.</string>
     <string name="counts_hint_animal_lookup">ఈ తరలింపును ఆమోదిస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే తరలిస్తారు.</string>
     <string name="counts_hint_death_lookup">మరణాన్ని నమోదు చేస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే నిష్క్రమిస్తుంది.</string>
+
+    <!-- Census hero, filter sheet + lifecycle facet, shed subtotals -->
+    <string name="counts_filter_lifecycle">స్థితి</string>
+    <string name="counts_filter_all_lifecycles">సజీవ మంద</string>
+    <string name="counts_filter_lifecycle_unavailable">అందుబాటులో లేదు</string>
+    <string name="counts_filters_button">ఫిల్టర్‌లు</string>
+    <string name="counts_filters_sheet_title">జనగణనను ఫిల్టర్ చేయండి</string>
+    <string name="counts_filters_sheet_done">పూర్తయింది</string>
+    <string name="counts_hero_total_label">మొత్తం మంద</string>
+    <string name="counts_hero_adults_label">పెద్దలు</string>
+    <string name="counts_hero_kids_label">పిల్లలు</string>
+    <string name="counts_shed_subtotal_fmt">ఈ షెడ్‌లో %1$d</string>
+    <string name="counts_shed_unassigned">షెడ్ కేటాయించలేదు</string>
+    <string name="counts_shifting_from">నుండి</string>
+    <string name="counts_shifting_to">కు</string>
+    <string name="counts_more_fields">మరిన్ని వివరాలు</string>
 </resources>

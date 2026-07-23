@@ -41,6 +41,8 @@ const (
 	piBatchNext     = "71000000-0000-4000-8000-000000000019"
 	piOblNext       = "71000000-0000-4000-8000-000000000020"
 	piFeedException = "71000000-0000-4000-8000-000000000021"
+	piTodayBatch    = "71000000-0000-4000-8000-000000000022"
+	piTodayObl      = "71000000-0000-4000-8000-000000000023"
 )
 
 func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
@@ -183,6 +185,64 @@ func TestListRowsUsesCursorAndKeepsFilteredTotal(t *testing.T) {
 	}
 	if first.TotalCount != second.TotalCount || second.TotalCount < 2 {
 		t.Fatalf("total count first/second = %d/%d, want same filtered total >=2", first.TotalCount, second.TotalCount)
+	}
+}
+
+func TestListRowsLabelsVaccinationCodesAndKeepsSameBusinessDayDue(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	execPI(t, ctx, pool, "use coded ET+TT dose in source config",
+		`UPDATE protocol_rules
+		 SET dose_code = 'et_tt_adult_w2'
+		 WHERE tenant_id = $1 AND rule_id = $2`,
+		piTenant, piRule)
+	execPI(t, ctx, pool, "same business day batch",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+		 VALUES ($1, $2, $3, 'shed', $4, 'planned', DATE '2026-07-23', $5)`,
+		piTodayBatch, piTenant, piVersion, piShed, piOperator)
+	execPI(t, ctx, pool, "same business day drive assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-07-23', $3, $4, $5, 'Process Shed', 'whole', 1)`,
+		piTenant, piTodayBatch, piOperator, piPark, piShed)
+	execPI(t, ctx, pool, "same business day scheduled obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-07-22 18:30:00+00', 'scheduled', 'pi-today-assignment', 23)`,
+		piTodayObl, piTenant, piVersion, piRule, piTodayBatch, piGoat, piShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	category := domain.CategoryVaccination
+	dueAfter := time.Date(2026, 7, 22, 18, 0, 0, 0, time.UTC)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		Category:  &category,
+		DueAfter:  &dueAfter,
+		AsOf:      time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC), // 2026-07-23 09:57 IST
+		DueBefore: time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("got %d rows want one same-day vaccination row: %#v", len(result.Rows), result.Rows)
+	}
+	row := result.Rows[0]
+	if row.WorkState != domain.WorkStateDue || row.Severity != domain.SeverityWatch {
+		t.Fatalf("same India business-day row state/severity = %s/%s, want due/watch", row.WorkState, row.Severity)
+	}
+	if strings.Contains(row.DoseCode, "et_tt_adult_w2") || (row.DriveName != nil && strings.Contains(*row.DriveName, "et_tt_adult_w2")) {
+		t.Fatalf("process-integrity row leaked raw vaccine rule code: dose=%q drive=%v", row.DoseCode, row.DriveName)
+	}
+	if !strings.Contains(row.DoseCode, "ET+TT") || !strings.Contains(row.DoseCode, "adult course") || !strings.Contains(row.DoseCode, "dose 2") {
+		t.Fatalf("dose label = %q, want human ET+TT adult dose label", row.DoseCode)
+	}
+	if result.TotalCount != 1 || countFor(result.CountsByWorkState, domain.WorkStateOverdue) != 0 || countFor(result.CountsByWorkState, domain.WorkStateDue) != 1 {
+		t.Fatalf("same-day counts = total %d states %+v, want one due and zero overdue", result.TotalCount, result.CountsByWorkState)
 	}
 }
 
@@ -589,6 +649,26 @@ func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {
 	}
 	if countQueryArgCount >= rowsQueryArgCount {
 		t.Fatalf("count args must be a strict prefix of rows args: count=%d rows=%d", countQueryArgCount, rowsQueryArgCount)
+	}
+}
+
+func TestCanonicalRowsUseOperatorAssignmentDateBeforeBatchOrObligationDateOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	checks := map[string]string{
+		"assignment date selected": "vda.assignment_planned_at",
+		"assignment date computed": "(assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at",
+		"window filter":            "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)",
+		"execution date":           "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+		"grouped execution date":   "MIN(located.execution_due_at) AS execution_due_at",
+		"emitted execution date":   "execution_due_at AS due_at",
+		"status date":              "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at)",
+	}
+	for name, fragment := range checks {
+		if !strings.Contains(processIntegrityCanonicalRowsSQL, fragment) {
+			t.Fatalf("process-integrity canonical rows lost %s invariant %q", name, fragment)
+		}
+	}
+	if strings.Contains(processIntegrityCanonicalRowsSQL, "ob.planned_date::timestamptz") {
+		t.Fatalf("process-integrity canonical rows must not use session-timezone-dependent planned_date casts")
 	}
 }
 

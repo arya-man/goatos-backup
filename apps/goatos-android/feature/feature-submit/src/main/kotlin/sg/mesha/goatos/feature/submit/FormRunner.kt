@@ -537,7 +537,7 @@ private fun ProofItemRow(
 @Composable
 private fun ProofActionButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier
+        modifier = modifier
             .height(48.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MeshaColors.BrandTint)

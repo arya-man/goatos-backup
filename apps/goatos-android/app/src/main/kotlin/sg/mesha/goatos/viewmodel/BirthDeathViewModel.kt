@@ -150,6 +150,7 @@ class BirthDeathViewModel @Inject constructor(
                 BirthDeathField.SEX -> current.copy(sex = value)
                 BirthDeathField.BREED -> current.copy(breed = value)
                 BirthDeathField.DOB -> current.copy(dob = value)
+                BirthDeathField.ENTRY_DATE -> current.copy(entryDate = value)
                 BirthDeathField.DAM_ID -> current.copy(damId = value)
                 BirthDeathField.REASON -> current.copy(reason = value)
             }
@@ -386,10 +387,11 @@ class BirthDeathViewModel @Inject constructor(
             breed = current.breed.trim().ifBlank { null },
             sex = current.sex,
             dob = current.dob.trim(),
-            // Entry date is not typed: it is the day this record is made, stamped to today's
-            // business date (Asia/Kolkata). Stamped at capture so an offline entry keeps its real
-            // recording date, not the later sync date. The backend still enforces dob <= entry_date.
-            entryDate = todayBusinessDate(),
+            // Entry date defaults to today's business date (Asia/Kolkata) — stamped on open so an
+            // offline entry keeps its real recording date, not the later sync date — but is editable
+            // via the M3 date picker, so the operator's chosen value is what ships. The backend
+            // stays the authority on dob <= entry_date.
+            entryDate = current.entryDate.trim().ifBlank { todayBusinessDate() },
             damId = current.damId.trim().ifBlank { null },
             evidenceRefs = evidence,
         ),

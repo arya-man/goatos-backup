@@ -25,6 +25,17 @@ export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seed
 // operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
 export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
 export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+// An operator-drive rehearsal source may ship an authoritative operator-roster
+// contract (cpt-operator-roster.json). When present it is the source of truth
+// for that park's field capacity: seed-roster-real recasts the resolved seats
+// into equal per-person vaccination_operator_<name> positions (manager tier,
+// not a backup slot) with contract-owned week-offs, instead of the generic
+// jun-26 PC-manager/backup/park-head trio. The generic timetable model still
+// governs every other center/source that ships no such contract.
+export const OPERATOR_ROSTER_CONTRACT_FILE = "cpt-operator-roster.json";
+export const OPERATOR_ROSTER_OVERLAY_IS_AUTHORITATIVE_FIELD_CAPACITY = true;
+export const OPERATOR_ROSTER_ANIMAL_CAP_FIELD = "animal_cap_per_day";
+export const HRMS_VACCINATION_DAILY_ANIMAL_CAP_FIELD = "workforce_positions.vaccination_daily_animal_cap";
 export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
   "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
 export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
@@ -203,7 +214,7 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.minimum_migration === "000008", "manifest.minimum_migration must be 000008", problems);
   expect(manifest.contracts?.source_policy_sha256 === SEED_SOURCE_POLICY_SHA256, "manifest source policy digest differs from contracts/vaccination-seed-source-policy.json", problems);
   expect(manifest.contracts?.vaccination_sop_code === "vaccination.drive", "manifest must bind vaccination.drive SOP", problems);
-  expect(manifest.contracts?.proof_mode === "shed_level_video", "manifest proof_mode must be shed_level_video", problems);
+  expect(manifest.contracts?.proof_mode === "shed_level_video", "manifest proof_mode must be shed_level_video so seed, SOP, Android, and verifier all use one-to-five shed videos instead of per-goat videos", problems);
   expect(manifest.contracts?.video_proof_subject_scope === "shed", "manifest video proof subject must be shed", problems);
   expect(Array.isArray(manifest.contracts?.video_capture_sources) && manifest.contracts.video_capture_sources.includes("in_app_camera") && manifest.contracts.video_capture_sources.includes("gallery_picker"), "manifest shed video proof must allow camera and gallery picker", problems);
   expect(manifest.contracts?.minimum_video_count_per_shed === 1, "manifest must require at least one video per shed", problems);

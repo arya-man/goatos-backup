@@ -16,23 +16,9 @@ cubes:
     description: >-
       One row per animal (all species). Backs the active_animal_count governed
       KPI and the mortality_rate draft metric. IST business calendar.
-    sql: >
-      SELECT
-        g.goat_id                                              AS goat_id,
-        g.tenant_id                                            AS tenant_id,
-        g.species                                              AS species,
-        g.lifecycle_status                                     AS lifecycle_status,
-        g.management_stage                                     AS management_stage,
-        g.park_id                                              AS park_id,
-        pk.name                                                AS park_label,
-        g.shed_id                                              AS shed_id,
-        sh.name                                                AS shed_label,
-        g.entry_date                                           AS entry_date,
-        (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date        AS exit_business_day,
-        g.exit_reason                                          AS exit_reason
-      FROM goats g
-      LEFT JOIN locations pk ON pk.location_id = g.park_id
-      LEFT JOIN locations sh ON sh.location_id = g.shed_id
+    # Reads governed ceo_ai.* source view (migration 000030), never raw public
+    # tables — Cube DB role has ceo_ai.* SELECT only. Grain/columns match the view.
+    sql_table: ceo_ai.animals_base
 
     dimensions:
       - name: goat_id
