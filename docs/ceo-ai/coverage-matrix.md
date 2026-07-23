@@ -92,7 +92,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /admin/locations | api | Facility inventory |
 | GET /admin/locations/{id}(+/children,/aliases) | EXCLUDED | Single-record / hierarchy / naming |
 | GET /admin/locations/{id}/capacity | api + view:shed_capacity_current | Capacity |
-| GET /admin/locations/{id}/usage | api + view:shed_capacity_current | Occupancy vs capacity |
+| GET /admin/locations/{id}/usage | api + view:shed_capacity_current | Occupancy vs capacity; admin_location_usage tool left on Toolbox/fallback -- locations.Service only exposes single-location Usage/ListCapacity reads (one location_id argument), not a bounded across-parks/sheds listing a capacity-variance question needs; wiring it would require a new read model, out of scope of this pass |
 | GET /admin/location-review-items | api + view:ops_exception_queue | Facility data-integrity queue |
 | GET /admin/sops | api + view:sop_execution_status | SOP definitions |
 | GET /admin/sops/{id}(+/versions/…) | EXCLUDED | SOP version detail |
@@ -103,9 +103,9 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /verification/queue | api + view:verification_queue_status | Verification backlog; API tier executor wired (verification_queue tool) |
 | GET /verification/action-queue | api + view:verification_queue_status | Actionable proof exceptions |
 | GET /operations/audit | api + view:audit_activity_summary | Audit stream |
-| GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary |
+| GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary; API tier executor wired (operations_audit_summary tool, via operationsaudit.Service.Summary) |
 | GET /operations/dlq | api + view:ops_exception_queue | Failed-event queue (see gap G5) |
-| GET /operations/kernel-health | api + view:ops_exception_queue | System integrity (see gap G5) |
+| GET /operations/kernel-health | api + view:ops_exception_queue | System integrity (see gap G5); API tier executor wired (operations_kernel_health tool, via processintegrity.Service.ControlTower with OnlyBrokenOrAtRisk) |
 | GET /workflows/{row_id} | EXCLUDED | Row-level workflow detail |
 | GET /protocols | api | Protocol/schedule definitions |
 | GET /protocols/versions/{id}, /protocols/animal-stages | EXCLUDED | Protocol version / reference taxonomy |

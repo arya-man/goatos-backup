@@ -27,7 +27,6 @@ import (
 	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
 	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
 	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
-	ceodomain "github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
@@ -74,11 +73,9 @@ import (
 	processintegrityhttp "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/http"
 	processintegritypg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
 	processintegrityapp "github.com/vgoats/goatos/backend/internal/processintegrity/app"
-	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	procurementhttp "github.com/vgoats/goatos/backend/internal/procurement/adapters/http"
 	procurementpg "github.com/vgoats/goatos/backend/internal/procurement/adapters/postgres"
 	procurementapp "github.com/vgoats/goatos/backend/internal/procurement/app"
-	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
 	proofhttp "github.com/vgoats/goatos/backend/internal/proof/adapters/http"
 	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
 	proofgcs "github.com/vgoats/goatos/backend/internal/proof/adapters/storage/gcs"
@@ -104,11 +101,9 @@ import (
 	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
-	verificationports "github.com/vgoats/goatos/backend/internal/verification/ports"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
-	workforceports "github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
 type Config struct {
@@ -476,147 +471,30 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// never dead-ends on an unwired API executor (P1-2, P1-3).
 	readToolExecs := ceoreadtools.NewToolExecutors()
 
-	// Wire in-process readers for operational domains.
-	// Procurement: procurement_source_entry_loads
-	for _, exec := range readToolExecs {
-		if spec := exec.Spec(); spec.Name == "procurement_source_entry_loads" {
-			ceoreadtools.SetProcurementDataReader(exec, func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
-				q := procurementdomain.LoadQuery{TenantID: tenantID}
-				// Extract optional filters from params
-				if status, ok := params["status"].(string); ok {
-					q.Status = status
-				}
-				if limit, ok := params["limit"].(int); ok {
-					q.Limit = limit
-				}
-				result, err := procurementService.ListLoads(ctx, q) // scale-guard:ignore: one-time executor-registration scan, not per-row I/O; closure calls the service once per assistant request
-				if err != nil {
-					return nil, err
-				}
-				facts := make([]ceodomain.Fact, 0, len(result.Items))
-				for _, item := range result.Items {
-					scope := item.LoadID
-					if item.SourcePartyName != "" {
-						scope = scope + " / " + item.SourcePartyName
-					}
-					facts = append(facts, ceodomain.Fact{
-						Label: "Load " + item.Status,
-						Value: fmt.Sprintf("Expected %d animals, Status: %s", item.ExpectedCount, item.Status),
-						Scope: scope,
-					})
-				}
-				return facts, nil
-			})
-		}
-	}
+	// Wire in-process readers for operational domains. The reader functions
+	// themselves live in ceoai_readers.go (unit-tested against fakes in
+	// ceoai_readers_test.go) so this block is just registration.
+	parkResolver := newLocationsParkResolver(locationsService)
 
-	// Workforce: admin_roster_coverage
 	for _, exec := range readToolExecs {
-		if spec := exec.Spec(); spec.Name == "admin_roster_coverage" {
-			ceoreadtools.SetWorkforceDataReader(exec, func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
-				queryParams := workforceports.ListCoverageParams{TenantID: tenantID, Active: true}
-				// Extract optional scope filters from params
-				if scopeType, ok := params["scope_type"].(string); ok {
-					queryParams.ScopeType = scopeType
-				}
-				if scopeID, ok := params["scope_id"].(string); ok {
-					queryParams.ScopeID = scopeID
-				}
-				result, err := rosterService.ListCoverage(ctx, queryParams, "") // scale-guard:ignore: one-time executor-registration scan, not per-row I/O; closure calls the service once per assistant request
-				if err != nil {
-					return nil, err
-				}
-				facts := make([]ceodomain.Fact, 0, len(result.Items))
-				for _, item := range result.Items {
-					scope := item.CoveredPositionCode
-					if item.CoveredPositionTitle != nil {
-						scope = scope + " / " + *item.CoveredPositionTitle
-					}
-					coveringName := "Uncovered"
-					if item.CoveringMemberName != nil {
-						coveringName = *item.CoveringMemberName
-					}
-					facts = append(facts, ceodomain.Fact{
-						Label: "Coverage",
-						Value: fmt.Sprintf("Covering from %s to %s by %s", item.StartDate, item.EndDate, coveringName),
-						Scope: scope,
-					})
-				}
-				return facts, nil
-			})
-		}
-	}
-
-	// Verification: verification_queue
-	for _, exec := range readToolExecs {
-		if spec := exec.Spec(); spec.Name == "verification_queue" {
-			ceoreadtools.SetVerificationDataReader(exec, func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
-				queryParams := verificationports.ListQueueParams{TenantID: tenantID}
-				// Extract optional filters from params
-				if status, ok := params["status"].(string); ok {
-					queryParams.Status = status
-				}
-				if category, ok := params["category"].(string); ok {
-					queryParams.Category = category
-				}
-				if vertical, ok := params["vertical"].(string); ok {
-					queryParams.Vertical = vertical
-				}
-				if module, ok := params["module"].(string); ok {
-					queryParams.Module = module
-				}
-				result, err := verificationService.ListQueue(ctx, queryParams) // scale-guard:ignore: one-time executor-registration scan, not per-row I/O; closure calls the service once per assistant request
-				if err != nil {
-					return nil, err
-				}
-				facts := make([]ceodomain.Fact, 0, len(result.Items))
-				for _, item := range result.Items {
-					scope := item.Item.Category
-					if item.Item.Vertical != "" {
-						scope = item.Item.Vertical + " / " + scope
-					}
-					facts = append(facts, ceodomain.Fact{
-						Label: "Verification Item",
-						Value: fmt.Sprintf("Status: %s, Evidence Available: %v", item.Item.Status, item.EvidenceAvailable),
-						Scope: scope,
-					})
-				}
-				return facts, nil
-			})
-		}
-	}
-
-	// Action Center: action_center_obligations
-	for _, exec := range readToolExecs {
-		if spec := exec.Spec(); spec.Name == "action_center_obligations" {
-			ceoreadtools.SetActionCenterDataReader(exec, func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
-				q := processintegritydomain.Query{TenantID: tenantID}
-				// Extract optional filters from params
-				if workState, ok := params["work_state"].(string); ok {
-					ws := processintegritydomain.WorkState(workState)
-					q.WorkState = &ws
-				}
-				result, err := processIntegrityService.ActionCenter(ctx, q) // scale-guard:ignore: one-time executor-registration scan, not per-row I/O; closure calls the service once per assistant request
-				if err != nil {
-					return nil, err
-				}
-				facts := make([]ceodomain.Fact, 0, len(result.Items))
-				for _, item := range result.Items {
-					scope := item.Category
-					if item.ParkName != "" {
-						scope = item.ParkName + " / " + scope
-					}
-					if item.ShedName != "" {
-						scope = scope + " / " + item.ShedName
-					}
-					facts = append(facts, ceodomain.Fact{
-						Label: item.Category,
-						Value: fmt.Sprintf("Work State: %s, Rule: %s", item.WorkState, item.DoseCode),
-						Scope: scope,
-					})
-				}
-				return facts, nil
-			})
+		switch exec.Spec().Name {
+		case "procurement_source_entry_loads":
+			ceoreadtools.SetProcurementDataReader(exec, buildProcurementReader(procurementService))
+		case "admin_roster_coverage":
+			ceoreadtools.SetWorkforceDataReader(exec, buildWorkforceReader(rosterService))
+		case "verification_queue":
+			ceoreadtools.SetVerificationDataReader(exec, buildVerificationReader(verificationService))
+		case "action_center_obligations":
+			ceoreadtools.SetActionCenterDataReader(exec, buildActionCenterReader(processIntegrityService, parkResolver))
+		case "operations_kernel_health":
+			ceoreadtools.SetOpsKernelHealthDataReader(exec, buildOpsKernelHealthReader(processIntegrityService))
+		case "operations_audit_summary":
+			ceoreadtools.SetOpsAuditSummaryDataReader(exec, buildOpsAuditSummaryReader(operationsAuditService))
+			// admin_location_usage is intentionally left on the Toolbox/fallback
+			// path: locationsService only exposes per-location Usage/ListCapacity
+			// reads (a single location_id argument), not a bounded listing across
+			// parks/sheds suited to a capacity-variance question. Building that
+			// would require a new read model/API, which is out of scope here.
 		}
 	}
 

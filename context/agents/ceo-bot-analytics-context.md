@@ -18,6 +18,61 @@ tool layer which Mesha data surfaces are safe to use, which domains are
 covered, and how common leadership questions should map to Cube metrics,
 existing read APIs, MCP tools, or read-only SQL.
 
+## Scope Model: park -> physical_shed -> partition
+
+Leadership questions scope down through three nested dimensions, and the
+assistant's tools/planner must understand all three, not just a flat
+"shed" label:
+
+1. **park** -- a physical park/location (e.g. `Castro 1`, `Gandhi`). Tools
+   whose underlying query filters by park need a park **ID** (uuid), not the
+   label the planner extracts from free text; `park_label` is resolved to an
+   ID via the locations read service (`internal/bootstrap/ceoai_readers.go`
+   `locationsParkResolver`, an exact name match against `LocationType="park"`)
+   before it reaches the query. If a tool's query has no park-scoping field at
+   all, `park_label` is not honored for that tool (documented per-tool in
+   `internal/ceoai/adapters/readtools/toolexecutors.go`) rather than silently
+   ignored.
+2. **physical_shed** -- a physical shed structure. IMPORTANT NORMALIZATION: in
+   some source data, sibling shed labels like `Gandhi 1`, `Gandhi 2`,
+   `Gandhi 3` are really ONE physical shed `Gandhi` split into partitions
+   `1`/`2`/`3` -- they are not three independent sheds. Likewise `Godel 1 -
+   Part 3` is physical shed `Godel 1`, partition `Part 3`. Do not treat every
+   distinct shed label as an independent shed when the question is about
+   physical capacity or operator load across the whole structure.
+3. **partition** -- the sub-shed slice within a physical_shed (`partition_label`
+   in `goat_shed_partitions` and `vaccination_drive_assignments`, e.g. `1`,
+   `2`, `whole`). Partition detail exists TODAY only in the vaccination
+   drive-assignment / obligation surfaces (`GET /vaccination/execution`
+   exposes `physicalShed` and `partition` separately, see the Vaccination /
+   Preventive Care section above) and in `goat_shed_partitions`. It is NOT a
+   field on the procurement, workforce, verification, action-center/control-
+   tower, or operations-audit query models.
+
+Practical effect on the leadership-assistant read tools wired in
+`internal/bootstrap/ceoai_readers.go`:
+
+| Tool | park_label | shed_id (plain shed-location ID) | partition |
+|---|---|---|---|
+| `action_center_obligations` | resolved via locations resolver | direct pass-through (`Query.ShedID`) | not supported by this query -- not advertised |
+| `operations_kernel_health` | not wired (no resolver call yet; same ParkID field exists on the query, resolver could be reused later) | direct pass-through (`Query.ShedID`) | not supported -- not advertised |
+| `procurement_source_entry_loads` | not supported (`LoadQuery` has no park field at all) | not supported | not supported |
+| `admin_roster_coverage` | not supported (roster scope is `scope_type="shed"`/position-based, not park-based) | via `scope_type`/`scope_id` (generic scope, not partition-aware) | not supported |
+| `verification_queue` | not supported (`ListQueueParams` scopes by `ParkIDs` derived from actor RBAC, not a free-text label) | not supported (no shed field) | not supported |
+| `operations_audit_summary` | not supported (`Query` has no park field) | not supported | not supported |
+
+The keyword planner's `extractParams` (`internal/ceoai/adapters/keywordplanner/planner.go`)
+extracts `park_label` and `species` from free text today; it does not extract
+shed/partition identifiers from free text (no shed-name catalog analogous to
+`knownParks` exists yet). `shed_id`/`scope_id` params on the tools above are
+therefore wired for direct ID pass-through (usable by callers that already
+have the ID, e.g. a drilldown flow) rather than resolved from a shed label --
+extending the planner to resolve a spoken shed/partition label (e.g. "Gandhi
+physical shed partition 2") into a shed_id + partition would need a shed-name
+catalog and, for partition-aware questions, would need to be answered through
+the vaccination execution/obligation surfaces above rather than through
+action_center/kernel_health/audit, since those do not read partition data.
+
 ## Access Model
 
 The CEO bot is enabled only for CEO/CXO leadership surfaces.

@@ -106,6 +106,24 @@ func parseWiredReaders(t *testing.T) map[string]bool {
 	if regexp.MustCompile(`SetFeedDataReader\(`).MatchString(src) {
 		wired["feed_direction_today"] = true
 	}
+	if regexp.MustCompile(`SetProcurementDataReader\(`).MatchString(src) {
+		wired["procurement_source_entry_loads"] = true
+	}
+	if regexp.MustCompile(`SetWorkforceDataReader\(`).MatchString(src) {
+		wired["admin_roster_coverage"] = true
+	}
+	if regexp.MustCompile(`SetVerificationDataReader\(`).MatchString(src) {
+		wired["verification_queue"] = true
+	}
+	if regexp.MustCompile(`SetActionCenterDataReader\(`).MatchString(src) {
+		wired["action_center_obligations"] = true
+	}
+	if regexp.MustCompile(`SetOpsKernelHealthDataReader\(`).MatchString(src) {
+		wired["operations_kernel_health"] = true
+	}
+	if regexp.MustCompile(`SetOpsAuditSummaryDataReader\(`).MatchString(src) {
+		wired["operations_audit_summary"] = true
+	}
 	return wired
 }
 
