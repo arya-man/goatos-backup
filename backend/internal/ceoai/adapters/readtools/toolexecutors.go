@@ -207,7 +207,12 @@ func (e *procurementExecutor) Spec() ports.ToolSpec {
 		Name:        "procurement_source_entry_loads",
 		Route:       domain.RouteAPI,
 		Description: "Procurement source entry loads and their status",
-		Params:      []string{"status", "park_label"},
+		// park_label is intentionally NOT advertised: procurementdomain.LoadQuery
+		// has no park-scoping field at all (not even a park_id), so the closure
+		// has nothing to map it onto. Advertising it would silently promise
+		// scoping the pipeline cannot honor. Revisit if/when the source-entry
+		// load read model gains a park column.
+		Params: []string{"status"},
 	}
 }
 
@@ -247,8 +252,16 @@ func (e *workforceExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
 		Name:        "admin_roster_coverage",
 		Route:       domain.RouteAPI,
-		Description: "Roster coverage by position and date range",
-		Params:      []string{"position_id", "start_date", "end_date"},
+		Description: "Roster coverage by scope (position/shed)",
+		// position_id/start_date/end_date were previously advertised but
+		// workforceports.ListCoverageParams has none of those fields -- the
+		// pipeline could never honor them. scope_type/scope_id ARE real
+		// ListCoverageParams fields and the closure maps them; that is the set
+		// actually wired end-to-end today. park_label is NOT advertised: roster
+		// coverage scope is shed/position-based (scope_type="shed"), not
+		// park-based, and there is no park-label resolution that fits this
+		// scope model.
+		Params: []string{"scope_type", "scope_id"},
 	}
 }
 
@@ -330,7 +343,15 @@ func (e *actionCenterExecutor) Spec() ports.ToolSpec {
 		Name:        "action_center_obligations",
 		Route:       domain.RouteAPI,
 		Description: "Action center obligations requiring attention",
-		Params:      []string{"work_state", "park_label", "shed_id"},
+		// work_state and shed_id map directly onto processintegritydomain.Query
+		// fields. park_label is resolved to Query.ParkID via the park resolver
+		// wired in bootstrap (see api.go / ceoai_readers.go) -- this is the P1
+		// fix: previously advertised but silently dropped. shed_id is a plain
+		// shed-location ID; there is no sub-shed "partition" concept on this
+		// Query (partition_label lives only on vaccination_drive_assignments /
+		// goat_shed_partitions, which this tool does not read), so partition is
+		// intentionally NOT advertised.
+		Params: []string{"work_state", "park_label", "shed_id"},
 	}
 }
 
@@ -361,6 +382,101 @@ func (e *actionCenterExecutor) Execute(ctx context.Context, actor domain.Actor, 
 	}, nil
 }
 
+// opsKernelHealthExecutor provides the process-integrity control-tower view
+// (open exceptions / broken-or-at-risk obligations) for kernel-health questions.
+type opsKernelHealthExecutor struct {
+	opsKernelHealthDataReader scopedReader
+}
+
+func (e *opsKernelHealthExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "operations_kernel_health",
+		Route:       domain.RouteAPI,
+		Description: "Open exceptions / broken-or-at-risk obligations (kernel health)",
+		// severity, work_state and shed_id are real processintegritydomain.Query
+		// fields the closure maps directly (shed_id is a plain shed-location ID,
+		// same field ParkID's sibling ShedID -- see action_center). park_label is
+		// NOT advertised for the same reason as action_center's ParkID -- see the
+		// api.go wiring comment; unlike action_center this tool has no park
+		// resolver wired yet. There is no sub-shed "partition" concept on this
+		// Query (partition_label lives only on vaccination_drive_assignments /
+		// goat_shed_partitions, which this tool does not read), so partition is
+		// NOT advertised either.
+		Params: []string{"severity", "work_state", "shed_id"},
+	}
+}
+
+func (e *opsKernelHealthExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.opsKernelHealthDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("operations kernel health data reader not wired"),
+		}, nil
+	}
+
+	facts, err := e.opsKernelHealthDataReader(ctx, actor.TenantID, sub.Params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
+// opsAuditSummaryExecutor provides the operations/business audit summary.
+type opsAuditSummaryExecutor struct {
+	opsAuditSummaryDataReader scopedReader
+}
+
+func (e *opsAuditSummaryExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "operations_audit_summary",
+		Route:       domain.RouteAPI,
+		Description: "Operations/business audit activity summary",
+		// category/module/status are real operationsaudit domain.Query fields
+		// the closure maps directly. No park field exists on that Query, so
+		// park_label is not advertised.
+		Params: []string{"category", "module", "status"},
+	}
+}
+
+func (e *opsAuditSummaryExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.opsAuditSummaryDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("operations audit summary data reader not wired"),
+		}, nil
+	}
+
+	facts, err := e.opsAuditSummaryDataReader(ctx, actor.TenantID, sub.Params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
 // NewToolExecutors returns a set of in-process read service tool executors
 // for tier-2 (API) routing. These are registered with the leadership assistant
 // registry to handle RouteAPI sub-questions.
@@ -375,6 +491,8 @@ func NewToolExecutors() []ports.ToolExecutor {
 		&workforceExecutor{},
 		&verificationExecutor{},
 		&actionCenterExecutor{},
+		&opsKernelHealthExecutor{},
+		&opsAuditSummaryExecutor{},
 	}
 }
 
@@ -429,5 +547,19 @@ func SetVerificationDataReader(exec ports.ToolExecutor, reader func(context.Cont
 func SetActionCenterDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
 	if e, ok := exec.(*actionCenterExecutor); ok {
 		e.actionCenterDataReader = reader
+	}
+}
+
+// SetOpsKernelHealthDataReader wires the data reader into the operations kernel health executor.
+func SetOpsKernelHealthDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*opsKernelHealthExecutor); ok {
+		e.opsKernelHealthDataReader = reader
+	}
+}
+
+// SetOpsAuditSummaryDataReader wires the data reader into the operations audit summary executor.
+func SetOpsAuditSummaryDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*opsAuditSummaryExecutor); ok {
+		e.opsAuditSummaryDataReader = reader
 	}
 }
