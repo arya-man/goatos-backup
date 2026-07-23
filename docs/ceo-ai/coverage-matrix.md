@@ -64,7 +64,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /calendar/vaccination/events | api | Calendar timeline (dots) |
 | Calendar vaccination date markers | api | Leadership assistant read API coverage: month/week marker dots use the same assignment-effective schedule date as the calendar event list and vaccination operator schedule, so leadership answers and client overview counts do not report stale batch/obligation dates after a drive move. |
 | GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail; admin-web Calendar drive target rosters must still open the shared Goat Passport local drawer with per-goat vaccination history |
-| GET /action-center/obligations | api + view:action_center_current | Cross-domain queue |
+| GET /action-center/obligations | api + view:action_center_current | Cross-domain queue; API tier executor wired (action_center_obligations tool) |
 | GET /feed-direction/preview | api + view:feed_direction_current | Feed needed today; blocked≠0 |
 | GET /feed-direction/generation-preview | api + view:feed_direction_current | Planned generation + gaps |
 | GET /feed-direction/counts-projection/exceptions | api + view:ops_exception_queue | Blocked feed cells |
@@ -77,11 +77,11 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /feed-config/schedule | EXCLUDED | Config |
 | GET /feed-config/shed-factors | EXCLUDED | Config |
 | GET /feed-config/experiment | EXCLUDED | Experiment config; niche |
-| GET /procurement/source-entry/loads | api + view:procurement_pipeline / Cube:procurement_cost | Open loads / pipeline |
+| GET /procurement/source-entry/loads | api + view:procurement_pipeline / Cube:procurement_cost | Open loads / pipeline; API tier executor wired (procurement_source_entry_loads tool) |
 | GET /procurement/source-entry/loads/{load_id} | api + view:source_entry_health_status | Load drilldown |
 | GET /admin/roster/positions | api + view:workforce_coverage_status | Who owns which shed |
 | GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail |
-| GET /admin/roster/coverage | api + view:workforce_coverage_status | Coverage matrix |
+| GET /admin/roster/coverage | api + view:workforce_coverage_status | Coverage matrix; API tier executor wired (admin_roster_coverage tool) |
 | GET /admin/roster/leave | api + view:workforce_coverage_status | Absence exposure |
 | GET /admin/roster/leave/{absence_id} | EXCLUDED | Single-record detail |
 | GET /admin/roster/backup-config | EXCLUDED | Config |
@@ -100,7 +100,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /admin/tasks/{id} | EXCLUDED | Task detail |
 | GET /admin/tasks/submission-fanouts/failed | api + view:ops_exception_queue | Proof fan-out failures |
 | GET /app/tasks(+/{id}, /shed-completion-summary), /app/sop-versions/{id} | EXCLUDED | Self-scoped operator worklist / form |
-| GET /verification/queue | api + view:verification_queue_status | Verification backlog |
+| GET /verification/queue | api + view:verification_queue_status | Verification backlog; API tier executor wired (verification_queue tool) |
 | GET /verification/action-queue | api + view:verification_queue_status | Actionable proof exceptions |
 | GET /operations/audit | api + view:audit_activity_summary | Audit stream |
 | GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary |
