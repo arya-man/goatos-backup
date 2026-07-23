@@ -33,15 +33,34 @@ const calendarDriveTargetsSQL = `
 WITH matched_batches AS (
   SELECT DISTINCT ob.batch_id
   FROM obligation_batches ob
-  JOIN vaccination_drive_assignments vda
-    ON vda.tenant_id = ob.tenant_id
-   AND vda.batch_id = ob.batch_id
   LEFT JOIN locations scope_loc
     ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
+  LEFT JOIN LATERAL (
+    SELECT count(*) > 0 AS has_any_assignment
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = ob.tenant_id
+      AND assignment.batch_id = ob.batch_id
+  ) assignment_presence ON true
+  LEFT JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = ob.tenant_id
+   AND vda.batch_id = ob.batch_id
+   AND vda.planned_date = $3::date
   WHERE ob.tenant_id = $1::uuid
     AND $12::bool
     AND ob.status NOT IN ('superseded', 'canceled')
-    AND to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text
+    AND (
+      vda.assignment_id IS NOT NULL
+      OR (
+        NOT COALESCE(assignment_presence.has_any_assignment, false)
+        AND (
+          ob.planned_date = $3::date
+          OR (
+            ob.planned_date IS NULL
+            AND to_char((COALESCE(ob.window_start, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+          )
+        )
+      )
+    )
     AND (
       ($4::uuid IS NOT NULL AND (
         vda.park_id = $4::uuid
@@ -111,6 +130,7 @@ LEFT JOIN LATERAL (
   WHERE assignment.tenant_id = oi.tenant_id
     AND assignment.batch_id = oi.batch_id
     AND assignment.shed_id = g.shed_id
+    AND assignment.planned_date = $3::date
   ORDER BY assignment.planned_date ASC,
            assignment.partition_label ASC,
            assignment.operator_id ASC NULLS LAST,

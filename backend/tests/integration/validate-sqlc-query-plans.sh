@@ -886,7 +886,7 @@ LIMIT 50;"
 # Broad Parks base-join guard for the shell hot-path sweep. The exact production
 # query is covered by TestParksVaccinationExecutionProductionQueryPlanUsesIndexes.
 validate_parks_vaccination_base_join_plan() {
-  explain_must_use_index "ParksVaccinationExecutionBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on goats|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "ParksVaccinationExecutionBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on vaccination_drive_assignments|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
 WITH raw AS (
   SELECT
     oi.obligation_id,
@@ -1074,7 +1074,7 @@ LIMIT 200;"
 # Broad process-integrity base-join guard for the shell hot-path sweep. The exact production
 # query is covered by TestProcessIntegrityProductionQueryPlanUsesIndexes.
 validate_vaccination_process_integrity_base_join_plan() {
-  explain_must_use_index "VaccinationProcessIntegrityBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on protocol_versions|Seq Scan on protocol_definitions|Seq Scan on protocol_rules|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on sop_tasks|Seq Scan on sop_submissions|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on animal_stage_lookup|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "VaccinationProcessIntegrityBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on protocol_versions|Seq Scan on protocol_definitions|Seq Scan on protocol_rules|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on vaccination_drive_assignments|Seq Scan on sop_tasks|Seq Scan on sop_submissions|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on animal_stage_lookup|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
 WITH raw AS (
   SELECT
     oi.obligation_id,
