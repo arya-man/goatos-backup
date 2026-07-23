@@ -1,5 +1,7 @@
 package domain
 
+import "encoding/json"
+
 // Position is a fixed operational/timetable seat (design doc
 // docs/hr/roster-rbac-design.md S4.2): who holds it, at which center, and its
 // recurring week-off day. It is the ONLY new roster table -- leave, coverage,
@@ -17,12 +19,15 @@ type Position struct {
 	IsBackupSlot      bool    `json:"is_backup_slot"`
 	BackupGroupCode   *string `json:"backup_group_code"`
 	WeekOffWeekday    *string `json:"week_off_weekday"`
-	Status            string  `json:"status"`
-	ValidFrom         string  `json:"valid_from"`
-	ValidTo           *string `json:"valid_to"`
-	RowVersion        int     `json:"row_version"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
+	// VaccinationDailyAnimalCap is an optional HRMS-authored animal/day cap for vaccination
+	// execution seats. Nil means use the tenant default from vaccination_capacity_config.
+	VaccinationDailyAnimalCap *int    `json:"vaccination_daily_animal_cap,omitempty"`
+	Status                    string  `json:"status"`
+	ValidFrom                 string  `json:"valid_from"`
+	ValidTo                   *string `json:"valid_to"`
+	RowVersion                int     `json:"row_version"`
+	CreatedAt                 string  `json:"created_at"`
+	UpdatedAt                 string  `json:"updated_at"`
 
 	// Enriched fields (read from related tables at list time)
 	PersonDisplayName  *string        `json:"person_display_name,omitempty"`
@@ -113,13 +118,35 @@ type CreatePositionRequest struct {
 // week_off_weekday, valid_to). RowVersion is the optimistic-lock guard;
 // idempotency_key enables request-level dedup.
 type UpdatePositionRequest struct {
-	RowVersion      int     `json:"row_version"`
-	PositionTier    *string `json:"position_tier"`
-	BackupGroupCode *string `json:"backup_group_code"`
-	WeekOffWeekday  *string `json:"week_off_weekday"`
-	ValidTo         *string `json:"valid_to"`
-	Status          *string `json:"status"`
-	IdempotencyKey  *string `json:"idempotency_key"`
+	RowVersion                int     `json:"row_version"`
+	PositionTier              *string `json:"position_tier"`
+	BackupGroupCode           *string `json:"backup_group_code"`
+	WeekOffWeekday            *string `json:"week_off_weekday"`
+	VaccinationDailyAnimalCap NullInt `json:"vaccination_daily_animal_cap"`
+	ValidTo                   *string `json:"valid_to"`
+	Status                    *string `json:"status"`
+	IdempotencyKey            *string `json:"idempotency_key"`
+}
+
+// NullInt is a PATCH tri-state for nullable integer columns:
+// absent => leave unchanged, null => clear to DB null, number => set.
+type NullInt struct {
+	Set   bool
+	Value *int
+}
+
+func (n *NullInt) UnmarshalJSON(data []byte) error {
+	n.Set = true
+	if string(data) == "null" {
+		n.Value = nil
+		return nil
+	}
+	var v int
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	n.Value = &v
+	return nil
 }
 
 // UpsertBackupConfigRequest assigns/replaces the holder of a backup-slot seat

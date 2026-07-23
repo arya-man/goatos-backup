@@ -15,18 +15,9 @@ cubes:
     description: >-
       One row per procurement load. Backs procurement_animals (draft volume) and
       procurement_cost (draft / blocked — no cost source).
-    sql: >
-      SELECT
-        pl.load_id                                             AS load_id,
-        pl.tenant_id                                           AS tenant_id,
-        pl.status                                              AS status,
-        pl.expected_count                                      AS expected_count,
-        pl.source_location_id                                  AS source_location_id,
-        loc.name                                               AS source_label,
-        (pl.purchase_date)                                     AS purchase_date,
-        (pl.created_at AT TIME ZONE 'Asia/Kolkata')::date      AS entered_business_day
-      FROM procurement_loads pl
-      LEFT JOIN locations loc ON loc.location_id = pl.source_location_id
+    # Reads governed ceo_ai.* source view (migration 000030), never raw public
+    # tables — Cube DB role has ceo_ai.* SELECT only. Grain/columns match the view.
+    sql_table: ceo_ai.procurement_loads_base
 
     dimensions:
       - name: load_id

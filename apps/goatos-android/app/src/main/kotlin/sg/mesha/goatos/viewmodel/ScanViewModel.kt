@@ -290,7 +290,7 @@ class ScanViewModel @Inject constructor(
         }
         // HOT device stream (RFID reader) — NOT converted; always collected for keyboard-wedge capture
         viewModelScope.launch {
-            reader.reads.collect { onTagRead(it.tag) }
+            reader.reads.collect { onTagRead(it.tag, it.capturedAtDeviceMs) }
         }
     }
 
@@ -392,7 +392,7 @@ class ScanViewModel @Inject constructor(
     /** Hardware tag read (keyboard-wedge): match the tag against the FULL roster (R50-007: via bounded
      *  Room query, not just the loaded page in state.value.roster.firstOrNull) and fold into draft overlay.
      *  A PENDING match is marked DONE; SKIPPED/unknown only pushes an informational feed row. */
-    private fun onTagRead(tag: String) {
+    private fun onTagRead(tag: String, capturedAtMs: Long) {
         if (!canAcceptScanInput()) return
         val target = normalize(tag)
         if (target.isEmpty()) return
@@ -409,7 +409,7 @@ class ScanViewModel @Inject constructor(
                 )
                 _feed.update {
                     prependFeed(
-                        ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED, scanTimeLabel(System.currentTimeMillis())),
+                        ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED, scanTimeLabel(capturedAtMs)),
                         it,
                     )
                 }
@@ -431,16 +431,16 @@ class ScanViewModel @Inject constructor(
             val tagRole = row.tagRoleFor(target)
             when (row.status) {
                 ScanStatus.PENDING -> {
-                    markRowDone(row)
+                    markRowDone(row, capturedAtMs)
                     _manualDone.update { it - row.obligationId }
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, null)
-                    recordRosterScan(row, tag)
+                    recordRosterScan(row, tag, capturedAtMs)
                 }
                 ScanStatus.DONE -> {
                     if (row.obligationId in _manualDone.value) {
                         _manualDone.update { it - row.obligationId }
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "manual_done_replaced_by_reader_scan")
-                        recordRosterScan(row, tag)
+                        recordRosterScan(row, tag, capturedAtMs)
                     } else {
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "goat_already_scanned")
                         _feed.update {
@@ -450,7 +450,7 @@ class ScanViewModel @Inject constructor(
                                     row.secondaryTag,
                                     "already scanned · ${row.vaccineLabel}",
                                     ScanStatus.DONE,
-                                    scanTimeLabel(System.currentTimeMillis()),
+                                    scanTimeLabel(capturedAtMs),
                                     ScanFeedTone.DUPLICATE,
                                 ),
                                 it,
@@ -462,7 +462,7 @@ class ScanViewModel @Inject constructor(
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.NOT_DUE, tagRole, "not_due")
                     _feed.update {
                         prependFeed(
-                            ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED, scanTimeLabel(System.currentTimeMillis())),
+                            ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED, scanTimeLabel(capturedAtMs)),
                             it,
                         )
                     }
@@ -484,18 +484,18 @@ class ScanViewModel @Inject constructor(
     /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): records
      * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.
      * The combine re-derives the roster + counts from this set on the next emission. */
-    private fun markRowDone(row: RosterRow) {
+    private fun markRowDone(row: RosterRow, capturedAtMs: Long = System.currentTimeMillis()) {
         if (row.obligationId.isBlank()) return
         _localDone.update { it + row.obligationId }
         // Track the goat as done this session so the submit proof gate requires its proof video even
         // before a refresh syncs the backend status (option 2: proof over the full roster).
         if (row.goatId.isNotBlank()) _localDoneGoatIds.update { it + row.goatId }
         _feed.update {
-            prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE, scanTimeLabel(System.currentTimeMillis())), it)
+            prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE, scanTimeLabel(capturedAtMs)), it)
         }
     }
 
-    private fun recordRosterScan(row: RosterRow, tag: String) {
+    private fun recordRosterScan(row: RosterRow, tag: String, capturedAtMs: Long) {
         val selectedTaskId = taskId ?: return
         val capturedTag = tag.ifBlank { row.primaryTag }
         if (normalize(capturedTag).isEmpty()) return
@@ -506,6 +506,7 @@ class ScanViewModel @Inject constructor(
                 tag = capturedTag,
                 goatId = row.goatId,
                 obligationId = row.obligationId,
+                capturedAtMs = capturedAtMs,
             )
         }
     }

@@ -71,6 +71,15 @@ system concerns rather than per-screen polish.
 - Submit resolved goat UUIDs in `goat_ids`; RFID strings are lookup input, not medical-record
   identity. Per-goat proof `subject_id` and each submitted goat identifier must use the same
   canonical ID or backend proof validation will correctly reject the record.
+- Vaccination operator screens must treat the RFID scan timestamp as the exact
+  vaccination time. The timestamp must be persisted Room-first, displayed back in
+  the scan/proof UI in India/local operator time, draft-synced to the backend,
+  and used by backend vaccination completion fan-out as `administered_at`.
+  Server submit time is not allowed to replace a valid scan timestamp.
+- Pagination on mobile work surfaces is viewport-driven. If a list has another
+  page, start fetching automatically near the end of the visible list and show a
+  spinner/progress footer only. Do not ship visible "Load more" buttons on
+  operator queues, scan rosters, verification queues, alerts, or side drawers.
 
 ## Mandatory proof
 

@@ -38,7 +38,8 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /app/counts/shifting/destinations | EXCLUDED | Operator write-flow picker; not a leadership metric |
 | GET /goats/search | EXCLUDED | Record-level lookup; leadership stays aggregate |
 | GET /goats/{goat_id} | EXCLUDED | Single-animal detail |
-| GET /goats/{goat_id}/passport | EXCLUDED | Per-animal history detail |
+| GET /goats/{goat_id}/passport | EXCLUDED | Per-animal history detail; admin-web goat rosters may open this as an operator/local-drawer detail, but CEO assistant answers stay aggregate unless a leader explicitly asks for a named animal record |
+| GET /goats/{goat_id}/vaccination-passport | EXCLUDED | Per-animal vaccination history/open-obligation detail for Goat Passport drawers; not a leadership aggregate tool. Assistant coverage/read API note: when this detail is opened from Calendar/Herd/Shed rosters, open obligation dates must use the canonical vaccination effective-date chain: `vaccination_drive_assignments.planned_date`, then `obligation_batches.planned_date`, then raw `obligation_instances.due_at` only as the final legacy fallback. |
 | GET /goats/{goat_id}/timeline | EXCLUDED | Per-animal audit trail |
 | GET /identifiers/{type}/{value}/resolve | EXCLUDED | Scan-time resolution utility |
 | GET /vaccination/execution | api + Cube:vaccination_due/overdue | Due/overdue by shed |
@@ -46,20 +47,24 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /vaccination/operations | api + view:vaccination_shed_status | Cohort rollups |
 | GET /vaccination/schedule | api + view:vaccination_operator_status | Operator-date drive workload from `vaccination_drive_assignments`; leadership assistant and admin-web summarize one operator/day row with animal cap, animal progress buckets, physical shed total chips, vaccines, total doses, and partition metadata only as local drawer drilldown context; drawer shed rows deep-link to the shed execution/goat roster view |
 | POST /vaccination/schedule/drive-date-overrides | api + view:vaccination_operator_status | Admin vaccine-date move/revert. The write path must split or restore raw `vaccination_drive_assignments` membership for the moved vaccine; leadership assistant, MCP Toolbox/read API answers, and SQL fallback must report the regenerated operator-date rows, not stale mixed rows from the original date. |
+| Vaccination schedule-source sync across Calendar/AC/PA/WF/execution/Android | api + view:vaccination_operator_status | Coverage clarification: no new assistant tool or KPI. Existing vaccination read API, MCP Toolbox, and `ceo_ai` coverage must prefer the effective `vaccination_drive_assignments` operator-day date before legacy batch/obligation/task due dates, so leadership answers match the same current schedule shown in admin-web and Android. |
+| HRMS operator vaccination animal cap | api + view:workforce_coverage_status + view:vaccination_operator_status | Coverage clarification: the scheduler and leadership assistant read per-operator animal capacity from `workforce_positions.vaccination_daily_animal_cap`; tenant `vaccination_capacity_config.max_per_day` is fallback only. Capacity/utilization answers must use the HRMS position cap that admin-web HRMS edits persist. `null` clears a custom HRMS cap and means default capacity, never zero; DB coverage must include real Postgres proof of custom/default/week-off operator rows. |
 | GET /vaccination/sheds | api + view:vaccination_shed_status | Shed status list |
 | GET /vaccination/sheds/{shed_id} | api + view:vaccination_shed_status | Shed drilldown |
 | GET /vaccination/sheds/{shed_id}/animals | EXCLUDED | Animal-level detail; not aggregate |
 | GET /vaccination/action-center | api + view:action_center_current | Exception queue |
 | GET /vaccination/action-center/counts | api + view:action_center_current | Summary tiles |
 | GET /vaccination/adherence | api + Cube:vaccination_compliance | Governed compliance KPI |
+| Process-integrity vaccination labels and same-business-day status | api + view:action_center_current | Coverage clarification: no new assistant tool or KPI. Existing Action Center, Protocol Adherence, Control Tower, and Workflow read paths must report human vaccine labels when available and must classify assignment-planned vaccination work as overdue only after its India business date has passed, so assistant and admin-web process-integrity answers do not leak raw rule codes or mark today's drive late at morning check-in. Grouped process-integrity rows must carry the computed execution date forward under the alias consumed by final rows, so fresh API binaries do not fall back to stale obligation dates or fail Control Tower reads. |
 | GET /vaccination/capacity-config | api | Capacity behind backlog explanations |
 | GET /vaccination/verification-queue | api + view:verification_queue_status | Proof gaps |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |
 | GET /control-tower/vaccination | api + view:action_center_current | Leadership control tower |
-| GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/* |
+| GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/*. Runtime contract: operator execution and scan rosters must filter split-shed work by `vaccination_drive_assignments` plus `goat_shed_partitions`, so one operator cannot see another operator's partition animals inside the same batch/shed. |
 | GET /calendar/vaccination/events | api | Calendar timeline (dots) |
-| GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail |
-| GET /action-center/obligations | api + view:action_center_current | Cross-domain queue |
+| Calendar vaccination date markers | api | Leadership assistant read API coverage: month/week marker dots use the same assignment-effective schedule date as the calendar event list and vaccination operator schedule, so leadership answers and client overview counts do not report stale batch/obligation dates after a drive move. |
+| GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail; admin-web Calendar drive target rosters must still open the shared Goat Passport local drawer with per-goat vaccination history |
+| GET /action-center/obligations | api + view:action_center_current | Cross-domain queue; API tier executor wired (action_center_obligations tool) |
 | GET /feed-direction/preview | api + view:feed_direction_current | Feed needed today; blocked≠0 |
 | GET /feed-direction/generation-preview | api + view:feed_direction_current | Planned generation + gaps |
 | GET /feed-direction/counts-projection/exceptions | api + view:ops_exception_queue | Blocked feed cells |
@@ -72,11 +77,11 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /feed-config/schedule | EXCLUDED | Config |
 | GET /feed-config/shed-factors | EXCLUDED | Config |
 | GET /feed-config/experiment | EXCLUDED | Experiment config; niche |
-| GET /procurement/source-entry/loads | api + view:procurement_pipeline / Cube:procurement_cost | Open loads / pipeline |
+| GET /procurement/source-entry/loads | api + view:procurement_pipeline / Cube:procurement_cost | Open loads / pipeline; API tier executor wired (procurement_source_entry_loads tool) |
 | GET /procurement/source-entry/loads/{load_id} | api + view:source_entry_health_status | Load drilldown |
 | GET /admin/roster/positions | api + view:workforce_coverage_status | Who owns which shed |
 | GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail |
-| GET /admin/roster/coverage | api + view:workforce_coverage_status | Coverage matrix |
+| GET /admin/roster/coverage | api + view:workforce_coverage_status | Coverage matrix; API tier executor wired (admin_roster_coverage tool) |
 | GET /admin/roster/leave | api + view:workforce_coverage_status | Absence exposure |
 | GET /admin/roster/leave/{absence_id} | EXCLUDED | Single-record detail |
 | GET /admin/roster/backup-config | EXCLUDED | Config |
@@ -87,7 +92,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /admin/locations | api | Facility inventory |
 | GET /admin/locations/{id}(+/children,/aliases) | EXCLUDED | Single-record / hierarchy / naming |
 | GET /admin/locations/{id}/capacity | api + view:shed_capacity_current | Capacity |
-| GET /admin/locations/{id}/usage | api + view:shed_capacity_current | Occupancy vs capacity |
+| GET /admin/locations/{id}/usage | api + view:shed_capacity_current | Occupancy vs capacity; admin_location_usage tool left on Toolbox/fallback -- locations.Service only exposes single-location Usage/ListCapacity reads (one location_id argument), not a bounded across-parks/sheds listing a capacity-variance question needs; wiring it would require a new read model, out of scope of this pass |
 | GET /admin/location-review-items | api + view:ops_exception_queue | Facility data-integrity queue |
 | GET /admin/sops | api + view:sop_execution_status | SOP definitions |
 | GET /admin/sops/{id}(+/versions/…) | EXCLUDED | SOP version detail |
@@ -95,12 +100,12 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /admin/tasks/{id} | EXCLUDED | Task detail |
 | GET /admin/tasks/submission-fanouts/failed | api + view:ops_exception_queue | Proof fan-out failures |
 | GET /app/tasks(+/{id}, /shed-completion-summary), /app/sop-versions/{id} | EXCLUDED | Self-scoped operator worklist / form |
-| GET /verification/queue | api + view:verification_queue_status | Verification backlog |
+| GET /verification/queue | api + view:verification_queue_status | Verification backlog; API tier executor wired (verification_queue tool) |
 | GET /verification/action-queue | api + view:verification_queue_status | Actionable proof exceptions |
 | GET /operations/audit | api + view:audit_activity_summary | Audit stream |
-| GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary |
+| GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary; API tier executor wired (operations_audit_summary tool, via operationsaudit.Service.Summary) |
 | GET /operations/dlq | api + view:ops_exception_queue | Failed-event queue (see gap G5) |
-| GET /operations/kernel-health | api + view:ops_exception_queue | System integrity (see gap G5) |
+| GET /operations/kernel-health | api + view:ops_exception_queue | System integrity (see gap G5); API tier executor wired (operations_kernel_health tool, via processintegrity.Service.ControlTower with OnlyBrokenOrAtRisk) |
 | GET /workflows/{row_id} | EXCLUDED | Row-level workflow detail |
 | GET /protocols | api | Protocol/schedule definitions |
 | GET /protocols/versions/{id}, /protocols/animal-stages | EXCLUDED | Protocol version / reference taxonomy |
@@ -181,3 +186,114 @@ table/API/feature is incomplete until it appears in this matrix as a coverage
 path or an explicit exclusion, and the `leadership-assistant-coverage-guard`
 passes. Use `node tools/ceo-ai/scaffold-coverage.mjs <module>` to generate the
 stubs and this row.
+
+## Cube governed-metric source views (migration 000030)
+
+The Cube semantic layer connects to Postgres as the `mesha_cube_readonly` role,
+which has SELECT on `ceo_ai.*` only (`public` is revoked). Cube models therefore
+MUST read `ceo_ai.*` views, never raw `public` tables — otherwise every governed
+metric fails with `permission denied for table ...` and the assistant returns
+`cube: could not be retrieved.` (see `docs/runbooks/cube-local.md`).
+
+Migration `000030_ceo_ai_cube_source_views.sql` adds the thin per-cube source
+views below (grain/columns identical to the cube models they back), completing
+the Cube tier-1 read path for these KPIs:
+
+| Cube (tier-1 metrics) | ceo_ai source view (tier-2) | Canonical source |
+|---|---|---|
+| `kpi_vaccination.*` (due/overdue/due_today/completed/compliance) | `ceo_ai.vaccination_obligations_base` | `obligation_instances` |
+| `kpi_animals.*` (active/total/mortality) | `ceo_ai.animals_base` | `goats` |
+| `kpi_feed.*` (feed quantity/cost draft) | `ceo_ai.feed_completions_base` | `feed_direction_completions` |
+| `kpi_procurement.*` (procurement animals/cost draft) | `ceo_ai.procurement_loads_base` | `procurement_loads` |
+| `kpi_workforce.*` (task count/completion draft) | `ceo_ai.workforce_tasks_base` | `sop_tasks` |
+
+`kpi_vaccination_operator.*` was already repointed to
+`ceo_ai.vaccination_operator_status` in migration 000027. No new leadership KPI,
+table, or exclusion is introduced by 000030 — it is a read-path plumbing fix so
+the existing governed metrics resolve under the read-only Cube role.
+
+## Assistant DB roles: full read on public (maintainer decision 2026-07-23)
+
+The leadership assistant is internal, CEO/CXO-only, and READ-ONLY. Its two DB
+roles (`mesha_cube_readonly` for Cube, `mesha_ceo_readonly` for MCP Toolbox /
+SQL fallback) are granted SELECT on ALL current tables in `public` plus
+`ceo_ai.*`, and — for every current object owner the grant admin can cover —
+future objects those owners create (`ALTER DEFAULT PRIVILEGES ... ON TABLES`
+also covers future views). Applied via migration
+`000031_assistant_roles_public_read.sql` and
+`tools/dev/setup-ceo-ai-local-role.sh`. The migration is guarded (`IF EXISTS`)
+so it only grants roles that already exist; in stg/prod the roles are created as
+a separate provisioning step, so after creating them run
+`make grant-assistant-public-read` (idempotent) to guarantee the grant lands.
+`make grant-assistant-public-read` sets `ALTER DEFAULT PRIVILEGES FOR ROLE
+<owner>` for every current owner discovered across tables, views, and
+materialized views, so future objects created by those owners are covered too.
+Future coverage is therefore per-covered-owner, not blanket: a brand-new object
+owner (or an owner the grant admin is not a member of) is not covered until the
+grant is re-run with sufficient privileges, and the script now FAILS non-zero on
+any missing role or skipped owner unless `ALLOW_PARTIAL=1` is set.
+This removes the prior "ceo_ai.* only / public revoked" restriction so current
+Cube models and read queries — and future ones over covered owners' tables — do
+not fail with `permission denied`. Access stays read-only (SELECT only +
+`default_transaction_read_only=on`; no write/DDL). This supersedes the "Cube
+never reads raw Postgres" boundary for these two read-only roles.
+
+## Explicit exclusion: vaccination proof/label/withdrawal internal fixes (2026-07-23)
+
+The shed-proof scope-recovery fix (`CaptureRepository.kt`), the withdrawal-until
+IST date fix and the dose-label cleanup
+(`backend/internal/vaccination/adapters/postgres/repository.go`,
+`backend/internal/vaccinationexecution/domain/labels.go`) are internal
+correctness fixes to existing vaccination paths. They add NO new leadership KPI,
+table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the
+leadership assistant read surface is unchanged. No coverage-matrix mapping is
+required; this is an explicit documented exclusion.
+
+## Explicit exclusion: counts census lifecycle facet + Android UI modernization (2026-07-23)
+
+`GET /counts/breakdown` (row 35 above, already `api + view:animal_current_scope`)
+gained one additional facet dimension — `CountsBreakdownFacets.lifecycle`, the
+distinct `lifecycle_status` vocabulary present in the whole tenant herd
+(`backend/internal/counts/adapters/postgres/repository.go`,
+`backend/internal/counts/domain/types.go`,
+`contracts/openapi/app-api.yaml`, `packages/api-client/src/generated/app-api.ts`).
+This is an additive facet on an ALREADY-covered read API/contract: it lets the
+mobile census filter sheet offer Live/Sold/Culled/Dead/Transferred instead of
+only ever showing the live herd, but it exposes no new table, no new read API
+route, no new Cube metric, and no new `ceo_ai.*` view — the underlying
+`lifecycle_status` counts were already readable through
+`GET /herd-register/summary` (row 34, `api + Cube:active_animals`), which this
+change does not touch.
+
+The accompanying Android changes (`apps/goatos-android/feature/feature-counts/**`,
+`apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/CountsViewModel.kt`,
+`apps/goatos-android/core/core-network/**/CountsDto.kt`) are a mobile UI
+restyle of the four existing Counts screens (census hero, filter bottom sheet,
+shed subtotals, animal hero, M3 date picker, softened approval cards) — layout
+and interaction only, rendering the same backend-owned contract. No new
+leadership-relevant surface, KPI, or workflow was introduced. No
+coverage-matrix mapping is required beyond this note; this is an explicit
+documented exclusion.
+
+## Explicit exclusion: operator remaining-cap + partial-attach ledger fixes (2026-07-23)
+
+The operator remaining-cap fix (`backend/internal/obligation/adapters/postgres/visit_shot_lock.go`,
+`backend/internal/obligation/app/sweeper.go`) and the partial-attach drive-assignment
+scoping fix are internal vaccination sweeper/planner correctness fixes. They add NO
+new leadership KPI, table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox
+tool — the leadership assistant read surface is unchanged. Explicit documented
+exclusion; no coverage-matrix mapping required.
+
+## Explicit exclusion: counts lifecycle facet display-label + shed-subtotal follow-up (2026-07-23)
+
+Follow-up fixing two P2 review findings on the already-covered
+`GET /counts/breakdown` read API. (1) The lifecycle facet now maps raw
+`lifecycle_status` tokens to human display labels (alive→"Live", sold→"Sold",
+dead→"Dead", culled→"Culled", etc.) in `series_label` while `series_key` stays
+the raw token — a presentation-only change to the existing facet contract.
+(2) The Android census carries the full (park-unnarrowed) shed facet in a
+`shedSubtotals` display field so the per-shed subtotal renders on the default
+all-parks view. Neither adds a new table, read API route, Cube metric,
+`ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read surface,
+read-only SQL fallback, and tool catalog are unchanged. Explicit documented
+exclusion — no coverage-matrix mapping required.

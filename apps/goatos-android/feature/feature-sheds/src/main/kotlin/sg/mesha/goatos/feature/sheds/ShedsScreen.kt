@@ -337,20 +337,26 @@ private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
             val edge = if (tab.isSelected) Brand else Hair
             val labelColor = if (tab.isSelected) PageBg else Muted
             val dateColor = if (tab.isSelected) PageBg else Ink
-            Column(
+            Card(
+                onClick = { onSelect(tab.dateKey) },
                 modifier = Modifier
                     .weight(1f)
-                    .height(86.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(bg)
-                    .border(1.dp, edge, RoundedCornerShape(14.dp))
-                    .clickable { onSelect(tab.dateKey) }
-                    .padding(vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween,
+                    .height(86.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = bg),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                border = BorderStroke(1.dp, edge),
             ) {
-                Text(text = tab.dayLabel, color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-                Text(text = tab.dateLabel, color = dateColor, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(text = tab.dayLabel, color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(text = tab.dateLabel, color = dateColor, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                }
             }
         }
     }
@@ -619,8 +625,6 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             ShedCardTop(row = row, tone = tone)
-            Spacer(Modifier.height(12.dp))
-            VaccineChips(row.vaccineGroups)
             DriveAssignmentStrip(row)
             Spacer(Modifier.height(14.dp))
             NumsRow(row)

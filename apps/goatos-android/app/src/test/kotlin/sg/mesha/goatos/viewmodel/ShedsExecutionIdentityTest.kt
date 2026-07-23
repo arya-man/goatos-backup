@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -55,5 +56,15 @@ class ShedsExecutionIdentityTest {
         assertEquals("2026-07-24", parseExecutionDate("2026-07-24")?.toString())
         assertEquals("2026-07-24", parseExecutionDate("2026-07-24T23:00:00+05:30")?.toString())
         assertEquals(null, parseExecutionDate("Adult"))
+    }
+
+    @Test
+    fun `execution schedule date prefers backend current assignment date over legacy due date`() {
+        val row = VaccinationExecutionRowDto(
+            currentAssignmentDate = "2026-08-03",
+            dueDate = "2026-07-30",
+        )
+
+        assertEquals("2026-08-03", row.currentScheduleDate)
     }
 }

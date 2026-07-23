@@ -18,6 +18,61 @@ tool layer which Mesha data surfaces are safe to use, which domains are
 covered, and how common leadership questions should map to Cube metrics,
 existing read APIs, MCP tools, or read-only SQL.
 
+## Scope Model: park -> physical_shed -> partition
+
+Leadership questions scope down through three nested dimensions, and the
+assistant's tools/planner must understand all three, not just a flat
+"shed" label:
+
+1. **park** -- a physical park/location (e.g. `Castro 1`, `Gandhi`). Tools
+   whose underlying query filters by park need a park **ID** (uuid), not the
+   label the planner extracts from free text; `park_label` is resolved to an
+   ID via the locations read service (`internal/bootstrap/ceoai_readers.go`
+   `locationsParkResolver`, an exact name match against `LocationType="park"`)
+   before it reaches the query. If a tool's query has no park-scoping field at
+   all, `park_label` is not honored for that tool (documented per-tool in
+   `internal/ceoai/adapters/readtools/toolexecutors.go`) rather than silently
+   ignored.
+2. **physical_shed** -- a physical shed structure. IMPORTANT NORMALIZATION: in
+   some source data, sibling shed labels like `Gandhi 1`, `Gandhi 2`,
+   `Gandhi 3` are really ONE physical shed `Gandhi` split into partitions
+   `1`/`2`/`3` -- they are not three independent sheds. Likewise `Godel 1 -
+   Part 3` is physical shed `Godel 1`, partition `Part 3`. Do not treat every
+   distinct shed label as an independent shed when the question is about
+   physical capacity or operator load across the whole structure.
+3. **partition** -- the sub-shed slice within a physical_shed (`partition_label`
+   in `goat_shed_partitions` and `vaccination_drive_assignments`, e.g. `1`,
+   `2`, `whole`). Partition detail exists TODAY only in the vaccination
+   drive-assignment / obligation surfaces (`GET /vaccination/execution`
+   exposes `physicalShed` and `partition` separately, see the Vaccination /
+   Preventive Care section above) and in `goat_shed_partitions`. It is NOT a
+   field on the procurement, workforce, verification, action-center/control-
+   tower, or operations-audit query models.
+
+Practical effect on the leadership-assistant read tools wired in
+`internal/bootstrap/ceoai_readers.go`:
+
+| Tool | park_label | shed_id (plain shed-location ID) | partition |
+|---|---|---|---|
+| `action_center_obligations` | resolved via locations resolver | direct pass-through (`Query.ShedID`) | not supported by this query -- not advertised |
+| `operations_kernel_health` | not wired (no resolver call yet; same ParkID field exists on the query, resolver could be reused later) | direct pass-through (`Query.ShedID`) | not supported -- not advertised |
+| `procurement_source_entry_loads` | not supported (`LoadQuery` has no park field at all) | not supported | not supported |
+| `admin_roster_coverage` | not supported (roster scope is `scope_type="shed"`/position-based, not park-based) | via `scope_type`/`scope_id` (generic scope, not partition-aware) | not supported |
+| `verification_queue` | not supported (`ListQueueParams` scopes by `ParkIDs` derived from actor RBAC, not a free-text label) | not supported (no shed field) | not supported |
+| `operations_audit_summary` | not supported (`Query` has no park field) | not supported | not supported |
+
+The keyword planner's `extractParams` (`internal/ceoai/adapters/keywordplanner/planner.go`)
+extracts `park_label` and `species` from free text today; it does not extract
+shed/partition identifiers from free text (no shed-name catalog analogous to
+`knownParks` exists yet). `shed_id`/`scope_id` params on the tools above are
+therefore wired for direct ID pass-through (usable by callers that already
+have the ID, e.g. a drilldown flow) rather than resolved from a shed label --
+extending the planner to resolve a spoken shed/partition label (e.g. "Gandhi
+physical shed partition 2") into a shed_id + partition would need a shed-name
+catalog and, for partition-aware questions, would need to be answered through
+the vaccination execution/obligation surfaces above rather than through
+action_center/kernel_health/audit, since those do not read partition data.
+
 ## Access Model
 
 The CEO bot is enabled only for CEO/CXO leadership surfaces.
@@ -178,12 +233,49 @@ vaccine must physically split `vaccination_drive_assignments`: sibling vaccines
 remain on the original business date, and the moved vaccine gets its own
 assignment membership on the override date. SQL fallback answers must not count
 stale mixed rows from the original date after an override has been accepted.
+Mixed-vaccine operator rows must also preserve per-vaccine original dates in the
+read API. Leadership assistant and read API consumers must use
+`vaccineOriginalDates[vaccineCode]` when explaining or replaying a vaccine move;
+the visible row date is only the current effective drive date and can belong to
+another vaccine already moved into the same operator row.
 Date-override verification must cover the full round trip: the original month
 shows the vaccine before the override, the original month loses only the moved
 vaccine after the override, the target month gains that vaccine, and clearing
 the override restores the original month. The admin drawer labels and validation
 copy for this flow are backend-contract owned, with frontend fallback copy only
 for resilience.
+Calendar read API answers for vaccination drives must also use
+`vaccination_drive_assignments.planned_date` as the effective drive date when
+assignment rows exist. `obligation_batches.planned_date` is only a fallback for
+older unsplit batches. Leadership assistant read API and SQL fallback answers
+must not report "no drive today" from a stale batch date when operator-capacity
+assignment rows have moved the real execution date.
+Control Tower, Protocol Adherence, Action Center, Workflows, Calendar, and
+Android calendar surfaces must agree on vaccination drive dates and statuses.
+The shared source order is `vaccination_drive_assignments.planned_date` for
+operator-capacity planned drives, then canonical obligation/batch rows only for
+legacy or unassigned work; audit/history tables are evidence trails, not the
+live scheduling source. Same India business-day vaccination drive rows are not
+overdue during that day: overdue starts only when the effective drive business
+date is before today's Asia/Kolkata date. Assistant coverage, read APIs, and UI
+presenters must also translate matrix vaccine rule identifiers such as
+`et_tt_adult_w2` into human labels such as `ET+TT Adult course 2 weeks`; raw
+rule codes are allowed as IDs but not as leadership-facing copy.
+Calendar leadership drilldowns must keep drive-summary counts and L3 target
+rosters on the same membership rule: assigned drives use typed
+`vaccination_drive_assignments.planned_date`, while unassigned legacy batches
+fall back to `obligation_batches.planned_date` only when no assignment row exists.
+Per-goat vaccination passport/history is deliberately not a CEO aggregate tool:
+admin-web goat rosters such as Counts Herd Register and Calendar drive detail
+may open `/api/goats/{goat_id}/vaccination-passport` inside the shared local
+Goat Passport drawer for operational inspection, but leadership answers should
+stay at aggregate schedule/adherence/exception grain unless the leader
+explicitly asks for a named animal record.
+For CPT operator timetable answers, the backend can label the center as
+`Channapatna` while the position code is `vaccination_operator_*`. Assistant
+coverage and frontend read consumers must treat those rows as CPT vaccination
+operators with 200-animal daily cap and their seeded week-off days; do not
+filter them out just because the display center string is not literal `cpt`.
 
 Common questions:
 
@@ -391,9 +483,31 @@ drive date. The vaccination schedule read model applies that override
 immediately: sibling vaccines that remain on the original day stay visible
 there, while the moved vaccine appears under the override date so the assistant
 and UI do not keep offering the old vaccine/date pair in a loop.
+Action Center, Protocol Adherence, Control Tower, and Workflows use the
+process-integrity read model; for vaccination rows its public `due_at` must be
+the live execution date (`vaccination_drive_assignments.planned_date` first,
+then batch planned date, then raw obligation due date). Raw obligation due dates
+may remain as historical/generation anchors, but leadership answers and
+cross-nav drilldowns must not present them as the current moved drive date.
 The admin schedule move drawer uses a themed local date picker; weekday labels
 must keep stable unique keys because the drawer can be opened without any move
 being submitted, and render-only warnings must not surface as operator errors.
+
+Leadership assistant read API coverage for vaccination operator capacity:
+operator capacity is HRMS-owned at
+`workforce_positions.vaccination_daily_animal_cap` per active operator
+position. `vaccination_capacity_config.max_per_day` is only the fallback when a
+position has no explicit cap. CEO/CXO answers about overload, timetable
+capacity, or "how many animals can this operator take" must cite the HRMS
+position cap used by the scheduler, not multiply a hardcoded default by the
+operator count.
+Update note 2026-07-23: admin-web may clear
+`vaccination_daily_animal_cap` back to null, which means "use tenant default"
+for assistant and scheduler reads. Do not treat null as zero capacity or as a
+missing-data error. The operator-cap SQL contract is now backed by a real
+Postgres test that seeds custom, null/default, and week-off operators; coverage
+claims must continue to use that executable proof, not source-string guards
+alone.
 
 ---
 

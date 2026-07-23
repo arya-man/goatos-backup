@@ -88,6 +88,17 @@ active sheds that contain live goats from the selected source. Empty baseline
 catalog sheds created by migrations are not vaccination drive truth and must not
 force unrelated owners/operators into the run.
 
+The committed CPT operator-drive rehearsal packet lives at
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/`. Its source start date is
+`2026-07-23`; any fresh local/dev/staging rehearsal seed from that packet must
+generate open drive work only on `2026-07-23` or later. The packet includes
+`cpt-operator-roster.json`, which explicitly seeds Amit Kumar, Darshan Talwar,
+and Sagar Mahoor as equal vaccination operators at `200` unique animals per
+operator per day, plus Chandrakant as director-only monitoring scope. It also
+reuses the founder/CXO `ceo_internal` grant cohort documented in
+`docs/runbooks/auth.md`: `ravi@mesha.sg`, `manohark@mesha.sg`,
+`manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
 into an explicit seed-intake park/shed instead of leaving a live animal without a
@@ -572,7 +583,7 @@ At minimum, this contract is guarded by:
   `proof_mode=shed_level_video`, shed proof subject, one required shed video
   with a maximum of five, and camera + gallery capture sources. This does not
   change source vaccination dates; per-goat scan timestamps remain the
-  administration-time truth.
+  administration-time truth and must be persisted/displayed for scanned animals.
 - `backend/cmd/seed-vaccination-real/main_test.go`: source dates on or before
   the business date import as trusted anchor history, while future business
   dates do not; open work materialized by the seed is strictly future-only.
@@ -601,3 +612,6 @@ Do not push a seed change that bypasses these gates.
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create `ceo_ai.*` read-only views that query canonical vaccination/procurement/obligation/workforce tables. They do not modify the seed source contract, HRMS roster schema, vaccination protocol, or SOP configuration, so no fixture/source-data change is required. -->
+
+<!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
+<!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->

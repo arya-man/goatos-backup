@@ -49,19 +49,31 @@ class TopLevelChromeTest {
 
     @Test
     fun `calendar drill fallback always opens a hosted child`() {
-        assertEquals(Routes.CALENDAR_DRIVE, calendarTargetRoute(null))
-        assertEquals(Routes.CALENDAR_DRIVE, calendarTargetRoute(""))
+        assertEquals(Routes.calendarDriveRoute(null), calendarTargetRoute(null))
+        assertEquals(Routes.calendarDriveRoute(null), calendarTargetRoute(""))
         assertEquals(
-            Routes.CALENDAR_DRIVE,
+            Routes.calendarDriveRoute(null),
             calendarTargetRoute("/vaccination/execution"),
         )
         assertEquals(
-            Routes.CALENDAR_DRIVE,
+            Routes.calendarDriveRoute(null),
             calendarTargetRoute("/vaccination/scan/shed-1"),
         )
         assertEquals(
-            Routes.CALENDAR_DRIVE,
+            Routes.calendarDriveRoute(null),
             calendarTargetRoute("/vaccination/sheds/shed-1"),
+        )
+        assertEquals(
+            Routes.calendarDriveRoute("2026-07-24"),
+            calendarTargetRoute(null, "2026-07-24"),
+        )
+        assertEquals(
+            Routes.calendarDriveRoute("2026-07-24"),
+            calendarTargetRoute("/vaccination/execution", "2026-07-24"),
+        )
+        assertEquals(
+            Routes.calendarDriveRoute("2026-07-24"),
+            calendarTargetRoute("/vaccination/scan/shed-1", "2026-07-24"),
         )
         assertFalse(isTopLevelRoute(calendarTargetRoute(null), roots))
     }
@@ -79,7 +91,6 @@ class TopLevelChromeTest {
         status = NavModuleStatus.AVAILABLE,
         navItems = listOf(
             NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
-            NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
             NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
             NavItem(key = "you", label = "You", href = Routes.YOU),
         ),
@@ -139,7 +150,7 @@ class TopLevelChromeTest {
     fun `the open module owns the bottom bar and its routes are the L0 set`() {
         val vaccinationRoots = rootsFor(twoModules, "vaccination", Routes.VACCINATION)
         assertTrue(isTopLevelRoute(Routes.VACCINATION, vaccinationRoots))
-        assertTrue(isTopLevelRoute(Routes.CALENDAR, vaccinationRoots))
+        assertFalse(isTopLevelRoute(Routes.CALENDAR, vaccinationRoots))
         // Another module's landing route is NOT an L0 root while this module is open.
         assertFalse(isTopLevelRoute("/counts", vaccinationRoots))
 
@@ -152,7 +163,7 @@ class TopLevelChromeTest {
     @Test
     fun `switching modules swaps the bar to that module's own items`() {
         assertEquals(
-            listOf(Routes.VACCINATION, Routes.CALENDAR, Routes.ALERTS, Routes.YOU),
+            listOf(Routes.VACCINATION, Routes.ALERTS, Routes.YOU),
             twoModules.barItems("vaccination", Routes.VACCINATION).map { it.href },
         )
         // The trailing tab DIFFERS by module: the vaccination bar ends in You, while Counts is
@@ -210,9 +221,9 @@ class TopLevelChromeTest {
 
     @Test
     fun `a shared route keeps the selected module's bar`() {
-        // Calendar is contributed by several modules. The explicitly selected module wins so
+        // Alerts is contributed by several modules. The explicitly selected module wins so
         // the bar does not silently flip while the operator is working inside one module.
-        assertEquals(vaccination, twoModules.resolveModule("vaccination", Routes.CALENDAR))
+        assertEquals(vaccination, twoModules.resolveModule("vaccination", Routes.ALERTS))
     }
 
     // -----------------------------------------------------------------------

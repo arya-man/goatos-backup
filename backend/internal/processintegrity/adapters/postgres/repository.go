@@ -554,10 +554,11 @@ raw AS (
     pv.published_at,
     pd.name AS protocol_name,
     pr.dose_code,
-    ob.planned_date::timestamptz AS batch_planned_at,
+    (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS batch_planned_at,
     ob.status AS batch_status,
     ob.sop_task_id AS batch_sop_task_id,
     COALESCE(vda.operator_id, ob.conducted_by) AS conducted_by,
+    vda.assignment_planned_at,
     ob.created_at AS batch_created_at,
     st.task_id,
     st.row_version AS task_row_version,
@@ -615,7 +616,9 @@ raw AS (
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
   LEFT JOIN LATERAL (
-    SELECT assignment.operator_id
+    SELECT
+      assignment.operator_id,
+      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
     FROM vaccination_drive_assignments assignment
     WHERE assignment.tenant_id = oi.tenant_id
       AND assignment.batch_id = oi.batch_id
@@ -650,8 +653,8 @@ raw AS (
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz)
-    AND oi.due_at <= $5::timestamptz
+    AND ($4::timestamptz IS NULL OR COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) >= $4::timestamptz)
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $5::timestamptz
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed', 'waived')
       OR $14::boolean
@@ -672,7 +675,7 @@ located AS (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
-    COALESCE(raw.batch_planned_at, raw.due_at) AS execution_due_at,
+    COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at,
     -- as_of-effective obligation status. Reconstructs the state AT as_of instead of reading the current
     -- obligation_instances.status, so a transition recorded after as_of is not treated as already true.
     CASE
@@ -680,19 +683,19 @@ located AS (
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $10::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           -- The latest terminal transition at/before as_of was in effect at as_of.
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
           -- Terminal events exist but only AFTER as_of: the obligation was still open at as_of.
-          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
           -- No terminal history at all: cannot reconstruct, trust the current stored status (documented residual).
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
@@ -721,6 +724,7 @@ grouped AS (
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
     COALESCE(MAX(located.configured_sop_version_id::text), MAX(located.task_sop_version_id::text)) AS sop_version_id,
     MAX(located.proof_policy) AS proof_policy,
+    MIN(located.execution_due_at) AS execution_due_at,
     MIN(located.execution_due_at) AS due_at,
     MIN(COALESCE(located.batch_planned_at, located.window_start)) AS window_start,
     MAX(located.window_end) AS window_end,
@@ -853,7 +857,7 @@ stateful AS (
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
-      WHEN enriched.due_at < $10::timestamptz THEN 'overdue'
+      WHEN (enriched.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($10::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
       WHEN enriched.due_count > 0 THEN 'due'
       ELSE 'scheduled'
     END AS work_state
@@ -1022,6 +1026,29 @@ filtered AS (
       NOT $13::boolean
       OR work_state IN ('rejected', 'blocked', 'overdue', 'proof_pending', 'verification_pending')
     )
+),
+labeled AS (
+  SELECT
+    filtered.*,
+    CASE
+      WHEN vl.vaccine_label IS NULL THEN filtered.dose_code
+      ELSE btrim(concat_ws(' ',
+        vl.vaccine_label,
+        CASE
+          WHEN filtered.dose_code LIKE '%_adult_%' THEN 'adult course'
+          WHEN filtered.dose_code LIKE '%_kid_%' THEN 'kid course'
+          ELSE NULL
+        END,
+        CASE
+          WHEN filtered.dose_code ~ '_w[0-9]+$' THEN 'dose ' || substring(filtered.dose_code from '_w([0-9]+)$')
+          ELSE NULL
+        END
+      ))
+    END AS dose_label
+  FROM filtered
+  LEFT JOIN LATERAL (
+    SELECT ceo_ai.vaccine_label_for(filtered.dose_code) AS vaccine_label
+  ) vl ON true
 )
 `
 
@@ -1167,11 +1194,11 @@ all_rows AS (
     protocol_version_id::text,
     rule_id::text,
     protocol_name,
-    dose_code,
-    NULLIF(protocol_name || CASE WHEN dose_code <> '' THEN ' - ' || dose_code ELSE '' END, '') AS drive_name,
+    dose_label AS dose_code,
+    NULLIF(protocol_name || CASE WHEN dose_label <> '' THEN ' - ' || dose_label ELSE '' END, '') AS drive_name,
     sop_version_id,
     proof_policy,
-    due_at,
+    execution_due_at AS due_at,
     window_start,
     window_end,
     expected_count,
@@ -1227,7 +1254,7 @@ all_rows AS (
     latest_evidence_at,
     latest_rejection_reason,
     CASE WHEN submission_id IS NOT NULL THEN 'sop_submission:' || submission_id ELSE NULL END AS audit_ref
-  FROM filtered
+  FROM labeled
   WHERE ($15::text = '' OR $15::text = 'vaccination')
   UNION ALL
   SELECT

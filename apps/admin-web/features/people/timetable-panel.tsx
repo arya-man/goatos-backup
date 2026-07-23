@@ -2,7 +2,7 @@
 
 import { getAdminApi } from '@/lib/api/client';
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Clock3, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
+import { CalendarDays, Clock3, Pencil, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
@@ -20,6 +20,7 @@ interface Position extends BasePosition {
 
 interface TimetablePanelProps {
   pageContract?: AdminUiPageContract;
+  onEditCaps?: () => void;
 }
 
 const DEFAULT_OPERATOR_CAP = 200;
@@ -44,7 +45,7 @@ function looksLikeVaccinationOperator(pos: Position): boolean {
 
 function isCptSeat(pos: Position): boolean {
   const haystack = `${pos.center_label ?? ''} ${pos.position_code ?? ''}`.toLowerCase();
-  return haystack.includes('cpt');
+  return haystack.includes('cpt') || haystack.includes('channapatna') || haystack.includes('vaccination_operator_');
 }
 
 function isFieldOperator(pos: Position): boolean {
@@ -65,7 +66,11 @@ function weekOffLabel(pos: Position): string {
   return day?.label ?? pos.week_off ?? '—';
 }
 
-export function TimetablePanel({ pageContract }: TimetablePanelProps) {
+function operatorDailyCap(pos: Position, fallback: number): number {
+  return pos.vaccination_daily_animal_cap ?? fallback;
+}
+
+export function TimetablePanel({ pageContract, onEditCaps }: TimetablePanelProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [operatorCap, setOperatorCap] = useState(DEFAULT_OPERATOR_CAP);
   const [loading, setLoading] = useState(true);
@@ -101,11 +106,17 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
 
   const operators = useMemo(() => positions.filter(isFieldOperator).sort((a, b) => personName(a).localeCompare(personName(b))), [positions]);
   const activeDays = useMemo(
-    () => WEEKDAYS.map((day) => operators.filter((operator) => weekOffKey(operator) !== day.key).length),
-    [operators],
+    () =>
+      WEEKDAYS.map((day) =>
+        operators
+          .filter((operator) => weekOffKey(operator) !== day.key)
+          .reduce((sum, operator) => sum + operatorDailyCap(operator, operatorCap), 0),
+      ),
+    [operatorCap, operators],
   );
-  const peakDailyCapacity = operators.length * operatorCap;
-  const lowestDailyCapacity = Math.min(...activeDays, operators.length) * operatorCap;
+  const peakDailyCapacity = operators.reduce((sum, operator) => sum + operatorDailyCap(operator, operatorCap), 0);
+  const lowestDailyCapacity = activeDays.length > 0 ? Math.min(...activeDays) : 0;
+  const customCapCount = operators.filter((operator) => operator.vaccination_daily_animal_cap != null).length;
   const title = pageContract?.tables?.find((table) => table.id === 'timetable')?.title ?? 'Vaccination operator timetable';
 
   if (loading) {
@@ -137,6 +148,12 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
             Backend roster and capacity data for CPT vaccination execution. Week-off days remove that operator from drive capacity.
           </div>
         </div>
+        {onEditCaps ? (
+          <button className="btn" onClick={onEditCaps} type="button">
+            <Pencil className="ic" aria-hidden="true" />
+            Edit drive caps
+          </button>
+        ) : null}
       </div>
 
       <div className="grid g4 people-availability-kpis" style={{ marginBottom: 16 }}>
@@ -150,7 +167,7 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
           <span className="acc" style={{ background: 'var(--amber)' }}></span>
           <div className="lab"><Stethoscope className="ic" aria-hidden="true" />Cap / operator</div>
           <div className="val">{operatorCap}</div>
-          <div className="dl">animals per day</div>
+          <div className="dl">default · {customCapCount} custom</div>
         </div>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--brand)' }}></span>
@@ -171,7 +188,7 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
           <Clock3 className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
           <h3>Weekly availability</h3>
           <div className="sp"></div>
-          <span className="pill b">active · week-off · {operatorCap} cap</span>
+          <span className="pill b">active · week-off · HRMS cap</span>
         </div>
         <div className="bd people-availability-body">
           {operators.length === 0 ? (
@@ -192,7 +209,12 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
                   <div className="people-operator-meta">
                     <span className="tag t-ok">{operator.status}</span>
                     <span className="tag t-info">{weekOffLabel(operator)} off</span>
-                    <span className="tag t-teal">{operatorCap} animals/day</span>
+                    <span className="tag t-teal">{operatorDailyCap(operator, operatorCap)} animals/day</span>
+                    {onEditCaps ? (
+                      <button className="btn" onClick={onEditCaps} type="button">
+                        Edit cap
+                      </button>
+                    ) : null}
                   </div>
                   <div className="people-week-grid" aria-label={`${personName(operator)} weekly availability`}>
                     {WEEKDAYS.map((day) => {

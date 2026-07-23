@@ -280,6 +280,17 @@
       "ciStep": "vaccination-schedule-canonical-guard"
     },
     {
+      "id": "vaccination-shared-source-sync",
+      "script": "tools/agent-hooks/check-vaccination-shared-source-sync.mjs",
+      "makeTarget": "vaccination-shared-source-sync-guard",
+      "realCheck": "node tools/agent-hooks/check-vaccination-shared-source-sync.mjs",
+      "selfTest": "node tools/agent-hooks/check-vaccination-shared-source-sync.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "vaccination-shared-source-sync-guard",
+      "notes": "Calendar, Protocol Adherence, Action Center, and Workflows must share vaccination_drive_assignments as the canonical operator-day source; admin-web page switches must not fan out into N+1 vaccination/calendar/process-integrity fetches."
+    },
+    {
       "id": "goat-shed-scope",
       "script": "tools/agent-hooks/check-goat-shed-scope.mjs",
       "makeTarget": "goat-shed-scope-guard",

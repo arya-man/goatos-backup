@@ -353,12 +353,15 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 	for rows.Next() {
 		var row domain.DriveAssignmentRow
 		var planned pgtype.Date
+		var originalPlanned pgtype.Date
 		var shedID pgtype.Text
 		var vaccineKeys []string
 		var vaccineCodes []string
+		var vaccineOriginalDates []byte
 		var capacity string
 		if err := rows.Scan(
 			&planned,
+			&originalPlanned,
 			&row.OperatorID,
 			&row.OperatorName,
 			&row.ParkID,
@@ -373,6 +376,7 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 			&row.OverdueAnimals,
 			&vaccineKeys,
 			&vaccineCodes,
+			&vaccineOriginalDates,
 			&row.TotalDoses,
 			&capacity,
 		); err != nil {
@@ -381,12 +385,23 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 		if planned.Valid {
 			row.PlannedDate = planned.Time.Format("2006-01-02")
 		}
+		if originalPlanned.Valid {
+			row.OriginalPlannedDate = originalPlanned.Time.Format("2006-01-02")
+		}
 		row.ShedID = textPtr(shedID)
 		row.VaccineNames = driveAssignmentVaccineLabels(vaccineKeys)
 		if vaccineCodes == nil {
 			vaccineCodes = []string{}
 		}
 		row.VaccineCodes = vaccineCodes
+		if len(vaccineOriginalDates) > 0 {
+			if err := json.Unmarshal(vaccineOriginalDates, &row.VaccineOriginalDates); err != nil {
+				return nil, fmt.Errorf("vaccination execution: decode vaccine original dates: %w", err)
+			}
+		}
+		if row.VaccineOriginalDates == nil {
+			row.VaccineOriginalDates = map[string]string{}
+		}
 		row.Capacity = domain.CapacityStatus(capacity)
 		out = append(out, row)
 	}
@@ -423,7 +438,7 @@ WITH assignment_vaccines AS (
   SELECT
     vda.tenant_id,
     vda.batch_id,
-    vda.planned_date AS original_planned_date,
+    COALESCE(override.original_drive_date, vda.planned_date) AS original_planned_date,
     COALESCE(override.override_date, vda.planned_date) AS effective_planned_date,
     vda.operator_id,
     vda.park_id,
@@ -456,7 +471,7 @@ WITH assignment_vaccines AS (
   LEFT JOIN vaccination_drive_date_overrides override
     ON override.tenant_id = vda.tenant_id
    AND override.park_id = vda.park_id
-   AND override.original_drive_date = vda.planned_date
+   AND (override.original_drive_date = vda.planned_date OR override.override_date = vda.planned_date)
    AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
    AND override.canceled_at IS NULL
   WHERE vda.tenant_id = $1::uuid
@@ -465,6 +480,7 @@ WITH assignment_vaccines AS (
 effective_assignments AS (
   SELECT
     effective_planned_date AS planned_date,
+    MIN(original_planned_date) AS original_planned_date,
     operator_id,
     park_id,
     shed_id,
@@ -475,6 +491,7 @@ effective_assignments AS (
     batch_status,
     ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
     ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
+    COALESCE(jsonb_object_agg(vaccine_code, original_planned_date::text) FILTER (WHERE vaccine_code IS NOT NULL), '{}'::jsonb) AS vaccine_original_dates,
     CASE
       WHEN COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) > 0
       THEN animal_count * COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL)
@@ -485,6 +502,7 @@ effective_assignments AS (
 )
 SELECT
   effective.planned_date,
+  effective.original_planned_date,
   effective.operator_id::text,
   wm.display_name,
   effective.park_id::text,
@@ -509,6 +527,7 @@ SELECT
   END AS overdue_animals,
   COALESCE(effective.vaccine_keys, ARRAY[]::text[]),
   COALESCE(effective.vaccine_codes, ARRAY[]::text[]),
+  effective.vaccine_original_dates,
   effective.total_doses,
   effective.capacity_status
 FROM effective_assignments effective
@@ -701,7 +720,8 @@ raw AS (
     g.shed_id AS shed_uuid,
     g.park_id AS direct_park_uuid,
     c.effective_status AS completion_status,
-    c.last_accepted_at
+    c.last_accepted_at,
+    COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -718,6 +738,21 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -726,7 +761,7 @@ raw AS (
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND (
-      oi.due_at <= $4::timestamptz
+      COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
       OR c.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz
     )
 ),
@@ -735,8 +770,8 @@ located AS (
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
     CASE
-      WHEN raw.due_at < $2::timestamptz THEN 'overdue'
-      WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue'
+      WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
       ELSE 'scheduled'
     END AS open_bucket
   FROM raw
@@ -765,7 +800,7 @@ effective AS (
       WHEN located.stored_status = 'in_progress' THEN 'in_progress'
       ELSE located.open_bucket
     END AS eff_status,
-    (located.due_at BETWEEN $3::timestamptz AND $4::timestamptz) AS due_in_window,
+    (located.execution_due_at BETWEEN $3::timestamptz AND $4::timestamptz) AS due_in_window,
     (located.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz) AS accepted_in_window
   FROM located
 ),
@@ -809,7 +844,7 @@ SELECT
   windowed.protocol_id,
   windowed.protocol_name,
   COUNT(DISTINCT windowed.goat_id)::bigint AS animals,
-  MIN(windowed.due_at) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
+  MIN(windowed.execution_due_at) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
   MAX(windowed.last_accepted_at) FILTER (WHERE windowed.accepted_in_window) AS last_dose,
   COALESCE(
     ARRAY_REMOVE(
@@ -1022,9 +1057,10 @@ raw AS (
     te.has_terminal_event,
     pr.dose_code,
     pd.name AS protocol_name,
-    ob.planned_date::timestamptz AS batch_planned_at,
+    (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS batch_planned_at,
     ob.status AS batch_status,
     vda.operator_id AS conducted_by,
+    vda.assignment_planned_at,
     vda.physical_shed,
     vda.partition_label,
     st.state AS task_state,
@@ -1065,11 +1101,19 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
   LEFT JOIN LATERAL (
-    SELECT assignment.operator_id, assignment.physical_shed, assignment.partition_label
+    SELECT
+      assignment.operator_id,
+      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      assignment.physical_shed,
+      assignment.partition_label
     FROM vaccination_drive_assignments assignment
     WHERE assignment.tenant_id = oi.tenant_id
       AND assignment.batch_id = oi.batch_id
@@ -1079,6 +1123,10 @@ raw AS (
         WHEN oi.scope_type = 'shed' THEN oi.scope_id
         ELSE NULL
       END
+      AND (
+        assignment.partition_label = 'whole'
+        OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
+      )
       AND (
         $15::text = ''
         OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
@@ -1106,7 +1154,8 @@ raw AS (
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
     AND COALESCE(st.state, '') <> 'canceled'
-    AND oi.due_at <= $4::timestamptz
+    AND ($15::text = '' OR vda.assignment_planned_at IS NOT NULL)
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       OR oi.due_at >= $8::timestamptz
@@ -1118,23 +1167,23 @@ located AS (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
-    COALESCE(raw.batch_planned_at, raw.due_at) AS execution_due_at,
+    COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at,
     -- as_of-effective obligation status (reconstructed AT as_of, not the current stored status).
     CASE
       WHEN raw.obligation_status = 'completed' THEN
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $7::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
@@ -1550,7 +1599,8 @@ raw AS (
     g.shed_id AS shed_uuid,
     g.park_id AS direct_park_uuid,
     c.effective_status AS completion_status,
-    c.last_accepted_at
+    c.last_accepted_at,
+    COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -1567,6 +1617,21 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -1574,7 +1639,7 @@ raw AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND oi.due_at <= $3::timestamptz
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
 ),
 located AS (
   SELECT
@@ -1583,8 +1648,8 @@ located AS (
     -- open_bucket reconstructs the non-terminal state purely from the due window vs as_of (deterministic,
     -- needs no event history): overdue once due_at has passed, due once the window has opened, else scheduled.
     CASE
-      WHEN raw.due_at < $2::timestamptz THEN 'overdue'
-      WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue'
+      WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
       ELSE 'scheduled'
     END AS open_bucket
   FROM raw
@@ -1664,7 +1729,7 @@ SELECT
   effective.protocol_id,
   effective.protocol_name,
   COUNT(DISTINCT effective.goat_id)::bigint AS animals,
-  MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
+  MIN(effective.execution_due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
   MAX(effective.last_accepted_at) AS last_dose,
   COALESCE(
     ARRAY_REMOVE(
@@ -1785,7 +1850,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 }
 
 const scanRosterSQL = `
--- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed; group_key=(tenant_id,shed_id,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional task_id/batch_id pinning, and authorized park filter.
+-- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed, additionally bounded to the operator's drive-assignment partition when operator-scoped; group_key=(tenant_id,shed_id,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional task_id/batch_id pinning, operator partition, and authorized park filter.
 WITH operator_scope_member AS (
   SELECT wm.workforce_member_id
   FROM workforce_members wm
@@ -1809,7 +1874,7 @@ SELECT
   pr.dose_code,
   CASE
     WHEN sc.capture_id IS NOT NULL THEN 'done'
-    WHEN oi.status = 'due' OR (oi.due_at < now() AND oi.status = 'scheduled') THEN 'due'
+    WHEN oi.status = 'due' OR (COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now() AND oi.status = 'scheduled') THEN 'due'
     WHEN oi.status = 'in_progress' THEN 'in_progress'
     WHEN oi.status = 'completed' THEN 'completed'
     WHEN oi.status IN ('deferred', 'missed', 'waived') THEN 'deferred'
@@ -1840,6 +1905,30 @@ JOIN goats g
  AND oi.target_type = 'goat'
  AND g.merged_into_goat_id IS NULL
  AND g.lifecycle_status = 'alive'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+LEFT JOIN LATERAL (
+  SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = oi.tenant_id
+    AND assignment.batch_id = oi.batch_id
+    AND assignment.shed_id = g.shed_id
+    AND (
+      assignment.partition_label = 'whole'
+      OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
+    )
+    AND (
+      $9::text = ''
+      OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
+  ORDER BY assignment.planned_date ASC,
+           assignment.partition_label ASC,
+           assignment.operator_id ASC NULLS LAST,
+           assignment.assignment_id ASC
+  LIMIT 1
+) vda ON true
 LEFT JOIN goat_identifiers aid1
   ON aid1.tenant_id = g.tenant_id
  AND aid1.goat_id = g.goat_id
@@ -1872,17 +1961,7 @@ WHERE oi.tenant_id = $1::uuid
   )
   AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
-  AND (
-    $9::text = ''
-    OR EXISTS (
-      SELECT 1
-      FROM vaccination_drive_assignments assignment
-      WHERE assignment.tenant_id = oi.tenant_id
-        AND assignment.batch_id = oi.batch_id
-        AND assignment.shed_id = g.shed_id
-        AND assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
-    )
-  )
+  AND ($9::text = '' OR vda.assignment_planned_at IS NOT NULL)
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
     OR (g.goat_id = NULLIF($5, '')::uuid AND oi.obligation_id > NULLIF($6, '')::uuid)
@@ -2364,7 +2443,8 @@ raw AS (
     oi.target_id AS goat_id,
     g.shed_id AS shed_uuid,
     c.effective_status AS completion_status,
-    c.last_accepted_at
+    c.last_accepted_at,
+    COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -2379,6 +2459,21 @@ raw AS (
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
    AND g.lifecycle_status = 'alive'
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -2386,14 +2481,14 @@ raw AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND oi.due_at <= $3::timestamptz
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
     AND g.shed_id IS NOT NULL
 ),
 effective AS (
   SELECT
     raw.goat_id,
     raw.shed_uuid,
-    raw.due_at,
+    raw.execution_due_at,
     raw.last_accepted_at,
     raw.completion_status,
     CASE
@@ -2401,16 +2496,16 @@ effective AS (
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $2::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.stored_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
           ELSE raw.stored_status
         END
       WHEN raw.stored_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
 ),
@@ -2425,7 +2520,7 @@ due_agg AS (
     COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'scheduled')::bigint AS scheduled_animals,
     COUNT(*) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress'))::bigint AS open_cells,
     MAX(effective.last_accepted_at) AS last_done,
-    MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
+    MIN(effective.execution_due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
   FROM effective
   GROUP BY effective.shed_uuid
 ),
@@ -2616,8 +2711,8 @@ LEFT JOIN LATERAL (
 ) vhist ON true
 LEFT JOIN LATERAL (
   SELECT
-    MIN(oi.due_at) AS next_due,
-    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND oi.due_at <= $5::timestamptz)) AS actionable_now
+    MIN(COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)) AS next_due,
+    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $5::timestamptz)) AS actionable_now
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -2626,6 +2721,21 @@ LEFT JOIN LATERAL (
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
    AND pd.category = 'vaccination'
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   WHERE oi.tenant_id = g.tenant_id
     AND oi.target_type = 'goat'
     AND oi.target_id = g.goat_id
@@ -2649,13 +2759,25 @@ WHERE g.tenant_id = $1::uuid
       LEFT JOIN obligation_batches dob
         ON dob.tenant_id = doi.tenant_id
        AND dob.batch_id = doi.batch_id
+      LEFT JOIN LATERAL (
+        SELECT assignment.planned_date AS assignment_planned_date
+        FROM vaccination_drive_assignments assignment
+        WHERE assignment.tenant_id = doi.tenant_id
+          AND assignment.batch_id = doi.batch_id
+          AND assignment.shed_id = g.shed_id
+        ORDER BY assignment.planned_date ASC,
+                 assignment.partition_label ASC,
+                 assignment.operator_id ASC NULLS LAST,
+                 assignment.assignment_id ASC
+        LIMIT 1
+      ) drive_date ON true
       WHERE doi.tenant_id = g.tenant_id
         AND doi.target_type = 'goat'
         AND doi.target_id = g.goat_id
         AND doi.status NOT IN ('superseded', 'canceled', 'waived')
         AND (
           CASE
-            WHEN doi.batch_id IS NOT NULL THEN COALESCE(dob.planned_date, (dob.window_start AT TIME ZONE 'Asia/Kolkata')::date, (dob.window_end AT TIME ZONE 'Asia/Kolkata')::date)
+            WHEN doi.batch_id IS NOT NULL THEN COALESCE(drive_date.assignment_planned_date, dob.planned_date, (dob.window_start AT TIME ZONE 'Asia/Kolkata')::date, (dob.window_end AT TIME ZONE 'Asia/Kolkata')::date)
             ELSE (doi.due_at AT TIME ZONE 'Asia/Kolkata')::date
           END
         ) = $6::date

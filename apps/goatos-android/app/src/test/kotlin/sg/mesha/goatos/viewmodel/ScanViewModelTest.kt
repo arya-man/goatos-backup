@@ -97,6 +97,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(1L, scanCaptures.rowsForTask("task-1").single().capturedAtMs)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
 

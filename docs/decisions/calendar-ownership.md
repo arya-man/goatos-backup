@@ -186,6 +186,24 @@ Current Calendar-eligible vaccination events:
 | Preventive Care (PC) stock anti-misuse investigation due | `pc` | Preventive Care (PC) discrepancy/spot-audit/penalty follow-up with due date | Used when expected vaccine usage, access log, or stock movement variance needs Preventive Care (PC) Director action. Physical ledger correction stays Inventory/Stock. |
 | Config/source approval due | `admin_data_ops` | Config/source-review workflow with due date | A protocol draft itself is not a Calendar event; a due source-review or approval task is. |
 
+### Vaccination Operator-Day Source Sync
+
+For scheduled, assigned, or moved vaccination drives, Calendar does not own a
+separate date or owner truth. The operator-day source is
+`vaccination_drive_assignments`: the same assignment row that splits a drive by
+business date, park, operator, physical shed, partition, animal count, dose
+summary, and capacity status. Calendar L1/L2/L3 drilldowns, Protocol Adherence,
+Action Center, Workflows, and vaccination execution must either read that table
+directly or read a set-based projection/read model whose membership starts from
+that table.
+
+Do not use stale batch/obligation dates as operator-day truth. In particular,
+`obligation_batches.planned_date`, `window_start`, `window_end`, and
+`obligation_instances.due_at` are not enough to answer which operator is doing
+which moved drive on which business date after a vaccination move or split. They
+may decorate the row only after the assignment membership is selected from
+`vaccination_drive_assignments`.
+
 Vaccination data that must not create Calendar events:
 
 - label-only vaccines without timing/dose/booster/source approval evidence.

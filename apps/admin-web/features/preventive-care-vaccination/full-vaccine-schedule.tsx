@@ -1,6 +1,5 @@
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {
@@ -17,6 +16,7 @@ import { ClipText, Tag } from "@/components/ui-primitives";
 import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
+import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -28,6 +28,7 @@ type DriveAssignmentRow = VaccinationDriveAssignmentResponse["rows"][number];
 type OperatorDayScheduleRow = {
   key: string;
   plannedDate: string;
+  originalPlannedDate: string;
   operatorId: string;
   operatorName: string;
   parkId: string;
@@ -40,6 +41,7 @@ type OperatorDayScheduleRow = {
   totalDoses: number;
   vaccineNames: string[];
   vaccineCodes: string[];
+  vaccineOriginalDates: Record<string, string>;
   capacity: string;
   sheds: Array<{
     id?: string;
@@ -55,6 +57,18 @@ function selectedScheduleYear(searchParams: RouteSearchParams | undefined): numb
 
 function selectedScheduleMonth(searchParams: RouteSearchParams | undefined): number {
   return boundedInt(one(searchParams ?? {}, "schedule_month"), CURRENT_MONTH, 1, 12);
+}
+
+function scheduleWindowMonths(): Array<{ year: number; month: number }> {
+  const current = new Date(Date.UTC(CURRENT_YEAR, CURRENT_MONTH - 1, 1));
+  return [-1, 0, 1].map((delta) => {
+    const next = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + delta, 1));
+    return { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 };
+  });
+}
+
+function isScheduleWindowMonth(year: number, month: number): boolean {
+  return scheduleWindowMonths().some((item) => item.year === year && item.month === month);
 }
 
 function monthLabel(year: number, month: number): string {
@@ -148,12 +162,14 @@ function moveDrawerRows(rows: OperatorDayScheduleRow[], closeHref: string): Sche
   return rows.map((row) => ({
     eventId: row.key,
     plannedDate: row.plannedDate,
+    originalPlannedDate: row.originalPlannedDate,
     operatorName: row.operatorName,
     parkId: row.parkId,
     parkName: row.parkName,
     animals: row.animals,
     totalDoses: row.totalDoses,
     vaccineCodes: row.vaccineCodes,
+    vaccineOriginalDates: row.vaccineOriginalDates ?? {},
     vaccineNames: row.vaccineNames,
     returnTo: closeHref,
   }));
@@ -169,6 +185,7 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
       group = {
         key,
         plannedDate: row.plannedDate,
+        originalPlannedDate: row.originalPlannedDate || row.plannedDate,
         operatorId: row.operatorId,
         operatorName: row.operatorName,
         parkId: row.parkId,
@@ -181,6 +198,7 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
         totalDoses: 0,
         vaccineNames: [],
         vaccineCodes: [],
+        vaccineOriginalDates: {},
         capacity: row.capacity,
         sheds: [],
       };
@@ -203,6 +221,8 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
       if (!group.vaccineCodes.includes(vaccineCode)) {
         group.vaccineCodes.push(vaccineCode);
       }
+      const originalDate = row.vaccineOriginalDates?.[vaccineCode] || row.originalPlannedDate || row.plannedDate;
+      group.vaccineOriginalDates[vaccineCode] = group.vaccineOriginalDates[vaccineCode] || originalDate;
     }
     group.capacity = strongerCapacity(group.capacity, row.capacity);
 
@@ -240,7 +260,7 @@ async function postponeDriveDateAction(formData: FormData) {
     override_date: overrideDate,
     reason,
   });
-  revalidatePath("/vaccination");
+  revalidateVaccinationCommandLenses();
   if (!result.ok) {
     redirect(scheduleMoveRedirect(returnTo, {
       schedule_move_result: "error",
@@ -334,8 +354,11 @@ export async function VaccinationFullSchedule({
   pageContract: AdminUiPageContract;
   scheduleResult?: ApiResult<VaccinationDriveAssignmentResponse>;
 }) {
-  const year = selectedScheduleYear(searchParams);
-  const month = selectedScheduleMonth(searchParams);
+  const requestedYear = selectedScheduleYear(searchParams);
+  const requestedMonth = selectedScheduleMonth(searchParams);
+  const year = isScheduleWindowMonth(requestedYear, requestedMonth) ? requestedYear : CURRENT_YEAR;
+  const month = isScheduleWindowMonth(requestedYear, requestedMonth) ? requestedMonth : CURRENT_MONTH;
+  const monthWindow = scheduleWindowMonths();
   const result = scheduleResult ?? (await loadDriveSchedule(scope, year, month));
   const rows = result.ok ? result.data.rows : [];
   const operatorDayRows = groupOperatorDayRows(rows);
@@ -351,12 +374,8 @@ export async function VaccinationFullSchedule({
   const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope);
   const scheduleMoveRows = moveDrawerRows(operatorDayRows, closeHref);
 
-  function yearHref(nextYear: number) {
-    return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(month) });
-  }
-
-  function monthHref(nextMonth: number) {
-    return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(nextMonth) });
+  function monthHref(nextYear: number, nextMonth: number) {
+    return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(nextMonth) });
   }
 
   return (
@@ -368,17 +387,9 @@ export async function VaccinationFullSchedule({
           <span className="muted small">{copy(pageContract, "section.full_schedule.operator_note")}</span>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        {year > MIN_SCHEDULE_YEAR ? (
-          <Link href={yearHref(year - 1)} className="chip" scroll={false} prefetch={false}>
-            {year - 1}
-          </Link>
-        ) : null}
-        <Link href={yearHref(year)} className="chip on" scroll={false} prefetch={false} aria-current="page">
+        <span className="chip on" aria-current="page">
           {year}
-        </Link>
-        <Link href={yearHref(year + 1)} className="chip" scroll={false} prefetch={false}>
-          {copy(pageContract, "action.next_year")} {year + 1}
-        </Link>
+        </span>
         <Link href={scopeHref("/vaccination", scope)} className="btn sm" scroll={false} prefetch={false}>
           {copy(pageContract, "action.open_shed_board")}
         </Link>
@@ -408,9 +419,16 @@ export async function VaccinationFullSchedule({
       </div>
 
       <div className="chips vaccination-schedule-legend" aria-label={copy(pageContract, "schedule.legend.aria")}>
-        {Array.from({ length: 12 }, (_, idx) => idx + 1).map((m) => (
-          <Link key={m} href={monthHref(m)} className={m === month ? "chip on" : "chip"} scroll={false} prefetch={false} aria-current={m === month ? "page" : undefined}>
-            {monthLabel(year, m)}
+        {monthWindow.map(({ year: itemYear, month: itemMonth }) => (
+          <Link
+            key={`${itemYear}-${itemMonth}`}
+            href={monthHref(itemYear, itemMonth)}
+            className={itemYear === year && itemMonth === month ? "chip on" : "chip"}
+            scroll={false}
+            prefetch={false}
+            aria-current={itemYear === year && itemMonth === month ? "page" : undefined}
+          >
+            {monthLabel(itemYear, itemMonth)}
           </Link>
         ))}
       </div>

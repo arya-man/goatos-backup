@@ -16,22 +16,9 @@ cubes:
     description: >-
       One row per SOP task. Backs task_count and operator_completion_rate
       (draft).
-    sql: >
-      SELECT
-        t.task_id                                              AS task_id,
-        t.tenant_id                                            AS tenant_id,
-        t.state                                                AS state,
-        t.task_type                                            AS task_type,
-        t.assigned_to                                          AS operator_id,
-        t.scope_id                                             AS scope_id,
-        sh.name                                                AS shed_label,
-        sh.parent_location_id                                  AS park_id,
-        pk.name                                                AS park_label,
-        t.verified_at                                          AS verified_at,
-        (t.due_at AT TIME ZONE 'Asia/Kolkata')::date           AS due_business_day
-      FROM sop_tasks t
-      LEFT JOIN locations sh ON sh.location_id = t.scope_id
-      LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+    # Reads governed ceo_ai.* source view (migration 000030), never raw public
+    # tables — Cube DB role has ceo_ai.* SELECT only. Grain/columns match the view.
+    sql_table: ceo_ai.workforce_tasks_base
 
     dimensions:
       - name: task_id

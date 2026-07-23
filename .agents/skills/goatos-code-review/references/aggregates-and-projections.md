@@ -18,6 +18,13 @@ and page boundary independently.
    side by side. Every component must have the same semantics and timezone.
    Derived execution dates, planned dates, window dates, and obligation due
    dates are not interchangeable.
+   Vaccination operator drives have a stricter source order: when
+   `vaccination_drive_assignments` exists, assignment `planned_date` is the
+   producer key for scheduled execution and all Calendar / Action Center /
+   Protocol Adherence / Control Tower / Workflow / execution consumers must use
+   that before batch `planned_date` or obligation `due_at`. A date move or
+   override that only updates Full Schedule is incomplete if L1/L2/L3 Calendar
+   or process-integrity reads still key from stale dates.
 3. **One-row grain** — state the intended grain before every aggregate. For
    every join, prove `1:1`, pre-aggregate the many side, use a semijoin, or
    explicitly deduplicate by the fact's stable id. A comment saying "one row per

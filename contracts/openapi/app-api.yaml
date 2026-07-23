@@ -4742,10 +4742,44 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
-  # --- ceo-ai conversation persistence + feedback (owned by ceoai/persistence) ---
+  # --- ceo-ai conversation persistence (owned by ceoai/persistence) ---
   # Additive block. Tenant + actor scope come ONLY from the authenticated session,
   # never from the request body or path. All reads/writes are actor-scoped: one
   # leadership user can never see or mutate another's threads.
+  /ceo-ai/starters:
+    get:
+      operationId: listCeoStarters
+      summary: Leadership capability probe + starter questions
+      description: >
+        Returns the backend-owned, tenant/role-aware starter questions the
+        assistant can truthfully answer. Doubles as the leadership capability
+        probe the admin-web client uses to decide whether to render the
+        assistant launcher: 200 means the session is authorized leadership
+        (ceo_internal); 403 means it is not, so the launcher stays hidden.
+      tags:
+        - ceo-ai
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Backend-owned starter questions for this leadership session
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - starters
+                properties:
+                  starters:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /ceo-ai/conversations:
     post:
       operationId: createCeoConversation
@@ -4932,43 +4966,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CeoMessageList"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFoundOrNotAllowed"
-        "500":
-          $ref: "#/components/responses/ServerError"
-  /ceo-ai/messages/{message_id}/feedback:
-    parameters:
-      - $ref: "#/components/parameters/CeoMessageId"
-    post:
-      operationId: upsertCeoMessageFeedback
-      summary: Record thumbs up/down (+ reason) on an assistant message
-      description: >
-        Idempotent on (message, actor): a re-vote updates the existing signal in
-        place. Feedback can only be attached to a message in the actor's own live
-        thread.
-      tags:
-        - ceo-ai
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CeoFeedbackRequest"
-      responses:
-        "200":
-          description: Feedback recorded
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CeoFeedback"
-        "400":
-          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -5335,42 +5332,6 @@ components:
         next_cursor:
           type: string
           nullable: true
-    CeoFeedbackRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - rating
-      properties:
-        rating:
-          description: +1 thumbs up, -1 thumbs down.
-          type: integer
-          enum: [1, -1]
-        reason:
-          type: string
-          maxLength: 2000
-    CeoFeedback:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - message_id
-        - rating
-        - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        message_id:
-          type: string
-          format: uuid
-        rating:
-          type: integer
-          enum: [1, -1]
-        reason:
-          type: string
-        created_at:
-          type: string
-          format: date-time
     CeoAssistantAskRequest:
       type: object
       additionalProperties: false
@@ -12366,6 +12327,8 @@ components:
       additionalProperties: false
       required:
         - plannedDate
+        - originalPlannedDate
+        - vaccineOriginalDates
         - operatorId
         - operatorName
         - parkId
@@ -12385,6 +12348,16 @@ components:
         plannedDate:
           type: string
           format: date
+        originalPlannedDate:
+          type: string
+          format: date
+          description: Persisted source drive date before any vaccine-level date override is applied.
+        vaccineOriginalDates:
+          type: object
+          additionalProperties:
+            type: string
+            format: date
+          description: Original drive date keyed by vaccine code, used when a mixed-vaccine operator row is moved one vaccine at a time.
         operatorId:
           type: string
           format: uuid
@@ -13262,11 +13235,21 @@ components:
       type: object
       additionalProperties: false
       required:
+        - lifecycle
         - stages
         - breeds
         - parks
         - sheds
       properties:
+        lifecycle:
+          type: array
+          description: >-
+            Distinct lifecycle_status values present in the whole tenant herd (alive/dead/sold/
+            culled/transferred), independent of the currently-selected lifecycle filter — this is
+            what lets a client offer Live/Sold/Culled/Dead/Transferred as filter options rather
+            than only ever showing the live herd.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
         stages:
           type: array
           description: Distinct management_stage values actually present, so a filter cannot offer a dead option.

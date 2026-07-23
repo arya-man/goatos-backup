@@ -144,6 +144,55 @@ func TestControlTowerUsesFeedDirectionWorkflowLinks(t *testing.T) {
 	}
 }
 
+func TestVaccinationCommandSurfacesUseHumanDoseLabel(t *testing.T) {
+	due := time.Date(2026, 7, 23, 4, 27, 0, 0, time.UTC)
+	row := processRow("human-dose", domain.WorkStateOverdue, domain.SeverityAtRisk, due)
+	row.ProtocolName = "Preventive Care Vaccination Matrix"
+	row.DoseCode = "ET+TT adult course dose 2"
+	row.DriveName = strPtr("Preventive Care Vaccination Matrix - ET+TT adult course dose 2")
+	row.NextAction = "Start scheduled vaccination SOP"
+	repo := &fakeRepo{
+		result: domain.ListResult{
+			Rows:              []domain.Row{row},
+			CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateOverdue, Count: 1}},
+			AdherenceSummary:  domain.AdherenceSummary{ExpectedCount: row.ExpectedCount, OpenGapCount: 1},
+		},
+		row:   row,
+		found: true,
+	}
+	svc := NewService(repo).WithClock(func() time.Time { return due })
+
+	ac, err := svc.ActionCenter(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("action center: %v", err)
+	}
+	pa, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("protocol adherence: %v", err)
+	}
+	ct, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	wf, found, err := svc.WorkflowDrilldown(context.Background(), domain.Query{TenantID: "tenant-1"}, row.RowID)
+	if err != nil || !found {
+		t.Fatalf("workflow found=%v err=%v", found, err)
+	}
+
+	joined := strings.Join([]string{
+		ac.Items[0].DoseCode,
+		pa.Rows[0].Expected,
+		ct.Alerts[0].Title,
+		wf.Row.DoseCode,
+	}, "\n")
+	if strings.Contains(joined, "et_tt_adult_w2") {
+		t.Fatalf("command surfaces leaked raw vaccine rule code:\n%s", joined)
+	}
+	if got := strings.Count(joined, "ET+TT adult course dose 2"); got < 4 {
+		t.Fatalf("command surfaces did not preserve human dose label in all views, occurrences=%d text:\n%s", got, joined)
+	}
+}
+
 func TestProtocolAdherenceIncludesDeferredExplainedRows(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("r2", domain.WorkStateDeferred, domain.SeverityWatch, due)

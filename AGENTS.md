@@ -1055,11 +1055,25 @@ Do not:
   seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
   route visibility applies to non-founder operators, not to these five builder
   accounts.
+- CPT operator-drive rehearsal seed invariant: the committed packet at
+  `fixtures/vaccination-cpt-operator-drive-2026-07-23/` is CPT/Channapatna only
+  and uses business date `2026-07-23`. Do not synthesize CBE/Coimbatore rows.
+  Seed Amit Kumar, Darshan Talwar, and Sagar Mahoor as equal vaccination
+  operators with `200` unique animals/day/operator; seed Chandrakant as
+  director-only monitoring scope. The `Adult` source filenames do not narrow
+  the vaccination kernel: kid/adult/booster/clinical/combo-spacing/safe-window
+  rules still come from backend vaccination rules.
 - Leadership assistant coverage invariant: every leadership-relevant table,
   read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
   domain event, or official KPI must resolve to a Cube governed metric, a
   `ceo_ai.*` view, an MCP Toolbox tool, a mapped Mesha read API, or a documented
-  exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The
+  exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The guard
+  is STRUCTURED, not keyword-based (tightened 2026-07-23): a new `CREATE TABLE`
+  migration, a new OpenAPI `/path`, or a new exported read handler must ship a
+  real coverage artifact (`ceo_ai.*` view / MCP tool / Cube binding / wired
+  `Set*DataReader`) or a coverage-matrix row/exclusion NAMING that surface in the
+  same commit; a bare keyword-bearing doc touch no longer satisfies it, and pure
+  refactors pass without a coverage file. The
   read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
   Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
   wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):

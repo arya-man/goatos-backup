@@ -5,7 +5,7 @@
 //
 // The invariant is intentionally small and global:
 //   * only an exact backend bootstrap root route owns the bottom bar/drawer;
-//   * a Calendar drill fallback uses its dedicated hosted child route;
+//   * a Calendar drill fallback uses its dedicated hosted child route and preserves a drilled date key;
 //   * regression tests cover exact roots, prefix collisions, hosted children,
 //     and null/generic Calendar targets.
 //
@@ -56,11 +56,11 @@ export function findingsForSources({ host, shell, test }) {
   if (!/const\s+val\s+CALENDAR_DRIVE\s*=\s*"\/calendar\/drive"/.test(host)) {
     findings.push("Calendar must declare a dedicated hosted child route (`Routes.CALENDAR_DRIVE`)");
   }
-  if (!/target\.isNullOrBlank\(\)\)\s+return\s+Routes\.CALENDAR_DRIVE/.test(calendarTarget)) {
-    findings.push("blank Calendar targets must fall back to `Routes.CALENDAR_DRIVE`, never an L0 route");
+  if (!/target\.isNullOrBlank\(\)\)\s+return\s+(?:fallbackDriveRoute|Routes\.calendarDriveRoute\()/.test(calendarTarget)) {
+    findings.push("blank Calendar targets must fall back to the hosted `Routes.calendarDriveRoute(...)`, never an L0 route");
   }
-  if (!/else\s+Routes\.CALENDAR_DRIVE/.test(calendarTarget)) {
-    findings.push("generic Calendar targets must fall back to `Routes.CALENDAR_DRIVE`, never an L0 route");
+  if (!/else\s+(?:fallbackDriveRoute|Routes\.calendarDriveRoute\()/.test(calendarTarget)) {
+    findings.push("generic Calendar targets must fall back to the hosted `Routes.calendarDriveRoute(...)`, never an L0 route");
   }
   if (/return\s+Routes\.(?:CALENDAR|VACCINATION|LEADERSHIP|ALERTS|YOU)\b/.test(calendarTarget)) {
     findings.push("Calendar drill routing returns a known L0 route; use a dedicated hosted child destination");
@@ -93,8 +93,8 @@ export function findingsForSources({ host, shell, test }) {
   const requiredTestEvidence = [
     ["hosted child chrome coverage", /Routes\.CALENDAR_DRIVE[\s\S]*isTopLevelRoute/],
     ["prefix-collision coverage", /isTopLevelRoute\("\$\{Routes\.VACCINATION\}\/drive"/],
-    ["blank-target route coverage", /calendarTargetRoute\(null\)/],
-    ["dedicated-child assertion", /assertEquals\(Routes\.CALENDAR_DRIVE,\s*calendarTargetRoute/],
+    ["dated blank-target route coverage", /calendarTargetRoute\(null,\s*"20\d{2}-\d{2}-\d{2}"\)/],
+    ["dedicated-child assertion", /assertEquals\(Routes\.calendarDriveRoute\([^)]*\),\s*calendarTargetRoute/],
     ["L0 drawer-availability coverage", /drawerAvailable|hasDrawerAffordance/],
   ];
   for (const [label, pattern] of requiredTestEvidence) {
@@ -156,10 +156,11 @@ function selfTest() {
   const good = {
     host: `
       object Routes { const val CALENDAR_DRIVE = "/calendar/drive" }
-      internal fun calendarTargetRoute(target: String?): String {
-        if (target.isNullOrBlank()) return Routes.CALENDAR_DRIVE
+      internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = null): String {
+        val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
+        if (target.isNullOrBlank()) return fallbackDriveRoute
         val shedId = shedIdFromTarget(target)
-        return if (shedId != null) Routes.scanRoute(shedId) else Routes.CALENDAR_DRIVE
+        return if (shedId != null) Routes.scanRoute(shedId) else fallbackDriveRoute
       }
     `,
     shell: `
@@ -179,7 +180,7 @@ function selfTest() {
     test: `
       assertFalse(Routes.CALENDAR_DRIVE, isTopLevelRoute(Routes.CALENDAR_DRIVE, roots))
       assertFalse(isTopLevelRoute("\${Routes.VACCINATION}/drive", roots))
-      assertEquals(Routes.CALENDAR_DRIVE, calendarTargetRoute(null))
+      assertEquals(Routes.calendarDriveRoute("2026-07-24"), calendarTargetRoute(null, "2026-07-24"))
       assertTrue(drawerAvailable(NavChrome.EXPANDED, "/counts", countsRoots))
     `,
   };
@@ -201,7 +202,7 @@ function selfTest() {
   const rootFallbackBug = {
     ...good,
     host: good.host.replace(
-      "if (target.isNullOrBlank()) return Routes.CALENDAR_DRIVE",
+      "if (target.isNullOrBlank()) return fallbackDriveRoute",
       "if (target.isNullOrBlank()) return Routes.VACCINATION",
     ),
   };

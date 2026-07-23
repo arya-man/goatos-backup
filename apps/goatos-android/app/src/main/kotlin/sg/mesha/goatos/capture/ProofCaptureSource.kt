@@ -51,19 +51,36 @@ class DelegatingProofCaptureSource : ProofCaptureSource {
     private var delegate: (suspend () -> CapturedVideo?)? = null
     @Volatile
     private var pickerDelegate: (suspend () -> CapturedVideo?)? = null
+    @Volatile
+    private var generation: Int = 0
 
-    fun bind(launch: suspend () -> CapturedVideo?, pick: suspend () -> CapturedVideo?) {
+    @Synchronized
+    fun bind(launch: suspend () -> CapturedVideo?, pick: suspend () -> CapturedVideo?): Int {
+        generation += 1
+        val token = generation
         delegate = launch
         pickerDelegate = pick
+        return token
     }
 
-    fun unbind() {
+    @Synchronized
+    fun unbind(token: Int) {
+        if (token != generation) {
+            return
+        }
         delegate = null
         pickerDelegate = null
     }
 
-    override suspend fun captureVideo(): CapturedVideo? = delegate?.invoke()
-    override suspend fun pickVideo(): CapturedVideo? = pickerDelegate?.invoke()
+    override suspend fun captureVideo(): CapturedVideo? {
+        val launch = delegate
+        return launch?.invoke()
+    }
+
+    override suspend fun pickVideo(): CapturedVideo? {
+        val pick = pickerDelegate
+        return pick?.invoke()
+    }
 }
 
 /** Test double: returns queued fixture results (or invokes [onCapture]) in call order. */

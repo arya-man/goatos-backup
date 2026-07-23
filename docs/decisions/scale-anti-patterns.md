@@ -69,6 +69,19 @@ can keep its broader endpoint only when it truly renders calendar-specific event
 types. Reusing a broad endpoint for a narrow UI and producing >500ms hot loads is
 a scale anti-pattern even if both endpoints are "correct."
 
+Vaccination date-source drift is the same performance and correctness bug. Once
+`vaccination_drive_assignments` rows exist, the operator-day assignment is the
+canonical scheduled execution source for every command lens: Full Schedule,
+Calendar L1/L2/L3, Action Center, Protocol Adherence, Control Tower, Workflows,
+execution pages, and leadership/operator reads. Those reads must prefer
+assignment `planned_date` (or the override-effective assignment date in the
+schedule ledger) before `obligation_batches.planned_date` or
+`obligation_instances.due_at`. A screen that rebuilds membership from stale batch
+or obligation dates can show the right aggregate and an empty roster, or mark
+today's moved work as yesterday's overdue work. `make
+vaccination-schedule-canonical-guard` blocks the known recurrence in Calendar
+targets, process-integrity rows, and the schedule ledger.
+
 `make scale-guard` blocks new static offenders for the highest-risk patterns:
 
 - compute-on-read god CTEs on request paths
@@ -87,6 +100,11 @@ a scale anti-pattern even if both endpoints are "correct."
   preflight loops, assignment distribution, and combo alignment; that re-creates
   park x candidate-date x helper fan-out and hides the cost behind "only three
   operators."
+  Operator capacity itself is HRMS-authored per active execution seat
+  (`workforce_positions.vaccination_daily_animal_cap`) with
+  `vaccination_capacity_config.max_per_day` only as the fallback default. Do
+  not multiply a hardcoded/default cap by operator count in UI or backend once
+  per-seat caps are available.
 - infinite paging loops without cursor/progress proof
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds
@@ -108,6 +126,28 @@ the broad `/calendar/vaccination/events` Calendar presentation endpoint. The
 Calendar endpoint remains valid for Calendar event presentation; narrow screens
 must use `/vaccination/schedule` or another grain-owned API/read path with its
 own contract and latency evidence.
+
+Vaccination operator-day sync is a shared-source rule, not a UI convention.
+`vaccination_drive_assignments` is the canonical operator-day source for a
+published/moved vaccination drive: planned business date, operator, park,
+physical shed, partition, assigned animals, dose summary, and capacity state are
+read from that table or a set-based read model whose membership starts there.
+Calendar, Protocol Adherence (PA), Action Center (AC), Workflows (WF),
+vaccination execution, and any L1/L2/L3 calendar drilldown must agree on that
+same source. When a drive moves to a new business date, every surface must show
+the moved operator-day assignment or explicitly show no row because the
+assignment does not exist; none may fall back to stale
+`obligation_batches.planned_date`, `window_start`, `obligation_instances.due_at`,
+or a frontend-local date filter and present that as current work.
+
+`make vaccination-shared-source-sync-guard` blocks the highest-risk recurrences:
+backend vaccination/calendar/process-integrity reads that combine operator-day
+date semantics with `obligation_batches` date fields without also joining
+`vaccination_drive_assignments`, and admin-web server page code that fans out
+Calendar/PA/AC/WF/vaccination fetches inside `Promise.all(...map(...))` or
+`await` loops during page switches. The permanent fix is one grain-owned,
+bounded endpoint/read model per screen transition, backed by set-based SQL and
+shared operator-day assignment membership.
 
 ## Indexed predicates and guard-authoring safety
 
@@ -591,8 +631,12 @@ manifest, source validator, backend proof gate, Android form runner, and
 verifier bridge must all agree that scans remain per goat while video proof is
 one-to-five shed-level artifacts. A seeder-only or client-only proof-grain
 change is a false-green seed and is blocked by the seed fixture guard.
+Client screens must not fetch all target animals just to prove this point; shed
+proof upload stays shed-grain while animal evidence stays the paged scan roster.
 
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create read-only SQL views (ceo_ai.vaccination_operator_status, vaccination_shed_status, vaccination_dose_pickup, action_center) that query canonical vaccination/obligation/workforce tables. They do not modify the seed source data, HRMS schema, vaccination protocol rules, or SOP contracts. The reported reads stay tenant-scoped, indexed, and bounded by the 5k-50k envelope exemption for canonical-read screens; they are not full-tenant recomputes or projection-drift anti-patterns. -->
 <!-- Coupling review 2026-07-22: CPT-only operator-drive rehearsal role mapping does not change raw fixture bytes. It changes seed interpretation and validation: Amit, Darshan, and Sagar must seed as equal manager-tier vaccination_operator_* positions with execute duty and source week-offs, and drive splitting must use DB-backed availability for the planned date. -->
+
+<!-- Coupling review 2026-07-23: the seed-roster-real operator-roster overlay does not alter scale posture. It is a bounded per-park recast of a fixed set of resolved roster seats into per-person vaccination_operator_<name> positions during seeding (no per-row I/O, no request-path query, no new read model); drive splitting continues to read DB-backed operator availability. No scale anti-pattern is introduced or relaxed. -->

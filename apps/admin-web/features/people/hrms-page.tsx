@@ -49,7 +49,7 @@ export function HRMSPage({ tab: initialTab, pageContract }: HRMSPageProps) {
       </div>
 
       {activeTab === 'positions' && <PositionsPanel pageContract={pageContract} />}
-      {activeTab === 'timetable' && <TimetablePanel pageContract={pageContract} />}
+      {activeTab === 'timetable' && <TimetablePanel pageContract={pageContract} onEditCaps={() => handleTabChange('positions')} />}
     </section>
   );
 }

@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,6 +16,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.sheds.ShedDayTab
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
@@ -54,11 +56,18 @@ private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val crashReporter: CrashReporter,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private var nextCursor: String? = null
     private val workWindow = OperatorWorkWindow.today()
-    private val _selectedDay = MutableStateFlow(workWindow.today)
+    private val calendarHosted: Boolean = savedStateHandle.get<String>("calendarHosted") == "true"
+    private val initialDay: LocalDate =
+        savedStateHandle.get<String>("dateKey")
+            ?.let(::parseExecutionDate)
+            ?.takeIf { it >= workWindow.today && it <= workWindow.lastDay }
+            ?: workWindow.today
+    private val _selectedDay = MutableStateFlow(initialDay)
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<VaccinationExecutionResponseDto>> =
@@ -89,7 +98,8 @@ class ShedsViewModel @Inject constructor(
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
         val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !isOffline
-        val base = dto?.toShedsUiState(selectedDay)
+        val effectiveSelectedDay = dto?.effectiveSelectedDay(selectedDay) ?: selectedDay
+        val base = dto?.toShedsUiState(effectiveSelectedDay)
             ?: if (resource.hasData) {
                 shedsPlaceholder("No sheds scheduled today")
             } else if (isOffline) {
@@ -172,7 +182,7 @@ class ShedsViewModel @Inject constructor(
         val base = sampleShedsState()
         val weekRows = rows
         val rowsForSelectedDay = weekRows.filter { row ->
-            val dueDate = row.dueDate?.let(::parseExecutionDate)
+            val dueDate = row.currentScheduleDate?.let(::parseExecutionDate)
             val hasOpenWork = row.openCount > 0
             when {
                 !hasOpenWork -> false
@@ -183,7 +193,7 @@ class ShedsViewModel @Inject constructor(
         }
         val shedRows = rowsForSelectedDay.groupBy { it.executionIdentity() }.map { (identity, group) ->
             val first = group.first()
-            val scheduleDate = group.mapNotNull { it.dueDate?.let(::parseExecutionDate) }.minOrNull()
+            val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
             val status = shedStatusFor(group)
             val counts = executionCounts(group)
             val vaccineGroups = group.groupBy { humanizeVaccineLabel(it.driveName.orEmpty()) }
@@ -248,13 +258,37 @@ class ShedsViewModel @Inject constructor(
             dayProgressLabel = percentLabel(totals.done, totals.target),
             dayProgressFraction = fraction(totals.done, totals.target),
             daySummary = "${totals.done} / ${totals.target} done",
-            caption = null,
+            caption = if (shedRows.isEmpty()) {
+                if (selectedDay == workWindow.today) {
+                    "No sheds scheduled today"
+                } else {
+                    "No sheds scheduled for ${shortDateLabel(selectedDay)}"
+                }
+            } else {
+                null
+            },
             roleNote = null,
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             rows = shedRows,
             rosterChanges = emptyList(),
             kernelInfo = null,
         )
+    }
+
+    private fun VaccinationExecutionResponseDto.effectiveSelectedDay(selectedDay: LocalDate): LocalDate {
+        if (!calendarHosted || selectedDay != workWindow.today) return selectedDay
+        val hasRowsToday = rows.any { row ->
+            row.openCount > 0 && row.dueDate?.let(::parseExecutionDate)?.let { due ->
+                !due.isAfter(workWindow.today)
+            } == true
+        }
+        if (hasRowsToday) return selectedDay
+        return rows.asSequence()
+            .filter { it.openCount > 0 }
+            .mapNotNull { it.dueDate?.let(::parseExecutionDate) }
+            .filter { it >= workWindow.today && it <= workWindow.lastDay }
+            .minOrNull()
+            ?: selectedDay
     }
 
     private fun shedStatusFor(rows: List<VaccinationExecutionRowDto>): ShedStatus {
@@ -373,13 +407,13 @@ private fun buildOperatorDayTabs(
     window: OperatorWorkWindow,
     selectedDay: LocalDate,
 ): List<ShedDayTab> {
-    val countsByDate = rows.groupBy { it.dueDate?.let(::parseExecutionDate) }
+    val countsByDate = rows.groupBy { it.currentScheduleDate?.let(::parseExecutionDate) }
         .filterKeys { it != null }
         .mapKeys { it.key!! }
         .mapValues { (_, dueRows) -> executionCounts(dueRows).open }
     val todayBacklogCount = rows
         .filter { row ->
-            row.openCount > 0 && row.dueDate?.let(::parseExecutionDate)?.isAfter(window.today) != true
+            row.openCount > 0 && row.currentScheduleDate?.let(::parseExecutionDate)?.isAfter(window.today) != true
         }
         .let(::executionCounts)
         .open
@@ -416,7 +450,8 @@ private fun shortDateLabel(date: LocalDate): String =
  * Rules:
  * - Strip leading prefix (take the part after the last " - ").
  * - Parse antigen token (before the dose suffix) and map to display name.
- * - Dose suffix: _first → no suffix (default), _booster → append " · Booster".
+ * - Dose suffix: _first / numeric waves are internal scheduling detail and are
+ *   not operator-facing stock labels; _booster remains meaningful copy.
  * - Unknown tokens are Title-Cased with underscores replaced by spaces.
  */
 private fun humanizeVaccineLabel(raw: String): String {
@@ -427,6 +462,8 @@ private fun humanizeVaccineLabel(raw: String): String {
         trimmedRaw.contains("Sheep Pox", ignoreCase = true)
     ) {
         return trimmedRaw
+            .replace(Regex("\\s*[·-]\\s*Dose\\s+\\d+\\b", RegexOption.IGNORE_CASE), "")
+            .trim()
     }
     val code = raw
         .substringAfterLast(" - ", raw)
@@ -441,7 +478,7 @@ private fun humanizeVaccineLabel(raw: String): String {
         ?: Regex("_w(\\d+)$").find(code)?.groupValues?.getOrNull(1)
     val dose = when {
         code.endsWith("_booster") -> " · Booster"
-        waveDose != null -> " · Dose $waveDose"
+        waveDose != null -> ""
         else -> ""
     }
     val antigen = code

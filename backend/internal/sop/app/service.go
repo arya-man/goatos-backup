@@ -1142,7 +1142,11 @@ func buildSubmissionItemsWithDraftScans(formDSL map[string]any, answers map[stri
 		}
 		seen[itemKey] = struct{}{}
 		goatID := strings.TrimSpace(capture.GoatID)
-		out = append(out, ports.SubmissionItemInput{GoatID: goatID, ItemKey: itemKey})
+		out = append(out, ports.SubmissionItemInput{
+			GoatID:         goatID,
+			ItemKey:        itemKey,
+			AdministeredAt: strings.TrimSpace(capture.CapturedAt),
+		})
 		if len(out) >= 1000 {
 			break
 		}

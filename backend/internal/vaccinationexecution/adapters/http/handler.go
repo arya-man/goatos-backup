@@ -181,6 +181,12 @@ func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request
 		h.badRequest(w, r, "invalid_override_date", "override_date must be YYYY-MM-DD")
 		return
 	}
+	nowLocal := h.now().In(biztime.DefaultLocation())
+	today := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, biztime.DefaultLocation())
+	if overrideDate.Before(today) {
+		h.badRequest(w, r, "invalid_override_date", "override_date must not be before today")
+		return
+	}
 	if overrideDate.Before(original) {
 		h.badRequest(w, r, "invalid_override_date", "override_date must not be before the original drive date")
 		return

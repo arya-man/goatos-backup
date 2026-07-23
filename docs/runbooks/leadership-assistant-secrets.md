@@ -63,6 +63,29 @@ MESHA_CUBE_READONLY_DB_URL='postgres://mesha_cube_readonly:...@/goatos?host=/clo
   tools/dev/setup-ceo-ai-secrets.sh
 ```
 
+**Then apply the read-only grants (required).** Migration `000031` is guarded
+(`IF EXISTS`) and no-ops for a role that did not exist when it ran — so creating
+the Cloud SQL roles is not enough on its own. Right after the roles exist, apply
+the idempotent grant with an admin DSN:
+
+Connect as a role that can grant on the schemas **and is a member of the
+object-owner role(s) migrations create tables as** (on Cloud SQL typically
+`cloudsqlsuperuser`; the migration/admin role otherwise) so future tables are
+covered:
+
+```bash
+ADMIN_DSN='postgres://<owner-or-superuser>:...@/goatos?host=/cloudsql/...' \
+  make grant-assistant-public-read
+```
+
+This grants both readonly roles SELECT on all current `public` + `ceo_ai`
+tables, and sets `ALTER DEFAULT PRIVILEGES FOR ROLE <owner>` per current table
+owner so future tables from those owners are auto-granted. If the connecting
+role cannot cover an owner, that owner is skipped with a warning and the command
+**fails** (so incomplete coverage is not mistaken for success) — re-run with that
+owner's DSN, or set `ALLOW_PARTIAL=1` to accept partial coverage. Re-run whenever
+roles are recreated or a brand-new table-owner role is introduced.
+
 ## GitHub Actions secrets (`vgoats/goatos`)
 
 Set for CI eval/integration jobs (names only):

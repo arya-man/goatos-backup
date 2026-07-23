@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import java.util.Locale
 
 /**
  * Vaccination execution screen area: the execution row list, the per-shed
@@ -405,13 +406,43 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     secondaryTag = secondaryTag,
     normalizedPrimaryTag = canonicalRosterTag(primaryTag),
     normalizedSecondaryTag = secondaryTag?.let(::canonicalRosterTag)?.takeIf { it.isNotBlank() },
-    vaccineLabel = vaccineLabel,
+    vaccineLabel = humanizeVaccineLabel(vaccineLabel),
     status = status,
     scannedAtMs = scannedAt?.let(::parseServerInstantMs),
     obligationId = obligationId,
     seq = seq,
     updatedAt = now,
 )
+
+private fun humanizeVaccineLabel(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isBlank()) return trimmed
+    val withoutPrefix = trimmed
+        .replace("Preventive Care Vaccination Matrix", "", ignoreCase = true)
+        .replace("preventive_care_vaccination_matrix", "", ignoreCase = true)
+        .trim(' ', '-', '·', '_')
+    val alreadyHuman = withoutPrefix
+        .replace(Regex("\\s*[·-]\\s*Dose\\s+\\d+\\b", RegexOption.IGNORE_CASE), "")
+        .trim()
+    val code = alreadyHuman
+        .lowercase(Locale.ENGLISH)
+        .replace(Regex("[^a-z0-9+]+"), "_")
+        .trim('_')
+        .removeSuffix("_first")
+        .replace(Regex("_(?:dose_)?\\d+$"), "")
+        .replace(Regex("_(adult|kid)_w\\d+$"), "")
+        .replace(Regex("_(adult|kid)$"), "")
+    return when (code) {
+        "et_tt", "ettt", "et+tt" -> "ET+TT"
+        "blue_tongue", "bt" -> "Blue Tongue"
+        "ppr" -> "PPR"
+        "fmd" -> "FMD"
+        "goat_pox", "goatpox" -> "Goat Pox"
+        "sheep_pox", "sheeppox" -> "Sheep Pox"
+        "hs" -> "HS"
+        else -> alreadyHuman.ifBlank { trimmed }
+    }
+}
 
 private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
     cacheKey(shedId, taskId ?: "shed-wide")

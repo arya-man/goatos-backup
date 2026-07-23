@@ -481,10 +481,11 @@ func (r *Repository) PickVaccinationOperatorForDrive(ctx context.Context, tenant
 	if len(operators) == 0 {
 		return nil, nil
 	}
-	return &operators[0], nil
+	operatorID := operators[0].OperatorID
+	return &operatorID, nil
 }
 
-func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, date time.Time, capPerOperator int32) ([]string, error) {
+func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -496,8 +497,12 @@ func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, 
 		return nil, fmt.Errorf("obligation: park id: %w", err)
 	}
 	rows, err := r.pool.Query(ctx, `
-WITH candidate AS (
-  SELECT DISTINCT wm.workforce_member_id, wm.updated_at
+WITH capacity_config AS (
+  SELECT COALESCE((SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = $1), NULLIF($4::int, 0), 200)::int AS default_cap
+),
+candidate AS (
+  SELECT wm.workforce_member_id, wm.updated_at,
+         COALESCE(MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))::int AS daily_cap
   FROM workforce_members wm
   JOIN locations park_loc
     ON park_loc.tenant_id = $1
@@ -545,8 +550,9 @@ WITH candidate AS (
         AND (offpos.valid_to IS NULL OR offpos.valid_to > $3::date)
         AND offpos.week_off_weekday = lower(to_char($3::date, 'FMDay'))
     )
+  GROUP BY wm.workforce_member_id, wm.updated_at
 ), load AS (
-  -- projection-review: membership=active planned/in-progress vaccination obligations for one park/date with conducted_by set; group_key=conducted_by workforce_member_id; join_cardinality=obligation_batches to obligation_instances is 1:N but collapsed with COUNT(DISTINCT oi.target_id) so multi-vaccine rows do not inflate operator animal load; pagination=full available-operator candidate set for one park/date, no page boundary; scope=explicit park scope only.
+  -- projection-review: membership=active planned/in-progress batches with conducted_by workforce_member_id on one park/planned_date; group_key=conducted_by workforce_member_id; join_cardinality=OneToMany (obligation_batches:obligation_instances=1:N collapsed with COUNT(DISTINCT oi.target_id) so multi-vaccine rows do not inflate operator animal load); pagination=Pagination (full available-operator candidate set for one park/date, no keyset paging); scope=ParkScope (explicit park scope only); date=ExecutionDate (planned_date); status=StatusMatrix (scheduled,due,in_progress statuses counted, others excluded).
   SELECT ob.conducted_by AS workforce_member_id, count(DISTINCT oi.target_id)::int AS animals
   FROM obligation_batches ob
   JOIN obligation_instances oi
@@ -561,11 +567,11 @@ WITH candidate AS (
     AND oi.status IN ('scheduled', 'due', 'in_progress')
   GROUP BY ob.conducted_by
 )
-SELECT c.workforce_member_id::text
+SELECT c.workforce_member_id::text, GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int
 FROM candidate c
 LEFT JOIN load l ON l.workforce_member_id = c.workforce_member_id
 ORDER BY
-  CASE WHEN $4::int <= 0 THEN 0 WHEN COALESCE(l.animals, 0) < $4::int THEN 0 ELSE 1 END,
+  CASE WHEN c.daily_cap <= 0 THEN 0 WHEN COALESCE(l.animals, 0) < c.daily_cap THEN 0 ELSE 1 END,
   COALESCE(l.animals, 0) ASC,
   c.updated_at ASC NULLS FIRST,
   c.workforce_member_id ASC`, tenant, park, biztime.BusinessDayStart(date), capPerOperator)
@@ -573,13 +579,13 @@ ORDER BY
 		return nil, fmt.Errorf("obligation: list vaccination operators: %w", err)
 	}
 	defer rows.Close()
-	out := make([]string, 0)
+	out := make([]domain.DriveOperatorCapacity, 0)
 	for rows.Next() {
-		var operatorID string
-		if err := rows.Scan(&operatorID); err != nil {
+		var operator domain.DriveOperatorCapacity
+		if err := rows.Scan(&operator.OperatorID, &operator.Cap); err != nil {
 			return nil, fmt.Errorf("obligation: scan vaccination operator: %w", err)
 		}
-		out = append(out, operatorID)
+		out = append(out, operator)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: vaccination operator rows: %w", err)

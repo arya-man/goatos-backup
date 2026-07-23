@@ -59,6 +59,7 @@ interface ScanCaptureRepository {
         tag: String,
         goatId: String? = null,
         obligationId: String? = null,
+        capturedAtMs: Long? = null,
     )
 
     /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
@@ -91,10 +92,11 @@ class DefaultScanCaptureRepository(
         tag: String,
         goatId: String?,
         obligationId: String?,
+        capturedAtMs: Long?,
     ) {
         val trimmed = tag.trim()
         if (trimmed.isEmpty()) return
-        val capturedAtMs = clock()
+        val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
         val inserted = withContext(dispatchers.io) {
             dao.insert(
                 ScannedGoatEntity(
@@ -104,7 +106,7 @@ class DefaultScanCaptureRepository(
                     tag = trimmed,
                     goatId = goatId?.takeIf { it.isNotBlank() },
                     obligationId = obligationId?.takeIf { it.isNotBlank() },
-                    capturedAtMs = capturedAtMs,
+                    capturedAtMs = durableCapturedAtMs,
                     syncStatus = EntitySyncStatus.PENDING.name,
                 ),
             )
@@ -120,7 +122,7 @@ class DefaultScanCaptureRepository(
                 tag = trimmed,
                 goatId = goatId?.takeIf { it.isNotBlank() },
                 obligationId = obligationId?.takeIf { it.isNotBlank() },
-                capturedAtMs = capturedAtMs,
+                capturedAtMs = durableCapturedAtMs,
             ),
         )
     }
@@ -340,7 +342,12 @@ class DefaultProofCaptureRepository(
     }
 
     override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> =
-        dao.observeForTask(taskId).map { rows -> rows.map { it.toRow() } }.flowOn(dispatchers.default)
+        dao.observeForTask(taskId)
+            .map { rows ->
+                reconcileOutboxTerminalState(rows)
+                rows.map { it.toRow() }
+            }
+            .flowOn(dispatchers.io)
 
     override suspend fun capture(
         taskId: String,
@@ -361,10 +368,14 @@ class DefaultProofCaptureRepository(
         if (subject == ProofSubject.GOAT && effectiveSubjectId == null) {
             return@withContext AppResult.Err("Select a scanned goat before recording proof.")
         }
-        // R50-027: the per-subject cap is policy-driven (falls back to the historical hardcoded
-        // MAX_PROOFS_PER_GOAT constant via ProofPolicy.Default when no policy was supplied).
-        // Apply cap to ALL subject types (goat, shed, vial, admin), not just goat.
-        val maxPerSubject = proofPolicy.maximumCountPerSubject
+        // R50-027: caps are policy-driven. Per-goat mode uses the per-subject cap; shed-level
+        // mode uses the SOP's shed total cap (1 required, up to 5 videos) because the whole shed
+        // is the proof subject.
+        val maxPerSubject = if (proofPolicy.isShedLevelVideo && subject == ProofSubject.SHED) {
+            proofPolicy.maximumCount
+        } else {
+            proofPolicy.maximumCountPerSubject
+        }
         val existing = when {
             subject == ProofSubject.GOAT && effectiveSubjectId != null ->
                 dao.activeCountForSubject(taskId, effectiveSubjectId)
@@ -468,7 +479,8 @@ class DefaultProofCaptureRepository(
         val outboxItemId = entity.outboxItemId
         if (outboxItemId.isNullOrBlank()) {
             dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
-            enqueueRegistration(entity, scopeType = "task", scopeId = taskId)
+            val (scopeType, scopeId) = recoveryScope(entity)
+            enqueueRegistration(entity, scopeType, scopeId)
             return@withContext AppResult.Ok(Unit)
         }
         when (val retry = syncRepository.retry(outboxItemId)) {
@@ -532,7 +544,8 @@ class DefaultProofCaptureRepository(
             page.forEach { entity ->
                 val outboxItemId = entity.outboxItemId
                 if (outboxItemId.isNullOrBlank()) {
-                    enqueueRegistrationNow(entity, scopeType = "task", scopeId = entity.taskId)
+                    val (scopeType, scopeId) = recoveryScope(entity)
+                    enqueueRegistrationNow(entity, scopeType, scopeId)
                 } else {
                     followOutboxItem(entity.id, outboxItemId)
                     syncRepository.triggerDrain()
@@ -640,6 +653,65 @@ class DefaultProofCaptureRepository(
                     }
                 }
         }
+    }
+
+    /** F1a: Derives the scope (scope_type and scope_id) from the persisted proof entity,
+     *  matching the live capture path exactly. Shed-level proofs use "shed" scope;
+     *  all others fall back to "task" scope. */
+    private fun recoveryScope(entity: ProofCaptureEntity): Pair<String, String> {
+        val shedId = entity.subjectId
+        return if (entity.proofSubject.equals("shed", ignoreCase = true) && !shedId.isNullOrBlank()) {
+            "shed" to shedId
+        } else {
+            "task" to entity.taskId
+        }
+    }
+
+    /** Reconciles proof rows from durable outbox state when lifecycle churn missed the live
+     *  followOutboxItem() terminal emission. The UI remains Room-first: this only repairs
+     *  proof_capture from the persisted outbox result before readiness is calculated.
+     *  F4: Guard each updateStatus call so it only fires when values actually differ,
+     *  preventing redundant re-emission churn. */
+    private suspend fun reconcileOutboxTerminalState(rows: List<ProofCaptureEntity>) {
+        rows.asSequence()
+            .filter { it.syncStatus != EntitySyncStatus.SYNCED.name }
+            .mapNotNull { row -> row.outboxItemId?.takeIf(String::isNotBlank)?.let { row to it } }
+            .forEach { (row, outboxItemId) ->
+                when (val recovered = syncRepository.findOutboxItem(outboxItemId)) {
+                    is AppResult.Err -> Unit
+                    is AppResult.Ok -> {
+                        val item = recovered.value ?: return@forEach
+                        when {
+                            item.status == SyncItemStatus.SUCCEEDED -> {
+                                val proofId = decodeServerProofId(item.resultJson)
+                                if (proofId.isNullOrBlank()) {
+                                    val newStatus = EntitySyncStatus.FAILED.name
+                                    if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != corruptProofUploadResultMessage) {
+                                        dao.updateStatus(row.id, newStatus, null, corruptProofUploadResultMessage)
+                                    }
+                                } else {
+                                    val newStatus = EntitySyncStatus.SYNCED.name
+                                    if (row.syncStatus != newStatus || row.serverProofId != proofId || row.lastError != null) {
+                                        dao.updateStatus(row.id, newStatus, proofId, null)
+                                    }
+                                }
+                            }
+                            item.status == SyncItemStatus.IN_FLIGHT && row.syncStatus != EntitySyncStatus.IN_FLIGHT.name -> {
+                                val newStatus = EntitySyncStatus.IN_FLIGHT.name
+                                if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != null) {
+                                    dao.updateStatus(row.id, newStatus, null, null)
+                                }
+                            }
+                            item.isDeadLetter || item.conflict -> {
+                                val newStatus = EntitySyncStatus.FAILED.name
+                                if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != item.lastError) {
+                                    dao.updateStatus(row.id, newStatus, null, item.lastError)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
     }
 }
 

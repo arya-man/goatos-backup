@@ -8,6 +8,7 @@ import { copy } from "../../lib/admin-ui-contract.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(resolve(here, "../../app/mesha-theme.css"), "utf8");
 const pageSource = readFileSync(resolve(here, "shed-detail.tsx"), "utf8");
+const drawerSource = readFileSync(resolve(here, "shed-passport-local-drawer.tsx"), "utf8");
 
 function declarationsFor(selectorNeedles) {
   const matches = [];
@@ -87,4 +88,12 @@ test("shed animal row action has a contract-safe fallback before live backend hy
     copy({ route_id: "shed-execution", copy: {} }, "action.open_passport"),
     "Open Animal Passport",
   );
+});
+
+test("shed passport drawer fetch failures render an error instead of a permanent loader", () => {
+  assert.match(drawerSource, /passport_unreachable/);
+  assert.match(drawerSource, /vaccination_passport_unreachable/);
+  assert.match(drawerSource, /response\.json\(\)\.catch\(\(\) => \(\{\}\)\)/);
+  assert.match(drawerSource, /setErrors/);
+  assert.match(drawerSource, /setVaccinationErrors/);
 });

@@ -237,6 +237,8 @@ fun SubmitScreen(
     onEvent: (SubmitEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val proofFields = state.formRunner?.fields.orEmpty().filter { it.kind == FieldKindUi.VIDEO_PROOF }
+    val recordingFields = state.formRunner?.fields.orEmpty().filterNot { it.kind == FieldKindUi.VIDEO_PROOF }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -271,50 +273,76 @@ fun SubmitScreen(
                 items(state.vaccineBreakdown, key = { "${it.vaccine}|${it.count}" }, contentType = { "vaccine_breakdown" }) { item ->
                     VaccineBreakdownRow(item)
                 }
-                state.blockingReason?.let { reason ->
-                    item {
-                        Text(
-                            text = reason,
-                            color = T.warn,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
-                    }
-                }
             }
             if (state.summaryItems.any { it.label.isNotBlank() && it.value.isNotBlank() } ||
                 state.shed.isNotBlank() || state.cohort.isNotBlank() || state.date.isNotBlank()
             ) {
                 item { RecordSummary(state) }
             }
-            if (state.proofTotal > 0 && state.proofSummaryTitle.isNotBlank()) {
+            if (proofFields.isEmpty() && state.proofTotal > 0 && state.proofSummaryTitle.isNotBlank()) {
                 item {
                     ProofSummary(state)
                 }
             }
             state.formRunner?.let { runner ->
-                item {
-                    Text(
-                        text = runner.title,
-                        color = T.faint,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
-                    )
+                if (proofFields.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = state.proofSummaryTitle.ifBlank { stringResource(R.string.submit_summary_proof_ready) },
+                            color = T.faint,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                    }
+                    item {
+                        FormFieldsColumn(
+                            fields = proofFields,
+                            onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
+                            onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
+                            onScan = { key -> onEvent(SubmitEvent.ScanToggled(key)) },
+                            onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
+                            onCaptureVideo = { key, source -> onEvent(SubmitEvent.CaptureVideoRequested(key, source)) },
+                            onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
+                            onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
+                            onRetryProof = { key, proofId -> onEvent(SubmitEvent.ProofRetryRequested(key, proofId)) },
+                        )
+                    }
+                    state.blockingReason?.let { reason ->
+                        item {
+                            Text(
+                                text = reason,
+                                color = T.warn,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
+                    }
                 }
-                item {
-                    FormFieldsColumn(
-                        fields = runner.fields,
-                        onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
-                        onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
-                        onScan = { key -> onEvent(SubmitEvent.ScanToggled(key)) },
-                        onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
-                        onCaptureVideo = { key, source -> onEvent(SubmitEvent.CaptureVideoRequested(key, source)) },
-                        onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
-                        onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
-                        onRetryProof = { key, proofId -> onEvent(SubmitEvent.ProofRetryRequested(key, proofId)) },
-                    )
+                if (recordingFields.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = runner.title,
+                            color = T.faint,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                    }
+                    item {
+                        FormFieldsColumn(
+                            fields = recordingFields,
+                            onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
+                            onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
+                            onScan = { key -> onEvent(SubmitEvent.ScanToggled(key)) },
+                            onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
+                            onCaptureVideo = { key, source -> onEvent(SubmitEvent.CaptureVideoRequested(key, source)) },
+                            onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
+                            onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
+                            onRetryProof = { key, proofId -> onEvent(SubmitEvent.ProofRetryRequested(key, proofId)) },
+                        )
+                    }
                 }
                 runner.blockedReason?.let { reason ->
                     item {

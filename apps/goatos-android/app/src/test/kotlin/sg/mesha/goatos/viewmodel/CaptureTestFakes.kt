@@ -46,6 +46,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         tag: String,
         goatId: String?,
         obligationId: String?,
+        capturedAtMs: Long?,
     ) {
         recordScanCalls++
         if (rows.none { it.fieldKey == fieldKey && it.tag == tag }) {
@@ -54,13 +55,15 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
                 tag = tag,
                 goatId = goatId,
                 obligationId = obligationId,
-                capturedAtMs = rows.size.toLong(),
+                capturedAtMs = capturedAtMs ?: rows.size.toLong(),
             )
             flow.value = rows.toList()
         }
     }
 
     override suspend fun tagsForTask(taskId: String): List<String> = rows.map { it.tag }
+
+    fun rowsForTask(taskId: String): List<ScannedGoatRow> = rows.filter { it.fieldKey.isNotBlank() }
 
     override suspend fun clearForTask(taskId: String) {
         rows.clear()
@@ -159,8 +162,14 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         proofPolicy: ProofPolicy,
     ): AppResult<ProofCaptureRow> {
         captureCalls += CaptureCall(fieldKey, subject, subjectId, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
-        // R50-027: respect proofPolicy.maximumCountPerSubject instead of hardcoded max
-        val effectiveMaxProofs = proofPolicy.maximumCountPerSubject
+        // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
+        // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
+        // because the whole shed is the proof subject.
+        val effectiveMaxProofs = if (proofPolicy.isShedLevelVideo && subject == ProofSubject.SHED) {
+            proofPolicy.maximumCount
+        } else {
+            proofPolicy.maximumCountPerSubject
+        }
         val activeRows = rows.count { it.subjectId == subjectId && it.syncStatus != CaptureSyncStatus.FAILED }
         if (activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {

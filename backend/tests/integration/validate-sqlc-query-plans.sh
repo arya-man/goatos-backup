@@ -886,7 +886,7 @@ LIMIT 50;"
 # Broad Parks base-join guard for the shell hot-path sweep. The exact production
 # query is covered by TestParksVaccinationExecutionProductionQueryPlanUsesIndexes.
 validate_parks_vaccination_base_join_plan() {
-  explain_must_use_index "ParksVaccinationExecutionBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on goats|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "ParksVaccinationExecutionBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on vaccination_drive_assignments|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
 WITH raw AS (
   SELECT
     oi.obligation_id,
@@ -1074,7 +1074,7 @@ LIMIT 200;"
 # Broad process-integrity base-join guard for the shell hot-path sweep. The exact production
 # query is covered by TestProcessIntegrityProductionQueryPlanUsesIndexes.
 validate_vaccination_process_integrity_base_join_plan() {
-  explain_must_use_index "VaccinationProcessIntegrityBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on protocol_versions|Seq Scan on protocol_definitions|Seq Scan on protocol_rules|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on sop_tasks|Seq Scan on sop_submissions|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on animal_stage_lookup|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
+  explain_must_use_index "VaccinationProcessIntegrityBaseJoins" 'Seq Scan on obligation_instances|Seq Scan on protocol_versions|Seq Scan on protocol_definitions|Seq Scan on protocol_rules|Seq Scan on goats|Seq Scan on obligation_batches|Seq Scan on vaccination_drive_assignments|Seq Scan on sop_tasks|Seq Scan on sop_submissions|Seq Scan on vaccination_completions|Seq Scan on locations|Seq Scan on workforce_members|Seq Scan on shed_profiles|Seq Scan on animal_stage_lookup|Seq Scan on location_operational_attributes' "EXPLAIN (COSTS OFF)
 WITH raw AS (
   SELECT
     oi.obligation_id,
@@ -1467,6 +1467,21 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
 }
 
+validate_counts_breakdown_lifecycle_facet_plan() {
+  # countsBreakdownFacetsSQL's lifecycle branch (repository.go) groups the WHOLE tenant herd by
+  # lifecycle_status with no lifecycle predicate of its own (a facet never filters by its own
+  # dimension), so the census filter sheet can offer Live/Sold/Culled/Dead/Transferred. Proves the
+  # tenant scan stays on the partial index goats_tenant_lifecycle_shed_idx (tenant_id,
+  # lifecycle_status, shed_id) WHERE merged_into_goat_id IS NULL rather than a sequential scan —
+  # no migration needed, this index already exists.
+  explain_must_use_index "CountsBreakdownLifecycleFacet" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT g.lifecycle_status, count(*)
+FROM goats g
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.merged_into_goat_id IS NULL
+GROUP BY g.lifecycle_status;"
+}
+
 validate_verification_queue_plan() {
   # Generic Verification vertical (context/architecture/verification-module-design.md): the
   # Verifier's queue read (GET /verification/queue) keysets by (captured_at, item_id) filtered by
@@ -1561,6 +1576,7 @@ validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_calendar_canonical_read_plan
 validate_herd_register_summary_plan
+validate_counts_breakdown_lifecycle_facet_plan
 validate_verification_queue_plan
 validate_feed_config_hot_path_plans
 

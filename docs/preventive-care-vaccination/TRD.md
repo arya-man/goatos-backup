@@ -657,11 +657,15 @@ stay available to detail and audit surfaces.
    loaded. A sweep run on Aug 20 with `dueBefore=Aug31` must still plan the
    Aug19/Aug20 clubbed drive on Aug 20, not Aug31 and not the earliest animal
    due date.
-9. Batched read models are drive-date-first. Calendar, Vaccination Execution,
-   Process Integrity, Action Center, Protocol Adherence, and Control Tower style
-   rows must render, sort, and classify batched drive work from
-   `obligation_batches.planned_date`; animal `due_at` remains per-animal
-   obligation truth and is only the fallback for unbatched work.
+9. Batched read models are assignment-date-first. Once
+   `vaccination_drive_assignments` rows exist, Calendar L1/L2/L3, Vaccination
+   Execution, Process Integrity, Action Center, Protocol Adherence, Control
+   Tower, Workflows, and leadership/operator reads must render, sort, classify,
+   and roster batched drive work from the assignment `planned_date` (or the
+   override-effective assignment date in the schedule ledger). Fall back to
+   `obligation_batches.planned_date` only when no assignment exists, and to
+   animal `due_at` only for unbatched work. A move/date override is incomplete
+   until every lens shows the same park/date/animal membership.
 10. Enforce per-animal shot cap. Default policy is
    `max_shots_per_animal_per_drive = 2`. Same-day compatible vaccine candidates
    are not unlimited. If more than 2 vaccines are due for an animal, choose the

@@ -37,17 +37,7 @@ type ConversationStore interface {
 	// ListMessages returns a bounded keyset window of a thread's history, oldest-first.
 	ListMessages(ctx context.Context, q ListMessagesQuery) (MessagePage, error)
 
-	// PurgeExpired hard-deletes threads (and cascaded messages/feedback) whose
-	// retention_expires_at is at or before cutoff. Returns the number of threads purged.
+	// PurgeExpired hard-deletes threads and cascaded messages whose retention_expires_at
+	// is at or before cutoff. Returns the number of threads purged.
 	PurgeExpired(ctx context.Context, cutoff time.Time) (int64, error)
-}
-
-// FeedbackStore persists leadership thumbs signals for eval mining.
-type FeedbackStore interface {
-	// Upsert records or updates the actor's thumbs on one message. Idempotent on
-	// (message_id, actor_id): the same actor rating the same message updates in place.
-	Upsert(ctx context.Context, in NewFeedback) (Feedback, error)
-
-	// Get returns the actor's feedback on a message, or ErrNotFound.
-	Get(ctx context.Context, tenantID, actorID, messageID string) (Feedback, error)
 }

@@ -65,7 +65,8 @@ const DERIVED_DRIVE_ASSIGNMENT_CONTRACT = "vaccination_drive_assignments are gen
 const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
 // Vaccination proof grain is validated through the committed fixture manifest:
 // proof_mode=shed_level_video, subject_scope=shed, 1..5 shed videos, camera +
-// gallery allowed. Per-goat scan timestamps remain required runtime facts.
+// gallery allowed. Per-goat scan timestamps remain required runtime facts and
+// are the vaccination administration time shown back to the operator.
 
 function normalizeShedPartitionName(raw) {
   const name = String(raw ?? "").trim().replace(/\s+/g, " ");
@@ -456,6 +457,49 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     "Resolve codes/counts/review flags and cover every shed before the DB transaction starts, or use the CPT-only operator roster seed path with Amit, Darshan, and Sagar as equal vaccination operators with week-offs Amit=Friday, Darshan=Sunday, Sagar=Saturday.",
     operatorRosterDrivenCPTSeed ? ["private CPT seed uses operator-roster-driven vaccination assignment"] : managerProblems,
     operatorRosterDrivenCPTSeed ? "warning" : "error",
+  ));
+
+  // Operator-roster contract (CPT operator-drive rehearsal packet). When the
+  // optional cpt-operator-roster.json is present it is the authoritative field
+  // capacity source consumed by seed-roster-real's overlay, so it must declare
+  // equal per-person vaccination operators (code vaccination_operator_<name>,
+  // manager tier, distinct valid week-offs). Absent file => no-op pass, so the
+  // committed jun-26 fixture and the guard self-tests are unaffected.
+  const operatorRosterProblems = [];
+  const operatorRosterPath = path.join(source, "cpt-operator-roster.json");
+  if (fs.existsSync(operatorRosterPath)) {
+    try {
+      const contract = JSON.parse(fs.readFileSync(operatorRosterPath, "utf8"));
+      if (!contract?.source_scope?.park_code) pushSample(operatorRosterProblems, "missing source_scope.park_code");
+      const ops = Array.isArray(contract?.operators) ? contract.operators : [];
+      if (ops.length === 0) pushSample(operatorRosterProblems, "no operators declared");
+      const weekdays = new Set();
+      const validWeekdays = new Set(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
+      for (const op of ops) {
+        const label = op?.code || op?.display_name || "operator";
+        if (!/^vaccination_operator_[a-z0-9_]+$/.test(String(op?.code || ""))) pushSample(operatorRosterProblems, `${label}: code must be vaccination_operator_<name>`);
+        if (op?.tier !== "manager") pushSample(operatorRosterProblems, `${label}: tier must be manager (equal operator)`);
+        if (op?.can_execute_vaccination !== true) pushSample(operatorRosterProblems, `${label}: can_execute_vaccination must be true`);
+        const wk = String(op?.week_off || "").toLowerCase();
+        if (!validWeekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: invalid week_off '${op?.week_off}'`);
+        else if (weekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: duplicate week_off '${wk}'`);
+        else weekdays.add(wk);
+        if (op?.animal_cap_per_day != null && !(Number.isInteger(op.animal_cap_per_day) && op.animal_cap_per_day >= 1 && op.animal_cap_per_day <= 100000)) {
+          pushSample(operatorRosterProblems, `${label}: animal_cap_per_day must be an integer between 1 and 100000 when set, got ${op.animal_cap_per_day}`);
+        }
+      }
+      const cap = contract?.operator_capacity?.default_animals_per_day;
+      if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
+    } catch (err) {
+      pushSample(operatorRosterProblems, `unparseable cpt-operator-roster.json: ${err.message}`);
+    }
+  }
+  checks.push(makeCheck(
+    "operator_roster_contract",
+    operatorRosterProblems.length,
+    "cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, bounded default and optional per-person animal cap.",
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, default_animals_per_day is 1..100000, and any animal_cap_per_day override is 1..100000.",
+    operatorRosterProblems,
   ));
 
   const errorCount = checks.filter((check) => check.status === "fail").reduce((sum, check) => sum + check.count, 0);

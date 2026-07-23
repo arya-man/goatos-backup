@@ -3323,6 +3323,8 @@ export interface components {
             backup_group_code: string | null;
             /** @enum {string|null} */
             week_off_weekday: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null;
+            /** @description Optional HRMS-authored vaccination animal/day capacity for this operator seat. When absent, scheduling uses the tenant vaccination capacity default. */
+            vaccination_daily_animal_cap?: number;
             /** @enum {string} */
             status: "active" | "inactive" | "ended";
             /** Format: date-time */
@@ -3377,6 +3379,8 @@ export interface components {
             backup_group_code?: string | null;
             /** @enum {string|null} */
             week_off_weekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null;
+            /** @description Sets this operator seat's vaccination animal/day capacity. Null clears the custom cap so the scheduler falls back to the tenant default. Omit the field to leave the current cap/default unchanged. */
+            vaccination_daily_animal_cap?: number | null;
             /** Format: date-time */
             valid_to?: string | null;
             /** @enum {string|null} */
