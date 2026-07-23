@@ -68,6 +68,8 @@
     <string name="counts_shifting_subtitle">Move one animal to another shed</string>
     <string name="counts_submit_shifting">Create Shifting</string>
     <string name="counts_shifting_pending_note">Movements you record are submitted for review — they are not authorised on the phone.</string>
+    <string name="counts_shifting_from">FROM</string>
+    <string name="counts_shifting_to">TO</string>
     <string name="counts_priority_high">High</string>
     <string name="counts_priority_low">Low</string>
     <string name="counts_category_growth">Growth</string>
