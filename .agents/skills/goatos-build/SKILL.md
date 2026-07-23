@@ -530,6 +530,7 @@ one product; this skill is the navigation layer.
 - Do not add direct BigQuery queries to React pages.
 - Do not add direct Firestore/GCS writes to the operator app.
 - Do not let AI-created decisions become canonical without deterministic validation and evidence.
+  When an agent claims a test passes, the test must have actually executed (not "[no test files]"/"no tests to run"/skipped). Paste the real test RUN line, its pass/fail output, and commit SHA. A reviewer or orchestrator MUST re-run the claimed test independently to verify the agent's result. Any code review claiming a fix is complete must have pasted test evidence on the real production path, not only a unit test in isolation — the production caller, the retry path, the race condition, or the edge case must reproduce the exact failure first, then pass after the fix.
 - Do not copy old repos blindly into `goatos/`; dashboard frontends are the
   intentional exception and should be snapshot/cloned into `goatos/apps/` for
   safe rewiring while live repos stay untouched.

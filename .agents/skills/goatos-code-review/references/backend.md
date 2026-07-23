@@ -391,6 +391,26 @@ Review checkpoints:
       a legacy→canonical cutover the projection also records source composition/
       version so a blended rate is never shown as pure canonical.
 
+## Config validation & fail-closed guarantees
+
+- [ ] **Config-present paths MUST fail closed** (`docs/decisions/scale-anti-patterns.md` → "Config-present must fail closed"):
+      When a config/policy/capacity row EXISTS for a scope but resolution/filter
+      yields EMPTY results, code must FAIL CLOSED (defer/flag/zero-capacity/reject),
+      never silently fall back to unconfigured defaults. Presence of the config
+      row signals intent to override defaults; an empty result is data integrity
+      red flag, not a graceful-degradation moment.
+      - [ ] Every read of config that filters candidates has two paths:
+            * `config == nil` → use base/default behavior (correct)
+            * `config != nil && len(results) == 0` → FAIL CLOSED, do NOT use defaults (check for this)
+      - [ ] Service/filter methods that read config return both the config data AND
+            a distinct empty-result error, never collapse both cases into a single
+            "use defaults" path.
+      - [ ] Regression test covers the "config exists but filter empty" case and
+            asserts fail-closed behavior (deferral, escalation, explicit rejection)
+      - [ ] Example: vaccination operator assignment — a park with
+            `active_operators_per_day` config but zero permitted operators must
+            defer work, not fall back to base capacity.
+
 ## Testing
 
 - [ ] New services: table-driven unit tests against mock port interfaces (not real DB/Pub/Sub)

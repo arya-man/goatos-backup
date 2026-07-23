@@ -58,6 +58,17 @@
       "ciStep": "backend-foundations-guard"
     },
     {
+      "id": "test-execution-integrity",
+      "script": "tools/agent-hooks/check-test-execution-integrity.mjs",
+      "makeTarget": "test-execution-integrity-guard",
+      "realCheck": "node tools/agent-hooks/check-test-execution-integrity.mjs",
+      "selfTest": "node tools/agent-hooks/check-test-execution-integrity.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "test-execution-integrity-guard",
+      "notes": "Detects Go test files with stray build constraints (// +build pgtest, //go:build pgtest, etc.) that cause them to be silently excluded from CI runs. Postgres tests must gate at runtime via GOATOS_RUN_POSTGRES_TESTS=1 + pgtest.SkipIfNoDocker(), not via build tags."
+    },
+    {
       "id": "frontend-foundations",
       "script": "tools/agent-hooks/check-frontend-foundations.mjs",
       "makeTarget": "frontend-foundations-guard",
