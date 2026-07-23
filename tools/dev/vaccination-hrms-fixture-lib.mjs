@@ -41,6 +41,8 @@ export const OPERATOR_SHIFT_START_MINUTE_FIELD = "shift_start_minute";
 export const OPERATOR_SHIFT_END_MINUTE_FIELD = "shift_end_minute";
 export const OPERATOR_ASSIGNMENT_CONFIG_ACTIVE_OPERATORS_FIELD = "active_operators_per_day";
 export const OPERATOR_ASSIGNMENT_CONFIG_DEFAULT_OPERATOR_FIELD = "default_operator_code";
+export const OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED = true;
+export const OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY = true;
 export const HEALTH_CASE_LOG_NORMALIZATION = Object.freeze({
   Open: "sick",
   Extended: "under_treatment",

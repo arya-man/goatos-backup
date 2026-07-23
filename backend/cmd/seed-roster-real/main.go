@@ -565,7 +565,7 @@ type operatorRosterOperator struct {
 	Tier             string `json:"tier"`
 	WeekOff          string `json:"week_off"`
 	AnimalCapPerDay  *int   `json:"animal_cap_per_day"`
-	ShiftLabel       string `json:"shift_label"`        // am | pm | rover (Phase 1 config-only operator assignment)
+	ShiftLabel       string `json:"shift_label"`        // am | pm | rover (scheduler-consumed operator assignment)
 	ShiftStartMinute *int   `json:"shift_start_minute"` // minutes-of-day, 0-1439
 	ShiftEndMinute   *int   `json:"shift_end_minute"`   // minutes-of-day, 0-1439
 }
@@ -579,9 +579,9 @@ type operatorRosterContract struct {
 		ParkCode string `json:"park_code"`
 	} `json:"source_scope"`
 	Operators []operatorRosterOperator `json:"operators"`
-	// DefaultOperatorAssignment is the Phase 1 config-only CEO-set default operator + N-active-operators
-	// for this park (vaccination_operator_assignment_config). Optional -- absent means the seed does not
-	// author an assignment config row (never a silent default).
+	// DefaultOperatorAssignment is the CEO-set default operator + N-active-operators for this park
+	// (vaccination_operator_assignment_config). Optional -- absent means the seed does not author an
+	// assignment config row (never a silent default).
 	DefaultOperatorAssignment *struct {
 		ActiveOperatorsPerDay int    `json:"active_operators_per_day"`
 		DefaultOperatorCode   string `json:"default_operator_code"`
@@ -1277,10 +1277,10 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	ist.ModuleGrantsInserted = granted
 
-	// Phase 1 CONFIG-ONLY: operator shift + N-active-operators-per-day default assignment config.
+	// Scheduler-consumed operator shift + N-active-operators-per-day default assignment config.
 	// Same transaction as the roster import (seed-migration coupling): a roster commit without its
 	// shift/default config is a half-seeded state that renders an empty operator-assignment Config
-	// screen. Not yet consumed by the drive scheduler (Phase 5).
+	// screen and makes the scheduler ignore the intended default/N-operator rule.
 	if err := seedOperatorAssignmentConfig(ctx, tx, tenantID, centerLocationID, operatorRoster, assignments, memberID); err != nil {
 		return ist, fmt.Errorf("seed operator assignment config: %w", err)
 	}

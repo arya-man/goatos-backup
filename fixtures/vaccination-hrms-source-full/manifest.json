@@ -137,8 +137,8 @@
     },
     {
       "date": "2026-07-23",
-      "change": "migration 000035_vaccination_operator_assignment_config creates vaccination_operator_shift_config (shift_label, shift_start_minute, shift_end_minute) and vaccination_operator_assignment_config (active_operators_per_day, default_operator_code) to bind per-operator shift schedules and tenant-scoped default assignment rules during the Phase-1 config-only phase (not yet consumed by the scheduler).",
-      "vaccination_hrms_source_impact": "none to the committed full fixture bytes; this is Phase-1 config structure only. CPT operator-roster rehearsal may supply shift_label/shift_start_minute/shift_end_minute and active_operators_per_day/default_operator_code in cpt-operator-roster.json, which seed-roster-real parses and writes to the new tables. The committed jun-26 fixture has no operator-roster file, so seed behavior is unchanged."
+      "change": "migration 000035_vaccination_operator_assignment_config creates vaccination_operator_shift_config (shift_label, shift_start_minute, shift_end_minute) and vaccination_operator_assignment_config (active_operators_per_day, default_operator_code) to bind per-operator shift schedules and tenant-scoped default assignment rules consumed by the scheduler.",
+      "vaccination_hrms_source_impact": "none to the committed full fixture bytes. CPT operator-roster rehearsal may supply shift_label/shift_start_minute/shift_end_minute and active_operators_per_day/default_operator_code in cpt-operator-roster.json, which seed-roster-real parses and writes to scheduler-consumed tables. The committed jun-26 fixture has no operator-roster file, so seed behavior is unchanged."
     }
   ]
 }

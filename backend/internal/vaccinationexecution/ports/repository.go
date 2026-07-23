@@ -47,7 +47,7 @@ type Repository interface {
 	// default when no row is authored). Drives session-splitting in ShedSummary and the shed-detail plan.
 	CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error)
 	// OperatorAssignmentConfig returns the park's N-active-operators-per-day + default-operator config
-	// (Phase 1 config-only; see domain.OperatorAssignmentConfig doc). Returns found=false when no row is
+	// (see domain.OperatorAssignmentConfig doc). Returns found=false when no row is
 	// authored yet (never a silent default -- the caller must reject reads that require one).
 	OperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (cfg domain.OperatorAssignmentConfig, found bool, err error)
 	// OperatorShifts returns the authored shift rows for every operator with a shift-config row in this

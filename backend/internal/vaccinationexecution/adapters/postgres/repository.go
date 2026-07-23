@@ -2787,11 +2787,9 @@ ORDER BY g.goat_id ASC
 LIMIT $4;
 `
 
-// ---- Phase 1 CONFIG-ONLY: vaccination operator shift + assignment config ----
+// ---- Vaccination operator shift + assignment config ----
 // (vaccination_operator_assignment_config / vaccination_operator_shift_config, migration 000035).
-// Not yet consumed by the drive/obligation scheduler -- see the Phase 5 TODOs in
-// backend/internal/obligation/adapters/postgres/sweeper.go and
-// backend/internal/vaccinationexecution/app/operator_drive_planner.go.
+// The admin config screen authors these rows; the drive/obligation scheduler consumes them.
 
 // UpsertOperatorAssignmentConfig returns ports.ErrOperatorAssignmentConfigConflict when the caller's
 // RowVersion does not match the currently stored row (optimistic concurrency: reject, never clobber).

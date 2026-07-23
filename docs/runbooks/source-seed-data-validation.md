@@ -94,7 +94,7 @@ Friday, Darshan = Sunday, and Sagar = Saturday. Chandrakant is a Preventive
 Care Director and contributes no field capacity unless explicitly assigned as
 an operator.
 
-### Operator Shift Configuration (Phase-1 Config Only)
+### Operator Shift Configuration
 
 The `cpt-operator-roster.json` may include operator shift schedules (migration 000035):
 
@@ -102,8 +102,8 @@ The `cpt-operator-roster.json` may include operator shift schedules (migration 0
 - `shift_start_minute` — 0–1439 (start time in minutes after midnight)
 - `shift_end_minute` — 1–1440 (end time in minutes after midnight)
 
-These fields seed into `vaccination_operator_shift_config` and are config-only
-in Phase 1 (not yet consumed by the scheduler). The optional
+These fields seed into `vaccination_operator_shift_config` and are consumed by
+the drive scheduler when resolving daily operator assignment. The optional
 `operator_assignment_config` block sets `active_operators_per_day` (max concurrent
 operators) and `default_operator_code` (fallback when no explicit assignment).
 
