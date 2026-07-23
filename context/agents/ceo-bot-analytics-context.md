@@ -422,6 +422,12 @@ drive date. The vaccination schedule read model applies that override
 immediately: sibling vaccines that remain on the original day stay visible
 there, while the moved vaccine appears under the override date so the assistant
 and UI do not keep offering the old vaccine/date pair in a loop.
+Action Center, Protocol Adherence, Control Tower, and Workflows use the
+process-integrity read model; for vaccination rows its public `due_at` must be
+the live execution date (`vaccination_drive_assignments.planned_date` first,
+then batch planned date, then raw obligation due date). Raw obligation due dates
+may remain as historical/generation anchors, but leadership answers and
+cross-nav drilldowns must not present them as the current moved drive date.
 The admin schedule move drawer uses a themed local date picker; weekday labels
 must keep stable unique keys because the drawer can be opened without any move
 being submitted, and render-only warnings must not surface as operator errors.
