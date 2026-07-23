@@ -16,7 +16,7 @@ import (
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
-func TestAvailableVaccinationOperatorsOneToManyPageBoundaryScheduledDateParkScopeStatusMatrixHonorsHRMSCaps(t *testing.T) {
+func TestAvailableVaccinationOperatorsQueryIncludesHRMSCapAndLoadDedupClauses(t *testing.T) {
 	source, err := os.ReadFile("visit_shot_lock.go")
 	if err != nil {
 		t.Fatalf("read visit_shot_lock.go: %v", err)
@@ -34,6 +34,108 @@ func TestAvailableVaccinationOperatorsOneToManyPageBoundaryScheduledDateParkScop
 		if !strings.Contains(sql, required) {
 			t.Fatalf("AvailableVaccinationOperatorsForDrive query missing %q", required)
 		}
+	}
+}
+
+func TestAvailableVaccinationOperatorsForDriveReadsHRMSCapsAndLoadWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	planned := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC) // Monday in IST business-date terms.
+	const parkID = "93000000-0000-4000-8000-000000000001"
+	versionID, ruleID := parkConsolidationProtocol(t, ctx, pool, "vaccination_operator_cap_real_db")
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'cbe-cap-proof', 'CBE cap proof', 'active')
+ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err != nil {
+		t.Fatalf("seed park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
+VALUES
+  ($1::uuid, 'vaccination_operator_custom', 'pc.vaccination', 'execute', 'vaccination.execute'),
+  ($1::uuid, 'vaccination_operator_default', 'pc.vaccination', 'execute', 'vaccination.execute'),
+  ($1::uuid, 'vaccination_operator_off', 'pc.vaccination', 'execute', 'vaccination.execute')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+		t.Fatalf("seed execute duty: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE vaccination_capacity_config
+SET max_per_day = 200, capacity_scope = 'tenant', max_buffer_days = 0
+WHERE tenant_id = $1::uuid`, tenantID); err != nil {
+		t.Fatalf("seed capacity config: %v", err)
+	}
+
+	const (
+		opCustom  = "91000000-0000-4000-8000-000000000001"
+		opDefault = "91000000-0000-4000-8000-000000000002"
+		opOff     = "91000000-0000-4000-8000-000000000003"
+	)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id, updated_at)
+VALUES
+  ($1::uuid, $4::uuid, 'OP-CUSTOM', 'Operator Custom', 'active', 'operator', $5::uuid, now() - interval '3 minutes'),
+  ($2::uuid, $4::uuid, 'OP-DEFAULT', 'Operator Default', 'active', 'operator', $5::uuid, now() - interval '2 minutes'),
+  ($3::uuid, $4::uuid, 'OP-OFF', 'Operator Off', 'active', 'operator', $5::uuid, now() - interval '1 minute')
+ON CONFLICT (workforce_member_id) DO UPDATE SET status='active'`,
+		opCustom, opDefault, opOff, tenantID, parkID); err != nil {
+		t.Fatalf("seed workforce members: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_positions (
+  tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier,
+  week_off_weekday, vaccination_daily_animal_cap, status, valid_from
+)
+VALUES
+  ($4::uuid, $1::uuid, 'center', $5::uuid, 'vaccination_operator_custom', 'manager', NULL, 50, 'active', $6::date - interval '1 day'),
+  ($4::uuid, $2::uuid, 'center', $5::uuid, 'vaccination_operator_default', 'manager', NULL, NULL, 'active', $6::date - interval '1 day'),
+  ($4::uuid, $3::uuid, 'center', $5::uuid, 'vaccination_operator_off', 'manager', 'monday', 25, 'active', $6::date - interval '1 day')`,
+		opCustom, opDefault, opOff, tenantID, parkID, planned); err != nil {
+		t.Fatalf("seed workforce positions: %v", err)
+	}
+
+	seedReserveGoats(t, ctx, pool, parkID, parkID,
+		"92000000-0000-4000-8000-000000000001",
+		"92000000-0000-4000-8000-000000000002")
+
+	var batchID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO obligation_batches (
+  tenant_id, protocol_version_id, scope_type, scope_id, session, planned_date,
+  status, conducted_by, estimated_targets
+)
+VALUES ($1::uuid, $2::uuid, 'park', $3::uuid, 'operator-cap-proof', $4::date, 'planned', $5::uuid, 2)
+RETURNING batch_id::text`, tenantID, versionID, parkID, planned, opCustom).Scan(&batchID); err != nil {
+		t.Fatalf("seed obligation batch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_instances (
+  tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
+  scope_type, scope_id, due_at, status, idempotency_key
+)
+VALUES
+  ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat', '92000000-0000-4000-8000-000000000001'::uuid, 'park', $5::uuid, $6::timestamptz, 'scheduled', 'operator-cap-proof-1'),
+  ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat', '92000000-0000-4000-8000-000000000002'::uuid, 'park', $5::uuid, $6::timestamptz, 'in_progress', 'operator-cap-proof-2')`,
+		tenantID, versionID, ruleID, batchID, parkID, planned); err != nil {
+		t.Fatalf("seed obligation load: %v", err)
+	}
+
+	got, err := repo.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, planned, 200)
+	if err != nil {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("operators = %#v, want only custom+default operators; week-off operator excluded", got)
+	}
+	if got[0].OperatorID != opDefault || got[0].Cap != 200 {
+		t.Fatalf("first operator = %#v, want default-cap operator first with fallback cap 200", got[0])
+	}
+	if got[1].OperatorID != opCustom || got[1].Cap != 50 {
+		t.Fatalf("second operator = %#v, want custom-cap operator second with HRMS cap 50", got[1])
 	}
 }
 

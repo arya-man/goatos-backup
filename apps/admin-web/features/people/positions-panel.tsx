@@ -126,6 +126,29 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
     }
   }
 
+  async function clearOperatorCap(pos: Position) {
+    setSavingCap(pos.position_id);
+    setCapError(null);
+    try {
+      const api = getAdminApi();
+      const response = await api.updateStaffPosition(pos.position_id, {
+        row_version: pos.row_version,
+        vaccination_daily_animal_cap: null,
+      });
+      const updated = response.data.position as Position;
+      setPositions((current) => current.map((item) => (item.position_id === updated.position_id ? { ...item, ...updated } : item)));
+      setDraftCaps((current) => {
+        const next = { ...current };
+        delete next[pos.position_id];
+        return next;
+      });
+    } catch (err) {
+      setCapError(err instanceof Error ? err.message : 'Failed to clear operator cap');
+    } finally {
+      setSavingCap(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="subpanel on" data-sub="positions">
@@ -251,6 +274,16 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                               <Save className="ic" aria-hidden="true" />
                               {savingCap === pos.position_id ? 'Saving' : 'Save'}
                             </button>
+                            {pos.vaccination_daily_animal_cap != null ? (
+                              <button
+                                className="btn"
+                                disabled={savingCap === pos.position_id}
+                                onClick={() => void clearOperatorCap(pos)}
+                                type="button"
+                              >
+                                Use default
+                              </button>
+                            ) : null}
                           </div>
                         )}
                       </td>

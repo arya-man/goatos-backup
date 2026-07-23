@@ -239,12 +239,16 @@ func (s *RosterService) UpdatePosition(ctx context.Context, tenantID, actorID, p
 		}
 		cmd.SetWeekOff, cmd.WeekOffWeekday = true, v
 	}
-	if body.VaccinationDailyAnimalCap != nil {
-		v := *body.VaccinationDailyAnimalCap
-		if v < 1 || v > 100000 {
-			return nil, BadRequest("invalid_vaccination_daily_animal_cap", "vaccination_daily_animal_cap must be between 1 and 100000")
+	if body.VaccinationDailyAnimalCap.Set {
+		var capValue *int
+		if body.VaccinationDailyAnimalCap.Value != nil {
+			v := *body.VaccinationDailyAnimalCap.Value
+			if v < 1 || v > 100000 {
+				return nil, BadRequest("invalid_vaccination_daily_animal_cap", "vaccination_daily_animal_cap must be between 1 and 100000")
+			}
+			capValue = &v
 		}
-		cmd.SetVaccinationDailyAnimalCap, cmd.VaccinationDailyAnimalCap = true, &v
+		cmd.SetVaccinationDailyAnimalCap, cmd.VaccinationDailyAnimalCap = true, capValue
 	}
 	if body.ValidTo != nil {
 		v := strings.TrimSpace(*body.ValidTo)

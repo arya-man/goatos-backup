@@ -11,6 +11,12 @@ test('positions panel edits the HRMS vaccination daily animal cap', () => {
   assert.match(source, /HRMS drive cap is the scheduler source of truth/);
 });
 
+test('positions panel can clear a custom cap back to the tenant default', () => {
+  assert.match(source, /function clearOperatorCap/);
+  assert.match(source, /vaccination_daily_animal_cap: null/);
+  assert.match(source, /Use default/);
+});
+
 test('positions panel totals capacity from per-operator caps, not default times count', () => {
   assert.match(source, /pos\.vaccination_daily_animal_cap \?\? operatorCap/);
   assert.match(source, /operators\.reduce\(\(sum, pos\) => sum \+ capForPosition\(pos\), 0\)/);
