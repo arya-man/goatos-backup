@@ -2866,6 +2866,27 @@ func (r *Repository) UpsertOperatorAssignmentConfig(ctx context.Context, tenantI
 	}
 	defer tx.Rollback(ctx)
 
+	// Capture the pre-write state (locked) so we can emit precisely which cascade event(s) fired:
+	// vaccination.capacity.changed when N (active operators/day) changed, vaccination.roster.changed
+	// when the default operator changed. A first write emits both. FOR UPDATE serializes concurrent
+	// writers on this park row so the before/after comparison is race-free.
+	var (
+		prevN       int
+		prevDefault string
+		foundBefore bool
+	)
+	if err := tx.QueryRow(ctx, `
+SELECT active_operators_per_day, default_operator_id::text
+FROM vaccination_operator_assignment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid
+FOR UPDATE`, tenantID, cfg.ParkID).Scan(&prevN, &prevDefault); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: read prior operator assignment config: %w", err)
+		}
+	} else {
+		foundBefore = true
+	}
+
 	var newVersion int64
 	if cfg.RowVersion == 0 {
 		// Insert: new config for this park
@@ -2901,72 +2922,91 @@ RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.De
 		cfg.RowVersion = newVersion
 	}
 
-	// Enqueue cascade events to outbox_messages (same transaction as config write).
-	// This ensures at-least-once delivery: the event is durably queued and will be retried
-	// by the outbox relay even if the handler fails initially.
-	idempotencyKey := fmt.Sprintf("vaccination.operator-assignment-config.capacity:%s:%d", cfg.ParkID, newVersion)
-	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	// Enqueue cascade events to outbox_messages (same transaction as config write) for at-least-once
+	// delivery via the outbox relay. Emit precisely which changed:
+	//   - vaccination.capacity.changed when N (active operators/day) changed
+	//   - vaccination.roster.changed   when the default operator changed
+	// A first write (no prior row) emits both. Both events drive the same OperatorConfigReplanHandler
+	// recompute; the two-phase watermark makes redundant delivery idempotent.
+	capacityChanged := !foundBefore || prevN != cfg.ActiveOperatorsPerDay
+	rosterChanged := !foundBefore || prevDefault != cfg.DefaultOperatorID
 	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
-	payload := map[string]any{
-		"park_id": cfg.ParkID,
-	}
-	// Conformant domain-event envelope (contracts/jsonschema/domain-event-envelope.schema.json,
-	// additionalProperties:false). subject is the park (a location); aggregate is the park config.
-	envelope, err := json.Marshal(map[string]any{
-		"event_id":       eventID,
-		"event_type":     "vaccination.capacity.changed",
-		"schema_version": "1.0.0",
-		"schema_ref":     "domain-event-envelope.v1",
-		"aggregate_type": "park",
-		"aggregate_id":   cfg.ParkID,
-		"occurred_at":    now,
-		"recorded_at":    now,
-		"producer": map[string]any{
-			"service": "goatos-api",
-			"module":  "vaccination-execution",
-			"version": nil,
-		},
-		"idempotency_key": idempotencyKey,
-		"actor": map[string]any{
-			"actor_type": "system_rule",
-			"actor_id":   nil,
-			"actor_ref":  nil,
-		},
-		"subject_type": "location",
-		"subject_id":   cfg.ParkID,
-		"visibility_scope": map[string]any{
-			"tenant_id": tenantID,
-			"park_id":   cfg.ParkID,
-		},
-		"evidence_refs": []map[string]string{{
-			"evidence_type": "location",
-			"evidence_id":   cfg.ParkID,
-		}},
-		"payload":  payload,
-		"trace_id": idempotencyKey,
-	})
-	if err != nil {
-		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: marshal capacity-changed envelope: %w", err)
-	}
-	headers, err := json.Marshal(map[string]any{
-		"producer":        "vaccination-execution.UpsertOperatorAssignmentConfig",
-		"schema_version":  "1.0.0",
-		"park_id":         cfg.ParkID,
-		"idempotency_key": idempotencyKey,
-	})
-	if err != nil {
-		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: marshal headers: %w", err)
-	}
-	_, err = tx.Exec(ctx, `
+
+	enqueueCascade := func(eventType, keyKind string) error {
+		idempotencyKey := fmt.Sprintf("vaccination.operator-assignment-config.%s:%s:%d", keyKind, cfg.ParkID, newVersion)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		// Conformant domain-event envelope (contracts/jsonschema/domain-event-envelope.schema.json,
+		// additionalProperties:false). subject is the park (a location); aggregate is the park config.
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     eventType,
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   cfg.ParkID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "vaccination-execution",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   cfg.ParkID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+				"park_id":   cfg.ParkID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   cfg.ParkID,
+			}},
+			"payload":  map[string]any{"park_id": cfg.ParkID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("vaccination execution: marshal %s envelope: %w", eventType, err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "vaccination-execution.UpsertOperatorAssignmentConfig",
+			"schema_version":  "1.0.0",
+			"park_id":         cfg.ParkID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("vaccination execution: marshal %s headers: %w", eventType, err)
+		}
+		// The ON CONFLICT arbiter is a per-event-type partial unique index (migration 000038), so the
+		// WHERE predicate must name the same event_type literal. eventType here is a controlled
+		// constant, never user input.
+		sql := `
 INSERT INTO outbox_messages (
   tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
   topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
-) VALUES ($1::uuid, $2::uuid, 'vaccination.capacity.changed', '1.0.0', 'park', $3::uuid,
-  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
-ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacity.changed' DO NOTHING`,
-		tenantID, eventID, cfg.ParkID, envelope, headers, idempotencyKey)
-	if err != nil {
-		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: enqueue capacity-changed to outbox: %w", err)
+) VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'park', $4::uuid,
+  'vaccination.events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' DO NOTHING`
+		if _, err := tx.Exec(ctx, sql, tenantID, eventID, eventType, cfg.ParkID, envelope, headers, idempotencyKey); err != nil {
+			return fmt.Errorf("vaccination execution: enqueue %s to outbox: %w", eventType, err)
+		}
+		return nil
+	}
+
+	if capacityChanged {
+		if err := enqueueCascade("vaccination.capacity.changed", "capacity"); err != nil {
+			return domain.OperatorAssignmentConfig{}, err
+		}
+	}
+	if rosterChanged {
+		if err := enqueueCascade("vaccination.roster.changed", "roster"); err != nil {
+			return domain.OperatorAssignmentConfig{}, err
+		}
 	}
 
 	// Commit: if we reach here, both config write and outbox enqueue are atomic
