@@ -85,6 +85,9 @@ export type VaccinationPlannedSession = AppApiComponents["schemas"]["Vaccination
 export type VaccinationShedSortKey = AppApiComponents["schemas"]["VaccinationShedSortKey"];
 export type VaccinationPageInfo = AppApiComponents["schemas"]["VaccinationPageInfo"];
 export type VaccinationCapacityConfig = AppApiComponents["schemas"]["VaccinationCapacityConfig"];
+export type VaccinationOperatorAssignmentConfig = AppApiComponents["schemas"]["VaccinationOperatorAssignmentConfig"];
+export type VaccinationOperatorShift = AppApiComponents["schemas"]["VaccinationOperatorShift"];
+export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
@@ -1150,6 +1153,37 @@ export async function getVaccinationCapacityConfig(): Promise<ApiResult<Vaccinat
   );
 }
 
+// Admin vaccination operator assignment config (N + default operator per park, shift assignments).
+// Returns the park's active-operators-per-day + default-operator config plus every operator's shift.
+export async function getVaccinationOperatorAssignmentConfig(parkId: string): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
+      method: "GET",
+      query: { park_id: parkId },
+      cache: "no-store",
+    }),
+  );
+}
+
+// Admin update vaccination operator assignment config (validate-or-reject, optimistic concurrency via rowVersion).
+export async function putVaccinationOperatorAssignmentConfig(
+  body: UpdateVaccinationOperatorAssignmentConfigRequest
+): Promise<ApiResult<VaccinationOperatorAssignmentConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
 export async function previewVaccinationImpact(body: ImpactPreviewInput): Promise<ApiResult<ImpactPreviewResult>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1923,6 +1957,10 @@ export type StaffPositionsQuery = NonNullable<AdminApiPaths["/admin/roster/posit
 export type UpdatePositionRequest = AdminApiComponents["schemas"]["UpdatePositionRequest"];
 export type BackupConfigQuery = NonNullable<AdminApiPaths["/admin/roster/backup-config"]["get"]["parameters"]["query"]>;
 export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"]["get"]["parameters"]["query"]>;
+export type StaffLeave = AdminApiComponents["schemas"]["StaffLeave"];
+export type StaffLeaveListResponse = AdminApiComponents["schemas"]["StaffLeaveListResponse"];
+export type ApplyStaffLeaveRequest = AdminApiComponents["schemas"]["ApplyStaffLeaveRequest"];
+export type StaffLeaveQuery = NonNullable<AdminApiPaths["/admin/roster/leave"]["get"]["parameters"]["query"]>;
 
 export async function listStaffPositions(
   params: StaffPositionsQuery = {},
@@ -1964,6 +2002,35 @@ export async function updateStaffPosition(
       method: "PATCH",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function listStaffLeave(
+  params: StaffLeaveQuery = {},
+): Promise<ApiResult<StaffLeaveListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<StaffLeaveListResponse>("/admin/roster/leave", {
+      cache: "no-store",
+      query: compactQuery({ ...params, limit: params.limit ?? 500 }),
+    }),
+  );
+}
+
+export async function applyStaffLeave(
+  body: ApplyStaffLeaveRequest,
+): Promise<ApiResult<AdminApiComponents["schemas"]["StaffLeaveResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>("/admin/roster/leave", {
+      method: "POST",
+      cache: "no-store",
       body,
     }),
   );

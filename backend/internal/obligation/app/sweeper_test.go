@@ -257,6 +257,102 @@ func TestOperatorCapacityPlannerHonorsSingleOperatorHRMSCap(t *testing.T) {
 	}
 }
 
+// F1 regression: totalVaccinationOperatorCap must NOT fall back to fallbackCap when operators
+// WERE found but every one has 0 remaining capacity -- the real repository reports a fully-loaded
+// operator as present with Cap=0 (GREATEST(daily_cap-loaded,0)), never absent from the list. The
+// old code treated a summed total of 0 the same as "no operators found" and returned the full
+// fallback batch cap, letting the planner still create/lock a drive onto operators who are all
+// already at capacity.
+func TestTotalVaccinationOperatorCapAllOperatorsZeroRemainingReturnsZeroNotFallback(t *testing.T) {
+	operators := []domain.DriveOperatorCapacity{
+		{OperatorID: "op-1", Cap: 0},
+		{OperatorID: "op-2", Cap: 0},
+		{OperatorID: "op-3", Cap: 0},
+	}
+	got := totalVaccinationOperatorCap(operators, 200)
+	if got != 0 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want 0 (all operators found but zero remaining; must NOT fall back to 200)", got)
+	}
+}
+
+func TestTotalVaccinationOperatorCapOneOperatorWithRemainingReturnsThatRemaining(t *testing.T) {
+	operators := []domain.DriveOperatorCapacity{
+		{OperatorID: "op-1", Cap: 0},
+		{OperatorID: "op-2", Cap: 37},
+		{OperatorID: "op-3", Cap: 0},
+	}
+	got := totalVaccinationOperatorCap(operators, 200)
+	if got != 37 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want 37 (only op-2's remaining capacity)", got)
+	}
+}
+
+func TestTotalVaccinationOperatorCapUncappedOperatorsSumToFallbackPerOperator(t *testing.T) {
+	operators := []domain.DriveOperatorCapacity{
+		{OperatorID: "op-1", Cap: 200},
+		{OperatorID: "op-2", Cap: 200},
+		{OperatorID: "op-3", Cap: 200},
+	}
+	got := totalVaccinationOperatorCap(operators, 200)
+	if got != 600 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want 600 (3 uncapped operators at fallback-per-operator 200 each)", got)
+	}
+}
+
+func TestTotalVaccinationOperatorCapNoOperatorsFoundReturnsFallbackUnchanged(t *testing.T) {
+	got := totalVaccinationOperatorCap(nil, 200)
+	if got != 200 {
+		t.Fatalf("totalVaccinationOperatorCap = %d, want fallbackCap 200 unchanged when no operators were found", got)
+	}
+}
+
+// TestOperatorCapacityPlannerAllOperatorsZeroRemainingDoesNotCreateBatch reproduces the REAL
+// production caller path (operatorCapacityPlanner -> availableVaccinationOperatorsForDrive ->
+// totalVaccinationOperatorCap), not just the isolated function: 3 operators are found but every
+// one is already fully loaded (Cap 0 remaining). Before the F1 fix this returned the fallback cap
+// (200), which a real sweep would then use to admit a full batch onto exhausted operators. After
+// the fix the planner's effective MaxGoatsPerDrive is 0, so limitUnbatchedSelectionByDriveAnimals
+// admits nothing and batchDueGroup does NOT create a batch.
+func TestOperatorCapacityPlannerAllOperatorsZeroRemainingDoesNotCreateBatch(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{
+		fakeSweepRepo:    &fakeSweepRepo{},
+		operators:        []string{"op-1", "op-2", "op-3"},
+		zeroCapOperators: map[string]bool{"op-1": true, "op-2": true, "op-3": true},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	planner, err := svc.operatorCapacityPlanner(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, NewSweepSession())
+	if err != nil {
+		t.Fatalf("operatorCapacityPlanner: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 0 {
+		t.Fatalf("effective animal cap = %d, want 0 (3 operators found, all zero remaining -- must not fall back to 200)", planner.MaxGoatsPerDrive)
+	}
+
+	g := &dueGroup{
+		scopeType: "park",
+		scopeID:   "park-1",
+		ruleID:    "rule-1",
+		parkID:    "park-1",
+		ids:       []string{"obl-1"},
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1", ParkID: "park-1", TargetID: "goat-1", DueAt: planned},
+		},
+	}
+	unscaledPlanner := domain.DrivePlannerSettings{Enabled: true, MaxGoatsPerDrive: 200}
+	batched, obligations, err := svc.batchDueGroup(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: unscaledPlanner,
+	}, unscaledPlanner, planned, planned, NewSweepSession(), g)
+	if err != nil {
+		t.Fatalf("batchDueGroup: %v", err)
+	}
+	if batched || obligations != 0 || len(repo.createdBatches) != 0 {
+		t.Fatalf("batched=%v obligations=%d batches=%#v, want no batch created onto fully-loaded operators", batched, obligations, repo.createdBatches)
+	}
+}
+
 func TestVaccinationOperatorAvailabilityCachedAcrossPlannerAndAssignment(t *testing.T) {
 	planned := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1", "op-2", "op-3"}}
@@ -1945,6 +2041,9 @@ type fakeSweepRepo struct {
 	ruleCountsByBatch         map[string][]domain.RuleAttachmentCount
 	parkListCalls             int
 	repeatParkPage            bool
+	upsertDriveAssignments    [][]domain.DriveAssignment
+	replaceDriveAssignments   [][]domain.DriveAssignment // recorded ReplaceVaccinationDriveAssignmentsForBatch calls, in order
+	replaceDriveBatchIDs      []string
 	overrides                 map[string]domain.VaccineDriveDateOverride
 }
 
@@ -1957,6 +2056,7 @@ type fakeVaccinationOperatorListRepo struct {
 	*fakeSweepRepo
 	operators         []string
 	operatorCaps      map[string]int32
+	zeroCapOperators  map[string]bool
 	operatorListCalls int
 }
 
@@ -1967,6 +2067,12 @@ func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(
 		cap := capPerOperator
 		if f.operatorCaps != nil && f.operatorCaps[operatorID] > 0 {
 			cap = f.operatorCaps[operatorID]
+		}
+		if f.zeroCapOperators != nil && f.zeroCapOperators[operatorID] {
+			// Mirrors the real repository query: Cap is GREATEST(daily_cap - loaded, 0), so an
+			// operator already fully loaded for the day is reported present with remaining Cap 0,
+			// never simply absent from the list.
+			cap = 0
 		}
 		out = append(out, domain.DriveOperatorCapacity{OperatorID: operatorID, Cap: cap})
 	}
@@ -2065,6 +2171,22 @@ func (f *fakeSweepRepo) CreateBatchWithObligationsReturningAttachedIDs(_ context
 		})
 	}
 	return batchID, attachedIDs, nil
+}
+
+// UpsertVaccinationDriveAssignments and ReplaceVaccinationDriveAssignmentsForBatch let sweeper
+// tests observe exactly what the production caller (batchDueGroup) persists for drive assignments
+// without needing Postgres: they record the call, mirroring the real repository's contract
+// (replace = delete-then-insert scoped to the batch; upsert = add/update only, never removes a
+// stale key). Tests assert against these recorded slices instead of a live DB.
+func (f *fakeSweepRepo) UpsertVaccinationDriveAssignments(_ context.Context, _ string, assignments []domain.DriveAssignment) error {
+	f.upsertDriveAssignments = append(f.upsertDriveAssignments, append([]domain.DriveAssignment(nil), assignments...))
+	return nil
+}
+
+func (f *fakeSweepRepo) ReplaceVaccinationDriveAssignmentsForBatch(_ context.Context, _, batchID string, assignments []domain.DriveAssignment) error {
+	f.replaceDriveBatchIDs = append(f.replaceDriveBatchIDs, batchID)
+	f.replaceDriveAssignments = append(f.replaceDriveAssignments, append([]domain.DriveAssignment(nil), assignments...))
+	return nil
 }
 
 func (f *fakeSweepRepo) removeAttachedObligations(ids []string) {
@@ -2456,6 +2578,71 @@ func TestLimitUnbatchedSelectionCountsDistinctAnimals(t *testing.T) {
 // TestPartialAttachScopesVaccinationDriveAssignmentsToAttachedIDs tests that drive assignments
 // are rebuilt to scope ONLY the obligations that actually attached to the batch.
 // This is a regression test for Bug #2: partial-attach ledger overcount.
+// TestBatchDueGroupPartialAttachDoesNotPersistStaleDriveAssignmentForUnattachedShed reproduces the
+// REAL F2 production path end to end via batchDueGroup (not the isolated driveAssignmentsForUnbatched
+// helper the old test below only exercised): 2 selected obligations in DIFFERENT sheds/partitions of
+// the same park; only 1 (obl-1, shed "Gandhi 1") attaches, obl-2 (shed "Godel 2") does not. Before the
+// F2 fix, newBatch.DriveAssignments was built from BOTH sheds and handed to the create call BEFORE
+// attachedIDs was known, so the repository's create-tx upsert would persist a row for the unattached
+// shed too. After the fix: (1) the create call must carry NO drive assignments (the unfiltered
+// pre-attach set must never reach it), and (2) the final persisted set -- via a REPLACE scoped to
+// (tenant, batch) -- must contain exactly one assignment, for the attached shed only.
+func TestBatchDueGroupPartialAttachDoesNotPersistStaleDriveAssignmentForUnattachedShed(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-gandhi-1", ParkID: "park-1", TargetID: "goat-1", ShedName: "Gandhi 1", DueAt: planned},
+		{ObligationID: "obl-2", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-godel-2", ParkID: "park-1", TargetID: "goat-2", ShedName: "Godel 2", DueAt: planned},
+	}
+	repo := &fakeSweepRepo{createBatchID: "batch-1", createBatchAttached: 1} // only the first id (obl-1) attaches
+	svc := NewSweeperService(repo, nil, nil)
+	g := &dueGroup{
+		scopeType: "shed",
+		scopeID:   "shed-gandhi-1",
+		ruleID:    "rule-ppr",
+		parkID:    "park-1",
+		ids:       []string{"obl-1", "obl-2"},
+		rows:      rows,
+	}
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2, MaxBatchingHoldDays: 7, MaxBatchingHoldCount: 1}
+
+	batched, obligations, err := svc.batchDueGroup(context.Background(), "tenant-1", "version-ppr", SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: planner,
+	}, planner, planned, planned, NewSweepSession(), g)
+	if err != nil {
+		t.Fatalf("batchDueGroup: %v", err)
+	}
+	if !batched || obligations != 1 {
+		t.Fatalf("batched=%v obligations=%d, want batched=true obligations=1 (only obl-1 attaches)", batched, obligations)
+	}
+	if len(repo.createdBatches) != 1 {
+		t.Fatalf("createdBatches = %d, want 1", len(repo.createdBatches))
+	}
+	// Root-cause assertion: the create call must never carry the unfiltered pre-attach assignment
+	// set. Before the fix this held 2 assignments (Gandhi 1 AND Godel 2).
+	if got := repo.createdBatches[0].DriveAssignments; len(got) != 0 {
+		t.Fatalf("create-call DriveAssignments = %#v, want empty -- the pre-attach set must never reach the create path", got)
+	}
+	// The final replace-scoped write must persist exactly the attached shed, nothing else.
+	if len(repo.replaceDriveAssignments) != 1 {
+		t.Fatalf("replaceDriveAssignments calls = %d, want exactly 1 replace-scoped write", len(repo.replaceDriveAssignments))
+	}
+	final := repo.replaceDriveAssignments[0]
+	if len(final) != 1 {
+		t.Fatalf("final persisted assignment set = %#v, want exactly 1 (attached shed only)", final)
+	}
+	if final[0].PhysicalShed != "Gandhi" || final[0].PartitionLabel != "1" {
+		t.Fatalf("final persisted assignment = %#v, want physical_shed=Gandhi partition=1 (obl-1's shed), not the unattached Godel/2 shed", final[0])
+	}
+	if final[0].AnimalCount != 1 {
+		t.Fatalf("final persisted assignment animal_count = %d, want 1", final[0].AnimalCount)
+	}
+	// Never any leftover legacy upsert-only call for this batch either.
+	if len(repo.upsertDriveAssignments) != 0 {
+		t.Fatalf("upsertDriveAssignments calls = %#v, want none -- the replace path must be used, not the legacy upsert-only writer", repo.upsertDriveAssignments)
+	}
+}
+
 func TestPartialAttachScopesVaccinationDriveAssignmentsToAttachedIDs(t *testing.T) {
 	// Setup: 2 selected obligations, but only 1 attaches.
 	// Build assignments from all selected (both), then scope to only attached (1).

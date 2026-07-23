@@ -322,6 +322,10 @@ one product; this skill is the navigation layer.
   validator, adversarial self-test, transform, fixture hashes,
   `docs/runbooks/source-seed-data-validation.md`, source-date contract, and
   anti-pattern docs in the same patch; the coupling guard must fail otherwise.
+  For vaccination `health_status` source data, keep case-log vocabulary separate
+  from clinical state: `Open -> sick`, `Extended -> under_treatment`,
+  `Closed -> healthy`, `Fine -> healthy`. Never seed `Closed` or `Fine` as
+  `recovering` or as a defer.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the
@@ -505,15 +509,20 @@ one product; this skill is the navigation layer.
 - Vaccination operator animal capacity is HRMS-owned. The live source is
   `workforce_positions.vaccination_daily_animal_cap` per operator position;
   `vaccination_capacity_config.max_per_day` is only a fallback when HRMS has no
-  explicit cap. HRMS edits, operator-roster seed overlays, planner assignment
-  splitting, timetable capacity, admin-web display, and leadership reads must
-  all use that same per-position field. Any change to cap source or fallback
-  order must update the migration/seed fixture companions, admin UI, scheduler
-  tests, and capacity/date-move E2E in one patch.
-  Clearing `vaccination_daily_animal_cap` to null is a valid HRMS edit that
-  restores tenant-default capacity; never coerce it to zero or silently leave
-  the previous custom cap. Operator-cap SQL proof must be a real Postgres test
-  for custom/null-default/week-off rows; a source-string guard is only a lint.
+  explicit cap. Operator shift configuration (shift_label, shift_start_minute,
+  shift_end_minute) seeds into `vaccination_operator_shift_config` via the
+  operator-roster overlay; operator assignment config (active_operators_per_day,
+  default_operator_code) seeds into `vaccination_operator_assignment_config`
+  (scheduler-consumed operator assignment config). HRMS edits,
+  operator-roster seed overlays, planner assignment splitting, timetable
+  capacity, admin-web display, and leadership reads must all use the same
+  per-position cap field. Any change to cap source, shift fields, or assignment
+  config must update the migration/seed fixture companions, admin UI, scheduler
+  tests, and capacity/date-move E2E in one patch. Clearing
+  `vaccination_daily_animal_cap` to null is a valid HRMS edit that restores
+  tenant-default capacity; never coerce it to zero or silently leave the
+  previous custom cap. Operator-cap SQL proof must be a real Postgres test for
+  custom/null-default/week-off rows; a source-string guard is only a lint.
 
 ## Must Not
 

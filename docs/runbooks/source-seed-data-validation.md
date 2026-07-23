@@ -94,6 +94,19 @@ Friday, Darshan = Sunday, and Sagar = Saturday. Chandrakant is a Preventive
 Care Director and contributes no field capacity unless explicitly assigned as
 an operator.
 
+### Operator Shift Configuration
+
+The `cpt-operator-roster.json` may include operator shift schedules (migration 000035):
+
+- `shift_label` — one of `am` (morning), `pm` (afternoon), or `rover` (flexible)
+- `shift_start_minute` — 0–1439 (start time in minutes after midnight)
+- `shift_end_minute` — 1–1440 (end time in minutes after midnight)
+
+These fields seed into `vaccination_operator_shift_config` and are consumed by
+the drive scheduler when resolving daily operator assignment. The optional
+`operator_assignment_config` block sets `active_operators_per_day` (max concurrent
+operators) and `default_operator_code` (fallback when no explicit assignment).
+
 After seeding, HRMS may override an operator seat's vaccination animal/day cap
 through `workforce_positions.vaccination_daily_animal_cap`. Runtime scheduling
 uses this order: HRMS position cap first, then `vaccination_capacity_config` as
@@ -166,6 +179,10 @@ and bounded row-number examples that do not print staff PII:
   finish cutoff;
 - vaccination before DOB or before the published minimum age;
 - delivery, abortion, health, weight, or lifecycle events before DOB;
+- health case-log normalization: `Open -> sick`, `Extended -> under_treatment`,
+  `Closed -> healthy`, and `Fine -> healthy`. `Closed` is resolved history and
+  `Fine` is explicit healthy status; neither may become `recovering` or any
+  other defer state;
 - death/sale before DOB and vaccination after death/sale;
 - mother references that are unresolved, self-referential, not an older female,
   or only ambiguous legacy identifiers;
@@ -208,6 +225,10 @@ transform may repair surrounding mock metadata but must never change a dated,
   uses accepted same-vaccine history, entry date, or adult catch-up as designed.
 - If vaccination occurs after a mock death/sale, keep the vaccination and remove
   the contradictory terminal fact, restoring the animal to Alive.
+- Preserve health case-log semantics. `Closed` means the source case is
+  resolved and normalizes to `healthy`; `Fine` is explicit healthy status. Only
+  explicit active case states such as `Open` or `Extended` may produce clinical
+  defer states.
 - Synchronize vaccination-row location/demographic copies from the corrected
   animal row; do not touch vaccination cells.
 - Keep only reviewed, resolvable maternal links. Blank ambiguous mock links.

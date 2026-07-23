@@ -3,9 +3,16 @@ package ports
 
 import (
 	"context"
+	"errors"
 
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
+
+// ErrOperatorAssignmentConfigConflict is the shared optimistic-concurrency sentinel for
+// UpsertOperatorAssignmentConfig: a stale RowVersion never silently clobbers a concurrent admin write.
+// Defined here (not in the postgres adapter) so both the postgres implementation and the app-layer
+// service can errors.Is against one stable value without an adapter-to-adapter import.
+var ErrOperatorAssignmentConfigConflict = errors.New("vaccination execution: operator assignment config: row version conflict")
 
 type Repository interface {
 	ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error)
@@ -39,4 +46,15 @@ type Repository interface {
 	// CapacityConfig returns the tenant's daily operator animal cap config (falls back to the code
 	// default when no row is authored). Drives session-splitting in ShedSummary and the shed-detail plan.
 	CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error)
+	// OperatorAssignmentConfig returns the park's N-active-operators-per-day + default-operator config
+	// (see domain.OperatorAssignmentConfig doc). Returns found=false when no row is
+	// authored yet (never a silent default -- the caller must reject reads that require one).
+	OperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (cfg domain.OperatorAssignmentConfig, found bool, err error)
+	// OperatorShifts returns the authored shift rows for every operator with a shift-config row in this
+	// park, ordered by shift label then operator id.
+	OperatorShifts(ctx context.Context, tenantID, parkID string) ([]domain.OperatorShift, error)
+	// UpsertOperatorAssignmentConfig idempotently writes the park's assignment config. When rowVersion is
+	// 0 the row must not already exist (first write); otherwise rowVersion must match the current stored
+	// value or ErrOperatorAssignmentConfigConflict is returned.
+	UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error)
 }

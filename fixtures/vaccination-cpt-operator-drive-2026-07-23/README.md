@@ -96,6 +96,11 @@ combo-spacing rules, clinical exclusions, and date overrides, but it must never
 drop adult ET+TT booster obligations or quietly move safe-window breaches beyond
 their latest safe date.
 
+The updated goat source has no active health defers: health status counts are
+261 blank, 62 `Closed`, and 1 `Fine`. `Closed` is resolved history and `Fine` is
+explicit healthy status; neither may be seeded as `recovering`,
+`under_treatment`, or any other vaccination defer.
+
 ## Seed/Verify Checklist For Local Or Dev
 
 1. Start from the latest `main` commit containing this packet.
@@ -114,6 +119,8 @@ their latest safe date.
    - all three operators appear when all are available;
    - Friday removes Amit, Saturday removes Sagar, Sunday removes Darshan;
    - physical sheds are grouped while partitions remain visible in assignments;
+   - all 324 animals are considered against vaccination rules, with zero
+     source-health exclusions from this packet;
    - ET+TT adult booster, PPR, Blue Tongue, HS, FMD, kid/adult rules, combo
      spacing, sick/ICU/pregnancy/terminal exclusions, and `+1 week` buffer all
      come from backend rules.

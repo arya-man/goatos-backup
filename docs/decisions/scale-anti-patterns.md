@@ -104,7 +104,15 @@ targets, process-integrity rows, and the schedule ledger.
   (`workforce_positions.vaccination_daily_animal_cap`) with
   `vaccination_capacity_config.max_per_day` only as the fallback default. Do
   not multiply a hardcoded/default cap by operator count in UI or backend once
-  per-seat caps are available.
+  per-seat caps are available. Operator assignment config is a point lookup
+  scoped to `(tenant, park)` with bounded ≤N operators, never a scan or fan-out.
+  `active_operators_per_day` and `default_operator_code` are scheduler-consumed
+  seed/admin config, not saved-for-display metadata. Treating them as
+  config-only is a false-green seed anti-pattern: CPT's N=1/default-Darshan
+  drive must plan one operator per business date, with the PM shift label used
+  only to identify the fallback operator when the default is off/on leave. Shift
+  labels must never create morning/afternoon vaccine sessions; the drive cap is
+  day-grained unique animals.
 - infinite paging loops without cursor/progress proof
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds
@@ -209,6 +217,13 @@ Do not report drive assignment rows as the complete future schedule until the
 missing-obligation audit is clean. Adult ET+TT dose 1 history must always have
 same-goat adult ET+TT dose 2 work; otherwise the assignment table is just a
 partial projection.
+
+Do not map source health case-log status `Closed` or explicit healthy status
+`Fine` to canonical `recovering`. `Closed` is resolved history and normalizes to
+`healthy`; `Fine` also normalizes to `healthy`; `Open` normalizes to `sick`, and
+`Extended` normalizes to `under_treatment`. Treating any populated source health
+cell as a defer state is a seed anti-pattern because it silently removes
+eligible animals from vaccination drives.
 
 - connecting to the database or writing grants/roster/config before the exact
   selected source directory passes a DB-free preflight;
@@ -640,3 +655,4 @@ proof upload stays shed-grain while animal evidence stays the paged scan roster.
 <!-- Coupling review 2026-07-22: CPT-only operator-drive rehearsal role mapping does not change raw fixture bytes. It changes seed interpretation and validation: Amit, Darshan, and Sagar must seed as equal manager-tier vaccination_operator_* positions with execute duty and source week-offs, and drive splitting must use DB-backed availability for the planned date. -->
 
 <!-- Coupling review 2026-07-23: the seed-roster-real operator-roster overlay does not alter scale posture. It is a bounded per-park recast of a fixed set of resolved roster seats into per-person vaccination_operator_<name> positions during seeding (no per-row I/O, no request-path query, no new read model); drive splitting continues to read DB-backed operator availability. No scale anti-pattern is introduced or relaxed. -->
+<!-- Coupling review 2026-07-23: vaccination operator assignment config is scheduler-consumed, not config-only. The bounded point lookup filters the already-loaded daily operator-capacity candidate set by active_operators_per_day/default_operator_code and shift fallback identity; it does not introduce tenant-wide scans, per-animal reads, or time-of-day drive splitting. -->

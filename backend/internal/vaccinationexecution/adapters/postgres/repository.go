@@ -2786,3 +2786,109 @@ WHERE g.tenant_id = $1::uuid
 ORDER BY g.goat_id ASC
 LIMIT $4;
 `
+
+// ---- Vaccination operator shift + assignment config ----
+// (vaccination_operator_assignment_config / vaccination_operator_shift_config, migration 000035).
+// The admin config screen authors these rows; the drive/obligation scheduler consumes them.
+
+// UpsertOperatorAssignmentConfig returns ports.ErrOperatorAssignmentConfigConflict when the caller's
+// RowVersion does not match the currently stored row (optimistic concurrency: reject, never clobber).
+
+const operatorAssignmentConfigSQL = `
+SELECT active_operators_per_day, default_operator_id, row_version
+FROM vaccination_operator_assignment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid;`
+
+// OperatorAssignmentConfig reads the park's N-active-operators-per-day + default-operator config.
+// found=false (no error) when no row is authored yet for this park.
+func (r *Repository) OperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (domain.OperatorAssignmentConfig, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	cfg := domain.OperatorAssignmentConfig{ParkID: parkID}
+	err := r.pool.QueryRow(ctx, operatorAssignmentConfigSQL, tenantID, parkID).
+		Scan(&cfg.ActiveOperatorsPerDay, &cfg.DefaultOperatorID, &cfg.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.OperatorAssignmentConfig{}, false, nil
+	}
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, false, fmt.Errorf("vaccination execution: operator assignment config: %w", err)
+	}
+	return cfg, true, nil
+}
+
+const operatorShiftsSQL = `
+SELECT s.operator_id, COALESCE(m.display_name, ''), s.shift_label, s.shift_start_minute, s.shift_end_minute,
+       COALESCE(s.week_off_weekday, '')
+FROM vaccination_operator_shift_config s
+LEFT JOIN workforce_members m
+  ON m.tenant_id = s.tenant_id AND m.workforce_member_id = s.operator_id
+WHERE s.tenant_id = $1::uuid AND s.park_id = $2::uuid
+ORDER BY CASE s.shift_label WHEN 'am' THEN 0 WHEN 'rover' THEN 1 WHEN 'pm' THEN 2 ELSE 3 END, s.operator_id ASC;`
+
+// OperatorShifts returns every operator's authored shift row for this park.
+func (r *Repository) OperatorShifts(ctx context.Context, tenantID, parkID string) ([]domain.OperatorShift, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, operatorShiftsSQL, tenantID, parkID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: operator shifts: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.OperatorShift
+	for rows.Next() {
+		var s domain.OperatorShift
+		if err := rows.Scan(&s.OperatorID, &s.DisplayName, &s.ShiftLabel, &s.ShiftStartMinute, &s.ShiftEndMinute, &s.WeekOffWeekday); err != nil {
+			return nil, fmt.Errorf("vaccination execution: operator shifts scan: %w", err)
+		}
+		s.ParkID = parkID
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: operator shifts rows: %w", err)
+	}
+	return out, nil
+}
+
+// UpsertOperatorAssignmentConfig idempotently writes the park's assignment config with optimistic
+// concurrency. cfg.RowVersion == 0 means "first write, row must not already exist"; any other value must
+// match the currently stored row_version or ports.ErrOperatorAssignmentConfigConflict is returned.
+func (r *Repository) UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if cfg.RowVersion == 0 {
+		var newVersion int64
+		err := r.pool.QueryRow(ctx, `
+INSERT INTO vaccination_operator_assignment_config
+  (tenant_id, park_id, active_operators_per_day, default_operator_id, row_version, updated_at)
+VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 1, now())
+ON CONFLICT (tenant_id, park_id) DO NOTHING
+RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID).Scan(&newVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+		}
+		if err != nil {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: insert operator assignment config: %w", err)
+		}
+		cfg.RowVersion = newVersion
+		return cfg, nil
+	}
+
+	var newVersion int64
+	err := r.pool.QueryRow(ctx, `
+UPDATE vaccination_operator_assignment_config
+SET active_operators_per_day = $3,
+    default_operator_id = $4::uuid,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND row_version = $5
+RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.RowVersion).Scan(&newVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+	}
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: update operator assignment config: %w", err)
+	}
+	cfg.RowVersion = newVersion
+	return cfg, nil
+}

@@ -265,6 +265,10 @@ Example with backend business date `2026-07-11`:
   every completed and future/open date even when goat-level rows exceed the
   event page limit. Completed-only dates use the purple history color, while
   dates containing both history and open work use the mixed state.
+- Health case-log source vocabulary is normalized before scheduling decisions:
+  `Open -> sick`, `Extended -> under_treatment`, `Closed -> healthy`, and
+  `Fine -> healthy`. `Closed` means resolved history and `Fine` means explicit
+  healthy status; neither may defer an otherwise eligible animal.
 - `vaccination_capacity_config` owns session splitting and needs-review
   classification. Changing cap, buffer, scope, or overflow policy requires
   regenerating or re-reading future planning state against the new config.
@@ -280,7 +284,9 @@ respect the full current rule and operations model:
 - active `vaccination.matrix` scope and rule availability;
 - species, breed, sex, DOB/age, stage/tag, current park and shed;
 - lifecycle state, including dead, sold, missing, and active filtering;
-- health defer states such as sick, ICU, and quarantine;
+- health defer states such as sick, ICU, quarantine, and explicit
+  under-treatment states; resolved `Closed` and explicit `Fine` source cases
+  are not health defers;
 - pregnancy and lactation holds;
 - procurement warm-up and holding-park trust rules;
 - minimum dose gaps, cross-vaccine gaps, and latest safe date;
@@ -615,3 +621,4 @@ Do not push a seed change that bypasses these gates.
 
 <!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
 <!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->
+<!-- Coupling review 2026-07-23: migration 000035 introduces vaccination_operator_shift_config and vaccination_operator_assignment_config tables for operator shift scheduling (shift_label/shift_start_minute/shift_end_minute) and default assignment rules (active_operators_per_day, default_operator_code). These rows are consumed by the drive scheduler when selecting daily operators and do not change source fixture bytes, seed validation, or operator-roster contract schema verification; the validator and seed-roster-real accept and seed these fields when present in cpt-operator-roster.json. -->

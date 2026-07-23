@@ -276,6 +276,25 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.CohortID = textPtr(cohortID)
 	row.GoatID = textPtr(goatID)
 	row.DriveName = textPtr(driveName)
+	// Compose the vaccine display label in Go (replaces the former SQL
+	// ceo_ai.vaccine_label_for join, so this core read path no longer depends
+	// on the leadership-assistant reporting schema). The query now emits the
+	// raw dose_code; for vaccination rows we overwrite DoseCode with the human
+	// label to preserve the prior API contract (DoseCode has always carried the
+	// label on the wire), and re-synthesize the "Protocol - Label" drive name
+	// that the SQL used to build. Non-vaccination rows keep their raw code.
+	if row.Category == domain.CategoryVaccination {
+		row.DoseCode = domain.ControlTowerDoseLabel(row.ProtocolName, row.DoseCode)
+		if row.DriveName == nil || *row.DriveName == "" {
+			name := strings.TrimSpace(row.ProtocolName)
+			if row.DoseCode != "" {
+				name = strings.TrimSpace(row.ProtocolName + " - " + row.DoseCode)
+			}
+			if name != "" {
+				row.DriveName = &name
+			}
+		}
+	}
 	row.SOPVersionID = textPtr(sopVersionID)
 	row.DueAt = dueAt.Time
 	row.WindowStart = timePtr(windowStart)
@@ -1027,28 +1046,12 @@ filtered AS (
       OR work_state IN ('rejected', 'blocked', 'overdue', 'proof_pending', 'verification_pending')
     )
 ),
+-- The vaccine display label is composed in Go (domain.ControlTowerDoseLabel),
+-- not in SQL. This read path must not depend on the leadership-assistant
+-- reporting schema: see docs/decisions/ceo-ai-reporting-boundary.md.
+-- dose_code is emitted raw and labeled after scan.
 labeled AS (
-  SELECT
-    filtered.*,
-    CASE
-      WHEN vl.vaccine_label IS NULL THEN filtered.dose_code
-      ELSE btrim(concat_ws(' ',
-        vl.vaccine_label,
-        CASE
-          WHEN filtered.dose_code LIKE '%_adult_%' THEN 'adult course'
-          WHEN filtered.dose_code LIKE '%_kid_%' THEN 'kid course'
-          ELSE NULL
-        END,
-        CASE
-          WHEN filtered.dose_code ~ '_w[0-9]+$' THEN 'dose ' || substring(filtered.dose_code from '_w([0-9]+)$')
-          ELSE NULL
-        END
-      ))
-    END AS dose_label
-  FROM filtered
-  LEFT JOIN LATERAL (
-    SELECT ceo_ai.vaccine_label_for(filtered.dose_code) AS vaccine_label
-  ) vl ON true
+  SELECT filtered.* FROM filtered
 )
 `
 
@@ -1194,8 +1197,8 @@ all_rows AS (
     protocol_version_id::text,
     rule_id::text,
     protocol_name,
-    dose_label AS dose_code,
-    NULLIF(protocol_name || CASE WHEN dose_label <> '' THEN ' - ' || dose_label ELSE '' END, '') AS drive_name,
+    dose_code,
+    NULL::text AS drive_name,
     sop_version_id,
     proof_policy,
     execution_due_at AS due_at,

@@ -84,6 +84,30 @@ export function getAdminApi() {
       return { data: body };
     },
 
+    async getVaccinationOperatorAssignmentConfig(parkId: string) {
+      const query = new URLSearchParams({ park_id: parkId });
+      const response = await fetch(`/api/vaccination/operator-assignment/config?${query.toString()}`, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch vaccination operator assignment config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
+      return { data: body };
+    },
+
+    async putVaccinationOperatorAssignmentConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationOperatorAssignmentConfigRequest']) {
+      const response = await fetch('/api/vaccination/operator-assignment/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update vaccination operator assignment config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
+      return { data: body };
+    },
+
     // getStaffPositionProfile backs the People position row-click drawer: the
     // enriched seat plus its holder's currently-active coverage window.
     async getStaffPositionProfile(positionId: string) {
@@ -150,6 +174,43 @@ export function getAdminApi() {
         throw new Error(`Failed to import positions: ${response.statusText}`);
       }
       const body = (await response.json()) as AdminApiComponents['schemas']['ImportPositionsResponse'];
+      return { data: body };
+    },
+
+    // listStaffLeave fetches planned leave/absence records for operators.
+    async listStaffLeave(
+      params?: AdminApiPaths['/admin/roster/leave']['get']['parameters']['query']
+    ) {
+      const query = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) {
+            query.append(k, String(v));
+          }
+        });
+      }
+      const url = `/api/admin/roster/leave${query.toString() ? '?' + query.toString() : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveListResponse'];
+      return { data: body };
+    },
+
+    // applyStaffLeave adds a new leave/absence period for an operator.
+    async applyStaffLeave(
+      requestBody: AdminApiComponents['schemas']['ApplyStaffLeaveRequest']
+    ) {
+      const response = await fetch('/api/admin/roster/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to apply leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
       return { data: body };
     },
   };

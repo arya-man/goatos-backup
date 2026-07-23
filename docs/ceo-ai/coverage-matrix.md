@@ -279,7 +279,11 @@ documented exclusion.
 
 The operator remaining-cap fix (`backend/internal/obligation/adapters/postgres/visit_shot_lock.go`,
 `backend/internal/obligation/app/sweeper.go`) and the partial-attach drive-assignment
-scoping fix are internal vaccination sweeper/planner correctness fixes. They add NO
+scoping fix are internal vaccination sweeper/planner correctness fixes. The partial-attach
+fix adds one new internal repository write, `func:ReplaceVaccinationDriveAssignmentsForBatch`
+(`backend/internal/obligation/adapters/postgres/visit_shot_lock.go`), which replaces the
+scoped `(tenant, batch)` drive-assignment set so no stale row survives a partial attach.
+It is an internal write on the obligation sweeper path, not a leadership read surface. They add NO
 new leadership KPI, table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox
 tool — the leadership assistant read surface is unchanged. Explicit documented
 exclusion; no coverage-matrix mapping required.
@@ -297,3 +301,38 @@ all-parks view. Neither adds a new table, read API route, Cube metric,
 `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read surface,
 read-only SQL fallback, and tool catalog are unchanged. Explicit documented
 exclusion — no coverage-matrix mapping required.
+
+## Explicit exclusion: vaccine display-label helpers (ceo_ai boundary fix, 2026-07-23)
+
+The ceo_ai reporting-boundary fix (`docs/decisions/ceo-ai-reporting-boundary.md`)
+moves vaccine display-label composition out of the SQL `ceo_ai.vaccine_label_for()`
+reporting function into core Go, so the Control Tower / process-integrity read
+path no longer depends on the leadership-assistant reporting schema. It adds two
+new internal display-label helpers:
+
+- `func:DoseDisplayLabel` (`backend/internal/vaccination/domain/vaccinelabels.go`)
+  — the canonical antigen display label, delegated to by
+  `vaccinationexecution/domain.VaccinationDoseDisplayLabel`.
+- `func:ControlTowerDoseLabel`
+  (`backend/internal/processintegrity/domain/vaccinelabels.go`) — composes that
+  base with Control Tower course/dose/booster qualifiers.
+
+Both are pure presentation helpers turning an internal dose code into UI copy.
+They add NO new leadership KPI, table, read API, Cube metric, `ceo_ai.*` view, or
+MCP Toolbox tool; the `dose_code` on-the-wire contract is unchanged (it already
+carried the label). This change REMOVES a `ceo_ai.*` dependency from a core read
+path rather than adding a leadership surface. Explicit documented exclusion — no
+coverage-matrix mapping required.
+
+## Explicit exclusion: vaccination operator shift + assignment config (admin config, 2026-07-23)
+
+Adds two new tables (`vaccination_operator_assignment_config`,
+`vaccination_operator_shift_config`, migration 000035) plus
+`GET/PUT /vaccination/operator-assignment/config`. This is admin-only
+authoring config (CPT/Channapatna operator shift + N-active-operators-per-day
+default), analogous to the already-excluded `vaccination_capacity_config` admin
+Config screen surface — it is not a leadership KPI, business outcome metric, or
+reporting dimension. The drive/obligation scheduler consumes it for daily
+operator assignment, but no new leadership-relevant table, official KPI, or
+reporting view is introduced. Explicit documented exclusion — no coverage-matrix
+mapping required.

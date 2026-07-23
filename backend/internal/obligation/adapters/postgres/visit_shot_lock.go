@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
+	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // visitShotLockNamespace prefixes every per-visit advisory-lock key so it cannot collide with
@@ -73,6 +75,51 @@ func (r *Repository) UpsertVaccinationDriveAssignments(ctx context.Context, tena
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("obligation: commit drive assignments: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// ReplaceVaccinationDriveAssignmentsForBatch persists the FINAL, attached-only drive-assignment
+// row set for one (tenant, batch) atomically: delete every existing row for that batch, then
+// insert exactly the supplied set, all inside one transaction. This is the F2 fix's persistence
+// half -- an upsert alone can only add/update keys present in the new set, so a row for an
+// obligation that was selected but did not actually attach (a shed/partition/operator key absent
+// from the new set) would survive forever. Replace removes it. Idempotent/replay-safe: calling it
+// twice with the identical assignment set leaves the same rows in place.
+func (r *Repository) ReplaceVaccinationDriveAssignmentsForBatch(ctx context.Context, tenantID, batchID string, assignments []domain.DriveAssignment) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return fmt.Errorf("obligation: batch id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("obligation: begin drive assignment replace tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if _, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignments
+WHERE tenant_id = $1 AND batch_id = $2`, tenant, batch); err != nil {
+		return fmt.Errorf("obligation: delete stale drive assignments: %w", err)
+	}
+	if len(assignments) > 0 {
+		if err := upsertVaccinationDriveAssignmentsTx(ctx, tx, tenant, assignments); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("obligation: commit drive assignment replace: %w", err)
 	}
 	committed = true
 	return nil
@@ -590,7 +637,91 @@ ORDER BY
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: vaccination operator rows: %w", err)
 	}
-	return out, nil
+	filtered, err := r.applyVaccinationOperatorAssignmentConfig(ctx, tenant, park, biztime.BusinessDayStart(date), out)
+	if err != nil {
+		return nil, err
+	}
+	return filtered, nil
+}
+
+func (r *Repository) applyVaccinationOperatorAssignmentConfig(ctx context.Context, tenant, park pgtype.UUID, date time.Time, operators []domain.DriveOperatorCapacity) ([]domain.DriveOperatorCapacity, error) {
+	if len(operators) == 0 {
+		return operators, nil
+	}
+	var cfg vaccexecd.OperatorAssignmentConfig
+	err := r.pool.QueryRow(ctx, `
+SELECT park_id::text, active_operators_per_day, default_operator_id::text, row_version
+FROM vaccination_operator_assignment_config
+WHERE tenant_id = $1 AND park_id = $2`, tenant, park).Scan(&cfg.ParkID, &cfg.ActiveOperatorsPerDay, &cfg.DefaultOperatorID, &cfg.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return operators, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("obligation: operator assignment config: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+SELECT operator_id::text, shift_label, shift_start_minute, shift_end_minute, COALESCE(week_off_weekday, '')
+FROM vaccination_operator_shift_config
+WHERE tenant_id = $1 AND park_id = $2`, tenant, park)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: operator shift config: %w", err)
+	}
+	defer rows.Close()
+	shifts := make([]vaccexecd.OperatorShift, 0)
+	for rows.Next() {
+		var shift vaccexecd.OperatorShift
+		if err := rows.Scan(&shift.OperatorID, &shift.ShiftLabel, &shift.ShiftStartMinute, &shift.ShiftEndMinute, &shift.WeekOffWeekday); err != nil {
+			return nil, fmt.Errorf("obligation: operator shift config scan: %w", err)
+		}
+		shift.ParkID = cfg.ParkID
+		shifts = append(shifts, shift)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: operator shift config rows: %w", err)
+	}
+	if len(shifts) == 0 {
+		return operators, nil
+	}
+
+	leaveRows, err := r.pool.Query(ctx, `
+SELECT workforce_member_id::text, starts_at, ends_at
+FROM workforce_absences
+WHERE tenant_id = $1
+  AND status IN ('approved', 'escalation_required')
+  AND starts_at < $2::date + interval '1 day'
+  AND ends_at > $2::date`, tenant, date)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: operator assignment leaves: %w", err)
+	}
+	defer leaveRows.Close()
+	leaves := make([]vaccexecd.OperatorLeaveWindow, 0)
+	for leaveRows.Next() {
+		var leave vaccexecd.OperatorLeaveWindow
+		if err := leaveRows.Scan(&leave.OperatorID, &leave.Start, &leave.End); err != nil {
+			return nil, fmt.Errorf("obligation: operator assignment leaves scan: %w", err)
+		}
+		leaves = append(leaves, leave)
+	}
+	if err := leaveRows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: operator assignment leaves rows: %w", err)
+	}
+
+	resolution, err := vaccexecd.ResolveOperatorsForDriveDay(date, cfg, shifts, leaves)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: resolve operator assignment config: %w", err)
+	}
+	byID := make(map[string]domain.DriveOperatorCapacity, len(operators))
+	for _, operator := range operators {
+		byID[strings.TrimSpace(operator.OperatorID)] = operator
+	}
+	filtered := make([]domain.DriveOperatorCapacity, 0, len(resolution.AvailableOperators))
+	for _, operatorID := range resolution.AvailableOperators {
+		if operator, ok := byID[strings.TrimSpace(operatorID)]; ok {
+			filtered = append(filtered, operator)
+		}
+	}
+	return filtered, nil
 }
 
 // tenantSweepLockNamespace prefixes the single per-tenant whole-sweep advisory-lock key so it
