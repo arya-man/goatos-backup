@@ -226,3 +226,14 @@ public revoked" restriction so no current or future Cube model or read query
 ever fails with `permission denied`. Access stays read-only (SELECT only +
 `default_transaction_read_only=on`; no write/DDL). This supersedes the "Cube
 never reads raw Postgres" boundary for these two read-only roles.
+
+## Explicit exclusion: vaccination proof/label/withdrawal internal fixes (2026-07-23)
+
+The shed-proof scope-recovery fix (`CaptureRepository.kt`), the withdrawal-until
+IST date fix and the dose-label cleanup
+(`backend/internal/vaccination/adapters/postgres/repository.go`,
+`backend/internal/vaccinationexecution/domain/labels.go`) are internal
+correctness fixes to existing vaccination paths. They add NO new leadership KPI,
+table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the
+leadership assistant read surface is unchanged. No coverage-matrix mapping is
+required; this is an explicit documented exclusion.

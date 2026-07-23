@@ -1534,11 +1534,11 @@ SELECT
   COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at),
   'recorded',
   COALESCE(
-    (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
+    ((nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date,
     nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
     CASE
       WHEN pr.withdrawal_days IS NOT NULL THEN
-        (COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at)::date + pr.withdrawal_days)
+        ((COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at) AT TIME ZONE 'Asia/Kolkata')::date + pr.withdrawal_days)
       ELSE NULL
     END
   ),
@@ -1598,11 +1598,11 @@ RETURNING completion_id::text`,
 	if _, err := r.pool.Exec(ctx, `
 UPDATE vaccination_completions vc
 SET withdrawal_until_date = COALESCE(
-      (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
+      ((nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date,
       nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
       CASE
         WHEN pr.withdrawal_days IS NOT NULL THEN
-          (vc.administered_at::date + pr.withdrawal_days)
+          ((vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date + pr.withdrawal_days)
         ELSE NULL
       END
     ),
