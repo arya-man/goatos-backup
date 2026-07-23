@@ -75,6 +75,10 @@ function makefileTouchesSeedPipeline(diff) {
 // (goats/species/vaccination/...) that match RELEVANT_MIGRATION_TERMS. Without
 // this, adding a read-only ceo_ai reporting view falsely demands seed fixture +
 // runbook companions (e.g. migration 000030 cube source views).
+// Declared opt-out marker for operational (runtime-producer-written) tables that
+// carry no seed-data contract. Must state a reason.
+const SEED_CONTRACT_IGNORE = /seed-fixture-guard:ignore:\s*\S+/i;
+
 function migrationCouplesToSeedContract(diff) {
   if (!RELEVANT_MIGRATION_TERMS.test(diff)) return false;
   const addedDdl = diff
@@ -93,6 +97,41 @@ function migrationCouplesToSeedContract(diff) {
   if (addedDdl.length === 0) return false;
   // Only-ceo_ai reporting-view DDL → not a seed contract change.
   if (addedDdl.length > 0 && addedDdl.every((line) => /\bceo_ai\./i.test(line))) return false;
+  // EXPLICIT, AUDITABLE opt-out for a canonical-schema table that is purely
+  // OPERATIONAL: written only by a runtime producer (scheduler/worker), never
+  // authored as seed data and never rebuilt by seed closeout. Such a table
+  // carries no seed-data contract, so fixtures/manifest/runbook companions would
+  // be noise. This is deliberately a declared marker rather than a widened
+  // heuristic: the reason is reviewable in the migration itself and cannot be
+  // acquired accidentally. Mirrors the `scale-guard:ignore:` convention.
+  // A migration that ALSO does DDL on a real seed table still couples, because
+  // the marker only excuses the lines it annotates -- every added DDL line must
+  // be covered by the marker for the migration to opt out.
+  // The marker is only honoured when EVERY added DDL line is a CREATE TABLE (a
+  // brand-new operational table). An ALTER/DROP of an already-seeded table can
+  // never be excused this way, so the marker cannot launder a real seed-schema
+  // change sitting in the same file.
+  if (SEED_CONTRACT_IGNORE.test(diff)) {
+    const created = new Set(
+      addedDdl
+        .map((line) => /\bCREATE\s+TABLE\b(?:\s+IF\s+NOT\s+EXISTS)?\s+([\w.]+)/i.exec(line)?.[1])
+        .filter(Boolean)
+        .map((name) => name.replace(/^public\./i, "").toLowerCase()),
+    );
+    // Every added DDL line must be either the CREATE of a brand-new table, or the
+    // matching DROP of a table this same migration creates (the goose Down block).
+    // An ALTER of any table, or a DROP of a table this migration did not create,
+    // is a real schema change on existing (possibly seeded) data and can never be
+    // excused by the marker.
+    const onlyNewTableDdl = addedDdl.every((line) => {
+      if (/\bALTER\s+TABLE\b/i.test(line)) return false;
+      if (/\bCREATE\s+TABLE\b/i.test(line)) return true;
+      const dropped = /\bDROP\s+TABLE\b(?:\s+IF\s+EXISTS)?\s+([\w.]+)/i.exec(line)?.[1];
+      if (!dropped) return false;
+      return created.has(dropped.replace(/^public\./i, "").toLowerCase());
+    });
+    if (onlyNewTableDdl) return false;
+  }
   return true;
 }
 
@@ -213,6 +252,31 @@ function runSelfTest() {
   ]]);
   if (couplingProblems(["backend/migrations/postgres/000999_ceo_ai_view.sql"], ceoAiOnlyMigration).length !== 0) {
     throw new Error("contract coupling self-test wrongly flagged a ceo_ai-only reporting-view migration");
+  }
+  // An OPERATIONAL table declaring the explicit opt-out marker must NOT couple.
+  const operationalMigration = new Map([[
+    "backend/migrations/postgres/000996_members.sql",
+    "+-- seed-fixture-guard:ignore: operational scheduler-written membership; no seed data contract\n+CREATE TABLE public.vaccination_drive_assignment_members (tenant_id uuid NOT NULL);\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000996_members.sql"], operationalMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a marker-declared operational table migration");
+  }
+  // ADVERSARIAL: the same operational DDL WITHOUT the marker must still couple,
+  // so the opt-out can never be acquired by accident.
+  const operationalNoMarker = new Map([[
+    "backend/migrations/postgres/000995_members_nomarker.sql",
+    "+CREATE TABLE public.vaccination_drive_assignment_members (tenant_id uuid NOT NULL);\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000995_members_nomarker.sql"], operationalNoMarker).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let an UNMARKED operational-table migration skip its companions");
+  }
+  // ADVERSARIAL: a marker must not launder a REAL seed-table alter in the same file.
+  const markerLaunderingSeedAlter = new Map([[
+    "backend/migrations/postgres/000994_launder.sql",
+    "+-- seed-fixture-guard:ignore: pretending this is operational\n+ALTER TABLE goats ADD COLUMN species text;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000994_launder.sql"], markerLaunderingSeedAlter).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let a marker launder an ALTER of a real seed table");
   }
   // A migration that ALTERs a canonical (public) seed table must still couple.
   const canonicalMigration = new Map([[
