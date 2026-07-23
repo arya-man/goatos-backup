@@ -95,7 +95,49 @@ function main() {
   const args = process.argv.slice(2);
 
   if (args.includes('--self-test')) {
-    console.log('✓ operator-cap-fail-closed self-test (skip for now; guard logic is heuristic-based)');
+    // Adversarial self-test: the guard MUST flag an unguarded callsite and MUST
+    // pass a properly fail-closed one. A green self-test that doesn't actually
+    // exercise the guard is exactly the failure mode this whole guard exists to prevent.
+    const badFixture = [
+      'func (s *SweeperService) leak(ctx context.Context) {',
+      '\tcapPlanner, _ := s.operatorCapacityPlanner(ctx, tenantID, parkID, day, planner, session)',
+      '\t_ = limitUnbatchedSelectionByDriveAnimals(now, rows, ids, day, capPlanner, session)',
+      '}',
+    ].join('\n');
+    const guardedFixture = [
+      'func (s *SweeperService) safe(ctx context.Context) {',
+      '\tcapPlanner, _ := s.operatorCapacityPlanner(ctx, tenantID, parkID, day, planner, session)',
+      '\tif driveOperatorCapacityExhausted(planner, capPlanner) {',
+      '\t\treturn',
+      '\t}',
+      '\t_ = limitUnbatchedSelectionByDriveAnimals(now, rows, ids, day, capPlanner, session)',
+      '}',
+    ].join('\n');
+    const comboFixture = [
+      'func (s *SweeperService) combo(ctx context.Context) {',
+      '\teffectiveDriveCap, _ := s.effectiveOperatorAnimalCap(ctx, tenantID, parkID, target, maxDriveCells, session)',
+      '\tif maxDriveCells > 0 && effectiveDriveCap <= 0 {',
+      '\t\treturn',
+      '\t}',
+      '\t_ = comboBatchExceedsDriveCapacityAtDate(batch, target, effectiveDriveCap, session)',
+      '}',
+    ].join('\n');
+    const badViolations = checkFile('selftest-bad.go', badFixture);
+    const guardedViolations = checkFile('selftest-guarded.go', guardedFixture);
+    const comboViolations = checkFile('selftest-combo.go', comboFixture);
+    if (badViolations.length === 0) {
+      console.error('operator-cap-fail-closed self-test FAILED: did NOT flag an unguarded operatorCapacityPlanner -> limit sink');
+      return 1;
+    }
+    if (guardedViolations.length !== 0) {
+      console.error('operator-cap-fail-closed self-test FAILED: flagged a properly driveOperatorCapacityExhausted-guarded callsite');
+      return 1;
+    }
+    if (comboViolations.length !== 0) {
+      console.error('operator-cap-fail-closed self-test FAILED: flagged a properly maxDriveCells>0 && effectiveCap<=0 combo-align guard');
+      return 1;
+    }
+    console.log('✓ operator-cap-fail-closed self-test passed (flags unguarded sink; passes exhausted-check + combo-align guards)');
     return 0;
   }
 
