@@ -479,7 +479,8 @@ class DefaultProofCaptureRepository(
         val outboxItemId = entity.outboxItemId
         if (outboxItemId.isNullOrBlank()) {
             dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
-            enqueueRegistration(entity, scopeType = "task", scopeId = taskId)
+            val (scopeType, scopeId) = recoveryScope(entity)
+            enqueueRegistration(entity, scopeType, scopeId)
             return@withContext AppResult.Ok(Unit)
         }
         when (val retry = syncRepository.retry(outboxItemId)) {
@@ -543,7 +544,8 @@ class DefaultProofCaptureRepository(
             page.forEach { entity ->
                 val outboxItemId = entity.outboxItemId
                 if (outboxItemId.isNullOrBlank()) {
-                    enqueueRegistrationNow(entity, scopeType = "task", scopeId = entity.taskId)
+                    val (scopeType, scopeId) = recoveryScope(entity)
+                    enqueueRegistrationNow(entity, scopeType, scopeId)
                 } else {
                     followOutboxItem(entity.id, outboxItemId)
                     syncRepository.triggerDrain()
@@ -653,9 +655,23 @@ class DefaultProofCaptureRepository(
         }
     }
 
+    /** F1a: Derives the scope (scope_type and scope_id) from the persisted proof entity,
+     *  matching the live capture path exactly. Shed-level proofs use "shed" scope;
+     *  all others fall back to "task" scope. */
+    private fun recoveryScope(entity: ProofCaptureEntity): Pair<String, String> {
+        val shedId = entity.subjectId
+        return if (entity.proofSubject.equals("shed", ignoreCase = true) && !shedId.isNullOrBlank()) {
+            "shed" to shedId
+        } else {
+            "task" to entity.taskId
+        }
+    }
+
     /** Reconciles proof rows from durable outbox state when lifecycle churn missed the live
      *  followOutboxItem() terminal emission. The UI remains Room-first: this only repairs
-     *  proof_capture from the persisted outbox result before readiness is calculated. */
+     *  proof_capture from the persisted outbox result before readiness is calculated.
+     *  F4: Guard each updateStatus call so it only fires when values actually differ,
+     *  preventing redundant re-emission churn. */
     private suspend fun reconcileOutboxTerminalState(rows: List<ProofCaptureEntity>) {
         rows.asSequence()
             .filter { it.syncStatus != EntitySyncStatus.SYNCED.name }
@@ -669,15 +685,29 @@ class DefaultProofCaptureRepository(
                             item.status == SyncItemStatus.SUCCEEDED -> {
                                 val proofId = decodeServerProofId(item.resultJson)
                                 if (proofId.isNullOrBlank()) {
-                                    dao.updateStatus(row.id, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
+                                    val newStatus = EntitySyncStatus.FAILED.name
+                                    if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != corruptProofUploadResultMessage) {
+                                        dao.updateStatus(row.id, newStatus, null, corruptProofUploadResultMessage)
+                                    }
                                 } else {
-                                    dao.updateStatus(row.id, EntitySyncStatus.SYNCED.name, proofId, null)
+                                    val newStatus = EntitySyncStatus.SYNCED.name
+                                    if (row.syncStatus != newStatus || row.serverProofId != proofId || row.lastError != null) {
+                                        dao.updateStatus(row.id, newStatus, proofId, null)
+                                    }
                                 }
                             }
-                            item.status == SyncItemStatus.IN_FLIGHT && row.syncStatus != EntitySyncStatus.IN_FLIGHT.name ->
-                                dao.updateStatus(row.id, EntitySyncStatus.IN_FLIGHT.name, null, null)
-                            item.isDeadLetter || item.conflict ->
-                                dao.updateStatus(row.id, EntitySyncStatus.FAILED.name, null, item.lastError)
+                            item.status == SyncItemStatus.IN_FLIGHT && row.syncStatus != EntitySyncStatus.IN_FLIGHT.name -> {
+                                val newStatus = EntitySyncStatus.IN_FLIGHT.name
+                                if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != null) {
+                                    dao.updateStatus(row.id, newStatus, null, null)
+                                }
+                            }
+                            item.isDeadLetter || item.conflict -> {
+                                val newStatus = EntitySyncStatus.FAILED.name
+                                if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != item.lastError) {
+                                    dao.updateStatus(row.id, newStatus, null, item.lastError)
+                                }
+                            }
                         }
                     }
                 }

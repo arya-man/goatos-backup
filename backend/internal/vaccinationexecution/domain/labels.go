@@ -23,16 +23,13 @@ func VaccinationDoseDisplayLabel(protocolName, doseCode string) string {
 	}
 
 	antigenCode := normalized
-	doseSuffix := ""
 	for _, suffix := range []string{"_BOOSTER", "_FIRST"} {
 		if strings.HasSuffix(antigenCode, suffix) {
 			antigenCode = strings.TrimSuffix(antigenCode, suffix)
-			doseSuffix = strings.TrimPrefix(suffix, "_")
 			break
 		}
 	}
 	if antigen := vaccinationAntigenLabel(antigenCode); antigen != "" {
-		_ = doseSuffix
 		return antigen
 	}
 
@@ -52,18 +49,6 @@ func matrixDoseDisplayLabel(code string) string {
 		antigen := vaccinationAntigenLabel(prefix)
 		if antigen == "" {
 			continue
-		}
-		rest := parts[length:]
-		if len(rest) == 0 {
-			return antigen
-		}
-		for _, part := range rest {
-			switch {
-			case part == "BOOSTER" || part == "REVAC":
-				return antigen
-			case strings.HasPrefix(part, "W") && len(part) > 1:
-				return antigen
-			}
 		}
 		return antigen
 	}
