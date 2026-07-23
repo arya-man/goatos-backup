@@ -58,10 +58,12 @@ screens broke.
      and `make ci-local`.
    - **Frontend** (`apps/admin-web/**`) and **Mobile** (`apps/goatos-android/**`)
      render backend operator contracts. Core pages/screens must not route their
-     data through `/api/ceo-ai/*`. The assistant UI bubble mounted globally in
-     `MeshaShell` is allowed chrome (server-gated); it is a consumer surface, not
-     a data path for other features. FE/mobile issue no SQL, so this half of the
-     rule is enforced by review + this ADR, not the SQL guard.
+     data through `/api/ceo-ai/*` or import an assistant client module. The
+     assistant UI bubble mounted globally in `MeshaShell` is allowed chrome
+     (server-gated); it is a consumer surface, not a data path for other
+     features. Machine-gated by the same `ceo-ai-boundary-guard` "client" scan
+     (blocks `/api/ceo-ai` / `/ceo-ai/` route strings and assistant-module
+     imports outside the assistant-owned dirs + global chrome).
 
 3. **The assistant keeps reading core data** via Mesha read APIs, the MCP
    Toolbox `ceo_ai.*` tools, or read-only SQL — that direction is unchanged and

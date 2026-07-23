@@ -1102,9 +1102,11 @@ Do not:
   vaccine labels) lives in a neutral core package such as
   `backend/internal/vaccination/domain`, read by both operator screens and the
   assistant. Frontend/mobile core pages must not route their data through
-  `/api/ceo-ai/*`; the global assistant bubble in `MeshaShell` is allowed chrome,
-  not a data path. Machine-gated for the backend SQL layer by
-  `make ceo-ai-boundary-guard`; full rule in
+  `/api/ceo-ai/*` or import an assistant client module; the global assistant
+  bubble in `MeshaShell` is allowed chrome, not a data path. Machine-gated by
+  `make ceo-ai-boundary-guard` (backend SQL schema/table access, matched across
+  newlines; plus FE/mobile `/api/ceo-ai` route + assistant-import coupling
+  outside assistant-owned dirs); full rule in
   `docs/decisions/ceo-ai-reporting-boundary.md`.
 - Do not let frontend/mobile read BigQuery, Sheets, Firestore, GCS, or operational databases directly.
 - Do not spread vendor SDK calls through product code.
