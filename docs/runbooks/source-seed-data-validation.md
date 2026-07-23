@@ -80,6 +80,7 @@ It contains the exact supplied source files:
 - `raw/CPT-Adult-vaccination.json`
 - `raw/CPT_Nuanced Timetable.xlsx`
 - `cpt-operator-roster.json`
+- `expected-drive-schedules.json`
 
 For this packet, the seed/reseed business date is `2026-07-23`. Open
 vaccination drive work must start on `2026-07-23` or later; `2026-07-22` and
@@ -113,6 +114,21 @@ uses this order: HRMS position cap first, then `vaccination_capacity_config` as
 the tenant default, then the code fallback. People/HRMS must show and edit the
 same per-seat cap the sweeper uses; vaccination screens must not keep their own
 frontend-only operator-cap value.
+
+Post-seed validation for this packet must compare the DB against
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json`.
+That sample captures the agreed variants from the 2026-07-23 operator-drive
+debugging discussion:
+
+- final plan: ET+TT only from `2026-07-24` and PPR from `2026-08-07`;
+- cap sanity: ET+TT+PPR on the same date counts 200 animals, not 400 doses;
+- fallback sanity: Darshan is off only on Sunday, so Sagar covers Sunday and
+  Darshan resumes Monday;
+- N=2 sanity: `active_operators_per_day=2` gives 400 same-day animal capacity.
+
+If seeded DB output does not match that sample under the same inputs, treat it
+as a seed/scheduler validation failure until a changed source/rule/config input
+is documented in the same patch.
 
 The five founder/CXO accounts remain tenant-scoped `ceo_internal` grants:
 `ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`,

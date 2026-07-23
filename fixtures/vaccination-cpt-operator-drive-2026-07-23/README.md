@@ -17,6 +17,7 @@ reverse-engineer the whole timetable workbook.
 | `raw/CPT-Adult-vaccination.json` | Supplied CPT vaccination history/source rows. |
 | `raw/CPT_Nuanced Timetable.xlsx` | Supplied CPT timetable workbook. |
 | `cpt-operator-roster.json` | Normalized seed contract for operators, director, capacity, week-offs, and CEO/CXO grants. |
+| `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, PPR after 14 days, same-day ET+TT+PPR cap check, Darshan Sunday fallback, and N=2 capacity sanity. |
 
 The `Adult` filename is a source label only. The seed must still use the
 published Goat OS vaccination rule engine for kids, adults, boosters, sick/ICU,
@@ -101,6 +102,21 @@ The updated goat source has no active health defers: health status counts are
 explicit healthy status; neither may be seeded as `recovering`,
 `under_treatment`, or any other vaccination defer.
 
+For the maintainer-discussed validation scenario where the UI moves PPR two
+weeks after the first ET+TT drive, the expected day-grained schedule is
+machine-readable in `expected-drive-schedules.json`. The headline numbers are:
+
+| Scenario | Date | Operator | Vaccines | Animals | Doses |
+|---|---|---|---|---:|---:|
+| Final ET+TT day 1 | 2026-07-24 Fri | Darshan Talwar | ET+TT | 200 | 200 |
+| Final ET+TT day 2 | 2026-07-25 Sat | Darshan Talwar | ET+TT | 124 | 124 |
+| Final PPR day 1 | 2026-08-07 Fri | Darshan Talwar | PPR | 200 | 200 |
+| Final PPR day 2 | 2026-08-08 Sat | Darshan Talwar | PPR | 124 | 124 |
+
+Darshan is available on both Friday and Saturday; his weekly off is Sunday.
+If ET+TT and PPR are left on the same `2026-07-24` date for a cap sanity check,
+the first day is still capped at 200 animals, even though it carries 400 doses.
+
 ## Seed/Verify Checklist For Local Or Dev
 
 1. Start from the latest `main` commit containing this packet.
@@ -124,6 +140,9 @@ explicit healthy status; neither may be seeded as `recovering`,
    - ET+TT adult booster, PPR, Blue Tongue, HS, FMD, kid/adult rules, combo
      spacing, sick/ICU/pregnancy/terminal exclusions, and `+1 week` buffer all
      come from backend rules.
+   - the DB schedule for the discussed scenarios matches
+     `expected-drive-schedules.json`; any mismatch must be explained by an
+     explicit changed input, not by hidden frontend or seed defaults.
 10. Verify admin-web and mobile from backend APIs: no frontend hardcoded park,
     operator, shed, cap, or schedule fallback may be needed.
 

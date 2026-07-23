@@ -1,0 +1,242 @@
+{
+  "schema": "goatos.cpt_operator_drive_expected_schedule.v1",
+  "purpose": "Post-seed validation sample for the CPT operator-drive rehearsal. Compare seeded DB batches/drive assignments against these numbers after applying the stated scenario inputs.",
+  "source_packet": "fixtures/vaccination-cpt-operator-drive-2026-07-23",
+  "source_business_date": "2026-07-23",
+  "discussion_locked_at": "2026-07-23",
+  "park": {
+    "code": "CPT",
+    "name": "Channapatna"
+  },
+  "animals": {
+    "total_source_animals": 324,
+    "eligible_for_discussed_et_tt_and_ppr_validation": 324,
+    "source_health_deferred_animals": 0,
+    "health_normalization": {
+      "Closed": "healthy",
+      "Fine": "healthy",
+      "Open": "sick",
+      "Extended": "under_treatment"
+    },
+    "notes": [
+      "The updated CPT goat source has no active sick/under-treatment animals for this validation.",
+      "Closed is resolved history and Fine is healthy; neither may become recovering or a vaccination defer."
+    ]
+  },
+  "operator_rules": {
+    "capacity_unit": "unique_animals_per_operator_per_business_date",
+    "dose_count_is_not_capacity": true,
+    "default_active_operators_per_day": 1,
+    "default_operator": {
+      "code": "vaccination_operator_darshan",
+      "display_name": "Darshan Talwar",
+      "week_off": "sunday",
+      "animal_cap_per_day": 200
+    },
+    "fallback_operator_when_default_off_or_on_leave": {
+      "code": "vaccination_operator_sagar",
+      "display_name": "Sagar Mahoor",
+      "week_off": "saturday",
+      "animal_cap_per_day": 200
+    },
+    "other_operator": {
+      "code": "vaccination_operator_amit",
+      "display_name": "Amit Kumar",
+      "week_off": "friday",
+      "animal_cap_per_day": 200
+    },
+    "shift_label_semantics": "shift labels identify fallback order only; vaccination drive scheduling is day-grained, not morning/afternoon time-grained"
+  },
+  "variants": [
+    {
+      "id": "final_discussed_plan_et_tt_then_ppr_after_14_days",
+      "status": "expected_final_validation",
+      "inputs": {
+        "active_operators_per_day": 1,
+        "operator_cap_animals_per_day": 200,
+        "default_operator": "vaccination_operator_darshan",
+        "vaccines_on_2026_07_24": ["ET+TT"],
+        "ppr_start_date": "2026-08-07",
+        "ppr_gap_days_from_et_tt_start": 14
+      },
+      "summary": {
+        "total_animals": 324,
+        "et_tt_drive_days": 2,
+        "ppr_drive_days": 2,
+        "et_tt_deferred_or_skipped_animals": 0,
+        "ppr_deferred_or_skipped_animals": 0
+      },
+      "drive_rows": [
+        {
+          "drive": "ET+TT",
+          "drive_day": 1,
+          "date": "2026-07-24",
+          "weekday": "friday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "animals_scheduled": 200,
+          "doses_scheduled": 200,
+          "animals_remaining_after_day": 124,
+          "deferred_or_skipped_animals": 0,
+          "operator_availability_note": "Darshan available; Amit week-off; Sagar available but N=1 so not scheduled"
+        },
+        {
+          "drive": "ET+TT",
+          "drive_day": 2,
+          "date": "2026-07-25",
+          "weekday": "saturday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "animals_scheduled": 124,
+          "doses_scheduled": 124,
+          "animals_remaining_after_day": 0,
+          "deferred_or_skipped_animals": 0,
+          "operator_availability_note": "Darshan available; Sagar week-off; Amit available but N=1 so not scheduled"
+        },
+        {
+          "drive": "PPR",
+          "drive_day": 1,
+          "date": "2026-08-07",
+          "weekday": "friday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "animals_scheduled": 200,
+          "doses_scheduled": 200,
+          "animals_remaining_after_day": 124,
+          "deferred_or_skipped_animals": 0,
+          "operator_availability_note": "Darshan available; Amit week-off; Sagar available but N=1 so not scheduled"
+        },
+        {
+          "drive": "PPR",
+          "drive_day": 2,
+          "date": "2026-08-08",
+          "weekday": "saturday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "animals_scheduled": 124,
+          "doses_scheduled": 124,
+          "animals_remaining_after_day": 0,
+          "deferred_or_skipped_animals": 0,
+          "operator_availability_note": "Darshan available; Sagar week-off; Amit available but N=1 so not scheduled"
+        }
+      ]
+    },
+    {
+      "id": "cap_check_if_et_tt_and_ppr_are_both_left_on_2026_07_24",
+      "status": "validation_variant_not_final_plan",
+      "inputs": {
+        "active_operators_per_day": 1,
+        "operator_cap_animals_per_day": 200,
+        "default_operator": "vaccination_operator_darshan",
+        "vaccines_on_2026_07_24": ["ET+TT", "PPR"],
+        "ppr_moved_after_14_days": false
+      },
+      "summary": {
+        "total_animals": 324,
+        "drive_days": 2,
+        "total_doses": 648,
+        "capacity_basis": "animals_not_doses"
+      },
+      "drive_rows": [
+        {
+          "date": "2026-07-24",
+          "weekday": "friday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "vaccines": ["ET+TT", "PPR"],
+          "animals_scheduled": 200,
+          "doses_scheduled": 400,
+          "animals_remaining_after_day": 124
+        },
+        {
+          "date": "2026-07-25",
+          "weekday": "saturday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "vaccines": ["ET+TT", "PPR"],
+          "animals_scheduled": 124,
+          "doses_scheduled": 248,
+          "animals_remaining_after_day": 0
+        }
+      ]
+    },
+    {
+      "id": "default_operator_week_off_fallback_example",
+      "status": "operator_fallback_validation_variant",
+      "inputs": {
+        "active_operators_per_day": 1,
+        "operator_cap_animals_per_day": 200,
+        "default_operator": "vaccination_operator_darshan",
+        "drive_start_date": "2026-07-26",
+        "vaccines": ["ET+TT"]
+      },
+      "summary": {
+        "reason": "Darshan week-off is Sunday, so Sagar covers Sunday only; Darshan resumes the next business day.",
+        "total_animals": 324,
+        "drive_days": 2
+      },
+      "drive_rows": [
+        {
+          "date": "2026-07-26",
+          "weekday": "sunday",
+          "operator": "Sagar Mahoor",
+          "operator_code": "vaccination_operator_sagar",
+          "reason": "default_week_off_pm_covers",
+          "animals_scheduled": 200,
+          "animals_remaining_after_day": 124
+        },
+        {
+          "date": "2026-07-27",
+          "weekday": "monday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "reason": "default_available",
+          "animals_scheduled": 124,
+          "animals_remaining_after_day": 0
+        }
+      ]
+    },
+    {
+      "id": "n2_capacity_sanity_et_tt_only",
+      "status": "capacity_validation_variant",
+      "inputs": {
+        "active_operators_per_day": 2,
+        "operator_cap_animals_per_day": 200,
+        "default_operator": "vaccination_operator_darshan",
+        "drive_start_date": "2026-07-24",
+        "vaccines": ["ET+TT"]
+      },
+      "summary": {
+        "total_animals": 324,
+        "same_day_capacity": 400,
+        "drive_days": 1
+      },
+      "drive_rows": [
+        {
+          "date": "2026-07-24",
+          "weekday": "friday",
+          "operator": "Darshan Talwar",
+          "operator_code": "vaccination_operator_darshan",
+          "animals_scheduled": 200,
+          "animals_remaining_after_operator": 124
+        },
+        {
+          "date": "2026-07-24",
+          "weekday": "friday",
+          "operator": "Sagar Mahoor",
+          "operator_code": "vaccination_operator_sagar",
+          "animals_scheduled": 124,
+          "animals_remaining_after_operator": 0
+        }
+      ]
+    }
+  ],
+  "db_validation_expectations": [
+    "Count distinct source-live CPT animals considered for the discussed ET+TT/PPR validation: 324.",
+    "Count source-health deferred animals: 0.",
+    "With N=1/default Darshan and ET+TT only on 2026-07-24, no ET+TT drive row may be assigned to Amit or Sagar.",
+    "With N=1/default Darshan and PPR moved to 2026-08-07, no PPR drive row may appear on 2026-07-24 or 2026-07-25.",
+    "For any row where ET+TT and PPR happen together, animal capacity remains the distinct animal count; doses may be double but capacity must not double.",
+    "Darshan is available on Friday and Saturday; his weekly off is Sunday."
+  ]
+}
