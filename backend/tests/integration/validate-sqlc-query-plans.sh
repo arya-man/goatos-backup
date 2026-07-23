@@ -1467,6 +1467,21 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
 }
 
+validate_counts_breakdown_lifecycle_facet_plan() {
+  # countsBreakdownFacetsSQL's lifecycle branch (repository.go) groups the WHOLE tenant herd by
+  # lifecycle_status with no lifecycle predicate of its own (a facet never filters by its own
+  # dimension), so the census filter sheet can offer Live/Sold/Culled/Dead/Transferred. Proves the
+  # tenant scan stays on the partial index goats_tenant_lifecycle_shed_idx (tenant_id,
+  # lifecycle_status, shed_id) WHERE merged_into_goat_id IS NULL rather than a sequential scan —
+  # no migration needed, this index already exists.
+  explain_must_use_index "CountsBreakdownLifecycleFacet" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT g.lifecycle_status, count(*)
+FROM goats g
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.merged_into_goat_id IS NULL
+GROUP BY g.lifecycle_status;"
+}
+
 validate_verification_queue_plan() {
   # Generic Verification vertical (context/architecture/verification-module-design.md): the
   # Verifier's queue read (GET /verification/queue) keysets by (captured_at, item_id) filtered by
@@ -1561,6 +1576,7 @@ validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_calendar_canonical_read_plan
 validate_herd_register_summary_plan
+validate_counts_breakdown_lifecycle_facet_plan
 validate_verification_queue_plan
 validate_feed_config_hot_path_plans
 

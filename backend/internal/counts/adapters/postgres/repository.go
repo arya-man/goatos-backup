@@ -2708,7 +2708,7 @@ SELECT * FROM (
 // vocabulary size, not by herd size. One set-based statement per dimension in a single batched
 // round trip: no per-row query, no loop-issued read, no N+1 fan-out.
 //
-// projection-review: membership=same tenant/merge/lifecycle scope as the grain queries but DELIBERATELY without the stage/breed/farm/shed/sex predicates; group_key=the single facet dimension per UNION branch (management_stage, then breed, then park_id, then the COMPOSITE (shed_id, park_id)); join_cardinality=the park and shed branches each LEFT JOIN locations once on (tenant_id, location_id), that table's primary key, so 1:{0,1} label lookup with no fan-out, and the stage/breed branches join nothing; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus lifecycle_status only
+// projection-review: membership=same tenant/merge/lifecycle scope as the grain queries but DELIBERATELY without the stage/breed/farm/shed/sex predicates (and the lifecycle branch itself is DELIBERATELY without the lifecycle predicate, for the same reason breed doesn't filter by breed — a facet must never filter by its own dimension); group_key=the single facet dimension per UNION branch (lifecycle_status, then management_stage, then breed, then park_id, then the COMPOSITE (shed_id, park_id)); join_cardinality=the park and shed branches each LEFT JOIN locations once on (tenant_id, location_id), that table's primary key, so 1:{0,1} label lookup with no fan-out, and the lifecycle/stage/breed branches join nothing; pagination=whole-result rollup, never paged and never capped; scope=tenant_id only for the lifecycle branch, tenant_id plus lifecycle_status for every other branch
 //
 // Facets must describe the whole selectable vocabulary, not the current selection — filtering
 // them by the active filter would collapse each dropdown to the one value already chosen.
@@ -2749,6 +2749,14 @@ SELECT * FROM (
 //	               size, so it does not grow with the herd.
 //	scope        = tenant_id plus lifecycle_status only, same as its sibling branches.
 const countsBreakdownFacetsSQL = `
+SELECT 'lifecycle' AS dimension, g.lifecycle_status AS series_key,
+       g.lifecycle_status AS series_label, count(*) AS series_count,
+       ''::text AS park_key
+FROM goats g
+WHERE g.tenant_id = $1::uuid
+  AND g.merged_into_goat_id IS NULL
+GROUP BY g.lifecycle_status
+UNION ALL
 SELECT 'stage' AS dimension, COALESCE(g.management_stage, '') AS series_key,
        COALESCE(g.management_stage, '') AS series_label, count(*) AS series_count,
        ''::text AS park_key
@@ -2926,6 +2934,8 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		}
 		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
 		switch dimension {
+		case "lifecycle":
+			out.Facets.Lifecycle = append(out.Facets.Lifecycle, point)
 		case "stage":
 			out.Facets.Stages = append(out.Facets.Stages, point)
 		case "breed":
@@ -2954,6 +2964,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	}
 	if out.Charts.Shed == nil {
 		out.Charts.Shed = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Facets.Lifecycle == nil {
+		out.Facets.Lifecycle = []domain.CountsBreakdownSeriesPoint{}
 	}
 	if out.Facets.Stages == nil {
 		out.Facets.Stages = []domain.CountsBreakdownSeriesPoint{}

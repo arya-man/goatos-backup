@@ -502,6 +502,56 @@ func TestCountsBreakdownFacetsIgnoreActiveDimensionFilters(t *testing.T) {
 	}
 }
 
+// The lifecycle facet is the vocabulary behind the census lifecycle filter (Live/Sold/Culled/
+// Dead/Transferred). It must report every distinct lifecycle_status present in the WHOLE tenant
+// herd, independent of the currently-selected lifecycle filter — otherwise selecting "Sold" would
+// collapse the filter sheet to a single option and the operator could never switch back to Live.
+func TestCountsBreakdownLifecycleFacetIsWholeHerdVocabularyNotNarrowedByActiveFilter(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	for i, lifecycle := range []string{"alive", "alive", "sold", "dead", "culled"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", lifecycle, "F2", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	// Default query (no explicit lifecycle) narrows the grain page to the live herd, per
+	// GetCountsBreakdown's alive default — but the facet must still list all five statuses.
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if got.TotalCount != 2 {
+		t.Fatalf("total_count=%d, want 2 (default grain narrows to the live herd)", got.TotalCount)
+	}
+	lifecycleCounts := map[string]int64{}
+	for _, p := range got.Facets.Lifecycle {
+		lifecycleCounts[p.Key] = p.Count
+	}
+	if len(lifecycleCounts) != 4 {
+		t.Fatalf("facets.lifecycle=%d distinct statuses, want 4 (alive/sold/dead/culled): %+v", len(lifecycleCounts), got.Facets.Lifecycle)
+	}
+	if lifecycleCounts["alive"] != 2 || lifecycleCounts["sold"] != 1 || lifecycleCounts["dead"] != 1 || lifecycleCounts["culled"] != 1 {
+		t.Fatalf("facets.lifecycle counts=%+v, want alive=2 sold=1 dead=1 culled=1", lifecycleCounts)
+	}
+
+	// Explicitly selecting a non-live lifecycle must still return the FULL vocabulary, not just
+	// the selected one — the same invariant TestCountsBreakdownFacetsIgnoreActiveDimensionFilters
+	// proves for the stage dimension.
+	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, LifecycleStatus: strp("sold"), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(sold): %v", err)
+	}
+	if scoped.TotalCount != 1 {
+		t.Fatalf("total_count=%d, want 1 (the lifecycle filter must narrow the grain rows)", scoped.TotalCount)
+	}
+	if len(scoped.Facets.Lifecycle) != 4 {
+		t.Fatalf("facets.lifecycle=%d, want 4 — facets must not be narrowed by the active lifecycle filter", len(scoped.Facets.Lifecycle))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Shed facet — the Park -> Shed cascade's vocabulary
 // ---------------------------------------------------------------------------
