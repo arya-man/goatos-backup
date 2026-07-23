@@ -351,13 +351,13 @@ func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantI
 func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallbackCap int32) int32 {
 	var total int32
 	for _, operator := range operators {
-		cap := operator.Cap
-		if cap <= 0 {
-			cap = fallbackCap
+		// Cap is remaining usable capacity (after persisted load). Use it directly; if it's 0, the operator is at capacity.
+		if operator.Cap > 0 {
+			total += operator.Cap
 		}
-		if cap > 0 {
-			total += cap
-		}
+	}
+	if total <= 0 {
+		total = fallbackCap
 	}
 	return total
 }
@@ -406,19 +406,16 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		if operatorID == "" {
 			continue
 		}
+		// Cap is now remaining usable capacity (after persisted load from AvailableVaccinationOperatorsForDrive).
+		// Skip operators with no remaining capacity from database; don't fall back to capPerOperator.
 		capacity := int(operator.Cap)
 		if capacity <= 0 {
-			capacity = int(capPerOperator)
-		}
-		if capacity <= 0 {
-			capacity = int(^uint(0) >> 1)
+			continue
 		}
 		remaining := capacity
-		if capacity > 0 {
-			remaining -= int(session.vaccinationOperatorLoad(tenantID, parkID, plannedDate, operatorID))
-			if remaining < 0 {
-				remaining = 0
-			}
+		remaining -= int(session.vaccinationOperatorLoad(tenantID, parkID, plannedDate, operatorID))
+		if remaining <= 0 {
+			continue
 		}
 		ops = append(ops, vaccexecapp.DriveOperator{
 			ID:        operatorID,
@@ -1020,7 +1017,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			return batched, obligations, assignErr
 		}
 		newBatch.DriveAssignments = driveAssignments
-		_, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, newBatch, chunk, cellsByObligation)
+		batchID, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, newBatch, chunk, cellsByObligation)
 		if createErr != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, createErr
@@ -1028,6 +1025,14 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		if len(attachedIDs) == 0 {
 			session.releaseClaims(claimChunk)
 			continue
+		}
+		// Scope drive assignments to only those obligations that actually attached.
+		// Rebuild from the attached subset to avoid persisting assignments for non-attached obligations.
+		attachedRows := selectedUnbatchedRows(selectedRows, attachedIDs)
+		scopedAssignments := driveAssignmentsForUnbatched(batchID, newBatch, attachedRows)
+		if err := s.writeVaccinationDriveAssignments(ctx, tenantID, scopedAssignments); err != nil {
+			session.releaseClaims(claimChunk)
+			return batched, obligations, err
 		}
 		claimUnbatchedDriveAnimals(session, selectedUnbatchedRows(g.rows, attachedIDs), *plannedDate)
 		session.releaseClaims(claimsOutsideSelection(claimChunk, attachedIDs))

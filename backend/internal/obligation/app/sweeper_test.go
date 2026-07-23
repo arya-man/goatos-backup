@@ -2452,3 +2452,50 @@ func TestLimitUnbatchedSelectionCountsDistinctAnimals(t *testing.T) {
 		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
 	}
 }
+
+// TestPartialAttachScopesVaccinationDriveAssignmentsToAttachedIDs tests that drive assignments
+// are rebuilt to scope ONLY the obligations that actually attached to the batch.
+// This is a regression test for Bug #2: partial-attach ledger overcount.
+func TestPartialAttachScopesVaccinationDriveAssignmentsToAttachedIDs(t *testing.T) {
+	// Setup: 2 selected obligations, but only 1 attaches.
+	// Build assignments from all selected (both), then scope to only attached (1).
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	selectedRows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", TargetID: "goat-1", ParkID: "park-1", ShedName: "shed-a", RuleID: "rule-1"},
+		{ObligationID: "obl-2", TargetID: "goat-2", ParkID: "park-1", ShedName: "shed-a", RuleID: "rule-1"},
+	}
+	attachedIDs := []string{"obl-1"} // Only obl-1 attaches; obl-2 rejected
+
+	// Initial: build assignments from all selectedRows (would include both animals before scoping)
+	newBatch := domain.NewBatch{
+		TenantID:          "tenant-1",
+		ProtocolVersionID: "version-1",
+		ScopeType:         "park",
+		ScopeID:           "park-1",
+		PlannedDate:       &planned,
+	}
+	allAssignments := driveAssignmentsForUnbatched("batch-id-full", newBatch, selectedRows)
+	if len(allAssignments) != 1 {
+		t.Fatalf("allAssignments count = %d, want 1 (one park/shed partition)", len(allAssignments))
+	}
+	if allAssignments[0].AnimalCount != 2 {
+		t.Fatalf("allAssignments animal count = %d, want 2 (both goats before scoping)", allAssignments[0].AnimalCount)
+	}
+
+	// FIX: scope to only attached obligations
+	attachedRows := selectedUnbatchedRows(selectedRows, attachedIDs)
+	scopedAssignments := driveAssignmentsForUnbatched("batch-id-scoped", newBatch, attachedRows)
+
+	// Verify: only 1 animal (for obl-1), not 2 (for both obl-1 and obl-2)
+	if len(scopedAssignments) != 1 {
+		t.Fatalf("scopedAssignments count = %d, want 1", len(scopedAssignments))
+	}
+	if scopedAssignments[0].AnimalCount != 1 {
+		t.Fatalf("scopedAssignments animal count = %d, want 1 (only obl-1's goat after scoping to attached)", scopedAssignments[0].AnimalCount)
+	}
+
+	// Verify batch ID was updated
+	if scopedAssignments[0].BatchID != "batch-id-scoped" {
+		t.Fatalf("scopedAssignments BatchID = %s, want batch-id-scoped", scopedAssignments[0].BatchID)
+	}
+}

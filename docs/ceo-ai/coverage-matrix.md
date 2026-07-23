@@ -268,3 +268,12 @@ and interaction only, rendering the same backend-owned contract. No new
 leadership-relevant surface, KPI, or workflow was introduced. No
 coverage-matrix mapping is required beyond this note; this is an explicit
 documented exclusion.
+
+## Explicit exclusion: operator remaining-cap + partial-attach ledger fixes (2026-07-23)
+
+The operator remaining-cap fix (`backend/internal/obligation/adapters/postgres/visit_shot_lock.go`,
+`backend/internal/obligation/app/sweeper.go`) and the partial-attach drive-assignment
+scoping fix are internal vaccination sweeper/planner correctness fixes. They add NO
+new leadership KPI, table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox
+tool — the leadership assistant read surface is unchanged. Explicit documented
+exclusion; no coverage-matrix mapping required.
