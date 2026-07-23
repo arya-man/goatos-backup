@@ -158,14 +158,14 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 
 	if _, err := pool.Exec(ctx, `
 INSERT INTO obligation_batches (
-  tenant_id, protocol_version_id, scope_type, scope_id, session, planned_date,
+  batch_id, tenant_id, protocol_version_id, scope_type, scope_id, session, planned_date,
   status, conducted_by, estimated_targets
 )
 VALUES
-  ($1::uuid, $2::uuid, 'park', $3::uuid, 'stale-sat', $4::date, 'planned', $5::uuid, 15),
-  ($1::uuid, $2::uuid, 'park', $3::uuid, 'stale-tue', $6::date, 'planned', $5::uuid, 5)
+  ($7::uuid, $1::uuid, $2::uuid, 'park', $3::uuid, 'stale-sat', $4::date, 'planned', $5::uuid, 15),
+  ($8::uuid, $1::uuid, $2::uuid, 'park', $3::uuid, 'stale-tue', $6::date, 'planned', $5::uuid, 5)
 `, tenantID, versionID, cbePark, time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC),
-		darshan, time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)); err != nil {
+		darshan, time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC), staleBatchID1, staleBatchID2); err != nil {
 		t.Fatalf("seed stale batches: %v", err)
 	}
 
@@ -176,7 +176,7 @@ UPDATE obligation_instances
 SET batch_id = $1::uuid
 WHERE tenant_id = $2::uuid AND target_id = $3::uuid AND batch_id IS NULL
 `, staleBatchID1, tenantID, goatIDs[i]); err != nil {
-			t.Logf("attach obligation %d to batch: %v", i, err)
+			t.Fatalf("attach obligation %d to batch (FK must resolve to a real batch row): %v", i, err)
 		}
 	}
 
@@ -186,7 +186,7 @@ UPDATE obligation_instances
 SET batch_id = $1::uuid
 WHERE tenant_id = $2::uuid AND target_id = $3::uuid AND batch_id IS NULL
 `, staleBatchID2, tenantID, goatIDs[i]); err != nil {
-			t.Logf("attach obligation %d to batch: %v", i, err)
+			t.Fatalf("attach obligation %d to batch (FK must resolve to a real batch row): %v", i, err)
 		}
 	}
 
