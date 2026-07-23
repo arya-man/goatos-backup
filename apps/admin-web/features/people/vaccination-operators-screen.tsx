@@ -166,8 +166,12 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         setPositions(pos);
         setCommonCap(capRes.data?.maxPerDay ?? 200);
         setCapDraft(String(capRes.data?.maxPerDay ?? 200));
-        // Initialize default operator with first operator's workforce_member_id
-        if (pos.length > 0) setDefaultOperator(pos[0].workforce_member_id ?? '');
+        // Initialize default operator from the first NON-BACKUP operator's workforce_member_id.
+        // operatorsList and orderedOps filter out backup slots; if the first position returned is a
+        // backup slot, defaultOperator would reference an option not in operatorsList, so orderedOps
+        // falls back to raw order and the DEFAULT/weekly preview highlights the wrong operator.
+        const firstNonBackupOp = pos.find((p) => !p.is_backup_slot);
+        if (firstNonBackupOp?.workforce_member_id) setDefaultOperator(firstNonBackupOp.workforce_member_id);
 
         // Extract park ID from the first position's scope_id (all positions should be from the same park)
         let parkId: string | null = null;
