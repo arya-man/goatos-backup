@@ -38,6 +38,12 @@ returns to L0, the root chrome is restored with its saved state.
   without a route check.
 - A drill target must have a distinct child route even when it renders the same
   feature content as a root module. Reusing an L0 route for a drill is forbidden.
+- Calendar drill fallback must use `Routes.calendarDriveRoute(fallbackDateKey)`,
+  not the bare `/calendar/drive` route, when the tapped day supplies a date key.
+  Backend rows can legitimately have a blank/unknown target while the user still
+  drilled into a specific future business date; dropping that date lets the drive
+  screen auto-select today or the first available day and recreates stale-feeling
+  Calendar behavior.
 - Structural detail screens fill the `NavHost`; they must not be styled as
   modal sheets. `ModalBottomSheet` remains correct for temporary filters,
   pickers, confirmations, and contextual actions that leave the underlying
@@ -54,9 +60,9 @@ returns to L0, the root chrome is restored with its saved state.
 membership, the drawer opener is gated on `hasDrawer && isTopLevel`, no feature
 module hand-rolls a drawer affordance (`MeshaIcons.Menu` or a direct
 `LocalDrawerOpener` read), Calendar uses a dedicated hosted drive route for
-blank/generic targets, and `TopLevelChromeTest` covers roots, hosted children,
-prefix collisions, route fallbacks, and drawer availability across every
-module's roots.
+blank/generic targets and preserves a supplied fallback date key, and
+`TopLevelChromeTest` covers roots, hosted children, prefix collisions, dated
+route fallbacks, and drawer availability across every module's roots.
 
 The Android CI job also runs the compiled JVM unit suite, so the same regression
 test must compile and pass on every Android or shared-contract change. Device

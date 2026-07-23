@@ -245,14 +245,13 @@ object Routes {
  * notification tap opens exactly where a Calendar tap on the same backend item would.
  */
 internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = null): String {
-    @Suppress("UNUSED_VARIABLE")
-    val ignoredFallbackDateKey = fallbackDateKey
-    if (target.isNullOrBlank()) return Routes.CALENDAR_DRIVE
+    val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
+    if (target.isNullOrBlank()) return fallbackDriveRoute
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
         val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
-        if (taskId.isNullOrBlank()) return Routes.CALENDAR_DRIVE
+        if (taskId.isNullOrBlank()) return fallbackDriveRoute
         return Routes.scanRoute(
             shedId = id.ifBlank { null },
             driveId = uri.getQueryParameter("drive_id") ?: uri.getQueryParameter("driveId"),
@@ -273,7 +272,7 @@ internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = nul
     val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
     return if (shedId != null && !taskId.isNullOrBlank()) {
         Routes.scanRoute(shedId, taskId = taskId)
-    } else Routes.CALENDAR_DRIVE
+    } else fallbackDriveRoute
 }
 
 /** Extracts a shed id from a backend href, supporting `.../sheds/{id}` and `?shed_id={id}`. */
