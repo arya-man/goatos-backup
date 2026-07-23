@@ -20,24 +20,9 @@ cubes:
       One row per vaccination obligation. Backs vaccination_due /
       vaccination_overdue (draft) and vaccination_compliance (draft). Per-task
       grain.
-    sql: >
-      SELECT
-        o.obligation_id                                        AS obligation_id,
-        o.tenant_id                                            AS tenant_id,
-        o.status                                               AS status,
-        o.due_at                                               AS due_at,
-        o.completed_at                                         AS completed_at,
-        o.scope_id                                             AS shed_id,
-        sh.name                                                AS shed_label,
-        sh.parent_location_id                                  AS park_id,
-        pk.name                                                AS park_label,
-        g.species                                              AS species,
-        (o.due_at AT TIME ZONE 'Asia/Kolkata')::date           AS due_business_day,
-        (o.completed_at AT TIME ZONE 'Asia/Kolkata')::date     AS completed_business_day
-      FROM obligation_instances o
-      LEFT JOIN locations sh ON sh.location_id = o.scope_id
-      LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
-      LEFT JOIN goats    g  ON g.goat_id      = o.target_id
+    # Reads governed ceo_ai.* source view (migration 000030), never raw public
+    # tables — Cube DB role has ceo_ai.* SELECT only. Grain/columns match the view.
+    sql_table: ceo_ai.vaccination_obligations_base
 
     dimensions:
       - name: obligation_id

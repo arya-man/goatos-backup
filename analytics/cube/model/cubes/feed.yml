@@ -16,21 +16,9 @@ cubes:
     description: >-
       One row per feed direction completion. Backs feed_quantity_kg (draft) and
       feed_cost (draft / blocked — no price source).
-    sql: >
-      SELECT
-        c.completion_id                                        AS completion_id,
-        c.tenant_id                                            AS tenant_id,
-        c.shed_id                                              AS shed_id,
-        sh.name                                                AS shed_label,
-        sh.parent_location_id                                  AS park_id,
-        pk.name                                                AS park_label,
-        c.quantity_fed                                         AS quantity_fed,
-        c.head_count                                           AS head_count,
-        c.status                                               AS status,
-        (c.fed_at AT TIME ZONE 'Asia/Kolkata')::date           AS fed_business_day
-      FROM feed_direction_completions c
-      LEFT JOIN locations sh ON sh.location_id = c.shed_id
-      LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+    # Reads governed ceo_ai.* source view (migration 000030), never raw public
+    # tables — Cube DB role has ceo_ai.* SELECT only. Grain/columns match the view.
+    sql_table: ceo_ai.feed_completions_base
 
     dimensions:
       - name: completion_id
