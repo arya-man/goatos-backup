@@ -938,13 +938,19 @@ enriched AS (
   LEFT JOIN LATERAL (
     SELECT COALESCE(SUM(operator_day.daily_cap), 0)::int AS operator_cap
     FROM (
-      SELECT a.operator_id, MIN(a.planned_date) AS planned_date
+      -- Capacity grain is one OPERATOR-DAY, not one operator. The planner can split the same
+      -- batch/shed/partition/vaccine cohort across multiple DATES for the SAME operator; each of
+      -- those dates is a separate day of that operator's capacity. Grouping by operator alone (and
+      -- collapsing the dates with MIN) counted a two-date split as a single operator-day, so
+      -- CT/PA/WF/AC showed assigned animals spanning both dates against the cap of only one --
+      -- a systematic UNDER-report of available capacity. DISTINCT (operator, planned_date) is the
+      -- correct cardinality; the outer SUM then adds one daily_cap per operator-day.
+      SELECT DISTINCT a.operator_id, a.planned_date
       FROM vaccination_drive_assignments a
       WHERE a.tenant_id = $1::uuid
         AND cardinality(COALESCE(drive_split.cohort_ids, '{}'::uuid[])) > 0
         AND a.assignment_id = ANY(drive_split.cohort_ids)
         AND a.operator_id IS NOT NULL
-      GROUP BY a.operator_id
     ) assigned
     CROSS JOIN LATERAL (
       SELECT COALESCE(
