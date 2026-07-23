@@ -369,7 +369,7 @@ func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, 
 		return planner, nil
 	}
 	scaled := planner
-	scaled.MaxGoatsPerDrive = totalVaccinationOperatorCap(operators, planner.MaxGoatsPerDrive)
+	scaled.MaxGoatsPerDrive = totalVaccinationOperatorCap(tenantID, parkID, *date, operators, planner.MaxGoatsPerDrive, session)
 	return scaled, nil
 }
 
@@ -388,10 +388,23 @@ func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantI
 	if len(operators) == 0 {
 		return capPerOperator, nil
 	}
-	return totalVaccinationOperatorCap(operators, capPerOperator), nil
+	return totalVaccinationOperatorCap(tenantID, parkID, *date, operators, capPerOperator, session), nil
 }
 
-func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallbackCap int32) int32 {
+// totalVaccinationOperatorCap sums each operator's REMAINING usable capacity for (tenantID,
+// parkID, plannedDate): the DB-queried Cap (already net of persisted/committed load from prior
+// sweeper runs) minus whatever THIS sweep session has already reserved for that operator on that
+// exact date via rememberVaccinationOperatorLoad. Without the session subtraction, a due-group
+// processed later in the same sweep (a different protocol version/rule -- e.g. sheep_pox after
+// blue_tongue) re-reads the SAME cached pre-session DB snapshot (see
+// SweepSession.cachedVaccinationOperators) and sees the operator's full un-reserved capacity
+// again, letting it select up to that amount on top of what an earlier due-group in this same
+// sweep already committed -- overshooting the true per-operator/day cap. This mirrors the
+// subtraction planVaccinationDriveAssignments already does at the assignment-split layer; this is
+// the same fix at the earlier SELECTION-limiting layer (operatorCapacityPlanner /
+// effectiveOperatorAnimalCap), which is what actually bounds how many obligations a due-group may
+// attach to a batch. See TestOperatorCapacityPlannerHonorsCrossVersionOperatorDayLoad.
+func totalVaccinationOperatorCap(tenantID, parkID string, plannedDate time.Time, operators []domain.DriveOperatorCapacity, fallbackCap int32, session *SweepSession) int32 {
 	// fallbackCap only applies when NO operators were found at all (callers already
 	// early-return on len(operators) == 0, but keep this defensive for direct callers).
 	// When operators WERE found but every one has 0 remaining capacity, the correct
@@ -402,9 +415,17 @@ func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallb
 	}
 	var total int32
 	for _, operator := range operators {
-		// Cap is remaining usable capacity (after persisted load). Use it directly; if it's 0, the operator is at capacity.
-		if operator.Cap > 0 {
-			total += operator.Cap
+		operatorID := strings.TrimSpace(operator.OperatorID)
+		// Cap is remaining usable capacity (after persisted load from a PRIOR sweep run). Subtract
+		// what this sweep session has already reserved for this operator/date so a later
+		// due-group/version in the same sweep sees the true remaining room, not the stale
+		// pre-session snapshot.
+		remaining := operator.Cap
+		if operatorID != "" {
+			remaining -= session.vaccinationOperatorLoad(tenantID, parkID, plannedDate, operatorID)
+		}
+		if remaining > 0 {
+			total += remaining
 		}
 	}
 	return total
