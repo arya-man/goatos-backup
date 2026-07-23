@@ -149,4 +149,5 @@
     <string name="counts_hint_reason">Between 3 and 500 characters.</string>
     <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animal you select here.</string>
     <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>
+    <string name="counts_more_fields">More details</string>
 </resources>
