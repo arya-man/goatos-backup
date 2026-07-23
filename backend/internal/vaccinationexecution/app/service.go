@@ -4,11 +4,13 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -16,6 +18,16 @@ import (
 type Service struct {
 	repo      ports.Repository
 	ownership ports.ShedOwnershipReader
+	bus       eventbus.Bus
+}
+
+// WithBus attaches the domain-event bus this service publishes vaccination.capacity.changed /
+// vaccination.roster.changed to when an operator-assignment config write actually changes N or the
+// default operator (auto-cascade producer -- see backend/internal/obligation/app/operator_config_replan.go).
+// Optional: a nil/unset bus makes config writes a no-op for the cascade (never blocks the write itself).
+func (s *Service) WithBus(bus eventbus.Bus) *Service {
+	s.bus = bus
+	return s
 }
 
 type plannedDriveSessionsReader interface {
@@ -979,6 +991,70 @@ func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID s
 	if code, message, ok := cfg.Validate(knownDefault); !ok {
 		return domain.OperatorAssignmentConfig{}, code, message, nil
 	}
+	// Read the config BEFORE the write so the auto-cascade only fires on an actual N or
+	// default-operator change, never on a no-op replay of the same values (idempotent producer).
+	before, foundBefore, err := s.repo.OperatorAssignmentConfig(ctx, tenantID, cfg.ParkID)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
 	updated, err := s.repo.UpsertOperatorAssignmentConfig(ctx, tenantID, cfg)
-	return updated, "", "", err
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
+	s.publishOperatorAssignmentConfigCascade(ctx, tenantID, before, foundBefore, updated)
+	return updated, "", "", nil
+}
+
+// publishOperatorAssignmentConfigCascade emits vaccination.capacity.changed (N changed) and/or
+// vaccination.roster.changed (default operator changed) for the auto-cascade consumer
+// (backend/internal/obligation/app/operator_config_replan.go). The event id is derived from the
+// resulting row_version, which UpsertOperatorAssignmentConfig increments on every real change -- a
+// stable, idempotent identity for this exact mutation outcome. Publish failures are logged-and-
+// swallowed here (best-effort, in-process): the config write itself has already succeeded and must
+// never be rolled back by a downstream cascade-notification problem.
+// Domain-event-registry evidence: this producer publishes event_type=vaccination.capacity.changed and
+// event_type=vaccination.roster.changed via bus.Publish(eventbus.Event{...}) below (registered in
+// context/architecture/domain-event-registry.json).
+func (s *Service) publishOperatorAssignmentConfigCascade(ctx context.Context, tenantID string, before domain.OperatorAssignmentConfig, foundBefore bool, after domain.OperatorAssignmentConfig) {
+	if s.bus == nil {
+		return
+	}
+	now := time.Now().UTC()
+	capacityChanged := !foundBefore || before.ActiveOperatorsPerDay != after.ActiveOperatorsPerDay
+	rosterChanged := !foundBefore || before.DefaultOperatorID != after.DefaultOperatorID
+	if capacityChanged {
+		_ = s.bus.Publish(ctx, eventbus.Event{
+			ID:         fmt.Sprintf("vaccination.operator-assignment-config.capacity:%s:%d", after.ParkID, after.RowVersion),
+			Type:       EventVaccinationCapacityChanged,
+			TenantID:   tenantID,
+			Key:        after.ParkID,
+			Payload:    operatorConfigChangePayload(after.ParkID),
+			OccurredAt: now,
+			RecordedAt: now,
+		})
+	}
+	if rosterChanged {
+		_ = s.bus.Publish(ctx, eventbus.Event{
+			ID:         fmt.Sprintf("vaccination.operator-assignment-config.roster:%s:%d", after.ParkID, after.RowVersion),
+			Type:       EventVaccinationRosterChanged,
+			TenantID:   tenantID,
+			Key:        after.ParkID,
+			Payload:    operatorConfigChangePayload(after.ParkID),
+			OccurredAt: now,
+			RecordedAt: now,
+		})
+	}
+}
+
+// EventVaccinationCapacityChanged / EventVaccinationRosterChanged mirror the constants of the same name
+// in backend/internal/obligation/app/operator_config_replan.go (kept in sync manually; vaccinationexecution
+// does not import obligation/app to avoid a cross-module dependency cycle -- obligation already depends
+// on protocol/vaccination, not the other way around).
+const (
+	EventVaccinationCapacityChanged = "vaccination.capacity.changed"
+	EventVaccinationRosterChanged   = "vaccination.roster.changed"
+)
+
+func operatorConfigChangePayload(parkID string) []byte {
+	return []byte(fmt.Sprintf(`{"park_id":%q}`, parkID))
 }

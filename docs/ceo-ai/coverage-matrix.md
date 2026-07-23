@@ -346,3 +346,15 @@ that releases future `planned` vaccination drive batches so the sweeper re-plans
 them under the current operator-assignment config. They add NO leadership KPI,
 read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the leadership
 assistant read surface is unchanged. Explicit documented exclusion.
+
+## Explicit exclusion: operator-config auto-cascade consumer (2026-07-23)
+
+The vaccination operator-config auto-cascade — new table
+`obligation_operator_config_replan_watermarks` (migration 000036, idempotency
+watermark only) and `func:ClaimOperatorConfigReplanWatermark`,
+`func:ParkIDForShed`, `func:NewOperatorConfigReplanHandler`, `func:Register`,
+`func:HandleEvent`, `func:WithBus` (`backend/internal/obligation/app/operator_config_replan.go`)
+— is an internal durable-consumer that, on vaccination.capacity/roster/leave.changed,
+re-plans future vaccination drive batches. It adds NO leadership KPI, read API, Cube
+metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read surface is
+unchanged. Explicit documented exclusion.

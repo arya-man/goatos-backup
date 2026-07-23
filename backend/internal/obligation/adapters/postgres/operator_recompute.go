@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -154,4 +155,70 @@ WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
 	}
 
 	return int(markedCount), nil
+}
+
+// ClaimOperatorConfigReplanWatermark is the idempotency claim for the operator-config auto-cascade
+// consumer (operator_config_replan.go). It inserts a (tenant_id, event_id) dedupe row in its own short
+// transaction; ON CONFLICT DO NOTHING means a replay of the SAME event_id claims 0 rows, so the caller
+// skips re-invoking RecomputeFutureVaccinationDrives. This mirrors claimGoatShiftWatermark's
+// watermark-claim pattern but keys strictly on event identity (not occurred_at ordering) because the
+// mutation already emits a stable, idempotent event id -- two DIFFERENT config-changing events for the
+// same park both deserve their own release pass, they just must never each be applied twice.
+func (r *Repository) ClaimOperatorConfigReplanWatermark(ctx context.Context, tenantID, parkID, eventType, eventID string) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: replan watermark tenant id: %w", err)
+	}
+	parkUUID, err := pgconv.UUID(parkID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: replan watermark park id: %w", err)
+	}
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return false, fmt.Errorf("obligation: replan watermark: empty event id")
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+INSERT INTO obligation_operator_config_replan_watermarks (tenant_id, event_id, park_id, event_type)
+VALUES ($1::uuid, $2, $3::uuid, $4)
+ON CONFLICT (tenant_id, event_id) DO NOTHING
+`, tenantUUID, eventID, parkUUID, eventType)
+	if err != nil {
+		return false, fmt.Errorf("obligation: claim replan watermark: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ParkIDForShed resolves a shed location id to its parent park location id (locations.parent_location_id),
+// used by the operator-config auto-cascade consumer to translate a shed-scoped
+// vaccination.leave.changed event into the park RecomputeFutureVaccinationDrives needs.
+func (r *Repository) ParkIDForShed(ctx context.Context, tenantID, shedID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: park-for-shed tenant id: %w", err)
+	}
+	shedUUID, err := pgconv.UUID(shedID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: park-for-shed shed id: %w", err)
+	}
+
+	var parkID pgtype.UUID
+	err = r.pool.QueryRow(ctx, `
+SELECT parent_location_id
+FROM locations
+WHERE tenant_id = $1::uuid AND location_id = $2::uuid AND location_type = 'shed'
+`, tenantUUID, shedUUID).Scan(&parkID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: park-for-shed lookup shed %s: %w", shedID, err)
+	}
+	if !parkID.Valid {
+		return "", fmt.Errorf("obligation: shed %s has no parent park", shedID)
+	}
+	return pgconv.UUIDString(parkID), nil
 }
