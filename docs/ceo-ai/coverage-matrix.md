@@ -279,7 +279,11 @@ documented exclusion.
 
 The operator remaining-cap fix (`backend/internal/obligation/adapters/postgres/visit_shot_lock.go`,
 `backend/internal/obligation/app/sweeper.go`) and the partial-attach drive-assignment
-scoping fix are internal vaccination sweeper/planner correctness fixes. They add NO
+scoping fix are internal vaccination sweeper/planner correctness fixes. The partial-attach
+fix adds one new internal repository write, `func:ReplaceVaccinationDriveAssignmentsForBatch`
+(`backend/internal/obligation/adapters/postgres/visit_shot_lock.go`), which replaces the
+scoped `(tenant, batch)` drive-assignment set so no stale row survives a partial attach.
+It is an internal write on the obligation sweeper path, not a leadership read surface. They add NO
 new leadership KPI, table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox
 tool — the leadership assistant read surface is unchanged. Explicit documented
 exclusion; no coverage-matrix mapping required.
