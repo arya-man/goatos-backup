@@ -87,6 +87,16 @@ Answer these in order and do the matching work:
 Then update `docs/ceo-ai/coverage-matrix.md` in every case so the backfill
 baseline stays complete.
 
+> **The guard is structured, not keyword-based (tightened 2026-07-23).** Merely
+> touching a `docs/ceo-ai/*` file that happens to contain a coverage keyword NO
+> LONGER satisfies it. When your diff adds a new surface (a `CREATE TABLE`
+> migration, a new OpenAPI `/path`, or a new exported read handler), the SAME
+> change must include a real coverage artifact — a `ceo_ai.*` view, an MCP
+> Toolbox tool, a Cube metric binding, a wired `Set*DataReader` — OR a
+> coverage-matrix row/exclusion that NAMES that specific table/endpoint. Pure
+> refactors (e.g. `ALTER TABLE` only, internal helpers) pass with no coverage
+> file. `make leadership-assistant-coverage-guard` is the hard gate.
+
 ## Scaffold (don't hand-type stubs)
 
 ```bash
