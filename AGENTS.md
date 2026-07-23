@@ -1067,7 +1067,13 @@ Do not:
   read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
   domain event, or official KPI must resolve to a Cube governed metric, a
   `ceo_ai.*` view, an MCP Toolbox tool, a mapped Mesha read API, or a documented
-  exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The
+  exclusion in `docs/ceo-ai/coverage-matrix.md` — in the same change. The guard
+  is STRUCTURED, not keyword-based (tightened 2026-07-23): a new `CREATE TABLE`
+  migration, a new OpenAPI `/path`, or a new exported read handler must ship a
+  real coverage artifact (`ceo_ai.*` view / MCP tool / Cube binding / wired
+  `Set*DataReader`) or a coverage-matrix row/exclusion NAMING that surface in the
+  same commit; a bare keyword-bearing doc touch no longer satisfies it, and pure
+  refactors pass without a coverage file. The
   read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
   Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
   wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):
