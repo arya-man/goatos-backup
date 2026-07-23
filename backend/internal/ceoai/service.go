@@ -47,14 +47,12 @@ type Options struct {
 	// also mounts GET /ceo-ai/admin/trace/{request_id}.
 	Traces ceohttp.TraceReader
 
-	// ConvStore / FeedbackStore back the thread + feedback surface (GET/POST
-	// /ceo-ai/conversations*, POST /ceo-ai/messages/{id}/feedback). Starters
-	// supplies the leadership starter questions for GET /ceo-ai/starters. A nil
-	// store degrades that route to 503; a nil Starters uses the defaults. The
-	// starters route (the leadership probe/launcher gate) works regardless.
-	ConvStore     ceohttp.ConvStore
-	FeedbackStore ceohttp.FeedbackStore
-	Starters      ceohttp.StartersProvider
+	// ConvStore backs the thread surface (GET/POST /ceo-ai/conversations*).
+	// Starters supplies the leadership starter questions for GET /ceo-ai/starters.
+	// A nil store degrades that route to 503; a nil Starters uses the defaults.
+	// The starters route (the leadership probe/launcher gate) works regardless.
+	ConvStore ceohttp.ConvStore
+	Starters  ceohttp.StartersProvider
 
 	Logger *slog.Logger
 }
@@ -72,7 +70,7 @@ type Service struct {
 }
 
 // Register mounts the assistant on the protected mux (POST /ceo-ai/ask plus the
-// thread/feedback/starters surface).
+// thread and starters surface).
 func (s *Service) Register(mux *http.ServeMux) {
 	s.Router.Register(mux)
 	if s.Convo != nil {
@@ -135,7 +133,7 @@ func Build(opts Options) *Service {
 		router = router.WithAdminTrace(adminTrace)
 	}
 
-	convo := ceohttp.NewConversationHandler(opts.ConvStore, opts.FeedbackStore, opts.Starters, log)
+	convo := ceohttp.NewConversationHandler(opts.ConvStore, opts.Starters, log)
 
 	return &Service{
 		Assistant:  assistant,

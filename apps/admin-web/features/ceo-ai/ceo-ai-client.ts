@@ -4,7 +4,7 @@ import type { ConversationSummary, StoredMessage } from "./types";
 // /api/ceo-ai/* (the thin authenticated proxy); the browser never talks to the
 // backend, Cube, Toolbox, Vertex, or Postgres directly. Answer streaming lives
 // in lib/ceo-ai-stream.ts; this module covers the non-streaming REST surface:
-// leadership capability probe, thread CRUD, and feedback.
+// leadership capability probe and thread CRUD.
 
 export type CapabilityResult = {
   allowed: boolean;
@@ -92,19 +92,6 @@ export async function deleteConversation(
   const res = await fetch(`/api/ceo-ai/conversations/${encodeURIComponent(conversationId)}`, {
     method: "DELETE",
     signal,
-  });
-  return res.ok;
-}
-
-export async function sendFeedback(
-  messageId: string,
-  rating: "up" | "down",
-  reason?: string,
-): Promise<boolean> {
-  const res = await fetch("/api/ceo-ai/feedback", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message_id: messageId, rating, reason }),
   });
   return res.ok;
 }

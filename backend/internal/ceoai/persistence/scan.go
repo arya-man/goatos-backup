@@ -63,23 +63,6 @@ func scanMessage(row scannable) (Message, error) {
 	return m, nil
 }
 
-func scanFeedback(row scannable) (Feedback, error) {
-	var (
-		f      Feedback
-		rating int16
-		reason *string
-	)
-	if err := row.Scan(
-		&f.ID, &f.MessageID, &f.TenantID, &f.ActorID,
-		&rating, &reason, &f.CreatedAt,
-	); err != nil {
-		return Feedback{}, err
-	}
-	f.Rating = Rating(rating)
-	f.Reason = deref(reason)
-	return f, nil
-}
-
 func deref(s *string) string {
 	if s == nil {
 		return ""
@@ -111,10 +94,6 @@ func titleArg(title string) any {
 		return nil
 	}
 	return truncateRunes(t, MaxTitleLen)
-}
-
-func clampReason(reason string) string {
-	return truncateRunes(strings.TrimSpace(reason), MaxReasonLen)
 }
 
 // truncateRunes bounds a string by rune count without splitting a multibyte rune.

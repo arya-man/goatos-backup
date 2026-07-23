@@ -445,15 +445,6 @@ func NewConversationHTTPStore(pool *pgxpool.Pool, timeout time.Duration) ceohttp
 	return persistence.NewPostgresConversationStore(pool, timeout)
 }
 
-// NewFeedbackHTTPStore exposes the Postgres feedback store to the HTTP feedback
-// route. Returns a nil interface when pool is nil.
-func NewFeedbackHTTPStore(pool *pgxpool.Pool, timeout time.Duration) ceohttp.FeedbackStore {
-	if pool == nil {
-		return nil
-	}
-	return persistence.NewPostgresFeedbackStore(pool, timeout)
-}
-
 func (a *conversationStoreAdapter) EnsureConversation(ctx context.Context, actor domain.Actor, conversationID, firstQuestion string) (string, string, error) {
 	if strings.TrimSpace(conversationID) != "" {
 		c, err := a.store.Get(ctx, actor.TenantID, actor.UserID, conversationID)

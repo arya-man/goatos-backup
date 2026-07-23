@@ -7,8 +7,6 @@ import {
   Send,
   Sparkles,
   Square,
-  ThumbsDown,
-  ThumbsUp,
   Trash2,
   X,
 } from "lucide-react";
@@ -21,7 +19,6 @@ import {
   loadConversationMessages,
   probeCapability,
   renameConversation,
-  sendFeedback,
 } from "./ceo-ai-client";
 import { CeoAiChart } from "./ceo-ai-chart";
 import { CeoAiStyles, GoatAvatar, GoatWalking, MeshaLogo } from "./ceo-ai-styles";
@@ -29,7 +26,7 @@ import { CeoAiEvents, trackCeoAiError, trackCeoAiEvent } from "./telemetry";
 import type { AssistantCopy, ChatMessage, ConversationSummary } from "./types";
 
 // Local-literal chrome copy for the leadership-only assistant. No backend page
-// contract exists for the assistant sidebar/feedback yet — documented exception
+// contract exists for the assistant sidebar yet — documented exception
 // (Verification-screen precedent) in
 // context/frontend/admin-web-backend-ui-contract.md.
 const CHROME = {
@@ -40,9 +37,6 @@ const CHROME = {
   rename: "Rename",
   delete: "Delete",
   save: "Save",
-  helpful: "Helpful",
-  notHelpful: "Not helpful",
-  reasonPlaceholder: "What was wrong? (optional)",
   stop: "Stop generating",
   degraded: "Assistant temporarily unavailable",
   timedOut: "That took too long to answer. The assistant may be busy — please try again.",
@@ -195,8 +189,6 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   const [banner, setBanner] = useState<{ kind: "err" | "warn"; text: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
-  const [reasonFor, setReasonFor] = useState<string | null>(null);
-  const [reasonText, setReasonText] = useState("");
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -410,31 +402,6 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     [renameText, refreshThreads],
   );
 
-  const applyFeedback = useCallback(
-    async (message: ChatMessage, rating: "up" | "down") => {
-      if (!message.messageId) return;
-      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, feedback: rating } : m)));
-      trackCeoAiEvent(CeoAiEvents.Feedback, { rating });
-      if (rating === "down") {
-        setReasonFor(message.id);
-        setReasonText("");
-      }
-      await sendFeedback(message.messageId, rating).catch(() => false);
-    },
-    [],
-  );
-
-  const submitReason = useCallback(
-    async (message: ChatMessage) => {
-      const reason = reasonText.trim();
-      setReasonFor(null);
-      if (message.messageId && reason) {
-        await sendFeedback(message.messageId, "down", reason).catch(() => false);
-      }
-    },
-    [reasonText],
-  );
-
   if (allowed !== true) return null;
 
   const rootStyle = open
@@ -592,47 +559,8 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                           {formatSource(message.source) ? `${formatSource(message.source)} · ` : ""}
                           {modeLabel(message.mode, copy)}
                         </span>
-                        {message.messageId ? (
-                          <span className="mzai-fb">
-                            <button
-                              type="button"
-                              className={message.feedback === "up" ? "on-up" : ""}
-                              aria-label={CHROME.helpful}
-                              title={CHROME.helpful}
-                              onClick={() => void applyFeedback(message, "up")}
-                            >
-                              <ThumbsUp className="ic" />
-                            </button>
-                            <button
-                              type="button"
-                              className={message.feedback === "down" ? "on-down" : ""}
-                              aria-label={CHROME.notHelpful}
-                              title={CHROME.notHelpful}
-                              onClick={() => void applyFeedback(message, "down")}
-                            >
-                              <ThumbsDown className="ic" />
-                            </button>
-                          </span>
-                        ) : null}
                       </div>
                     ) : null}
-                      {reasonFor === message.id ? (
-                        <div className="mzai-reason">
-                          <input
-                            autoFocus
-                            value={reasonText}
-                            placeholder={CHROME.reasonPlaceholder}
-                            onChange={(e) => setReasonText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") void submitReason(message);
-                              if (e.key === "Escape") setReasonFor(null);
-                            }}
-                          />
-                          <button type="button" onClick={() => void submitReason(message)}>
-                            {CHROME.save}
-                          </button>
-                        </div>
-                      ) : null}
                     </div>
                   </div>
                 ))}

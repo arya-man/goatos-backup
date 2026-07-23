@@ -1,8 +1,8 @@
 package http
 
-// This file mounts the leadership assistant's thread + feedback surface, the
-// companion to POST /ceo-ai/ask. The admin-web proxy (apps/admin-web/app/api/
-// ceo-ai/*) forwards to exactly these backend paths:
+// This file mounts the leadership assistant's thread surface, the companion to
+// POST /ceo-ai/ask. The admin-web proxy (apps/admin-web/app/api/ceo-ai/*)
+// forwards to exactly these backend paths:
 //
 //	GET    /ceo-ai/starters                       leadership capability probe + starter questions
 //	GET    /ceo-ai/conversations                  keyset-paginated thread list
@@ -10,7 +10,6 @@ package http
 //	GET    /ceo-ai/conversations/{id}/messages    keyset message history for a thread
 //	PATCH  /ceo-ai/conversations/{id}             rename a thread ({title})
 //	DELETE /ceo-ai/conversations/{id}             soft-delete a thread
-//	POST   /ceo-ai/messages/{message_id}/feedback thumbs up/down (+ reason)
 //
 // Every route resolves the Actor from the SERVER SESSION (never user text) and
 // is scoped to (tenant_id, actor_id). The starters route doubles as the
@@ -45,12 +44,6 @@ type ConvStore interface {
 	ListMessages(ctx context.Context, q persistence.ListMessagesQuery) (persistence.MessagePage, error)
 }
 
-// FeedbackStore is the subset of the durable feedback store this adapter drives.
-// *persistence.PostgresFeedbackStore satisfies it.
-type FeedbackStore interface {
-	Upsert(ctx context.Context, in persistence.NewFeedback) (persistence.Feedback, error)
-}
-
 // StartersProvider returns the tenant/role-aware starter questions the assistant
 // can truthfully answer. A nil provider falls back to defaultStarters.
 type StartersProvider func(ctx context.Context, actor Actor) []string
@@ -75,25 +68,24 @@ var defaultStarters = []string{
 	"Chart vaccinations due today by park",
 }
 
-// ConversationHandler serves the thread + feedback + starters surface.
+// ConversationHandler serves the thread + starters surface.
 type ConversationHandler struct {
 	conv     ConvStore
-	feedback FeedbackStore
 	starters StartersProvider
 	log      *slog.Logger
 }
 
-// NewConversationHandler builds the handler. A nil conv or feedback store leaves
-// the corresponding routes returning 503 (never a panic); starters still work so
+// NewConversationHandler builds the handler. A nil conv store leaves the
+// corresponding routes returning 503 (never a panic); starters still work so
 // the leadership probe/launcher is never blocked by an unwired store.
-func NewConversationHandler(conv ConvStore, feedback FeedbackStore, starters StartersProvider, log *slog.Logger) *ConversationHandler {
+func NewConversationHandler(conv ConvStore, starters StartersProvider, log *slog.Logger) *ConversationHandler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &ConversationHandler{conv: conv, feedback: feedback, starters: starters, log: log}
+	return &ConversationHandler{conv: conv, starters: starters, log: log}
 }
 
-// Register mounts the thread/feedback/starters routes on the protected mux.
+// Register mounts the thread and starters routes on the protected mux.
 func (h *ConversationHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ceo-ai/starters", h.Starters)
 	mux.HandleFunc("GET /ceo-ai/conversations", h.ListConversations)
@@ -101,7 +93,6 @@ func (h *ConversationHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ceo-ai/conversations/{id}/messages", h.ListMessages)
 	mux.HandleFunc("PATCH /ceo-ai/conversations/{id}", h.RenameConversation)
 	mux.HandleFunc("DELETE /ceo-ai/conversations/{id}", h.DeleteConversation)
-	mux.HandleFunc("POST /ceo-ai/messages/{message_id}/feedback", h.Feedback)
 }
 
 // actorFrom resolves the leadership actor from the server session.
@@ -298,43 +289,6 @@ func (h *ConversationHandler) DeleteConversation(w http.ResponseWriter, r *http.
 	httpresponse.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// Feedback is POST /ceo-ai/messages/{message_id}/feedback — thumbs up/down.
-func (h *ConversationHandler) Feedback(w http.ResponseWriter, r *http.Request) {
-	actor, ok := h.requireLeadership(w, r)
-	if !ok {
-		return
-	}
-	if h.feedback == nil {
-		h.storeUnavailable(w, r)
-		return
-	}
-	messageID := strings.TrimSpace(r.PathValue("message_id"))
-	var req struct {
-		Rating string `json:"rating"`
-		Reason string `json:"reason"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"error": "invalid_json"}, err)
-		return
-	}
-	rating, ok := ratingFromString(req.Rating)
-	if !ok {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"error": "invalid_rating"}, nil)
-		return
-	}
-	if _, err := h.feedback.Upsert(r.Context(), persistence.NewFeedback{
-		MessageID: messageID,
-		TenantID:  actor.TenantID,
-		ActorID:   actor.UserID,
-		Rating:    rating,
-		Reason:    strings.TrimSpace(req.Reason),
-	}); err != nil {
-		h.writeStoreErr(w, r, err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 // writeStoreErr maps store sentinels to HTTP status codes at the boundary.
 func (h *ConversationHandler) writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
@@ -349,17 +303,6 @@ func (h *ConversationHandler) writeStoreErr(w http.ResponseWriter, r *http.Reque
 
 func (h *ConversationHandler) storeUnavailable(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable, map[string]string{"error": "assistant_unreachable", "mode": "degraded"}, nil)
-}
-
-func ratingFromString(s string) (persistence.Rating, bool) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "up", "1", "+1":
-		return persistence.RatingUp, true
-	case "down", "-1":
-		return persistence.RatingDown, true
-	default:
-		return 0, false
-	}
 }
 
 func parseLimit(s string) int {

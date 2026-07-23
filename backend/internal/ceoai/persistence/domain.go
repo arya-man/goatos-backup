@@ -1,9 +1,9 @@
 // Package persistence is the durable memory of the CEO/leadership assistant:
-// conversation threads, per-turn message history, a per-tenant response cache, and
-// answer feedback. It is a thin, tenant+actor-scoped store layer over the app-owned
-// ceo_ai_* tables (migration 000021 + 000022). Every read and write is scoped by
-// (tenant_id, actor_id) taken from the server-side session -- NEVER from user text --
-// so actor A can never observe actor B's threads even within the same tenant.
+// conversation threads and per-turn message history. It is a thin, tenant+actor-scoped
+// store layer over the app-owned ceo_ai_* tables (migration 000021 + 000022). Every read
+// and write is scoped by (tenant_id, actor_id) taken from the server-side session --
+// NEVER from user text -- so actor A can never observe actor B's threads even within the
+// same tenant.
 package persistence
 
 import (
@@ -21,7 +21,7 @@ var (
 	// "exists but not yours" from "does not exist".
 	ErrNotFound = errors.New("ceoai/persistence: not found")
 
-	// ErrInvalidArgument is returned for malformed input (empty tenant/actor, bad rating,
+	// ErrInvalidArgument is returned for malformed input (empty tenant/actor,
 	// oversized page) before any query runs -- fail fast, never silent-default.
 	ErrInvalidArgument = errors.New("ceoai/persistence: invalid argument")
 )
@@ -38,27 +38,12 @@ const (
 // Valid reports whether r is a role the store will persist.
 func (r Role) Valid() bool { return r == RoleUser || r == RoleAssistant || r == RoleSystem }
 
-// Rating is a leadership thumbs signal. Stored as smallint per the ceo_ai_feedback
-// CHECK (rating IN (-1, 1)): +1 thumbs up, -1 thumbs down.
-type Rating int16
-
-const (
-	RatingUp   Rating = 1
-	RatingDown Rating = -1
-)
-
-// Valid reports whether the rating is one the store will persist.
-func (r Rating) Valid() bool { return r == RatingUp || r == RatingDown }
-
 // MaxPageSize bounds every keyset page so a leadership thread list can never dump an
 // unbounded result set (scale rule: bounded rows + LIMIT on every hot path).
 const MaxPageSize = 20
 
 // MaxTitleLen bounds a stored thread title.
 const MaxTitleLen = 200
-
-// MaxReasonLen bounds a stored feedback reason.
-const MaxReasonLen = 2000
 
 // Conversation is one leadership assistant thread. Delete is modeled by
 // RetentionExpiresAt: a soft-deleted thread has it set to now (hidden from every read,
@@ -167,25 +152,4 @@ type MessagePage struct {
 	Items      []Message
 	NextCursor *MessageCursor
 	HasMore    bool
-}
-
-// Feedback is a leadership thumbs signal on one assistant message.
-type Feedback struct {
-	ID        string
-	MessageID string
-	TenantID  string
-	ActorID   string
-	Rating    Rating
-	Reason    string
-	CreatedAt time.Time
-}
-
-// NewFeedback is the idempotent upsert input. A repeated thumbs on the same
-// (message, actor) updates the existing row rather than inserting a duplicate.
-type NewFeedback struct {
-	MessageID string
-	TenantID  string
-	ActorID   string
-	Rating    Rating
-	Reason    string
 }

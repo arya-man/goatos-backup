@@ -3,15 +3,14 @@ import { getServerConfig } from "@/lib/api/server";
 
 // Shared thin-proxy plumbing for every /api/ceo-ai/* route.
 //
-// The leadership assistant (streaming answers, conversation threads, feedback,
-// starters) is owned by the Mesha backend (`/ceo-ai/*`), the single authority
-// for leadership + tenant scope, planning, tool routing, execution, validation,
-// and audit. admin-web is a thin authenticated proxy: it attaches the session
-// bearer + tenant, forwards the request, and streams the response back
-// untouched. It re-implements NO routing, reads NO business data, and does NOT
-// gate on a display-name regex — the backend `ceo_internal` permission is the
-// security boundary (a non-leadership session gets 403 from the backend, which
-// the UI surfaces honestly).
+// The leadership assistant (streaming answers, conversation threads, starters) is
+// owned by the Mesha backend (`/ceo-ai/*`), the single authority for leadership +
+// tenant scope, planning, tool routing, execution, validation, and audit. admin-web
+// is a thin authenticated proxy: it attaches the session bearer + tenant, forwards
+// the request, and streams the response back untouched. It re-implements NO routing,
+// reads NO business data, and does NOT gate on a display-name regex — the backend
+// `ceo_internal` permission is the security boundary (a non-leadership session gets
+// 403 from the backend, which the UI surfaces honestly).
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
