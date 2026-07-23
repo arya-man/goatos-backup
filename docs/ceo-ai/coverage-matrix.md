@@ -53,6 +53,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /vaccination/action-center | api + view:action_center_current | Exception queue |
 | GET /vaccination/action-center/counts | api + view:action_center_current | Summary tiles |
 | GET /vaccination/adherence | api + Cube:vaccination_compliance | Governed compliance KPI |
+| Process-integrity vaccination labels and same-business-day status | api + view:action_center_current | Coverage clarification: no new assistant tool or KPI. Existing Action Center, Protocol Adherence, Control Tower, and Workflow read paths must report human vaccine labels when available and must classify assignment-planned vaccination work as overdue only after its India business date has passed, so assistant and admin-web process-integrity answers do not leak raw rule codes or mark today's drive late at morning check-in. |
 | GET /vaccination/capacity-config | api | Capacity behind backlog explanations |
 | GET /vaccination/verification-queue | api + view:verification_queue_status | Proof gaps |
 | GET /vaccination/workflows/{row_id} | EXCLUDED | Row-level process-integrity detail |

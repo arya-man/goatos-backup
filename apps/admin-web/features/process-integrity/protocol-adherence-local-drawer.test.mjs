@@ -12,5 +12,10 @@ test("protocol-adherence record drawers open locally without a route/RSC navigat
   assert.match(drawerSource, /useLocalOverlaySelection/);
   assert.match(drawerSource, /selectionKey: "adh_row"/);
   assert.match(drawerSource, /className=\{`scrim\$\{drawerOpen \? " on" : ""\}`\}/);
-  assert.doesNotMatch(drawerSource, /<Link[^>]+className="veil"/);
+	assert.doesNotMatch(drawerSource, /<Link[^>]+className="veil"/);
+});
+
+test("process-integrity vaccination rows share the vaccination display mapper", () => {
+	assert.match(pageSource, /vaccinationDriveDisplayName/);
+	assert.match(pageSource, /readableAdherenceExpected[\s\S]+vaccinationDriveDisplayName/);
 });

@@ -10,6 +10,7 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
 import { ClipText, Tag } from "@/components/ui-primitives";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { vaccinationDriveDisplayName } from "@/lib/vaccine-display";
 import { ProtocolAdherenceLocalDrawer, type ProtocolAdherenceDrawerRecord } from "./protocol-adherence-local-drawer";
 import { fmtDate } from "@/lib/format";
 
@@ -126,7 +127,9 @@ function readableAdherenceExpected(pageContract: AdminUiPageContract, raw: strin
       : copy(pageContract, "schedule.course");
   const timing = readableScheduleTiming(pageContract, code);
   const dueCount = raw.match(/:\s*(\d+)\s*(?:due|d\b)/i)?.[1];
-  const bits = [vaccine, path, timing].filter(Boolean);
+  const sharedLabel = vaccinationDriveDisplayName(raw);
+  const fallbackLabel = copy(pageContract, "label.vaccination_drive");
+  const bits = sharedLabel && sharedLabel !== fallbackLabel ? [sharedLabel] : [vaccine, path, timing].filter(Boolean);
   return {
     title: `${bits.join(" ")}${dueCount ? ` - ${dueCount} ${copy(pageContract, "label.due_lower")}` : ""}`,
     detail: bits.join(" "),
