@@ -98,6 +98,14 @@ operator per day, plus Chandrakant as director-only monitoring scope. It also
 reuses the founder/CXO `ceo_internal` grant cohort documented in
 `docs/runbooks/auth.md`: `ravi@mesha.sg`, `manohark@mesha.sg`,
 `manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+The packet also includes `expected-drive-schedules.json`, a machine-readable
+post-seed validation sample. For the discussed 2026-07-24 drive, the expected
+final input is one active operator/day, default Darshan, 200 animals/day,
+ET+TT-only on `2026-07-24`, and PPR moved to `2026-08-07`. That produces ET+TT
+rows of 200 animals on `2026-07-24` and 124 animals on `2026-07-25`, plus PPR
+rows of 200 animals on `2026-08-07` and 124 animals on `2026-08-08`. Darshan is
+available Friday/Saturday and off Sunday; dose counts must not inflate animal
+capacity.
 
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
@@ -317,6 +325,11 @@ GOATOS_ENV=local \
 GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
 make seed-vaccination-source-full
 ```
+
+After seeding this CPT rehearsal packet, validate the resulting DB schedule
+against
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json`
+before accepting the seed as correct.
 
 For an already-seeded database after additive migrations, do not rerun source
 seed just to fill derived tables. Apply the migrations, then run:
