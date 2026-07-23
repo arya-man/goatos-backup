@@ -22,27 +22,35 @@ type ReadResult<T> =
   | { ok: false; error: string };
 
 async function getShedGoatPassport(goatId: string): Promise<ReadResult<GoatPassportResponse>> {
-  const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/passport`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = await response.json() as Partial<GoatPassportResponse> & { error?: string };
-  if (!response.ok || !payload.goat) {
-    return { ok: false, error: payload.error ?? `passport_read_${response.status}` };
+  try {
+    const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/passport`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<GoatPassportResponse> & { error?: string };
+    if (!response.ok || !payload.goat) {
+      return { ok: false, error: payload.error ?? `passport_read_${response.status}` };
+    }
+    return { ok: true, data: payload as GoatPassportResponse };
+  } catch {
+    return { ok: false, error: "passport_unreachable" };
   }
-  return { ok: true, data: payload as GoatPassportResponse };
 }
 
 async function getShedGoatVaccinationPassport(goatId: string): Promise<ReadResult<VaccinationPassport>> {
-  const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = await response.json() as Partial<VaccinationPassport> & { error?: string };
-  if (!response.ok || !payload.goat_id) {
-    return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+  try {
+    const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<VaccinationPassport> & { error?: string };
+    if (!response.ok || !payload.goat_id) {
+      return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+    }
+    return { ok: true, data: payload as VaccinationPassport };
+  } catch {
+    return { ok: false, error: "vaccination_passport_unreachable" };
   }
-  return { ok: true, data: payload as VaccinationPassport };
 }
 
 function statusTone(value: string | null | undefined, kind: "lifecycle" | "health" | "breeding"): "ok" | "warn" | "dng" | "info" | "mut" {

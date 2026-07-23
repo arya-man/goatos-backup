@@ -62,15 +62,19 @@ type ReadResult<T> =
   | { ok: false; error: string };
 
 async function getHerdGoatVaccinationPassport(goatId: string): Promise<ReadResult<VaccinationPassport>> {
-  const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = await response.json() as Partial<VaccinationPassport> & { error?: string };
-  if (!response.ok || !payload.goat_id) {
-    return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+  try {
+    const response = await fetch(`/api/goats/${encodeURIComponent(goatId)}/vaccination-passport`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<VaccinationPassport> & { error?: string };
+    if (!response.ok || !payload.goat_id) {
+      return { ok: false, error: payload.error ?? `vaccination_passport_read_${response.status}` };
+    }
+    return { ok: true, data: payload as VaccinationPassport };
+  } catch {
+    return { ok: false, error: "vaccination_passport_unreachable" };
   }
-  return { ok: true, data: payload as VaccinationPassport };
 }
 
 function obligationTone(status: string): StatusTone {
@@ -96,6 +100,23 @@ function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiP
 
 function sourceObligationLabel(obligationId: string): string {
   return obligationId.slice(0, 8);
+}
+
+function passportIdentityLabels(pageContract: AdminUiPageContract): string[] {
+  if (pageContract.route_id === "herd-register") return tableLabels(pageContract, "herd-register");
+  return [
+    copy(pageContract, "calendar.drive.display_id_header"),
+    copy(pageContract, "calendar.drive.tag_1_header"),
+    copy(pageContract, "calendar.drive.tag_2_header"),
+    copy(pageContract, "calendar.drive.park_header"),
+    copy(pageContract, "calendar.drive.shed_header"),
+    copy(pageContract, "calendar.drive.breed_header"),
+    copy(pageContract, "calendar.drive.sex_header"),
+    copy(pageContract, "calendar.drive.weight_header"),
+    copy(pageContract, "calendar.drive.lifecycle_header"),
+    copy(pageContract, "calendar.drive.health_header"),
+    copy(pageContract, "calendar.drive.stage_header"),
+  ];
 }
 
 function HerdDrawerVaccinationBlock({
@@ -247,7 +268,8 @@ export function HerdPassportLocalDrawer({
   if (!item) return null;
   const vaccination = vaccinationPassports[item.goatId];
   const vaccinationError = vaccinationErrors[item.goatId];
-  const cols = tableLabels(pageContract, "herd-register");
+  const cols = passportIdentityLabels(pageContract);
+  const canEditReproductiveStatus = pageContract.route_id === "herd-register";
 
   return (
     <>
@@ -291,14 +313,16 @@ export function HerdPassportLocalDrawer({
             <div className="hk">{cols[10]}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Tag tone={statusTone(item.reproductiveStatus, "breeding")}>{dash(item.reproductiveStatus)}</Tag>
-              <HerdReproductiveEdit
-                goatId={item.goatId}
-                displayId={item.displayId}
-                currentStatus={item.reproductiveStatus}
-                idempotencyKey={reproductiveIdempotencyKey}
-                returnTo={returnTo}
-                pageContract={pageContract}
-              />
+              {canEditReproductiveStatus ? (
+                <HerdReproductiveEdit
+                  goatId={item.goatId}
+                  displayId={item.displayId}
+                  currentStatus={item.reproductiveStatus}
+                  idempotencyKey={reproductiveIdempotencyKey}
+                  returnTo={returnTo}
+                  pageContract={pageContract}
+                />
+              ) : null}
             </div>
           </div>
           <HerdDrawerVaccinationBlock vaccination={vaccination} error={vaccinationError} pageContract={pageContract} />
