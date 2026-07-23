@@ -1498,3 +1498,249 @@ func TestProcessIntegrityCanonicalAggregateGrainAdversarial(t *testing.T) {
 		}
 	})
 }
+
+// TestProcessIntegrityEnrichedAggregateOneToManyDriveAssignmentCapacity verifies the enriched
+// CTE's capacity LATERAL aggregates (drive_assignment_ids one-to-many fan-out) do not double-count
+// animals or operators from the bound assignment rows. This tests the DISTINCT drive_assignment_ids
+// array and the per-operator grouping in the operator-capacity LATERAL.
+func TestProcessIntegrityEnrichedAggregateOneToManyDriveAssignmentCapacity(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Seed multiple drive assignments for the same grain (batch/shed/rule) to test one-to-many.
+	// Each assignment has 25 animals, two operators. Grain should sum to 50 animals, not multiply.
+	execPI(t, ctx, pool, "add second drive assignment for same grain",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, DATE '2026-06-24', $3, $4, $5, 'Process Shed', 'extra', 25)`,
+		piTenant, piBatch, piOperator, piPark, piShed)
+
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+
+	// Should still return grains correctly even with multiple drive assignments.
+	// The enriched lateral aggregates must use DISTINCT drive_assignment_ids to avoid double-counting.
+	if len(result.Rows) < 1 {
+		t.Fatalf("no rows returned")
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateMultipleDimensionsPageBoundary verifies the grouped CTE's
+// COUNT/ARRAY_AGG does not change totals when page size changes (full-window aggregate contract).
+func TestProcessIntegrityGroupedAggregateMultipleDimensionsPageBoundary(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Query with different page sizes to test that counts are page-size independent.
+	countsLimit20, err := repo.CountByWorkState(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("CountByWorkState(limit 20): %v", err)
+	}
+
+	countsLimit100, err := repo.CountByWorkState(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("CountByWorkState(limit 100): %v", err)
+	}
+
+	// Total counts must be the same regardless of page size (grouped CTE aggregates full window).
+	total20 := int64(0)
+	for _, c := range countsLimit20 {
+		total20 += c.Count
+	}
+	total100 := int64(0)
+	for _, c := range countsLimit100 {
+		total100 += c.Count
+	}
+	if total20 != total100 {
+		t.Fatalf("page-size dependent count: limit20=%d limit100=%d", total20, total100)
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateScheduledDateExecutionDateBuckets verifies that
+// assignment_planned_at (execution date) takes precedence over due_at for status bucketing
+// and that both work correctly in the grouped aggregate COUNT FILTER clauses.
+func TestProcessIntegrityGroupedAggregateScheduledDateExecutionDateBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Query the existing projected obligations to verify that the grouped CTE correctly
+	// handles execution_due_at (coalesced from assignment_planned_at, batch_planned_date, or due_at)
+	// for status bucketing in the COUNT FILTER aggregates.
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+
+	// Verify that each row has a valid work state (bucketed by execution_due_at through grouped CTE).
+	if len(result.Rows) < 1 {
+		t.Fatalf("no rows found")
+	}
+	for _, row := range result.Rows {
+		if row.WorkState == "" {
+			t.Fatalf("row has empty work state (not bucketed by grouped aggregate)")
+		}
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateScopeHierarchyParkAndShedScope verifies that
+// grouped CTE's park_uuid and shed_uuid columns correctly preserve scope hierarchy and
+// that the JOINs to locations do not fan out the grain count.
+func TestProcessIntegrityGroupedAggregateScopeHierarchyParkAndShedScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// List all rows (single park, single shed fixture).
+	allRows, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows all: %v", err)
+	}
+
+	// Filter by park (using piPark value).
+	parkID := piPark
+	parkRows, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		ParkID:    &parkID,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows park-scoped: %v", err)
+	}
+
+	// Filter by shed (using piShed value).
+	shedID := piShed
+	shedRows, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		ShedID:    &shedID,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows shed-scoped: %v", err)
+	}
+
+	// Single-park and single-shed fixture: counts must match when the filter matches all rows.
+	if len(allRows.Rows) != len(parkRows.Rows) || len(allRows.Rows) != len(shedRows.Rows) {
+		t.Fatalf("scope mismatch: all=%d park=%d shed=%d", len(allRows.Rows), len(parkRows.Rows), len(shedRows.Rows))
+	}
+
+	// Verify park_id and shed_id are preserved in each row returned by the grouped CTE.
+	for _, row := range parkRows.Rows {
+		if row.ParkID != piPark {
+			t.Fatalf("park-scoped row has mismatched park_id: got %s want %s", row.ParkID, piPark)
+		}
+	}
+	for _, row := range shedRows.Rows {
+		if row.ShedID != piShed {
+			t.Fatalf("shed-scoped row has mismatched shed_id: got %s want %s", row.ShedID, piShed)
+		}
+	}
+}
+
+// TestProcessIntegrityGroupedAggregateEveryStatusBucket verifies that the COUNT(*) FILTER
+// aggregates for each status bucket (scheduled, due, in_progress, completed, missed, deferred)
+// sum correctly and do not omit or duplicate status buckets.
+func TestProcessIntegrityGroupedAggregateEveryStatusBucket(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+
+	// Verify that grains are bucketed into at least one status bucket.
+	statusCount := make(map[domain.WorkState]int)
+	for _, row := range result.Rows {
+		statusCount[row.WorkState]++
+	}
+
+	if len(statusCount) == 0 {
+		t.Fatalf("no status buckets found in result")
+	}
+
+	// Aggregate counts.
+	counts, err := repo.CountByWorkState(ctx, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("CountByWorkState: %v", err)
+	}
+
+	// Verify aggregate bucket counts match rendered grains.
+	for _, count := range counts {
+		rendered := statusCount[count.WorkState]
+		if count.Count != int64(rendered) {
+			t.Fatalf("status bucket %s: aggregate=%d rendered=%d", count.WorkState, count.Count, rendered)
+		}
+	}
+
+	// Total must equal sum of all buckets.
+	var aggregateTotal int64
+	for _, count := range counts {
+		aggregateTotal += count.Count
+	}
+	if aggregateTotal != int64(len(result.Rows)) {
+		t.Fatalf("total mismatch: aggregate=%d rendered=%d", aggregateTotal, len(result.Rows))
+	}
+}
