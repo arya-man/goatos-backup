@@ -49,20 +49,23 @@ class TopLevelChromeTest {
 
     @Test
     fun `calendar drill fallback always opens a hosted child`() {
-        val hostedDrive = Routes.calendarDriveRoute(null)
-        assertEquals(hostedDrive, calendarTargetRoute(null))
-        assertEquals(hostedDrive, calendarTargetRoute(""))
+        assertEquals(Routes.CALENDAR_DRIVE, calendarTargetRoute(null))
+        assertEquals(Routes.CALENDAR_DRIVE, calendarTargetRoute(""))
         assertEquals(
-            hostedDrive,
+            Routes.CALENDAR_DRIVE,
             calendarTargetRoute("/vaccination/execution"),
         )
         assertEquals(
-            hostedDrive,
+            Routes.CALENDAR_DRIVE,
             calendarTargetRoute("/vaccination/scan/shed-1"),
         )
         assertEquals(
-            hostedDrive,
+            Routes.CALENDAR_DRIVE,
             calendarTargetRoute("/vaccination/sheds/shed-1"),
+        )
+        assertEquals(
+            Routes.CALENDAR_DRIVE,
+            calendarTargetRoute(null, "2026-07-22"),
         )
         assertFalse(isTopLevelRoute(calendarTargetRoute(null), roots))
     }
