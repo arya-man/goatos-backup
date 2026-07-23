@@ -550,7 +550,7 @@ asof_terminal AS (
 capacity_cfg AS (
   SELECT COALESCE((SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = $1::uuid), 200)::int AS max_per_day
 ),
--- projection-review: membership=obligation_instances after tenant/category/date filtering, optionally decorated with one generated drive-assignment row for the same batch+shed; group_key=obligation_id at raw grain before grouped CTE collapses to park/shed/batch/rule/date; join_cardinality=vaccination_drive_assignments is bound through a LIMIT 1 LATERAL ranked on the obligation's own rule_id (vaccine_rule_ids) and its goat's goat_shed_partitions partition_label, so exactly one assignment decorates each obligation without multiplying obligation membership, and goat_shed_partitions is 1:1 by PK (tenant_id, goat_id); pagination=raw feeds grouped/all_rows keyset and full-window aggregates, no page-local count; scope=park/shed/protocol/owner/category filters remain explicit downstream.
+-- projection-review: membership=obligation_instances after tenant/category/date filtering, optionally decorated with one generated drive-assignment row for the same batch+shed; group_key=obligation_id at raw grain before grouped CTE collapses to park/shed/batch/rule/date; join_cardinality=vaccination_drive_assignments is bound through a LIMIT 1 LATERAL ranked on the obligation's own rule_id (vaccine_rule_ids) and its goat's goat_shed_partitions partition_label, so exactly one assignment decorates each obligation without multiplying obligation membership, and goat_shed_partitions is 1:1 by PK (tenant_id, goat_id); that LIMIT 1 pick is a DETERMINISTIC REPRESENTATIVE only (earliest planned_date, then lowest operator_id) because a same-partition forced_partition_split has no goat-level membership to disambiguate -- the capacity facts are aggregated over the full split cohort in the enriched CTE so the split is explicit, never one arm presented as authoritative; pagination=raw feeds grouped/all_rows keyset and full-window aggregates, no page-local count; scope=park/shed/protocol/owner/category filters remain explicit downstream.
 raw AS (
   SELECT
     oi.obligation_id,
@@ -871,7 +871,7 @@ grouped AS (
   GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
     CASE WHEN located.batch_id IS NULL THEN (located.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date ELSE NULL END
 ),
--- projection-review: membership=grouped grains decorated with the capacity facts of the drive assignments they bound to; group_key=grouped grain (park/shed/batch/rule/protocol/business-date) unchanged, assignment rollup keyed on the DISTINCT drive_assignment_ids array; join_cardinality=drive_assignment lateral aggregates assignment rows by PK (assignment_id = ANY(ids)) so each assignment contributes once regardless of how many obligations bound to it, and drive_operator_capacity pre-collapses to one row per DISTINCT operator before summing caps so a two-assignment/one-operator grain cannot double count; pagination=both laterals are per-grain rollups, independent of the LIST keyset/limit; scope=tenant-scoped ($1) and reachable only through the already scope-filtered grouped grains.
+-- projection-review: membership=grouped grains decorated with the capacity facts of the drive assignments they bound to; group_key=grouped grain (park/shed/batch/rule/protocol/business-date) unchanged, assignment rollup keyed on the DISTINCT drive_assignment_ids array expanded to its same-partition split cohort (same batch/shed/partition_label/vaccine_rule_ids) by the drive_split lateral, which ARRAY_AGGs DISTINCT assignment_ids so the cohort cannot contain a duplicate; join_cardinality=drive_assignment lateral aggregates assignment rows by PK (assignment_id = ANY(cohort_ids)) so each assignment contributes exactly once regardless of how many obligations bound to it or how many split arms exist, and drive_operator_capacity pre-collapses to one row per DISTINCT operator before summing caps so a two-assignment/one-operator grain cannot double count; pagination=both laterals are per-grain rollups, independent of the LIST keyset/limit; scope=tenant-scoped ($1) and reachable only through the already scope-filtered grouped grains.
 enriched AS (
   SELECT
     grouped.*,
@@ -887,7 +887,34 @@ enriched AS (
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = $1::uuid
    AND loa.location_id = grouped.shed_uuid
-  -- Real assigned-load source: the bound assignment rows themselves, not the obligation expectation.
+  -- Same-partition split cohort. The operator drive planner can hand ONE partition of ONE shed on ONE
+  -- batch to SEVERAL operators/dates (operator_drive_planner.go splitLatestSafeGroupAcrossOperators /
+  -- splitOversizedBlockAcrossOperators emit one assignment per capacity chunk of the SAME work block,
+  -- tagged 'forced_partition_split'). vaccination_drive_assignments carries NO goat-level membership, so
+  -- those split arms are indistinguishable on the existing columns: no ranking can bind a specific goat
+  -- to a specific arm. The per-obligation LATERAL above therefore stays a DETERMINISTIC representative
+  -- (earliest planned_date, then lowest operator_id) for the single-valued operator/date display, and the
+  -- capacity facts below are aggregated over the WHOLE cohort so the split is explicit (two operators,
+  -- full assigned load, worst capacity status) instead of one arm silently presented as authoritative.
+  -- True per-goat binding requires a schema change (goat-level assignment membership); not done here.
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(ARRAY_AGG(DISTINCT a.assignment_id), grouped.drive_assignment_ids)::uuid[] AS cohort_ids
+    FROM vaccination_drive_assignments a
+    WHERE a.tenant_id = $1::uuid
+      AND cardinality(grouped.drive_assignment_ids) > 0
+      AND EXISTS (
+        SELECT 1
+        FROM vaccination_drive_assignments bound
+        WHERE bound.tenant_id = $1::uuid
+          AND bound.assignment_id = ANY(grouped.drive_assignment_ids)
+          AND bound.batch_id IS NOT DISTINCT FROM a.batch_id
+          AND bound.shed_id IS NOT DISTINCT FROM a.shed_id
+          AND bound.partition_label = a.partition_label
+          AND bound.vaccine_rule_ids = a.vaccine_rule_ids
+      )
+  ) drive_split ON true
+  -- Real assigned-load source: the bound assignment rows themselves (plus their split siblings), not the
+  -- obligation expectation.
   LEFT JOIN LATERAL (
     SELECT
       COALESCE(SUM(a.animal_count), 0)::int AS assigned_animals,
@@ -900,8 +927,8 @@ enriched AS (
         END))[1] AS assignment_capacity_status
     FROM vaccination_drive_assignments a
     WHERE a.tenant_id = $1::uuid
-      AND cardinality(grouped.drive_assignment_ids) > 0
-      AND a.assignment_id = ANY(grouped.drive_assignment_ids)
+      AND cardinality(COALESCE(drive_split.cohort_ids, '{}'::uuid[])) > 0
+      AND a.assignment_id = ANY(drive_split.cohort_ids)
   ) drive_assignment ON true
   -- Real operator-day capacity source: workforce_positions.vaccination_daily_animal_cap for the operator
   -- actually assigned, on that assignment's own planned_date -- same precedence the drive planner uses in
@@ -914,8 +941,8 @@ enriched AS (
       SELECT a.operator_id, MIN(a.planned_date) AS planned_date
       FROM vaccination_drive_assignments a
       WHERE a.tenant_id = $1::uuid
-        AND cardinality(grouped.drive_assignment_ids) > 0
-        AND a.assignment_id = ANY(grouped.drive_assignment_ids)
+        AND cardinality(COALESCE(drive_split.cohort_ids, '{}'::uuid[])) > 0
+        AND a.assignment_id = ANY(drive_split.cohort_ids)
         AND a.operator_id IS NOT NULL
       GROUP BY a.operator_id
     ) assigned

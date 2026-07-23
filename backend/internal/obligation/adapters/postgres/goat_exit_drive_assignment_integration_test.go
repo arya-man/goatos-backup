@@ -251,3 +251,146 @@ VALUES ($1, $2, 'OP-SOLO', 'Solo Drive Operator', 'active', 'operator')`, operat
 		t.Fatalf("emptied drive assignment rows = %d, want 0 (a zero-animal drive row is phantom planned work)", got)
 	}
 }
+
+// TestGoatExitedDecrementsOnlyTheAnimalsOwnDriveAssignmentRow is the grain proof for the SM-3
+// planned-drive removal. vaccination_drive_assignments is keyed by
+// (batch, planned_date, park, shed, physical_shed, partition_label, operator) -- ONE batch/shed can
+// therefore hold SEVERAL assignment rows that differ by partition, operator, date, and vaccine
+// rules. An exiting animal lives in exactly ONE of them. Decrementing by (batch, shed) alone
+// subtracts one animal from every sibling row, silently deleting live animals from other
+// operators' routes and other dates.
+//
+// Fixture: one batch, one shed, three assignment rows --
+//
+//	R1 partition "A", operator 1, 2026-09-10, rule A  (the exiting animal's row)
+//	R2 partition "B", operator 2, 2026-09-11, rule A  (different partition + operator + date)
+//	R3 partition "A", operator 2, 2026-09-10, rule B  (same partition, different vaccine)
+//
+// The exiting goat is registered in partition "A" and holds one open rule-A obligation, so ONLY
+// R1 may lose an animal.
+func TestGoatExitedDecrementsOnlyTheAnimalsOwnDriveAssignmentRow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		exitingGoat = "10000000-0000-4000-8000-00000000fc01"
+		shedID      = "00000000-0000-4000-8000-00000000dc01"
+		operatorOne = "20000000-0000-4000-8000-000000000c01"
+		operatorTwo = "20000000-0000-4000-8000-000000000c02"
+	)
+	seedParkConsolidationShed(t, ctx, pool, shedID, "goat-exit-grain-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, exitingGoat)
+	for id, code := range map[string]string{operatorOne: "OP-GRAIN-1", operatorTwo: "OP-GRAIN-2"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1, $2, $3, $3, 'active', 'operator')`, id, tenantID, code); err != nil {
+			t.Fatalf("seed operator %s: %v", code, err)
+		}
+	}
+	// The exiting animal physically sits in partition "A" of the shed.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1, $2, $3, 'A', 'Gandhi A')`, tenantID, exitingGoat, shedID); err != nil {
+		t.Fatalf("seed goat partition: %v", err)
+	}
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.exitgrain", Name: "Exit grain", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	newRule := func(code string, seq int32) string {
+		t.Helper()
+		id, err := proto.CreateRule(ctx, protodomain.NewRule{
+			TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: code, Sequence: seq,
+			TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", DueWindowDays: 7,
+			EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		})
+		if err != nil {
+			t.Fatalf("rule %s: %v", code, err)
+		}
+		return id
+	}
+	ruleA := newRule("primary", 1)
+	ruleB := newRule("booster", 2)
+
+	planned := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	obligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleA,
+		TargetType: "goat", TargetID: exitingGoat, ScopeType: "shed", ScopeID: shedID,
+		DueAt: planned, Status: "scheduled", IdempotencyKey: "exit-grain-dose-a", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert obligation: applied=%v err=%v", applied, err)
+	}
+	opOne := operatorOne
+	batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "shed", ScopeID: shedID,
+		Session: "exit-grain-drive", PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 12, PlannedQuantity: "12", QuantityUnit: "dose", ConductedBy: &opOne,
+	}, []string{obligationID})
+	if err != nil || attached != 1 {
+		t.Fatalf("create batch: attached=%d err=%v", attached, err)
+	}
+
+	shed := shedID
+	opTwo := operatorTwo
+	nextDay := planned.AddDate(0, 0, 1)
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{
+		{BatchID: batchID, PlannedDate: planned, OperatorID: &opOne, ParkID: cbePark, ShedID: &shed,
+			PhysicalShed: "Gandhi", PartitionLabel: "A", AnimalCount: 5,
+			VaccineRuleIDs: []string{ruleA}, TotalDoses: 5, CapacityStatus: "within_cap"},
+		{BatchID: batchID, PlannedDate: nextDay, OperatorID: &opTwo, ParkID: cbePark, ShedID: &shed,
+			PhysicalShed: "Gandhi", PartitionLabel: "B", AnimalCount: 4,
+			VaccineRuleIDs: []string{ruleA}, TotalDoses: 4, CapacityStatus: "within_cap"},
+		{BatchID: batchID, PlannedDate: planned, OperatorID: &opTwo, ParkID: cbePark, ShedID: &shed,
+			PhysicalShed: "Gandhi", PartitionLabel: "A", AnimalCount: 3,
+			VaccineRuleIDs: []string{ruleB}, TotalDoses: 3, CapacityStatus: "within_cap"},
+	}); err != nil {
+		t.Fatalf("seed drive assignments: %v", err)
+	}
+
+	bus := eventbus.NewInProcessBus()
+	oblapp.NewGoatExitedHandler(repo).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		ID: "event-exit-grain", Type: oblapp.EventGoatExited, TenantID: tenantID, Key: exitingGoat,
+		OccurredAt: time.Date(2026, 9, 1, 6, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.exited: %v", err)
+	}
+
+	read := func(partition string, date time.Time, operator string) (int, int) {
+		t.Helper()
+		var animals, doses int
+		if err := pool.QueryRow(ctx, `
+SELECT animal_count, total_doses
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND batch_id=$2 AND partition_label=$3 AND planned_date=$4 AND operator_id=$5`,
+			tenantID, batchID, partition, date, operator).Scan(&animals, &doses); err != nil {
+			t.Fatalf("read assignment %s/%s/%s: %v", partition, date.Format("2006-01-02"), operator, err)
+		}
+		return animals, doses
+	}
+	if animals, doses := read("A", planned, operatorOne); animals != 4 || doses != 4 {
+		t.Fatalf("own row animal_count/total_doses = %d/%d, want 4/4", animals, doses)
+	}
+	if animals, doses := read("B", nextDay, operatorTwo); animals != 4 || doses != 4 {
+		t.Fatalf("sibling row (other partition/operator/date) = %d/%d, want 4/4 untouched", animals, doses)
+	}
+	if animals, doses := read("A", planned, operatorTwo); animals != 3 || doses != 3 {
+		t.Fatalf("sibling row (other vaccine) = %d/%d, want 3/3 untouched", animals, doses)
+	}
+}

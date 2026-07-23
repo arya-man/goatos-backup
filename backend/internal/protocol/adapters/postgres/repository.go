@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	protocoldb "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres/sqlc"
@@ -701,12 +702,26 @@ WHERE tenant_id = $1
 // were not released/replanned to reflect the new capacity policy. vaccination_capacity_config
 // itself is tenant-scoped (PK is tenant_id, not park-scoped), so there is no single park to target;
 // emitting per configured park is the same fan-out shape UpsertOperatorAssignmentConfig already
-// uses for the per-park N/default-operator cascade, just enumerated across every park with a
-// config row instead of one caller-supplied park_id.
+// uses for the per-park N/default-operator cascade, just enumerated across every affected park
+// instead of one caller-supplied park_id. The park set is the UNION of parks with an
+// operator-assignment config and parks that still have future planned vaccination work (fallback /
+// no-config parks plan drives too, and their future rows would otherwise stay stale).
 func enqueueVaccinationCapacityChangedForConfiguredParks(ctx context.Context, tx pgx.Tx, tenantID, versionID string) error {
+	// One set-based park enumeration: parks with an operator-assignment config UNION parks that
+	// still have FUTURE planned vaccination work. A fallback/no-config park can carry already-planned
+	// future drive rows; skipping it would leave those rows stale against the new capacity policy.
+	// "Future" is the Asia/Kolkata business date (biztime), same semantics as the rest of the repo.
 	rows, err := tx.Query(ctx, `
-SELECT park_id::text FROM vaccination_operator_assignment_config WHERE tenant_id = $1::uuid`,
-		tenantID)
+SELECT park_id::text FROM vaccination_operator_assignment_config WHERE tenant_id = $1::uuid
+UNION
+SELECT DISTINCT vda.park_id::text
+FROM vaccination_drive_assignments vda
+JOIN obligation_batches ob
+  ON ob.tenant_id = vda.tenant_id AND ob.batch_id = vda.batch_id
+WHERE vda.tenant_id = $1::uuid
+  AND vda.planned_date >= $2::date
+  AND ob.status IN ('planned', 'in_progress')`,
+		tenantID, biztime.BusinessDate(time.Now()))
 	if err != nil {
 		return fmt.Errorf("protocol: list parks for capacity-changed cascade: %w", err)
 	}

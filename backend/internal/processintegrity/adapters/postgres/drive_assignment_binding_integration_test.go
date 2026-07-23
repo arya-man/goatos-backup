@@ -110,3 +110,101 @@ func TestCanonicalRowsBindDriveAssignmentByPartitionAndReadRealOperatorDayCapaci
 		t.Errorf("drive_available_operators = %d want 1", row.DriveAvailableOperators)
 	}
 }
+
+// TestCanonicalRowsAggregateSamePartitionSplitDriveAssignments is the same-partition split case
+// raised in review: the operator drive planner can hand ONE partition of ONE shed on ONE batch to
+// SEVERAL operators (and several dates). See
+// backend/internal/vaccinationexecution/app/operator_drive_planner.go ->
+// splitLatestSafeGroupAcrossOperators / splitOversizedBlockAcrossOperators, which emit one
+// DrivePlanAssignment per capacity chunk of the SAME DriveWorkBlock, each tagged
+// "forced_partition_split", differing only in operator (and planned date across days).
+//
+// vaccination_drive_assignments has NO goat-level membership, so no ranking on the existing columns
+// can bind a specific goat to a specific split arm -- the rows are identical on (batch, shed,
+// partition_label, vaccine_rule_ids). Picking one arm and presenting it as authoritative silently
+// hides the other operator and undercounts the assigned load.
+//
+// Locked behavior: the LIMIT 1 pick stays as the DETERMINISTIC representative for the single-valued
+// operator/date display (earliest planned_date, then lowest operator_id), but the capacity facts are
+// AGGREGATED over the whole split cohort, so the split is explicit rather than silent:
+// drive_available_operators > 1 and drive_animals_assigned is the full split load, not one arm.
+//
+// True per-goat binding needs a schema change (goat-level membership in
+// vaccination_drive_assignments, or an assignment_members table). NOT done here.
+func TestCanonicalRowsAggregateSamePartitionSplitDriveAssignments(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	execPI(t, ctx, pool, "split operator",
+		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+		 VALUES ($1, $2, 'OP-PI-2', 'Operator PI Two', 'active', 'operator', $3)`,
+		piOperatorTwo, piTenant, piShed)
+	execPI(t, ctx, pool, "split operator position cap",
+		`INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
+		   position_code, position_tier, status, valid_from, vaccination_daily_animal_cap)
+		 VALUES ($1, $2, $3, 'center', $4, 'vaccination_operator', 'assistant', 'active',
+		   TIMESTAMPTZ '2026-06-01 00:00:00+05:30', 150)`,
+		piPositionTwo, piTenant, piOperatorTwo, piPark)
+	execPI(t, ctx, pool, "goat partition",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '2', 'Process Shed - Part 2')`,
+		piTenant, piGoat, piShed)
+
+	// SAME partition '2' of the SAME shed on the SAME batch, split across two operators/dates.
+	// Nothing in these rows distinguishes which goat belongs to which arm.
+	execPI(t, ctx, pool, "split arm A",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+		   physical_shed, partition_label, animal_count, capacity_status, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, DATE '2026-06-24', $3, $4, $5, 'Process Shed', '2', 40, 'within_cap', ARRAY[$6::uuid], 40)`,
+		piTenant, piBatch, piOperator, piPark, piShed, piRule)
+	execPI(t, ctx, pool, "split arm B",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+		   physical_shed, partition_label, animal_count, capacity_status, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, DATE '2026-06-25', $3, $4, $5, 'Process Shed', '2', 7, 'over_cap_required', ARRAY[$6::uuid], 7)`,
+		piTenant, piBatch, piOperatorTwo, piPark, piShed, piRule)
+
+	repo := NewRepository(pool, 10*time.Second)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	row := rowByBatchSubstr(result.Rows, piBatch)
+	if row == nil {
+		t.Fatalf("batch row missing: %#v", result.Rows)
+	}
+
+	// Deterministic documented representative: earliest planned_date arm.
+	if row.Owner.OperatorID == nil || *row.Owner.OperatorID != piOperator {
+		t.Errorf("representative operator id = %v want %s (earliest split arm)", row.Owner.OperatorID, piOperator)
+	}
+	gotDate := row.DueAt.In(biztime.DefaultLocation()).Format("2006-01-02")
+	if gotDate != "2026-06-24" {
+		t.Errorf("representative execution date = %s want 2026-06-24 (earliest split arm)", gotDate)
+	}
+
+	// Explicit split indicator: BOTH arms are reported, not one arbitrary arm.
+	if row.DriveAvailableOperators != 2 {
+		t.Errorf("drive_available_operators = %d want 2 (same-partition split across two operators must be explicit, not silently collapsed to one)", row.DriveAvailableOperators)
+	}
+	if row.DriveAnimalsAssigned != 47 {
+		t.Errorf("drive_animals_assigned = %d want 47 (40+7 across the split cohort, not one arm)", row.DriveAnimalsAssigned)
+	}
+	// Worst capacity status across the split cohort wins (safe direction).
+	if row.DriveCapacityState != domain.DriveCapacityStateOverCapRequired {
+		t.Errorf("drive_capacity_state = %q want %q (worst status across split cohort)", row.DriveCapacityState, domain.DriveCapacityStateOverCapRequired)
+	}
+	// Cap is summed per DISTINCT operator across the cohort: op1 has no position row (falls back to
+	// the seeded tenant vaccination_capacity_config max_per_day = 100), op2 has an explicit 150 cap.
+	if row.DriveOperatorCap != 250 {
+		t.Errorf("drive_operator_cap = %d want 250 (tenant-config 100 for the uncapped operator + 150 for the capped one across the split cohort)", row.DriveOperatorCap)
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
@@ -1069,5 +1070,103 @@ func TestPublishVersionWithDerivedRulesRollsBackOnCapacityFailure(t *testing.T) 
 		t.Fatalf("failed capacity sync must not mutate the operational row: before=%d/%d/%q/%q/v%d after=%d/%d/%q/%q/v%d",
 			perDayBefore, bufBefore, scopeBefore, policyBefore, rowVerBefore,
 			perDayAfter, bufAfter, scopeAfter, policyAfter, rowVerAfter)
+	}
+}
+
+// TestPublishVersionWithCapacityEnqueuesCapacityChangedForParkWithFutureWorkOnly reproduces the
+// fallback/no-config gap: a park can have FUTURE planned vaccination work (an obligation batch +
+// drive assignments) without any vaccination_operator_assignment_config row (fallback/default
+// planning). Fanning the tenant-wide capacity change out only from
+// vaccination_operator_assignment_config skips such a park, leaving its already-planned future
+// drive rows stale against the new capacity policy. A park with NEITHER a config NOR future work
+// must still get no event.
+func TestPublishVersionWithCapacityEnqueuesCapacityChangedForParkWithFutureWorkOnly(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const parkFuture = "00000000-0000-4000-8000-0000000cc001"
+	const parkPast = "00000000-0000-4000-8000-0000000cc002"
+	const parkIdle = "00000000-0000-4000-8000-0000000cc003"
+
+	for _, park := range []string{parkFuture, parkPast, parkIdle} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', $1, 'Park ' || $1, 'active')
+ON CONFLICT (location_id) DO NOTHING`, park, testTenantID); err != nil {
+			t.Fatalf("seed park %s: %v", park, err)
+		}
+	}
+
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.capacity.futurework", Name: "Capacity Future Work Cascade",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	versionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+
+	today := biztime.BusinessDayStart(time.Now())
+	future := today.AddDate(0, 0, 3).Format("2006-01-02")
+	past := today.AddDate(0, 0, -30).Format("2006-01-02")
+
+	seedDrive := func(park, plannedDate, batchID string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, planned_date, status, estimated_targets)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, $5::date, 'planned', 10)`,
+			batchID, testTenantID, versionID, park, plannedDate); err != nil {
+			t.Fatalf("seed batch for %s: %v", park, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, physical_shed, partition_label, animal_count)
+VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, 'S1', 'whole', 10)`,
+			testTenantID, batchID, plannedDate, park); err != nil {
+			t.Fatalf("seed drive assignment for %s: %v", park, err)
+		}
+	}
+	seedDrive(parkFuture, future, "00000000-0000-4000-8000-0000000cc0b1")
+	seedDrive(parkPast, past, "00000000-0000-4000-8000-0000000cc0b2")
+
+	capacity := domain.PublishedCapacity{
+		MaxPerDay: 181, CapacityScope: "tenant", MaxBufferDays: 4,
+		OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap",
+	}
+	if err := repo.PublishVersionWithCapacity(ctx, testTenantID, versionID, nil, capacity, "capacity-future-work-key"); err != nil {
+		t.Fatalf("publish with capacity: %v", err)
+	}
+
+	countFor := func(park string) int {
+		return countRows(ctx, t, pool, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'vaccination.capacity.changed' AND aggregate_id = $2::uuid`,
+			testTenantID, park)
+	}
+	if n := countFor(parkFuture); n != 1 {
+		t.Fatalf("vaccination.capacity.changed rows for park with future work but no operator config = %d, want 1", n)
+	}
+	if n := countFor(parkPast); n != 0 {
+		t.Fatalf("vaccination.capacity.changed rows for park with only PAST work = %d, want 0", n)
+	}
+	if n := countFor(parkIdle); n != 0 {
+		t.Fatalf("vaccination.capacity.changed rows for idle park = %d, want 0", n)
+	}
+
+	// Replay must stay idempotent: republishing the same version must not duplicate the fan-out.
+	if err := repo.PublishVersionWithCapacity(ctx, testTenantID, versionID, nil, capacity, "capacity-future-work-key"); err != nil {
+		t.Fatalf("republish with capacity: %v", err)
+	}
+	if n := countFor(parkFuture); n != 1 {
+		t.Fatalf("after replay, vaccination.capacity.changed rows for park with future work = %d, want 1", n)
 	}
 }
