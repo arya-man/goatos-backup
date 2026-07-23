@@ -506,7 +506,7 @@ func TestCountsBreakdownFacetsIgnoreActiveDimensionFilters(t *testing.T) {
 // Dead/Transferred). It must report every distinct lifecycle_status present in the WHOLE tenant
 // herd, independent of the currently-selected lifecycle filter — otherwise selecting "Sold" would
 // collapse the filter sheet to a single option and the operator could never switch back to Live.
-func TestCountsBreakdownLifecycleFacetIsWholeHerdVocabularyNotNarrowedByActiveFilter(t *testing.T) {
+func TestCountsBreakdownLifecycleFacetStatusMatrixIsWholeHerdVocabularyNotNarrowedByActiveFilter(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
 
@@ -549,6 +549,100 @@ func TestCountsBreakdownLifecycleFacetIsWholeHerdVocabularyNotNarrowedByActiveFi
 	}
 	if len(scoped.Facets.Lifecycle) != 4 {
 		t.Fatalf("facets.lifecycle=%d, want 4 — facets must not be narrowed by the active lifecycle filter", len(scoped.Facets.Lifecycle))
+	}
+}
+
+// The lifecycle branch joins NOTHING (unlike the shed/park branches, which LEFT JOIN locations),
+// so a duplicate-label location cannot fan it out — but the herd-membership contract must still
+// hold: sum(lifecycle facet counts) == the whole tenant herd, exactly once per animal, regardless
+// of how many locations/sheds/parks exist around them.
+func TestCountsBreakdownLifecycleFacetOneToManyLocationChurnDoesNotInflateCounts(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	// Extra locations sharing a NAME (but distinct codes, since location_code is unique) that a
+	// sloppy label join elsewhere could fan out on.
+	for i := 0; i < 3; i++ {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'shed', $3, 'Duplicate Shed', 'active')
+ON CONFLICT (location_id) DO NOTHING`, goatUUID(90+i), countsTenant, fmt.Sprintf("DUP-%d", i)); err != nil {
+			t.Fatalf("seed duplicate-label shed %d: %v", i, err)
+		}
+	}
+	for i, lifecycle := range []string{"alive", "sold", "dead"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", lifecycle, "F2", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	var sum int64
+	for _, p := range got.Facets.Lifecycle {
+		sum += p.Count
+	}
+	if sum != 3 {
+		t.Fatalf("sum(facets.lifecycle counts)=%d, want 3 — the whole herd, exactly once per animal", sum)
+	}
+}
+
+// Facets are a whole-result rollup, independent of the detail page's limit/offset — proven
+// generically for shed/park by the sibling tests above; this proves the SAME independence holds
+// for the new lifecycle branch specifically.
+func TestCountsBreakdownLifecycleFacetPaginationIsIndependentOfPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	for i, lifecycle := range []string{"alive", "alive", "sold", "dead", "culled"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", lifecycle, "F2", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	full, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(full): %v", err)
+	}
+	page, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 1, Offset: 0})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(page): %v", err)
+	}
+	if len(page.Facets.Lifecycle) != len(full.Facets.Lifecycle) {
+		t.Fatalf(
+			"a 1-row page's lifecycle facet has %d entries, want the same %d as the full result — facets must not shrink with the detail page",
+			len(page.Facets.Lifecycle), len(full.Facets.Lifecycle),
+		)
+	}
+}
+
+// The lifecycle facet reports the WHOLE tenant herd's vocabulary, not just the scope currently
+// selected by park/shed/breed — an operator who has drilled into one park must still be able to
+// switch lifecycle status without first clearing the park.
+func TestCountsBreakdownLifecycleFacetScopeHierarchyIgnoresParkAndShedScope(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	insertBreakdownGoat(t, ctx, pool, goatUUID(0), goatDisplayID(0),
+		"female", "Beetal", "alive", "F2", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(1), goatDisplayID(1),
+		"female", "Beetal", "sold", "F2", nil, nil, nil)
+
+	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, ParkID: strp(countsPark), ShedID: strp(countsShedA), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(park+shed scoped): %v", err)
+	}
+	lifecycleKeys := map[string]bool{}
+	for _, p := range scoped.Facets.Lifecycle {
+		lifecycleKeys[p.Key] = true
+	}
+	if !lifecycleKeys["sold"] {
+		t.Fatalf(
+			"facets.lifecycle=%+v is missing 'sold' — the lifecycle vocabulary must not be narrowed by an active park/shed scope",
+			scoped.Facets.Lifecycle,
+		)
 	}
 }
 
