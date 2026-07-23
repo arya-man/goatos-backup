@@ -1090,6 +1090,22 @@ Do not:
   `.code-review-graph/` DB are gitignored and machine-regenerated locally. Commit
   ONLY the setup docs, rules, hooks, and generation scripts — never the graph
   artifacts themselves. Run `make ai-doctor` before pushing AI-tooling changes.
+- Do not let the `ceo_ai` reporting/assistant namespace sit between the core
+  Backend <-> Frontend <-> Mobile layers. `ceo_ai` is the leadership-assistant
+  chatbot (`backend/internal/ceoai/**`, `/api/ceo-ai/*`) plus its read-only
+  reporting SQL schema (`ceo_ai.*` views/functions read by Cube and the
+  assistant). Data flows ONE way: core BE is the operator source of truth, and
+  the assistant/Cube CONSUME it via Mesha read APIs, the MCP Toolbox, or
+  read-only SQL. A core operator read path must never join `ceo_ai.*` or read a
+  `ceo_ai_*` table for its own runtime data (this once 500'd Control Tower when
+  the schema was absent — SQLSTATE 3F000). Shared display/derivation logic (e.g.
+  vaccine labels) lives in a neutral core package such as
+  `backend/internal/vaccination/domain`, read by both operator screens and the
+  assistant. Frontend/mobile core pages must not route their data through
+  `/api/ceo-ai/*`; the global assistant bubble in `MeshaShell` is allowed chrome,
+  not a data path. Machine-gated for the backend SQL layer by
+  `make ceo-ai-boundary-guard`; full rule in
+  `docs/decisions/ceo-ai-reporting-boundary.md`.
 - Do not let frontend/mobile read BigQuery, Sheets, Firestore, GCS, or operational databases directly.
 - Do not spread vendor SDK calls through product code.
 - Do not modify current live dashboard repos while building Goat OS copies.

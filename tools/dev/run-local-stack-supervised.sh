@@ -249,6 +249,32 @@ calendar_data_plane_ready() {
     >/dev/null 2>&1
 }
 
+# The Control Tower / Action Center reads are a distinct canonical read path
+# from the calendar. Probe one explicitly so the supervisor fails closed on a
+# process-integrity data-plane break at restart instead of serving a broken
+# command-room screen. (This once 500'd from a dropped ceo_ai reporting schema;
+# that dependency is now removed, but the health probe still guards the path.)
+control_tower_data_plane_ready() {
+  if [ "$shared_stack" != "1" ]; then
+    return 0
+  fi
+  local token
+  token="$(
+    (
+      cd "$repo_root/backend"
+      go run ./cmd/mint-dev-token \
+        -tenant-id "$GOATOS_TENANT_ID" \
+        -user-id "$local_user_id" \
+        -ttl 10m
+    ) 2>>"$supervisor_log"
+  )"
+  curl --max-time 15 -fsS \
+    -H "Authorization: Bearer $token" \
+    -H "X-Tenant-ID: $GOATOS_TENANT_ID" \
+    "$api_base_url/control-tower/vaccination?limit=1" \
+    >/dev/null 2>&1
+}
+
 web_ready() {
   curl -fsS "http://$host:$web_port/login" >/dev/null 2>&1
 }
@@ -398,6 +424,11 @@ start_api() {
   if ! calendar_data_plane_ready; then
     tail -n 120 "$api_log" >&2 || true
     log "Goat OS API readiness passed but the authenticated vaccination calendar data plane failed."
+    return 1
+  fi
+  if ! control_tower_data_plane_ready; then
+    tail -n 120 "$api_log" >&2 || true
+    log "Goat OS API readiness passed but the authenticated Control Tower data plane failed."
     return 1
   fi
 }
