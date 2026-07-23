@@ -88,12 +88,15 @@ older source dates are history anchors only. The source scope is CPT /
 Channapatna only. Do not synthesize CBE/Coimbatore operators, owners, sheds, or
 park menu rows from the full fixture while seeding this packet.
 
-The roster file is the source of truth for the rehearsal's field capacity:
-Amit Kumar, Darshan Talwar, and Sagar Mahoor are all equal vaccination
-operators with `200` unique animals/day/operator. Their week-offs are Amit =
-Friday, Darshan = Sunday, and Sagar = Saturday. Chandrakant is a Preventive
-Care Director and contributes no field capacity unless explicitly assigned as
-an operator.
+The roster file is the source of truth for the rehearsal's HRMS field capacity:
+Amit Kumar, Darshan Talwar, and Sagar Mahoor are all vaccination operators with
+`200` unique animals/day/operator. Their week-offs are Amit = Friday, Darshan =
+Sunday, and Sagar = Saturday. Chandrakant is a Preventive Care Director and
+contributes no field capacity unless explicitly assigned as an operator. The
+same roster also authors the scheduler-consumed drive assignment for the
+discussed validation: `active_operators_per_day=1`, Darshan as default, Sagar as
+the primary fallback when Darshan is unavailable, and Amit retained as a
+secondary fallback rather than removed from HRMS.
 
 ### Operator Shift Configuration
 
@@ -104,9 +107,12 @@ The `cpt-operator-roster.json` may include operator shift schedules (migration 0
 - `shift_end_minute` — 1–1440 (end time in minutes after midnight)
 
 These fields seed into `vaccination_operator_shift_config` and are consumed by
-the drive scheduler when resolving daily operator assignment. The optional
-`operator_assignment_config` block sets `active_operators_per_day` (max concurrent
-operators) and `default_operator_code` (fallback when no explicit assignment).
+the drive scheduler when resolving daily operator assignment. They identify
+fallback/coverage identity only; vaccination drives are business-date grained,
+not morning/afternoon time-grained. The optional
+`default_operator_assignment` block sets `active_operators_per_day` (max
+concurrent operators) and `default_operator_code` (CEO-selected default
+operator).
 
 After seeding, HRMS may override an operator seat's vaccination animal/day cap
 through `workforce_positions.vaccination_daily_animal_cap`. Runtime scheduling

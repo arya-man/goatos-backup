@@ -16,7 +16,7 @@ reverse-engineer the whole timetable workbook.
 | `raw/CPT-Adult-goats.json` | Supplied CPT animal source rows. |
 | `raw/CPT-Adult-vaccination.json` | Supplied CPT vaccination history/source rows. |
 | `raw/CPT_Nuanced Timetable.xlsx` | Supplied CPT timetable workbook. |
-| `cpt-operator-roster.json` | Normalized seed contract for operators, director, capacity, week-offs, and CEO/CXO grants. |
+| `cpt-operator-roster.json` | Normalized seed contract for operators, director, capacity, week-offs, CEO/CXO grants, and the N=1 Darshan-default drive assignment. |
 | `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, PPR after 14 days, same-day ET+TT+PPR cap check, Darshan Sunday fallback, and N=2 capacity sanity. |
 
 The `Adult` filename is a source label only. The seed must still use the
@@ -31,6 +31,8 @@ files happen to be named adult.
 - Forbidden in this rehearsal: CBE, Coimbatore, or synthetic CBE owners.
 - Operator capacity unit: unique animals per operator per business date.
 - Default operator cap: `200` animals/day/operator.
+- Default drive assignment: `active_operators_per_day=1`, Darshan first, Sagar
+  fallback when Darshan is unavailable, Amit retained as secondary fallback.
 - Dose count is display/workload only; it is not the scheduling cap.
 - Drive start date for open work: `2026-07-23`.
 - No open drive work may be materialized on `2026-07-22` or earlier during a
@@ -45,10 +47,19 @@ files happen to be named adult.
 | Sagar Mahoor | Vaccination Operator | yes | Saturday | 200 |
 | Chandrakant | Preventive Care Director | no by default | none | 0 |
 
-All three operators are equal field operators. Do not seed Amit as support, do
-not seed Sagar as support/backup-only, and do not infer park-head ownership from
-old HRMS labels. Their timetable removes them from capacity only on their
-week-off or an explicit dated leave row.
+All three operators are equal HRMS field operators. Do not remove Amit, do not
+seed Amit as support, do not seed Sagar as support-only, and do not infer
+park-head ownership from old HRMS labels. Their timetable removes them from
+availability only on their week-off or an explicit dated leave row.
+
+For the discussed vaccination-drive scenario, `default_operator_assignment`
+sets `active_operators_per_day=1` and `default_operator_code=
+vaccination_operator_darshan`. That is a drive-assignment rule, not an HRMS
+roster deletion: Darshan is assigned while available; Sagar is the primary
+fallback only when Darshan is unavailable or on weekly off; Amit remains in HRMS
+and is only a secondary fallback if both Darshan and Sagar cannot cover.
+Shift labels identify fallback/coverage identity only. The vaccination drive is
+business-date grained, not morning/afternoon time-grained.
 
 Chandrakant is director/monitoring scope. He may see multiple parks such as CPT
 and CBE, but he does not add field execution capacity unless a separate explicit
@@ -132,8 +143,11 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
 9. Run the operator drive planner and verify:
    - no CBE/Coimbatore source rows exist;
    - open drive dates are `2026-07-23` or later;
-   - all three operators appear when all are available;
-   - Friday removes Amit, Saturday removes Sagar, Sunday removes Darshan;
+   - all three operators exist in HRMS;
+   - N=1 drive assignment chooses Darshan while available instead of fanning out
+     to every available operator;
+   - Friday removes Amit from availability, Saturday removes Sagar, Sunday
+     removes Darshan;
    - physical sheds are grouped while partitions remain visible in assignments;
    - all 324 animals are considered against vaccination rules, with zero
      source-health exclusions from this packet;

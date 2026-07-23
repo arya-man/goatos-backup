@@ -63,7 +63,17 @@
   ],
   "default_operator_assignment": {
     "active_operators_per_day": 1,
-    "default_operator_code": "vaccination_operator_darshan"
+    "default_operator_code": "vaccination_operator_darshan",
+    "fallback_operator_code": "vaccination_operator_sagar",
+    "fallback_when": "default_operator_unavailable_or_week_off",
+    "secondary_fallback_operator_code": "vaccination_operator_amit",
+    "secondary_fallback_when": "default_and_primary_fallback_unavailable",
+    "drive_grain": "business_date",
+    "shift_label_semantics": "fallback_identity_only_not_vaccine_time_of_day",
+    "notes": [
+      "All three operators remain in HRMS. active_operators_per_day=1 means only one operator is assigned to this drive day.",
+      "Darshan is the default drive operator. Sagar covers only when Darshan is unavailable or on weekly off. Amit remains a vaccination operator and is only a secondary fallback when both Darshan and Sagar cannot cover."
+    ]
   },
   "directors": [
     {
