@@ -44,6 +44,7 @@ if [[ -n "$DSN" ]]; then PSQL+=("$DSN"); fi
 -- Session-lifetime temp table (NOT ON COMMIT DROP: each psql statement autocommits,
 -- so it must survive across the DO block and the \gset check below).
 CREATE TEMP TABLE _grant_skips(role text, schema_name text, owner_role text);
+CREATE TEMP TABLE _grant_missing_roles(role text);
 
 DO $grants$
 DECLARE
@@ -53,6 +54,7 @@ DECLARE
 BEGIN
     FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            INSERT INTO _grant_missing_roles(role) VALUES (r);
             RAISE WARNING 'role % does not exist; create it first, then re-run this script', r;
             CONTINUE;
         END IF;
@@ -60,10 +62,18 @@ BEGIN
             EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', sch, r);
             EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', sch, r);
             -- Cover future tables of EVERY current owner in the schema, not just the
-            -- connecting role. An owner this admin is not a member of is recorded as a
-            -- skip (the shell then fails unless ALLOW_PARTIAL is set).
+            -- connecting role. Owners are discovered across tables, views, AND
+            -- materialized views: ALTER DEFAULT PRIVILEGES ... ON TABLES also covers
+            -- future views, and a schema like ceo_ai is entirely views, so a
+            -- pg_tables-only scan would miss every one of its owners. An owner this
+            -- admin is not a member of is recorded as a skip (the shell then fails
+            -- unless ALLOW_PARTIAL is set).
             FOR owner_role IN
-                SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname = sch
+                SELECT tableowner AS owner FROM pg_tables WHERE schemaname = sch
+                UNION
+                SELECT viewowner FROM pg_views WHERE schemaname = sch
+                UNION
+                SELECT matviewowner FROM pg_matviews WHERE schemaname = sch
             LOOP
                 BEGIN
                     EXECUTE format(
@@ -80,15 +90,21 @@ BEGIN
 END;
 $grants$;
 
--- Fail (non-zero) when any owner's future-table coverage was skipped, unless the
--- operator explicitly accepted partial coverage via ALLOW_PARTIAL=1.
-SELECT (count(*) > 0) AS has_skips, count(*)::text AS skip_count FROM _grant_skips \gset
-\if :has_skips
+-- Fail (non-zero) when a target role was missing entirely, OR when any owner's
+-- future-table coverage was skipped — unless the operator explicitly accepted
+-- partial coverage via ALLOW_PARTIAL=1. A missing role means the role got NO
+-- grants at all, so silently reporting success would be worse than a skip.
+SELECT
+  ((SELECT count(*) FROM _grant_missing_roles) + (SELECT count(*) FROM _grant_skips) > 0) AS has_problems,
+  (SELECT count(*)::text FROM _grant_missing_roles) AS missing_count,
+  (SELECT count(*)::text FROM _grant_skips) AS skip_count
+\gset
+\if :has_problems
   \if :allow_partial
-    \echo 'grant-assistant-public-read: ALLOW_PARTIAL set — continuing despite' :skip_count 'skipped owner(s); their future tables will miss SELECT'
+    \echo 'grant-assistant-public-read: ALLOW_PARTIAL set — continuing despite' :missing_count 'missing role(s) and' :skip_count 'skipped owner(s); their (future) tables will miss SELECT'
   \else
-    \echo 'grant-assistant-public-read: FAILED —' :skip_count 'owner(s) skipped; future tables they create will miss SELECT. Re-run as a member of those owners (or set ALLOW_PARTIAL=1 to accept partial coverage).'
-    DO $fail$ BEGIN RAISE EXCEPTION 'incomplete future-table coverage: % owner(s) skipped', (SELECT count(*) FROM _grant_skips); END $fail$;
+    \echo 'grant-assistant-public-read: FAILED —' :missing_count 'role(s) missing and' :skip_count 'owner(s) skipped. Create the missing role(s) and/or re-run as a member of the skipped owners (or set ALLOW_PARTIAL=1 to accept partial coverage).'
+    DO $fail$ BEGIN RAISE EXCEPTION 'incomplete assistant grant coverage: % missing role(s), % skipped owner(s)', (SELECT count(*) FROM _grant_missing_roles), (SELECT count(*) FROM _grant_skips); END $fail$;
   \endif
 \endif
 SQL
