@@ -135,6 +135,14 @@ function walk(dir) {
 }
 
 function changedFiles() {
+  try {
+    const out = execSync("git diff --name-only --diff-filter=d HEAD", { cwd: repo, encoding: "utf8" });
+    const files = out.split("\n").map((s) => s.trim()).filter(Boolean).filter(keep);
+    if (files.length) return files;
+  } catch {
+    // Fall through to committed ranges.
+  }
+
   const base = process.env.VACCINATION_SHARED_SOURCE_SYNC_BASE || "origin/main";
   const ranges = [`${base}...HEAD`, "HEAD~1...HEAD"];
   for (const range of ranges) {

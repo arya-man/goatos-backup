@@ -195,6 +195,17 @@ assignment rows exist. `obligation_batches.planned_date` is only a fallback for
 older unsplit batches. Leadership assistant read API and SQL fallback answers
 must not report "no drive today" from a stale batch date when operator-capacity
 assignment rows have moved the real execution date.
+Control Tower, Protocol Adherence, Action Center, Workflows, Calendar, and
+Android calendar surfaces must agree on vaccination drive dates and statuses.
+The shared source order is `vaccination_drive_assignments.planned_date` for
+operator-capacity planned drives, then canonical obligation/batch rows only for
+legacy or unassigned work; audit/history tables are evidence trails, not the
+live scheduling source. Same India business-day vaccination drive rows are not
+overdue during that day: overdue starts only when the effective drive business
+date is before today's Asia/Kolkata date. Assistant coverage, read APIs, and UI
+presenters must also translate matrix vaccine rule identifiers such as
+`et_tt_adult_w2` into human labels such as `ET+TT Adult course 2 weeks`; raw
+rule codes are allowed as IDs but not as leadership-facing copy.
 For CPT operator timetable answers, the backend can label the center as
 `Channapatna` while the position code is `vaccination_operator_*`. Assistant
 coverage and frontend read consumers must treat those rows as CPT vaccination

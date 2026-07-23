@@ -376,11 +376,11 @@ func TestNavChromeFor(t *testing.T) {
 			want:    domain.NavChromeMinimal,
 		},
 		{
-			// Two granted modules earn the drawer without any leadership role.
-			name:    "operator with two modules expanded",
+			// Operator drawer rollout is disabled for now, even with multiple modules.
+			name:    "operator with two modules stays minimal",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"vaccination", "counts"},
-			want:    domain.NavChromeExpanded,
+			want:    domain.NavChromeMinimal,
 		},
 		{
 			// A disabled roadmap row must not promote a single-module operator.
@@ -414,7 +414,7 @@ func TestNavChromeFor(t *testing.T) {
 // TestBootstrapNavComposition verifies that navigation is composed from granted modules,
 // not hardcoded per-role. This test proves:
 // 1. Operator with single module (vaccination) gets bottom-bar-only nav (minimal chrome)
-// 2. Operator with multiple modules would get sidebar nav (expanded chrome)
+// 2. Operator drawer chrome is disabled while module-specific bars still compose
 // 3. Leadership principals get overview + shared cross-module nav (expanded chrome)
 // 4. Nav items are deduplicated by shared_key (e.g., calendar appears once)
 func TestBootstrapNavComposition(t *testing.T) {

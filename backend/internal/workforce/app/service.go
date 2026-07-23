@@ -630,11 +630,9 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// navChromeFor decides the nav chrome based on module count:
-// >=2 modules = drawer (expanded); <2 modules = bottom-bar only (minimal).
-// Leadership principals always get expanded: their nav spans modules by definition.
-// modules is the list of AVAILABLE granted module keys (soon-modules do not count —
-// a disabled roadmap row must not by itself promote a single-module operator to a drawer).
+// navChromeFor decides the nav chrome. Leadership principals get expanded because
+// their nav spans modules by definition. Field operators stay on minimal chrome
+// until the operator drawer rollout is explicitly enabled again.
 func navChromeFor(grants []domain.GrantSummary, modules []string) string {
 	if isVerifierPrincipal(grants) {
 		return domain.NavChromeMinimal
@@ -642,10 +640,7 @@ func navChromeFor(grants []domain.GrantSummary, modules []string) string {
 	if isLeadershipPrincipal(grants) {
 		return domain.NavChromeExpanded
 	}
-	if countAvailableModules(grants, modules) >= 2 {
-		return domain.NavChromeExpanded
-	}
-	// Single module = minimal nav chrome (bottom-bar only)
+	_ = modules
 	return domain.NavChromeMinimal
 }
 
