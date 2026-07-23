@@ -169,6 +169,16 @@
       "ciStep": "clinical-defer-guard"
     },
     {
+      "id": "ceo-ai-core-boundary",
+      "script": "tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
+      "makeTarget": "ceo-ai-boundary-guard",
+      "realCheck": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
+      "selfTest": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs --self-test",
+      "owningDoc": "docs/decisions/ceo-ai-reporting-boundary.md",
+      "requiredInCI": true,
+      "ciStep": "ceo-ai-boundary-guard"
+    },
+    {
       "id": "sweeper-deployment",
       "script": "tools/agent-hooks/check-sweeper-deployment.mjs",
       "makeTarget": "sweeper-deployment-guard",

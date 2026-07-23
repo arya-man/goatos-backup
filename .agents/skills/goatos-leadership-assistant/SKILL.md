@@ -16,6 +16,17 @@ The assistant is **read-only** over business data. Tenant + role scope come from
 the **server-side session, never from user text**. User-visible brand is
 **Mesha**, never "Goat OS".
 
+> **Boundary (one-way only).** The assistant/reporting namespace `ceo_ai`
+> (chatbot `backend/internal/ceoai/**`, `/api/ceo-ai/*`, and the `ceo_ai.*`
+> reporting schema) **consumes** core operator data — it must never sit between
+> the core Backend ↔ Frontend ↔ Mobile layers. A core operator read path must
+> not join `ceo_ai.*` or read a `ceo_ai_*` table for its runtime data, and core
+> FE/mobile pages must not route their data through `/api/ceo-ai/*`. Shared
+> display/derivation logic lives in a neutral core package (e.g.
+> `backend/internal/vaccination/domain`), read by both. Machine-gated by
+> `make ceo-ai-boundary-guard`. Full rule:
+> `docs/decisions/ceo-ai-reporting-boundary.md`.
+
 Load this skill when your change touches ANY of the guard's trigger paths:
 
 ```text
