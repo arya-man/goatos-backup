@@ -1,0 +1,262 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+)
+
+// ---------------------------------------------------------------------------
+// Fakes for the completion write path + serve overlay
+// ---------------------------------------------------------------------------
+
+type fakeCompletionStore struct {
+	completed     []ports.CompletedSession
+	listCalls     int
+	completeCalls int
+	lastParams    ports.CompleteSessionParams
+	result        ports.CompleteSessionResult
+	err           error
+}
+
+func (f *fakeCompletionStore) CompleteSession(_ context.Context, p ports.CompleteSessionParams) (ports.CompleteSessionResult, error) {
+	f.completeCalls++
+	f.lastParams = p
+	if f.err != nil {
+		return ports.CompleteSessionResult{}, f.err
+	}
+	if f.result.CompletionID != "" {
+		return f.result, nil
+	}
+	return ports.CompleteSessionResult{CompletionID: "cmp-1", Applied: true, Status: "completed"}, nil
+}
+
+func (f *fakeCompletionStore) ListCompletedSessions(_ context.Context, _, _ string, _ time.Time) ([]ports.CompletedSession, error) {
+	f.listCalls++
+	return f.completed, nil
+}
+
+type fakeProofValidator struct {
+	calls   int
+	lastIDs []string
+	err     error
+}
+
+func (f *fakeProofValidator) ValidateFeedProofs(_ context.Context, _ string, ids []string) error {
+	f.calls++
+	f.lastIDs = ids
+	return f.err
+}
+
+func validCompleteInput() CompleteSessionInput {
+	return CompleteSessionInput{
+		TenantID:       testTenant,
+		ParkID:         testPark,
+		ShedID:         shedA,
+		SessionNo:      1,
+		TargetDate:     targetDate(),
+		Workflow:       domain.WorkflowNormal,
+		IdempotencyKey: "feed-complete-123456",
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Serve overlay: a completed shed-session flips Completed, and the overlay does
+// NOT add a config-snapshot read (the read-count invariant is preserved).
+// ---------------------------------------------------------------------------
+
+func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
+	t.Parallel()
+	store := &fakeCompletionStore{}
+	service, config, _ := newTestService()
+	service.WithCompletionStore(store)
+
+	q := domain.PreviewQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate()}
+	page, err := service.Preview(context.Background(), q)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	for _, r := range page.Items {
+		if r.Completed {
+			t.Fatalf("no completion recorded, but row (%s s%d) reports completed", r.ShedID, r.SessionNo)
+		}
+	}
+	if store.listCalls != 1 {
+		t.Fatalf("ListCompletedSessions calls = %d, want 1 (one overlay read per request)", store.listCalls)
+	}
+	// The overlay is a DEDICATED read: it must not have added a config snapshot read.
+	if config.snapshotCalls != 1 {
+		t.Fatalf("config snapshot reads = %d, want exactly 1 (overlay must not touch the snapshot)", config.snapshotCalls)
+	}
+
+	// Now complete exactly the first row's shed-session and re-serve.
+	target := page.Items[0]
+	store.completed = []ports.CompletedSession{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
+	page2, err := service.Preview(context.Background(), q)
+	if err != nil {
+		t.Fatalf("Preview 2: %v", err)
+	}
+	matched := false
+	for _, r := range page2.Items {
+		want := r.ShedID == target.ShedID && r.SessionNo == target.SessionNo && r.Workflow == target.Workflow
+		if r.Completed != want {
+			t.Fatalf("row (%s s%d %s) completed=%v, want %v", r.ShedID, r.SessionNo, r.Workflow, r.Completed, want)
+		}
+		if want {
+			matched = true
+		}
+	}
+	if !matched {
+		t.Fatal("the completed shed-session was not present in the re-served page")
+	}
+}
+
+func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
+	t.Parallel()
+	store := &fakeCompletionStore{}
+	service, _, _ := newTestService()
+	service.WithCompletionStore(store)
+
+	q := domain.PackingQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate()}
+	page, err := service.PackingWorklist(context.Background(), q)
+	if err != nil {
+		t.Fatalf("PackingWorklist: %v", err)
+	}
+	if len(page.Items) == 0 {
+		t.Fatal("no packing lines to overlay")
+	}
+	target := page.Items[0]
+	store.completed = []ports.CompletedSession{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow}}
+	page2, err := service.PackingWorklist(context.Background(), q)
+	if err != nil {
+		t.Fatalf("PackingWorklist 2: %v", err)
+	}
+	for _, r := range page2.Items {
+		want := r.ShedID == target.ShedID && r.SessionNo == target.SessionNo && r.Workflow == target.Workflow
+		if r.Completed != want {
+			t.Fatalf("packing line (%s s%d %s) completed=%v, want %v", r.ShedID, r.SessionNo, r.Workflow, r.Completed, want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CompleteSession: availability, validation, proof, param threading
+// ---------------------------------------------------------------------------
+
+func TestCompleteSessionUnavailableWithoutStore(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService() // no completion store wired
+	_, err := service.CompleteSession(context.Background(), validCompleteInput())
+	if !errors.Is(err, ports.ErrCompletionUnavailable) {
+		t.Fatalf("err = %v, want ErrCompletionUnavailable", err)
+	}
+}
+
+func TestCompleteSessionValidation(t *testing.T) {
+	t.Parallel()
+	store := &fakeCompletionStore{}
+	service, _, _ := newTestService()
+	service.WithCompletionStore(store)
+
+	cases := []struct {
+		name string
+		mut  func(*CompleteSessionInput)
+		want error
+	}{
+		{"missing shed", func(i *CompleteSessionInput) { i.ShedID = "" }, ports.ErrShedRequired},
+		{"zero session", func(i *CompleteSessionInput) { i.SessionNo = 0 }, ports.ErrInvalidSession},
+		{"empty workflow", func(i *CompleteSessionInput) { i.Workflow = "" }, ports.ErrWorkflowRequired},
+		{"bad workflow", func(i *CompleteSessionInput) { i.Workflow = "weird" }, ports.ErrInvalidWorkflow},
+		{"missing idempotency", func(i *CompleteSessionInput) { i.IdempotencyKey = "" }, ports.ErrIdempotencyRequired},
+		{"missing date", func(i *CompleteSessionInput) { i.TargetDate = time.Time{} }, ports.ErrInvalidTargetDate},
+	}
+	for _, tc := range cases {
+		in := validCompleteInput()
+		tc.mut(&in)
+		if _, err := service.CompleteSession(context.Background(), in); !errors.Is(err, tc.want) {
+			t.Fatalf("%s: err = %v, want %v", tc.name, err, tc.want)
+		}
+	}
+	if store.completeCalls != 0 {
+		t.Fatalf("invalid inputs reached the store %d times, want 0", store.completeCalls)
+	}
+}
+
+func TestCompleteSessionRejectsInvalidProof(t *testing.T) {
+	t.Parallel()
+	store := &fakeCompletionStore{}
+	proof := &fakeProofValidator{err: ports.ErrInvalidProof}
+	service, _, _ := newTestService()
+	service.WithCompletionStore(store).WithProofValidator(proof)
+
+	in := validCompleteInput()
+	in.ProofRefs = []domain.ProofRef{{ProofID: "proof-1"}}
+	_, err := service.CompleteSession(context.Background(), in)
+	if !errors.Is(err, ports.ErrInvalidProof) {
+		t.Fatalf("err = %v, want ErrInvalidProof", err)
+	}
+	if proof.calls != 1 || len(proof.lastIDs) != 1 || proof.lastIDs[0] != "proof-1" {
+		t.Fatalf("proof validator calls = %d ids = %v, want 1 call with [proof-1]", proof.calls, proof.lastIDs)
+	}
+	if store.completeCalls != 0 {
+		t.Fatal("an invalid proof reached the store, want the write blocked")
+	}
+}
+
+func TestCompleteSessionThreadsNormalizedParams(t *testing.T) {
+	t.Parallel()
+	store := &fakeCompletionStore{}
+	proof := &fakeProofValidator{}
+	service, _, _ := newTestService()
+	service.WithCompletionStore(store).WithProofValidator(proof)
+
+	in := validCompleteInput()
+	in.ProofRefs = []domain.ProofRef{{ProofID: "proof-1"}}
+	res, err := service.CompleteSession(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CompleteSession: %v", err)
+	}
+	if !res.Applied || res.CompletionID == "" {
+		t.Fatalf("result = %+v, want applied with a completion id", res)
+	}
+	if store.completeCalls != 1 {
+		t.Fatalf("store completeCalls = %d, want 1", store.completeCalls)
+	}
+	p := store.lastParams
+	if p.ShedID != shedA || p.SessionNo != 1 || p.Workflow != domain.WorkflowNormal {
+		t.Fatalf("params = (%s s%d %s), want (shedA,1,normal)", p.ShedID, p.SessionNo, p.Workflow)
+	}
+	// The date reaches the store normalized to the business-day start.
+	if !p.TargetDate.Equal(targetDate()) {
+		t.Fatalf("params target date = %v, want %v (business-day start)", p.TargetDate, targetDate())
+	}
+	if len(p.ProofRefs) != 1 || p.ProofRefs[0].ProofID != "proof-1" {
+		t.Fatalf("params proof refs = %+v, want [proof-1]", p.ProofRefs)
+	}
+	if proof.calls != 1 {
+		t.Fatalf("proof validator calls = %d, want 1", proof.calls)
+	}
+}
+
+func TestCompleteSessionSkipsProofValidationWhenNoRefs(t *testing.T) {
+	t.Parallel()
+	store := &fakeCompletionStore{}
+	proof := &fakeProofValidator{err: ports.ErrInvalidProof} // would fail if called
+	service, _, _ := newTestService()
+	service.WithCompletionStore(store).WithProofValidator(proof)
+
+	// No proof refs: the optional-video contract means validation is skipped entirely.
+	if _, err := service.CompleteSession(context.Background(), validCompleteInput()); err != nil {
+		t.Fatalf("CompleteSession with no proof: %v", err)
+	}
+	if proof.calls != 0 {
+		t.Fatalf("proof validator calls = %d, want 0 (no refs to validate)", proof.calls)
+	}
+	if store.completeCalls != 1 {
+		t.Fatalf("store completeCalls = %d, want 1", store.completeCalls)
+	}
+}

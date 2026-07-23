@@ -218,6 +218,10 @@ var protectedRoutes = []Route{
 	// Idempotency-Key because no route here has a side effect to replay.
 	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{ProtocolRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
+	// The completion WRITE path: an operator records that one shed-session's feed direction was
+	// carried out (optional video proof). Idempotency-Key required; gated on the operator write twin
+	// FeedDirectionComplete, not on the feed reads.
+	{OperationID: "completeFeedDirectionSession", Method: "POST", Pattern: "/feed-direction/complete", Permissions: []string{FeedDirectionComplete}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
 	//

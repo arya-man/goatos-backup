@@ -186,6 +186,17 @@ const (
 	// the generation result. A future capture surface needs its own write permission, and reusing
 	// this one for it would silently turn every reader into a recorder.
 	FeedPackingRead = "feed_packing.read"
+	// FeedDirectionComplete is the operator WRITE twin FeedPackingRead's comment anticipated: it gates
+	// POST /feed-direction/complete, where an operator records that one shed-session's feed direction
+	// was carried out (with optional video proof). It is deliberately separate from the feed reads --
+	// reading the dispatch sheet is not the same authority as recording that the feeding happened --
+	// and separate from feed_config.write, which authors the ration grid rather than executing it.
+	//
+	// Granted to the tiers that dispatch feed on the ground: RoleOperator (the phone operator who
+	// walks the park), RoleParkHead (execution on their own ground), and RoleCEOInternal (the
+	// founder/builder visibility invariant). NOT granted to RoleVerifier (checks captured work, does
+	// not dispatch) or RolePCDirector (oversight, not execution).
+	FeedDirectionComplete = "feed_direction.complete"
 	// VerificationReview is the generic Verification vertical's queue-read + verdict-write
 	// permission (context/architecture/verification-module-design.md). It is granted ONLY to the
 	// Verifier role and, per the org-role-model truth table, as a CEO/CxO override — never to
@@ -223,10 +234,12 @@ var rolePermissions = map[string]map[string]struct{}{
 		// belongs to the four org tiers (director/head/manager/am) plus admin and ceo_internal, on
 		// the admin-web Approvals page only. A park head no longer holds ANY counts.approve_*
 		// permission, so they can neither list nor decide birth/death/shifting requests.
-		// A park head dispatches feed on their own ground, so they read the packing worklist. They
-		// still hold no feed_config.* grant: executing a ration is not authoring one.
-		FeedPackingRead: {},
-		VerificationAct: {},
+		// A park head dispatches feed on their own ground, so they read the packing worklist and may
+		// record a shed-session as fed. They still hold no feed_config.* grant: executing a ration is
+		// not authoring one.
+		FeedPackingRead:       {},
+		FeedDirectionComplete: {},
+		VerificationAct:       {},
 	},
 	RolePCDirector: {
 		GoatRead: {}, GoatWriteHealth: {},
@@ -248,8 +261,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// above already anticipated this widening. ProtocolRead gates Feed Direction (the generated
 		// dispatch sheet), FeedPackingRead gates the per-shed packing worklist. Both are READ-ONLY;
 		// authoring the ration grid (feed_config.write) stays with the CEO/CXO tier and is NOT added.
-		ProtocolRead:    {},
-		FeedPackingRead: {},
+		ProtocolRead:          {},
+		FeedPackingRead:       {},
+		FeedDirectionComplete: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
@@ -270,11 +284,12 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Founder/builder visibility invariant (AGENTS.md): the platform-owner leadership cohort must
 		// hold the grants for every built visible module, so a founder account is never locked out of
 		// the Feed Config screen it is expected to operate.
-		FeedConfigRead:     {},
-		FeedConfigWrite:    {},
-		FeedPackingRead:    {},
-		VerificationReview: {},
-		VerificationAct:    {},
+		FeedConfigRead:        {},
+		FeedConfigWrite:       {},
+		FeedPackingRead:       {},
+		FeedDirectionComplete: {},
+		VerificationReview:    {},
+		VerificationAct:       {},
 	},
 }
 

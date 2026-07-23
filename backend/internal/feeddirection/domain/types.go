@@ -165,6 +165,20 @@ type PackingQuery struct {
 // Result shapes
 // ---------------------------------------------------------------------------
 
+// ProofRef is one OPTIONAL video-proof reference attached to a feed-direction completion.
+//
+// It mirrors the SOP/procurement ProofReference shape (a proof_id plus descriptive fields), but the
+// feed module stores it OPAQUELY: the video bytes and the authoritative artifact live in the proof
+// module (minted through /app/proofs/*), and this record only keeps the pointer. Video is optional,
+// so a completion may carry zero refs.
+type ProofRef struct {
+	ProofID     string `json:"proof_id"`
+	ProofType   string `json:"proof_type,omitempty"`
+	SubjectType string `json:"subject_type,omitempty"`
+	SubjectID   string `json:"subject_id,omitempty"`
+	UploadState string `json:"upload_state,omitempty"`
+}
+
 // ItemQuantity is one feed item's quantity for one row.
 //
 // THE POINTER IS THE SAFETY CONTRACT. QuantityKg is nil if and only if Status is QuantityBlocked.
@@ -263,6 +277,12 @@ type DirectionRow struct {
 	// OverduePending mirrors the counts projection: a movement this row's head count already
 	// assumes came due days ago and still has not been executed.
 	OverduePending bool `json:"overdue_pending"`
+	// Completed is true when this shed-session has a recorded feed.direction.completed. It is the
+	// operator-action state the generator overlays onto the derived sheet: the ration numbers are
+	// still generated the same way, but the row also reports that the feeding was carried out. A
+	// whole shed-session is completed at once (that is the completion grain), so every ration grain
+	// of the same (shed, session) reports Completed together.
+	Completed bool `json:"completed"`
 }
 
 // PreviewPage is one page of generated rows plus the WHOLE-SCOPE summary.
@@ -452,10 +472,13 @@ type PackingRow struct {
 	Items []ItemQuantity `json:"items"`
 	// TotalKg sums the resolved items.
 	TotalKg string `json:"total_kg"`
-	// Status is the packing state. Read-only for now: there is no proof capture and no video on
-	// this surface, so it is derived from the generation result rather than from any recorded
-	// packing action.
+	// Status is the packing state (ready | blocked | empty), derived from the generation result.
 	Status string `json:"status"`
+	// Completed is true when this shed-session has a recorded feed.direction.completed. It is
+	// orthogonal to Status: a completed line was still ready/blocked/empty underneath, and reporting
+	// both lets the client show a "completed" badge without losing the packing state. A shed-session
+	// is completed as a whole, so this packing line (which IS one shed-session) maps 1:1 to it.
+	Completed bool `json:"completed"`
 	// BlockedReasons lists the distinct gaps behind a blocked status.
 	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`
 }

@@ -2346,6 +2346,57 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-direction/complete:
+    post:
+      tags:
+        - Feed Direction
+      operationId: completeFeedDirectionSession
+      summary: Record that one shed-session's feed direction was carried out.
+      description: >-
+        Marks ONE shed's ONE feeding session on ONE feed day as fed ("feed direction completed"),
+        with OPTIONAL video proof. The completion grain is the operator's unit of work --
+        (park, shed, session_no, target_date, workflow) -- not the ration grain: one shed's session
+        is done or it is not, regardless of how many ration rows it printed. After a completion the
+        `/feed-direction/preview` and `/feed-packing/worklist` rows for that shed-session report
+        `completed: true`.
+
+
+        Idempotent on two axes: the `Idempotency-Key` header (an exact replay returns the original
+        result and runs no side effects; the same key with a different payload is `409`), and the
+        shed-session natural key (a second completion of the same shed-session, under any key, is a
+        no-op that returns `applied: false`).
+
+
+        Video is OPTIONAL: `proof_refs` may be empty. When present, each reference must resolve to a
+        real, completed upload minted through `/app/proofs/*`; the bytes live in GCS and only the
+        reference is recorded here.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedDirectionCompleteRequest"
+      responses:
+        "200":
+          description: The shed-session is recorded completed (or was already completed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDirectionCompleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/ration-rates:
     get:
       tags:
@@ -5681,6 +5732,7 @@ components:
         - session_total_kg
         - blocked
         - overdue_pending
+        - completed
       properties:
         park_id:
           type: string
@@ -5763,6 +5815,13 @@ components:
           description: >-
             A movement this row's projected head count already assumes came due before the target
             date and still has not been executed.
+        completed:
+          type: boolean
+          description: >-
+            True when this shed-session has a recorded completion (`feed.direction.completed`). The
+            ration numbers are generated the same way; this reports that the feeding was carried
+            out. A whole shed-session is completed at once, so every ration grain of the same
+            (shed, session) reports `completed` together.
     FeedDirectionFeedItemTotal:
       type: object
       additionalProperties: false
@@ -6021,6 +6080,7 @@ components:
         - items
         - total_kg
         - status
+        - completed
       properties:
         park_id:
           type: string
@@ -6068,10 +6128,95 @@ components:
             `ready`: every item resolved. `blocked`: at least one item has no authored ration, so
             the line must NOT be packed from the resolved remainder. `empty`: the shed holds no
             projected animals, which is not a configuration gap and must not be confused with one.
+        completed:
+          type: boolean
+          description: >-
+            True when this shed-session has a recorded completion (`feed.direction.completed`).
+            Orthogonal to `status`: a completed line was still ready/blocked/empty underneath, so a
+            client can show a "completed" badge without losing the packing state. This packing line
+            IS one shed-session, so it maps 1:1 to the completion.
         blocked_reasons:
           type: array
           items:
             $ref: "#/components/schemas/FeedDirectionBlockedReason"
+    FeedDirectionCompleteRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - session_no
+        - target_date
+        - workflow
+      properties:
+        park_id:
+          type: string
+          format: uuid
+          description: >-
+            The park the shed belongs to. Optional: when omitted the server resolves the tenant's
+            default park, matching the read routes. Exactly one park per completion.
+        shed_id:
+          type: string
+          format: uuid
+          description: The shed whose feeding session was carried out.
+        session_no:
+          type: integer
+          minimum: 1
+          description: >-
+            The feeding session that was completed. A concrete session (>= 1); session 0 ("every
+            session") is a read filter, never a completion target.
+        target_date:
+          type: string
+          format: date
+          description: The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+        workflow:
+          type: string
+          enum: [normal, experiment]
+          description: >-
+            The dispatch workflow completed. REQUIRED (unlike the read filter, where empty means
+            "both"): a completion records ONE concrete workflow.
+        proof_refs:
+          type: array
+          description: >-
+            OPTIONAL video proof. May be empty (completed with no video). Each reference carries a
+            server-minted `proof_id` from `/app/proofs/*`; the bytes live in GCS.
+          items:
+            $ref: "#/components/schemas/FeedDirectionProofRef"
+    FeedDirectionProofRef:
+      type: object
+      additionalProperties: false
+      required:
+        - proof_id
+      properties:
+        proof_id:
+          type: string
+          description: The server-minted proof id of a completed upload.
+        proof_type:
+          type: string
+        subject_type:
+          type: string
+        subject_id:
+          type: string
+        upload_state:
+          type: string
+    FeedDirectionCompleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - status
+        - applied
+      properties:
+        completion_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [completed]
+        applied:
+          type: boolean
+          description: >-
+            False on an idempotent replay or when the shed-session was already completed by an
+            earlier request -- the original completion is returned and no new side effects ran.
     FeedPackingWorklistSummary:
       type: object
       additionalProperties: false
