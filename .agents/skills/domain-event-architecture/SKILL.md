@@ -30,6 +30,25 @@ Hard rule:
 - Frontend/mobile send idempotent commands and render backend-owned contracts;
   they do not create business follow-up state.
 - Direct animal-table writers must already be registered, or the guard fails.
+- Registering a consumer is not wiring it. Only
+  `backend/internal/kernelstages/bus.go` (`BuildDomainBus`) and
+  `backend/cmd/domain-event-consumer/main.go` are buses the real outbox relay
+  dispatches to. `backend/internal/bootstrap/api.go` is the API process's own
+  in-process bus, and `backend/internal/domainconsumer/wiring/bus.go` is wired
+  into no `cmd/*` binary (tests only). Every `Register(bus eventbus.Bus)` type
+  must be registered on BOTH durable buses, and the wiring assertion must name
+  the production bus builder — an E2E that constructs its own bus proves handler
+  logic and nothing about dispatch. `make cascade-event-wiring-guard` fails
+  closed on this; deliberate omissions go in `DURABLE_BUS_EXEMPTIONS` with a
+  reason and the file that really registers the handler.
+- A write that mutates a scheduler input (vaccination operator cap, week-off,
+  status/validity, tenant `vaccination_capacity_config`,
+  `vaccination_operator_assignment_config`) must enqueue its cascade event
+  (`vaccination.capacity.changed` / `vaccination.roster.changed`) to
+  `outbox_messages` in the SAME transaction as the state change. Coverage is per
+  WRITE PATH: a sibling endpoint already emitting the event does not cover a new
+  one. See `docs/decisions/scale-anti-patterns.md` -> "Operator-cascade wiring
+  anti-patterns".
 - A shed-movement writer activates the prospective
   `shifting_completion_to_vaccination` contract. It must resolve the destination
   operational stage from active `shed_profiles -> animal_stage_lookup`, snapshot
