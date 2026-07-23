@@ -3657,9 +3657,12 @@ func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 	return ids, nil
 }
 
-// driveAssignmentRemovalKey identifies the ONE vaccination_drive_assignments row an exited animal's
-// planned work sits in: the planners bucket by (batch, shed scope) and stamp the batch's single
-// conducted_by operator on every row of that batch, so batch + shed scope is the row's identity.
+// driveAssignmentRemovalKey is the (batch, shed scope) bucket an exited animal held canceled
+// obligations in. It is deliberately NOT the assignment row's identity: the persisted uniqueness key
+// is (tenant, batch, planned_date, park, shed, physical_shed, partition_label, operator), so ONE
+// (batch, shed) can hold several assignment rows that differ by partition, operator, date, and
+// vaccine rules. removeGoatFromDriveAssignmentsTx therefore narrows from this bucket down to a
+// SINGLE row per bucket (see that function) instead of decrementing every sibling row.
 // An empty shedID means a park-scoped obligation, whose assignment row has shed_id IS NULL.
 type driveAssignmentRemovalKey struct {
 	batchID string
@@ -3675,36 +3678,93 @@ const driveAssignmentNilShedSentinel = "00000000-0000-0000-0000-000000000000"
 // persisted planned-drive read model, in the SAME transaction as the obligation cancellation, then
 // deletes any assignment row the exit emptied. Replay-safe: a re-delivered goat.exited finds no
 // still-open obligations, so removals is empty and nothing is decremented twice.
-func removeGoatFromDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, removals map[driveAssignmentRemovalKey]map[string]struct{}) error {
+//
+// GRAIN: vaccination_drive_assignments is an AGGREGATE read model with NO goat-level membership
+// column, and one (batch, shed) can hold MANY rows -- the persisted uniqueness key is
+// (tenant, batch, planned_date, park, shed, physical_shed, partition_label, operator). An exiting
+// animal physically sits in exactly ONE of them, so subtracting on (batch, shed) alone deletes a
+// live animal from every sibling row (another operator's route, another date, another partition,
+// another vaccine). This narrows the candidate set with the only goat-bindable dimensions that
+// exist -- the animal's own shed partition (goat_shed_partitions, PK (tenant_id, goat_id)) and the
+// rule_ids of the obligations actually canceled for it -- and then subtracts from exactly ONE row
+// per bucket, chosen deterministically (most rule overlap, then earliest planned date, then
+// assignment_id). Choosing one row is what keeps the read model conservative: the animal counted
+// once, so at most one animal may be removed.
+func removeGoatFromDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, goat pgtype.UUID, removals map[driveAssignmentRemovalKey]map[string]struct{}) error {
 	if len(removals) == 0 {
 		return nil
 	}
+	// One flattened (batch, shed, rule) tuple per canceled dose-rule; the SQL regroups them so the
+	// per-row dose subtraction counts only the rules that row actually plans.
 	batchIDs := make([]string, 0, len(removals))
 	shedKeys := make([]string, 0, len(removals))
-	doseCounts := make([]int32, 0, len(removals))
+	ruleIDArgs := make([]string, 0, len(removals))
 	affectedBatches := make(map[string]struct{}, len(removals))
 	for key, ruleIDs := range removals {
 		shedKey := key.shedID
 		if strings.TrimSpace(shedKey) == "" {
 			shedKey = driveAssignmentNilShedSentinel
 		}
-		batchIDs = append(batchIDs, key.batchID)
-		shedKeys = append(shedKeys, shedKey)
-		doseCounts = append(doseCounts, int32(len(ruleIDs)))
+		for ruleID := range ruleIDs {
+			batchIDs = append(batchIDs, key.batchID)
+			shedKeys = append(shedKeys, shedKey)
+			ruleIDArgs = append(ruleIDArgs, ruleID)
+		}
 		affectedBatches[key.batchID] = struct{}{}
 	}
-	if _, err := tx.Exec(ctx, `
--- projection-review: membership=one removal tuple per (batch, shed scope) the exited animal held canceled obligations in; group_key=(batch_id, COALESCE(shed_id, nil-uuid)) -- the same identity the planner writes an assignment row under; join_cardinality=UNNEST arrays are positional 1:1 inputs and the removal key matches at most one planner-written assignment row per batch/shed, so no fan-out can double-subtract; pagination=n/a (single transactional write bounded by the exiting animal's own batches); scope=the assignment row's own park/shed, unchanged.
+	if len(batchIDs) > 0 {
+		if _, err := tx.Exec(ctx, `
+-- projection-review: membership=one (batch, shed scope, rule) tuple per obligation-rule canceled for the exiting animal, regrouped to one removal bucket per (batch, shed scope); group_key=(batch_id, COALESCE(shed_id, nil-uuid)) narrowed to ONE assignment_id per bucket via DISTINCT ON, so the aggregate row the animal actually sits in is the only row decremented; join_cardinality=removal->assignment is many-to-many by construction (the read model has no goat-level membership), so the join is collapsed by DISTINCT ON to at most ONE assignment row per bucket -- one exiting animal can therefore never subtract more than one animal in total per (batch, shed); pagination=n/a (single transactional write bounded by the exiting animal's own batches); scope=the assignment row's own park/shed/partition/operator/date, unchanged -- rows for other partitions, operators, dates, or vaccines are never touched.
+WITH removal AS (
+  SELECT r.batch_id, r.shed_key, array_agg(DISTINCT r.rule_id) AS rule_ids
+  FROM unnest($2::uuid[], $3::uuid[], $4::uuid[]) AS r(batch_id, shed_key, rule_id)
+  GROUP BY r.batch_id, r.shed_key
+),
+goat_partition AS (
+  SELECT partition_label
+  FROM goat_shed_partitions
+  WHERE tenant_id = $1 AND goat_id = $5
+),
+matched AS (
+  SELECT
+    r.batch_id,
+    r.shed_key,
+    vda.assignment_id,
+    vda.planned_date,
+    (SELECT count(*) FROM unnest(vda.vaccine_rule_ids) AS planned(rule_id)
+      WHERE planned.rule_id = ANY(r.rule_ids))::int AS matched_rules,
+    cardinality(r.rule_ids)::int AS canceled_rules
+  FROM removal r
+  JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = $1
+   AND vda.batch_id = r.batch_id
+   AND COALESCE(vda.shed_id, '00000000-0000-0000-0000-000000000000'::uuid) = r.shed_key
+   AND vda.animal_count > 0
+   -- The animal's own partition when it is known; legacy animals without a partition row stay
+   -- eligible for every partition of their shed rather than silently never being removed.
+   AND (NOT EXISTS (SELECT 1 FROM goat_partition)
+        OR vda.partition_label = (SELECT partition_label FROM goat_partition))
+   -- The vaccine dimension: either the row plans one of the rules just canceled for this animal,
+   -- or the row predates vaccine_rule_ids (legacy '{}') and cannot be discriminated by vaccine.
+   AND (vda.vaccine_rule_ids && r.rule_ids OR cardinality(vda.vaccine_rule_ids) = 0)
+),
+candidate AS (
+  SELECT DISTINCT ON (m.batch_id, m.shed_key)
+    m.assignment_id,
+    CASE WHEN m.matched_rules > 0 THEN m.matched_rules ELSE m.canceled_rules END AS doses
+  FROM matched m
+  ORDER BY m.batch_id, m.shed_key, m.matched_rules DESC, m.planned_date, m.assignment_id
+)
 UPDATE vaccination_drive_assignments vda
 SET animal_count = GREATEST(0, vda.animal_count - 1),
-    total_doses = GREATEST(0, vda.total_doses - removal.doses),
+    total_doses = GREATEST(0, vda.total_doses - candidate.doses),
     updated_at = now()
-FROM unnest($2::uuid[], $3::uuid[], $4::int[]) AS removal(batch_id, shed_key, doses)
+FROM candidate
 WHERE vda.tenant_id = $1
-  AND vda.batch_id = removal.batch_id
-  AND COALESCE(vda.shed_id, '00000000-0000-0000-0000-000000000000'::uuid) = removal.shed_key`,
-		tenant, batchIDs, shedKeys, doseCounts); err != nil {
-		return fmt.Errorf("obligation: remove exited animal from drive assignments: %w", err)
+  AND vda.assignment_id = candidate.assignment_id`,
+			tenant, batchIDs, shedKeys, ruleIDArgs, goat); err != nil {
+			return fmt.Errorf("obligation: remove exited animal from drive assignments: %w", err)
+		}
 	}
 	emptiedBatchIDs := make([]string, 0, len(affectedBatches))
 	for batchID := range affectedBatches {
@@ -3781,11 +3841,12 @@ RETURNING obligation_id::text, COALESCE(batch_id::text, '')::text, scope_type, C
 	// (vaccination_drive_assignments), not only from obligation_instances: those rows are what the
 	// vaccination execution / shed / operator-day screens and Calendar render as planned work and
 	// as the operator's animal load for a date. Nothing else ever re-derives them for an exit, so a
-	// dead/sold animal would otherwise keep occupying drive capacity forever. The assignment row an
-	// obligation belongs to is keyed by (batch_id, shed scope) -- the sweeper and park-consolidation
-	// planners both bucket by the obligation's own shed scope with the batch's single conducted_by
-	// operator -- so we can subtract the animal's exact contribution: 1 distinct animal, plus one
-	// dose per distinct rule it held in that (batch, shed).
+	// dead/sold animal would otherwise keep occupying drive capacity forever. We collect, per
+	// (batch, shed scope) bucket, the distinct rules the animal held there -- total_doses is a
+	// DISTINCT (target, rule) dose-key count -- and removeGoatFromDriveAssignmentsTx then narrows
+	// that bucket to the SINGLE assignment row the animal actually sits in (the read model has no
+	// goat-level membership column, so a bucket can span several partition/operator/date/vaccine
+	// rows and only one of them holds this animal).
 	removedDoseRules := make(map[driveAssignmentRemovalKey]map[string]struct{})
 	for rows.Next() {
 		var id, batchID, scopeType, scopeID, ruleID string
@@ -3893,7 +3954,7 @@ WHERE tenant_id = $1
 			return 0, fmt.Errorf("obligation: update canceled batch repair: %w", err)
 		}
 	}
-	if err := removeGoatFromDriveAssignmentsTx(ctx, tx, tenant, removedDoseRules); err != nil {
+	if err := removeGoatFromDriveAssignmentsTx(ctx, tx, tenant, goat, removedDoseRules); err != nil {
 		return 0, err
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": reason})
