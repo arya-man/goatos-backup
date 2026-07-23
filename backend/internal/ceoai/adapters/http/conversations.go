@@ -72,6 +72,7 @@ var defaultStarters = []string{
 	"How many vaccinations are due today?",
 	"Which sheds are behind on vaccination?",
 	"Plot vaccination overdue by park",
+	"Chart vaccinations due today by park",
 }
 
 // ConversationHandler serves the thread + feedback + starters surface.
