@@ -118,6 +118,11 @@ data class CountsBreakdownShedFacetDto(
 
 @Serializable
 data class CountsBreakdownFacetsDto(
+    // Distinct lifecycle_status values present in the WHOLE tenant herd (alive/dead/sold/
+    // culled/transferred), independent of the currently-selected lifecycle filter — backs the
+    // Live/Sold/Culled/Dead/Transferred filter dimension. Default empty list, per this file's
+    // lenient-decode rule, degrades the lifecycle filter to "unsupported" on an older backend.
+    @SerialName("lifecycle") val lifecycle: List<CountsBreakdownSeriesPointDto> = emptyList(),
     @SerialName("stages") val stages: List<CountsBreakdownSeriesPointDto> = emptyList(),
     @SerialName("breeds") val breeds: List<CountsBreakdownSeriesPointDto> = emptyList(),
     @SerialName("parks") val parks: List<CountsBreakdownSeriesPointDto> = emptyList(),
@@ -129,7 +134,8 @@ data class CountsBreakdownFacetsDto(
      * filter bar is already showing.
      */
     val hasAnyDimension: Boolean
-        get() = stages.isNotEmpty() || breeds.isNotEmpty() || parks.isNotEmpty() || sheds.isNotEmpty()
+        get() = lifecycle.isNotEmpty() || stages.isNotEmpty() || breeds.isNotEmpty() ||
+            parks.isNotEmpty() || sheds.isNotEmpty()
 }
 
 /**

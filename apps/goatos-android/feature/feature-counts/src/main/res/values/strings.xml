@@ -35,13 +35,24 @@
     <string name="counts_filter_park">Park</string>
     <string name="counts_filter_shed">Shed</string>
     <string name="counts_filter_breed">Breed</string>
+    <string name="counts_filter_lifecycle">Status</string>
     <string name="counts_filter_all_parks">All parks</string>
     <string name="counts_filter_all_sheds">All sheds</string>
     <string name="counts_filter_all_breeds">All breeds</string>
+    <string name="counts_filter_all_lifecycles">Live herd</string>
+    <string name="counts_filter_lifecycle_unavailable">Not available</string>
     <string name="counts_filter_park_first">Pick a park first</string>
     <string name="counts_filter_shed_unavailable">Not available</string>
+    <string name="counts_filters_button">Filters</string>
+    <string name="counts_filters_sheet_title">Filter the census</string>
+    <string name="counts_filters_sheet_done">Done</string>
     <string name="counts_empty_message">No animals match this scope</string>
     <string name="counts_error_message">Couldn\'t load counts. Tap refresh to retry.</string>
+    <string name="counts_hero_total_label">Total herd</string>
+    <string name="counts_hero_adults_label">Adults</string>
+    <string name="counts_hero_kids_label">Kids</string>
+    <string name="counts_shed_subtotal_fmt">%1$d in this shed</string>
+    <string name="counts_shed_unassigned">No shed assigned</string>
 
     <!-- Birth / death screen -->
     <string name="counts_birth_death_title">Record birth or death</string>
