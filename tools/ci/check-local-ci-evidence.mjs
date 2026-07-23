@@ -216,6 +216,41 @@ function record(sha, { mode, base, jobs }) {
   console.log(`local-ci-evidence: recorded GREEN ${mode} receipt for ${sha.slice(0, 12)} at ${receiptPath()}`);
 }
 
+function reuseAfterRebase({ oldSha, newSha, newBase, jobs }) {
+  const receipt = readReceipt();
+  if (!receipt || receipt.result !== "green") {
+    console.error("cannot reuse CI receipt: no green receipt is present");
+    process.exit(1);
+  }
+  if (receipt.sha !== oldSha) {
+    console.error(`cannot reuse CI receipt: receipt is for ${String(receipt.sha).slice(0, 12)}, not ${oldSha.slice(0, 12)}`);
+    process.exit(1);
+  }
+  if (!/^[0-9a-f]{40}$/.test(newSha) || !/^[0-9a-f]{40}$/.test(newBase)) {
+    console.error("cannot reuse CI receipt: --new-sha and --new-base must be full 40-hex SHAs");
+    process.exit(2);
+  }
+  if (receipt.mode === "all") {
+    record(newSha, { mode: "all", jobs: "common,backend,query-plans,admin-web,android" });
+    return;
+  }
+  if (receipt.mode !== "scoped") {
+    console.error(`cannot reuse CI receipt: unsupported receipt mode ${receipt.mode}`);
+    process.exit(1);
+  }
+  if (receipt.rulesHash !== currentRulesHash()) {
+    console.error("cannot reuse CI receipt: component path rules changed after the receipt was recorded");
+    process.exit(1);
+  }
+  const recorded = normalizedJobs(receipt.jobs);
+  const required = normalizedJobs(jobs);
+  if (JSON.stringify(recorded) !== JSON.stringify(required)) {
+    console.error(`cannot reuse CI receipt: required jobs changed from ${recorded.join(",")} to ${required.join(",")}`);
+    process.exit(1);
+  }
+  record(newSha, { mode: "scoped", base: newBase, jobs: required.join(",") });
+}
+
 function verify() {
   const head = execFileSync("git", ["rev-parse", "HEAD"]).toString("utf8").trim();
   const receipt = readReceipt();
@@ -319,6 +354,12 @@ if (args.includes("--self-test")) selfTest();
 else if (args.includes("--record")) record(argValue(args, "--record"), {
   mode: argValue(args, "--mode", "all"),
   base: argValue(args, "--base"),
+  jobs: argValue(args, "--jobs", ""),
+});
+else if (args.includes("--reuse-after-rebase")) reuseAfterRebase({
+  oldSha: argValue(args, "--old-sha"),
+  newSha: argValue(args, "--new-sha"),
+  newBase: argValue(args, "--new-base"),
   jobs: argValue(args, "--jobs", ""),
 });
 else if (args.includes("--verify")) verify();
