@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -114,8 +115,9 @@ func TestMarkMissedBeforeReapsStrandedInProgressAfterGraceWindow(t *testing.T) {
 	// The drive was abandoned: nothing on the batch or its rows has been touched for 48h.
 	ageDrive(t, ctx, pool, batchID, "48 hours")
 
-	// Production entry point. missedBefore = now, so the reaper's cutoff is now-12h.
-	sweepAt := time.Now().UTC()
+	// Production entry point. missedBefore is the DUE cutoff (business calendar); the reaper's own
+	// staleness cutoff is now-12h of elapsed real time, computed inside reapStrandedInProgress.
+	sweepAt := time.Now().In(biztime.DefaultLocation())
 	if _, err := repo.MarkMissedBefore(ctx, tenantID, sweepAt, 1000); err != nil {
 		t.Fatalf("MarkMissedBefore: %v", err)
 	}
@@ -158,8 +160,11 @@ func TestMarkMissedBeforeReapsStrandedInProgressAfterGraceWindow(t *testing.T) {
 		t.Fatalf("reaped obligations still attached to a batch: %d rows with batch_id, want 0", got)
 	}
 
-	// Replay safety: a second sweep must not re-emit events or re-audit.
-	if _, err := repo.MarkMissedBefore(ctx, tenantID, time.Now().UTC(), 1000); err != nil {
+	// Replay safety: a second sweep must not re-emit events or re-audit. missedBefore is a DUE
+	// cutoff -- a business-calendar concept -- so it is expressed in the India business calendar
+	// (biztime.DefaultLocation), not UTC. The staleness window the reaper derives internally is
+	// elapsed real time and is anchored to the server clock independently of this argument.
+	if _, err := repo.MarkMissedBefore(ctx, tenantID, time.Now().In(biztime.DefaultLocation()), 1000); err != nil {
 		t.Fatalf("second MarkMissedBefore: %v", err)
 	}
 	for _, id := range []string{obB, obC} {
@@ -201,7 +206,9 @@ func TestMarkMissedBeforeSparesActivelyWorkedInProgressDrive(t *testing.T) {
 		t.Fatalf("touch batch: %v", err)
 	}
 
-	if _, err := repo.MarkMissedBefore(ctx, tenantID, time.Now().UTC(), 1000); err != nil {
+	// Due cutoff = now in the India business calendar (see note above); the grace window that
+	// spares this actively-worked drive is elapsed real time, derived inside the reaper.
+	if _, err := repo.MarkMissedBefore(ctx, tenantID, time.Now().In(biztime.DefaultLocation()), 1000); err != nil {
 		t.Fatalf("MarkMissedBefore: %v", err)
 	}
 
@@ -245,7 +252,7 @@ func TestMarkMissedBeforeReapGraceIsAnchoredToWallClockNotMissedBefore(t *testin
 
 	// The drive was touched RIGHT NOW (seedStrandedDrive just completed animal 1), but the sweep is
 	// asked to close out everything due through 30 days from now.
-	farFutureCutoff := time.Now().UTC().AddDate(0, 0, 30)
+	farFutureCutoff := time.Now().In(biztime.DefaultLocation()).AddDate(0, 0, 30)
 	if _, err := repo.MarkMissedBefore(ctx, tenantID, farFutureCutoff, 1000); err != nil {
 		t.Fatalf("MarkMissedBefore: %v", err)
 	}
