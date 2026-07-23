@@ -135,9 +135,12 @@ func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScop
 	if strings.Contains(calendarDriveTargetsSQL, badTargetDate) {
 		t.Fatalf("park-drive target lookup still matches batches by window_start before planned_date")
 	}
-	const wantedTargetDate = "to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text"
+	const wantedTargetDate = "vda.planned_date = $3::date"
 	if !strings.Contains(calendarDriveTargetsSQL, wantedTargetDate) {
 		t.Fatalf("park-drive target lookup must match batches by vaccination_drive_assignments.planned_date")
+	}
+	if strings.Contains(calendarDriveTargetsSQL, "to_char(vda.planned_date") {
+		t.Fatalf("park-drive target lookup must compare planned_date as a typed date, not through to_char")
 	}
 	if strings.Contains(calendarDriveTargetsSQL, "ob.planned_date::timestamptz") {
 		t.Fatalf("park-drive target lookup must not depend on the PostgreSQL session timezone")
@@ -146,9 +149,11 @@ func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScop
 
 func TestCalendarParkDriveTargetsUseOperatorAssignmentDateOneToManyPageBoundaryScheduledDateParkScopeStatusBuckets(t *testing.T) {
 	checks := map[string]string{
-		"assignment table membership": "JOIN vaccination_drive_assignments vda",
-		"assignment business date":    "to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text",
+		"assignment table membership": "LEFT JOIN vaccination_drive_assignments vda",
+		"assignment business date":    "vda.planned_date = $3::date",
+		"legacy batch fallback":       "NOT COALESCE(assignment_presence.has_any_assignment, false)",
 		"assignment park scope":       "vda.park_id = $4::uuid",
+		"display date tied to bucket": "AND assignment.planned_date = $3::date",
 		"target display date":         "COALESCE(target_assignment.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at",
 	}
 	for name, fragment := range checks {

@@ -61,7 +61,7 @@ function invariantFindings(readText) {
       file: "backend/internal/calendar/adapters/postgres/targets.go",
       fragments: [
         "JOIN vaccination_drive_assignments vda",
-        "to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text",
+        "vda.planned_date = $3::date",
         "vda.park_id = $4::uuid",
       ],
       message: "Calendar L3 drive roster must resolve parkdrive members from vaccination_drive_assignments.planned_date, not stale obligation_batches.planned_date",
@@ -117,7 +117,7 @@ function selfTest() {
   if (invariantBad.length === 0) throw new Error("self-test: expected invariant findings for stale date sources");
   const invariantGood = invariantFindings((file) => {
     if (file.endsWith("calendar/adapters/postgres/targets.go")) {
-      return "JOIN vaccination_drive_assignments vda\nAND to_char(vda.planned_date, 'YYYY-MM-DD') = $3::text\nvda.park_id = $4::uuid\n";
+      return "JOIN vaccination_drive_assignments vda\nAND vda.planned_date = $3::date\nvda.park_id = $4::uuid\n";
     }
     if (file.endsWith("processintegrity/adapters/postgres/repository.go")) {
       return "vda.assignment_planned_at\n(assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at\nCOALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)\nCOALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at\n";
