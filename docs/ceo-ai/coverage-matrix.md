@@ -358,3 +358,23 @@ watermark only) and `func:ClaimOperatorConfigReplanWatermark`,
 re-plans future vaccination drive batches. It adds NO leadership KPI, read API, Cube
 metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read surface is
 unchanged. Explicit documented exclusion.
+
+## Explicit exclusion: operator-config cascade watermark helpers (2026-07-23)
+
+The operator-config auto-cascade durability fix
+(`backend/internal/obligation/adapters/postgres/operator_recompute.go`) adds three
+internal two-phase idempotency-watermark helpers on the cascade consumer path:
+
+- `func:ClaimOperatorConfigReplanWatermarkPending` — claims the per-event watermark
+  in the `pending` state before recompute runs.
+- `func:MarkOperatorConfigReplanWatermarkSucceeded` — promotes the watermark to
+  `succeeded` after the recompute + batch supersede commit.
+- `func:GetOperatorConfigReplanWatermarkStatus` — reads the watermark state so a
+  redelivered event retries a `pending` (failed) attempt and no-ops a `succeeded` one.
+
+All three are internal outbox-consumer idempotency plumbing for the
+`vaccination.capacity.changed` / `vaccination.leave.changed` cascade. They add NO
+new leadership KPI, table, read API route, Cube metric, `ceo_ai.*` view, or MCP
+Toolbox tool; the leadership assistant read surface, read-only SQL fallback, and
+tool catalog are unchanged. Explicit documented exclusion — no coverage-matrix
+mapping required.
