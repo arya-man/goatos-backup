@@ -14,10 +14,8 @@ func VaccinationDoseDisplayLabel(protocolName, doseCode string) string {
 
 	normalized := strings.ToUpper(strings.ReplaceAll(doseCode, " ", "_"))
 	switch normalized {
-	case "ET_TT_4W":
-		return "ET+TT · First dose"
-	case "ET_TT_7W", "ET_TT_3W":
-		return "ET+TT · Booster"
+	case "ET_TT_4W", "ET_TT_7W", "ET_TT_3W":
+		return "ET+TT"
 	}
 
 	if label := matrixDoseDisplayLabel(normalized); label != "" {
@@ -34,9 +32,7 @@ func VaccinationDoseDisplayLabel(protocolName, doseCode string) string {
 		}
 	}
 	if antigen := vaccinationAntigenLabel(antigenCode); antigen != "" {
-		if doseSuffix == "BOOSTER" {
-			return antigen + " · Booster"
-		}
+		_ = doseSuffix
 		return antigen
 	}
 
@@ -64,9 +60,9 @@ func matrixDoseDisplayLabel(code string) string {
 		for _, part := range rest {
 			switch {
 			case part == "BOOSTER" || part == "REVAC":
-				return antigen + " · Booster"
+				return antigen
 			case strings.HasPrefix(part, "W") && len(part) > 1:
-				return antigen + " · Dose " + strings.TrimPrefix(part, "W")
+				return antigen
 			}
 		}
 		return antigen

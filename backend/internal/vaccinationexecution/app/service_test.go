@@ -120,8 +120,8 @@ func TestDriveNameUsesBackendOwnedDoseDisplayLabel(t *testing.T) {
 		ProtocolName: "Preventive Care Vaccination Matrix",
 		DoseCode:     "ET_TT_7W",
 	})
-	if got == nil || *got != "ET+TT · Booster" {
-		t.Fatalf("driveName() = %v, want ET+TT booster display label", got)
+	if got == nil || *got != "ET+TT" {
+		t.Fatalf("driveName() = %v, want ET+TT display label without dose-wave wording", got)
 	}
 }
 
