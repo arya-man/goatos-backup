@@ -1,5 +1,7 @@
 package domain
 
+import "encoding/json"
+
 // Position is a fixed operational/timetable seat (design doc
 // docs/hr/roster-rbac-design.md S4.2): who holds it, at which center, and its
 // recurring week-off day. It is the ONLY new roster table -- leave, coverage,
@@ -120,10 +122,31 @@ type UpdatePositionRequest struct {
 	PositionTier              *string `json:"position_tier"`
 	BackupGroupCode           *string `json:"backup_group_code"`
 	WeekOffWeekday            *string `json:"week_off_weekday"`
-	VaccinationDailyAnimalCap *int    `json:"vaccination_daily_animal_cap"`
+	VaccinationDailyAnimalCap NullInt `json:"vaccination_daily_animal_cap"`
 	ValidTo                   *string `json:"valid_to"`
 	Status                    *string `json:"status"`
 	IdempotencyKey            *string `json:"idempotency_key"`
+}
+
+// NullInt is a PATCH tri-state for nullable integer columns:
+// absent => leave unchanged, null => clear to DB null, number => set.
+type NullInt struct {
+	Set   bool
+	Value *int
+}
+
+func (n *NullInt) UnmarshalJSON(data []byte) error {
+	n.Set = true
+	if string(data) == "null" {
+		n.Value = nil
+		return nil
+	}
+	var v int
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	n.Value = &v
+	return nil
 }
 
 // UpsertBackupConfigRequest assigns/replaces the holder of a backup-slot seat

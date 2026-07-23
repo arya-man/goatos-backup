@@ -16,3 +16,9 @@ test('operator timetable uses HRMS per-seat animal caps for capacity math', () =
   assert.match(source, /reduce\(\(sum, operator\) => sum \+ operatorDailyCap\(operator, operatorCap\), 0\)/);
   assert.doesNotMatch(source, /operators\.length \* operatorCap/);
 });
+
+test('operator timetable exposes cap editing affordances instead of read-only numbers', () => {
+  assert.match(source, /onEditCaps/);
+  assert.match(source, /Edit drive caps/);
+  assert.match(source, /Edit cap/);
+});

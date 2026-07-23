@@ -484,12 +484,12 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         if (!validWeekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: invalid week_off '${op?.week_off}'`);
         else if (weekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: duplicate week_off '${wk}'`);
         else weekdays.add(wk);
-        if (op?.animal_cap_per_day != null && !(Number.isInteger(op.animal_cap_per_day) && op.animal_cap_per_day > 0)) {
-          pushSample(operatorRosterProblems, `${label}: animal_cap_per_day must be a positive integer when set, got ${op.animal_cap_per_day}`);
+        if (op?.animal_cap_per_day != null && !(Number.isInteger(op.animal_cap_per_day) && op.animal_cap_per_day >= 1 && op.animal_cap_per_day <= 100000)) {
+          pushSample(operatorRosterProblems, `${label}: animal_cap_per_day must be an integer between 1 and 100000 when set, got ${op.animal_cap_per_day}`);
         }
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
-      if (!(Number.isInteger(cap) && cap > 0)) pushSample(operatorRosterProblems, `default_animals_per_day must be a positive integer, got ${cap}`);
+      if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
     } catch (err) {
       pushSample(operatorRosterProblems, `unparseable cpt-operator-roster.json: ${err.message}`);
     }
@@ -497,8 +497,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "operator_roster_contract",
     operatorRosterProblems.length,
-    "cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, positive default and optional per-person animal cap.",
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, a positive default_animals_per_day, and any animal_cap_per_day override is positive.",
+    "cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, bounded default and optional per-person animal cap.",
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, default_animals_per_day is 1..100000, and any animal_cap_per_day override is 1..100000.",
     operatorRosterProblems,
   ));
 

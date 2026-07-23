@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -55,6 +56,32 @@ func (f *fakeRosterRepo) markForeignTenantMember(workforceMemberID string) {
 }
 
 var _ ports.RosterRepository = (*fakeRosterRepo)(nil)
+
+func TestUpdatePositionRequestVaccinationCapTriStateJSON(t *testing.T) {
+	var absent domain.UpdatePositionRequest
+	if err := json.Unmarshal([]byte(`{"row_version":1}`), &absent); err != nil {
+		t.Fatalf("unmarshal absent: %v", err)
+	}
+	if absent.VaccinationDailyAnimalCap.Set {
+		t.Fatal("absent vaccination_daily_animal_cap must leave Set=false")
+	}
+
+	var cleared domain.UpdatePositionRequest
+	if err := json.Unmarshal([]byte(`{"row_version":1,"vaccination_daily_animal_cap":null}`), &cleared); err != nil {
+		t.Fatalf("unmarshal null: %v", err)
+	}
+	if !cleared.VaccinationDailyAnimalCap.Set || cleared.VaccinationDailyAnimalCap.Value != nil {
+		t.Fatalf("null cap = %#v, want Set=true Value=nil", cleared.VaccinationDailyAnimalCap)
+	}
+
+	var set domain.UpdatePositionRequest
+	if err := json.Unmarshal([]byte(`{"row_version":1,"vaccination_daily_animal_cap":125}`), &set); err != nil {
+		t.Fatalf("unmarshal number: %v", err)
+	}
+	if !set.VaccinationDailyAnimalCap.Set || set.VaccinationDailyAnimalCap.Value == nil || *set.VaccinationDailyAnimalCap.Value != 125 {
+		t.Fatalf("number cap = %#v, want Set=true Value=125", set.VaccinationDailyAnimalCap)
+	}
+}
 
 func fakeUUID(seq int) string {
 	return fmt.Sprintf("%08x-0000-4000-8000-%012x", seq, seq)

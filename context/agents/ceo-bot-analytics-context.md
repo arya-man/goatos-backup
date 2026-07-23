@@ -446,6 +446,13 @@ position has no explicit cap. CEO/CXO answers about overload, timetable
 capacity, or "how many animals can this operator take" must cite the HRMS
 position cap used by the scheduler, not multiply a hardcoded default by the
 operator count.
+Update note 2026-07-23: admin-web may clear
+`vaccination_daily_animal_cap` back to null, which means "use tenant default"
+for assistant and scheduler reads. Do not treat null as zero capacity or as a
+missing-data error. The operator-cap SQL contract is now backed by a real
+Postgres test that seeds custom, null/default, and week-off operators; coverage
+claims must continue to use that executable proof, not source-string guards
+alone.
 
 ---
 

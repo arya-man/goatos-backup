@@ -9024,12 +9024,15 @@ components:
             - sunday
             - null
         vaccination_daily_animal_cap:
-          type: integer
+          type:
+            - integer
+            - "null"
           minimum: 1
           maximum: 100000
           description: >-
-            Sets this operator seat's vaccination animal/day capacity. Omit the
-            field to leave the current cap/default unchanged.
+            Sets this operator seat's vaccination animal/day capacity. Null
+            clears the custom cap so the scheduler falls back to the tenant
+            default. Omit the field to leave the current cap/default unchanged.
         valid_to:
           type:
             - string

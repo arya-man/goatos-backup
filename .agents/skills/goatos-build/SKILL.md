@@ -510,6 +510,10 @@ one product; this skill is the navigation layer.
   all use that same per-position field. Any change to cap source or fallback
   order must update the migration/seed fixture companions, admin UI, scheduler
   tests, and capacity/date-move E2E in one patch.
+  Clearing `vaccination_daily_animal_cap` to null is a valid HRMS edit that
+  restores tenant-default capacity; never coerce it to zero or silently leave
+  the previous custom cap. Operator-cap SQL proof must be a real Postgres test
+  for custom/null-default/week-off rows; a source-string guard is only a lint.
 
 ## Must Not
 

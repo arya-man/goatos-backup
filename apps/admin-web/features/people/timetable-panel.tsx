@@ -2,7 +2,7 @@
 
 import { getAdminApi } from '@/lib/api/client';
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Clock3, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
+import { CalendarDays, Clock3, Pencil, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound } from 'lucide-react';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
@@ -20,6 +20,7 @@ interface Position extends BasePosition {
 
 interface TimetablePanelProps {
   pageContract?: AdminUiPageContract;
+  onEditCaps?: () => void;
 }
 
 const DEFAULT_OPERATOR_CAP = 200;
@@ -69,7 +70,7 @@ function operatorDailyCap(pos: Position, fallback: number): number {
   return pos.vaccination_daily_animal_cap ?? fallback;
 }
 
-export function TimetablePanel({ pageContract }: TimetablePanelProps) {
+export function TimetablePanel({ pageContract, onEditCaps }: TimetablePanelProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [operatorCap, setOperatorCap] = useState(DEFAULT_OPERATOR_CAP);
   const [loading, setLoading] = useState(true);
@@ -147,6 +148,12 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
             Backend roster and capacity data for CPT vaccination execution. Week-off days remove that operator from drive capacity.
           </div>
         </div>
+        {onEditCaps ? (
+          <button className="btn" onClick={onEditCaps} type="button">
+            <Pencil className="ic" aria-hidden="true" />
+            Edit drive caps
+          </button>
+        ) : null}
       </div>
 
       <div className="grid g4 people-availability-kpis" style={{ marginBottom: 16 }}>
@@ -203,6 +210,11 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
                     <span className="tag t-ok">{operator.status}</span>
                     <span className="tag t-info">{weekOffLabel(operator)} off</span>
                     <span className="tag t-teal">{operatorDailyCap(operator, operatorCap)} animals/day</span>
+                    {onEditCaps ? (
+                      <button className="btn" onClick={onEditCaps} type="button">
+                        Edit cap
+                      </button>
+                    ) : null}
                   </div>
                   <div className="people-week-grid" aria-label={`${personName(operator)} weekly availability`}>
                     {WEEKDAYS.map((day) => {
