@@ -4,6 +4,7 @@ import test from "node:test";
 
 const pageSource = readFileSync(new URL("./calendar.tsx", import.meta.url), "utf8");
 const drawerSource = readFileSync(new URL("./calendar-event-drawer.tsx", import.meta.url), "utf8");
+const driveDetailSource = readFileSync(new URL("./calendar-drive-detail.tsx", import.meta.url), "utf8");
 
 test("calendar summary events open a hash-backed local drawer", () => {
   assert.match(pageSource, /LocalOverlayLink/);
@@ -16,4 +17,12 @@ test("calendar drawer close controls do not navigate the calendar route", () => 
   assert.doesNotMatch(drawerSource, /<Link[\s\S]{0,180}href=\{closeHref\}/);
   assert.match(drawerSource, /currentHistoryEntryIsLocalOverlay/);
   assert.match(drawerSource, /replaceLocalOverlayUrl/);
+});
+
+test("calendar drive detail roster opens the goat passport drawer with vaccination history", () => {
+  assert.match(driveDetailSource, /LocalOverlayLink/);
+  assert.match(driveDetailSource, /goat_passport/);
+  assert.match(driveDetailSource, /HerdPassportLocalDrawer/);
+  assert.match(driveDetailSource, /HerdPassportDrawerItem/);
+  assert.doesNotMatch(driveDetailSource, /<td>\{item\.display_id \|\| "—"\}<\/td>/);
 });

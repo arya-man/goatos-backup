@@ -38,7 +38,8 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /app/counts/shifting/destinations | EXCLUDED | Operator write-flow picker; not a leadership metric |
 | GET /goats/search | EXCLUDED | Record-level lookup; leadership stays aggregate |
 | GET /goats/{goat_id} | EXCLUDED | Single-animal detail |
-| GET /goats/{goat_id}/passport | EXCLUDED | Per-animal history detail |
+| GET /goats/{goat_id}/passport | EXCLUDED | Per-animal history detail; admin-web goat rosters may open this as an operator/local-drawer detail, but CEO assistant answers stay aggregate unless a leader explicitly asks for a named animal record |
+| GET /goats/{goat_id}/vaccination-passport | EXCLUDED | Per-animal vaccination history/open-obligation detail for Goat Passport drawers; not a leadership aggregate tool |
 | GET /goats/{goat_id}/timeline | EXCLUDED | Per-animal audit trail |
 | GET /identifiers/{type}/{value}/resolve | EXCLUDED | Scan-time resolution utility |
 | GET /vaccination/execution | api + Cube:vaccination_due/overdue | Due/overdue by shed |
@@ -61,7 +62,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…) | EXCLUDED | Operator-scoped app views; leadership uses /vaccination/* |
 | GET /calendar/vaccination/events | api | Calendar timeline (dots) |
 | Calendar vaccination date markers | api | Leadership assistant read API coverage: month/week marker dots use the same assignment-effective schedule date as the calendar event list and vaccination operator schedule, so leadership answers and client overview counts do not report stale batch/obligation dates after a drive move. |
-| GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail |
+| GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail; admin-web Calendar drive target rosters must still open the shared Goat Passport local drawer with per-goat vaccination history |
 | GET /action-center/obligations | api + view:action_center_current | Cross-domain queue |
 | GET /feed-direction/preview | api + view:feed_direction_current | Feed needed today; blocked≠0 |
 | GET /feed-direction/generation-preview | api + view:feed_direction_current | Planned generation + gaps |

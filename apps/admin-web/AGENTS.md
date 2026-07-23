@@ -286,6 +286,14 @@ regression must prove one-click open, Back/Escape/scrim/X close, no global
 route-pending flash, and zero Action Center/document/RSC requests. Run
 `make admin-web-local-overlay-guard`; its legacy baseline may only decrease.
 
+Any admin-web table or roster that lists individual goats must open the shared
+Goat Passport local drawer from each row/cell using `LocalOverlayLink`. That
+drawer must include the goat-wise vaccination passport (`/api/goats/{goat_id}/vaccination-passport`):
+next due, open obligations, and vaccination history. Do not ship a plain roster
+table that dead-ends on click, opens a separate route for row preview, or omits
+vaccination history while another goat roster shows it. Add or extend the local
+drawer guard for every new goat roster surface.
+
 For live tenant/business data, even backend code is not the source of truth.
 Locations, park codes/names, UUIDs, people, sheds, capacities, role/actor scope,
 permissions, and DB-backed dropdown values must be read from Postgres or
