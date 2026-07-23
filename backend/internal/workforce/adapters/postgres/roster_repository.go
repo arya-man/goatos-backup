@@ -1023,11 +1023,121 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND row_version = $3 AND st
 	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveApprove, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
+	// Approval -- not the earlier 'reported' apply -- is the transition that actually
+	// removes this member from the scheduler's available-operator set, so the cascade
+	// must fire here, in the same tx as the status write.
+	if err := enqueueVaccinationLeaveCascade(ctx, tx, cmd.TenantID, cmd.ActorID, cmd.AbsenceID, "workforce.ApproveLeave"); err != nil {
+		return domain.StaffLeave{}, false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
 	leave, err := r.GetLeave(contextWithoutCancel(ctx), cmd.TenantID, cmd.AbsenceID)
 	return leave, false, err
+}
+
+// enqueueVaccinationLeaveCascade enqueues vaccination.leave.changed to outbox_messages in the
+// caller's transaction for an absence transition that is EFFECTIVE for vaccination planning.
+//
+// Root cause it closes: ApplyLeave enqueues while the absence is still status='reported', but the
+// scheduler's availability predicate (obligation/adapters/postgres/visit_shot_lock.go:586 and :694)
+// only excludes an operator whose absence status IN ('approved','escalation_required'). The apply
+// event therefore describes a no-op for planning, while the transitions that DO change availability
+// -- approval (reported -> approved) and coverage resolution/escalation -- emitted nothing at all.
+//
+// Scope routing mirrors what OperatorConfigReplanHandler consumes: a 'center'-scoped absence is
+// park-scoped (the shape vaccination_operator_* seats use), so it carries park_id directly; a
+// 'shed'-scoped absence carries scope_type/scope_id and the handler resolves shed -> park. A
+// tenant-scoped absence has no park to re-plan and is skipped. Envelope shape matches ApplyLeave's
+// (contracts/jsonschema/domain-event-envelope.schema.json is additionalProperties:false).
+//
+// Idempotency: the key is bound to the absence row_version AFTER the transition's UPDATE, so each
+// distinct transition enqueues exactly once and a replayed request (which does not re-run the
+// UPDATE, and therefore never reaches this helper) can never add a duplicate.
+func enqueueVaccinationLeaveCascade(ctx context.Context, tx pgx.Tx, tenantID, actorID, absenceID, producer string) error {
+	var scopeType, scopeID, reasonCode, status string
+	var rowVersion int
+	if err := tx.QueryRow(ctx, `
+SELECT scope_type, COALESCE(scope_id::text, ''), reason_code, status, row_version
+FROM workforce_absences
+WHERE tenant_id = $1::uuid AND absence_id = $2::uuid`, tenantID, absenceID,
+	).Scan(&scopeType, &scopeID, &reasonCode, &status, &rowVersion); err != nil {
+		return fmt.Errorf("workforce: read absence for leave cascade: %w", err)
+	}
+	if scopeID == "" || (scopeType != "center" && scopeType != "shed") {
+		return nil
+	}
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	idempotencyKey := fmt.Sprintf("vaccination.leave.changed:%s:%s:%d", absenceID, producer, rowVersion)
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	payload := map[string]any{
+		"absence_id":  absenceID,
+		"scope_type":  scopeType,
+		"scope_id":    scopeID,
+		"reason_code": reasonCode,
+		"status":      status,
+	}
+	visibility := map[string]any{"tenant_id": tenantID}
+	if scopeType == "center" {
+		payload["park_id"] = scopeID
+		visibility["park_id"] = scopeID
+	} else {
+		visibility["shed_id"] = scopeID
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     "vaccination.leave.changed",
+		"schema_version": "1.0.0",
+		"schema_ref":     "domain-event-envelope.v1",
+		"aggregate_type": "absence",
+		"aggregate_id":   absenceID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "workforce",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "human",
+			"actor_id":   actorID,
+			"actor_ref":  nil,
+		},
+		"subject_type":     "location",
+		"subject_id":       scopeID,
+		"visibility_scope": visibility,
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "location",
+			"evidence_id":   scopeID,
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("workforce: marshal leave-changed envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        producer,
+		"schema_version":  "1.0.0",
+		"absence_id":      absenceID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("workforce: marshal leave-changed headers: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, 'vaccination.leave.changed', '1.0.0', 'absence', $3::uuid,
+  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.leave.changed' DO NOTHING`,
+		tenantID, eventID, absenceID, envelope, headers, idempotencyKey); err != nil {
+		return fmt.Errorf("workforce: enqueue leave-changed to outbox: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) ResolveLeaveCoverage(ctx context.Context, cmd ports.ResolveLeaveCoverageCommand) (domain.StaffLeave, bool, error) {
@@ -1082,6 +1192,12 @@ WHERE tenant_id = $1::uuid AND absence_id = $2::uuid AND status IN ('approved', 
 		return domain.StaffLeave{}, false, err
 	}
 	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopeLeaveResolve, idemKey, "workforce_absence", cmd.AbsenceID); err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	// Coverage resolution changes WHO actually covers the scope for the window (a
+	// replacement was resolved, changed, or cleared to escalation_required), which is a
+	// real planning change -- cascade in the same tx as the coverage write.
+	if err := enqueueVaccinationLeaveCascade(ctx, tx, cmd.TenantID, cmd.ActorID, cmd.AbsenceID, "workforce.ResolveLeaveCoverage"); err != nil {
 		return domain.StaffLeave{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

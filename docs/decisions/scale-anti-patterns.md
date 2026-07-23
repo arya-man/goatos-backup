@@ -719,6 +719,112 @@ behavior (deferral, escalation, or explicit rejection).
 `make scale-guard` catches the raw N+1 and compute-on-read anti-patterns; this
 one requires human review and regression test coverage.
 
+## Operator-cascade wiring anti-patterns
+
+A config/roster change must travel an unbroken chain before a planned drive is
+re-planned:
+
+```text
+write path mutates scheduling-relevant state   (must EMIT its cascade event)
+  -> outbox relay dispatches onto the domain bus (handler must be on the DURABLE bus)
+    -> sweeper re-selects work under the operator cap (must NET session-reserved load)
+```
+
+All three links broke at once on `origin/main` f9a44b84 while every isolated
+unit and E2E test stayed green, so all three are named anti-patterns and all
+three are machine-enforced by `make cascade-event-wiring-guard`
+(`tools/agent-hooks/check-cascade-event-wiring.mjs`).
+
+### A. Session-reserved capacity ignored at the selection layer
+
+A per-actor/per-day capacity read from the database is only net of load
+committed by **prior** runs. Whatever the **current** sweep session has already
+reserved lives in memory (`SweepSession.vaccinationOperatorLoads`), and the
+underlying DB snapshot is cached per session
+(`SweepSession.cachedVaccinationOperators`). Summing the DB-reported remaining
+capacity without subtracting the in-session reservation is an over-selection
+bug, not a rounding error.
+
+Concrete failure: `totalVaccinationOperatorCap` summed each operator's
+DB-reported remaining capacity for `(tenant, park, date)` and fed it into
+`operatorCapacityPlanner` / `effectiveOperatorAnimalCap`, which is what bounds
+how many obligations a due-group may attach to a batch. A later rule-version in
+the same sweep (e.g. `sheep_pox` after `blue_tongue`) re-read the same cached
+pre-session snapshot, saw the operator's full un-reserved capacity again, and
+selected on top of what an earlier due-group in that same sweep had already
+committed. A real CPT reseed produced 221-223 animals against a 200
+animals/operator/day cap.
+
+The assignment-split layer (`planVaccinationDriveAssignments`) already did the
+subtraction. Fixing only the later layer is a band-aid: the **selection** layer
+is what decides how much work enters the batch at all.
+
+Rule: any function that consumes a DB-reported per-actor capacity inside a sweep
+must subtract the same session's reserved load for that exact
+`(tenant, park, date, actor)` key before treating it as headroom. A cheap
+in-memory reservation ledger is mandatory whenever one pass re-reads a cached
+snapshot that an earlier pass in the same run already spent against.
+
+### B. Domain-event handler registered on a bus nothing real dispatches to
+
+Goat OS has four places that look like a domain bus. Only two are durable
+dispatch paths:
+
+| Bus | Reality |
+|---|---|
+| `backend/internal/kernelstages/bus.go` (`BuildDomainBus`) | **DURABLE** — backs the in-process outbox-relay publisher and the continuous domain-consumer stage |
+| `backend/cmd/domain-event-consumer/main.go` (`buildDomainBus`) | **DURABLE** — the standalone Pub/Sub consumer binary |
+| `backend/internal/bootstrap/api.go` | the API process's own in-process bus; for several event types its producers are dead code |
+| `backend/internal/domainconsumer/wiring/bus.go` | wired into **no** `cmd/*` binary — tests only |
+
+Concrete failure: `OperatorConfigReplanHandler` was registered in
+`bootstrap/api.go` and `domainconsumer/wiring/bus.go` only. A green isolated E2E
+test built the wiring bus itself and proved the handler logic end to end, while
+production dispatched every `vaccination.capacity.changed` /
+`vaccination.roster.changed` / `vaccination.operator_leave.changed` event onto a
+bus that had no subscriber and silently dropped it. Planned drives kept the
+stale cap and roster forever.
+
+Rule: every type exposing `Register(bus eventbus.Bus)` must be registered on
+**every** durable bus. Registering on a test/API-only bus is not integration.
+A test that constructs its own bus proves handler logic, never wiring — the
+wiring assertion must name the production bus builder
+(see `backend/internal/kernelstages/bus_test.go`). A deliberate omission must be
+declared in `DURABLE_BUS_EXEMPTIONS` in the guard with a written reason and the
+file that really does register it; the guard re-verifies that claim, so an
+exemption cannot decay into "registered nowhere".
+
+### C. Write path mutates scheduling-relevant state without emitting its cascade
+
+A mutation is "scheduling-relevant" when a consumer's already-materialised
+future work would be wrong if it never heard about the change. Such a write must
+enqueue its cascade event to `outbox_messages` **in the same transaction** as
+the state change — the emit is part of the write, not a follow-up.
+
+Concrete failures:
+
+- workforce `UpdatePosition` changed a vaccination operator seat's
+  `vaccination_daily_animal_cap`, `week_off_weekday`, `status`, or `valid_to`
+  directly on `workforce_positions` and emitted nothing. The only wired
+  producers were `UpsertOperatorAssignmentConfig` (N / default operator) and
+  `ApplyLeave` — so HRMS-side seat edits were invisible to vaccination.
+- protocol `publishVersion` synced the tenant-wide `vaccination_capacity_config`
+  transactionally but emitted only `protocol.version.published`, which is
+  consumed by obligation **regeneration**, not by capacity replan. Every park
+  with an operator-assignment config kept planning against the old capacity.
+
+Rule: enumerate the columns/tables that feed a scheduler, and treat any writer
+of them as a registered producer with a cascade event, per
+`context/architecture/domain-event-integration-contract.md`. "Another endpoint
+already emits this event" is not coverage — coverage is per **write path**. The
+guard currently pins three: `workforce_positions` cap/week-off,
+`vaccination_capacity_config`, and `vaccination_operator_assignment_config`;
+extend `CASCADE_WRITE_RULES` when a new scheduler input appears.
+
+Seed CLIs under `backend/cmd/` are deliberately out of scope: a seed run is
+always followed by an explicit generate/replan step.
+
+
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create read-only SQL views (ceo_ai.vaccination_operator_status, vaccination_shed_status, vaccination_dose_pickup, action_center) that query canonical vaccination/obligation/workforce tables. They do not modify the seed source data, HRMS schema, vaccination protocol rules, or SOP contracts. The reported reads stay tenant-scoped, indexed, and bounded by the 5k-50k envelope exemption for canonical-read screens; they are not full-tenant recomputes or projection-drift anti-patterns. -->

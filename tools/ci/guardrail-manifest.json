@@ -80,6 +80,17 @@
       "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
     },
     {
+      "id": "cascade-event-wiring",
+      "script": "tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "makeTarget": "cascade-event-wiring-guard",
+      "realCheck": "node tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "selfTest": "node tools/agent-hooks/check-cascade-event-wiring.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "cascade-event-wiring-guard",
+      "notes": "Blocks the three operator-cascade wiring anti-patterns proven broken at origin/main f9a44b84: (B) an eventbus handler type with Register(bus eventbus.Bus) that is missing from a DURABLE bus (backend/internal/kernelstages/bus.go and backend/cmd/domain-event-consumer/main.go) while being registered only on bootstrap/api.go or domainconsumer/wiring/bus.go, which nothing real dispatches to; (A) a sweeper function consuming DB-reported operator.Cap without subtracting session.vaccinationOperatorLoad, which lets a later rule-version in the same sweep over-select past the per-operator/day cap; (C) a write to workforce_positions cap/week-off, vaccination_capacity_config, or vaccination_operator_assignment_config that never enqueues vaccination.capacity.changed / vaccination.roster.changed. Deliberate durable-bus omissions must be declared in DURABLE_BUS_EXEMPTIONS with a written reason, and the guard re-verifies that the exemption's declared registration site still registers the handler."
+    },
+    {
       "id": "frontend-foundations",
       "script": "tools/agent-hooks/check-frontend-foundations.mjs",
       "makeTarget": "frontend-foundations-guard",
