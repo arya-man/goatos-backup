@@ -55,6 +55,7 @@ import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
+import sg.mesha.goatos.feature.submit.SyncState
 import sg.mesha.goatos.feature.timetable.TimetableScreen
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
@@ -537,6 +538,22 @@ fun AppNavHost(
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+            // Once the submission this operator just enqueued is accepted (ACKED — durably
+            // queued/accepted by the backend), drill back out to the Calendar landing instead
+            // of stranding them on the acknowledged submit screen. Gated on having actually
+            // watched this submission go in-flight this session (QUEUED/SYNCING) so a cold
+            // re-entry into an already-completed task does not immediately bounce away.
+            var sawSubmitInFlight by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(state.syncState) {
+                when (state.syncState) {
+                    SyncState.QUEUED, SyncState.SYNCING -> sawSubmitInFlight = true
+                    SyncState.ACKED -> if (sawSubmitInFlight) {
+                        sawSubmitInFlight = false
+                        navController.popBackStack(Routes.CALENDAR, inclusive = false)
+                    }
+                    else -> Unit
+                }
+            }
             if (state.isCaptureRoleBlocked) {
                 SubmitScreen(state = state, onEvent = vm::onEvent)
             } else {

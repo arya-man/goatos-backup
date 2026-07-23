@@ -186,7 +186,17 @@ func (s *Service) ResolveProofRefs(ctx context.Context, tenantID string, binding
 }
 
 func proofBoundToTask(proof domain.Artifact, binding sopdomain.ProofBinding) bool {
-	return proof.ScopeType == "task" && proof.ScopeID == binding.TaskID
+	if proof.ScopeType == "task" && proof.ScopeID == binding.TaskID {
+		return true
+	}
+	// A shed-level proof (shed_level_video) is captured against the task's own scope
+	// (e.g. scope_type='shed', scope_id=<the task's shed>). It is bound to the task when
+	// its scope matches the task's scope — consistent with ShedCompletionReadiness, which
+	// accepts a shed-scoped proof for the same task.
+	if binding.ScopeType != "" && proof.ScopeType == binding.ScopeType && proof.ScopeID == binding.ScopeID {
+		return true
+	}
+	return false
 }
 
 func subjectBoundToTaskScope(proof domain.Artifact, binding sopdomain.ProofBinding) bool {
