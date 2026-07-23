@@ -242,3 +242,29 @@ correctness fixes to existing vaccination paths. They add NO new leadership KPI,
 table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the
 leadership assistant read surface is unchanged. No coverage-matrix mapping is
 required; this is an explicit documented exclusion.
+
+## Explicit exclusion: counts census lifecycle facet + Android UI modernization (2026-07-23)
+
+`GET /counts/breakdown` (row 35 above, already `api + view:animal_current_scope`)
+gained one additional facet dimension — `CountsBreakdownFacets.lifecycle`, the
+distinct `lifecycle_status` vocabulary present in the whole tenant herd
+(`backend/internal/counts/adapters/postgres/repository.go`,
+`backend/internal/counts/domain/types.go`,
+`contracts/openapi/app-api.yaml`, `packages/api-client/src/generated/app-api.ts`).
+This is an additive facet on an ALREADY-covered read API/contract: it lets the
+mobile census filter sheet offer Live/Sold/Culled/Dead/Transferred instead of
+only ever showing the live herd, but it exposes no new table, no new read API
+route, no new Cube metric, and no new `ceo_ai.*` view — the underlying
+`lifecycle_status` counts were already readable through
+`GET /herd-register/summary` (row 34, `api + Cube:active_animals`), which this
+change does not touch.
+
+The accompanying Android changes (`apps/goatos-android/feature/feature-counts/**`,
+`apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/CountsViewModel.kt`,
+`apps/goatos-android/core/core-network/**/CountsDto.kt`) are a mobile UI
+restyle of the four existing Counts screens (census hero, filter bottom sheet,
+shed subtotals, animal hero, M3 date picker, softened approval cards) — layout
+and interaction only, rendering the same backend-owned contract. No new
+leadership-relevant surface, KPI, or workflow was introduced. No
+coverage-matrix mapping is required beyond this note; this is an explicit
+documented exclusion.
