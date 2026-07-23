@@ -724,6 +724,7 @@ grouped AS (
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
     COALESCE(MAX(located.configured_sop_version_id::text), MAX(located.task_sop_version_id::text)) AS sop_version_id,
     MAX(located.proof_policy) AS proof_policy,
+    MIN(located.execution_due_at) AS execution_due_at,
     MIN(located.execution_due_at) AS due_at,
     MIN(COALESCE(located.batch_planned_at, located.window_start)) AS window_start,
     MAX(located.window_end) AS window_end,

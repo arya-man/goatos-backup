@@ -658,6 +658,7 @@ func TestCanonicalRowsUseOperatorAssignmentDateBeforeBatchOrObligationDateOneToM
 		"assignment date computed": "(assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at",
 		"window filter":            "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at)",
 		"execution date":           "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+		"grouped execution date":   "MIN(located.execution_due_at) AS execution_due_at",
 		"emitted execution date":   "execution_due_at AS due_at",
 		"status date":              "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at)",
 	}
