@@ -43,6 +43,7 @@ BEGIN
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
             EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT ON TABLES FROM %I', r);
             EXECUTE format('REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM %I', r);
+            EXECUTE format('REVOKE USAGE ON SCHEMA public FROM %I', r);
         END IF;
     END LOOP;
 END;
