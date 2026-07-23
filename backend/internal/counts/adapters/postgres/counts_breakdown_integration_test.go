@@ -1031,6 +1031,198 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, countsPark); err != nil {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Lifecycle label mapping — four new focused tests for guard compliance
+// ---------------------------------------------------------------------------
+
+// The lifecycle facet labels must render human-readable text (Live/Sold/Dead/Culled) not raw DB
+// tokens (alive/sold/dead/culled). This StatusMatrix test seeds every lifecycle status,
+// asserts each series_label is the human label while series_key stays raw for filtering.
+func TestCountsBreakdownLifecycleLabelStatusMatrix(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	statuses := []struct {
+		raw, label string
+	}{
+		{"alive", "Live"},
+		{"sick", "Sick"},
+		{"under_treatment", "Under Treatment"},
+		{"quarantine", "Quarantine"},
+		{"icu", "ICU"},
+		{"dead", "Dead"},
+		{"sold", "Sold"},
+		{"culled", "Culled"},
+		{"transferred", "Transferred"},
+		{"lost", "Lost"},
+		{"inactive", "Inactive"},
+	}
+	for i, s := range statuses {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", s.raw, "K1", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	for _, s := range statuses {
+		found := false
+		for _, facet := range got.Facets.Lifecycle {
+			if facet.Key == s.raw {
+				found = true
+				if facet.Label != s.label {
+					t.Errorf("status %s: key=%q, label=%q, want label=%q (key must stay raw, label must be human)",
+						s.raw, facet.Key, facet.Label, s.label)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("status %s not found in facets", s.raw)
+		}
+	}
+}
+
+// Lifecycle facet labels must not be inflated by location joins. The lifecycle branch joins
+// NOTHING (unlike shed/park branches which LEFT JOIN locations), but this OneToMany test seeds
+// extra locations and asserts labels stay correct and counts match the animal census.
+func TestCountsBreakdownLifecycleLabelOneToMany(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	// Decoy locations that could fan out if a sloppy join existed.
+	for i := 0; i < 3; i++ {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'shed', $3, 'Decoy Shed', 'active')
+ON CONFLICT (location_id) DO NOTHING`, goatUUID(90+i), countsTenant, fmt.Sprintf("DECOY-%d", i)); err != nil {
+			t.Fatalf("seed decoy: %v", err)
+		}
+	}
+
+	for i, lifecycle := range []string{"alive", "sold", "dead"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", lifecycle, "F2", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	// Count must be exactly 3, not inflated by decoys.
+	var sum int64
+	for _, p := range got.Facets.Lifecycle {
+		sum += p.Count
+	}
+	if sum != 3 {
+		t.Errorf("lifecycle facet count sum=%d, want 3 — decoy locations must not fan out", sum)
+	}
+
+	// Labels must be correct.
+	expectedLabels := map[string]string{"alive": "Live", "sold": "Sold", "dead": "Dead"}
+	for _, p := range got.Facets.Lifecycle {
+		if expected, ok := expectedLabels[p.Key]; ok && p.Label != expected {
+			t.Errorf("key=%q: label=%q, want=%q", p.Key, p.Label, expected)
+		}
+	}
+}
+
+// Lifecycle facet labels must survive pagination boundaries. This Pagination test compares
+// the full page vs a 1-row page and asserts the lifecycle facet labels stay identical.
+func TestCountsBreakdownLifecycleLabelPagination(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	for i, lifecycle := range []string{"alive", "alive", "sold", "dead", "culled"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", lifecycle, "F2", strp(countsPark), strp(countsShedA), nil)
+	}
+
+	full, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 100})
+	if err != nil {
+		t.Fatalf("full page: %v", err)
+	}
+
+	paged, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 1, Offset: 0})
+	if err != nil {
+		t.Fatalf("paged: %v", err)
+	}
+
+	// Facet contents must be identical regardless of page boundary.
+	if len(paged.Facets.Lifecycle) != len(full.Facets.Lifecycle) {
+		t.Fatalf("paged lifecycle facet len=%d, full len=%d — must be independent of page",
+			len(paged.Facets.Lifecycle), len(full.Facets.Lifecycle))
+	}
+
+	for _, p := range paged.Facets.Lifecycle {
+		var fullEntry *domain.CountsBreakdownSeriesPoint
+		for i := range full.Facets.Lifecycle {
+			if full.Facets.Lifecycle[i].Key == p.Key {
+				fullEntry = &full.Facets.Lifecycle[i]
+				break
+			}
+		}
+		if fullEntry == nil {
+			t.Fatalf("paged lifecycle %s not in full result", p.Key)
+		}
+		if p.Label != fullEntry.Label {
+			t.Errorf("paged label=%q, full label=%q — lifecycle labels must match", p.Label, fullEntry.Label)
+		}
+		if p.Count != fullEntry.Count {
+			t.Errorf("paged count=%d, full count=%d — lifecycle counts must match", p.Count, fullEntry.Count)
+		}
+	}
+}
+
+// Lifecycle facet labels must survive scope narrowing and must never be narrowed by park/shed
+// filters. This ScopeHierarchy test narrows the grain scope to park+shed but asserts the
+// lifecycle facet still reports the WHOLE vocabulary with correct human labels.
+func TestCountsBreakdownLifecycleLabelScopeHierarchy(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	insertBreakdownGoat(t, ctx, pool, goatUUID(0), goatDisplayID(0),
+		"female", "Beetal", "alive", "F2", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(1), goatDisplayID(1),
+		"female", "Beetal", "sold", "F2", nil, nil, nil)
+
+	// Unscoped query — whole vocabulary.
+	unscoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("unscoped: %v", err)
+	}
+
+	// Scoped to park+shed — grain is narrowed but facet is not.
+	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, ParkID: strp(countsPark), ShedID: strp(countsShedA), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("scoped: %v", err)
+	}
+
+	if len(scoped.Facets.Lifecycle) != len(unscoped.Facets.Lifecycle) {
+		t.Errorf("scoped lifecycle facet len=%d, unscoped len=%d — facet must not be narrowed by park/shed scope",
+			len(scoped.Facets.Lifecycle), len(unscoped.Facets.Lifecycle))
+	}
+
+	// Labels must be correct in both.
+	for _, facet := range scoped.Facets.Lifecycle {
+		switch facet.Key {
+		case "alive":
+			if facet.Label != "Live" {
+				t.Errorf("scoped alive: label=%q, want Live", facet.Label)
+			}
+		case "sold":
+			if facet.Label != "Sold" {
+				t.Errorf("scoped sold: label=%q, want Sold", facet.Label)
+			}
+		}
+	}
+}
+
 // The shed facet's membership must track the requested lifecycle bucket across the WHOLE status
 // matrix, not just the 'alive' default. Sweep every value the lifecycle CHECK constraint permits,
 // each in its own shed, then assert three things per status: the shed vocabulary contains exactly
