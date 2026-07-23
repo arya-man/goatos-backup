@@ -1299,7 +1299,7 @@ func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *tes
 	// Overdue is an India-business-DAY property: canonical_read classifies overdue as
 	// "(due_at AT TIME ZONE 'Asia/Kolkata')::date < today". A now-2h fixture only lands on a previous
 	// business day between 00:00 and 02:00 IST, so anchor to the previous business day explicitly.
-	dueAt := biztime.BusinessDayStart(time.Now().UTC()).Add(-2 * time.Hour)
+	dueAt := biztime.BusinessDayStart(time.Now()).Add(-2 * time.Hour)
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
 	// This test pins LEVEL 1 (channel local-stub); level-3 routing has its own test. The fixture is
 	// anchored to the previous business day so "overdue" holds at any hour, so the level thresholds
@@ -1492,9 +1492,9 @@ func TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColum
 	// escalate the reminder/nudge/snooze scenarios too and overwrite their rail labels with
 	// "Reminder escalated". Threshold = age-of-today's-midnight + 1h: older than every today drive,
 	// younger than the previous-business-day catch-up.
-	todayStart := biztime.BusinessDayStart(time.Now().UTC())
+	todayStart := biztime.BusinessDayStart(time.Now())
 	catchupDueAt := todayStart.Add(-2 * time.Hour)
-	sinceTodayStart := time.Now().UTC().Sub(todayStart)
+	sinceTodayStart := time.Since(todayStart)
 	seedVaccinationObligation(t, ctx, pool, catchupProtocolID, catchupVersionID, catchupRuleID, catchupObligationID, catchupDueAt)
 	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID: testTenantID, Limit: 10, Now: time.Now().In(biztime.DefaultLocation()),
