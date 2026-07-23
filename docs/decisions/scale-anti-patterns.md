@@ -211,6 +211,13 @@ missing-obligation audit is clean. Adult ET+TT dose 1 history must always have
 same-goat adult ET+TT dose 2 work; otherwise the assignment table is just a
 partial projection.
 
+Do not map source health case-log status `Closed` or explicit healthy status
+`Fine` to canonical `recovering`. `Closed` is resolved history and normalizes to
+`healthy`; `Fine` also normalizes to `healthy`; `Open` normalizes to `sick`, and
+`Extended` normalizes to `under_treatment`. Treating any populated source health
+cell as a defer state is a seed anti-pattern because it silently removes
+eligible animals from vaccination drives.
+
 - connecting to the database or writing grants/roster/config before the exact
   selected source directory passes a DB-free preflight;
 - seeding a private/raw sheet directly instead of a sanitized committed fixture

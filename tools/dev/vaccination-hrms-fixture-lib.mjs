@@ -41,6 +41,13 @@ export const OPERATOR_SHIFT_START_MINUTE_FIELD = "shift_start_minute";
 export const OPERATOR_SHIFT_END_MINUTE_FIELD = "shift_end_minute";
 export const OPERATOR_ASSIGNMENT_CONFIG_ACTIVE_OPERATORS_FIELD = "active_operators_per_day";
 export const OPERATOR_ASSIGNMENT_CONFIG_DEFAULT_OPERATOR_FIELD = "default_operator_code";
+export const HEALTH_CASE_LOG_NORMALIZATION = Object.freeze({
+  Open: "sick",
+  Extended: "under_treatment",
+  Closed: "healthy",
+  Fine: "healthy",
+});
+export const CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING = true;
 export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
   "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
 export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
@@ -229,6 +236,8 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.contracts?.local_trigger_primary_rfid_fixture === "CBE-RFID-0001", "manifest must bind the local trigger primary RFID fixture used by emulator scan E2E", problems);
   expect(manifest.contracts?.protocol_route_site === "subcutaneous", "manifest must bind vaccination matrix route_site=subcutaneous", problems);
   expect(manifest.contracts?.protocol_route_site_is_not_operator_form_field === true, "manifest route_site must remain protocol metadata, not an operator form field", problems);
+  expect(JSON.stringify(manifest.contracts?.health_case_log_normalization ?? {}) === JSON.stringify(HEALTH_CASE_LOG_NORMALIZATION), "manifest must bind health case-log normalization: Open->sick, Extended->under_treatment, Closed->healthy, Fine->healthy", problems);
+  expect(manifest.contracts?.closed_health_case_is_resolved_not_recovering === CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING, "manifest must state Closed health cases are resolved/healthy, never recovering", problems);
   expect(manifest.contracts?.full_access_grant_role === "ceo_internal", "manifest must bind CEO/CXO full-access grants to ceo_internal", problems);
   expect(manifest.contracts?.full_access_workforce_hint === "cxo", "manifest must bind CEO/CXO workforce hint to cxo", problems);
 

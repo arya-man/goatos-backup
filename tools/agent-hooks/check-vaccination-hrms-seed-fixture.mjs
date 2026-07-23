@@ -156,6 +156,12 @@ function runSelfTest() {
   mutate("proof mode", (b) => { b.manifest.contracts.proof_mode = "per_goat_video"; }, "proof_mode must be shed_level_video");
   mutate("proof grain", (b) => { b.manifest.contracts.video_proof_subject_scope = "goat"; }, "video proof subject must be shed");
   mutate("proof capture source", (b) => { b.manifest.contracts.video_capture_sources = ["in_app_camera"]; }, "camera and gallery picker");
+  mutate("closed health case mapping", (b) => {
+    b.manifest.contracts.health_case_log_normalization.Closed = "recovering";
+  }, "Closed->healthy");
+  mutate("fine health case mapping", (b) => {
+    b.manifest.contracts.health_case_log_normalization.Fine = "recovering";
+  }, "Fine->healthy");
   mutate("stale days in stage", (b) => {
     const headers = b.goats.values[0];
     const index = b.goats.values.findIndex((row, i) => i > 0 && row[headers.indexOf("stage_entry_date")] && row[headers.indexOf("days_in_stage")]);

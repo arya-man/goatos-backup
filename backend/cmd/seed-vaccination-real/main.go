@@ -3228,12 +3228,11 @@ func excludedLifecycle(s string) bool {
 //   - "Open"     — a currently active, unresolved case            -> sick
 //   - "Extended" — the case ran past its expected close, treatment
 //     continues                                                    -> under_treatment
-//   - "Closed"   — the case has been resolved                     -> recovering (never
-//     jumped straight to "healthy" — matches the fix plan's "recovery -> reopen/
-//     reschedule automatically" language for the generation layer, section 5/B6)
+//   - "Closed"   — the case has been resolved                     -> healthy
+//   - "Fine"     — explicit healthy source status                  -> healthy
 func normalizeHealth(h string) *string {
 	switch strings.ToLower(strings.TrimSpace(h)) {
-	case "healthy", "normal", "ok":
+	case "healthy", "normal", "ok", "closed", "fine":
 		v := "healthy"
 		return &v
 	case "sick", "ill", "diseased", "open":
@@ -3242,7 +3241,7 @@ func normalizeHealth(h string) *string {
 	case "under_treatment", "under treatment", "treatment", "extended":
 		v := "under_treatment"
 		return &v
-	case "recovering", "closed":
+	case "recovering":
 		v := "recovering"
 		return &v
 	case "quarantine":
