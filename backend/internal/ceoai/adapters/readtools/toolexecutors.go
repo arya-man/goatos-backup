@@ -197,6 +197,170 @@ func (e *feedDirectionTodayExecutor) Execute(ctx context.Context, actor domain.A
 	}, nil
 }
 
+// procurementExecutor provides procurement loads (source entry) information.
+type procurementExecutor struct {
+	procurementDataReader scopedReader
+}
+
+func (e *procurementExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "procurement_source_entry_loads",
+		Route:       domain.RouteAPI,
+		Description: "Procurement source entry loads and their status",
+		Params:      []string{"status", "park_label"},
+	}
+}
+
+func (e *procurementExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.procurementDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("procurement data reader not wired"),
+		}, nil
+	}
+
+	facts, err := e.procurementDataReader(ctx, actor.TenantID, sub.Params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
+// workforceExecutor provides roster coverage information.
+type workforceExecutor struct {
+	workforceDataReader scopedReader
+}
+
+func (e *workforceExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "admin_roster_coverage",
+		Route:       domain.RouteAPI,
+		Description: "Roster coverage by position and date range",
+		Params:      []string{"position_id", "start_date", "end_date"},
+	}
+}
+
+func (e *workforceExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.workforceDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("workforce data reader not wired"),
+		}, nil
+	}
+
+	facts, err := e.workforceDataReader(ctx, actor.TenantID, sub.Params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
+// verificationExecutor provides verification queue information.
+type verificationExecutor struct {
+	verificationDataReader scopedReader
+}
+
+func (e *verificationExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "verification_queue",
+		Route:       domain.RouteAPI,
+		Description: "Verification queue items pending review",
+		Params:      []string{"status", "category", "vertical", "module"},
+	}
+}
+
+func (e *verificationExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.verificationDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("verification data reader not wired"),
+		}, nil
+	}
+
+	facts, err := e.verificationDataReader(ctx, actor.TenantID, sub.Params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
+// actionCenterExecutor provides action center obligations.
+type actionCenterExecutor struct {
+	actionCenterDataReader scopedReader
+}
+
+func (e *actionCenterExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "action_center_obligations",
+		Route:       domain.RouteAPI,
+		Description: "Action center obligations requiring attention",
+		Params:      []string{"work_state", "park_label", "shed_id"},
+	}
+}
+
+func (e *actionCenterExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.actionCenterDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("action center data reader not wired"),
+		}, nil
+	}
+
+	facts, err := e.actionCenterDataReader(ctx, actor.TenantID, sub.Params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
 // NewToolExecutors returns a set of in-process read service tool executors
 // for tier-2 (API) routing. These are registered with the leadership assistant
 // registry to handle RouteAPI sub-questions.
@@ -207,6 +371,10 @@ func NewToolExecutors() []ports.ToolExecutor {
 		&vaccinationShedSummaryExecutor{},
 		&vaccinationExecutionExecutor{},
 		&feedDirectionTodayExecutor{},
+		&procurementExecutor{},
+		&workforceExecutor{},
+		&verificationExecutor{},
+		&actionCenterExecutor{},
 	}
 }
 
@@ -233,5 +401,33 @@ func SetVaccinationDataReader(execs []ports.ToolExecutor, reader func(context.Co
 func SetFeedDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
 	if e, ok := exec.(*feedDirectionTodayExecutor); ok {
 		e.feedDataReader = reader
+	}
+}
+
+// SetProcurementDataReader wires the procurement data reader into the procurement executor.
+func SetProcurementDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*procurementExecutor); ok {
+		e.procurementDataReader = reader
+	}
+}
+
+// SetWorkforceDataReader wires the workforce data reader into the workforce executor.
+func SetWorkforceDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*workforceExecutor); ok {
+		e.workforceDataReader = reader
+	}
+}
+
+// SetVerificationDataReader wires the verification data reader into the verification executor.
+func SetVerificationDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*verificationExecutor); ok {
+		e.verificationDataReader = reader
+	}
+}
+
+// SetActionCenterDataReader wires the action center data reader into the action center executor.
+func SetActionCenterDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*actionCenterExecutor); ok {
+		e.actionCenterDataReader = reader
 	}
 }
