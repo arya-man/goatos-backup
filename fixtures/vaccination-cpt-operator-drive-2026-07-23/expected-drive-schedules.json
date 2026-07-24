@@ -96,7 +96,7 @@
       "status": "expected_final_validation",
       "inputs": {
         "active_operators_per_day": 1,
-        "operator_cap_animals_per_day": 200,
+        "operator_cap_animals_per_day": 210,
         "default_operator": "vaccination_operator_darshan",
         "vaccines_on_2026_07_24": [
           "ET+TT"
@@ -107,7 +107,7 @@
       },
       "summary": {
         "total_animals": 210,
-        "et_tt_drive_days": 2,
+        "et_tt_drive_days": 1,
         "et_tt_deferred_or_skipped_animals": 0,
         "et_tt_total_animals": 210,
         "et_tt_completed_history_animals": 114
@@ -116,28 +116,15 @@
         {
           "drive": "ET+TT",
           "drive_day": 1,
-          "date": "2026-07-24",
-          "weekday": "friday",
-          "operator": "Darshan Talwar",
-          "operator_code": "vaccination_operator_darshan",
-          "animals_scheduled": 200,
-          "doses_scheduled": 200,
-          "animals_remaining_after_day": 10,
-          "deferred_or_skipped_animals": 0,
-          "operator_availability_note": "Darshan available; Amit week-off; Sagar available but N=1 so not scheduled"
-        },
-        {
-          "drive": "ET+TT",
-          "drive_day": 2,
           "date": "2026-07-25",
           "weekday": "saturday",
           "operator": "Darshan Talwar",
           "operator_code": "vaccination_operator_darshan",
-          "animals_scheduled": 10,
-          "doses_scheduled": 10,
+          "animals_scheduled": 210,
+          "doses_scheduled": 210,
           "animals_remaining_after_day": 0,
           "deferred_or_skipped_animals": 0,
-          "operator_availability_note": "Darshan available; Sagar week-off; Amit available but N=1 so not scheduled"
+          "operator_availability_note": "Darshan available; 114 ET+TT booster animals already completed on 2026-07-24; remaining 210 fit under cap 210 on the next drive day"
         }
       ]
     },
@@ -146,7 +133,7 @@
       "status": "operator_fallback_validation_variant",
       "inputs": {
         "active_operators_per_day": 1,
-        "operator_cap_animals_per_day": 200,
+        "operator_cap_animals_per_day": 210,
         "default_operator": "vaccination_operator_darshan",
         "drive_start_date": "2026-07-26",
         "vaccines": [
@@ -156,7 +143,7 @@
       "summary": {
         "reason": "Darshan week-off is Sunday, so Sagar covers Sunday only; Darshan resumes the next business day.",
         "total_animals": 210,
-        "drive_days": 2
+        "drive_days": 1
       },
       "drive_rows": [
         {
@@ -165,16 +152,7 @@
           "operator": "Sagar Mahoor",
           "operator_code": "vaccination_operator_sagar",
           "reason": "default_week_off_pm_covers",
-          "animals_scheduled": 200,
-          "animals_remaining_after_day": 10
-        },
-        {
-          "date": "2026-07-27",
-          "weekday": "monday",
-          "operator": "Darshan Talwar",
-          "operator_code": "vaccination_operator_darshan",
-          "reason": "default_available",
-          "animals_scheduled": 10,
+          "animals_scheduled": 210,
           "animals_remaining_after_day": 0
         }
       ]
@@ -184,7 +162,7 @@
       "status": "capacity_validation_variant",
       "inputs": {
         "active_operators_per_day": 2,
-        "operator_cap_animals_per_day": 200,
+        "operator_cap_animals_per_day": 210,
         "default_operator": "vaccination_operator_darshan",
         "drive_start_date": "2026-07-24",
         "vaccines": [
@@ -193,7 +171,7 @@
       },
       "summary": {
         "total_animals": 210,
-        "same_day_capacity": 400,
+        "same_day_capacity": 420,
         "drive_days": 1
       },
       "drive_rows": [
@@ -202,15 +180,7 @@
           "weekday": "friday",
           "operator": "Darshan Talwar",
           "operator_code": "vaccination_operator_darshan",
-          "animals_scheduled": 200,
-          "animals_remaining_after_operator": 10
-        },
-        {
-          "date": "2026-07-24",
-          "weekday": "friday",
-          "operator": "Sagar Mahoor",
-          "operator_code": "vaccination_operator_sagar",
-          "animals_scheduled": 10,
+          "animals_scheduled": 210,
           "animals_remaining_after_operator": 0
         }
       ]

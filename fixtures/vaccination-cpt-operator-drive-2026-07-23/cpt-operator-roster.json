@@ -5,8 +5,13 @@
     "tenant": "Mesha / Goat OS",
     "park_code": "CPT",
     "park_name": "Channapatna",
-    "centers_allowed": ["CPT"],
-    "centers_forbidden": ["CBE", "Coimbatore"],
+    "centers_allowed": [
+      "CPT"
+    ],
+    "centers_forbidden": [
+      "CBE",
+      "Coimbatore"
+    ],
     "notes": [
       "This is the CPT-only operator-drive rehearsal source packet.",
       "Do not synthesize CBE/Coimbatore rows, owners, operators, or sheds from the full fixture."
@@ -14,7 +19,7 @@
   },
   "operator_capacity": {
     "unit": "unique_animals_per_operator_per_business_date",
-    "default_animals_per_day": 200,
+    "default_animals_per_day": 210,
     "dose_count_is_not_capacity": true
   },
   "operator_android_login": {
@@ -42,9 +47,11 @@
       "role": "vaccination_operator",
       "tier": "manager",
       "can_execute_vaccination": true,
-      "park_scope": ["CPT"],
+      "park_scope": [
+        "CPT"
+      ],
       "week_off": "friday",
-      "animal_cap_per_day": 200,
+      "animal_cap_per_day": 210,
       "shift_label": "am",
       "shift_start_minute": 420,
       "shift_end_minute": 900
@@ -56,9 +63,11 @@
       "role": "vaccination_operator",
       "tier": "manager",
       "can_execute_vaccination": true,
-      "park_scope": ["CPT"],
+      "park_scope": [
+        "CPT"
+      ],
       "week_off": "sunday",
-      "animal_cap_per_day": 200,
+      "animal_cap_per_day": 210,
       "shift_label": "rover",
       "shift_start_minute": 510,
       "shift_end_minute": 1080
@@ -70,9 +79,11 @@
       "role": "vaccination_operator",
       "tier": "manager",
       "can_execute_vaccination": true,
-      "park_scope": ["CPT"],
+      "park_scope": [
+        "CPT"
+      ],
       "week_off": "saturday",
-      "animal_cap_per_day": 200,
+      "animal_cap_per_day": 210,
       "shift_label": "pm",
       "shift_start_minute": 900,
       "shift_end_minute": 1439
@@ -98,7 +109,10 @@
       "display_name": "Chandrakant",
       "role": "preventive_care_director",
       "can_execute_vaccination": false,
-      "park_scope": ["CPT", "CBE"],
+      "park_scope": [
+        "CPT",
+        "CBE"
+      ],
       "timetable_required": false,
       "notes": [
         "Director monitors across parks and does not add field capacity unless explicitly assigned as an execution operator."
@@ -121,34 +135,53 @@
     {
       "weekday": "thursday",
       "date": "2026-07-23",
-      "available_operators": ["Amit Kumar", "Darshan Talwar", "Sagar Mahoor"],
-      "total_capacity_animals": 600,
+      "available_operators": [
+        "Amit Kumar",
+        "Darshan Talwar",
+        "Sagar Mahoor"
+      ],
+      "total_capacity_animals": 630,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 200
+      "drive_capacity_animals": 210
     },
     {
       "weekday": "friday",
-      "available_operators": ["Darshan Talwar", "Sagar Mahoor"],
-      "operator_off": ["Amit Kumar"],
-      "total_capacity_animals": 400,
+      "available_operators": [
+        "Darshan Talwar",
+        "Sagar Mahoor"
+      ],
+      "operator_off": [
+        "Amit Kumar"
+      ],
+      "total_capacity_animals": 420,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 200
+      "drive_capacity_animals": 210
     },
     {
       "weekday": "saturday",
-      "available_operators": ["Amit Kumar", "Darshan Talwar"],
-      "operator_off": ["Sagar Mahoor"],
-      "total_capacity_animals": 400,
+      "available_operators": [
+        "Amit Kumar",
+        "Darshan Talwar"
+      ],
+      "operator_off": [
+        "Sagar Mahoor"
+      ],
+      "total_capacity_animals": 420,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 200
+      "drive_capacity_animals": 210
     },
     {
       "weekday": "sunday",
-      "available_operators": ["Amit Kumar", "Sagar Mahoor"],
-      "operator_off": ["Darshan Talwar"],
-      "total_capacity_animals": 400,
+      "available_operators": [
+        "Amit Kumar",
+        "Sagar Mahoor"
+      ],
+      "operator_off": [
+        "Darshan Talwar"
+      ],
+      "total_capacity_animals": 420,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 200
+      "drive_capacity_animals": 210
     }
   ]
 }

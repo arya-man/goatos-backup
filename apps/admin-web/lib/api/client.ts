@@ -223,5 +223,22 @@ export function getAdminApi() {
       const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
       return { data: body };
     },
+
+    async approveStaffLeave(
+      absenceId: string,
+      requestBody: AdminApiComponents['schemas']['ApproveStaffLeaveRequest'],
+      idempotencyKey: string = crypto.randomUUID()
+    ) {
+      const response = await fetch(`/api/admin/roster/leave/${encodeURIComponent(absenceId)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to approve leave: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
+      return { data: body };
+    },
   };
 }

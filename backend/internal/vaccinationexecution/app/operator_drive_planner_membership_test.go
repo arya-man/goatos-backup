@@ -198,58 +198,54 @@ func TestPlannerNamedMembershipIsStableAcrossRuns(t *testing.T) {
 	}
 }
 
-// TestPlannerNamesGoatsOnLatestSafeForcedSplit covers the safe-window branch: when a block must be
-// done TODAY because it is at its latest safe date, the planner splits it across every operator with
-// any room left and may exceed a cap to keep the window. Those forced arms must be named too, and
-// the over-cap arm must not silently duplicate or drop an animal.
-func TestPlannerNamesGoatsOnLatestSafeForcedSplit(t *testing.T) {
+// TestPlannerNamesGoatsOnLatestSafeKeepsNormalPartitionWhole covers the window-end branch: a
+// normal shed/partition still moves as one unit when today's residual capacity cannot hold it.
+func TestPlannerNamesGoatsOnLatestSafeKeepsNormalPartitionWhole(t *testing.T) {
 	goats := goatSeries("safe", 25)
 	block := namedBlock("gandhi-1", "CPT", "Gandhi 1", "", goats...)
 	block.LatestSafeDate = date(2026, 7, 23)
 	block.DueDate = date(2026, 7, 23)
 
 	plan, err := OperatorDrivePlanner{}.Plan(DrivePlanRequest{
-		StartDate: date(2026, 7, 23),
-		Availability: []DriveDateAvailability{{
-			Date: date(2026, 7, 23),
-			Operators: []DriveOperator{
-				{ID: "amit", Name: "Amit Kumar", Cap: 8, Available: true},
-				{ID: "darshan", Name: "Darshan Talwar", Cap: 8, Available: true},
+		StartDate:             date(2026, 7, 23),
+		ConfiguredOperatorCap: 200,
+		Availability: []DriveDateAvailability{
+			{
+				Date: date(2026, 7, 23),
+				Operators: []DriveOperator{
+					{ID: "amit", Name: "Amit Kumar", Cap: 8, Available: true},
+					{ID: "darshan", Name: "Darshan Talwar", Cap: 8, Available: true},
+				},
 			},
-		}},
+			{
+				Date: date(2026, 7, 24),
+				Operators: []DriveOperator{
+					{ID: "sagar", Name: "Sagar Mahoor", Cap: 200, Available: true},
+				},
+			},
+		},
 		WorkBlocks: []DriveWorkBlock{block},
 	})
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
-	seen := make(map[string]bool)
-	for _, day := range plan.Days {
-		for _, assignment := range day.Assignments {
-			if len(assignment.GoatIDs) != assignment.Animals {
-				t.Fatalf("forced-split arm %s names %d goats but plans %d animals",
-					assignment.OperatorID, len(assignment.GoatIDs), assignment.Animals)
-			}
-			for _, goatID := range assignment.GoatIDs {
-				if seen[goatID] {
-					t.Fatalf("goat %s named twice across forced-split arms", goatID)
-				}
-				seen[goatID] = true
-			}
-		}
+	if plan.Days[0].Assigned != 0 || plan.Days[1].Assigned != 25 {
+		t.Fatalf("assigned by day = %d/%d, want 0/25 so latest-safe does not split the partition", plan.Days[0].Assigned, plan.Days[1].Assigned)
 	}
-	for _, block := range plan.Unassigned {
-		if len(block.GoatIDs) != block.Animals {
-			t.Fatalf("unassigned residual names %d goats but carries %d animals", len(block.GoatIDs), block.Animals)
-		}
-		for _, goatID := range block.GoatIDs {
-			if seen[goatID] {
-				t.Fatalf("goat %s is both assigned and left unassigned", goatID)
-			}
-			seen[goatID] = true
-		}
+	if len(plan.Days[0].Assignments) != 0 {
+		t.Fatalf("first day assignments = %#v, want none", plan.Days[0].Assignments)
 	}
-	if len(seen) != len(goats) {
-		t.Fatalf("accounted goats = %d, want %d (a latest-safe split must not lose an animal)", len(seen), len(goats))
+	if len(plan.Days[1].Assignments) != 1 {
+		t.Fatalf("second day assignments = %#v, want one whole-partition arm", plan.Days[1].Assignments)
+	}
+	assignment := plan.Days[1].Assignments[0]
+	if strings.Join(assignment.GoatIDs, ",") != strings.Join(goats, ",") {
+		t.Fatalf("second day goats drifted:\n got: %s\nwant: %s", strings.Join(assignment.GoatIDs, ","), strings.Join(goats, ","))
+	}
+	for _, warning := range assignment.Warnings {
+		if warning == "forced_partition_split" || warning == "over_cap_required_latest_safe" {
+			t.Fatalf("unexpected split/latest-safe warning on normal partition: %#v", assignment.Warnings)
+		}
 	}
 }
 

@@ -1967,6 +1967,7 @@ export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"][
 export type StaffLeave = AdminApiComponents["schemas"]["StaffLeave"];
 export type StaffLeaveListResponse = AdminApiComponents["schemas"]["StaffLeaveListResponse"];
 export type ApplyStaffLeaveRequest = AdminApiComponents["schemas"]["ApplyStaffLeaveRequest"];
+export type ApproveStaffLeaveRequest = AdminApiComponents["schemas"]["ApproveStaffLeaveRequest"];
 export type StaffLeaveQuery = NonNullable<AdminApiPaths["/admin/roster/leave"]["get"]["parameters"]["query"]>;
 
 export async function listStaffPositions(
@@ -2038,6 +2039,25 @@ export async function applyStaffLeave(
     client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>("/admin/roster/leave", {
       method: "POST",
       cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function approveStaffLeave(
+  absenceId: string,
+  body: ApproveStaffLeaveRequest,
+  idempotencyKey?: string,
+): Promise<ApiResult<AdminApiComponents["schemas"]["StaffLeaveResponse"]>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/roster/leave/${encodeURIComponent(absenceId)}/approve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["StaffLeaveResponse"]>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       body,
     }),
   );
