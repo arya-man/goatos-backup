@@ -771,8 +771,9 @@ located AS (
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
     CASE
-      WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue'
-      WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      -- projection-review: bucket-grain=business-day overdue/due/scheduled compares the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of, so a drive planned for today is due (not overdue) at any clock instant of that day and rolls to overdue only on the next business day
+      WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
+      WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due'
       ELSE 'scheduled'
     END AS open_bucket
   FROM raw
@@ -1175,16 +1176,16 @@ located AS (
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $7::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
@@ -1194,6 +1195,7 @@ located AS (
   WHERE raw.shed_uuid IS NOT NULL
 ),
 -- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: bucket-grain=business-day eff_status and work_state overdue compare the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of ($7), so a row whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
 grouped AS (
   SELECT
     located.park_uuid,
@@ -1351,7 +1353,7 @@ stateful AS (
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
-      WHEN enriched.due_at < $7::timestamptz THEN 'overdue'
+      WHEN (enriched.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
       WHEN enriched.due_count > 0 THEN 'due'
       ELSE 'scheduled'
     END AS work_state
@@ -1707,8 +1709,9 @@ located AS (
     -- open_bucket reconstructs the non-terminal state purely from the due window vs as_of (deterministic,
     -- needs no event history): overdue once due_at has passed, due once the window has opened, else scheduled.
     CASE
-      WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue'
-      WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      -- projection-review: bucket-grain=business-day overdue/due/scheduled compares the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of, so a drive planned for today is due (not overdue) at any clock instant of that day and rolls to overdue only on the next business day
+      WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
+      WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due'
       ELSE 'scheduled'
     END AS open_bucket
   FROM raw
@@ -2543,6 +2546,7 @@ raw AS (
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
     AND g.shed_id IS NOT NULL
 ),
+-- projection-review: bucket-grain=business-day the overdue/due/scheduled reconstruction compares the IST (Asia/Kolkata) calendar DATE of execution_due_at against the IST date of as_of ($2), so a shed whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
 effective AS (
   SELECT
     raw.goat_id,
@@ -2555,16 +2559,16 @@ effective AS (
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $2::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.stored_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
           ELSE raw.stored_status
         END
       WHEN raw.stored_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN raw.execution_due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN (raw.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.execution_due_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
 ),
