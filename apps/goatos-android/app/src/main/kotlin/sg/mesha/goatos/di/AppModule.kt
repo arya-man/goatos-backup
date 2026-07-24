@@ -57,8 +57,11 @@ import sg.mesha.goatos.core.data.buildGoatDatabase
 import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
 import sg.mesha.goatos.core.data.cache.CalendarCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
+import sg.mesha.goatos.core.data.cache.CacheVersionStore
+import sg.mesha.goatos.core.data.cache.ExecutionCacheVersionGate
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
+import sg.mesha.goatos.cache.SharedPrefsCacheVersionStore
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
@@ -141,6 +144,18 @@ object AppModule {
 
     @Provides
     fun provideExecutionShedCacheDao(db: GoatDatabase): ExecutionShedCacheDao = db.executionShedCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideCacheVersionStore(@ApplicationContext context: Context): CacheVersionStore =
+        SharedPrefsCacheVersionStore(context)
+
+    @Provides
+    fun provideExecutionCacheVersionGate(
+        rowsDao: ExecutionRowsCacheDao,
+        shedDao: ExecutionShedCacheDao,
+        store: CacheVersionStore,
+    ): ExecutionCacheVersionGate = ExecutionCacheVersionGate(rowsDao, shedDao, store)
 
     @Provides
     fun provideScanRosterRowDao(db: GoatDatabase): ScanRosterRowDao = db.scanRosterRowDao()
