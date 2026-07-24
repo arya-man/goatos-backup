@@ -948,6 +948,100 @@ WHERE tenant_id=$1 AND sop_version_id=$2`, testTenant, testVaccinationSOPVer)
 	}
 }
 
+func TestScanRosterExcludesFutureAssignmentWhenSameTaskBatchHasMultipleVaccinesWithDifferentDates(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	// Setup: Create two rules and obligations with different assignment dates in the same batch
+	const (
+		etTTRule = "70000000-0000-4000-8000-000000000089"
+		pprRule  = "70000000-0000-4000-8000-000000000090"
+		etTTGoat = "70000000-0000-4000-8000-000000000091"
+		pprGoat  = "70000000-0000-4000-8000-000000000092"
+		etTTObl  = "70000000-0000-4000-8000-000000000093"
+		pprObl   = "70000000-0000-4000-8000-000000000094"
+	)
+
+	// Insert two additional rules in the same protocol version
+	execProjectionSQL(t, ctx, pool, "ET+TT rule", `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES ($1, $2, $3, 'et_tt_adult_w2', 1, 'birth_age', '{}'::jsonb, '{}'::jsonb)`,
+		etTTRule, testTenant, testVersion)
+
+	execProjectionSQL(t, ctx, pool, "PPR rule", `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES ($1, $2, $3, 'ppr_adult_w1', 2, 'birth_age', '{}'::jsonb, '{}'::jsonb)`,
+		pprRule, testTenant, testVersion)
+
+	// Insert two goats
+	insertProjectionGoat(t, ctx, pool, etTTGoat, testShed, testPark)
+	insertProjectionGoat(t, ctx, pool, pprGoat, testShed, testPark)
+
+	// Insert two obligations: one for ET+TT, one for PPR (same batch)
+	// Both are due on 2026-06-24, but will have different assignments
+	execProjectionSQL(t, ctx, pool, "ET+TT obligation", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+ VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, $8::timestamptz, 'scheduled', 'et-tt-obl-key', 1)`,
+		etTTObl, testTenant, testVersion, etTTRule, testBatch, etTTGoat, testShed, "2026-06-24 00:00:00+00")
+
+	execProjectionSQL(t, ctx, pool, "PPR obligation", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+ VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, $8::timestamptz, 'scheduled', 'ppr-obl-key', 2)`,
+		pprObl, testTenant, testVersion, pprRule, testBatch, pprGoat, testShed, "2026-07-15 00:00:00+00")
+
+	// Setup vaccination_drive_assignments with different vaccine_rule_ids
+	execProjectionSQL(t, ctx, pool, "ET+TT assignment", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids)
+VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'TestShed', 'whole', 1, ARRAY[$6::uuid])`,
+		testTenant, testBatch, testOperator, testPark, testShed, etTTRule)
+
+	execProjectionSQL(t, ctx, pool, "PPR assignment", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids)
+VALUES ($1, $2, '2026-07-15', $3, $4, $5, 'TestShed', 'whole', 1, ARRAY[$6::uuid])`,
+		testTenant, testBatch, testOperator, testPark, testShed, pprRule)
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// ScanRoster should return both obligations (matching their vaccine_rule_ids correctly)
+	// but they will have different planned_dates based on their respective assignments
+	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster: %v", err)
+	}
+
+	if len(roster.Rows) != 2 {
+		t.Fatalf("expected 2 rows (ET+TT and PPR), got %d: %#v", len(roster.Rows), roster.Rows)
+	}
+
+	// Find each obligation in the roster
+	var etTTRow, pprRow *domain.ScanRosterRow
+	for i := range roster.Rows {
+		if roster.Rows[i].ObligationID == etTTObl {
+			etTTRow = &roster.Rows[i]
+		}
+		if roster.Rows[i].ObligationID == pprObl {
+			pprRow = &roster.Rows[i]
+		}
+	}
+
+	if etTTRow == nil || pprRow == nil {
+		t.Fatalf("missing ET+TT or PPR obligation in roster")
+	}
+
+	// Verify the vaccine labels are correct (this proves vaccine_rule_id matching works)
+	if etTTRow.VaccineLabel != "ET+TT" {
+		t.Fatalf("expected ET+TT label, got %s", etTTRow.VaccineLabel)
+	}
+	if pprRow.VaccineLabel != "PPR" {
+		t.Fatalf("expected PPR label, got %s", pprRow.VaccineLabel)
+	}
+}
+
 func TestListVaccinationExecutionPageBoundaryKeepsFullFilteredTotal(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
