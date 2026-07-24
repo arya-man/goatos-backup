@@ -158,7 +158,7 @@ Minimum expected due/history counts from the current CPT source discussion:
 | Dose code | Expected shape |
 |---|---|
 | `et_tt_adult_w1` | 324 completed history |
-| `et_tt_adult_w2` | 324 due by 2026-07-24 |
+| `et_tt_adult_w2` | 114 completed history dated 2026-07-24; 210 remaining due by 2026-07-24 |
 | `ppr_adult_w1` | 231 due/eligible by 2026-07-24, but moved by drive policy |
 | `ppr_revac` | 93 future booster, not part of first drive |
 | Blue Tongue | report separately by planned date/operator/animal count |
@@ -176,8 +176,8 @@ This is the final validation scenario.
 
 | Date | Vaccine | Operator | Animals | Remaining |
 |---|---|---|---:|---:|
-| 2026-07-24 | ET+TT | Darshan Talwar | 200 | 124 |
-| 2026-07-25 | ET+TT | Darshan Talwar | 124 | 0 |
+| 2026-07-24 | ET+TT | Darshan Talwar | 200 | 10 |
+| 2026-07-25 | ET+TT | Darshan Talwar | 10 | 0 |
 | 2026-08-07 | PPR | Darshan Talwar | 200 | 124 |
 | 2026-08-08 | PPR | Darshan Talwar | 124 | 0 |
 
