@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -635,6 +637,53 @@ func TestLimitParkSelectionCountsDistinctAnimals(t *testing.T) {
 	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, planned, planner, NewSweepSession())
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
+	}
+}
+
+func TestLimitParkSelectionPacksWholePhysicalShedsBeforeFillingCap(t *testing.T) {
+	planned := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	var rows []domain.ParkConsolidationCandidate
+	add := func(shed string, n int) {
+		for i := 1; i <= n; i++ {
+			id := fmt.Sprintf("%s-%03d", strings.NewReplacer(" ", "-", "-", "").Replace(strings.ToLower(shed)), i)
+			rows = append(rows, domain.ParkConsolidationCandidate{
+				ObligationID: "obl-" + id,
+				TargetID:     "goat-" + id,
+				RuleID:       "rule-ettt",
+				ParkID:       "cpt",
+				ShedName:     shed,
+				DueAt:        planned,
+				WindowEnd:    &movableEnd,
+			})
+		}
+	}
+	// Deliberately list Gandhi first to prove cap admission is not raw scan-order bin packing.
+	add("Gandhi 1", 115)
+	add("Godel 1 - Part 1", 120)
+	add("Godel 2 - Part 4", 32)
+	add("Mandela 2 - Part 8", 47)
+	add("Old Yashoda 1", 10)
+	selected := make([]string, 0, len(rows))
+	for _, row := range rows {
+		selected = append(selected, row.ObligationID)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 200
+
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, NewSweepSession())
+	gotRows := filterRows(rows, out)
+	if got := uniqueParkTargetCount(gotRows); got != 199 {
+		t.Fatalf("admitted animals = %d, want 199", got)
+	}
+	gotByShed := map[string]int{}
+	for _, row := range gotRows {
+		physical, _ := normalizeAssignmentShed(row.ShedName)
+		gotByShed[physical]++
+	}
+	want := map[string]int{"Godel 1": 120, "Godel 2": 32, "Mandela 2": 47}
+	if !reflect.DeepEqual(gotByShed, want) {
+		t.Fatalf("admitted shed rollup = %#v, want %#v", gotByShed, want)
 	}
 }
 
