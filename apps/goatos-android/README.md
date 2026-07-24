@@ -31,6 +31,32 @@ cd apps/goatos-android
 
 `local.properties` (git-ignored) must point at the SDK: `sdk.dir=/path/to/Android/sdk`.
 
+## Staging Firebase Upload
+
+Do not guess or ask for the Android staging release placeholders in chat. The
+stg signing material is intentionally outside Git and must be restored from the
+official runbook before running `assembleStgRelease` or
+`appDistributionUploadStgRelease`.
+
+Required source of truth:
+
+```text
+../../docs/mobile/stg-signed-release.md
+```
+
+That runbook shows how to fetch the `goatos-stg` Secret Manager values for:
+
+```text
+GOATOS_ANDROID_STG_KEYSTORE
+GOATOS_ANDROID_STG_KEYSTORE_PASSWORD
+GOATOS_ANDROID_STG_KEY_ALIAS
+GOATOS_ANDROID_STG_KEY_PASSWORD
+```
+
+For Firebase App Distribution auth, use either a `GOOGLE_APPLICATION_CREDENTIALS`
+service-account JSON with the right `goatos-stg` permissions, or run
+`firebase login` as an authorized release builder.
+
 ## Toolchain (verified at scaffold)
 
 | | |
