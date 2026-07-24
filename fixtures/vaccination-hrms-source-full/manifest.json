@@ -32,6 +32,7 @@
     "full_access_grant_role": "ceo_internal",
     "full_access_workforce_hint": "cxo",
     "source_dates_are_never_invented": true,
+    "accepted_one_time_history_supersedes_active_seed_obligations": true,
     "source_policy_sha256": "f74ef1bd5b9f8723ca76b78382af9a13b5967c71fa0ce0627d749d5c3df49e91"
   },
   "counts": {

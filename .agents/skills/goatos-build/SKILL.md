@@ -364,6 +364,10 @@ one product; this skill is the navigation layer.
   from clinical state: `Open -> sick`, `Extended -> under_treatment`,
   `Closed -> healthy`, `Fine -> healthy`. Never seed `Closed` or `Fine` as
   `recovering` or as a defer.
+  Accepted one-time vaccination completion history is canonical: if generation
+  recreates an active obligation for the same goat/rule during seed, the seed
+  must supersede the active duplicate and preserve the accepted completion as
+  goat history.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the

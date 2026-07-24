@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -165,6 +166,29 @@ func TestSeedReconciliationStatusMatrixMismatchFails(t *testing.T) {
 	got.ActivePrimaryAfterHistory = 1
 	if err := validateSeedReconciliation(got, 10); err == nil {
 		t.Fatal("expected failure when a primary stays active after accepted history exists")
+	}
+}
+
+func TestSeedReconciliationOneToManyPageBoundaryStatusMatrixHistoryRepairProjection(t *testing.T) {
+	sourceBytes, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read seed source: %v", err)
+	}
+	source := string(sourceBytes)
+	for _, want := range []string{
+		"supersedeActiveOneTimeVaccinationObligationsCoveredByHistory",
+		"COALESCE(NULLIF(current_pr.repeat, ''), 'none') = 'none'",
+		"history_vc.status = 'accepted'",
+		"history_oi.status = 'completed'",
+		"status = 'superseded'",
+		"projection-review: membership=obligation_instances",
+		"pagination=none",
+		"GROUP BY target_id, rule_id",
+		"target_type = 'goat'",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("seed history-repair projection missing %q", want)
+		}
 	}
 }
 
