@@ -892,6 +892,39 @@ func TestLimitParkSelectionFallsBackToWholePartitionsWhenShedExceedsRemainingCap
 	}
 }
 
+func TestLimitParkSelectionLatestSafeKeepsWholePartitionPastResidualCapacity(t *testing.T) {
+	planned := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	var rows []domain.ParkConsolidationCandidate
+	add := func(shed string, n int) {
+		for i := 1; i <= n; i++ {
+			id := fmt.Sprintf("%s-%03d", strings.NewReplacer(" ", "-", "-", "").Replace(strings.ToLower(shed)), i)
+			rows = append(rows, domain.ParkConsolidationCandidate{
+				ObligationID: "obl-" + id,
+				TargetID:     "goat-" + id,
+				RuleID:       "rule-pox",
+				ParkID:       "cpt",
+				ShedName:     shed,
+				DueAt:        planned.AddDate(0, 0, -7),
+				WindowEnd:    &planned,
+			})
+		}
+	}
+	add("Godel 1 - Part 1", 3)
+	selected := make([]string, 0, len(rows))
+	for _, row := range rows {
+		selected = append(selected, row.ObligationID)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 200
+	session := NewSweepSession()
+	session.claimDriveCapacity("cpt", planned, "existing-199", 199)
+
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, session)
+	if len(out) != 0 {
+		t.Fatalf("admitted = %#v, want none; latest-safe residual capacity must not split a normal partition", out)
+	}
+}
+
 func ptrTime(v time.Time) *time.Time {
 	return &v
 }
