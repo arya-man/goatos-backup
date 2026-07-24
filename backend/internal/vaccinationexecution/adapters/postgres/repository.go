@@ -2358,25 +2358,179 @@ func shedSummaryOrderBy(sort domain.ShedSummarySort) string {
 	}
 }
 
+// projection-review: membership=one vaccination_capacity_config row per tenant; group_key=tenant_id (PK); join_cardinality=1:1 tenant-to-config, single-table read; pagination=none (single-row read); scope=tenant-scoped
 const capacityConfigSQL = `
-SELECT max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version
+SELECT max_per_day, capacity_scope, max_buffer_days, overflow_policy, row_version, max_shots_per_animal_per_drive
 FROM vaccination_capacity_config
 WHERE tenant_id = $1::uuid;`
 
 // CapacityConfig reads the tenant's daily operator animal cap config, falling back to the code default when
-// no row is authored (migration 000155 seeds existing tenants; later tenants use the default). Capacity
-// writes are owned by the protocol publish-sync path, not by vaccination execution.
+// no row is authored (migration 000155 seeds existing tenants; later tenants use the default). Reads are
+// served by this package; writes are also owned here (see UpsertCapacityConfig) for the admin-editable
+// max_per_day + max_shots_per_animal_per_drive override (migration 000045).
 func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domain.CapacityConfig, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	cfg := domain.DefaultCapacityConfig()
 	err := r.pool.QueryRow(ctx, capacityConfigSQL, tenantID).
-		Scan(&cfg.MaxPerDay, &cfg.CapacityScope, &cfg.MaxBufferDays, &cfg.OverflowPolicy, &cfg.RowVersion)
+		Scan(&cfg.MaxPerDay, &cfg.CapacityScope, &cfg.MaxBufferDays, &cfg.OverflowPolicy, &cfg.RowVersion, &cfg.MaxShotsPerAnimalPerDrive)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.DefaultCapacityConfig(), nil
 	}
 	if err != nil {
 		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: capacity config: %w", err)
+	}
+	return cfg, nil
+}
+
+// UpsertCapacityConfig idempotently writes the tenant's daily operator animal cap + per-animal shot-cap
+// override (migration 000045) with optimistic concurrency and durably enqueues vaccination.capacity.changed
+// to outbox_messages in the SAME transaction as the config write, so either both commit or neither does.
+// Unlike UpsertOperatorAssignmentConfig (one row per park), vaccination_capacity_config is tenant-scoped
+// (PK is tenant_id, migration 000001) -- there is no single park to key the cascade event on. The write
+// therefore fans the cascade out to every active park of the tenant (one event per park, same
+// OperatorConfigReplanHandler consumer, same idempotency-key discipline per park), so
+// RecomputeFutureVaccinationDrives re-plans every park's future drives against the new cap/shot-cap.
+// cfg.RowVersion == 0 means "first write, row must not already exist" (in practice every tenant already
+// has a seeded row, so this path is defensive); any other value must match the currently stored
+// row_version or ports.ErrCapacityConfigConflict is returned.
+func (r *Repository) UpsertCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig) (domain.CapacityConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: begin capacity config update tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var newVersion int
+	if cfg.RowVersion == 0 {
+		err := tx.QueryRow(ctx, `
+INSERT INTO vaccination_capacity_config
+  (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy, max_shots_per_animal_per_drive, row_version, updated_at)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, 1, now())
+ON CONFLICT (tenant_id) DO NOTHING
+RETURNING row_version;`, tenantID, cfg.MaxPerDay, cfg.CapacityScope, cfg.MaxBufferDays, cfg.OverflowPolicy, cfg.MaxShotsPerAnimalPerDrive).Scan(&newVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.CapacityConfig{}, ports.ErrCapacityConfigConflict
+		}
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: insert capacity config: %w", err)
+		}
+	} else {
+		err := tx.QueryRow(ctx, `
+UPDATE vaccination_capacity_config
+SET max_per_day = $2,
+    capacity_scope = $3,
+    max_buffer_days = $4,
+    overflow_policy = $5,
+    max_shots_per_animal_per_drive = $6,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND row_version = $7
+RETURNING row_version;`, tenantID, cfg.MaxPerDay, cfg.CapacityScope, cfg.MaxBufferDays, cfg.OverflowPolicy, cfg.MaxShotsPerAnimalPerDrive, cfg.RowVersion).Scan(&newVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.CapacityConfig{}, ports.ErrCapacityConfigConflict
+		}
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: update capacity config: %w", err)
+		}
+	}
+	cfg.RowVersion = newVersion
+
+	// Fan the cascade out to every active park of the tenant (see doc comment above for why: this
+	// config is tenant-scoped, not park-scoped).
+	// projection-review: membership=active park locations for the tenant; group_key=location_id (one row each); join_cardinality=1 row per active park, single-table read; pagination=none (bounded park fan-out, no user paging); scope=tenant-scoped, park_id carried per emitted event
+	parkRows, err := tx.Query(ctx, `
+SELECT location_id::text
+FROM locations
+WHERE tenant_id = $1::uuid AND location_type = 'park' AND status = 'active'
+ORDER BY location_id ASC`, tenantID)
+	if err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: list active parks for capacity cascade: %w", err)
+	}
+	var parkIDs []string
+	for parkRows.Next() {
+		var id string
+		if err := parkRows.Scan(&id); err != nil {
+			parkRows.Close()
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: scan active park id: %w", err)
+		}
+		parkIDs = append(parkIDs, id)
+	}
+	if err := parkRows.Err(); err != nil {
+		parkRows.Close()
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: active parks rows: %w", err)
+	}
+	parkRows.Close()
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+	for _, parkID := range parkIDs {
+		idempotencyKey := fmt.Sprintf("vaccination.capacity-config.capacity:%s:%d", parkID, newVersion)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     "vaccination.capacity.changed",
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   parkID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "vaccination-execution",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   parkID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+				"park_id":   parkID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   parkID,
+			}},
+			"payload":  map[string]any{"park_id": parkID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: marshal capacity.changed envelope: %w", err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "vaccination-execution.UpsertCapacityConfig",
+			"schema_version":  "1.0.0",
+			"park_id":         parkID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: marshal capacity.changed headers: %w", err)
+		}
+		// Bounded fan-out over a tenant's active parks (tens, not millions) on a rare admin cap edit,
+		// not a per-request/per-goat path; one outbox row per park is the intended cascade grain.
+		// scale-guard:ignore: bounded active-park fan-out on rare admin cap edit, O(parks-per-tenant)
+		if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, 'vaccination.capacity.changed', '1.0.0', 'park', $3::uuid,
+  'vaccination.events', $4::jsonb, $5::jsonb, $6, $6, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacity.changed' DO NOTHING`,
+			tenantID, eventID, parkID, envelope, headers, idempotencyKey); err != nil {
+			return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: enqueue capacity.changed to outbox: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: commit capacity config update tx: %w", err)
 	}
 	return cfg, nil
 }

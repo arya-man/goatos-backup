@@ -24,6 +24,8 @@ import (
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
 	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
+	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
+	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // SweeperConfig captures the obligation-sweeper stage tunables, resolved from
@@ -158,9 +160,18 @@ type ObligationSweeperStage struct {
 	deps         Deps
 	cfg          SweeperConfig
 	protocolRepo *protocolpg.Repository
+	capacityRepo capacityConfigReader
 	sweeper      *obligationapp.SweeperService
 	calendar     *calendarapp.Service
 	logger       *slog.Logger
+}
+
+// capacityConfigReader is the narrow seam this stage needs from the vaccinationexecution repository:
+// the tenant's admin-editable per-animal shot-cap override (vaccination_capacity_config.
+// max_shots_per_animal_per_drive, migration 000045), which overrides the published rule_dsl
+// drive_policy value when set. See obligationapp.ApplyCapacityShotCapOverride.
+type capacityConfigReader interface {
+	CapacityConfig(ctx context.Context, tenantID string) (vaccexecdomain.CapacityConfig, error)
 }
 
 // NewObligationSweeperStage builds the sweeper stage. It requires cfg.ActorID to
@@ -173,10 +184,12 @@ func NewObligationSweeperStage(deps Deps, cfg SweeperConfig) *ObligationSweeperS
 	creator := buildSweeperTaskCreator(deps, cfg.ActorID)
 	sweeper := obligationapp.NewSweeperService(obligationRepo, creator, reserver)
 	calendar := calendarapp.NewService(calendarpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
+	capacityRepo := vaccexecpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	return &ObligationSweeperStage{
 		deps:         deps,
 		cfg:          cfg,
 		protocolRepo: protocolRepo,
+		capacityRepo: capacityRepo,
 		sweeper:      sweeper,
 		calendar:     calendar,
 		logger:       deps.Logger,
@@ -212,6 +225,21 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 			return fmt.Errorf("list published vaccination versions: %w", err)
 		}
 	}
+	// Fetch the tenant's admin-editable per-animal shot-cap override ONCE for this pass
+	// (vaccination_capacity_config.max_shots_per_animal_per_drive, migration 000045). nil means "no
+	// override authored" -- resolvedDrivePlannerSettings falls back to the published rule_dsl
+	// drive_policy value / code default, unchanged from before this override existed.
+	var capacityMaxShots *int32
+	if s.capacityRepo != nil {
+		capCfg, err := s.capacityRepo.CapacityConfig(ctx, cfg.TenantID)
+		if err != nil {
+			return fmt.Errorf("read tenant capacity config: %w", err)
+		}
+		if capCfg.MaxShotsPerAnimalPerDrive != nil {
+			v := int32(*capCfg.MaxShotsPerAnimalPerDrive)
+			capacityMaxShots = &v
+		}
+	}
 	// Every version swept in this pass shares ONE SweepSession so MaxShotsPerAnimalPerDrive
 	// spans vaccines/versions instead of resetting per version, and versions are ordered by
 	// resolved vaccine priority (ascending) so higher-priority vaccines claim an
@@ -222,7 +250,7 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		if strings.TrimSpace(versionID) == "" {
 			continue
 		}
-		sweepCfg, err := s.buildSweepConfig(ctx, cfg, versionID)
+		sweepCfg, err := s.buildSweepConfig(ctx, cfg, versionID, capacityMaxShots)
 		if err != nil {
 			return fmt.Errorf("sweep config version %s: %w", versionID, err)
 		}
@@ -335,7 +363,7 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 	return nil
 }
 
-func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg SweeperConfig, versionID string) (obligationapp.SweepConfig, error) {
+func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg SweeperConfig, versionID string, capacityMaxShots *int32) (obligationapp.SweepConfig, error) {
 	version, err := s.protocolRepo.GetVersion(ctx, cfg.TenantID, versionID)
 	if err != nil {
 		return obligationapp.SweepConfig{}, err
@@ -349,6 +377,9 @@ func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg Sweep
 		vaccineItemID = stockItemIDFromRuleDSL(version.RuleDsl)
 	}
 	vaccineCode, drivePlanner := obligationapp.DrivePlannerFromRuleDSL(version.RuleDsl)
+	// Admin-editable capacity-config override wins over the published rule_dsl drive_policy value
+	// when authored (migration 000045); a nil override leaves the DSL/default value untouched.
+	drivePlanner = obligationapp.ApplyCapacityShotCapOverride(drivePlanner, capacityMaxShots)
 	out := obligationapp.SweepConfig{
 		SOPVersionID:      versionSOP,
 		VaccineItemID:     vaccineItemID,

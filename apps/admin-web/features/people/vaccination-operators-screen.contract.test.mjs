@@ -38,14 +38,20 @@ test("BUG-019: park id is not inferred from the first roster row", () => {
   assert.match(scopeSource, /config\?\.parkId/, "the screen must use the backend-echoed parkId");
 });
 
-// BUG-020: a control path with no real write must never render a fabricated
-// success state, and the dead form must not stay mounted/keyboard-reachable.
-test("BUG-020: no fabricated cap-save success path exists", () => {
-  assert.ok(!/saveCap/.test(source), "the unwired saveCap handler must be deleted");
-  assert.ok(!/capEditing|capDraft|capSaving/.test(source), "the dead cap edit state must be deleted");
+// BUG-020 (updated): cap editing is now a REAL wired write, not a fabricated
+// success state. The operator + animal caps are edited on this screen and
+// persisted through PUT /vaccination/capacity-config, which cascades a re-plan.
+// Guard against regressing to the old dead form: the editor must call the real
+// endpoint and must not resurrect the fabricated 'cap set to N/day' toast.
+test("BUG-020: cap editing is backed by a real capacity-config write", () => {
+  assert.match(
+    source,
+    /await api\.putVaccinationCapacityConfig\(/,
+    "the cap editor must persist through the real PUT /vaccination/capacity-config endpoint",
+  );
   assert.ok(
     !/cap set to \$\{/.test(source),
-    "the fabricated 'Saved · cap set to N/day' toast must be gone",
+    "the fabricated 'Saved · cap set to N/day' toast must not return",
   );
 });
 

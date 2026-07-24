@@ -158,6 +158,12 @@ func (f *fakeRosterRepo) ListPositions(_ context.Context, params ports.ListPosit
 		if params.WorkforceMemberID != "" && p.WorkforceMemberID != params.WorkforceMemberID {
 			continue
 		}
+		if params.ScopeType != "" && p.ScopeType != params.ScopeType {
+			continue
+		}
+		if params.ScopeID != "" && p.ScopeID != params.ScopeID {
+			continue
+		}
 		if params.PositionCode != "" && p.PositionCode != params.PositionCode {
 			continue
 		}

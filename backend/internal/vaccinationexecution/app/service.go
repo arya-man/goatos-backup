@@ -1010,6 +1010,10 @@ var ErrOperatorAssignmentConfigNotFound = errors.New("vaccination execution: ope
 // only need to import the app package. See ports.ErrOperatorAssignmentConfigConflict for the contract.
 var ErrOperatorAssignmentConfigConflict = ports.ErrOperatorAssignmentConfigConflict
 
+// ErrCapacityConfigConflict re-exports ports.ErrCapacityConfigConflict so HTTP callers only need to
+// import the app package. See ports.ErrCapacityConfigConflict for the contract.
+var ErrCapacityConfigConflict = ports.ErrCapacityConfigConflict
+
 // OperatorAssignmentConfigView is the combined read-model for the admin config screen: the N/default
 // config plus every operator's authored shift.
 type OperatorAssignmentConfigView struct {
@@ -1071,6 +1075,23 @@ func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID s
 	updated, err := s.repo.UpsertOperatorAssignmentConfig(ctx, tenantID, cfg)
 	if err != nil {
 		return domain.OperatorAssignmentConfig{}, "", "", err
+	}
+	return updated, "", "", nil
+}
+
+// UpdateCapacityConfig validates then idempotently writes the tenant's daily operator animal cap +
+// per-animal shot-cap override (validate-or-reject: an invalid maxPerDay or an out-of-range
+// maxShotsPerAnimalPerDrive returns a 400-shaped (code, message) pair, never silently clamped or
+// defaulted). Cascade (vaccination.capacity.changed, one per active park) is durably enqueued by the
+// repository within the same transaction as the config write; see UpsertCapacityConfig in the postgres
+// adapter and OperatorConfigReplanHandler, which re-plans future vaccination drives on that event.
+func (s *Service) UpdateCapacityConfig(ctx context.Context, tenantID string, cfg domain.CapacityConfig) (domain.CapacityConfig, string, string, error) {
+	if code, message, ok := cfg.Validate(); !ok {
+		return domain.CapacityConfig{}, code, message, nil
+	}
+	updated, err := s.repo.UpsertCapacityConfig(ctx, tenantID, cfg)
+	if err != nil {
+		return domain.CapacityConfig{}, "", "", err
 	}
 	return updated, "", "", nil
 }

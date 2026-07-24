@@ -104,6 +104,21 @@ export function getAdminApi() {
       return { data: body };
     },
 
+    async putVaccinationCapacityConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationCapacityConfigRequest']) {
+      const response = await fetch('/api/vaccination/capacity-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Failed to update vaccination capacity config: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationCapacityConfig'];
+      return { data: body };
+    },
+
     async putVaccinationOperatorAssignmentConfig(requestBody: AppApiComponents['schemas']['UpdateVaccinationOperatorAssignmentConfigRequest']) {
       const response = await fetch('/api/vaccination/operator-assignment/config', {
         method: 'PUT',

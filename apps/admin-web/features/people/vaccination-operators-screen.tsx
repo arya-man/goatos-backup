@@ -137,6 +137,14 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   const [draftCaps, setDraftCaps] = useState<Record<string, string>>({});
   const [savingCap, setSavingCap] = useState<string | null>(null);
   const [capError, setCapError] = useState<string | null>(null);
+  // Common operator cap + per-animal shot cap (tenant capacity config). Editing these writes to the
+  // scheduler-read tables and emits vaccination.capacity.changed per park, re-planning all future drives.
+  const [animalShotCap, setAnimalShotCap] = useState<number | null>(null);
+  const [capRowVersion, setCapRowVersion] = useState(0);
+  const [capEditing, setCapEditing] = useState(false);
+  const [draftCommonCap, setDraftCommonCap] = useState('200');
+  const [draftAnimalCap, setDraftAnimalCap] = useState('');
+  const [savingCapCfg, setSavingCapCfg] = useState(false);
 
   const [leaves, setLeaves] = useState<Record<string, { from: string; to: string }[]>>({});
   const [loading, setLoading] = useState(true);
@@ -204,6 +212,8 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         const pos = (result.positions as Position[]) ?? [];
         setPositions(pos);
         setCommonCap(result.commonCap);
+        setAnimalShotCap(result.animalShotCap);
+        setCapRowVersion(result.capRowVersion);
         if (!config) {
           // No config authored yet: fall back to the first NON-BACKUP operator of
           // THIS park. operatorsList/orderedOps filter out backup slots, so a
@@ -499,6 +509,53 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     }
   };
 
+  const openCapEditor = () => {
+    setDraftCommonCap(String(commonCap));
+    setDraftAnimalCap(animalShotCap == null ? '' : String(animalShotCap));
+    setCapError(null);
+    setCapEditing(true);
+  };
+
+  const saveCapacityConfig = async () => {
+    const nextCommon = Number(draftCommonCap.trim());
+    if (!Number.isInteger(nextCommon) || nextCommon < 1 || nextCommon > 100000) {
+      setCapError('Operator cap must be a whole number between 1 and 100000 animals/day.');
+      return;
+    }
+    // A cleared animal-cap field means "no override" (null → planner falls back to the rule DSL / default).
+    // An explicit value must be a whole number >= 1; out-of-range is rejected, never silently defaulted.
+    const animalRaw = draftAnimalCap.trim();
+    let nextAnimal: number | null = null;
+    if (animalRaw !== '') {
+      const parsed = Number(animalRaw);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        setCapError('Animal shot cap must be a whole number ≥ 1, or blank to use the protocol default.');
+        return;
+      }
+      nextAnimal = parsed;
+    }
+    setSavingCapCfg(true);
+    setCapError(null);
+    try {
+      const api = getAdminApi();
+      const response = await api.putVaccinationCapacityConfig({
+        maxPerDay: nextCommon,
+        maxShotsPerAnimalPerDrive: nextAnimal,
+        rowVersion: capRowVersion,
+      });
+      const updated = response.data;
+      setCommonCap(updated.maxPerDay);
+      setAnimalShotCap(updated.maxShotsPerAnimalPerDrive ?? null);
+      setCapRowVersion(updated.rowVersion);
+      setCapEditing(false);
+      showToast(`<b style="color:var(--brand)">Saved</b> · caps updated — future vaccination schedules are being re-planned`);
+    } catch (err) {
+      setCapError(err instanceof Error ? err.message : 'Failed to save capacity config');
+    } finally {
+      setSavingCapCfg(false);
+    }
+  };
+
   // KPIs
   const kpiOperators = operatorsList.length;
   const kpiDaily = operatorCount * commonCap;
@@ -691,9 +748,52 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
           <h3>Operator roster & availability</h3>
           <div className="sp"></div>
           <div className="capctl">
-            <span className="capctl-lab">Cap / operator</span>
-            <b id="capText">{commonCap}</b>
-            <span className="capunit">animals/day</span>
+            {capEditing ? (
+              <>
+                <span className="capctl-lab">Operator cap</span>
+                <input
+                  aria-label="Operator daily animal cap"
+                  className="capin"
+                  inputMode="numeric"
+                  min={1}
+                  max={100000}
+                  type="number"
+                  value={draftCommonCap}
+                  onChange={(event) => setDraftCommonCap(event.target.value)}
+                />
+                <span className="capunit">animals/day</span>
+                <span className="capctl-lab" style={{ marginLeft: 10 }}>Animal cap</span>
+                <input
+                  aria-label="Per-animal shot cap per day"
+                  className="capin"
+                  inputMode="numeric"
+                  min={1}
+                  placeholder="default"
+                  type="number"
+                  value={draftAnimalCap}
+                  onChange={(event) => setDraftAnimalCap(event.target.value)}
+                />
+                <span className="capunit">shots/animal</span>
+                <button className="btn b sm" disabled={savingCapCfg} onClick={() => void saveCapacityConfig()} type="button">
+                  {savingCapCfg ? 'Saving' : 'Save'}
+                </button>
+                <button className="btn sm ghost" disabled={savingCapCfg} onClick={() => setCapEditing(false)} type="button">
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="capctl-lab">Cap / operator</span>
+                <b id="capText">{commonCap}</b>
+                <span className="capunit">animals/day</span>
+                <span className="capctl-lab" style={{ marginLeft: 10 }}>Animal shot cap</span>
+                <b>{animalShotCap == null ? 'default' : animalShotCap}</b>
+                <span className="capunit">shots/animal</span>
+                <button className="btn sm" onClick={openCapEditor} type="button" title="Edit operator + animal caps">
+                  Edit caps
+                </button>
+              </>
+            )}
           </div>
         </div>
         {capError ? <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>{capError}</div> : null}

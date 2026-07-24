@@ -69,7 +69,7 @@ func TestBuildSweepConfigOnlyCachesCompleteRuleVaccineIdentity(t *testing.T) {
 	}
 
 	stage := NewObligationSweeperStage(deps, SweeperConfig{TenantID: ruleIdentityTenant})
-	cfg, err := stage.buildSweepConfig(ctx, SweeperConfig{TenantID: ruleIdentityTenant}, versionID)
+	cfg, err := stage.buildSweepConfig(ctx, SweeperConfig{TenantID: ruleIdentityTenant}, versionID, nil)
 	if err != nil {
 		t.Fatalf("buildSweepConfig: %v", err)
 	}

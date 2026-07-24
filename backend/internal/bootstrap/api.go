@@ -359,7 +359,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership)
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
-		WithOperatorAssignmentConfigWriter(vaccExecService)
+		WithOperatorAssignmentConfigWriter(vaccExecService).
+		WithCapacityConfigWriter(vaccExecService)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))

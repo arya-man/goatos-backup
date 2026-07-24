@@ -53,6 +53,11 @@ func (r fakeRepo) CapacityConfig(_ context.Context, _ string) (domain.CapacityCo
 	return r.capacityCfg, nil
 }
 
+func (r fakeRepo) UpsertCapacityConfig(_ context.Context, _ string, cfg domain.CapacityConfig) (domain.CapacityConfig, error) {
+	cfg.RowVersion++
+	return cfg, nil
+}
+
 func (r fakeRepo) PlannedDriveSessionsForShed(_ context.Context, _, _ string) ([]domain.PlannedSession, error) {
 	if r.err != nil {
 		return nil, r.err

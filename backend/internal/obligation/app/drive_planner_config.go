@@ -97,6 +97,21 @@ func DrivePlannerFromRuleDSL(raw []byte) (vaccineCode string, planner domain.Dri
 	return vaccineCode, resolvedDrivePlannerSettings(planner, vaccineCode)
 }
 
+// ApplyCapacityShotCapOverride applies the tenant's admin-editable per-animal shot-cap override
+// (vaccination_capacity_config.max_shots_per_animal_per_drive, migration 000045) over a
+// DSL/default-resolved planner. capacityMaxShots is nil when no override is authored (the common
+// case): the DSL/default value is left untouched. A non-nil, >=1 value wins over the DSL value; a
+// non-positive value is ignored (defence in depth -- the write path already rejects <1, see
+// domain.CapacityConfig.Validate in the vaccinationexecution package).
+func ApplyCapacityShotCapOverride(planner domain.DrivePlannerSettings, capacityMaxShots *int32) domain.DrivePlannerSettings {
+	if capacityMaxShots == nil || *capacityMaxShots <= 0 {
+		return planner
+	}
+	out := planner
+	out.MaxShotsPerAnimalPerDrive = *capacityMaxShots
+	return out
+}
+
 func resolvedDrivePlannerSettings(cfg domain.DrivePlannerSettings, vaccineCode string) domain.DrivePlannerSettings {
 	out := cfg
 	defaults := domain.DefaultDrivePlannerSettings()
