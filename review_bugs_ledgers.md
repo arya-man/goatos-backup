@@ -51,18 +51,21 @@ the live state.
 | BUG-037 | High | Fixed — ported and integrated | pending port | RE-VERIFIED | **My original diagnosis was wrong and the agent corrected it with proof.** The replay does NOT re-apply the update: it passes `RowVersion: 1` against a stored row at 4, so an `UPDATE … AND row_version = $3` would have matched 0 rows and returned `ErrConflict`. It returned a position, no error — `reserveIdempotency` correctly short-circuited with `ON CONFLICT DO NOTHING` + fingerprint compare. The REAL defect is the other half of the contract: replay did `GetPositionByID` — a fresh read of CURRENT state — so two unrelated intervening edits leaked out under the first key. `idempotency_keys` only stored `result_type`/`result_id`, never the body. Fix: `result_snapshot jsonb` (migration, nullable no-default ⇒ catalog-only, no rewrite), persisted in the SAME txn as the side effects, and the result read INSIDE the write txn so a concurrent writer can't move it |
 | BUG-038 | **Blocker** | Fixed — ported and integrated | pending port | RE-VERIFIED | Guard now renders with a placeholder AND asserts the compose file still carries the `:?` required form, so the runtime fail-fast is machine-checked instead of accidentally load-bearing on the lint. Committed 5-fixture self-test including the **adversarial sibling-block** case (`:?` present on `kernel-maintenance` but absent on `kernel-workers`) that a block-unaware grep would false-green on, plus a topology-break control proving the negatives aren't just the guard crashing. Verbatim: no-env before → `EXIT=1`; after → `PASS EXIT=0`; `:?`→`:-` downgrade → guard fails. ORIGINAL: **`make ci-local` CANNOT go green on any machine, so the exact-SHA push gate is unsatisfiable.** `local-gcp-kernel-parity-guard` is a static lint that runs `docker compose -f compose.local-kernel.yml config`, but `f78d62b9` made the tenant a hard-required interpolation `${GOATOS_TENANT_ID:?...}`. `compose config` evaluates `:?` at render time, so the guard aborts before checking anything, and nothing in `Makefile`/`tools/`/`.github/` exports that var. Proven: exporting a placeholder → `local GCP kernel parity guard: PASS`. Fix = render-only placeholder in the guard PLUS an assertion that the compose file still carries the `:?` form, so the runtime fail-fast stays machine-checked |
 
-**Current working state (2026-07-24, after landing `8cf98961`):** 26 closed, 5 outstanding.
+**Current working state (2026-07-24, after landing the vaccine-lane membership fix):** 27 closed, 3 outstanding, 2 maintainer decisions.
 (BUG-029 closed resolved-by-design 2026-07-24 — persist SQL binding is deterministic + partition-aware; ownership split ratified.)
+(BUG-039 closed 2026-07-24 — vaccine-lane membership fix landed on main at `4a035caf`/`4760cf99`/`becc938c`; `lane_key` now threaded end to end through the producer.)
 
 | State | Count | IDs |
 |---|---:|---|
 | Landed on main at `8cf98961` | 17 | BUG-001, BUG-005, BUG-008, BUG-009, BUG-010, BUG-011, BUG-015, BUG-016, BUG-017, BUG-019, BUG-020, BUG-023, BUG-024, BUG-028, BUG-033, BUG-034, BUG-035 |
 | Landed by the parallel session | 7 | BUG-002, BUG-003, BUG-004, BUG-012, BUG-013, BUG-014, BUG-027 |
 | Landed: scale / contract / gate | 3 | BUG-036, BUG-037, BUG-038 |
+| Landed: vaccine-lane membership (`4a035caf`/`4760cf99`/`becc938c`) | 1 | BUG-039 |
 | WONTFIX / accepted risk | 1 | BUG-018 |
 | Resolved by design | 1 | BUG-029 |
 | Not counted / prior-resolved | 4 | BUG-021, BUG-022, BUG-025, BUG-026 |
-| **Open** | **5** | BUG-030 (matrix landed, extensions open), BUG-031, BUG-032 (40 of 58 remain), BUG-039, + MD-1/MD-2 decisions |
+| **Open** | **3** | BUG-030 (matrix landed, extensions open), BUG-031, BUG-032 (40 of 58 remain) |
+| **Maintainer decisions** | **2** | MD-1 (single-pass vs multi-pass sweep convergence), MD-2 (may spacing-driven overflow land past `window_end` — medical call) |
 
 Counts overlap by design: BUG-030's matrix landed as tests, and the defects it found
 (BUG-033/034/035) are counted as landed in their own rows.
@@ -94,6 +97,9 @@ running-sum window AND `rn_last` now partition by `lane_key`, so `lo`/`hi` are n
 summed across vaccines. RED was deterministic, not probabilistic, on all five adversarial
 axes. Follow-up recorded below: whether the app-layer planner sizes `animal_count` per-cell
 or per-lane is a separate question — the producer is now correct for whatever it emits.
+**LANDED on main** at `4a035caf` (bind per vaccine lane), `4760cf99` (size override lanes
+from their own membership ledger), and `becc938c` (merge override target-date rows) — the
+summary table above now reflects this as closed.
 Found reviewing the LANDED code at `8cf98961`
 Files involved:
 - backend/internal/obligation/adapters/postgres/visit_shot_lock.go
