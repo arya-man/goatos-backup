@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -443,13 +442,6 @@ func (s *SweeperService) RebuildMergedBatchDriveAssignments(ctx context.Context,
 	for _, assignment := range distributed {
 		if assignment.OperatorID == nil || strings.TrimSpace(*assignment.OperatorID) == "" {
 			session.recordDriveRebuild(batchID, "no_operator")
-			slog.WarnContext(ctx, "vaccination drive-assignment rebuild skipped: no executable operator",
-				"reason", "no_operator",
-				"tenant_id", tenantID,
-				"batch_id", batchID,
-				"park_id", parkID,
-				"planned_date", plannedDate.Format("2006-01-02"),
-				"attached_obligations", len(rows))
 			return nil
 		}
 	}

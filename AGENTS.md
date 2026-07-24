@@ -52,6 +52,34 @@ Only for what the graph cannot see:
 - Uncommitted/unstaged code
 - Any `callers_of = 0` result that seems wrong — verify with grep
 
+## STG Deployment Contract
+
+For Goat OS, STG deploy is NOT GitHub Actions and NOT PR-driven.
+
+GitHub Actions is billing-blocked and must not be used for deployment
+(validate only via `make ci-local` on the pushed SHA).
+Do not create main→stg PRs as a deploy mechanism.
+Do not force-push a `stg` branch and wait for CI.
+Do not infer CI deployment from branch names.
+
+Authoritative STG deploy path:
+1. Read `docs/runbooks/stg-deploy.md` (short contract) →
+   `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).
+2. Use the manual Google Cloud Deploy scripts under
+   `tools/deploy/stg-clouddeploy-*.sh`.
+3. Verify active account is `ravi@mesha.sg`.
+4. Verify target org is `vgoats.com` and environment is Goat OS STG
+   (`goatos-stg`).
+5. Never use Slice/Heva GitHub identity or cloud project for Goat OS.
+
+If a user asks to "push to STG", "promote STG", or "deploy STG", this means:
+manual Google Cloud Deploy from the latest approved `origin/main`, following the
+runbook.
+
+Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
+the user explicitly asks to change deployment architecture. The machine-readable
+form of this contract lives at `context/deploy-contract.json`.
+
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
@@ -408,14 +436,14 @@ Organization boundaries:
   gmail, or personal identities are blocked by `make git-identity-guard` and
   the local CI common gate. The expected maintainer identity is
   `Raviteja <ravi@mesha.sg>`.
-- **Staging promotion is PR-only (always on).** Never push any local ref, local
-  `stg`, `main`, `HEAD`, agent branch, or refspec directly to remote `stg`.
-  The only authorized staging branch update is GitHub merging a same-repository
-  `vgoats/goatos main -> stg` pull request after `stg-pr-gate` passes. A manual
-  `stg-deploy` dispatch may rerun that already-merged `stg` SHA; it may not
-  deploy `main`, an agent branch, or any SHA without the matching merged PR.
-  Run `make ai-setup` (or `make stg-promotion-guard-install`) to install the
-  machine-local pre-push block. Do not bypass it with `--no-verify`.
+- **Staging deployment is manual Cloud Deploy only.** Do not create or wait for
+  a `main -> stg` pull request, GitHub Actions workflow, or direct `stg` branch
+  push as a deployment mechanism. Agents must deploy from a clean checkout at
+  the latest approved `origin/main` using `docs/runbooks/stg-deploy.md` and
+  `tools/deploy/stg-clouddeploy-*.sh`. Never push any local ref, local `stg`,
+  `main`, `HEAD`, agent branch, or refspec directly to remote `stg`; the branch
+  is not deployment authority. Run `make ai-setup` so the local guard blocks
+  accidental remote `stg` writes. Do not bypass it with `--no-verify`.
 - Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
   folder, or directly under the org if folder creation is not available. Do not
   create Goat OS resources inside `system-gsuite` or `apps-script`.
@@ -976,12 +1004,11 @@ Do:
 - **Postgres tests are explicit opt-in only**: Default `make ci-local`, every
   `JOB=...`/`MODE=all` invocation, pull-request workflow, push workflow, and
   scheduled workflow must not start Postgres or run Docker-backed DB tests.
-  A local database run requires `GOATOS_RUN_POSTGRES_TESTS=1`; hosted DB gates
-  require the workflow's manual `run_postgres_tests` input, or the documented
-  `run-postgres-tests` label for the `main -> stg` PR gate. `MODE=all` means all
-  affected component jobs, not Postgres. `GOATOS_REQUIRE_DOCKER=1` may make an
-  explicitly requested DB run fail closed, but it must never opt a default run
-  into Postgres by itself.
+  A local database run requires `GOATOS_RUN_POSTGRES_TESTS=1`. Hosted DB gates
+  are not a Goat OS staging deploy path while GitHub Actions is unavailable.
+  `MODE=all` means all affected component jobs, not Postgres.
+  `GOATOS_REQUIRE_DOCKER=1` may make an explicitly requested DB run fail closed,
+  but it must never opt a default run into Postgres by itself.
 
 - **Exact-SHA local-CI push gate (main)**: Only a complete green `make ci-local`
   on the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
