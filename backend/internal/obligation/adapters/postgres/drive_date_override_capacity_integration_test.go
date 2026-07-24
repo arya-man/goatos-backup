@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -40,15 +41,17 @@ func TestDriveDateOverrideMoveReplansAgainstTargetDateCapacity(t *testing.T) {
 	versions := seedShotCapVersions(t, ctx, proto, "vaccination.overridecap", 3)
 
 	const (
-		movedGoat = "10000000-0000-4000-8000-00000000fa01"
-		loadGoatA = "10000000-0000-4000-8000-00000000fa02"
-		loadGoatB = "10000000-0000-4000-8000-00000000fa03"
-		shedID    = "00000000-0000-4000-8000-00000000da01"
-		operatorA = "20000000-0000-4000-8000-000000000a01"
-		operatorB = "20000000-0000-4000-8000-000000000a02"
+		movedGoat  = "10000000-0000-4000-8000-00000000fa01"
+		movedGoat2 = "10000000-0000-4000-8000-00000000fa04"
+		movedGoat3 = "10000000-0000-4000-8000-00000000fa05"
+		loadGoatA  = "10000000-0000-4000-8000-00000000fa02"
+		loadGoatB  = "10000000-0000-4000-8000-00000000fa03"
+		shedID     = "00000000-0000-4000-8000-00000000da01"
+		operatorA  = "20000000-0000-4000-8000-000000000a01"
+		operatorB  = "20000000-0000-4000-8000-000000000a02"
 	)
 	seedParkConsolidationShed(t, ctx, pool, shedID, "override-cap-shed")
-	seedReserveGoats(t, ctx, pool, shedID, cbePark, movedGoat, loadGoatA, loadGoatB)
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, movedGoat, movedGoat2, movedGoat3, loadGoatA, loadGoatB)
 
 	if _, err := pool.Exec(ctx, `
 INSERT INTO protocol_rule_dimensions (
@@ -96,8 +99,34 @@ VALUES
 	assertOperatorAvailability(t, ctx, repo, source, []string{operatorA})
 	assertOperatorAvailability(t, ctx, repo, target, []string{operatorB})
 
-	// The PPR drive is already planned on the source date with operator A and 3 animals.
-	_, movedBatch := seedShotOnDate(t, ctx, repo, versions[0], movedGoat, "shed", shedID, source, source, "override-cap-moved")
+	// The PPR drive is already planned on the source date with operator A and 3 animals. The three
+	// animals are REAL obligations in one batch: animal_count is the count of the animals actually
+	// in the cell, so a fixture that declared 3 while seeding 1 would be asserting against a number
+	// the database cannot back.
+	movedOblIDs := make([]string, 0, 3)
+	for i, goat := range []string{movedGoat, movedGoat2, movedGoat3} {
+		oblID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: versions[0].versionID, RuleID: versions[0].ruleID,
+			TargetType: "goat", TargetID: goat, ScopeType: "shed", ScopeID: shedID,
+			DueAt: source, Status: "scheduled", IdempotencyKey: fmt.Sprintf("override-cap-moved-%d", i), Sequence: 1,
+		})
+		if err != nil || !applied {
+			t.Fatalf("seed moved obligation %d: applied=%v err=%v", i, applied, err)
+		}
+		movedOblIDs = append(movedOblIDs, oblID)
+	}
+	movedPlannedDate := source
+	movedBatch, movedAttached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versions[0].versionID, ScopeType: "shed", ScopeID: shedID,
+		Session: "override-cap-moved", PlannedDate: &movedPlannedDate, Status: "planned",
+		EstimatedTargets: 3, PlannedQuantity: "3", QuantityUnit: "dose",
+	}, movedOblIDs)
+	if err != nil {
+		t.Fatalf("create moved batch: %v", err)
+	}
+	if int(movedAttached) != len(movedOblIDs) {
+		t.Fatalf("moved batch attached=%d want %d", movedAttached, len(movedOblIDs))
+	}
 	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{{
 		BatchID: movedBatch, PlannedDate: source, OperatorID: testStringPtr(operatorA), ParkID: cbePark,
 		ShedID: testStringPtr(shedID), PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 3,
