@@ -158,6 +158,26 @@ func (e *bug041Env) parkBatch(t *testing.T, session string, date time.Time, oper
 	return batchID
 }
 
+// attachMore attaches more obligations into the SAME planned batch (matched by version/scope/
+// session/date/window), the way a later per-rule sweep pass reuses an existing combo-session batch.
+func (e *bug041Env) attachMore(t *testing.T, session string, date time.Time, obligations []string) string {
+	t.Helper()
+	cells := make(map[string]int32, len(obligations))
+	for _, id := range obligations {
+		cells[id] = 1
+	}
+	batchID, attached, err := e.repo.CreateBatchWithObligationCells(e.ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: e.versionID, ScopeType: "park", ScopeID: e.parkID,
+		Session: session, PlannedDate: &date, Status: "planned",
+		EstimatedTargets: int32(len(obligations)), PlannedQuantity: fmt.Sprintf("%d", len(obligations)),
+		QuantityUnit: "dose",
+	}, obligations, cells)
+	if err != nil || len(attached) != len(obligations) {
+		t.Fatalf("attach more to %s: attached=%d want=%d err=%v", session, len(attached), len(obligations), err)
+	}
+	return batchID
+}
+
 // unboundCount returns how many non-canceled goat obligations on the batch have NO member row.
 func (e *bug041Env) unboundCount(t *testing.T, batchID string) int {
 	t.Helper()
@@ -394,5 +414,125 @@ WHERE tenant_id=$1 AND batch_id=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenant
 SELECT count(*) FROM vaccination_drive_assignments
 WHERE tenant_id=$1 AND batch_id=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenantID, batchB, ruleHS); n == 0 {
 		t.Fatalf("HS vaccine lane vanished from target after rebuild")
+	}
+}
+
+// TestBug041PerRuleMultiPassSharedBatchSiblingLaneRebuild is the CPT-reseed regression for the
+// per-rule sweep path (distinct from the combo-align merge path): a batch shared by two rule passes
+// under one combo session. Pass 1 (HS) attaches + writes the HS drive cell; pass 2 (FMD) attaches
+// into the SAME batch. Before the fix the pass-2 replace rebuilt from only pass-2's attachedRows and
+// wiped the HS lane; here the fix rebuilds from the FULL attached set so both lanes survive.
+func TestBug041PerRuleMultiPassSharedBatchSiblingLaneRebuild(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	env := newBug041Env(t, ctx, pool, "bug041_perrule_sibling")
+	ruleHS := env.rule(t, "hs_adult_w1", 1)
+	ruleFMD := env.rule(t, "fmd_adult_w1", 2)
+
+	shed := "00000000-0000-4000-8000-0000000041c1"
+	goats := env.shedWithGoats(t, shed, "Godel 1", "1", 4)
+	day := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
+	const session = "combo:FMD+HS"
+
+	// Pass 1: HS obligations create the batch; write its HS-only drive cell (pre-fix persisted state).
+	hsObls := make([]string, 0, len(goats))
+	for i, g := range goats {
+		hsObls = append(hsObls, env.obligationFor(t, ruleHS, shed, g, fmt.Sprintf("pr-hs-%d", i), day))
+	}
+	batchID := env.parkBatch(t, session, day, env.opOne, hsObls)
+	shedID := shed
+	if err := env.repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{{
+		BatchID: batchID, PlannedDate: day, OperatorID: &env.opOne, ParkID: env.parkID, ShedID: &shedID,
+		PhysicalShed: "Godel", PartitionLabel: "Part 1", AnimalCount: int32(len(goats)),
+		VaccineRuleIDs: []string{ruleHS}, TotalDoses: int32(len(goats)), CapacityStatus: "within_cap",
+	}}); err != nil {
+		t.Fatalf("seed HS cell: %v", err)
+	}
+
+	// Pass 2: FMD obligations attach into the SAME batch.
+	fmdObl := env.obligationFor(t, ruleFMD, shed, goats[0], "pr-fmd-0", day)
+	if got := env.attachMore(t, session, day, []string{fmdObl}); got != batchID {
+		t.Fatalf("second pass created a new batch %q, want reuse of %q", got, batchID)
+	}
+
+	// Bug shape: FMD obligation unbound (no FMD lane on the batch).
+	if n := env.unboundCount(t, batchID); n != 1 {
+		t.Fatalf("pre-rebuild unbound = %d, want 1 (FMD pass with no covering lane)", n)
+	}
+
+	session2 := oblapp.NewSweepSession()
+	if err := env.svc.RebuildMergedBatchDriveAssignments(ctx, tenantID, batchID, 200, session2); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	env.assertHealthy(t, batchID, day)
+	for _, r := range []struct {
+		name string
+		rule string
+	}{{"HS", ruleHS}, {"FMD", ruleFMD}} {
+		if n := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2 AND $3::uuid = ANY(vaccine_rule_ids)`, tenantID, batchID, r.rule); n == 0 {
+			t.Fatalf("%s lane missing on shared batch after rebuild", r.name)
+		}
+	}
+}
+
+// TestBug041PerRuleMultiPassSharedBatchCrossShedRebuild is the cross-shed CPT-reseed regression for
+// the per-rule path: one rule (Blue Tongue) attaches to a shared park batch across two sheds in two
+// passes. Pass 1 (Old Yashoda) writes its arm; pass 2 (Godel 1) attaches into the same batch. The
+// fix rebuilds from the full attached set so BOTH shed arms exist and no goat is left unbound.
+func TestBug041PerRuleMultiPassSharedBatchCrossShedRebuild(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	env := newBug041Env(t, ctx, pool, "bug041_perrule_crossshed")
+	ruleBT := env.rule(t, "blue_tongue_adult_w1", 1)
+
+	oyShed := "00000000-0000-4000-8000-0000000041d1"
+	godelShed := "00000000-0000-4000-8000-0000000041d2"
+	oyGoats := env.shedWithGoats(t, oyShed, "Old Yashoda", "1", 3)
+	godelGoats := env.shedWithGoats(t, godelShed, "Godel 1", "1", 8)
+	day := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	const session = "rule:blue_tongue"
+
+	// Pass 1: Old Yashoda obligations create the batch + its Old-Yashoda arm.
+	oyObls := make([]string, 0, len(oyGoats))
+	for i, g := range oyGoats {
+		oyObls = append(oyObls, env.obligationFor(t, ruleBT, oyShed, g, fmt.Sprintf("pr-bt-oy-%d", i), day))
+	}
+	batchID := env.parkBatch(t, session, day, env.opOne, oyObls)
+	oyID := oyShed
+	if err := env.repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{{
+		BatchID: batchID, PlannedDate: day, OperatorID: &env.opOne, ParkID: env.parkID, ShedID: &oyID,
+		PhysicalShed: "Old Yashoda", PartitionLabel: "Part 1", AnimalCount: int32(len(oyGoats)),
+		VaccineRuleIDs: []string{ruleBT}, TotalDoses: int32(len(oyGoats)), CapacityStatus: "within_cap",
+	}}); err != nil {
+		t.Fatalf("seed OY cell: %v", err)
+	}
+
+	// Pass 2: Godel 1 obligations attach into the SAME batch.
+	godelObls := make([]string, 0, len(godelGoats))
+	for i, g := range godelGoats {
+		godelObls = append(godelObls, env.obligationFor(t, ruleBT, godelShed, g, fmt.Sprintf("pr-bt-godel-%d", i), day))
+	}
+	if got := env.attachMore(t, session, day, godelObls); got != batchID {
+		t.Fatalf("second pass created a new batch %q, want reuse of %q", got, batchID)
+	}
+
+	// Bug shape: all Godel 1 goats unbound (no Godel 1 arm).
+	if n := env.unboundCount(t, batchID); n != len(godelGoats) {
+		t.Fatalf("pre-rebuild unbound = %d, want %d (Godel 1 pass with no covering shed arm)", n, len(godelGoats))
+	}
+
+	session2 := oblapp.NewSweepSession()
+	if err := env.svc.RebuildMergedBatchDriveAssignments(ctx, tenantID, batchID, 200, session2); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	env.assertHealthy(t, batchID, day)
+	for _, shedName := range []string{"Old Yashoda", "Godel 1"} {
+		if n := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2 AND physical_shed=$3`, tenantID, batchID, shedName); n == 0 {
+			t.Fatalf("%s arm missing on shared batch after rebuild", shedName)
+		}
 	}
 }
