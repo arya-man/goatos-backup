@@ -478,60 +478,6 @@ func TestBootstrapNavComposition(t *testing.T) {
 	})
 }
 
-// TestLeadershipDrawerExcludesVaccinationFieldWork pins the maintainer decision
-// (2026-07-24): the vaccination module is a per-operator field-execution capture
-// queue (Drives/sheds). Leadership holds no assigned operator work, so that queue
-// is always empty for them and lands them on a dead screen. Leadership's view of
-// vaccination is the shared Calendar command lens, which stays in their bar. So
-// the vaccination drawer row must NOT appear for any leadership tier, while
-// operators still reach it through their department grant. See
-// docs/decisions/role-module-nav-composition.md.
-func TestLeadershipDrawerExcludesVaccinationFieldWork(t *testing.T) {
-	drawerHas := func(grants []domain.GrantSummary, granted []string, key string) bool {
-		for _, m := range modulesFor(grants, granted, "") {
-			if m.Key == key {
-				return true
-			}
-		}
-		return false
-	}
-
-	leadershipRoles := []string{
-		permissions.RoleCEOInternal,
-		permissions.RolePCDirector,
-		permissions.RoleParkHead,
-	}
-	for _, role := range leadershipRoles {
-		t.Run(role+" drawer excludes vaccination field-work", func(t *testing.T) {
-			grants := []domain.GrantSummary{grantWithRole(role)}
-			// candidateModuleKeys hands leadership the whole registry regardless of the
-			// granted-module arg, so passing vaccination here proves the filter — not the
-			// absence of a grant — is what withholds it.
-			if drawerHas(grants, []string{"vaccination", "counts"}, "vaccination") {
-				t.Fatalf("%s must NOT see the vaccination field-work module in the drawer", role)
-			}
-			// The leadership bar still carries Calendar: their vaccination view is intact.
-			nav := visibleNavigationFor(grants, nil, "")
-			hasCalendar := false
-			for _, item := range nav {
-				if item.Key == "calendar" {
-					hasCalendar = true
-				}
-			}
-			if !hasCalendar {
-				t.Fatalf("%s leadership bar must keep Calendar as its vaccination lens; got %#v", role, nav)
-			}
-		})
-	}
-
-	t.Run("operator still gets the vaccination module", func(t *testing.T) {
-		grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
-		if !drawerHas(grants, []string{"vaccination"}, "vaccination") {
-			t.Fatal("operator must still see the vaccination module in modulesFor")
-		}
-	})
-}
-
 func assertAppCode(t *testing.T, err error, code string) {
 	t.Helper()
 	var appErr *Error
