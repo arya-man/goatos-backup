@@ -42,6 +42,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /goats/{goat_id}/vaccination-passport | EXCLUDED | Per-animal vaccination history/open-obligation detail for Goat Passport drawers; not a leadership aggregate tool. Assistant coverage/read API note: when this detail is opened from Calendar/Herd/Shed rosters, open obligation dates must use the canonical vaccination effective-date chain: `vaccination_drive_assignments.planned_date`, then `obligation_batches.planned_date`, then raw `obligation_instances.due_at` only as the final legacy fallback. |
 | GET /goats/{goat_id}/timeline | EXCLUDED | Per-animal audit trail |
 | GET /identifiers/{type}/{value}/resolve | EXCLUDED | Scan-time resolution utility |
+| GET /app/vaccination/tasks/{task_id}/option-values (func:TaskOptionValues) | EXCLUDED | Operator scan/execute form option-values (dropdown vocabulary for a task); an operator write-flow input, not a leadership aggregate metric |
 | GET /vaccination/execution | api + Cube:vaccination_due/overdue | Due/overdue by shed |
 | GET /vaccination/execution/sheds/{shed_id} | api + view:vaccination_shed_status | Cause drilldown |
 | GET /vaccination/operations | api + view:vaccination_shed_status | Cohort rollups |
