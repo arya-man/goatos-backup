@@ -37,15 +37,27 @@ import (
 // movedDriveAssignment is one source-date assignment row carrying at least one rule of the moved
 // vaccine, split into the rule ids that move and the rule ids that stay behind.
 type movedDriveAssignment struct {
-	assignmentID     string
-	batchID          string
-	parkID           string
-	shedID           *string
-	physicalShed     string
-	partitionLabel   string
+	assignmentID   string
+	batchID        string
+	parkID         string
+	shedID         *string
+	physicalShed   string
+	partitionLabel string
+	// animalCount is the CELL-wide count (every vaccine in the row). It is only a legacy fallback
+	// for rows with no membership ledger; the lane-scoped counters below are the sizing truth.
 	animalCount      int32
 	movedRuleIDs     []string
 	remainingRuleIDs []string
+	// Per-lane counters derived from the row's OWN per-goat membership ledger. A date move splits
+	// the cell along the VACCINE axis, so each side must be sized over that lane's animals only.
+	movedAnimalCount     int32
+	movedDoseCount       int32
+	remainingAnimalCount int32
+	remainingDoseCount   int32
+	// ledgerAnimalCount is the DISTINCT goats the ledger holds for the whole row. The per-lane
+	// counters are only usable when it accounts for the row completely (see ledgerCoversRow).
+	ledgerAnimalCount int32
+	hasLedger         bool
 }
 
 // plannedDriveAssignment is one row to write on the target date after re-planning.
@@ -57,6 +69,7 @@ type plannedDriveAssignment struct {
 	partitionLabel string
 	operatorID     *string
 	animalCount    int32
+	totalDoses     int32
 	ruleIDs        []string
 	capacityStatus string
 	warnings       []string
@@ -147,7 +160,13 @@ func movedDriveAssignmentBatchUUIDs(rows []movedDriveAssignment) ([]pgtype.UUID,
 
 func selectMovedDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant, park pgtype.UUID, vaccineCode string, from time.Time) ([]movedDriveAssignment, error) {
 	rows, err := tx.Query(ctx, `
--- projection-review: membership=vaccination_drive_assignments rows for ONE tenant/park/planned_date that carry at least one rule of the moved vaccine; group_key=assignment_id; join_cardinality=moved_rules is a single-row CTE cross-joined for rule-id membership; pagination=bounded single park-day drive-plan slice; scope=explicit tenant+park.
+-- projection-review: membership=vaccination_drive_assignments rows for ONE tenant/park/planned_date that carry at least one rule of the moved vaccine, decorated with that row's OWN per-goat membership ledger split into the moved and the remaining vaccine lane; group_key=assignment_id; join_cardinality=moved_rules is a single-row CTE cross-joined for rule-id membership, and the ledger LATERAL is a per-assignment aggregate over vaccination_drive_assignment_members (UNIQUE (tenant_id, obligation_id), so one member row per dose) joined 1:1 to its obligation for the rule id -- it collapses to exactly one row per assignment and cannot fan the outer row out; pagination=bounded single park-day drive-plan slice, ledger LATERAL bounded by the members (tenant_id, assignment_id) index; scope=explicit tenant+park.
+-- GRAIN PROOF (producer vs consumer, mandatory per AGENTS.md):
+--   producer unique key   = vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id,0), physical_shed, partition_label, COALESCE(operator_id,0)); vaccination_drive_assignment_members (tenant_id, obligation_id) UNIQUE, one row per dose obligation.
+--   consumer match key    = assignment_id on both sides of the ledger LATERAL -- the assignment table's PK, so the decoration is strictly 1:1 with the row it decorates and no assignment column is dropped.
+--   row multiplicity      = 1 output row per assignment row (unchanged by the LATERAL); the ledger aggregate fans members IN, never out.
+--   cap/ratio key sets    = animal counters use count(DISTINCT goat_id) and dose counters use count(*) over the SAME lane-filtered member set, so an operator's cap unit (unique animals in the lane) and the stock unit (distinct (animal, rule) doses in the lane) are each measured over the lane they belong to -- never the cell's other vaccine.
+--   completeness gate    = the lane counters are used only when ledger_animals >= animal_count (ledgerCoversRow); a row the ledger does not fully account for keeps the pre-000040 cell-wide assumption instead of being shrunk to the part of itself the ledger can see.
 WITH moved_rules AS (
   SELECT COALESCE(array_agg(DISTINCT rule_id ORDER BY rule_id), '{}'::uuid[]) AS rule_ids
   FROM protocol_rule_dimensions
@@ -173,9 +192,31 @@ SELECT
     FROM unnest(vda.vaccine_rule_ids) AS rule_ids(rule_id)
     WHERE NOT (rule_id = ANY(moved_rules.rule_ids))
     ORDER BY rule_id
-  ))::text[]
+  ))::text[],
+  ledger.ledger_animals::int,
+  ledger.moved_animals::int,
+  ledger.moved_doses::int,
+  ledger.remaining_animals::int,
+  ledger.remaining_doses::int,
+  (ledger.member_rows > 0) AS has_ledger
 FROM vaccination_drive_assignments vda
 CROSS JOIN moved_rules
+LEFT JOIN LATERAL (
+  SELECT
+    COALESCE(count(DISTINCT m.goat_id) FILTER (WHERE oi.rule_id = ANY(moved_rules.rule_ids)), 0) AS moved_animals,
+    COALESCE(count(*) FILTER (WHERE oi.rule_id = ANY(moved_rules.rule_ids)), 0) AS moved_doses,
+    COALESCE(count(DISTINCT m.goat_id) FILTER (WHERE NOT (oi.rule_id = ANY(moved_rules.rule_ids))), 0) AS remaining_animals,
+    COALESCE(count(*) FILTER (WHERE NOT (oi.rule_id = ANY(moved_rules.rule_ids))), 0) AS remaining_doses,
+    count(*) AS member_rows,
+    COALESCE(count(DISTINCT m.goat_id), 0) AS ledger_animals
+  FROM vaccination_drive_assignment_members m
+  JOIN obligation_instances oi
+    ON oi.tenant_id = m.tenant_id
+   AND oi.obligation_id = m.obligation_id
+  WHERE m.tenant_id = vda.tenant_id
+    AND m.assignment_id = vda.assignment_id
+    AND oi.status <> 'canceled'
+) ledger ON TRUE
 WHERE vda.tenant_id = $1
   AND vda.park_id = $2
   AND vda.planned_date = $4
@@ -189,18 +230,63 @@ ORDER BY vda.assignment_id`, tenant, park, strings.TrimSpace(vaccineCode), busin
 	for rows.Next() {
 		var row movedDriveAssignment
 		if err := rows.Scan(&row.assignmentID, &row.batchID, &row.parkID, &row.shedID, &row.physicalShed,
-			&row.partitionLabel, &row.animalCount, &row.movedRuleIDs, &row.remainingRuleIDs); err != nil {
+			&row.partitionLabel, &row.animalCount, &row.movedRuleIDs, &row.remainingRuleIDs,
+			&row.ledgerAnimalCount, &row.movedAnimalCount, &row.movedDoseCount, &row.remainingAnimalCount, &row.remainingDoseCount,
+			&row.hasLedger); err != nil {
 			return nil, fmt.Errorf("obligation: scan vaccination drive assignment for date move: %w", err)
 		}
 		if len(row.movedRuleIDs) == 0 {
 			continue
 		}
+		applyLegacyLaneCounts(&row)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: vaccination drive assignment rows for date move: %w", err)
 	}
 	return out, nil
+}
+
+// ledgerCoversRow reports whether the row's per-goat membership ledger accounts for the row
+// COMPLETELY -- it holds a member for every animal the row claims. Only then can the ledger say
+// which of the row's animals belong to which vaccine lane. A row with no ledger at all (written
+// before migration 000040) or a ledger that covers only part of its claimed animals cannot be split
+// per lane from evidence, and must keep the pre-000040 assumption rather than have the split
+// silently shrink the row to the part of it the ledger happens to see.
+func ledgerCoversRow(row movedDriveAssignment) bool {
+	return row.hasLedger && row.ledgerAnimalCount >= row.animalCount
+}
+
+// applyLegacyLaneCounts fills the per-lane counters for a row whose ledger does not cover it (see
+// ledgerCoversRow). Nothing knows which animal needs which vaccine for such a row, so the only safe
+// assumption is the pre-000040 one: every animal in the cell needs every vaccine in it. That is
+// exactly the old cell-wide count and the old animal_count x cardinality(rule_ids) dose product --
+// kept ONLY here, where no better information exists, instead of being applied to every row as if
+// it were the grain.
+func applyLegacyLaneCounts(row *movedDriveAssignment) {
+	if row == nil || ledgerCoversRow(*row) {
+		return
+	}
+	row.movedAnimalCount = row.animalCount
+	row.movedDoseCount = row.animalCount * int32(len(row.movedRuleIDs))
+	row.remainingAnimalCount = row.animalCount
+	row.remainingDoseCount = row.animalCount * int32(len(row.remainingRuleIDs))
+}
+
+// laneDoseCount scales a lane's dose count to a planner chunk that took only part of the lane's
+// animals, so a forced operator split never inflates doses past the lane's real dose total.
+func laneDoseCount(laneDoses, laneAnimals, chunkAnimals int32) int32 {
+	if laneDoses <= 0 || laneAnimals <= 0 || chunkAnimals <= 0 {
+		return 0
+	}
+	if chunkAnimals >= laneAnimals {
+		return laneDoses
+	}
+	value := (int64(laneDoses)*int64(chunkAnimals) + int64(laneAnimals) - 1) / int64(laneAnimals)
+	if value > int64(laneDoses) {
+		value = int64(laneDoses)
+	}
+	return int32(value)
 }
 
 // detachMovedDriveAssignmentsTx removes the moved vaccine's membership from the source date: rows
@@ -210,8 +296,13 @@ func detachMovedDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype
 	deleteIDs := make([]string, 0, len(rows))
 	trimIDs := make([]string, 0, len(rows))
 	trimRuleIDs := make([]string, 0, len(rows))
+	trimAnimalCounts := make([]int32, 0, len(rows))
+	trimDoseCounts := make([]int32, 0, len(rows))
 	for _, row := range rows {
-		if len(row.remainingRuleIDs) == 0 {
+		// A row whose remaining lane holds no animals at all is entirely moved work, even if the
+		// rule array still lists other vaccines: leaving it behind would book a source-date row for
+		// zero animals against an operator's day.
+		if len(row.remainingRuleIDs) == 0 || row.remainingAnimalCount <= 0 {
 			deleteIDs = append(deleteIDs, row.assignmentID)
 			continue
 		}
@@ -221,23 +312,30 @@ func detachMovedDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype
 		}
 		trimIDs = append(trimIDs, row.assignmentID)
 		trimRuleIDs = append(trimRuleIDs, string(encoded))
+		trimAnimalCounts = append(trimAnimalCounts, row.remainingAnimalCount)
+		trimDoseCounts = append(trimDoseCounts, row.remainingDoseCount)
 	}
 	if len(trimIDs) > 0 {
 		if _, err := tx.Exec(ctx, `
 UPDATE vaccination_drive_assignments vda
 SET vaccine_rule_ids = u.rule_ids,
-    total_doses = vda.animal_count * cardinality(u.rule_ids),
+    animal_count = u.animal_count,
+    total_doses = u.total_doses,
     updated_at = now()
 FROM (
   SELECT
     t.assignment_id,
+    t.animal_count,
+    t.total_doses,
     COALESCE((
       SELECT array_agg(rule_id::uuid ORDER BY rule_id)
       FROM jsonb_array_elements_text(t.rule_ids_json::jsonb) AS rule_ids(rule_id)
     ), '{}'::uuid[]) AS rule_ids
-  FROM unnest($2::uuid[], $3::text[]) AS t(assignment_id, rule_ids_json)
+  FROM unnest($2::uuid[], $3::text[], $4::int[], $5::int[])
+       AS t(assignment_id, rule_ids_json, animal_count, total_doses)
 ) u
-WHERE vda.tenant_id = $1 AND vda.assignment_id = u.assignment_id`, tenant, trimIDs, trimRuleIDs); err != nil {
+WHERE vda.tenant_id = $1 AND vda.assignment_id = u.assignment_id`,
+			tenant, trimIDs, trimRuleIDs, trimAnimalCounts, trimDoseCounts); err != nil {
 			return fmt.Errorf("obligation: trim vaccination drive assignments for date move: %w", err)
 		}
 	}
@@ -326,7 +424,7 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, operators []vaccexec
 			Park:           row.parkID,
 			PhysicalShed:   physicalShed,
 			Partition:      partition,
-			Animals:        int(row.animalCount),
+			Animals:        int(row.movedAnimalCount),
 			DueDate:        target,
 			LatestSafeDate: target,
 		})
@@ -337,6 +435,7 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, operators []vaccexec
 			return
 		}
 		planned = append(planned, plannedDriveAssignment{
+			totalDoses:     laneDoseCount(row.movedDoseCount, row.movedAnimalCount, animals),
 			batchID:        row.batchID,
 			parkID:         row.parkID,
 			shedID:         row.shedID,
@@ -359,7 +458,7 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, operators []vaccexec
 		// A planner error must never silently drop planned work: park every moved row on the target
 		// date unassigned so the day is visibly awaiting a capacity decision.
 		for _, row := range rows {
-			appendRow(row, nil, row.animalCount, "capacity_action", []string{"vaccination drive moved without an operator plan for the new date"})
+			appendRow(row, nil, row.movedAnimalCount, "capacity_action", []string{"vaccination drive moved without an operator plan for the new date"})
 		}
 		return mergePlannedDriveAssignments(planned)
 	}
@@ -372,7 +471,7 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, operators []vaccexec
 				if !ok {
 					continue
 				}
-				animals := row.animalCount
+				animals := row.movedAnimalCount
 				if len(blockIDs) == 1 && assignment.Animals > 0 && int32(assignment.Animals) < animals {
 					animals = int32(assignment.Animals)
 				}
@@ -432,6 +531,7 @@ func mergePlannedDriveAssignments(rows []plannedDriveAssignment) []plannedDriveA
 			continue
 		}
 		existing.animalCount += row.animalCount
+		existing.totalDoses += row.totalDoses
 		existing.capacityStatus = worstCapacityStatus(existing.capacityStatus, row.capacityStatus)
 		existing.ruleIDs = unionSortedIDs(existing.ruleIDs, row.ruleIDs)
 		existing.warnings = unionSortedIDs(existing.warnings, row.warnings)
@@ -505,6 +605,7 @@ func insertPlannedDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgty
 	physicalSheds := make([]string, 0, len(rows))
 	partitions := make([]string, 0, len(rows))
 	animalCounts := make([]int32, 0, len(rows))
+	doseCounts := make([]int32, 0, len(rows))
 	ruleIDsJSON := make([]string, 0, len(rows))
 	statuses := make([]string, 0, len(rows))
 	warningsJSON := make([]string, 0, len(rows))
@@ -536,6 +637,7 @@ func insertPlannedDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgty
 		physicalSheds = append(physicalSheds, physicalShed)
 		partitions = append(partitions, partition)
 		animalCounts = append(animalCounts, row.animalCount)
+		doseCounts = append(doseCounts, row.totalDoses)
 		ruleIDsJSON = append(ruleIDsJSON, string(encodedRules))
 		statuses = append(statuses, row.capacityStatus)
 		warningsJSON = append(warningsJSON, string(encodedWarnings))
@@ -559,15 +661,12 @@ SELECT
     SELECT array_agg(rule_id::uuid ORDER BY rule_id)
     FROM jsonb_array_elements_text(u.vaccine_rule_ids_json::jsonb) AS rule_ids(rule_id)
   ), '{}'::uuid[]),
-  u.animal_count * COALESCE((
-    SELECT count(*)
-    FROM jsonb_array_elements_text(u.vaccine_rule_ids_json::jsonb) AS rule_ids(rule_id)
-  ), 0),
+  u.total_doses,
   u.capacity_status,
   u.warnings::jsonb
 FROM unnest(
-  $3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[], $7::text[], $8::text[], $9::int[], $10::text[], $11::text[], $12::text[]
-) AS u(batch_id, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids_json, capacity_status, warnings)
+  $3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[], $7::text[], $8::text[], $9::int[], $10::int[], $11::text[], $12::text[], $13::text[]
+) AS u(batch_id, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, total_doses, vaccine_rule_ids_json, capacity_status, warnings)
 ON CONFLICT (
   tenant_id,
   batch_id,
@@ -584,15 +683,12 @@ DO UPDATE SET
     FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
   ),
   animal_count = EXCLUDED.animal_count,
-  total_doses = EXCLUDED.animal_count * cardinality((
-    SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
-    FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
-  )),
+  total_doses = EXCLUDED.total_doses,
   capacity_status = EXCLUDED.capacity_status,
   warnings = EXCLUDED.warnings,
   updated_at = now()`,
 		tenant, biztime.BusinessDayStart(to), batchIDs, operatorIDs, parkIDs, shedIDs, physicalSheds,
-		partitions, animalCounts, ruleIDsJSON, statuses, warningsJSON); err != nil {
+		partitions, animalCounts, doseCounts, ruleIDsJSON, statuses, warningsJSON); err != nil {
 		return fmt.Errorf("obligation: write re-planned vaccination drive assignments: %w", err)
 	}
 	return nil
