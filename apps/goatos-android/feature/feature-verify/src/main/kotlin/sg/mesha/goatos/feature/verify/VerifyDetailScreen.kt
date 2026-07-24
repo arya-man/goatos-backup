@@ -53,6 +53,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import java.time.Instant
 import java.time.ZoneId
@@ -120,6 +121,7 @@ fun VerifyDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     var showRejectDialog by remember { mutableStateOf(false) }
+    RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
 
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.Bg)) {
         Column(

@@ -494,8 +494,10 @@ private fun initialMonthQuery(today: LocalDate): CalendarScheduleQuery {
 }
 
 internal fun calendarWeekRange(today: LocalDate): CalendarDateRange {
-    val monday = today.minusDays((today.dayOfWeek.value - DayOfWeek.MONDAY.value).toLong())
-    return CalendarDateRange(monday.toString(), monday.plusDays(6).toString())
+    // Rolling 8-day strip in IST: yesterday (today-1) through today+6, so the strip is always
+    // anchored on TODAY (which stays selected) with one day of look-back and a week of look-ahead,
+    // instead of a fixed Monday-Sunday calendar week. Every day in this range is a clickable tab.
+    return CalendarDateRange(today.minusDays(1).toString(), today.plusDays(5).toString())
 }
 
 internal fun calendarMonthRange(today: LocalDate): CalendarDateRange {
@@ -525,10 +527,13 @@ internal fun buildWeekDays(
     selectedDay: LocalDate,
     today: LocalDate,
 ): List<CalendarWeekDay> {
-    val monday = today.minusDays((today.dayOfWeek.value - DayOfWeek.MONDAY.value).toLong())
+    // Rolling 8-day strip anchored on TODAY (IST): yesterday (today-1) through today+6, matching
+    // calendarWeekRange. Not a fixed Monday-Sunday week. Every day is a clickable tab; today stays
+    // selected on landing.
+    val start = today.minusDays(1)
     val byDate = markers.associateBy { it.date }
     return (0..6).map { offset ->
-        val date = monday.plusDays(offset.toLong())
+        val date = start.plusDays(offset.toLong())
         val marker = byDate[date.toString()]
         val openCount = marker?.openCount ?: 0
         CalendarWeekDay(

@@ -98,6 +98,7 @@ fun OverdueScreen(
             // "Overdue · N" title is ignored so it follows the app locale).
             title = stringResource(R.string.overdue_title_fmt, state.rows.size),
             onBack = { onEvent(LeadershipEvent.Back) },
+            isSyncing = state.isRefreshing,
             onRefresh = { onEvent(LeadershipEvent.Refresh) },
         )
         SyncStatusIndicator(

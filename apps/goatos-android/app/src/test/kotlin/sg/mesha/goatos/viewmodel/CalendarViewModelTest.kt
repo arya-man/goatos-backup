@@ -44,7 +44,7 @@ class CalendarViewModelTest {
     fun `calendar windows stay bounded to current week month and forty five history days`() {
         val today = LocalDate.of(2026, 7, 12)
 
-        assertEquals(CalendarDateRange("2026-07-06", "2026-07-12"), calendarWeekRange(today))
+        assertEquals(CalendarDateRange("2026-07-11", "2026-07-17"), calendarWeekRange(today))
         assertEquals(CalendarDateRange("2026-07-01", "2026-07-31"), calendarMonthRange(today))
         assertEquals(CalendarDateRange("2026-05-29", "2026-07-12"), calendarHistoryRange(today))
     }
@@ -77,8 +77,12 @@ class CalendarViewModelTest {
             today = LocalDate.of(2026, 7, 7),
         )
 
+        // Rolling 8-day strip anchored on today (2026-07-07): today-1 (07-06, Mon) .. today+6 (07-13, Mon).
         assertEquals(listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), weekDays.map { it.dayName })
+        assertEquals(listOf("2026-07-06", "2026-07-12"), listOf(weekDays.first().dateKey, weekDays.last().dateKey))
         assertEquals(true, weekDays.first { it.dateKey == "2026-07-07" }.hasWork)
+        assertEquals(true, weekDays.first { it.dateKey == "2026-07-07" }.isToday)
+        assertEquals(true, weekDays.first { it.dateKey == "2026-07-07" }.isSelected)
     }
 
     @Test

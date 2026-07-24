@@ -67,6 +67,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.ui.CoverageBanner
 import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.calendar.R
 
@@ -89,6 +91,13 @@ fun CalendarScreen(
         ?: state.segments.firstOrNull()
     var showMonthFilters by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    // Refresh-on-open (offline-first stale-while-revalidate): auto-sync every time the screen
+    // resumes/foregrounds, not just on first ViewModel creation. Without this, a retained
+    // ViewModel on the nav backstack shows the value it fetched once — so data that changed on the
+    // server after that first load (e.g. a drive-date move / a fixed dose count) stayed stale until
+    // the user tapped the manual sync button. The Room cache keeps the last value visible while the
+    // background refresh runs; it never blanks the screen.
+    RefreshOnResume { onEvent(CalendarEvent.Refresh) }
     LaunchedEffect(
         listState,
         selected?.kind,
@@ -230,9 +239,9 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
             )
         },
         actions = {
-            HeaderIconButton(
-                onClick = { onEvent(CalendarEvent.Refresh) },
-                icon = MeshaIcons.Refresh,
+            SyncIconButton(
+                isSyncing = state.isRefreshing,
+                onSync = { onEvent(CalendarEvent.Refresh) },
                 contentDescription = stringResource(R.string.calendar_button_refresh),
             )
         },
@@ -789,10 +798,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
             }
         }
     }
-    items(
-        state.monthDays.chunked(7),
-        key = { week -> week.firstNotNullOfOrNull { it.dateKey } ?: "empty-week" },
-    ) { week ->
+    items(state.monthDays.chunked(7), key = { week -> week.firstOrNull { it.dateKey != null }?.dateKey ?: week.hashCode().toString() }) { week ->
         Row(
             Modifier.fillMaxWidth().padding(bottom = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),

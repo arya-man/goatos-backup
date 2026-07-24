@@ -883,6 +883,32 @@ Do:
   migrated). Full rule + the NetworkBoundResource pattern:
   `docs/decisions/android-offline-first.md`; refs the Android data-layer + offline-first
   architecture guides.
+- Every Android READ screen must be refresh-on-open (hard rule — Claude, Codex,
+  humans): call the shared `sg.mesha.goatos.core.ui.RefreshOnResume { onEvent(XEvent.Refresh) }`
+  composable (`core/core-ui/.../RefreshOnResume.kt`, wraps
+  `LifecycleEventEffect(Lifecycle.Event.ON_RESUME)`) near the top of the screen's
+  composable body so cached Room data shows instantly and a background refresh
+  fires automatically every time the user lands on or returns to the screen — a
+  retained ViewModel on the nav backstack must never show data that was only
+  fetched once at ViewModel creation. Never rely on a manual sync button/icon as
+  the only way to see fresh data; a visible sync affordance is allowed as a
+  supplementary manual trigger, not the primary refresh path. Skip this only for
+  screens where a resume-triggered refresh would disrupt in-progress user input
+  (scan-capture flows, forms, mid-entry screens) — the ViewModel's `refresh()`
+  itself must stay non-blocking (upsert Room on success, leave cache visible on
+  failure) so this never produces a loading wall. See
+  `docs/decisions/android-offline-first.md`.
+- Every Android READ screen's sync/refresh icon must show a spinning animation while a refresh
+  is in flight and become non-clickable to prevent duplicate refresh triggers (hard rule —
+  Claude, Codex, humans). Use the shared `SyncIconButton` composable
+  (`sg.mesha.goatos.core.ui.SyncIconButton`, `core/core-ui/.../SyncIconButton.kt`) on every
+  screen with a manual refresh affordance: pass `isSyncing = state.isRefreshing` (or
+  `refreshInFlight` if the screen names it differently) and `onSync = { onEvent(XEvent.Refresh)
+  }`. When `isSyncing` is true, the icon continuously rotates 360° and the button is disabled,
+  so duplicate taps are ignored. When false, the icon is static and clickable. Applies to all
+  read screens with visible refresh buttons: Calendar, Sheds, Counts, Approval, Verify (queue),
+  Leadership (all three screens), and any future read screens that expose manual sync. This is
+  consistent across the app and prevents race conditions from overlapping refresh requests.
 - Treat every Android Room schema change as an installed-APK upgrade contract, never just a
   fresh-install schema (hard rule — Claude, Codex, humans). Room builds a DB two ways: a fresh
   install runs `createAllTables` (every @Entity), but an in-place upgrade runs ONLY the registered

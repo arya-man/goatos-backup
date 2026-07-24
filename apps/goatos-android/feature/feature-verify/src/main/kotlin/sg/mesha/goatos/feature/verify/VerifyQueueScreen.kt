@@ -38,6 +38,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
@@ -108,6 +110,7 @@ fun VerifyQueueScreen(
     onEvent: (VerifyQueueEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(VerifyQueueEvent.Refresh) }
     val listState = rememberLazyListState()
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
         if (
@@ -226,21 +229,11 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MeshaColors.Surf2)
-                .clickable(onClick = onRefresh),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MeshaIcons.Refresh,
-                contentDescription = stringResource(R.string.verify_queue_refresh),
-                tint = MeshaColors.Muted,
-                modifier = Modifier.size(18.dp),
-            )
-        }
+        SyncIconButton(
+            isSyncing = state.isRefreshing,
+            onSync = onRefresh,
+            contentDescription = stringResource(R.string.verify_queue_refresh),
+        )
     }
 }
 
