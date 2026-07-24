@@ -1519,7 +1519,7 @@ func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAtte
 	f.scanAttempts = append(f.scanAttempts, attempt)
 	return attempt, nil
 }
-func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string, string, int, int) (ports.ShedCompletionReadiness, error) {
+func (f *fakeRepo) ShedCompletionReadiness(context.Context, string, string, string, string, int, int) (ports.ShedCompletionReadiness, error) {
 	return f.shedReadiness, f.shedReadinessErr
 }
 func (f *fakeRepo) CompletedTaskProofRefs(context.Context, string, string, string) ([]domain.ProofReference, error) {

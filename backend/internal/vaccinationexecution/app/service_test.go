@@ -216,6 +216,118 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 	}
 }
 
+func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	operator := "Operator A"
+	taskState := "needs_review"
+	batchStatus := "in_progress"
+	taskID := "4709ad27-735f-4806-8428-37da2065a8b3"
+	rows := []domain.ExecutionProjection{
+		projection("shed-review", due, 2, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.TaskState = &taskState
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 2
+			p.ScheduledCount = 2
+			p.InProgressCount = 2
+			p.ScannedCount = 2
+			p.ProofSubmittedCount = 1
+			p.WorkState = domain.WorkStateInProgress
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows want 1", len(got))
+	}
+	row := got[0]
+	if row.WorkState != domain.WorkStateVerificationPending {
+		t.Fatalf("workState = %q want %q for submitted proof", row.WorkState, domain.WorkStateVerificationPending)
+	}
+	if row.ProofStatus != domain.ProofStatusUploaded || row.VerificationStatus != domain.VerificationStatusPending {
+		t.Fatalf("proof/verification = %q/%q want uploaded/pending", row.ProofStatus, row.VerificationStatus)
+	}
+	if row.PrimaryActionKey != "none" {
+		t.Fatalf("primaryActionKey = %q want none after proof submit", row.PrimaryActionKey)
+	}
+	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
+		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)
+	}
+}
+
+func TestVaccinationExecutionSharedTaskReviewDoesNotLeakToShedWithoutSubmittedProof(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	operator := "Operator A"
+	taskState := "needs_review"
+	batchStatus := "in_progress"
+	taskID := "4709ad27-735f-4806-8428-37da2065a8b3"
+	rows := []domain.ExecutionProjection{
+		projection("godel-1", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.TaskState = &taskState
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 2
+			p.ScheduledCount = 2
+			p.ScannedCount = 2
+			p.ProofSubmittedCount = 1
+			p.WorkState = domain.WorkStateInProgress
+		}),
+		projection("godel-2", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.TaskState = &taskState
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 3
+			p.ScheduledCount = 3
+			p.InProgressCount = 3
+			p.WorkState = domain.WorkStateInProgress
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows want 2", len(got))
+	}
+	if got[0].WorkState != domain.WorkStateVerificationPending || got[0].ProofStatus != domain.ProofStatusUploaded {
+		t.Fatalf("submitted shed state/proof = %q/%q want verification_pending/uploaded", got[0].WorkState, got[0].ProofStatus)
+	}
+	if got[1].WorkState != domain.WorkStateInProgress {
+		t.Fatalf("unsubmitted shed workState = %q want in_progress", got[1].WorkState)
+	}
+	if got[1].ProofStatus != domain.ProofStatusMissing || got[1].VerificationStatus != domain.VerificationStatusNotReady {
+		t.Fatalf("unsubmitted shed proof/verification = %q/%q want missing/not_ready", got[1].ProofStatus, got[1].VerificationStatus)
+	}
+	if got[1].PrimaryActionKey != "scan" {
+		t.Fatalf("unsubmitted shed primaryActionKey = %q want scan", got[1].PrimaryActionKey)
+	}
+}
+
 func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 	asOf := time.Date(2026, 6, 24, 10, 0, 0, 0, time.UTC)
 	due := asOf.Add(24 * time.Hour)

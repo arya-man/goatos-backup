@@ -2,6 +2,7 @@
 <resources>
     <string name="submit_eyebrow">टीकाकरण</string>
     <string name="submit_record_title">शेड रिकॉर्ड</string>
+    <string name="submit_record_submitted_title">शेड रिकॉर्ड सबमिट किया गया</string>
     <string name="submit_summary_shed">शेड</string>
     <string name="submit_summary_drive">ड्राइव</string>
     <string name="submit_summary_cohort">पशु अवस्था</string>
@@ -18,6 +19,8 @@
     <string name="submit_goat_proof_failed">%1$d के लिए पुनः प्रयास आवश्यक</string>
     <string name="submit_goat_proof_finalize_hint">अंतिम रूप देने से सिंक किए गए रिकॉर्ड की जाँच होती है। इससे फ़ाइलें अपलोड नहीं होतीं।</string>
     <string name="submit_retry_label">पुनः प्रयास करें</string>
+    <string name="submit_submitting_label">सबमिट हो रहा है…</string>
+    <string name="submit_submitted_label">सबमिट किया गया</string>
     <string name="submit_form_yes">हाँ</string>
     <string name="submit_form_no">नहीं</string>
     <string name="submit_form_select">चुनें…</string>

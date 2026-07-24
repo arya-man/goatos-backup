@@ -145,6 +145,7 @@ data class ShedRow(
     val taskId: String? = null,
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
+    val opensRecordOnly: Boolean = false,
 )
 
 /** Full screen state. Header fields + the shed list + optional roster/kernel context.

@@ -42,7 +42,7 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     /** Scripts the binary-PUT + complete step ([AppApi.uploadProofBlob]) — the hook a test
      *  installs to act as a fake object store: assert the (proofId, uploadUrl, filePath) it was
      *  called with, capture "uploaded" bytes, or throw to exercise the resumable-retry path. */
-    var uploadProofBlobFn: (suspend (String, String, String, Map<String, String>, String, String, Long?) -> ProofCompleteResponseDto)? = null
+    var uploadProofBlobFn: (suspend (String, String, String, Map<String, String>, String, Long?, String, String, Long?) -> ProofCompleteResponseDto)? = null
 
     /** Every [uploadProofBlob] call, in order — lets a test assert how many times bytes were
      *  (re-)streamed across a failure + retry. */
@@ -117,12 +117,34 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         uploadUrl: String,
         uploadMethod: String,
         uploadHeaders: Map<String, String>,
+        uploadProtocol: String,
+        chunkSizeBytes: Long?,
         mimeType: String,
         filePath: String,
         durationMs: Long?,
     ): ProofCompleteResponseDto {
         uploadProofBlobCalls += proofId
-        return uploadProofBlobFn?.invoke(proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, durationMs)
-            ?: delegate.uploadProofBlob(proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, durationMs)
+        return uploadProofBlobFn?.invoke(
+            proofId,
+            uploadUrl,
+            uploadMethod,
+            uploadHeaders,
+            uploadProtocol,
+            chunkSizeBytes,
+            mimeType,
+            filePath,
+            durationMs,
+        )
+            ?: delegate.uploadProofBlob(
+                proofId,
+                uploadUrl,
+                uploadMethod,
+                uploadHeaders,
+                uploadProtocol,
+                chunkSizeBytes,
+                mimeType,
+                filePath,
+                durationMs,
+            )
     }
 }

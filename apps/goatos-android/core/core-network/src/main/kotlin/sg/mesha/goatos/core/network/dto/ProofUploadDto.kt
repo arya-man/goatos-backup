@@ -34,6 +34,8 @@ data class ProofUploadResponseDto(
     @SerialName("upload_method") val uploadMethod: String = "",
     @SerialName("headers") val headers: Map<String, String> = emptyMap(),
     @SerialName("expires_at") val expiresAt: String = "",
+    @SerialName("upload_protocol") val uploadProtocol: String = "simple_put",
+    @SerialName("chunk_size_bytes") val chunkSizeBytes: Long? = null,
     @SerialName("trace_id") val traceId: String = "",
 )
 

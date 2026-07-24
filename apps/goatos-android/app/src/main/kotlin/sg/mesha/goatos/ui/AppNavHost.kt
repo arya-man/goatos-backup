@@ -1,5 +1,6 @@
 package sg.mesha.goatos.ui
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -13,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -294,7 +296,7 @@ private fun shedIdFromTarget(target: String): String? {
 
 private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
     selected == null -> fallbackRoute
-    selected.status == ShedStatus.DONE -> Routes.recordRoute(selected.shedId)
+    selected.opensRecordOnly -> fallbackRoute
     selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
     else -> Routes.scanRoute(
         shedId = selected.shedId,
@@ -429,12 +431,17 @@ fun AppNavHost(
         composable(Routes.VACCINATION) {
             val vm: ShedsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
             ShedsScreen(
                 state = state,
                 onEvent = { event ->
                     when (event) {
                         is ShedsEvent.OpenShedRecord -> {
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
+                            if (selected?.opensRecordOnly == true) {
+                                Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
+                                return@ShedsScreen
+                            }
                             val route = shedExecutionRoute(selected, Routes.VACCINATION)
                             navController.navigate(route) { launchSingleTop = true }
                         }
@@ -464,6 +471,7 @@ fun AppNavHost(
         ) {
                 val vm: ShedsViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
+                val context = LocalContext.current
                 ShedsScreen(
                     state = state,
                     onEvent = { event ->
@@ -479,6 +487,10 @@ fun AppNavHost(
                                     // the execute loop (Scan → Submit). Mirrors the mock's shed card
                                     // ("View completed record ›" vs "Start / scan").
                                     val selected = state.rows.firstOrNull { it.id == event.shedId }
+                                    if (selected?.opensRecordOnly == true) {
+                                        Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
+                                        return@ShedsScreen
+                                    }
                                     val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
                                     navController.navigate(route) { launchSingleTop = true }
                                 }
@@ -548,7 +560,7 @@ fun AppNavHost(
             val state by vm.state.collectAsStateWithLifecycle()
             BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
             // Once the submission this operator just enqueued is accepted (ACKED — durably
-            // queued/accepted by the backend), drill back out to the Calendar landing instead
+            // queued/accepted by the backend), return to the vaccination sheds queue instead
             // of stranding them on the acknowledged submit screen. Gated on having actually
             // watched this submission go in-flight this session (QUEUED/SYNCING) so a cold
             // re-entry into an already-completed task does not immediately bounce away.
@@ -558,7 +570,7 @@ fun AppNavHost(
                     SyncState.QUEUED, SyncState.SYNCING -> sawSubmitInFlight = true
                     SyncState.ACKED -> if (sawSubmitInFlight) {
                         sawSubmitInFlight = false
-                        navController.popBackStack(Routes.CALENDAR, inclusive = false)
+                        navController.popBackStack(Routes.VACCINATION, inclusive = false)
                     }
                     else -> Unit
                 }

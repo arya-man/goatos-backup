@@ -536,6 +536,8 @@ class RetrofitAppApi(
         uploadUrl: String,
         uploadMethod: String,
         uploadHeaders: Map<String, String>,
+        uploadProtocol: String,
+        chunkSizeBytes: Long?,
         mimeType: String,
         filePath: String,
         durationMs: Long?,
@@ -544,6 +546,8 @@ class RetrofitAppApi(
             uploadUrl = uploadUrl,
             uploadMethod = uploadMethod,
             uploadHeaders = uploadHeaders,
+            uploadProtocol = uploadProtocol,
+            chunkSizeBytes = chunkSizeBytes,
             mimeType = mimeType,
             filePath = filePath,
         )

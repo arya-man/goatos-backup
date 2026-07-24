@@ -55,12 +55,14 @@ type CompleteUpload struct {
 }
 
 type UploadTarget struct {
-	UploadURL   string
-	Method      string
-	Headers     map[string]string
-	ExpiresAt   time.Time
-	Proof       Artifact
-	DownloadURL string
+	UploadURL      string
+	Method         string
+	Headers        map[string]string
+	ExpiresAt      time.Time
+	Proof          Artifact
+	DownloadURL    string
+	UploadProtocol string
+	ChunkSizeBytes int64
 }
 
 type StoredObject struct {

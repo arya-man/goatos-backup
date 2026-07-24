@@ -367,12 +367,13 @@ func operationsRank(w domain.WorkState) int {
 }
 
 func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.ExecutionRow {
-	sopStatus := sopStatus(p.TaskState)
+	sopStatus := sopStatusFromProjection(p)
 	proofStatus := proofStatus(p)
 	verificationStatus := verificationStatus(p)
 	workState := p.WorkState
-	if workState == "" {
-		workState = workStateFromProjection(p, q)
+	computedWorkState := workStateFromProjection(p, q)
+	if workState == "" || computedWorkState == domain.WorkStateVerificationPending {
+		workState = computedWorkState
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
 	physicalShed := strings.TrimSpace(p.PhysicalShed)
@@ -405,6 +406,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		ProofStatus:        proofStatus,
 		VerificationStatus: verificationStatus,
 		NextAction:         nextAction(p, workState),
+		PrimaryActionKey:   primaryActionKey(p, workState, openCount),
 		ObligationID:       p.ObligationID,
 		BatchID:            p.BatchID,
 		SOPTaskID:          p.SOPTaskID,
@@ -424,6 +426,9 @@ func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done in
 	completionEvidence := p.CompletionRecorded + p.CompletionAccepted + p.CompletionRejected
 	if completionEvidence > done {
 		done = completionEvidence
+	}
+	if p.ScannedCount > done {
+		done = p.ScannedCount
 	}
 	if done > target {
 		done = target
@@ -454,7 +459,7 @@ func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQue
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
 		return domain.WorkStateBlocked
 	}
-	if p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review") {
+	if p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0 {
 		return domain.WorkStateVerificationPending
 	}
 	if p.InProgressCount > 0 || batchStatusIs(p, "in_progress") || taskStateIs(p, "in_progress") {
@@ -527,13 +532,28 @@ func sopStatus(state *string) domain.SOPStatus {
 	}
 }
 
+func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
+	switch {
+	case p.CompletionRejected > 0 || taskStateIs(p, "rework_requested", "rejected"):
+		return domain.SOPStatusRework
+	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
+		return domain.SOPStatusAccepted
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+		return domain.SOPStatusSubmitted
+	case taskStateIs(p, "in_progress"):
+		return domain.SOPStatusInProgress
+	default:
+		return domain.SOPStatusNotStarted
+	}
+}
+
 func proofStatus(p domain.ExecutionProjection) domain.ProofStatus {
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.ProofStatusRejected
 	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
 		return domain.ProofStatusAccepted
-	case p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review"):
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.ProofStatusUploaded
 	default:
 		return domain.ProofStatusMissing
@@ -544,7 +564,7 @@ func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus 
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
-	case p.CompletionRecorded > 0 || taskStateIs(p, "submitted", "needs_review"):
+	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.VerificationStatusPending
 	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:
 		return domain.VerificationStatusVerified
@@ -622,6 +642,18 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 		return "Start scheduled vaccination SOP"
 	default:
 		return "Monitor scheduled drive"
+	}
+}
+
+func primaryActionKey(p domain.ExecutionProjection, workState domain.WorkState, openCount int) string {
+	if p.SOPTaskID == nil || *p.SOPTaskID == "" || openCount <= 0 {
+		return "none"
+	}
+	switch workState {
+	case domain.WorkStateDue, domain.WorkStateOverdue, domain.WorkStateInProgress, domain.WorkStateProofPending:
+		return "scan"
+	default:
+		return "none"
 	}
 }
 

@@ -175,6 +175,11 @@ class ScanViewModel @Inject constructor(
     private val _localDoneGoatIds = MutableStateFlow<Set<String>>(emptySet())
     private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
 
+    // Transient "already scanned" strip shown under the tap-hint card on a re-scan of an
+    // already-DONE tag. Does NOT add a feed row (that would pile up duplicates) — cleared on the
+    // next ACCEPTED scan and when capture is disabled, so it never lingers stale.
+    private val _duplicateNotice = MutableStateFlow<String?>(null)
+
     // Combines the bounded SSOT window + full-roster aggregates with transient flags + draft overlay;
     // lifecycle-aware. >5 flows > Kotlin's typed combine limit (5), so use the vararg Array<*> form.
     @Suppress("UNCHECKED_CAST")
@@ -199,6 +204,7 @@ class ScanViewModel @Inject constructor(
         _operatorAllowed,
         _refreshError,
         proofPolicy,
+        _duplicateNotice,
     ) { values: Array<Any?> ->
         val rows = values[0] as List<ScanRosterRowEntity>
         val total = values[1] as Int
@@ -221,6 +227,7 @@ class ScanViewModel @Inject constructor(
         val operatorAllowed = values[17] as Boolean?
         val refreshError = values[18] as String?
         val policy = values[19] as ProofPolicy
+        val duplicateNotice = values[20] as String?
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -228,9 +235,26 @@ class ScanViewModel @Inject constructor(
         } else null
         // The scan LIST renders from the bounded SSOT window; page-N animals are present once the
         // full roster is persisted (the whole roster is fetched on refresh).
+        //
+        // BUG FIX (Scanned-goats list undercounts DONE ring): a goat scanned below the current
+        // window — a page-N animal in a shed larger than [SCAN_PAGE_SIZE], or ANY already-done
+        // animal after navigate-away+back recreates this ViewModel and resets the window to
+        // [SCAN_PAGE_SIZE] — was simply absent from [rows], so it could never appear in
+        // [ScanUiState.roster] (and therefore never in the "Scanned goats" DONE-filtered list),
+        // even though [persistedDoneGoats]/[localDoneGoats] (page-independent) already counted it
+        // in the DONE ring. [computeProofGate] already solves the identical class of problem for
+        // `proofActionNeeded` via [repo.scanRosterRowsByGoatIds]; apply the SAME bounded
+        // outside-window fetch here so the roster the UI renders is done-complete, not just the
+        // ring/tile aggregates.
+        val persistedScanGoatIds = persistedScans.mapNotNull { it.goatId?.takeIf(String::isNotBlank) }.toSet()
+        val hasMore = total > rows.size
+        val doneGoatIds = (persistedDoneGoats.toSet() + localDoneGoats + persistedScanGoatIds)
+            .filterTo(mutableSetOf()) { it.isNotBlank() }
+        val fullRows = withOutOfWindowDoneRows(rows, doneGoatIds)
         val base = applyRows(
-            rows = rows,
+            rows = fullRows,
             total = total,
+            hasMore = hasMore,
             localDone = localDone,
             persistedScans = persistedScans,
             proofs = proofs,
@@ -274,6 +298,7 @@ class ScanViewModel @Inject constructor(
                 group.copy(active = group.id == selectedGroupId)
             },
             readerConnection = readerStatus.toScanReaderConnection(readerName),
+            duplicateNotice = duplicateNotice,
         )
     }.stateIn(
         viewModelScope,
@@ -298,6 +323,9 @@ class ScanViewModel @Inject constructor(
     fun setCaptureActive(active: Boolean) {
         reader.setCaptureEnabled(active)
         if (active) {
+            // Input re-enabled (e.g. returning to the Scan screen) — clear any stale strip from a
+            // prior session rather than showing an old duplicate notice.
+            _duplicateNotice.value = null
             reader.refreshStatus()
             if (readerRefreshJob?.isActive == true) return
             readerRefreshJob = viewModelScope.launch {
@@ -343,6 +371,11 @@ class ScanViewModel @Inject constructor(
     private fun loadRosterAndRefresh() {
         val id = shedId ?: return
         AnalyticsFunnels.trackScanStarted(analytics, id)
+        taskId?.let { selectedTaskId ->
+            viewModelScope.launch {
+                scanCaptureRepository.enqueuePendingScans(selectedTaskId, ROSTER_SCAN_FIELD_KEY)
+            }
+        }
         refresh()
     }
 
@@ -433,29 +466,21 @@ class ScanViewModel @Inject constructor(
                 ScanStatus.PENDING -> {
                     markRowDone(row, capturedAtMs)
                     _manualDone.update { it - row.obligationId }
+                    _duplicateNotice.value = null
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, null)
                     recordRosterScan(row, tag, capturedAtMs)
                 }
                 ScanStatus.DONE -> {
                     if (row.obligationId in _manualDone.value) {
                         _manualDone.update { it - row.obligationId }
+                        _duplicateNotice.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "manual_done_replaced_by_reader_scan")
                         recordRosterScan(row, tag, capturedAtMs)
                     } else {
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "goat_already_scanned")
-                        _feed.update {
-                            prependFeed(
-                                ScanFeedEntry(
-                                    row.primaryTag,
-                                    row.secondaryTag,
-                                    "already scanned · ${row.vaccineLabel}",
-                                    ScanStatus.DONE,
-                                    scanTimeLabel(capturedAtMs),
-                                    ScanFeedTone.DUPLICATE,
-                                ),
-                                it,
-                            )
-                        }
+                        // Re-scanning an already-done tag must NOT pile another row into the feed
+                        // (the tag already has a DONE row there) — surface a transient strip instead.
+                        _duplicateNotice.value = "Already scanned · ${row.vaccineLabel}"
                     }
                 }
                 ScanStatus.SKIPPED -> {
@@ -576,9 +601,30 @@ class ScanViewModel @Inject constructor(
      *  submit gate is decided by [computeProofGate]. `scanEnabled`/`hasMore` derive from the FULL
      *  roster total, not the window, so page-N animals are reachable and scanning is enabled once the
      *  whole roster is local. */
+    /** Widens the window-bounded SSOT [rows] with any DONE goat outside the current window,
+     *  fetched by id (bounded, [repo.scanRosterRowsByGoatIds]) — the same out-of-window pattern
+     *  [computeProofGate] uses for `proofActionNeeded`. Without this, [rows] can be missing a
+     *  scanned goat entirely (not just mis-flagged), which is why the "Scanned goats" list could
+     *  under-count the DONE ring even inside a single ViewModel session, and worse right after a
+     *  navigate-away+back recreates the window at [SCAN_PAGE_SIZE]. */
+    private suspend fun withOutOfWindowDoneRows(
+        rows: List<ScanRosterRowEntity>,
+        doneGoatIds: Set<String>,
+    ): List<ScanRosterRowEntity> {
+        val id = shedId ?: return rows
+        if (doneGoatIds.isEmpty()) return rows
+        val windowGoatIds = rows.mapTo(mutableSetOf()) { it.goatId }
+        val missingGoatIds = doneGoatIds.filterNot { it in windowGoatIds }
+        if (missingGoatIds.isEmpty()) return rows
+        val extra = repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds)
+        if (extra.isEmpty()) return rows
+        return (rows + extra).sortedBy { it.seq }
+    }
+
     private fun applyRows(
         rows: List<ScanRosterRowEntity>,
         total: Int,
+        hasMore: Boolean,
         localDone: Set<String>,
         persistedScans: List<ScannedGoatRow>,
         proofs: List<ProofCaptureRow>,
@@ -614,7 +660,7 @@ class ScanViewModel @Inject constructor(
             skippedCount = skipped,
             canSubmit = false, // computeProofGate decides
             scanEnabled = operatorAllowed && total > 0 && !isRefreshing,
-            hasMore = total > rosterRows.size,
+            hasMore = hasMore,
         )
     }
 
@@ -762,8 +808,11 @@ private val SCAN_TIME_FORMATTER: DateTimeFormatter =
 private fun scanTimeLabel(capturedAtMs: Long): String =
     "Scanned ${SCAN_TIME_FORMATTER.format(Instant.ofEpochMilli(capturedAtMs))}"
 
+    // Dedup by primaryTag: a re-scan of a tag already in the feed (unknown/skipped/done paths all
+    // funnel through here) replaces its row in place instead of piling up a second entry — the tag
+    // moves to the top of the feed with its latest status/time.
     private fun prependFeed(entry: ScanFeedEntry, existing: List<ScanFeedEntry>): List<ScanFeedEntry> =
-        (listOf(entry) + existing).take(MAX_SCAN_FEED_ENTRIES)
+        (listOf(entry) + existing.filterNot { it.primaryTag == entry.primaryTag }).take(MAX_SCAN_FEED_ENTRIES)
 }
 
 private const val SCAN_PAGE_SIZE = 20

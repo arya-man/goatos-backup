@@ -13,7 +13,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 
 /** GCS's V4 signed PUT is `x-goog-if-generation-match: 0` (create-only) — a retried PUT of an
  *  object a PRIOR attempt already fully wrote answers 412. That is not a failure: the bytes are
@@ -44,6 +47,8 @@ interface ProofBlobUploader {
         uploadUrl: String,
         uploadMethod: String,
         uploadHeaders: Map<String, String>,
+        uploadProtocol: String,
+        chunkSizeBytes: Long?,
         mimeType: String,
         filePath: String,
     ): ProofBlobPutResult
@@ -83,6 +88,8 @@ class OkHttpProofBlobUploader(
         uploadUrl: String,
         uploadMethod: String,
         uploadHeaders: Map<String, String>,
+        uploadProtocol: String,
+        chunkSizeBytes: Long?,
         mimeType: String,
         filePath: String,
     ): ProofBlobPutResult = withContext(Dispatchers.IO) {
@@ -91,6 +98,13 @@ class OkHttpProofBlobUploader(
             throw FileNotFoundException("Captured proof file is missing or unreadable: $filePath")
         }
         val contentHash = "sha256:" + streamingSha256(file)
+        val protocol = uploadProtocol.ifBlank { SIMPLE_PUT }.lowercase(Locale.ROOT)
+        if (protocol in RESUMABLE_PROTOCOLS) {
+            return@withContext putFileResumable(uploadUrl, uploadMethod, uploadHeaders, mimeType, file, contentHash, chunkSizeBytes)
+        }
+        if (protocol != SIMPLE_PUT) {
+            throw ProofBlobUploadException("Unsupported proof upload protocol: $uploadProtocol")
+        }
         val resolvedUrl = resolveUploadUrl(uploadUrl)
         val mediaType = mimeType.ifBlank { DEFAULT_MEDIA_TYPE }.toMediaTypeOrNull()
         val body = file.asRequestBody(mediaType)
@@ -122,6 +136,111 @@ class OkHttpProofBlobUploader(
         }
     }
 
+    private fun putFileResumable(
+        uploadUrl: String,
+        uploadMethod: String,
+        uploadHeaders: Map<String, String>,
+        mimeType: String,
+        file: File,
+        contentHash: String,
+        requestedChunkSizeBytes: Long?,
+    ): ProofBlobPutResult {
+        if (uploadMethod.uppercase(Locale.ROOT).ifBlank { "POST" } != "POST") {
+            throw ProofBlobUploadException("Unsupported resumable proof upload method: $uploadMethod")
+        }
+        val sessionUrl = initiateResumableSession(uploadUrl, uploadHeaders, mimeType)
+            ?: return ProofBlobPutResult.AlreadyExists
+        val chunkSize = normalizedChunkSize(requestedChunkSizeBytes)
+        val totalSize = file.length()
+        var nextByte = 0L
+        while (nextByte < totalSize) {
+            val lastByte = minOf(nextByte + chunkSize - 1, totalSize - 1)
+            val body = FileRangeRequestBody(file, nextByte, lastByte - nextByte + 1, mimeType)
+        val request = Request.Builder()
+                .url(sessionUrl)
+                .header("Content-Type", mimeType.ifBlank { DEFAULT_MEDIA_TYPE })
+                .header("Content-Range", "bytes $nextByte-$lastByte/$totalSize")
+                .put(body)
+                .build()
+            val response = try {
+                client.newCall(request).execute()
+            } catch (_: IOException) {
+                nextByte = probeResumableSession(sessionUrl, totalSize)
+                continue
+            }
+            response.use {
+                when {
+                    it.isSuccessful -> return ProofBlobPutResult.Uploaded(contentHash = contentHash, sizeBytes = totalSize)
+                    it.code == HTTP_RESUME_INCOMPLETE -> nextByte = nextOffsetFromRange(it.header("Range"))
+                        ?: throw ProofBlobUploadException(
+                            "Proof blob chunk upload returned 308 without an acknowledged Range.",
+                        )
+                    it.code == HTTP_UNAVAILABLE || it.code == HTTP_INTERNAL_SERVER_ERROR ->
+                        nextByte = probeResumableSession(sessionUrl, totalSize)
+                    it.code == HTTP_PRECONDITION_FAILED -> return ProofBlobPutResult.AlreadyExists
+                    else -> throw ProofBlobUploadException(
+                        "Proof blob chunk upload failed (HTTP ${it.code}): ${it.message}",
+                    )
+                }
+            }
+        }
+        return ProofBlobPutResult.Uploaded(contentHash = contentHash, sizeBytes = totalSize)
+    }
+
+    private fun initiateResumableSession(
+        uploadUrl: String,
+        uploadHeaders: Map<String, String>,
+        mimeType: String,
+    ): HttpUrl? {
+        val resolvedUrl = resolveUploadUrl(uploadUrl)
+        val requestBuilder = Request.Builder().url(resolvedUrl)
+        uploadHeaders.forEach { (name, value) -> requestBuilder.header(name, value) }
+        if (uploadHeaders.keys.none { it.equals("Content-Type", ignoreCase = true) }) {
+            requestBuilder.header("Content-Type", mimeType.ifBlank { DEFAULT_MEDIA_TYPE })
+        }
+        if (uploadHeaders.keys.none { it.equals("x-goog-resumable", ignoreCase = true) }) {
+            requestBuilder.header("x-goog-resumable", "start")
+        }
+        if (isSameApiHost(resolvedUrl)) {
+            bearerTokenProvider()?.takeIf { it.isNotBlank() }?.let {
+                requestBuilder.header("Authorization", "Bearer $it")
+            }
+        }
+        val request = requestBuilder.post(ByteArray(0).toRequestBody(null)).build()
+        client.newCall(request).execute().use { response ->
+            if (response.code == HTTP_PRECONDITION_FAILED) {
+                return null
+            }
+            if (!response.isSuccessful) {
+                throw ProofBlobUploadException(
+                    "Proof resumable upload session initiation failed (HTTP ${response.code}): ${response.message}",
+                )
+            }
+            val location = response.header("Location").orEmpty()
+            if (location.isBlank()) {
+                throw ProofBlobUploadException("Proof resumable upload session did not return a Location header")
+            }
+            return resolveUploadUrl(location)
+        }
+    }
+
+    private fun probeResumableSession(sessionUrl: HttpUrl, totalSize: Long): Long {
+        val request = Request.Builder()
+            .url(sessionUrl)
+            .header("Content-Range", "bytes */$totalSize")
+            .put(ByteArray(0).toRequestBody(null))
+            .build()
+        client.newCall(request).execute().use { response ->
+            return when {
+                response.isSuccessful -> totalSize
+                response.code == HTTP_RESUME_INCOMPLETE -> nextOffsetFromRange(response.header("Range")) ?: 0L
+                else -> throw ProofBlobUploadException(
+                    "Proof resumable upload status probe failed (HTTP ${response.code}): ${response.message}",
+                )
+            }
+        }
+    }
+
     private fun resolveUploadUrl(uploadUrl: String): HttpUrl {
         uploadUrl.toHttpUrlOrNull()?.let { return it }
         val base = baseUrl.toHttpUrlOrNull()
@@ -137,6 +256,8 @@ class OkHttpProofBlobUploader(
 
     private companion object {
         const val DEFAULT_MEDIA_TYPE = "application/octet-stream"
+        const val SIMPLE_PUT = "simple_put"
+        val RESUMABLE_PROTOCOLS = setOf("resumable_v1", "gcs_resumable_v1", "local_resumable_v1")
         const val STREAM_BUFFER_BYTES = 64 * 1024
     }
 
@@ -151,6 +272,58 @@ class OkHttpProofBlobUploader(
             }
         }
         return digest.digest().joinToString(separator = "") { "%02x".format(it) }
+    }
+}
+
+private const val HTTP_RESUME_INCOMPLETE = 308
+private const val HTTP_INTERNAL_SERVER_ERROR = 500
+private const val HTTP_UNAVAILABLE = 503
+private const val DEFAULT_RESUMABLE_CHUNK_BYTES = 8L * 1024L * 1024L
+private const val GCS_CHUNK_ALIGNMENT_BYTES = 256L * 1024L
+
+private fun normalizedChunkSize(requested: Long?): Long {
+    val value = requested?.takeIf { it >= GCS_CHUNK_ALIGNMENT_BYTES } ?: DEFAULT_RESUMABLE_CHUNK_BYTES
+    return (value / GCS_CHUNK_ALIGNMENT_BYTES).coerceAtLeast(1) * GCS_CHUNK_ALIGNMENT_BYTES
+}
+
+private fun nextOffsetFromRange(range: String?): Long? {
+    if (range.isNullOrBlank()) return null
+    val end = range.substringAfter("bytes=", missingDelimiterValue = range)
+        .substringAfter('-', missingDelimiterValue = "")
+        .trim()
+        .toLongOrNull()
+    return if (end == null || end < 0) null else end + 1
+}
+
+private class FileRangeRequestBody(
+    private val file: File,
+    private val offset: Long,
+    private val byteCount: Long,
+    mimeType: String,
+) : RequestBody() {
+    private val mediaType = mimeType.ifBlank { "application/octet-stream" }.toMediaTypeOrNull()
+
+    override fun contentType() = mediaType
+
+    override fun contentLength(): Long = byteCount
+
+    override fun writeTo(sink: BufferedSink) {
+        file.inputStream().use { input ->
+            var skipped = 0L
+            while (skipped < offset) {
+                val n = input.skip(offset - skipped)
+                if (n <= 0) throw ProofBlobUploadException("Unable to seek proof upload chunk to byte $offset")
+                skipped += n
+            }
+            val buffer = ByteArray(64 * 1024)
+            var remaining = byteCount
+            while (remaining > 0) {
+                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                if (read == -1) throw ProofBlobUploadException("Captured proof file ended before requested chunk completed")
+                sink.write(buffer, 0, read)
+                remaining -= read
+            }
+        }
     }
 }
 

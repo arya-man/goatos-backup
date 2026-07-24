@@ -94,6 +94,12 @@ interface ScannedGoatDao {
     )
     fun observeForField(taskId: String, fieldKey: String, limit: Int = MAX_SCANNED_PER_FIELD): Flow<List<ScannedGoatEntity>>
 
+    @Query(
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey " +
+            "ORDER BY capturedAtMs ASC LIMIT :limit",
+    )
+    suspend fun listForField(taskId: String, fieldKey: String, limit: Int = MAX_SCANNED_PER_FIELD): List<ScannedGoatEntity>
+
     @Query("SELECT COUNT(*) FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey")
     fun observeCountForField(taskId: String, fieldKey: String): Flow<Int>
 

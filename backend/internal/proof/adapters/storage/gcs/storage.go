@@ -22,6 +22,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
+const resumableChunkSizeBytes int64 = 8 * 1024 * 1024
+
 type Storage struct {
 	bucket      string
 	clientEmail string
@@ -53,17 +55,39 @@ func (s *Storage) Provider() string { return "gcs" }
 
 func (s *Storage) PrepareUpload(_ context.Context, proof domain.Artifact, expires time.Duration) (domain.UploadTarget, error) {
 	expiresAt := s.now().UTC().Add(expires)
+	if proof.ProofType == "video" {
+		headers := map[string]string{
+			"Content-Length":             "0",
+			"Content-Type":               contentTypeOrDefault(proof.MimeType),
+			"x-goog-if-generation-match": "0",
+			"x-goog-resumable":           "start",
+		}
+		signed, err := s.signedURL("POST", proof.ObjectKey, expiresAt, headers, nil)
+		if err != nil {
+			return domain.UploadTarget{}, err
+		}
+		return domain.UploadTarget{
+			UploadURL:      signed,
+			Method:         "POST",
+			Headers:        headers,
+			ExpiresAt:      expiresAt,
+			Proof:          proof,
+			UploadProtocol: "gcs_resumable_v1",
+			ChunkSizeBytes: resumableChunkSizeBytes,
+		}, nil
+	}
 	headers := map[string]string{"x-goog-if-generation-match": "0"}
 	signed, err := s.signedURL("PUT", proof.ObjectKey, expiresAt, headers, nil)
 	if err != nil {
 		return domain.UploadTarget{}, err
 	}
 	return domain.UploadTarget{
-		UploadURL: signed,
-		Method:    "PUT",
-		Headers:   headers,
-		ExpiresAt: expiresAt,
-		Proof:     proof,
+		UploadURL:      signed,
+		Method:         "PUT",
+		Headers:        headers,
+		ExpiresAt:      expiresAt,
+		Proof:          proof,
+		UploadProtocol: "simple_put",
 	}, nil
 }
 
@@ -210,6 +234,14 @@ func escapeObjectKey(objectKey string) string {
 		parts[i] = url.PathEscape(part)
 	}
 	return strings.Join(parts, "/")
+}
+
+func contentTypeOrDefault(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "application/octet-stream"
+	}
+	return value
 }
 
 func parsePrivateKey(raw string) (*rsa.PrivateKey, error) {
