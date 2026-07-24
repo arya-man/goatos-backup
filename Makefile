@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
+.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-9-person-login verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -684,6 +684,29 @@ seed-dev-email-grants:
 seed-stg-email-grants:
 	cd backend && GOATOS_ENV=stg go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_stg_dashboard_admins $(foreach email,$(GOATOS_STG_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
+# Permanent, idempotent seeder for the 9 canonical STG login accounts
+# (docs/runbooks/stg-login-seed-contract.md): 5 ceo_internal SSO leadership +
+# 3 operators + 1 pc_director. Unlike seed-stg-email-grants, this MATERIALIZES
+# the active user_scope_grants row directly (does not just insert a pending
+# row waiting on a first-sign-in claim event), and binds operators/director
+# onto their existing named workforce_members roster row so /app/bootstrap
+# grants the vaccination bottom bar immediately. See
+# backend/cmd/seed-stg-login-grants/main.go for the full rationale.
+# GOATOS_AUTH_ISSUER must be the stg Firebase issuer, e.g.
+# https://securetoken.google.com/goatos-stg.
+seed-stg-9-person-login:
+	cd backend && GOATOS_ENV=stg GOATOS_TENANT_ID="$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" GOATOS_AUTH_ISSUER="$${GOATOS_AUTH_ISSUER:?set GOATOS_AUTH_ISSUER, e.g. https://securetoken.google.com/goatos-stg}" go run ./cmd/seed-stg-login-grants
+
+# Post-seed verification for the 9-person login contract: confirms all 9
+# accounts have a MATERIALIZED (status='active') user_scope_grants row, not
+# just a pending email grant, and that the 4 field users are department-bound.
+# See docs/runbooks/stg-9-person-login-verification.md for the full checklist
+# this only partially automates (SQL only — bootstrap/app checks stay manual).
+verify-stg-9-person-login:
+	@echo "verify-stg-9-person-login: run the SQL checklist in docs/runbooks/stg-9-person-login-verification.md against the stg DATABASE_URL"
+	@echo "quick check (requires DATABASE_URL + psql):"
+	@psql "$${DATABASE_URL:?set DATABASE_URL to the stg Cloud SQL proxy target}" -c "select role, status, count(*) from user_scope_grants where tenant_id = '$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}' and scope_type = 'tenant' group by role, status order by role, status;"
+
 # Full source-backed vaccination seed chain for local/dev rehearsals. This is the
 # safe "whole setup" path after clean slate: access grants, HRMS roster/leave,
 # vaccination source/config seed (which creates canonical shed locations), strict
@@ -705,6 +728,11 @@ seed-vaccination-source-full: vaccination-hrms-seed-fixture-guard
 	fi
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	$(MAKE) seed-closeout
+	@if [ "$${GOATOS_ENV:-}" = "stg" ]; then \
+		$(MAKE) seed-stg-9-person-login; \
+	else \
+		echo "GOATOS_ENV != stg: skipping stg login-grant materialization (only required for stg seeds)"; \
+	fi
 
 # BUG-023: fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md
 # lists "the checkout SHA is not the latest origin/main" as an AUTOMATIC FAILURE, but nothing
@@ -760,6 +788,11 @@ seed-vaccination-cpt-operator-drive:
 	GOATOS_EXPECTED_DRIVE_SCHEDULES="$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/expected-drive-schedules.json" \
 	  GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF="$${GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF:-$(GOATOS_CPT_OPERATOR_DRIVE_AS_OF)T00:00:00+05:30}" \
 	  $(MAKE) seed-closeout
+	@if [ "$${GOATOS_ENV:-}" = "stg" ]; then \
+		$(MAKE) seed-stg-9-person-login; \
+	else \
+		echo "GOATOS_ENV != stg: skipping stg login-grant materialization (only required for stg seeds)"; \
+	fi
 
 # Deterministic post-seed/post-migration closeout. Runs only projectors/backfills
 # that derive app-visible read models from canonical source truth; it never

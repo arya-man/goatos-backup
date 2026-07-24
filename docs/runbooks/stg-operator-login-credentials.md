@@ -56,3 +56,16 @@ If these passwords are rotated, update this runbook in the same change.
 Firebase Auth password setup is not enough.
 Each account must also have backend role/workforce binding so `/app/bootstrap`
 returns the correct operator/director context.
+
+A pending `auth_pending_email_grants` row is also NOT enough — it only
+materializes into a real, active `user_scope_grants` row on a runtime sign-in
+claim event, which admin-web SSO and mobile logins do not reliably trigger on
+a fresh STG seed. Run `make seed-stg-9-person-login` (backend/cmd/
+seed-stg-login-grants) every time STG is seeded: it materializes the ACTIVE
+grant directly for all 9 canonical accounts (this file's 4 field users plus
+the 5 `ceo_internal` leadership accounts) and binds Amit/Darshan/Sagar/
+Chandrakant onto their existing named `workforce_members` roster row with
+`department_id = preventive_care`, so the vaccination module renders
+immediately. Verify with `make verify-stg-9-person-login` and the checklist in
+`docs/runbooks/stg-9-person-login-verification.md`. Do not treat this file's
+credential table, on its own, as seed-complete.
