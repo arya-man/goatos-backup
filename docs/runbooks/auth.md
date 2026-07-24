@@ -532,6 +532,16 @@ tenant-scoped `ceo_internal` RBAC. That platform-owner cohort must have every
 built visible module available, including `admin.people`. Do not seed these
 accounts as department-scoped vaccination/admin operators.
 
+Field operators are a separate provisioning lane from founder/CXO users. After
+an HRMS/vaccination seed that creates vaccination operators, each operator who
+can execute Android work must receive a distinct Firebase/Auth email-password
+account bound to that operator's own email from the seed contract. Do not create
+one shared operator login, do not reuse one password across multiple operators,
+and do not ask operators to use founder/CXO accounts on Android. Generate a
+unique temporary password per operator or send each operator an individual reset
+flow. Never commit plaintext operator passwords into fixtures, runbooks, logs,
+or screenshots.
+
 The secure provisioning model is:
 
 1. Keep only the approved founder/CXO emails in `auth_pending_email_grants`.

@@ -111,6 +111,16 @@ discussed validation: `active_operators_per_day=1`, Darshan as default, Sagar as
 the primary fallback when Darshan is unavailable, and Amit retained as a
 secondary fallback rather than removed from HRMS.
 
+The same roster is also the authority for field-operator Android login
+provisioning after the database seed. Each vaccination operator must have a
+separate Firebase/Auth email-password identity using that operator's
+`operators[].email_hint`. A common operator email, a shared field password, or a
+CEO/CXO account used for Android execution is an invalid seed. Provisioning must
+generate a different temporary password per operator or send an individual reset
+flow; plaintext passwords must never be committed to git or pasted into seed
+evidence. A seed is not complete until Amit, Darshan, and Sagar can each reach
+Android bootstrap with their own identity.
+
 ### Operator Shift Configuration
 
 The `cpt-operator-roster.json` may include operator shift schedules (migration 000035):
@@ -163,6 +173,9 @@ is documented in the same patch.
 The five founder/CXO accounts remain tenant-scoped `ceo_internal` grants:
 `ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`,
 `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+
+These founder/CXO grants are separate from field-operator Android accounts.
+Do not use founder/CXO grants as a shortcut for operator mobile execution.
 
 The `Adult` filename is not permission to bypass generic vaccination rules.
 Kids, adults, boosters, combo spacing, sick/ICU/pregnancy/terminal exclusions,

@@ -600,6 +600,23 @@ type operatorRosterLeadership struct {
 	Emails        []string `json:"emails"`
 }
 
+// operatorRosterAndroidLogin is the post-DB-seed mobile provisioning contract for
+// field executors. The roster seeder validates it so the block cannot be silently
+// ignored, but it deliberately does not create Firebase users: cloud identity
+// provisioning happens after DB seed through the Auth/Firebase runbook.
+type operatorRosterAndroidLogin struct {
+	RequiredAfterDatabaseSeed           bool     `json:"required_after_database_seed"`
+	IdentityProvider                    string   `json:"identity_provider"`
+	SourceEmailField                    string   `json:"source_email_field"`
+	UniqueEmailPerOperator              bool     `json:"unique_email_per_operator"`
+	UniqueTemporaryPasswordPerOperator  bool     `json:"unique_temporary_password_per_operator"`
+	SharedPasswordForbidden             bool     `json:"shared_password_forbidden"`
+	PlaintextPasswordsInGitForbidden    bool     `json:"plaintext_passwords_in_git_forbidden"`
+	MustSendOrRecordIndividualResetFlow bool     `json:"must_send_or_record_individual_reset_flow"`
+	AndroidLoginSmokeRequired           bool     `json:"android_login_smoke_required"`
+	Notes                               []string `json:"notes"`
+}
+
 type operatorRosterContract struct {
 	Schema           string `json:"schema"`
 	BusinessDate     string `json:"business_date"`
@@ -616,7 +633,8 @@ type operatorRosterContract struct {
 		CentersForbidden []string `json:"centers_forbidden"`
 		Notes            []string `json:"notes"`
 	} `json:"source_scope"`
-	Operators []operatorRosterOperator `json:"operators"`
+	Operators            []operatorRosterOperator    `json:"operators"`
+	OperatorAndroidLogin *operatorRosterAndroidLogin `json:"operator_android_login"`
 	// DefaultOperatorAssignment is the CEO-set default operator + N-active-operators for this park
 	// (vaccination_operator_assignment_config). Optional -- absent means the seed does not author an
 	// assignment config row (never a silent default).
@@ -673,9 +691,24 @@ func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
 	}
 	operatorCodes := make(map[string]bool, len(contract.Operators))
 	operatorKeys := make(map[string]bool, len(contract.Operators))
+	operatorEmails := make(map[string]string, len(contract.Operators))
 	for _, op := range contract.Operators {
 		operatorCodes[op.Code] = true
 		operatorKeys[operatorNameKey(op.DisplayName)] = true
+		email := strings.ToLower(strings.TrimSpace(op.EmailHint))
+		if email == "" || !strings.Contains(email, "@") {
+			return nil, fmt.Errorf("operator roster operator %s requires email_hint for Android login provisioning", op.Code)
+		}
+		if previous := operatorEmails[email]; previous != "" {
+			return nil, fmt.Errorf("operator roster operators %s and %s share email_hint %q; Android operator logins must be unique", previous, op.Code, email)
+		}
+		operatorEmails[email] = op.Code
+	}
+	if contract.OperatorAndroidLogin == nil {
+		return nil, fmt.Errorf("operator roster operator_android_login contract is required for Android login provisioning")
+	}
+	if err := validateOperatorAndroidLoginContract(contract.OperatorAndroidLogin); err != nil {
+		return nil, err
 	}
 	for _, director := range contract.Directors {
 		if strings.TrimSpace(director.Code) == "" || strings.TrimSpace(director.DisplayName) == "" {
@@ -706,6 +739,37 @@ func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
 		}
 	}
 	return &contract, nil
+}
+
+func validateOperatorAndroidLoginContract(login *operatorRosterAndroidLogin) error {
+	if !login.RequiredAfterDatabaseSeed {
+		return fmt.Errorf("operator roster operator_android_login.required_after_database_seed must be true")
+	}
+	if strings.TrimSpace(login.IdentityProvider) != "firebase_email_password" {
+		return fmt.Errorf("operator roster operator_android_login.identity_provider must be firebase_email_password")
+	}
+	if strings.TrimSpace(login.SourceEmailField) != "operators[].email_hint" {
+		return fmt.Errorf("operator roster operator_android_login.source_email_field must be operators[].email_hint")
+	}
+	if !login.UniqueEmailPerOperator {
+		return fmt.Errorf("operator roster operator_android_login.unique_email_per_operator must be true")
+	}
+	if !login.UniqueTemporaryPasswordPerOperator {
+		return fmt.Errorf("operator roster operator_android_login.unique_temporary_password_per_operator must be true")
+	}
+	if !login.SharedPasswordForbidden {
+		return fmt.Errorf("operator roster operator_android_login.shared_password_forbidden must be true")
+	}
+	if !login.PlaintextPasswordsInGitForbidden {
+		return fmt.Errorf("operator roster operator_android_login.plaintext_passwords_in_git_forbidden must be true")
+	}
+	if !login.MustSendOrRecordIndividualResetFlow {
+		return fmt.Errorf("operator roster operator_android_login.must_send_or_record_individual_reset_flow must be true")
+	}
+	if !login.AndroidLoginSmokeRequired {
+		return fmt.Errorf("operator roster operator_android_login.android_login_smoke_required must be true")
+	}
+	return nil
 }
 
 // operatorNameKey is the deterministic join key between a contract operator and

@@ -54,10 +54,21 @@ func cptContract() *operatorRosterContract {
 	c.SourceScope.ParkCode = "CPT"
 	defaultCap := 200
 	c.OperatorCapacity.DefaultAnimalsPerDay = &defaultCap
+	c.OperatorAndroidLogin = &operatorRosterAndroidLogin{
+		RequiredAfterDatabaseSeed:           true,
+		IdentityProvider:                    "firebase_email_password",
+		SourceEmailField:                    "operators[].email_hint",
+		UniqueEmailPerOperator:              true,
+		UniqueTemporaryPasswordPerOperator:  true,
+		SharedPasswordForbidden:             true,
+		PlaintextPasswordsInGitForbidden:    true,
+		MustSendOrRecordIndividualResetFlow: true,
+		AndroidLoginSmokeRequired:           true,
+	}
 	c.Operators = []operatorRosterOperator{
-		{Code: "vaccination_operator_amit", DisplayName: "Amit Kumar", Tier: "manager", WeekOff: "friday"},
-		{Code: "vaccination_operator_darshan", DisplayName: "Darshan Talwar", Tier: "manager", WeekOff: "sunday"},
-		{Code: "vaccination_operator_sagar", DisplayName: "Sagar Mahoor", Tier: "manager", WeekOff: "saturday"},
+		{Code: "vaccination_operator_amit", DisplayName: "Amit Kumar", EmailHint: "amit@example.test", Tier: "manager", WeekOff: "friday"},
+		{Code: "vaccination_operator_darshan", DisplayName: "Darshan Talwar", EmailHint: "darshan@example.test", Tier: "manager", WeekOff: "sunday"},
+		{Code: "vaccination_operator_sagar", DisplayName: "Sagar Mahoor", EmailHint: "sagar@example.test", Tier: "manager", WeekOff: "saturday"},
 	}
 	return c
 }
@@ -196,6 +207,23 @@ func TestLoadOperatorRosterConsumesDirectorsAndLeadership(t *testing.T) {
 	if contract.LeadershipFullAccess.GrantRole != "ceo_internal" {
 		t.Fatalf("grant_role = %q, want ceo_internal", contract.LeadershipFullAccess.GrantRole)
 	}
+	if contract.OperatorAndroidLogin == nil {
+		t.Fatal("operator_android_login block dropped")
+	}
+	if !contract.OperatorAndroidLogin.UniqueTemporaryPasswordPerOperator || !contract.OperatorAndroidLogin.SharedPasswordForbidden {
+		t.Fatalf("operator_android_login password contract too weak: %+v", contract.OperatorAndroidLogin)
+	}
+	seen := map[string]string{}
+	for _, op := range contract.Operators {
+		email := strings.ToLower(strings.TrimSpace(op.EmailHint))
+		if email == "" || !strings.Contains(email, "@") {
+			t.Fatalf("operator %s missing Android login email_hint", op.Code)
+		}
+		if previous := seen[email]; previous != "" {
+			t.Fatalf("operators %s and %s share Android login email %s", previous, op.Code, email)
+		}
+		seen[email] = op.Code
+	}
 }
 
 func TestLoadOperatorRosterRejectsUnconsumedBlock(t *testing.T) {
@@ -236,5 +264,32 @@ func TestLoadOperatorRosterRejectsDirectorWithExecutionCapacity(t *testing.T) {
 	_ = os.WriteFile(dir+"/cpt-operator-roster.json", out, 0o600)
 	if _, err := loadOperatorRoster(dir); err == nil || !strings.Contains(err.Error(), "can_execute_vaccination") {
 		t.Fatalf("expected director execution-capacity rejection, got: %v", err)
+	}
+}
+
+func TestLoadOperatorRosterRejectsDuplicateOperatorAndroidEmail(t *testing.T) {
+	dir := t.TempDir()
+	raw, _ := os.ReadFile(cptRosterFixture + "/cpt-operator-roster.json")
+	var generic map[string]any
+	_ = json.Unmarshal(raw, &generic)
+	operators := generic["operators"].([]any)
+	operators[1].(map[string]any)["email_hint"] = operators[0].(map[string]any)["email_hint"]
+	out, _ := json.Marshal(generic)
+	_ = os.WriteFile(dir+"/cpt-operator-roster.json", out, 0o600)
+	if _, err := loadOperatorRoster(dir); err == nil || !strings.Contains(err.Error(), "Android operator logins must be unique") {
+		t.Fatalf("expected duplicate Android email rejection, got: %v", err)
+	}
+}
+
+func TestLoadOperatorRosterRejectsSharedPasswordContract(t *testing.T) {
+	dir := t.TempDir()
+	raw, _ := os.ReadFile(cptRosterFixture + "/cpt-operator-roster.json")
+	var generic map[string]any
+	_ = json.Unmarshal(raw, &generic)
+	generic["operator_android_login"].(map[string]any)["unique_temporary_password_per_operator"] = false
+	out, _ := json.Marshal(generic)
+	_ = os.WriteFile(dir+"/cpt-operator-roster.json", out, 0o600)
+	if _, err := loadOperatorRoster(dir); err == nil || !strings.Contains(err.Error(), "unique_temporary_password_per_operator") {
+		t.Fatalf("expected weak Android password contract rejection, got: %v", err)
 	}
 }

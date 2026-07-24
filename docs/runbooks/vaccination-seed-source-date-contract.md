@@ -101,6 +101,14 @@ weekly off, and Amit remains in HRMS as a secondary fallback rather than being
 removed from the roster. It also reuses the founder/CXO `ceo_internal` grant cohort documented in
 `docs/runbooks/auth.md`: `ravi@mesha.sg`, `manohark@mesha.sg`,
 `manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+After the DB seed completes, each executable vaccination operator in that
+roster must also be provisioned as a separate Android login using the operator's
+`email_hint`: Amit, Darshan, and Sagar each need their own Firebase/Auth
+email-password identity. A shared operator email, shared field password, or
+founder/CXO account used for field Android execution is invalid seed evidence.
+Use a unique temporary password or an individual reset flow per operator, never
+commit plaintext passwords, and smoke-test Android bootstrap/login for each
+operator before calling the seed complete.
 The packet also includes `expected-drive-schedules.json`, a machine-readable
 post-seed validation sample. For the discussed 2026-07-24 drive, the expected
 final input is one active operator/day, default Darshan, 200 animals/day,

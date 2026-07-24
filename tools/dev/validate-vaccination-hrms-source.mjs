@@ -20,6 +20,8 @@ import {
   SHED_PARTITION_NAME_PATTERN_CONTRACT,
   OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED,
   OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY,
+  OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER,
+  OPERATOR_ANDROID_LOGIN_EMAIL_FIELD,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
@@ -488,6 +490,7 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       const weekdays = new Set();
       const validWeekdays = new Set(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
       const operatorCodes = new Set();
+      const operatorEmails = new Map();
       let hasPMShift = false;
       for (const op of ops) {
         const label = op?.code || op?.display_name || "operator";
@@ -513,6 +516,24 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         // 0..1439; a source-valid 1440 used to pass here and then fail at the seed
         // boundary, while an invalid 0 was rejected here but accepted downstream.
         if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute >= 0 && op.shift_end_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 0..1439`);
+        const email = String(op?.email_hint ?? "").trim().toLowerCase();
+        if (!email || !email.includes("@")) pushSample(operatorRosterProblems, `${label}: email_hint is required for per-operator Android login provisioning`);
+        else if (operatorEmails.has(email)) pushSample(operatorRosterProblems, `${label}: email_hint duplicates ${operatorEmails.get(email)}; Android operator logins must be unique`);
+        else operatorEmails.set(email, label);
+      }
+      const androidLogin = contract?.operator_android_login;
+      if (!androidLogin || typeof androidLogin !== "object") {
+        pushSample(operatorRosterProblems, "operator_android_login contract block is required");
+      } else {
+        if (androidLogin.required_after_database_seed !== true) pushSample(operatorRosterProblems, "operator_android_login.required_after_database_seed must be true");
+        if (androidLogin.identity_provider !== OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER) pushSample(operatorRosterProblems, `operator_android_login.identity_provider must be ${OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER}`);
+        if (androidLogin.source_email_field !== OPERATOR_ANDROID_LOGIN_EMAIL_FIELD) pushSample(operatorRosterProblems, `operator_android_login.source_email_field must be ${OPERATOR_ANDROID_LOGIN_EMAIL_FIELD}`);
+        if (androidLogin.unique_email_per_operator !== true) pushSample(operatorRosterProblems, "operator_android_login.unique_email_per_operator must be true");
+        if (androidLogin.unique_temporary_password_per_operator !== true) pushSample(operatorRosterProblems, "operator_android_login.unique_temporary_password_per_operator must be true");
+        if (androidLogin.shared_password_forbidden !== true) pushSample(operatorRosterProblems, "operator_android_login.shared_password_forbidden must be true");
+        if (androidLogin.plaintext_passwords_in_git_forbidden !== true) pushSample(operatorRosterProblems, "operator_android_login.plaintext_passwords_in_git_forbidden must be true");
+        if (androidLogin.must_send_or_record_individual_reset_flow !== true) pushSample(operatorRosterProblems, "operator_android_login.must_send_or_record_individual_reset_flow must be true");
+        if (androidLogin.android_login_smoke_required !== true) pushSample(operatorRosterProblems, "operator_android_login.android_login_smoke_required must be true");
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
       if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
@@ -553,7 +574,7 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     "operator_roster_contract",
     operatorRosterProblems.length,
     `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when default_operator_assignment is present.",
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, a unique email_hint for Android login, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, one pm shift operator when default_operator_assignment is present, and an operator_android_login block requiring Firebase email-password, unique per-operator temporary passwords/reset flow, no shared password, no plaintext passwords in git, and per-operator Android login smoke proof after DB seed.",
     operatorRosterProblems,
   ));
 

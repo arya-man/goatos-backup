@@ -1039,3 +1039,5 @@ leaving the key present and unread is not.
 <!-- Coupling review 2026-07-23: vaccination operator assignment config is scheduler-consumed, not config-only. The bounded point lookup filters the already-loaded daily operator-capacity candidate set by active_operators_per_day/default_operator_code and shift fallback identity; it does not introduce tenant-wide scans, per-animal reads, or time-of-day drive splitting. -->
 
 <!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->
+
+<!-- Coupling review 2026-07-24: CPT operator Android login provisioning is a seed/auth contract, not a scale-path change. Every executable vaccination operator must receive a distinct Firebase/Auth email-password identity from cpt-operator-roster.json operators[].email_hint after DB seed; shared operator credentials, founder/CXO Android execution shortcuts, and committed plaintext passwords are forbidden. No new request-path query, projection, or tenant scan is introduced. -->
