@@ -263,6 +263,7 @@ class ScanViewModel @Inject constructor(
             taskId = taskId,
             sopVersionId = sopVersionId,
             taskRowVersion = taskRowVersion,
+            requireGoatProof = policy.isPerGoatVideo,
         )
         // Full-roster (page-independent) aggregates overlay the window-derived counts (R50-008).
         val aggregated = applyFullRosterCounts(base, counts, localDone)
@@ -633,6 +634,7 @@ class ScanViewModel @Inject constructor(
         taskId: String?,
         sopVersionId: String?,
         taskRowVersion: Int?,
+        requireGoatProof: Boolean,
     ): ScanUiState {
         // R50-029: group once instead of re-filtering the full proof list per roster row
         // (O(rows * proofs) on every state build) — then a bounded per-row map lookup below.
@@ -643,7 +645,7 @@ class ScanViewModel @Inject constructor(
                 obligation to scan.capturedAtMs
             }
             .toMap()
-        val rosterRows = rows.map { it.toRosterRow(localDone, goatProofsBySubject, scannedAtByObligation) }
+        val rosterRows = rows.map { it.toRosterRow(localDone, goatProofsBySubject, scannedAtByObligation, requireGoatProof) }
         val done = rosterRows.count { it.status == ScanStatus.DONE }
         val skipped = rosterRows.count { it.status == ScanStatus.SKIPPED }
         val pending = (rosterRows.size - done - skipped).coerceAtLeast(0)
@@ -670,6 +672,7 @@ class ScanViewModel @Inject constructor(
         localDone: Set<String>,
         goatProofsBySubject: Map<String?, List<ProofCaptureRow>>,
         scannedAtByObligation: Map<String, Long> = emptyMap(),
+        requireGoatProof: Boolean = true,
     ): RosterRow {
         val locallyDone = obligationId.isNotBlank() && obligationId in localDone
         val goatProofs = goatProofsBySubject[goatId].orEmpty()
@@ -684,6 +687,7 @@ class ScanViewModel @Inject constructor(
             scannedAtLabel = capturedAtMs?.let(::scanTimeLabel),
             goatId = goatId,
             obligationId = obligationId,
+            proofRequired = requireGoatProof,
             proofClipCount = goatProofs.count { it.syncStatus != CaptureSyncStatus.FAILED },
             proofUploadStatus = proofStatus(goatProofs),
         )
@@ -746,7 +750,8 @@ class ScanViewModel @Inject constructor(
 
     private fun requestGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
-        if (_operatorAllowed.value != true || goatId.isBlank() || proofCaptureInFlight) return
+        val policy = proofPolicy.value
+        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || goatId.isBlank() || proofCaptureInFlight) return
         // Resolve the goat from the visible window OR the proof-action-needed list — an animal needing
         // a proof re-capture may be below the scroll window (the gate surfaces the full-roster set).
         val current = state.value
@@ -756,7 +761,6 @@ class ScanViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val captured = proofCaptureSource.captureVideo() ?: return@launch
-                val policy = proofPolicy.value
                 proofCaptureRepository.capture(
                     taskId = selectedTaskId,
                     fieldKey = GOAT_PROOF_FIELD_KEY,
