@@ -1494,6 +1494,9 @@ WHERE ob.tenant_id = $1
 			return "", false, fmt.Errorf("obligation: repair batch after key cancel: %w", err)
 		}
 	}
+	if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, []string{obligationID}); err != nil {
+		return "", false, err
+	}
 
 	eventKey := obligationID + ":canceled:" + reason
 	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
@@ -4065,6 +4068,88 @@ WHERE tenant_id = $1
 	return nil
 }
 
+// pruneDetachedDriveMembershipTx removes vaccination_drive_assignment_members rows for obligations
+// that were just canceled/missed/reaped by ANY of the non-exit terminal paths (single-key cancel,
+// bulk missed sweep, stranded in_progress reap), then reconciles animal_count/total_doses on every
+// assignment row those deletes touched, and deletes any assignment row the prune emptied. Same
+// pattern as removeGoatFromDriveAssignmentsTx's exact path, but keyed on obligation_ids rather than a
+// single goat, and driven from the REMAINING member rows rather than a subtracted delta -- so a goat
+// still covered by another surviving obligation in the same assignment is never miscounted. Set-based,
+// no per-goat loop; a no-op for empty input.
+//
+// GRAIN: vaccination_drive_assignment_members is UNIQUE (tenant_id, obligation_id) -- the exact
+// per-goat-per-rule membership ledger the scheduler writes. Deleting by obligation_id can therefore
+// never remove a row belonging to a different, still-open obligation for the same goat in the same
+// assignment. The recompute reads the REMAINING member rows (joined to obligation_instances for the
+// dose-key rule_id, matching the DISTINCT (target, rule) semantics removeGoatFromDriveAssignmentsTx
+// already uses) rather than subtracting a delta, so it can never drift from the exact ledger.
+func pruneDetachedDriveMembershipTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, obligationIDs []string) error {
+	if len(obligationIDs) == 0 {
+		return nil
+	}
+	affected := make([]string, 0, len(obligationIDs))
+	rows, err := tx.Query(ctx, `
+DELETE FROM vaccination_drive_assignment_members
+WHERE tenant_id = $1
+  AND obligation_id = ANY($2::uuid[])
+RETURNING assignment_id::text`, tenant, obligationIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: delete detached drive assignment members: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			rows.Close()
+			return fmt.Errorf("obligation: scan detached member assignment id: %w", scanErr)
+		}
+		affected = append(affected, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("obligation: detached member rows: %w", err)
+	}
+	rows.Close()
+	if len(affected) == 0 {
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=vaccination_drive_assignment_members rows REMAINING after the delete above, scoped to the assignment_ids RETURNED by that delete -- producer-unique=(assignment_id, obligation_id) [members PK] and (tenant_id, obligation_id) [members UQ, one row per obligation]; consumer-match=(tenant_id, assignment_id) on the same PK vaccination_drive_assignments exposes; group_key=assignment_id (one recompute per touched row, never batch_id -- a batch legitimately holds many assignment rows); join_cardinality=members->assignment is many-to-ONE (members.assignment_id FKs the assignment PK) and members->obligation_instances is many-to-ONE (members.obligation_id FKs the obligation PK), so animal_count=count(DISTINCT remaining.goat_id) and total_doses=count(DISTINCT remaining.(goat_id,rule_id)) over the rows still attached to that one assignment_id are exact, not an inferred bucket -- a goat kept in the assignment by a second still-open obligation is never dropped because its member row was never deleted; pagination=n/a (single transactional write bounded by the obligation_ids just canceled/missed/reaped); scope=the assignment row's own park/shed/partition/operator/date, unchanged.
+UPDATE vaccination_drive_assignments vda
+SET animal_count = COALESCE((
+      SELECT count(DISTINCT m.goat_id)
+      FROM vaccination_drive_assignment_members m
+      WHERE m.tenant_id = $1
+        AND m.assignment_id = vda.assignment_id
+    ), 0),
+    total_doses = COALESCE((
+      SELECT count(DISTINCT (m.goat_id, oi.rule_id))
+      FROM vaccination_drive_assignment_members m
+      JOIN obligation_instances oi
+        ON oi.tenant_id = m.tenant_id
+       AND oi.obligation_id = m.obligation_id
+      WHERE m.tenant_id = $1
+        AND m.assignment_id = vda.assignment_id
+    ), 0),
+    updated_at = now()
+WHERE vda.tenant_id = $1
+  AND vda.assignment_id = ANY($2::uuid[])`, tenant, affected); err != nil {
+		return fmt.Errorf("obligation: reconcile drive assignment counts after prune: %w", err)
+	}
+
+	// GRAIN: assignment_id is the row identity here too (see removeGoatFromDriveAssignmentsTx's same
+	// note) -- only rows this prune's own recompute drove to animal_count = 0 are ever in scope,
+	// because `affected` is exactly the RETURNING set of the member delete above.
+	if _, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignments
+WHERE tenant_id = $1
+  AND assignment_id = ANY($2::uuid[])
+  AND animal_count = 0`, tenant, affected); err != nil {
+		return fmt.Errorf("obligation: delete emptied drive assignments after prune: %w", err)
+	}
+	return nil
+}
+
 // CancelOpenForGoat cancels a goat's open scheduled/due/in_progress/deferred/missed obligations
 // (SM-3 death/sale) and writes a 'canceled' status event for each, in one transaction. Idempotent: a
 // re-run finds no open rows and cancels nothing. Completed/accepted history is never touched.
@@ -5366,6 +5451,9 @@ WHERE ob.tenant_id = $1
 			return 0, fmt.Errorf("obligation: update missed batch repair: %w", err)
 		}
 	}
+	if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, ids); err != nil {
+		return 0, err
+	}
 
 	qtx := r.queries.WithTx(tx)
 	payload, _ := json.Marshal(map[string]string{"event": "missed"})
@@ -5481,6 +5569,10 @@ RETURNING oi.obligation_id::text`, tenant, pgconv.Timestamptz(reapBefore), limit
 		return fmt.Errorf("obligation: reap in_progress rows: %w", err)
 	}
 	rows.Close()
+
+	if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, ids); err != nil {
+		return err
+	}
 
 	// Emit missed events and audit for each reaped obligation
 	if len(ids) > 0 {
