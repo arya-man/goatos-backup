@@ -17,5 +17,12 @@
     "forbidden_projects": ["hevaplatform", "goatos-sheets", "system-gsuite", "apps-script"],
     "ci_validation": "make ci-local",
     "bug_041_blocks_deploy": false
+  },
+  "stg_gcs_video_upload": {
+    "runbook": "docs/runbooks/stg-gcs-video-upload-wiring.md",
+    "required_for_android_video_proof": true,
+    "bucket_env": "GOATOS_GCS_BUCKET",
+    "forbidden_projects": ["prod", "dev", "heva", "slice"],
+    "verdicts": ["PASS", "FAIL", "PARTIAL", "NOT_WIRED"]
   }
 }

@@ -58,6 +58,15 @@ After backend/admin-web deploy, verify the leadership assistant using:
 Do not assume Vertex/Gemini, Cube, or MCP Toolbox are wired merely because the
 backend deployed. Report each as deployed, fallback-only, placeholder, or missing.
 
+## GCS / Android Video Proof Verification
+
+After backend/admin deploy, verify Android proof/video upload wiring using:
+
+`docs/runbooks/stg-gcs-video-upload-wiring.md`
+
+Do not assume Android video upload works just because backend deployed.
+Report GCS as PASS, FAIL, PARTIAL, or NOT WIRED.
+
 ## BUG-041 Policy
 
 BUG-041 is NOT a deployment blocker unless explicitly stated. If BUG-041 remains:
