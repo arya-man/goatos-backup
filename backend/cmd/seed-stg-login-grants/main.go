@@ -160,6 +160,20 @@ func main() {
 				continue
 			}
 			res.modulesGranted = granted
+		} else {
+			// Leadership (ceo_internal) has no department, but the mobile
+			// /app/bootstrap still hard-requires an active workforce_members
+			// profile for the signed-in user (activeProfileAndGrants →
+			// operator_profile_missing 403 otherwise). Admin-web tolerates a
+			// missing profile; the phone does not. Create the leadership
+			// profile directly so SSO+password leadership can open the mobile
+			// app, mirroring the claim path's ensureWorkforceMember.
+			if err := ensureLeadershipMember(ctx, pool, tenantID, userID, acct); err != nil {
+				res.err = fmt.Errorf("ensure leadership member: %w", err)
+				results = append(results, res)
+				continue
+			}
+			res.rosterBoundOK = true
 		}
 
 		results = append(results, res)
@@ -178,7 +192,7 @@ func main() {
 			fmt.Printf("DRY   %-20s <%-35s> role=%-14s user_id=%s\n", r.account.DisplayName, r.account.Email, r.account.Role, r.userID)
 			continue
 		}
-		deptNote := "no department (leadership)"
+		deptNote := "no department (leadership); mobile profile ensured"
 		if r.account.DepartmentCode != "" {
 			deptNote = fmt.Sprintf("department=%s roster_bound=%v modules_granted=%d", r.account.DepartmentCode, r.rosterBoundOK, r.modulesGranted)
 		}
@@ -195,7 +209,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d/%d accounts FAILED — STG seed is INCOMPLETE\n", failed, len(results))
 		os.Exit(1)
 	}
-	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant; operators/director are department-bound\n", len(results))
+	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant; operators/director are department-bound and leadership have a mobile workforce profile\n", len(results))
 }
 
 func envOrDefault(key, def string) string {
@@ -356,6 +370,35 @@ SET user_id = $2,
 WHERE workforce_member_id = $1 AND tenant_id = $5`,
 		c.id, userID, departmentID, setDepartment, tenantID)
 	return err
+}
+
+// ensureLeadershipMember creates the active workforce_members profile a
+// leadership (ceo_internal) account needs for the mobile /app/bootstrap, which
+// hard-requires a profile row (activeProfileAndGrants → operator_profile_missing
+// 403 otherwise). Leadership has no named roster row and no department, so the
+// profile is the auth:<uid> row keyed on the derived user_id, mirroring the
+// runtime claim path's ensureWorkforceMember (display_name "CEO/CXO",
+// primary_role_hint / hr_designation_grade "cxo"). Idempotent: the insert is a
+// no-op when an active member for this user_id already exists.
+func ensureLeadershipMember(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string, acct Account) error {
+	_, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (
+  tenant_id, user_id, display_code, display_name, status,
+  primary_role_hint, hr_designation_grade, metadata
+)
+SELECT $1, $2, $3, 'CEO/CXO', 'active', 'cxo', 'cxo', jsonb_build_object(
+  'source', 'seed_stg_login_grants_leadership',
+  'email', $4::text,
+  'role', 'ceo_internal'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM workforce_members
+  WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
+)`, tenantID, userID, "auth:"+userID, acct.Email)
+	if err != nil {
+		return fmt.Errorf("insert leadership workforce member for %s: %w", acct.DisplayName, err)
+	}
+	return nil
 }
 
 func grantDepartmentModules(ctx context.Context, pool *pgxpool.Pool, tenantID, departmentID string, moduleKeys []string) (int, error) {
