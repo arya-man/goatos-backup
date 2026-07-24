@@ -839,7 +839,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               </select>
             </div>
             <button
-              className="btn b sm"
+              className="btn b"
               onClick={persistOperatorConfig}
               disabled={configSaving}
             >
