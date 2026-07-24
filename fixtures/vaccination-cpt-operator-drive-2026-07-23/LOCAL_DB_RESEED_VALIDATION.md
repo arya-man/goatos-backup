@@ -227,7 +227,9 @@ packet and must stay guarded before any STG seed:
   one-animal fragments only because adults arrived on different source entry
   dates. Adult blank-history animals join the normal physical shed/partition
   campaign. Adult same-vaccine history remains authoritative. Kid/young DOB
-  timing stays strict.
+  timing stays strict. Adult entry_date is never a vaccination due-date anchor,
+  and every adult initial `*_adult_*` rule must fail validation if its
+  `trigger_type` is `post_arrival`.
 - **PPR packet boundary:** PPR is excluded only from this CPT seed packet. Do not
   delete or mutate the global vaccination rules to make the packet pass.
 - **History visibility:** `2026-07-24` ET+TT rows are completed history, not
@@ -305,6 +307,14 @@ join protocol_rules pr on pr.rule_id = oi.rule_id
 where pr.dose_code = 'et_tt_adult_w2'
 group by 1, 2, 3
 order by 3, 2;
+
+-- Adult rule anchor guard. Expected: 0 rows.
+select pr.dose_code, pr.trigger_type
+from protocol_rules pr
+where pr.dose_code like '%\_adult\_%' escape '\'
+  and pr.dose_code not like '%\_revac' escape '\'
+  and pr.trigger_type = 'post_arrival'
+order by 1;
 
 -- Final ET+TT assignment shape. Expected exactly one row:
 -- 2026-07-25 | Darshan Talwar | et_tt_adult_w2 | 210

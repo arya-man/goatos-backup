@@ -578,10 +578,12 @@ export function updateManifestHashes(directory, manifest) {
 // Makefile target may publish a packet-scoped rule subset without PPR. The
 // canonical source fixture and validator still preserve PPR history mapping.
 
-// Coupling review 2026-07-24: CPT adult campaign grouping and
+// Coupling review 2026-07-24/25: CPT adult campaign grouping and
 // seed_catchup_overrides affect only operator-drive rehearsal bundles that ship
-// cpt-operator-roster.json. The committed full fixture has no such contract file,
-// so raw fixture bytes and manifest hashes remain unchanged.
+// cpt-operator-roster.json. Adult entry_date is never a vaccination due-date
+// anchor; adult blank-history rows are campaign/catch-up cohort work by physical
+// shed/partition. The committed full fixture has no such contract file, so raw
+// fixture bytes and manifest hashes remain unchanged.
 
 // Coupling review 2026-07-25: adult non-repeating physical-partition campaign
 // obligations are generation-idempotent at campaign grain. Replaying with a

@@ -158,6 +158,13 @@ seed-packet rule only; it does not change the global vaccination protocol matrix
 With `active_operators_per_day=1`, the scheduled drive cap is 200 unique animals
 per day even when more operators are available in HRMS.
 
+Adult entry_date is never a vaccination due-date anchor. Adult blank-history
+animals join the adult campaign/catch-up cohort by physical shed/partition;
+adult same-vaccine accepted history anchors booster/revac timing; kids/young
+animals keep strict DOB/birth-age timing. Any Blue Tongue, Goat Pox, Sheep Pox,
+FMD, or HS adult drive row created merely from adult entry_date/post_arrival is
+invalid seed output.
+
 The only exception in this packet is the explicit `seed_catchup_overrides` row:
 Darshan may carry 210 ET+TT animals on `2026-07-25` because 114 ET+TT animals
 were already completed on `2026-07-24`. This is seed/proof fixture behavior, not
@@ -196,7 +203,9 @@ The headline numbers are:
 | Final ET+TT catch-up | 2026-07-25 Sat | Darshan Talwar | ET+TT | 210 | 210 |
 
 Darshan is available on both Friday and Saturday; his weekly off is Sunday.
-Any PPR drive row from this seed packet is invalid for now.
+Any PPR drive row from this seed packet is invalid for now. Any non-ET+TT adult
+drive row that exists only because adult entry_date was treated as post_arrival
+is also invalid.
 
 ## Seed/Verify Checklist For Local Or Dev
 
@@ -232,6 +241,9 @@ Any PPR drive row from this seed packet is invalid for now.
    - ET+TT adult booster, Blue Tongue, HS, FMD, kid/adult rules, combo
      spacing, sick/ICU/pregnancy/terminal exclusions, and `+1 week` buffer all
      come from backend rules.
+   - no adult initial `*_adult_*` protocol rule has `trigger_type=post_arrival`;
+   - no Blue Tongue, Goat Pox, Sheep Pox, FMD, or HS adult drive is
+     auto-scheduled merely because adult entry_date exists;
    - the DB schedule for the discussed scenarios matches
      `expected-drive-schedules.json`; any mismatch must be explained by an
      explicit changed input, not by hidden frontend or seed defaults.

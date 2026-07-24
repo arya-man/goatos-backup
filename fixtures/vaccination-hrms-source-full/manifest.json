@@ -168,7 +168,7 @@
     {
       "date": "2026-07-24",
       "change": "CPT adult campaign coalescing and one-time seed catch-up capacity override",
-      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no cpt-operator-roster.json and its raw vaccination rows are unchanged. CPT operator-drive rehearsal bundles may declare an explicit seed_catchup_overrides row; only that operator/date may exceed the standing HRMS cap. Adult campaign generation ignores entry_date/post_arrival as a strict splitter for same vaccine/rule plus physical shed/partition under cap, while kid/young schedule windows remain strict."
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no cpt-operator-roster.json and its raw vaccination rows are unchanged. CPT operator-drive rehearsal bundles may declare an explicit seed_catchup_overrides row; only that operator/date may exceed the standing HRMS cap. Adult entry_date is never a vaccination due-date anchor: adult blank-history animals join campaign/catch-up cohorts by physical shed/partition, while kid/young schedule windows remain strict."
     },
     {
       "date": "2026-07-24",

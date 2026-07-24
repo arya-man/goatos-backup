@@ -21,8 +21,8 @@
 //
 //   VARIANT COMPARISON (opt-in via GOATOS_EXPECTED_DRIVE_VARIANT=<variant id>) — the exact
 //   per-date/operator/animal-count rows of one named variant. This CPT seed packet currently
-//   schedules ET+TT only; expected-drive-schedules.json also marks PPR dose-code prefixes as
-//   forbidden from seeded drive output.
+//   schedules ET+TT only; expected-drive-schedules.json also marks PPR and adult-entry-date
+//   spillover dose-code prefixes as forbidden from seeded drive output.
 //
 // Usage:
 //   node check-expected-drive-schedules.mjs --self-test
@@ -174,7 +174,16 @@ LEFT JOIN workforce_positions wp
 WHERE sc.tenant_id = '${tenant}'::uuid
 ORDER BY 1`;
 
-export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows, duplicateOpenAssignmentRows = [] }) {
+const ADULT_POST_ARRIVAL_RULE_SQL = (tenant) => `
+SELECT pr.dose_code, pr.trigger_type
+FROM protocol_rules pr
+WHERE pr.tenant_id = '${tenant}'::uuid
+  AND pr.dose_code LIKE '%\\_adult\\_%' ESCAPE '\\'
+  AND pr.dose_code NOT LIKE '%\\_revac' ESCAPE '\\'
+  AND pr.trigger_type = 'post_arrival'
+ORDER BY 1`;
+
+export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows, duplicateOpenAssignmentRows = [], adultPostArrivalRuleRows = [] }) {
   const failures = [];
   const { cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes = [], seedCatchupOverrides = [] } = contract;
   const capFor = (date, operator) => {
@@ -218,6 +227,10 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
 
   for (const [doseCode, goatID, count] of duplicateOpenAssignmentRows) {
     failures.push(`duplicate open assignment: goat ${goatID} has ${count} open assignments for ${doseCode}`);
+  }
+
+  for (const [doseCode, triggerType] of adultPostArrivalRuleRows) {
+    failures.push(`adult entry-date anchor rule: ${doseCode} has trigger_type=${triggerType}; adult initial vaccination rules must use campaign/catch-up, never post_arrival`);
   }
 
   const configuredOperators = new Set(operatorRows.map(([name]) => name));
@@ -318,6 +331,7 @@ function selfTest() {
     variant: null,
     vaccineRows: [],
     duplicateOpenAssignmentRows: [],
+    adultPostArrivalRuleRows: [],
   };
   const exactVariant = {
     id: "exact-210",
@@ -340,6 +354,7 @@ function selfTest() {
     ["missing shift config fails", { ...clean, operatorRows: [["Darshan Talwar", "200", "sunday"]] }, 2],
     ["wrong cap fails", { ...clean, operatorRows: [["Amit Kumar", "200", "friday"], ["Darshan Talwar", "50", "sunday"], ["Sagar Mahoor", "200", "saturday"]] }, 1],
     ["prohibited PPR drive fails", { ...clean, vaccineRows: [["2026-08-07", "ppr_adult_w1", "124"]] }, 1],
+    ["adult post-arrival rule fails", { ...clean, adultPostArrivalRuleRows: [["fmd_adult_w1", "post_arrival"]] }, 1],
     ["variant exact date/operator/count passes", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "210"]] }, 0],
     ["variant exact date/operator/count fails", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "200"]] }, 2],
     ["variant extra ET+TT rows fail", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "210"], ["2026-07-26", "Sagar Mahoor", "et_tt_adult_w2", "199"], ["2026-07-27", "Darshan Talwar", "et_tt_adult_w2", "11"]] }, 1],
@@ -393,6 +408,7 @@ function main() {
     variant,
     vaccineRows: (variant || contract.prohibitedDosePrefixes.length) ? psql(VACCINE_BY_DATE_SQL(tenant)) : [],
     duplicateOpenAssignmentRows: psql(DUPLICATE_OPEN_ASSIGNMENT_SQL(tenant)),
+    adultPostArrivalRuleRows: psql(ADULT_POST_ARRIVAL_RULE_SQL(tenant)),
   });
 
   if (failures.length) {

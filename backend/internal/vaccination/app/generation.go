@@ -885,7 +885,8 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 	for _, plan := range plans {
 		path := schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf, vaccineHistoryByGoat[plan.goat.GoatID])
 		for _, rule := range plan.rules {
-			if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "post_arrival") {
+			triggerType := strings.TrimSpace(rule.TriggerType)
+			if !strings.EqualFold(triggerType, "post_arrival") && !strings.EqualFold(triggerType, "manual_campaign") {
 				continue
 			}
 			if !isAdultCampaignRule(rule) {

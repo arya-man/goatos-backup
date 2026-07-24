@@ -878,8 +878,8 @@ func TestVaccinationMatrixStoresETTTAdultBoosterAsTwentyOneDayCourseGap(t *testi
 			Gap     int
 		}{
 			"et_tt_kid_7w":   {Trigger: "birth_age", Offset: 49, Gap: 21},
-			"et_tt_adult_w1": {Trigger: "post_arrival", Offset: 7, Gap: 0},
-			"et_tt_adult_w2": {Trigger: "post_arrival", Offset: 21, Gap: 21},
+			"et_tt_adult_w1": {Trigger: "manual_campaign", Offset: 7, Gap: 0},
+			"et_tt_adult_w2": {Trigger: "manual_campaign", Offset: 21, Gap: 21},
 			"et_tt_revac":    {Trigger: "after_previous_completion", Offset: 182, Gap: 182},
 		} {
 			if got[dose] != want {
@@ -889,6 +889,33 @@ func TestVaccinationMatrixStoresETTTAdultBoosterAsTwentyOneDayCourseGap(t *testi
 		return
 	}
 	t.Fatal("ET_TT matrix row missing")
+}
+
+func TestVaccinationMatrixHasNoAdultPostArrivalInitialRules(t *testing.T) {
+	raw, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build matrix: %v", err)
+	}
+	var payload struct {
+		MatrixRows []struct {
+			Schedule []struct {
+				DoseCode    string `json:"dose_code"`
+				TriggerType string `json:"trigger_type"`
+			} `json:"schedule"`
+		} `json:"matrix_rows"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal matrix: %v", err)
+	}
+	for _, row := range payload.MatrixRows {
+		for _, sched := range row.Schedule {
+			if strings.Contains(strings.ToLower(sched.DoseCode), "_adult_") &&
+				!strings.Contains(strings.ToLower(sched.DoseCode), "_revac") &&
+				sched.TriggerType == "post_arrival" {
+				t.Fatalf("adult initial dose %s uses post_arrival; adult entry_date is never a vaccination due-date anchor", sched.DoseCode)
+			}
+		}
+	}
 }
 
 func TestValidateSeedReconciliation(t *testing.T) {

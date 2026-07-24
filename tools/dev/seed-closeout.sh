@@ -308,6 +308,28 @@ run_expected_drive_schedule_proof() {
   GOATOS_TENANT_ID="$tenant_id" node "$checker" --expected "$expected"
 }
 
+run_cpt_passport_display_proof() {
+  if [ "${GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF:-0}" != "1" ]; then
+    echo "==> seed-closeout: skip CPT passport display proof (GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF=1 not set)"
+    return
+  fi
+  local checker="$repo/tools/dev/check-cpt-vaccination-passport-display.mjs"
+  if [ ! -f "$checker" ]; then
+    echo "seed-closeout: missing CPT passport display checker at ${checker}" >&2
+    exit 2
+  fi
+  if [ -z "${GOATOS_API_BASE_URL:-}" ]; then
+    echo "==> seed-closeout: skip CPT passport display proof (GOATOS_API_BASE_URL not set)"
+    return
+  fi
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    GOATOS_TENANT_ID=%q node %q\n' "$tenant_id" "$checker"
+    return
+  fi
+  echo "==> seed-closeout: CPT passport display proof"
+  GOATOS_TENANT_ID="$tenant_id" node "$checker"
+}
+
 run_calendar_projectors() {
   if [ "${GOATOS_SEED_CLOSEOUT_RUN_CALENDAR:-1}" = "0" ]; then
     echo "==> seed-closeout: skip calendar projectors (GOATOS_SEED_CLOSEOUT_RUN_CALENDAR=0)"
@@ -345,6 +367,7 @@ run_goat_shed_integrity_proof
 run_required_projectors
 run_vaccination_drive_batching
 run_expected_drive_schedule_proof
+run_cpt_passport_display_proof
 run_calendar_projectors
 run_counts_projectors
 echo "seed-closeout: complete"
