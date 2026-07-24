@@ -27,14 +27,20 @@ const (
 	rcOperatorMember = "e1000000-0000-4000-8000-000000000001"
 	rcParkHeadMember = "e1000000-0000-4000-8000-000000000002"
 	rcManagerMember  = "e1000000-0000-4000-8000-000000000003"
+	rcDirectorMember = "e1000000-0000-4000-8000-000000000004"
+	rcCEOMember      = "e1000000-0000-4000-8000-000000000005"
 
 	rcOperatorDevice = "e1000000-0000-4000-8000-000000000011"
 	rcParkHeadDevice = "e1000000-0000-4000-8000-000000000012"
 	rcManagerDevice  = "e1000000-0000-4000-8000-000000000013"
+	rcDirectorDevice = "e1000000-0000-4000-8000-000000000014"
+	rcCEODevice      = "e1000000-0000-4000-8000-000000000015"
 
 	rcOperatorToken = "fcm-reminder-operator-e1-0001"
 	rcParkHeadToken = "fcm-reminder-parkhead-e1-0002"
 	rcManagerToken  = "fcm-reminder-manager-e1-0003"
+	rcDirectorToken = "fcm-reminder-director-e1-0004"
+	rcCEOToken      = "fcm-reminder-ceo-e1-0005"
 
 	rcProtocolID = "e1000000-0000-4000-8000-000000000101"
 	rcVersionID  = "e1000000-0000-4000-8000-000000000102"
@@ -67,9 +73,9 @@ func TestReminderCadenceStageRunsAgainstRealPostgres(t *testing.T) {
 // production ReminderCadenceStage (the stage wired into cmd/kernel-worker), NOT a direct repository
 // call, against a pgtest DB seeded with only INPUT facts:
 //
-//   - a park + workforce roster: operator, park head, PHC manager, each an active position at the
-//     park with an active device carrying an FCM token — so ResolvePositionRecipientsBatch actually
-//     returns recipients;
+//   - a park + workforce roster: operator, park head, PHC manager, PC director, and CEO, each with
+//     an active device carrying an FCM token — so ResolvePositionRecipientsBatch actually returns
+//     recipients;
 //   - three unbatched, scheduled vaccination obligations in that park, due at D0 (today), D+3, and
 //     D+7 relative to biztime.BusinessDayStart(time.Now()) — anchored to the business day, NO fixed
 //     calendar dates (india-date-guard / time-bomb safe).
@@ -115,7 +121,7 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 	}
 
 	// ---- Assert: a notification_requests row per ladder slot, to the seeded recipients. ---------
-	expectedTokens := []string{rcOperatorToken, rcParkHeadToken, rcManagerToken}
+	expectedTokens := []string{rcOperatorToken, rcParkHeadToken, rcManagerToken, rcDirectorToken, rcCEOToken}
 	for _, slot := range []string{"advance_notice", "reminder", "due_today"} {
 		tokens := reminderRecipientTokensForType(t, ctx, pool, slot)
 		if len(tokens) == 0 {
@@ -128,10 +134,10 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 	}
 
 	firstTotal := reminderNotificationCount(t, ctx, pool)
-	if firstTotal != 9 { // 3 ladder slots x 3 recipient devices
-		t.Fatalf("first run total notification_requests = %d, want 9 (3 slots x 3 recipients)", firstTotal)
+	if firstTotal != 15 { // 3 ladder slots x 5 recipient devices
+		t.Fatalf("first run total notification_requests = %d, want 15 (3 slots x 5 recipients)", firstTotal)
 	}
-	t.Logf("FIRST RUN total notification_requests = %d (expected 3 slots x 3 recipients)", firstTotal)
+	t.Logf("FIRST RUN total notification_requests = %d (expected 3 slots x 5 recipients)", firstTotal)
 
 	// ---- Assert idempotency: a second run at the same instant must NOT duplicate. ---------------
 	if err := stage.Run(ctx); err != nil {
@@ -144,9 +150,47 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 	t.Logf("SECOND RUN total notification_requests = %d (no duplicates — idempotent)", secondTotal)
 }
 
-// seedReminderRoster seeds the park's operational reminder audience: three members (operator, park
-// head, PHC manager), each an active center-scoped position at the park with an active FCM device.
-// Position validity is anchored to activeAt so pinned-clock tests never depend on database wall time.
+// TestReminderCadenceStageSkipsInProgressVaccinationSheds is the operator-scanning guard. Daily
+// reminders are for scheduled/open vaccination sheds; once an operator starts scanning and the drive
+// is in_progress, reminder cadence must stop for that shed. Submission/review notifications are
+// handled by separate event-triggered paths.
+func TestReminderCadenceStageSkipsInProgressVaccinationSheds(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	pool := pgtest.StartPostgres(t, ctx)
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	deps := Deps{Pool: pool, PgCfg: platformpg.Config{QueryTimeout: 10 * time.Second}, Logger: logger}
+
+	dayStart := biztime.BusinessDayStart(time.Now())
+	evalNow := dayStart.Add(13*time.Hour + 30*time.Minute) // due_today 13:00 would be eligible
+	dueToday := dayStart.Add(10 * time.Hour)
+
+	seedReminderRoster(t, ctx, pool, evalNow)
+	seedReminderProtocol(t, ctx, pool)
+	seedReminderObligation(t, ctx, pool, "e1000000-0000-4000-9000-000000000011", "rc-obl-in-progress", dueToday)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'in_progress', updated_at = $3::timestamptz
+WHERE tenant_id = $1::uuid AND idempotency_key = $2`,
+		rcTenant, "rc-obl-in-progress", evalNow); err != nil {
+		t.Fatalf("mark obligation in_progress: %v", err)
+	}
+
+	stage := NewReminderCadenceStage(deps, rcTenant).withClock(func() time.Time { return evalNow })
+	if err := stage.Run(ctx); err != nil {
+		t.Fatalf("stage run failed: %v", err)
+	}
+	if got := reminderNotificationCount(t, ctx, pool); got != 0 {
+		t.Fatalf("in_progress vaccination shed queued %d reminder notification_requests, want 0", got)
+	}
+}
+
+// seedReminderRoster seeds the reminder audience: park-scoped operator, park head, PHC manager,
+// plus tenant-scoped PC director and CEO, each with an active FCM device. Position validity is
+// anchored to activeAt so pinned-clock tests never depend on database wall time.
 func seedReminderRoster(t *testing.T, ctx context.Context, pool *pgxpool.Pool, activeAt time.Time) {
 	t.Helper()
 	member := func(id, code, name, hint string) {
@@ -160,6 +204,8 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active', $5)`,
 	member(rcOperatorMember, "RC-OP", "RC Operator", "operator")
 	member(rcParkHeadMember, "RC-PH", "RC Park Head", "park_head")
 	member(rcManagerMember, "RC-MGR", "RC PHC Manager", "supervisor")
+	member(rcDirectorMember, "RC-DIR", "RC PC Director", "other")
+	member(rcCEOMember, "RC-CEO", "RC CEO", "other")
 
 	position := func(memberID, positionCode, tier string) {
 		if _, err := pool.Exec(ctx, `
@@ -172,6 +218,16 @@ VALUES ($1::uuid, $2::uuid, 'center', $3::uuid, $4, $5, 'active', $6::timestampt
 	position(rcOperatorMember, "operator", "assistant")
 	position(rcParkHeadMember, "park_head", "head")
 	position(rcManagerMember, "phc_manager", "manager")
+	tenantPosition := func(memberID, positionCode, tier string) {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'tenant', $1::uuid, $3, $4, 'active', $5::timestamptz)`,
+			rcTenant, memberID, positionCode, tier, activeAt.Add(-time.Hour)); err != nil {
+			t.Fatalf("seed tenant position %s: %v", positionCode, err)
+		}
+	}
+	tenantPosition(rcDirectorMember, "pc_director", "director")
+	tenantPosition(rcCEOMember, "ceo_internal", "cxo")
 
 	device := func(id, memberID, appInstall, token string) {
 		if _, err := pool.Exec(ctx, `
@@ -184,6 +240,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'android', $4, $5, '1.0.0', '14', 'active'
 	device(rcOperatorDevice, rcOperatorMember, "rc-install-operator", rcOperatorToken)
 	device(rcParkHeadDevice, rcParkHeadMember, "rc-install-parkhead", rcParkHeadToken)
 	device(rcManagerDevice, rcManagerMember, "rc-install-manager", rcManagerToken)
+	device(rcDirectorDevice, rcDirectorMember, "rc-install-director", rcDirectorToken)
+	device(rcCEODevice, rcCEOMember, "rc-install-ceo", rcCEOToken)
 }
 
 // seedReminderProtocol seeds a published vaccination protocol definition -> version -> rule so the

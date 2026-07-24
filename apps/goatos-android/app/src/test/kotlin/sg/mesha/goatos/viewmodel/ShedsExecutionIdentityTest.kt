@@ -1,7 +1,9 @@
 package sg.mesha.goatos.viewmodel
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
@@ -37,6 +39,37 @@ class ShedsExecutionIdentityTest {
         )
 
         assertEquals(ExecutionCounts(target = 5, open = 3, done = 2), counts)
+    }
+
+    @Test
+    fun `all animals done but draft shed proof still opens execution`() {
+        val godelOne = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 2,
+                openCount = 0,
+                doneCount = 2,
+                workState = "in_progress",
+                primaryActionKey = "submit",
+                sopStatus = "draft",
+            ),
+        )
+
+        assertFalse(godelOne.opensSubmittedRecordOnly())
+    }
+
+    @Test
+    fun `submitted shed opens record only`() {
+        val submitted = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 2,
+                openCount = 0,
+                doneCount = 2,
+                primaryActionKey = "record",
+                sopStatus = "submitted",
+            ),
+        )
+
+        assertTrue(submitted.opensSubmittedRecordOnly())
     }
 
     @Test

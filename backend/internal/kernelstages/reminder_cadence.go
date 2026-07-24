@@ -39,11 +39,12 @@ type ReminderCadenceStage struct {
 	lastRunIterations int
 }
 
-// reminderCadencePositionCodes is the park-scoped operational audience for the reminder ladder
-// (vaccination-notification-rules.md §4a): the operator(s), park head, and PHC manager for the park
-// the drive is due in. HQ-tier roles (director/COO/CXO) are deliberately excluded here — they receive
-// a digest + escalations, never the per-drive ladder.
+// reminderCadencePositionCodes is the park-scoped operational audience for the reminder ladder:
+// the operator(s), park head, and PHC manager for the park the drive is due in.
 var reminderCadencePositionCodes = []string{"operator", "park_head", "phc_manager"}
+
+// reminderCadenceTenantPositionCodes is the tenant-scoped leadership audience for the same ladder.
+var reminderCadenceTenantPositionCodes = []string{"pc_director", "ceo_internal"}
 
 // NewReminderCadenceStage builds the reminder cadence stage.
 func NewReminderCadenceStage(deps Deps, tenantID string) *ReminderCadenceStage {
@@ -142,9 +143,8 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 			}
 
 			// Resolve recipients for all parks at once (batch query, not per-park N+1). The park is a
-			// 'center' scope in the workforce model; the ladder audience is the park's
-			// operator/park-head/PHC-manager seats (vaccination-notification-rules.md §4a).
-			// Batched resolve for ALL parks in this page in one = ANY($parks) round trip.
+			// 'center' scope in the workforce model; tenant leaders are resolved separately and then
+			// attached to every park fire.
 			// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
 			recipientsByParkPosition, err := s.roster.ResolvePositionRecipientsBatch(
 				ctx,
@@ -157,12 +157,25 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("resolve position recipients batch: %w", err)
 			}
+			// scale-guard:ignore: per-PAGE tenant leadership batch read; one fixed-size lookup, not per-row fanout.
+			tenantRecipientsByPosition, err := s.roster.ResolvePositionRecipientsBatch(
+				ctx,
+				s.tenantID,
+				"tenant",
+				[]string{s.tenantID},
+				reminderCadenceTenantPositionCodes,
+				now,
+			)
+			if err != nil {
+				return fmt.Errorf("resolve tenant position recipients batch: %w", err)
+			}
 
 			// ResolvePositionRecipientsBatch keys its result by "<scopeID>|<positionCode>", so a park with
 			// three seats (operator, park_head, phc_manager) yields three separate keys. Fold every seat's
 			// devices back to the bare park id and dedup by device (one member may hold two seats, or one
 			// device serve two members) so a recipient is pushed at most once per fire.
 			recipientsByPark := foldRecipientsByPark(recipientsByParkPosition)
+			tenantRecipients := foldTenantRecipients(tenantRecipientsByPosition)
 
 			// Map fires to fire inputs with resolved recipients.
 			var fireInputs []calendarports.ReminderCadenceFireInput
@@ -172,7 +185,7 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 					Title:      renderReminderTitle(fire),
 					Body:       renderReminderBody(fire),
 					Context:    renderReminderContext(fire),
-					Recipients: recipientsByPark[fire.ParkID],
+					Recipients: appendRecipients(recipientsByPark[fire.ParkID], tenantRecipients),
 				})
 			}
 
@@ -289,6 +302,49 @@ func foldRecipientsByPark(byParkPosition map[string][]workforcedomain.Notificati
 	return out
 }
 
+func foldTenantRecipients(byTenantPosition map[string][]workforcedomain.NotificationRecipient) []calendarports.NotificationRecipient {
+	seen := map[string]bool{}
+	var out []calendarports.NotificationRecipient
+	for key, list := range byTenantPosition {
+		_, positionCode, ok := splitParkPositionKey(key)
+		if !ok {
+			continue
+		}
+		for _, wr := range list {
+			if wr.DeviceID == "" || seen[wr.DeviceID] {
+				continue
+			}
+			seen[wr.DeviceID] = true
+			out = append(out, calendarports.NotificationRecipient{
+				MemberID:  wr.WorkforceMemberID,
+				DeviceID:  wr.DeviceID,
+				FCMToken:  wr.FCMToken,
+				RoleLabel: positionCode,
+			})
+		}
+	}
+	return out
+}
+
+func appendRecipients(base []calendarports.NotificationRecipient, extra []calendarports.NotificationRecipient) []calendarports.NotificationRecipient {
+	if len(extra) == 0 {
+		return base
+	}
+	out := append([]calendarports.NotificationRecipient{}, base...)
+	seen := map[string]bool{}
+	for _, recipient := range out {
+		seen[recipient.DeviceID] = true
+	}
+	for _, recipient := range extra {
+		if recipient.DeviceID == "" || seen[recipient.DeviceID] {
+			continue
+		}
+		seen[recipient.DeviceID] = true
+		out = append(out, recipient)
+	}
+	return out
+}
+
 // splitParkPositionKey parses the "<scopeID>|<positionCode>" key ResolvePositionRecipientsBatch emits.
 func splitParkPositionKey(key string) (scopeID, positionCode string, ok bool) {
 	idx := strings.LastIndex(key, "|")
@@ -342,7 +398,6 @@ func renderReminderContext(fire calendarports.ReminderCadenceFire) map[string]st
 		"fire_type":        fire.NotificationType,
 		"fire_slot":        fire.Slot,
 		"obligation_count": fmt.Sprintf("%d", fire.ObligationCount),
-		"screen":           "calendar",
-		"href":             "/calendar",
+		"screen":           "vaccination",
 	}
 }
