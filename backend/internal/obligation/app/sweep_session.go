@@ -688,8 +688,59 @@ func selectIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Unbatche
 	}
 	selected := make([]string, 0, len(rows))
 	claims := make([]shotCapReservation, 0, len(rows))
+	for _, group := range unbatchedShotCapGroups(now, rows, *plannedDate, planner, identity, session) {
+		groupClaims := make([]shotCapReservation, 0, len(group.rows))
+		groupSelected := make([]string, 0, len(group.rows))
+		groupFits := true
+		for _, row := range group.rows {
+			ids, nextClaims, ok, err := session.tryClaimUnbatchedShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(groupClaims)
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				groupFits = false
+				break
+			}
+			groupSelected = append(groupSelected, ids...)
+			groupClaims = append(groupClaims, nextClaims...)
+		}
+		if groupFits {
+			selected = append(selected, groupSelected...)
+			claims = append(claims, groupClaims...)
+			continue
+		}
+		session.releaseClaims(groupClaims)
+		if planner.MaxGoatsPerDrive <= 0 || int32(group.targetCount) <= planner.MaxGoatsPerDrive {
+			continue
+		}
+		for _, row := range group.rows {
+			ids, nextClaims, ok, err := session.tryClaimUnbatchedShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				continue
+			}
+			selected = append(selected, ids...)
+			claims = append(claims, nextClaims...)
+		}
+	}
+	return selected, claims, nil
+}
+
+type unbatchedShotCapGroup struct {
+	rows        []domain.UnbatchedDue
+	targetCount int
+}
+
+func unbatchedShotCapGroups(now time.Time, rows []domain.UnbatchedDue, plannedDate time.Time, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity, session *SweepSession) []unbatchedShotCapGroup {
+	byKey := make(map[string]int)
+	groups := make([]unbatchedShotCapGroup, 0)
 	for _, row := range rows {
-		if !session.vaccineFeasibleOnPlannerDate(now, *plannedDate, driveCandidate{
+		if !session.vaccineFeasibleOnPlannerDate(now, plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,
@@ -701,28 +752,39 @@ func selectIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Unbatche
 		}, planner, identity) {
 			continue
 		}
-		if planner.MaxShotsPerAnimalPerDrive <= 0 {
-			selected = append(selected, row.ObligationID)
-			continue
+		key := unbatchedRouteGroupKey(row)
+		idx, ok := byKey[key]
+		if !ok {
+			idx = len(groups)
+			byKey[key] = idx
+			groups = append(groups, unbatchedShotCapGroup{})
 		}
-		if strings.TrimSpace(row.TargetID) == "" {
-			selected = append(selected, row.ObligationID)
-			continue
-		}
-		key := visitShotCountKey(*plannedDate, row.TargetID)
-		if session.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
-			if err := session.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, *plannedDate); err != nil {
-				session.releaseClaims(claims)
-				return nil, nil, err
-			}
-			continue
-		}
-		session.claim(key, identity.VaccineCode, identity.VaccinePriority)
-		session.rememberPlannedVaccine(row.TargetID, *plannedDate, identity)
-		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority, targetID: row.TargetID, date: *plannedDate})
-		selected = append(selected, row.ObligationID)
+		groups[idx].rows = append(groups[idx].rows, row)
 	}
-	return selected, claims, nil
+	for i := range groups {
+		groups[i].targetCount = uniqueUnbatchedTargetCount(groups[i].rows)
+	}
+	return groups
+}
+
+func (s *SweepSession) tryClaimUnbatchedShotCap(row domain.UnbatchedDue, plannedDate time.Time, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity) ([]string, []shotCapReservation, bool, error) {
+	if planner.MaxShotsPerAnimalPerDrive <= 0 {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	if strings.TrimSpace(row.TargetID) == "" {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	key := visitShotCountKey(plannedDate, row.TargetID)
+	if s.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
+		if err := s.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, plannedDate); err != nil {
+			return nil, nil, false, err
+		}
+		return nil, nil, false, nil
+	}
+	s.claim(key, identity.VaccineCode, identity.VaccinePriority)
+	s.rememberPlannedVaccine(row.TargetID, plannedDate, identity)
+	claim := shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority, targetID: row.TargetID, date: plannedDate}
+	return []string{row.ObligationID}, []shotCapReservation{claim}, true, nil
 }
 
 // ruleVaccineIdentityResolver resolves a park-consolidation candidate's OWN rule to its vaccine
@@ -749,12 +811,65 @@ func selectParkIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Park
 	}
 	out := make([]string, 0, len(selected))
 	claims := make([]shotCapReservation, 0, len(selected))
+	for _, group := range parkShotCapGroups(now, rows, selectedSet, *plannedDate, planner, identityFor, session) {
+		groupClaims := make([]shotCapReservation, 0, len(group.rows))
+		groupSelected := make([]string, 0, len(group.rows))
+		groupFits := true
+		for _, row := range group.rows {
+			identity := identityFor(row.RuleID)
+			ids, nextClaims, ok, err := session.tryClaimParkShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(groupClaims)
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				groupFits = false
+				break
+			}
+			groupSelected = append(groupSelected, ids...)
+			groupClaims = append(groupClaims, nextClaims...)
+		}
+		if groupFits {
+			out = append(out, groupSelected...)
+			claims = append(claims, groupClaims...)
+			continue
+		}
+		session.releaseClaims(groupClaims)
+		if planner.MaxGoatsPerDrive <= 0 || int32(group.targetCount) <= planner.MaxGoatsPerDrive {
+			continue
+		}
+		for _, row := range group.rows {
+			identity := identityFor(row.RuleID)
+			ids, nextClaims, ok, err := session.tryClaimParkShotCap(row, *plannedDate, planner, identity)
+			if err != nil {
+				session.releaseClaims(claims)
+				return nil, nil, err
+			}
+			if !ok {
+				continue
+			}
+			out = append(out, ids...)
+			claims = append(claims, nextClaims...)
+		}
+	}
+	return out, claims, nil
+}
+
+type parkShotCapGroup struct {
+	rows        []domain.ParkConsolidationCandidate
+	targetCount int
+}
+
+func parkShotCapGroups(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, identityFor ruleVaccineIdentityResolver, session *SweepSession) []parkShotCapGroup {
+	byKey := make(map[string]int)
+	groups := make([]parkShotCapGroup, 0)
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
 			continue
 		}
 		identity := identityFor(row.RuleID)
-		if !session.vaccineFeasibleOnPlannerDate(now, *plannedDate, driveCandidate{
+		if !session.vaccineFeasibleOnPlannerDate(now, plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,
@@ -766,28 +881,40 @@ func selectParkIDsWithinVisitShotCapForSession(now time.Time, rows []domain.Park
 		}, planner, identity) {
 			continue
 		}
-		if planner.MaxShotsPerAnimalPerDrive <= 0 {
-			out = append(out, row.ObligationID)
-			continue
+		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
+		key := strings.TrimSpace(row.ParkID) + "\x00" + strings.TrimSpace(row.ShedID) + "\x00" + physicalShed + "\x00" + partition + "\x00" + strings.TrimSpace(row.RuleID)
+		idx, ok := byKey[key]
+		if !ok {
+			idx = len(groups)
+			byKey[key] = idx
+			groups = append(groups, parkShotCapGroup{})
 		}
-		if strings.TrimSpace(row.TargetID) == "" {
-			out = append(out, row.ObligationID)
-			continue
-		}
-		key := visitShotCountKey(*plannedDate, row.TargetID)
-		if session.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
-			if err := session.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, *plannedDate); err != nil {
-				session.releaseClaims(claims)
-				return nil, nil, err
-			}
-			continue
-		}
-		session.claim(key, identity.VaccineCode, identity.VaccinePriority)
-		session.rememberPlannedVaccine(row.TargetID, *plannedDate, identity)
-		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority, targetID: row.TargetID, date: *plannedDate})
-		out = append(out, row.ObligationID)
+		groups[idx].rows = append(groups[idx].rows, row)
 	}
-	return out, claims, nil
+	for i := range groups {
+		groups[i].targetCount = distinctParkTargetCount(groups[i].rows)
+	}
+	return groups
+}
+
+func (s *SweepSession) tryClaimParkShotCap(row domain.ParkConsolidationCandidate, plannedDate time.Time, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity) ([]string, []shotCapReservation, bool, error) {
+	if planner.MaxShotsPerAnimalPerDrive <= 0 {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	if strings.TrimSpace(row.TargetID) == "" {
+		return []string{row.ObligationID}, nil, true, nil
+	}
+	key := visitShotCountKey(plannedDate, row.TargetID)
+	if s.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
+		if err := s.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, plannedDate); err != nil {
+			return nil, nil, false, err
+		}
+		return nil, nil, false, nil
+	}
+	s.claim(key, identity.VaccineCode, identity.VaccinePriority)
+	s.rememberPlannedVaccine(row.TargetID, plannedDate, identity)
+	claim := shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority, targetID: row.TargetID, date: plannedDate}
+	return []string{row.ObligationID}, []shotCapReservation{claim}, true, nil
 }
 
 // SweepVersionPriority pairs a protocol version with its resolved sweep config, letting a
