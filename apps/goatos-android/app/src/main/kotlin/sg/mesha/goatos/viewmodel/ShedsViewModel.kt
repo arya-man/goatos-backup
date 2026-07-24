@@ -180,7 +180,9 @@ class ShedsViewModel @Inject constructor(
 
     private fun selectDay(dateKey: String) {
         val date = parseExecutionDate(dateKey) ?: return
-        if (date < workWindow.today || date > workWindow.lastDay) return
+        // The strip runs firstDay (yesterday) .. lastDay (today+5); every rendered tab,
+        // including yesterday, must be selectable.
+        if (date < workWindow.firstDay || date > workWindow.lastDay) return
         _selectedDay.value = date
     }
 
