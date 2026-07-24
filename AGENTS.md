@@ -1156,6 +1156,20 @@ Do not:
   seed commands, bootstrap/nav tests, and docs include the module. RBAC-based
   route visibility applies to non-founder operators, not to these five builder
   accounts.
+  **A STG (or any) seed is INCOMPLETE until this grant is MATERIALIZED, not
+  merely pending.** `auth_pending_email_grants` rows only become an active
+  `user_scope_grants` row via the `/auth/session-events` runtime claim path,
+  and admin-web Google SSO does not reliably trigger that path on the first
+  login after a fresh seed — the observed failure is `403 permission_denied`.
+  For STG, run `make seed-stg-9-person-login`
+  (`backend/cmd/seed-stg-login-grants`), which materializes the ACTIVE tenant
+  grant directly for all 5 leadership accounts (plus the 3 operators + 1
+  director below), keyed by `platformauth.StableSubjectID(issuer,
+  firebase_uid)` — the same derivation the backend uses at request time. Verify
+  with `make verify-stg-9-person-login` and
+  `docs/runbooks/stg-9-person-login-verification.md` before declaring the seed
+  done. `docs/runbooks/stg-login-seed-contract.md` is the canonical personnel
+  rule this command implements.
 - CPT operator-drive rehearsal seed invariant: the committed packet at
   `fixtures/vaccination-cpt-operator-drive-2026-07-23/` is CPT/Channapatna only
   and uses business date `2026-07-23`. Do not synthesize CBE/Coimbatore rows.
@@ -1164,6 +1178,18 @@ Do not:
   director-only monitoring scope. The `Adult` source filenames do not narrow
   the vaccination kernel: kid/adult/booster/clinical/combo-spacing/safe-window
   rules still come from backend vaccination rules.
+  **Materialized grant + department binding is part of this invariant, not a
+  separate concern.** Amit, Darshan, Sagar (operator role) and Chandrakant
+  (`pc_director` role) are only real, working STG logins once their
+  `user_scope_grants` row is `status='active'` AND their existing named
+  `workforce_members` roster row (seeded by `seed-roster-real` /
+  `seed-vaccination-cpt-operator-drive`) is bound to `user_id` with
+  `department_id = preventive_care`, so `department_module_grants` gives them
+  the vaccination bottom bar. `make seed-stg-9-person-login` is wired as a
+  required final step of `seed-vaccination-source-full` and
+  `seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg` — do not seed CPT
+  operator-drive rehearsal data on STG without it, and do not declare the
+  rehearsal seeded until `make verify-stg-9-person-login` passes.
 - Leadership assistant coverage invariant: every leadership-relevant table,
   read API, OpenAPI contract, admin-web route, mobile workflow, reporting view,
   domain event, or official KPI must resolve to a Cube governed metric, a

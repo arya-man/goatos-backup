@@ -4,6 +4,34 @@
 > runbook and `context/deploy-contract.json` point here. If any doc disagrees
 > with this section, this section wins.
 
+## PENDING GRANTS ARE NOT ENOUGH (mandatory, every STG seed)
+
+`auth_pending_email_grants` rows (created by `make seed-stg-email-grants`) are
+**not** a login grant. They only materialize into an active
+`user_scope_grants` row via the `/auth/session-events` claim path, which fires
+on a runtime sign-in. Admin-web leadership (Google SSO) and mobile operators/
+director do **not** reliably hit that path on the first login attempt after a
+fresh STG seed — the observed failure mode is `403 permission_denied` on
+admin-web and an empty bottom bar on mobile.
+
+A STG seed is **INCOMPLETE** until:
+
+1. all 9 accounts have an **ACTIVE** (`status = 'active'`) `user_scope_grants`
+   row — not merely a pending email grant;
+2. the 4 field users (Amit, Darshan, Sagar, Chandrakant) are bound to their
+   existing named `workforce_members` roster row with a non-null
+   `department_id` (`preventive_care`), so `department_module_grants` gives
+   them the vaccination bottom bar; and
+3. `docs/runbooks/stg-9-person-login-verification.md` has been run and its
+   checklist passes.
+
+`make seed-stg-9-person-login` (backend/cmd/seed-stg-login-grants) is the
+permanent, idempotent command that materializes step 1 and 2 directly — it
+does not wait for a claim event. It is wired as a required final step of
+`make seed-vaccination-source-full` and `make seed-vaccination-cpt-operator-drive`
+when `GOATOS_ENV=stg`. Run `make verify-stg-9-person-login` afterward for step 3.
+Do not consider a STG seed done on pending-grant output alone.
+
 ## Canonical STG Personnel Rule (9 people total)
 
 There are **9 STG people total**: 5 Mesha leadership (SSO only) + 4 field users
@@ -113,7 +141,9 @@ Agents must not confuse leadership SSO users with field Android users.
 
 After STG seed, report:
 
-| user class | email | auth method | Firebase/SSO exists | backend grant | bootstrap context | PASS/FAIL |
-|---|---|---|---|---|---|---|
+| user class | email | auth method | Firebase/SSO exists | backend grant MATERIALIZED (active, not pending) | department bound (field users) | bootstrap context | PASS/FAIL |
+|---|---|---|---|---|---|---|---|
 
-STG login seed is incomplete unless both classes are verified.
+STG login seed is incomplete unless both classes are verified, the grant
+column reads ACTIVE (never "pending only"), and the full checklist in
+`docs/runbooks/stg-9-person-login-verification.md` has been executed.
