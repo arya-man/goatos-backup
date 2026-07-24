@@ -91,6 +91,12 @@ data class BirthDeathUiState(
      * [BIRTH_ID_KIND_PERMANENT] mode; a temporary tag never carries a second permanent RFID.
      */
     val tag2: String = "",
+    /**
+     * Which permanent-RFID field is currently listening to the Bluetooth reader
+     * ([BirthDeathField.TAG] or [BirthDeathField.TAG2]), or null when nothing is scanning. Only one
+     * field at a time — Android holds a single BT-HID connection either way.
+     */
+    val scanningField: BirthDeathField? = null,
     val species: String = "goat",
     val sex: String = "female",
     // Breed is CHOSEN from the herd's own backend-supplied breed vocabulary (the same Room-cached
@@ -130,6 +136,13 @@ data class BirthDeathUiState(
 sealed interface BirthDeathEvent {
     data class SelectMode(val mode: BirthDeathMode) : BirthDeathEvent
     data class EditField(val field: BirthDeathField, val value: String) : BirthDeathEvent
+
+    /**
+     * Start/stop the Bluetooth RFID reader for one permanent-identifier field
+     * ([BirthDeathField.TAG] / [BirthDeathField.TAG2]). Tapping the field that is already scanning
+     * stops it; tapping the other one hands the reader over.
+     */
+    data class ToggleRfidScan(val field: BirthDeathField) : BirthDeathEvent
 
     // Birth placement — park -> shed cascade. Choosing a park resets the shed.
     data class SelectPark(val parkId: String) : BirthDeathEvent
@@ -251,22 +264,34 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 selectedKey = state.idKind,
                 onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, it)) },
             )
-            CountsTextField(
-                value = state.tag,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
-                label = stringResource(
-                    if (isTemporary) R.string.counts_field_temp_tag else R.string.counts_field_tag1,
-                ),
-                required = true,
-            )
-            // A newborn given two permanent ear tags carries an optional second RFID
-            // (animal_identifier_2). Only offered on the permanent path — a provisional temporary tag
-            // never carries a second permanent RFID (the backend rejects that pairing).
-            if (!isTemporary) {
+            // The permanent path is scannable: the operator holds the Bluetooth reader to the ear
+            // tag instead of typing a 15-digit RFID in a shed. A TEMPORARY tag is a hand-written
+            // provisional label with nothing to read, so it stays a plain typed field.
+            if (isTemporary) {
                 CountsTextField(
+                    value = state.tag,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
+                    label = stringResource(R.string.counts_field_temp_tag),
+                    required = true,
+                )
+            } else {
+                CountsRfidField(
+                    value = state.tag,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
+                    label = stringResource(R.string.counts_field_tag1),
+                    scanning = state.scanningField == BirthDeathField.TAG,
+                    onToggleScan = { onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG)) },
+                    required = true,
+                )
+                // A newborn given two permanent ear tags carries an optional second RFID
+                // (animal_identifier_2). Only offered on the permanent path — a provisional temporary
+                // tag never carries a second permanent RFID (the backend rejects that pairing).
+                CountsRfidField(
                     value = state.tag2,
                     onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, it)) },
                     label = stringResource(R.string.counts_field_tag2),
+                    scanning = state.scanningField == BirthDeathField.TAG2,
+                    onToggleScan = { onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG2)) },
                     required = false,
                     supporting = stringResource(R.string.counts_hint_tag2),
                 )

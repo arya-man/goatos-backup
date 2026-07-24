@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,6 +37,9 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  * (offline-first open): the operator tapped a row already in Room, so no refetch is needed.
  */
 
+/** Which of the two permanent-RFID inputs a Bluetooth scan is being routed into. */
+enum class RfidPromoteField { PRIMARY, SECONDARY }
+
 @Immutable
 data class RfidPromoteUiState(
     val goatId: String = "",
@@ -48,6 +52,11 @@ data class RfidPromoteUiState(
     val rfidInput: String = "",
     /** An optional second permanent RFID (animal_identifier_2). Blank = attach only the primary. */
     val rfid2Input: String = "",
+    /**
+     * Which input is currently listening to the Bluetooth reader, or null when nothing is scanning.
+     * Only one at a time — Android holds a single BT-HID connection either way.
+     */
+    val scanningField: RfidPromoteField? = null,
     val inputError: String? = null,
     /** The promote write result. */
     val result: CountsWriteResultUi = CountsWriteResultUi(),
@@ -57,6 +66,12 @@ data class RfidPromoteUiState(
 sealed interface RfidPromoteEvent {
     data class RfidChanged(val value: String) : RfidPromoteEvent
     data class Rfid2Changed(val value: String) : RfidPromoteEvent
+
+    /**
+     * Start/stop the Bluetooth RFID reader for one input. Tapping the field that is already
+     * scanning stops it; tapping the other one hands the reader over.
+     */
+    data class ToggleRfidScan(val field: RfidPromoteField) : RfidPromoteEvent
     data object Submit : RfidPromoteEvent
     data object Back : RfidPromoteEvent
 }
@@ -89,18 +104,27 @@ fun RfidPromoteScreen(
                 )
                 else -> {
                     GoatCard(state)
-                    CountsTextField(
+                    // Both permanent identifiers are scannable: promoting happens with the new ear
+                    // tag in hand, so the operator holds the Bluetooth reader to it instead of
+                    // transcribing a 15-digit RFID. Typing stays available — a flat reader battery
+                    // must never block a retag.
+                    CountsRfidField(
                         value = state.rfidInput,
                         onValueChange = { onEvent(RfidPromoteEvent.RfidChanged(it)) },
                         label = "Permanent RFID",
+                        scanning = state.scanningField == RfidPromoteField.PRIMARY,
+                        onToggleScan = { onEvent(RfidPromoteEvent.ToggleRfidScan(RfidPromoteField.PRIMARY)) },
                         required = true,
                         isError = state.inputError != null,
-                        supporting = state.inputError,
+                        supporting = state.inputError
+                            ?: stringResource(R.string.counts_rfid_promote_scan_hint),
                     )
-                    CountsTextField(
+                    CountsRfidField(
                         value = state.rfid2Input,
                         onValueChange = { onEvent(RfidPromoteEvent.Rfid2Changed(it)) },
                         label = "Second RFID",
+                        scanning = state.scanningField == RfidPromoteField.SECONDARY,
+                        onToggleScan = { onEvent(RfidPromoteEvent.ToggleRfidScan(RfidPromoteField.SECONDARY)) },
                         required = false,
                         supporting = "Optional — leave blank if the goat has only one tag.",
                     )

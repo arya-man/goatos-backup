@@ -39,9 +39,14 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.flowOf
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_PERMANENT
 import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
+import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
+import sg.mesha.goatos.feature.counts.RfidPromoteField
+import sg.mesha.goatos.feature.counts.RfidPromoteScreen
+import sg.mesha.goatos.feature.counts.RfidPromoteUiState
 import sg.mesha.goatos.feature.counts.ShiftingExecuteAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingExecuteScreen
 import sg.mesha.goatos.feature.counts.ShiftingExecuteUiState
@@ -390,6 +395,40 @@ class ScreenshotTest {
                 species = "goat",
                 sex = "female",
                 dob = "2026-07-20",
+                canSubmit = true,
+            ),
+        )
+    }
+
+    /** The permanent-RFID path: both identifiers carry the Bluetooth scan toggle, the primary one
+     *  mid-scan (brand-filled chip + listening caption). */
+    @Test
+    fun birth_permanent_rfid_scanning() = shot("birth_permanent_rfid_scanning") {
+        BirthDeathScreen(
+            state = BirthDeathUiState(
+                idKind = BIRTH_ID_KIND_PERMANENT,
+                tag = "",
+                tag2 = "",
+                scanningField = BirthDeathField.TAG,
+                species = "goat",
+                sex = "female",
+                dob = "2026-07-20",
+            ),
+        )
+    }
+
+    /** Awaiting RFID -> promote: the temp tag is retired by a scanned (or typed) permanent RFID. */
+    @Test
+    fun rfid_promote_scanning() = shot("rfid_promote_scanning") {
+        RfidPromoteScreen(
+            state = RfidPromoteUiState(
+                goatId = "g-1",
+                loading = false,
+                displayId = "G-77",
+                temporaryIdentifier = "TEMP-42",
+                locationDisplay = "North Park / Shed A",
+                rfidInput = "982000123456789",
+                scanningField = RfidPromoteField.SECONDARY,
                 canSubmit = true,
             ),
         )

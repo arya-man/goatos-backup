@@ -86,6 +86,11 @@
     <string name="counts_field_tag2">జంతువు గుర్తింపుదారు 2 (ఐచ్ఛికం)</string>
     <string name="counts_hint_tag2">రెండవ శాశ్వత RFID. నవజాతకు ఒకే ట్యాగ్ ఉంటే ఖాళీగా వదిలేయండి.</string>
     <string name="counts_field_temp_tag">తాత్కాలిక ట్యాగ్</string>
+    <!-- Bluetooth RFID scan toggle on the permanent-identifier fields -->
+    <string name="counts_rfid_scan_start">బ్లూటూత్ రీడర్‌తో ఈ RFID స్కాన్ చేయండి</string>
+    <string name="counts_rfid_scan_stop">స్కాన్ ఆపండి</string>
+    <string name="counts_rfid_scan_listening">స్కాన్ అవుతోంది… రీడర్‌ను ట్యాగ్ దగ్గర పట్టుకోండి, లేదా ఆపడానికి ట్యాప్ చేయండి</string>
+    <string name="counts_rfid_promote_scan_hint">బ్లూటూత్ రీడర్‌తో శాశ్వత చెవి ట్యాగ్ స్కాన్ చేయండి, లేదా టైప్ చేయండి.</string>
     <string name="counts_id_kind_permanent">శాశ్వత RFID</string>
     <string name="counts_id_kind_temporary">తాత్కాలిక ట్యాగ్</string>
     <string name="counts_field_breed">జాతి</string>
