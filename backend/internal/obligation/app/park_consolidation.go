@@ -878,35 +878,15 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 	used := session.driveCapacityUsed(firstParkID(rows), plannedDate)
 	admitted := make(map[string]struct{}, len(selected))
 	admittedTargets := make(map[string]struct{}, len(selected))
-	// Pass 1: immovable (last-safe / hold-boundary) rows reserve capacity first. They are admitted
-	// before movable work, but never past the row's own feasible window. A mixed-vaccine park merge
-	// can choose a date because loose-window rows fit there; tight-window rows must not ride that
-	// later batch as "immovable" overflow.
-	for _, row := range rows {
-		if _, ok := selectedSet[row.ObligationID]; !ok {
-			continue
-		}
-		if !parkObligationFeasibleOnPlannerDate(now, plannedDate, row, planner) {
-			continue
-		}
-		if parkObligationCanMoveAfter(now, plannedDate, row, planner) {
-			continue
-		}
-		targetKey := parkCandidateTargetKey(row)
-		if _, ok := admittedTargets[targetKey]; !ok {
-			if used+1 > maxAnimals {
-				continue
-			}
-			admittedTargets[targetKey] = struct{}{}
-			used++
-		}
-		admitted[row.ObligationID] = struct{}{}
-	}
+	// Pass 1: immovable (last-safe / hold-boundary) rows reserve capacity first. They still use the
+	// same physical shed/partition packing unit as movable rows; being near the end of the window is
+	// not permission to shave a few animals off a normal partition.
+	used = admitParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, used, admitted, admittedTargets, false)
 	// Pass 2: movable rows fill only the remaining capacity and never push past the cap. The unit of
 	// admission is a route/shed chunk, not arbitrary obligation scan order: finish a physical shed
 	// when it fits; otherwise try whole partitions. Carry partitions that do not fit to the next
 	// operator-day, and split row-by-row only when a partition itself is larger than the day cap.
-	used = admitMovableParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, used, admitted, admittedTargets)
+	used = admitParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, used, admitted, admittedTargets, true)
 	out := make([]string, 0, len(admitted))
 	for _, row := range rows {
 		if _, ok := admitted[row.ObligationID]; ok {
@@ -916,8 +896,8 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 	return out
 }
 
-func admitMovableParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, maxAnimals, used int32, admitted, admittedTargets map[string]struct{}) int32 {
-	groups := movableParkRouteGroups(now, rows, selectedSet, plannedDate, planner, admitted)
+func admitParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, maxAnimals, used int32, admitted, admittedTargets map[string]struct{}, movable bool) int32 {
+	groups := parkRouteGroupsByMovability(now, rows, selectedSet, plannedDate, planner, admitted, movable)
 	for _, group := range groups {
 		needed := newTargetCount(group.rows, admittedTargets)
 		if needed == 0 {
@@ -973,7 +953,7 @@ type parkPartitionGroup struct {
 	targetCount int
 }
 
-func movableParkRouteGroups(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, admitted map[string]struct{}) []parkRouteGroup {
+func parkRouteGroupsByMovability(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, admitted map[string]struct{}, movable bool) []parkRouteGroup {
 	ordered := append([]domain.ParkConsolidationCandidate(nil), rows...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		leftShed, leftPartition := normalizeAssignmentShed(ordered[i].ShedName)
@@ -1007,7 +987,7 @@ func movableParkRouteGroups(now time.Time, rows []domain.ParkConsolidationCandid
 		if !parkObligationFeasibleOnPlannerDate(now, plannedDate, row, planner) {
 			continue
 		}
-		if !parkObligationCanMoveAfter(now, plannedDate, row, planner) {
+		if parkObligationCanMoveAfter(now, plannedDate, row, planner) != movable {
 			continue
 		}
 		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
