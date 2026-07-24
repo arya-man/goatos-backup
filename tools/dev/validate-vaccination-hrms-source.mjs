@@ -663,5 +663,9 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // entry_date/post_arrival as a strict splitter during generation; source
 // validation still preserves kid/young age-window checks and does not route
 // singleton adult rows into make-up/defer logic without an explicit source reason.
+// Coupling review 2026-07-25: stable adult campaign generation keys and
+// unbatched open-row realignment prevent same-goat/same-dose duplicates in
+// derived obligations. Source validation inputs and raw fixture hashes stay
+// unchanged; kid/young date strictness is still validated here.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
