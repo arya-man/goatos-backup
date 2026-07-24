@@ -108,12 +108,16 @@ type ExecutionRow struct {
 }
 
 type ExecutionResponse struct {
-	Source       string               `json:"source"`
-	Rows         []ExecutionRow       `json:"rows"`
-	TotalCount   int64                `json:"totalCount"`
-	NextCursor   *string              `json:"nextCursor,omitempty"`
-	Freshness    *ProjectionFreshness `json:"freshness,omitempty"`
-	CarrySummary *CarrySummary        `json:"carrySummary,omitempty"`
+	Source     string         `json:"source"`
+	Rows       []ExecutionRow `json:"rows"`
+	TotalCount int64          `json:"totalCount"`
+	NextCursor *string        `json:"nextCursor,omitempty"`
+	// ViewerReadOnly marks this as a leadership OVERSIGHT read (park-scoped, all sheds):
+	// the caller is not an assigned operator, so the client shows the shed list but must
+	// NOT let them open a shed into the operator scan/execute loop. Operators get false.
+	ViewerReadOnly bool                 `json:"viewerReadOnly"`
+	Freshness      *ProjectionFreshness `json:"freshness,omitempty"`
+	CarrySummary   *CarrySummary        `json:"carrySummary,omitempty"`
 }
 
 // VaccineCarryLine is internal aggregation from repo layer (date + vaccine + counts).

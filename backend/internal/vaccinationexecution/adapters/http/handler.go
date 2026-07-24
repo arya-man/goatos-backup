@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -481,6 +482,11 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
+	// A leadership oversight read (app route, no operator scope) is read-only: the client
+	// renders the shed list but must not open a shed into the operator scan/execute loop.
+	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) {
+		page.ViewerReadOnly = true
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
@@ -518,7 +524,14 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		DueBefore: asOf.Add(defaultExecutionHorizonDays * 24 * time.Hour),
 		Limit:     defaultLimit,
 	}
-	if isAppExecutionRoute(r) {
+	// On the app/mobile execution routes a field OPERATOR sees only their assigned work
+	// (OperatorScopeActorID). A leadership principal (CEO/CXO, PC Director, Park Head) is not
+	// an assigned operator, so operator scoping would return zero rows; they instead get a
+	// read-only view of ALL sheds/partitions in their authorized park(s) (park scope is applied
+	// by applyExecutionParkScope -> ResolveAuthorizedParkScope: CEO = all parks, Park Head = his
+	// park). Scan/capture stays blocked on the client (operator capability); this only opens the
+	// read.
+	if isAppExecutionRoute(r) && !h.isLeadershipExecutionActor(r) {
 		q.OperatorScopeActorID = httpmiddleware.ActorIDFromContext(r.Context())
 		if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
 			h.badRequest(w, r, "operator_scope_required", "app vaccination execution requires an authenticated operator scope")
@@ -683,6 +696,25 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 
 func isAppExecutionRoute(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/app/vaccination/execution")
+}
+
+// leadershipExecutionRoles get the park-scoped read-only oversight view of vaccination
+// execution on the app routes, rather than operator-assignment-scoped work.
+var leadershipExecutionRoles = map[string]bool{
+	permissions.RoleCEOInternal: true,
+	permissions.RolePCDirector:  true,
+	permissions.RoleParkHead:    true,
+}
+
+// isLeadershipExecutionActor reports whether any of the caller's active grants is a
+// leadership role, in which case the app execution read is NOT operator-assignment scoped.
+func (h *Handler) isLeadershipExecutionActor(r *http.Request) bool {
+	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+		if leadershipExecutionRoles[g.Role] {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) TaskOptionValues(w http.ResponseWriter, r *http.Request) {

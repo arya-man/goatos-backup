@@ -82,6 +82,10 @@ data class VaccinationExecutionResponseDto(
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
     @SerialName("totalCount") val totalCount: Int = 0,
     @SerialName("nextCursor") val nextCursor: String? = null,
+    // Backend marks a leadership OVERSIGHT read (park-scoped, all sheds, not operator-assigned):
+    // the client shows the shed list read-only and must NOT open a shed into the scan/execute
+    // loop. Operators get false and keep the normal open→scan flow.
+    @SerialName("viewerReadOnly") val viewerReadOnly: Boolean = false,
     // Backend-owned "vaccines to carry" totals, per business day, over the WHOLE day (not the
     // paginated page). The client renders these verbatim — it never sums shed rows.
     @SerialName("carrySummary") val carrySummary: CarrySummaryDto? = null,

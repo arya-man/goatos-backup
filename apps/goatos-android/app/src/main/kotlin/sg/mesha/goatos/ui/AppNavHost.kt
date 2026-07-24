@@ -469,12 +469,19 @@ fun AppNavHost(
                     onEvent = { event ->
                         when (event) {
                             is ShedsEvent.OpenShedRecord -> {
-                                // Done sheds open the read-only record; anything still due opens
-                                // the execute loop (Scan → Submit). Mirrors the mock's shed card
-                                // ("View completed record ›" vs "Start / scan").
-                                val selected = state.rows.firstOrNull { it.id == event.shedId }
-                                val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
-                                navController.navigate(route) { launchSingleTop = true }
+                                // A leadership oversight read (canOpenShed=false) is read-only:
+                                // block the click here so CEO/Director/Park Head never navigate
+                                // into the operator scan/execute loop. Operators reach sheds via
+                                // the Vaccination (Drives) route, a different composable, and are
+                                // unaffected.
+                                if (state.canOpenShed) {
+                                    // Done sheds open the read-only record; anything still due opens
+                                    // the execute loop (Scan → Submit). Mirrors the mock's shed card
+                                    // ("View completed record ›" vs "Start / scan").
+                                    val selected = state.rows.firstOrNull { it.id == event.shedId }
+                                    val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
+                                    navController.navigate(route) { launchSingleTop = true }
+                                }
                             }
                             ShedsEvent.Back -> navController.popBackStack()
                             else -> vm.onEvent(event)

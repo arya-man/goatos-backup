@@ -577,35 +577,16 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                 }
             }
         }
+        // The whole card is the tap target (drillable is still driven by ctaLabel above); the
+        // redundant "Open"/"Open drive ›" verb is intentionally NOT rendered.
         val ownerLabel = drive?.ownerLabel?.takeIf { it.isNotEmpty() }
-        if (item.ctaLabel != null || ownerLabel != null) {
+        if (ownerLabel != null) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 11.dp),
             ) {
                 // Footer owner (v4 drive card): who owns follow-up on this drive.
-                ownerLabel?.let {
-                    Text(text = it, color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
-                    if (item.ctaLabel != null) {
-                        Text(text = "  ·  ", color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
-                    }
-                }
-                item.ctaLabel?.let {
-                    // ctaLabel non-null = drillable; the verb itself is fixed chrome, localized
-                    // here (the VM's English "Open"/"Open drive" is ignored so it follows the
-                    // app locale). Drive cards (v4) get the more specific "Open drive →".
-                    val (ctaText, ctaGlyph) = if (drive != null) {
-                        stringResource(R.string.calendar_drive_open) to "→"
-                    } else {
-                        stringResource(R.string.calendar_cta_open) to "›"
-                    }
-                    Text(
-                        text = "$ctaText  $ctaGlyph",
-                        color = MeshaColors.Brand2,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.W700,
-                    )
-                }
+                Text(text = ownerLabel, color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
             }
         }
     }
