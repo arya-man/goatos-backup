@@ -104,13 +104,9 @@ fun CalendarScreen(
         state.weekHasMore,
         state.weekLoadingMore,
         state.weekItems.size,
-        state.historyHasMore,
-        state.historyLoadingMore,
-        state.historyRows.size,
     ) {
         val shouldAutoLoad = when (selected?.kind) {
             CalendarSegmentKind.Week -> state.weekHasMore && !state.weekLoadingMore && state.weekItems.isNotEmpty()
-            CalendarSegmentKind.History -> state.historyHasMore && !state.historyLoadingMore && state.historyRows.isNotEmpty()
             else -> false
         }
         if (!shouldAutoLoad) return@LaunchedEffect
@@ -120,8 +116,6 @@ fun CalendarScreen(
                     when (selected?.kind) {
                         CalendarSegmentKind.Week ->
                             if (state.weekHasMore && !state.weekLoadingMore) onEvent(CalendarEvent.LoadMoreWeek)
-                        CalendarSegmentKind.History ->
-                            if (state.historyHasMore && !state.historyLoadingMore) onEvent(CalendarEvent.LoadMoreHistory)
                         else -> Unit
                     }
                 }
@@ -174,7 +168,6 @@ fun CalendarScreen(
                 onEvent = onEvent,
                 onOpenFilters = { showMonthFilters = true },
             )
-            CalendarSegmentKind.History -> historyContent(state, onEvent)
             null -> Unit
         }
         item { Spacer(Modifier.size(24.dp)) }
@@ -319,7 +312,6 @@ private fun SegmentedControl(
 private fun segmentLabel(kind: CalendarSegmentKind, fallback: String): String = when (kind) {
     CalendarSegmentKind.Week -> stringResource(R.string.calendar_segment_week)
     CalendarSegmentKind.Month -> stringResource(R.string.calendar_segment_month)
-    CalendarSegmentKind.History -> stringResource(R.string.calendar_segment_history)
 }
 
 /* --------------------------------------------------------------------------- */
@@ -1264,88 +1256,6 @@ fun CalendarDayScreen(
 }
 
 /* --------------------------------------------------------------------------- */
-/* History                                                                     */
-/* --------------------------------------------------------------------------- */
-
-private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
-    state: CalendarUiState,
-    onEvent: (CalendarEvent) -> Unit,
-) {
-    item {
-        SectionLabel(
-            state.historyLabel.ifEmpty {
-                stringResource(R.string.calendar_history_label) + " · " + state.historyCount
-            },
-        )
-    }
-    if (state.historyRows.isEmpty()) {
-        item {
-            EmptyState(
-                title = state.historyEmptyLabel.ifEmpty { stringResource(R.string.calendar_history_empty) },
-                icon = MeshaIcons.Clock,
-            )
-        }
-    } else {
-        items(state.historyRows, key = { it.id }) { row ->
-            HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id, row.target)) })
-        }
-        if (state.historyLoadingMore) {
-            item {
-                InlineLoadingFooter()
-            }
-        }
-    }
-}
-
-@Composable
-private fun HistoryRow(row: CalendarHistoryRow, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 9.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(15.dp))
-            .clickable(enabled = row.target != null, onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(MeshaColors.OkX),
-            contentAlignment = Alignment.Center,
-        ) {
-            // Syringe = Vaccination module marker (mock icon set).
-            Icon(
-                imageVector = MeshaIcons.Syringe,
-                contentDescription = null,
-                tint = MeshaColors.Brand,
-                modifier = Modifier.size(17.dp),
-            )
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
-            Text(
-                text = row.title,
-                color = MeshaColors.Ink,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.W700,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = row.subtitle,
-                color = MeshaColors.Muted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.W500,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        StatusPill(row.badgeLabel, row.badgeTone)
-    }
-}
-
 /* --------------------------------------------------------------------------- */
 /* Shared primitives                                                           */
 /* --------------------------------------------------------------------------- */
@@ -1502,7 +1412,6 @@ private fun previewState(): CalendarUiState = CalendarUiState(
     segments = listOf(
         CalendarSegment("week", "Week", CalendarSegmentKind.Week),
         CalendarSegment("month", "Month", CalendarSegmentKind.Month),
-        CalendarSegment("history", "History", CalendarSegmentKind.History),
     ),
     selectedSegmentId = "week",
     weekDays = listOf(
@@ -1545,12 +1454,6 @@ private fun previewState(): CalendarUiState = CalendarUiState(
     monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S"),
     monthDays = buildMonthPreview(),
     monthHint = "Tap a day for its drives · dots = drive days",
-    historyLabel = "Past drives · 2",
-    historyRows = listOf(
-        CalendarHistoryRow("h0", "ET + TT · Primary", "Jul 1 2026 · done", "98%", CalendarTone.Ok, "record/h0"),
-        CalendarHistoryRow("h1", "FMD · Booster", "Jun 28 2026 · done", "95%", CalendarTone.Ok, "record/h1"),
-    ),
-    historyEmptyLabel = "No past drives",
 )
 
 private fun buildMonthPreview(): List<CalendarMonthDay> {
