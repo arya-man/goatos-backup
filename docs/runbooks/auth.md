@@ -671,3 +671,6 @@ Firebase web config, and admin-web app bearer values, but secret values are
 populated out-of-band in a later approved phase. Do not put token values,
 Firebase config payloads, API keys, JWKS material, or app bearer tokens in
 Terraform variables, plan files, state, or repo docs.
+
+For STG Android operator/director test login credentials, use:
+`docs/runbooks/stg-operator-login-credentials.md`.
