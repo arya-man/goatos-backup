@@ -142,7 +142,71 @@ func replanVaccinationDriveAssignmentsForDateMoveTx(
 	if err != nil {
 		return err
 	}
-	return syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, batchIDs)
+	if err := syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, batchIDs); err != nil {
+		return err
+	}
+	// A moved lane can land on a target-date row that ALREADY EXISTS for the same cell and operator.
+	// That upsert merges the two vaccine lanes, and no arithmetic on the two incoming counts can
+	// describe the merged row (see the ON CONFLICT branch). Membership has just been recomputed from
+	// canonical obligations, so the merged row's OWN ledger is now the only thing that knows which
+	// animals it really covers -- derive both counters from it.
+	return reconcileDriveAssignmentCountersFromMembersTx(ctx, tx, tenant, batchIDs)
+}
+
+// reconcileDriveAssignmentCountersFromMembersTx re-derives animal_count and total_doses of every
+// touched drive-assignment row from that row's OWN per-goat membership ledger, restoring the
+// invariant the rest of the system reads these rows under:
+//
+//	animal_count == COUNT(DISTINCT goat_id) of the row's members  (the operator cap unit)
+//	total_doses  == COUNT(*) of the row's members                 (the dose/stock unit, one member
+//	                                                               row per (animal, rule) dose)
+//
+// This is what makes a lane MERGE correct without guessing the overlap between the two lanes: the
+// union of two animal sets is counted, never added. It is idempotent (a row already in parity is
+// left untouched) and set-based over one batch list -- no per-row statement.
+//
+// It keeps the ledgerCoversRow completeness gate: a row whose ledger does not account for it
+// completely (no members at all -- written before migration 000040 -- or fewer distinct animals than
+// it claims) is SKIPPED, never shrunk to the part of itself the ledger happens to see. Only rows the
+// ledger fully covers are rewritten, which is exactly the set a merge can grow.
+func reconcileDriveAssignmentCountersFromMembersTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=vaccination_drive_assignment_members of the drive-assignment rows belonging to ONE tenant's touched batch id list, aggregated back onto the row that owns them; group_key=assignment_id; join_cardinality=members are aggregated to exactly one row per assignment_id before the join, and assignment_id is vaccination_drive_assignments' PK, so the UPDATE join is strictly 1:1 and no row can be written twice; pagination=whole touched batch list recomputed in one set-based statement, no LIMIT can truncate it; scope=explicit tenant + batch id list.
+-- GRAIN PROOF (producer vs consumer, mandatory per AGENTS.md):
+--   producer unique key   = vaccination_drive_assignment_members (tenant_id, obligation_id) UNIQUE, one member row per dose obligation, carrying (assignment_id, goat_id).
+--   consumer match key    = assignment_id, the assignment table's PK -- identical to the key the ledger CTE groups by, so nothing the producer distinguishes is dropped and nothing the consumer keys on is invented.
+--   row multiplicity      = ledger: exactly 1 row per assignment_id (GROUP BY); UPDATE ... FROM ledger: at most 1 source row per target row.
+--   cap/ratio key sets    = animal_count is count(DISTINCT goat_id) and total_doses is count(*) over the SAME member set of the SAME assignment row, so the operator cap unit (unique animals) and the stock unit (distinct (animal, rule) doses) are each measured over the row they describe -- a lane merge counts the UNION of the two lanes' animals instead of adding two overlapping counts.
+--   completeness gate     = ledger_animals >= vda.animal_count (the SQL form of ledgerCoversRow): a row whose ledger cannot account for it completely keeps its existing counters instead of being shrunk to the part of itself the ledger can see.
+WITH scoped AS (
+  SELECT assignment_id
+  FROM vaccination_drive_assignments
+  WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
+), ledger AS (
+  SELECT m.assignment_id,
+         count(DISTINCT m.goat_id)::int AS ledger_animals,
+         count(*)::int AS ledger_doses
+  FROM vaccination_drive_assignment_members m
+  JOIN scoped s ON s.assignment_id = m.assignment_id
+  WHERE m.tenant_id = $1
+  GROUP BY m.assignment_id
+)
+UPDATE vaccination_drive_assignments vda
+SET animal_count = ledger.ledger_animals,
+    total_doses = ledger.ledger_doses,
+    updated_at = now()
+FROM ledger
+WHERE vda.tenant_id = $1
+  AND vda.assignment_id = ledger.assignment_id
+  AND ledger.ledger_animals >= vda.animal_count
+  AND (vda.animal_count <> ledger.ledger_animals OR vda.total_doses <> ledger.ledger_doses)`,
+		tenant, batchIDs); err != nil {
+		return fmt.Errorf("obligation: reconcile drive assignment counters from membership: %w", err)
+	}
+	return nil
 }
 
 // movedDriveAssignmentBatchUUIDs is the distinct batch id set touched by one date move.
@@ -682,8 +746,17 @@ DO UPDATE SET
     SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
     FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
   ),
-  animal_count = EXCLUDED.animal_count,
-  total_doses = EXCLUDED.total_doses,
+  -- PROVISIONAL, not the answer. On conflict the row's vaccine lane becomes the UNION of the
+  -- existing lane and the arriving one (above), so the two counters that describe that union cannot
+  -- be either side alone: EXCLUDED.animal_count silently deletes the pre-existing lane's animals
+  -- from a row that still plans them, and vda.animal_count + EXCLUDED.animal_count double-counts
+  -- every animal the two lanes SHARE (a goat due both vaccines is one cap unit, not two). Neither
+  -- number knows the overlap; only the merged row's own per-goat membership can. GREATEST is
+  -- therefore used purely as a NON-SHRINKING lower bound to carry the row into
+  -- syncVaccinationDriveAssignmentMembersTx (whose split window reads animal_count), and
+  -- reconcileDriveAssignmentCountersFromMembersTx sets the authoritative values right after.
+  animal_count = GREATEST(vaccination_drive_assignments.animal_count, EXCLUDED.animal_count),
+  total_doses = GREATEST(vaccination_drive_assignments.total_doses, EXCLUDED.total_doses),
   capacity_status = EXCLUDED.capacity_status,
   warnings = EXCLUDED.warnings,
   updated_at = now()`,
