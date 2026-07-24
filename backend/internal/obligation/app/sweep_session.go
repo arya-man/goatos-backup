@@ -34,6 +34,40 @@ type SweepSession struct {
 	// resolved-at-zero so every group only pays the seed cost once per key per session, not once
 	// per group that happens to share a (date, target) visit.
 	loaded map[string]struct{}
+
+	// driveRebuilds records every BUG-041 merged-batch drive-assignment rebuild attempt this session
+	// made, with its outcome, so a skipped rebuild (e.g. no executable operator) is observable to the
+	// caller and to tests instead of vanishing as silent success.
+	driveRebuilds []DriveRebuildResult
+}
+
+// DriveRebuildResult is one merged-target drive-assignment rebuild outcome (BUG-041).
+type DriveRebuildResult struct {
+	BatchID string
+	// Reason is "" when the target was rebuilt; otherwise a stable skip code:
+	// "not_rebuildable" (finalized/committed/vanished), "no_attached" (no obligations),
+	// or "no_operator" (no executable operator -- rows deliberately NOT replaced with NULL operators).
+	Reason string
+}
+
+// Rebuilt reports whether this rebuild result actually replaced the target's rows.
+func (r DriveRebuildResult) Rebuilt() bool { return r.Reason == "" }
+
+func (s *SweepSession) recordDriveRebuild(batchID, reason string) {
+	if s == nil {
+		return
+	}
+	s.driveRebuilds = append(s.driveRebuilds, DriveRebuildResult{BatchID: batchID, Reason: reason})
+}
+
+// DriveRebuilds returns every merged-batch drive-assignment rebuild outcome recorded this session
+// (BUG-041), in order. Callers and tests use it to assert a rebuild happened, or that a skip was
+// surfaced with its reason rather than silently swallowed.
+func (s *SweepSession) DriveRebuilds() []DriveRebuildResult {
+	if s == nil {
+		return nil
+	}
+	return append([]DriveRebuildResult(nil), s.driveRebuilds...)
 }
 
 // shotCapClaim records the vaccine/priority that most recently filled a visit's LAST cap slot,

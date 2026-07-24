@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -333,6 +334,31 @@ func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
+	return s.distributeWithOperators(tenantID, batch, capPerOperator, operators, assignments, session)
+}
+
+// distributeVaccinationDriveAssignmentsExcludingBatch is the BUG-041 rebuild-path distribution: it
+// reads operator remaining capacity DIRECTLY from the repo (bypassing the session operator cache, so
+// a self-counted/stale cached value cannot leak in) with excludeBatchID's own obligations removed
+// from the persisted load, then runs the identical planner/distribution as the normal path. The batch
+// being rebuilt therefore never counts against its own operators, while every other batch on the same
+// operator/date still does.
+func (s *SweeperService) distributeVaccinationDriveAssignmentsExcludingBatch(ctx context.Context, tenantID, excludeBatchID string, batch domain.NewBatch, capPerOperator int32, assignments []domain.DriveAssignment, session *SweepSession) ([]domain.DriveAssignment, error) {
+	if len(assignments) == 0 || batch.PlannedDate == nil || strings.TrimSpace(batch.ScopeID) == "" {
+		return assignments, nil
+	}
+	var operators []domain.DriveOperatorCapacity
+	if lister, ok := s.repo.(vaccinationOperatorExcludeLister); ok {
+		var err error
+		operators, err = lister.AvailableVaccinationOperatorsForDriveExcludingBatch(ctx, tenantID, batch.ScopeID, excludeBatchID, *batch.PlannedDate, capPerOperator)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return s.distributeWithOperators(tenantID, batch, capPerOperator, operators, assignments, session)
+}
+
+func (s *SweeperService) distributeWithOperators(tenantID string, batch domain.NewBatch, capPerOperator int32, operators []domain.DriveOperatorCapacity, assignments []domain.DriveAssignment, session *SweepSession) ([]domain.DriveAssignment, error) {
 	if len(operators) == 0 && batch.ConductedBy != nil && strings.TrimSpace(*batch.ConductedBy) != "" {
 		operators = append(operators, domain.DriveOperatorCapacity{OperatorID: strings.TrimSpace(*batch.ConductedBy), Cap: capPerOperator})
 	}
@@ -345,6 +371,93 @@ func (s *SweeperService) distributeVaccinationDriveAssignments(ctx context.Conte
 	}
 	rememberVaccinationDriveAssignmentLoads(tenantID, batch.ScopeID, *batch.PlannedDate, planned, session)
 	return planned, nil
+}
+
+// vaccinationOperatorExcludeLister is implemented by the production Postgres repo: the BUG-041
+// rebuild path's operator-capacity read with one batch excluded from the persisted load.
+type vaccinationOperatorExcludeLister interface {
+	AvailableVaccinationOperatorsForDriveExcludingBatch(ctx context.Context, tenantID, parkID, excludeBatchID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error)
+}
+
+// driveRebuildInputsReader is implemented by the production Postgres repo: the app-layer BUG-041
+// rebuild reads a merged target batch's park, planned_date, conducted_by, and full attached goat
+// obligation set so the planner can rebuild every (shed, partition, vaccine lane) cell.
+type driveRebuildInputsReader interface {
+	DriveRebuildInputsForBatch(ctx context.Context, tenantID, batchID string) (parkID string, plannedDate time.Time, conductedBy *string, rows []domain.UnbatchedDue, ok bool, err error)
+}
+
+// rebuildDriveAssignmentsForMergedBatch rebuilds one batch's drive-assignment rows from its FULL
+// current attached obligation set and REPLACES them atomically (BUG-041). It is called after
+// AlignComboDrives merges a source batch's obligations into this target batch: without it the target
+// keeps only the drive rows for its original obligations, so the moved goats' (shed, vaccine lane)
+// have no operator drive lane and their obligations bind to nothing. The rebuild uses the target
+// batch's own planned_date, distributes across real operators with the target excluded from its own
+// capacity load, and the replace (delete+insert+membership sync) is one repository transaction --
+// idempotent, so a re-run over the same attached set reproduces the identical rows.
+// RebuildMergedBatchDriveAssignments is the exported entry point AlignComboDrives uses (and BUG-041
+// regression tests drive directly) to rebuild one merged target batch. See the unexported doc below.
+func (s *SweeperService) RebuildMergedBatchDriveAssignments(ctx context.Context, tenantID, batchID string, capPerOperator int32, session *SweepSession) error {
+	if strings.TrimSpace(batchID) == "" {
+		return nil
+	}
+	reader, ok := s.repo.(driveRebuildInputsReader)
+	if !ok {
+		return nil
+	}
+	parkID, plannedDate, conductedBy, rows, rebuildable, err := reader.DriveRebuildInputsForBatch(ctx, tenantID, batchID)
+	if err != nil {
+		return err
+	}
+	if !rebuildable {
+		// Not a rebuildable target (already finalized/committed, or vanished) -- leave it untouched.
+		session.recordDriveRebuild(batchID, "not_rebuildable")
+		return nil
+	}
+	if len(rows) == 0 {
+		session.recordDriveRebuild(batchID, "no_attached")
+		return nil
+	}
+	batchLike := domain.NewBatch{
+		TenantID:    tenantID,
+		ScopeType:   "park",
+		ScopeID:     parkID,
+		PlannedDate: &plannedDate,
+		ConductedBy: conductedBy,
+	}
+	assignments := driveAssignmentsForUnbatched(batchID, batchLike, rows)
+	distributed, err := s.distributeVaccinationDriveAssignmentsExcludingBatch(ctx, tenantID, batchID, batchLike, capPerOperator, assignments, session)
+	if err != nil {
+		return err
+	}
+	if len(distributed) == 0 {
+		session.recordDriveRebuild(batchID, "no_attached")
+		return nil
+	}
+	// No fake "assigned" rows: if distribution could not place every cell on a real operator (no
+	// executable operator available/configured for this park/date), SKIP the replace and leave the
+	// target's existing rows in place rather than overwrite them with unassigned (operator NULL)
+	// rows. BUG-041 stays open for this batch instead of masking it as an unassigned drive; a later
+	// sweep/align re-run converges once operators exist. This matches the maintainer rule: every
+	// planned drive row must carry a real operator. The skip is recorded on the session (and logged)
+	// so it is observable to callers/tests, never silent success.
+	for _, assignment := range distributed {
+		if assignment.OperatorID == nil || strings.TrimSpace(*assignment.OperatorID) == "" {
+			session.recordDriveRebuild(batchID, "no_operator")
+			slog.WarnContext(ctx, "vaccination drive-assignment rebuild skipped: no executable operator",
+				"reason", "no_operator",
+				"tenant_id", tenantID,
+				"batch_id", batchID,
+				"park_id", parkID,
+				"planned_date", plannedDate.Format("2006-01-02"),
+				"attached_obligations", len(rows))
+			return nil
+		}
+	}
+	if err := s.replaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, distributed); err != nil {
+		return err
+	}
+	session.recordDriveRebuild(batchID, "")
+	return nil
 }
 
 func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, parkID string, date *time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.DrivePlannerSettings, error) {

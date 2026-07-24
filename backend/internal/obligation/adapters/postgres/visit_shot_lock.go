@@ -720,6 +720,19 @@ func (r *Repository) PickVaccinationOperatorForDrive(ctx context.Context, tenant
 }
 
 func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
+	return r.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, "", date, capPerOperator)
+}
+
+// AvailableVaccinationOperatorsForDriveExcludingBatch is the BUG-041 rebuild-path read: it computes
+// each operator's REMAINING capacity for the park/date exactly like AvailableVaccinationOperatorsForDrive
+// but excludes excludeBatchID's own obligations from the persisted load, so a batch being rebuilt does
+// not count against its own operators (item 4: capacity self-counting). Other batches on the same
+// operator/date still count in full.
+func (r *Repository) AvailableVaccinationOperatorsForDriveExcludingBatch(ctx context.Context, tenantID, parkID, excludeBatchID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
+	return r.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, excludeBatchID, date, capPerOperator)
+}
+
+func (r *Repository) availableVaccinationOperatorsForDrive(ctx context.Context, tenantID, parkID, excludeBatchID string, date time.Time, capPerOperator int32) ([]domain.DriveOperatorCapacity, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -729,6 +742,13 @@ func (r *Repository) AvailableVaccinationOperatorsForDrive(ctx context.Context, 
 	park, err := pgconv.UUID(parkID)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: park id: %w", err)
+	}
+	excludeBatch := pgtype.UUID{}
+	if strings.TrimSpace(excludeBatchID) != "" {
+		excludeBatch, err = pgconv.UUID(excludeBatchID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: exclude batch id: %w", err)
+		}
 	}
 	rows, err := r.pool.Query(ctx, `
 WITH capacity_config AS (
@@ -798,6 +818,7 @@ candidate AS (
     AND ob.planned_date = $3::date
     AND ob.status IN ('planned', 'in_progress')
     AND ob.conducted_by IS NOT NULL
+    AND ($5::uuid IS NULL OR ob.batch_id <> $5)
     AND oi.status IN ('scheduled', 'due', 'in_progress')
   GROUP BY ob.conducted_by
 )
@@ -808,7 +829,7 @@ ORDER BY
   CASE WHEN c.daily_cap <= 0 THEN 0 WHEN COALESCE(l.animals, 0) < c.daily_cap THEN 0 ELSE 1 END,
   COALESCE(l.animals, 0) ASC,
   c.updated_at ASC NULLS FIRST,
-  c.workforce_member_id ASC`, tenant, park, biztime.BusinessDayStart(date), capPerOperator)
+  c.workforce_member_id ASC`, tenant, park, biztime.BusinessDayStart(date), capPerOperator, excludeBatch)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list vaccination operators: %w", err)
 	}
