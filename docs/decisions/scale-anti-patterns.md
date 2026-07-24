@@ -267,6 +267,9 @@ eligible animals from vaccination drives.
 - adding a source column, migration, config/SOP rule, owner role, or importer
   branch without adding the corresponding validator rule, failing fixture,
   deterministic transform decision, manifest refresh, and documentation;
+- leaving an active one-time vaccination obligation live after accepted source
+  history for the same goat/rule has been imported; that creates duplicate work
+  while hiding that the goat already has accepted history;
 - a guard with no adversarial self-test, or a guard not run by full local CI;
 - validating only the default fixture while a source-path override can be
   written before that exact override is checked.

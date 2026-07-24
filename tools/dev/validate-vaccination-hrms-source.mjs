@@ -23,8 +23,13 @@ import {
   OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER,
   OPERATOR_ANDROID_LOGIN_EMAIL_FIELD,
   OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT,
+  ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
+
+if (!ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS) {
+  throw new Error("seed source contract must preserve accepted one-time vaccination history over regenerated active obligations");
+}
 
 const INPUT_FILES = [
   "goats.json",

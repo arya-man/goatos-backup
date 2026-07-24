@@ -25,6 +25,11 @@ export const SEED_SOURCE_POLICY_SHA256 = crypto.createHash("sha256").update(seed
 // operator availability so raw HRMS sheets cannot smuggle manual assignment truth.
 export const DRIVE_ASSIGNMENTS_ARE_DERIVED_FROM_VALIDATED_SOURCE = true;
 export const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
+// Accepted source history is canonical for one-time vaccine rules. If kernel
+// generation emits an active obligation for the same goat/rule after the seed
+// imports accepted completion history, the seed must supersede that active row
+// and keep the accepted completion visible as goat history.
+export const ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS = true;
 // An operator-drive rehearsal source may ship an authoritative operator-roster
 // contract (cpt-operator-roster.json). When present it is the source of truth
 // for that park's field capacity: seed-roster-real recasts the resolved seats

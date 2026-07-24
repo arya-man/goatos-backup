@@ -1500,6 +1500,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if genErr != nil {
 		return st, genErr
 	}
+	satisfied, err := supersedeActiveOneTimeVaccinationObligationsCoveredByHistory(ctx, pool, tenantID)
+	if err != nil {
+		return st, err
+	}
+	if satisfied > 0 {
+		fmt.Printf("seed_reconciliation repair: superseded_active_after_history=%d\n", satisfied)
+	}
 	if err := verifySeedReconciliation(ctx, pool, tenantID, now, st); err != nil {
 		return st, err
 	}
@@ -1519,6 +1526,37 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 
 	return st, nil
+}
+
+func supersedeActiveOneTimeVaccinationObligationsCoveredByHistory(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int64, error) {
+	tag, err := pool.Exec(ctx, `
+UPDATE obligation_instances current_oi
+SET status = 'superseded',
+    updated_at = now(),
+    row_version = row_version + 1
+FROM protocol_rules current_pr
+WHERE current_oi.tenant_id = $1::uuid
+  AND current_oi.target_type = 'goat'
+  AND current_oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
+  AND current_pr.tenant_id = current_oi.tenant_id
+  AND current_pr.rule_id = current_oi.rule_id
+  AND COALESCE(NULLIF(current_pr.repeat, ''), 'none') = 'none'
+  AND EXISTS (
+    SELECT 1
+    FROM obligation_instances history_oi
+    JOIN vaccination_completions history_vc
+      ON history_vc.tenant_id = history_oi.tenant_id
+     AND history_vc.obligation_id = history_oi.obligation_id
+     AND history_vc.status = 'accepted'
+    WHERE history_oi.tenant_id = current_oi.tenant_id
+      AND history_oi.target_id = current_oi.target_id
+      AND history_oi.rule_id = current_oi.rule_id
+      AND history_oi.status = 'completed'
+  )`, tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("seed: supersede active one-time vaccination obligations covered by history: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func seedGenerationError(genRes vaccinationdomain.GenerateResult, err error, allowPartialGeneration bool) error {
