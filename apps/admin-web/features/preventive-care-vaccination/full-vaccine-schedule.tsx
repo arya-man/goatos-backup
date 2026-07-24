@@ -97,6 +97,22 @@ function capacityRank(status: string): number {
   return 1;
 }
 
+// capacityLabel maps the internal capacity machine state to the backend-owned
+// human label. The read model emits raw tokens (within_cap / over_cap /
+// over_cap_required / capacity_breach); rendering that token directly leaked a
+// clipped "over_cap_require" into the CAPACITY pill.
+const CAPACITY_LABEL_KEY: Record<string, string> = {
+  within_cap: "schedule.capacity.within_cap",
+  over_cap: "schedule.capacity.over_cap",
+  over_cap_required: "schedule.capacity.over_cap_required",
+  capacity_action: "schedule.capacity.capacity_action",
+  capacity_breach: "schedule.capacity.capacity_breach",
+};
+
+function capacityLabel(pageContract: AdminUiPageContract, status: string): string {
+  return copy(pageContract, CAPACITY_LABEL_KEY[status] ?? "schedule.capacity.within_cap");
+}
+
 function strongerCapacity(left: string, right: string): string {
   return capacityRank(right) > capacityRank(left) ? right : left;
 }
@@ -557,7 +573,7 @@ export async function VaccinationFullSchedule({
                     </span>
                     </LocalOverlayLink>
                   </td>
-                  <td><LocalOverlayLink href={drawerHref} className="celllink schedule-status-link" scroll={false}><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{row.capacity}</Tag></LocalOverlayLink></td>
+                  <td><LocalOverlayLink href={drawerHref} className="celllink schedule-status-link" scroll={false}><Tag tone={capacityRank(row.capacity) >= 3 ? "dng" : row.capacity === "capacity_action" ? "warn" : "ok"}>{capacityLabel(pageContract, row.capacity)}</Tag></LocalOverlayLink></td>
                   <td>
                     <LocalOverlayLink href={scheduleMoveHref(closeHref, row)} className="celllink schedule-status-link" scroll={false}>
                       <span className="btn sm">{copy(pageContract, "schedule.move.open")}</span>
