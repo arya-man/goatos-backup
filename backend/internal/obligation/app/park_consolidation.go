@@ -218,7 +218,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		return remaining, 0, plannedDate, animalCapReached, true, assignErr
 	}
 	newBatch.DriveAssignments = driveAssignments
-	_, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, newBatch, selected, cellsByObligation)
+	batchID, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, newBatch, selected, cellsByObligation)
 	if createErr != nil {
 		session.releaseClaims(shotClaims)
 		return remaining, 0, plannedDate, animalCapReached, true, createErr
@@ -229,6 +229,19 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	}
 	if len(attachedIDs) < len(selected) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, attachedIDs))
+	}
+	// BUG-041 (park-consolidation path): the drive rows above were built from selectedRows PRE-attach.
+	// createBatchWithAttachedIDs can attach a subset (some rows became ineligible in-tx) or MERGE into
+	// an existing planned park batch that already holds obligations from a prior step -- either way the
+	// pre-built set may not cover the batch's real full attached membership. Rebuild from the batch's
+	// FULL attached obligation set (real operators, target excluded from its own load, no NULL-operator
+	// rows, atomic replace+membership-sync), exactly like the per-rule finalize and combo-align merge
+	// paths. Only the in-memory test fakes (no full-batch read) keep the pre-built create-path set.
+	if _, ok := s.repo.(driveRebuildInputsReader); ok {
+		if rebuildErr := s.RebuildMergedBatchDriveAssignments(ctx, tenantID, batchID, planner.MaxGoatsPerDrive, session); rebuildErr != nil {
+			session.releaseClaims(shotClaims)
+			return remaining, 0, plannedDate, animalCapReached, true, rebuildErr
+		}
 	}
 	claimParkDriveAnimals(session, filterRows(remaining, attachedIDs), *plannedDate)
 	return removeRows(remaining, attachedIDs), int64(len(attachedIDs)), plannedDate, animalCapReached, false, nil
