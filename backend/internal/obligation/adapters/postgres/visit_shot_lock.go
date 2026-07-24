@@ -805,8 +805,31 @@ candidate AS (
         AND offpos.week_off_weekday = lower(to_char($3::date, 'FMDay'))
     )
   GROUP BY wm.workforce_member_id, wm.updated_at
-), load AS (
-  -- projection-review: membership=active planned/in-progress batches with conducted_by workforce_member_id on one park/planned_date; group_key=conducted_by workforce_member_id; join_cardinality=OneToMany (obligation_batches:obligation_instances=1:N collapsed with COUNT(DISTINCT oi.target_id) so multi-vaccine rows do not inflate operator animal load); pagination=Pagination (full available-operator candidate set for one park/date, no keyset paging); scope=ParkScope (explicit park scope only); date=ExecutionDate (planned_date); status=StatusMatrix (scheduled,due,in_progress statuses counted, others excluded).
+), assignment_load AS (
+  -- projection-review: membership=exact vaccination_drive_assignment_members rows for drive-assignment cells on one park/planned_date/operator; group_key=vda.operator_id for one tenant+park_id+planned_date after filtering exact member obligations by status; join_cardinality=vda:members is 1:N at exact member grain and members:obligation_instances is N:1 by obligation_id, collapsed with COUNT(DISTINCT m.goat_id) so multi-vaccine obligations do not inflate operator animal load; pagination=full available-operator candidate set for one park/date, no keyset paging; scope=explicit vda.park_id with execution date vda.planned_date and status matrix ob.status plus oi.status.
+  SELECT vda.operator_id AS workforce_member_id, count(DISTINCT m.goat_id)::int AS animals
+  FROM vaccination_drive_assignments vda
+  JOIN obligation_batches ob
+    ON ob.tenant_id = vda.tenant_id
+   AND ob.batch_id = vda.batch_id
+  JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = vda.tenant_id
+   AND m.assignment_id = vda.assignment_id
+  JOIN obligation_instances oi
+    ON oi.tenant_id = m.tenant_id
+   AND oi.obligation_id = m.obligation_id
+  WHERE vda.tenant_id = $1
+    AND vda.park_id = $2
+    AND vda.planned_date = $3::date
+    AND vda.operator_id IS NOT NULL
+    AND ($5::uuid IS NULL OR vda.batch_id <> $5)
+    AND ob.status IN ('planned', 'in_progress')
+    AND oi.status IN ('scheduled', 'due', 'in_progress')
+  GROUP BY vda.operator_id
+), legacy_batch_load AS (
+  -- Legacy fallback for planned batches that predate exact drive-assignment rows. Once a batch has
+  -- any vaccination_drive_assignments, assignment_load above is authoritative for that batch so
+  -- split operators/dates/partitions cannot be collapsed back to obligation_batches.conducted_by.
   SELECT ob.conducted_by AS workforce_member_id, count(DISTINCT oi.target_id)::int AS animals
   FROM obligation_batches ob
   JOIN obligation_instances oi
@@ -820,7 +843,22 @@ candidate AS (
     AND ob.conducted_by IS NOT NULL
     AND ($5::uuid IS NULL OR ob.batch_id <> $5)
     AND oi.status IN ('scheduled', 'due', 'in_progress')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignments vda
+      WHERE vda.tenant_id = ob.tenant_id
+        AND vda.batch_id = ob.batch_id
+    )
   GROUP BY ob.conducted_by
+), load AS (
+  -- projection-review: membership=assignment_load plus legacy_batch_load already reduced to one row per operator for the same tenant+park+planned_date; group_key=workforce_member_id; join_cardinality=UNION ALL of two pre-aggregated operator-load sources followed by GROUP BY workforce_member_id, so no member or obligation rows are joined at this layer; pagination=full available-operator candidate set for one park/date, no keyset paging; scope=explicit park/date/status filters inherited from both source CTEs.
+  SELECT workforce_member_id, sum(animals)::int AS animals
+  FROM (
+    SELECT workforce_member_id, animals FROM assignment_load
+    UNION ALL
+    SELECT workforce_member_id, animals FROM legacy_batch_load
+  ) all_load
+  GROUP BY workforce_member_id
 )
 SELECT c.workforce_member_id::text, GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int
 FROM candidate c
