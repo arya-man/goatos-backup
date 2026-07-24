@@ -19,8 +19,16 @@
   },
   "operator_capacity": {
     "unit": "unique_animals_per_operator_per_business_date",
-    "default_animals_per_day": 210,
-    "dose_count_is_not_capacity": true
+    "default_animals_per_day": 200,
+    "dose_count_is_not_capacity": true,
+    "seed_catchup_overrides": [
+      {
+        "date": "2026-07-25",
+        "operator_code": "vaccination_operator_darshan",
+        "max_animals": 210,
+        "reason": "one-time initial CPT seed catch-up after 114 ET+TT animals were completed on 2026-07-24; standing operator cap remains 200"
+      }
+    ]
   },
   "operator_android_login": {
     "required_after_database_seed": true,
@@ -51,7 +59,7 @@
         "CPT"
       ],
       "week_off": "friday",
-      "animal_cap_per_day": 210,
+      "animal_cap_per_day": 200,
       "shift_label": "am",
       "shift_start_minute": 420,
       "shift_end_minute": 900
@@ -67,7 +75,7 @@
         "CPT"
       ],
       "week_off": "sunday",
-      "animal_cap_per_day": 210,
+      "animal_cap_per_day": 200,
       "shift_label": "rover",
       "shift_start_minute": 510,
       "shift_end_minute": 1080
@@ -83,7 +91,7 @@
         "CPT"
       ],
       "week_off": "saturday",
-      "animal_cap_per_day": 210,
+      "animal_cap_per_day": 200,
       "shift_label": "pm",
       "shift_start_minute": 900,
       "shift_end_minute": 1439
@@ -140,9 +148,9 @@
         "Darshan Talwar",
         "Sagar Mahoor"
       ],
-      "total_capacity_animals": 630,
+      "total_capacity_animals": 600,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 210
+      "drive_capacity_animals": 200
     },
     {
       "weekday": "friday",
@@ -153,9 +161,9 @@
       "operator_off": [
         "Amit Kumar"
       ],
-      "total_capacity_animals": 420,
+      "total_capacity_animals": 400,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 210
+      "drive_capacity_animals": 200
     },
     {
       "weekday": "saturday",
@@ -166,9 +174,9 @@
       "operator_off": [
         "Sagar Mahoor"
       ],
-      "total_capacity_animals": 420,
+      "total_capacity_animals": 400,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 210
+      "drive_capacity_animals": 200
     },
     {
       "weekday": "sunday",
@@ -179,9 +187,9 @@
       "operator_off": [
         "Darshan Talwar"
       ],
-      "total_capacity_animals": 420,
+      "total_capacity_animals": 400,
       "drive_assigned_operator_count": 1,
-      "drive_capacity_animals": 210
+      "drive_capacity_animals": 200
     }
   ]
 }

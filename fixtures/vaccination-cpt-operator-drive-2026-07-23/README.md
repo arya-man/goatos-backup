@@ -157,6 +157,12 @@ seed-packet rule only; it does not change the global vaccination protocol matrix
 With `active_operators_per_day=1`, the scheduled drive cap is 200 unique animals
 per day even when more operators are available in HRMS.
 
+The only exception in this packet is the explicit `seed_catchup_overrides` row:
+Darshan may carry 210 ET+TT animals on `2026-07-25` because 114 ET+TT animals
+were already completed on `2026-07-24`. This is seed/proof fixture behavior, not
+production cap behavior. No later drive may use 210 unless the fixture declares
+another explicit seed catch-up override.
+
 The `weekly_capacity_examples` rows are raw HRMS availability examples:
 `total_capacity_animals = available_operators.length * 200`. They are not the
 scheduled drive cap. The scheduled drive cap is
@@ -186,8 +192,7 @@ The headline numbers are:
 
 | Scenario | Date | Operator | Vaccines | Animals | Doses |
 |---|---|---|---|---:|---:|
-| Final ET+TT day 1 | 2026-07-24 Fri | Darshan Talwar | ET+TT | 200 | 200 |
-| Final ET+TT day 2 | 2026-07-25 Sat | Darshan Talwar | ET+TT | 10 | 10 |
+| Final ET+TT catch-up | 2026-07-25 Sat | Darshan Talwar | ET+TT | 210 | 210 |
 
 Darshan is available on both Friday and Saturday; his weekly off is Sunday.
 Any PPR drive row from this seed packet is invalid for now.

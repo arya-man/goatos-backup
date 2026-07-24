@@ -537,7 +537,8 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		_ = release(ctx)
 		return remaining, nil, plannedDate, false, true, err
 	}
-	capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, session)
+	selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
+	capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, configuredParkAnimalCap(planner, capPlanner), session)
 	if len(capped) < len(selected) {
 		animalCapReached = true
 		cappedClaims := splitShotCapReservations(shotClaims, selected, [][]string{capped})

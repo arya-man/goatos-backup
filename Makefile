@@ -789,7 +789,7 @@ GOATOS_CPT_OPERATOR_DRIVE_PACKET ?= $(REPO_ROOT)/fixtures/vaccination-cpt-operat
 # Outside fixtures/ on purpose: the materialized bundle carries reviewed runtime staff names and
 # receives the seed's audit output. `build/` is gitignored, so it is never committed.
 GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR ?= $(REPO_ROOT)/build/cpt-operator-drive-source
-GOATOS_CPT_OPERATOR_DRIVE_AS_OF ?= 2026-07-23
+GOATOS_CPT_OPERATOR_DRIVE_AS_OF ?= 2026-07-24
 
 seed-vaccination-cpt-operator-drive:
 	$(MAKE) seed-checkout-staleness-gate

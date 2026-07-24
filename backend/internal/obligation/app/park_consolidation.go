@@ -159,6 +159,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		_ = visitRelease(ctx)
 		return remaining, 0, plannedDate, false, true, err
 	}
+	selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
 	if driveOperatorCapacityExhausted(planner, capPlanner) {
 		// F1: operators were found but every one has 0 remaining capacity. Do NOT fall through to
 		// lockAndRefreshDriveCapacity or limitParkSelectionByDriveAnimals, which treat
@@ -175,7 +176,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	}
 	release := combineReleases(driveRelease, visitRelease)
 	if capPlanner.MaxGoatsPerDrive > 0 {
-		capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, session)
+		capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, configuredParkAnimalCap(planner, capPlanner), session)
 		if len(capped) < len(selected) {
 			animalCapReached = true
 			cappedClaims := splitShotCapReservations(shotClaims, selected, [][]string{capped})
@@ -730,7 +731,8 @@ func (s *SweeperService) selectBestParkDriveDateWithCapacity(ctx context.Context
 		capped := selected
 		scored := selected
 		if capPlanner.MaxGoatsPerDrive > 0 {
-			capped = limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, day, capPlanner, session)
+			selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
+			capped = limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, day, capPlanner, configuredParkAnimalCap(planner, capPlanner), session)
 			// Rank by the WITHIN-CAP admissible set only: last-safe overflow admissions keep a date
 			// eligible (threshold below) but must not make an over-cap date outrank a date that fits
 			// the same animals inside its free capacity.
@@ -866,10 +868,13 @@ func obligationsFeasibleOnDateForPlanner(now, day time.Time, rows []domain.ParkC
 // to any later feasible date (last-safe-day / due+7 hold boundary); pass 2 fills the remaining
 // capacity with movable rows in route order. A movable row can therefore never consume a slot a
 // last-safe row needs, and neither pass admits animals beyond the operator-day cap.
-func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolidationCandidate, selected []string, plannedDate time.Time, planner domain.DrivePlannerSettings, session *SweepSession) []string {
+func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolidationCandidate, selected []string, plannedDate time.Time, planner domain.DrivePlannerSettings, configuredAnimalCap int32, session *SweepSession) []string {
 	maxAnimals := planner.MaxGoatsPerDrive
 	if maxAnimals <= 0 || len(selected) == 0 {
 		return selected
+	}
+	if configuredAnimalCap <= 0 {
+		configuredAnimalCap = maxAnimals
 	}
 	selectedSet := make(map[string]struct{}, len(selected))
 	for _, id := range selected {
@@ -881,12 +886,12 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 	// Pass 1: immovable (last-safe / hold-boundary) rows reserve capacity first. They still use the
 	// same physical shed/partition packing unit as movable rows; being near the end of the window is
 	// not permission to shave a few animals off a normal partition.
-	used = admitParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, used, admitted, admittedTargets, false)
+	used = admitParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, configuredAnimalCap, used, admitted, admittedTargets, false)
 	// Pass 2: movable rows fill only the remaining capacity and never push past the cap. The unit of
 	// admission is a route/shed chunk, not arbitrary obligation scan order: finish a physical shed
 	// when it fits; otherwise try whole partitions. Carry partitions that do not fit to the next
 	// operator-day, and split row-by-row only when a partition itself is larger than the day cap.
-	used = admitParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, used, admitted, admittedTargets, true)
+	used = admitParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, configuredAnimalCap, used, admitted, admittedTargets, true)
 	out := make([]string, 0, len(admitted))
 	for _, row := range rows {
 		if _, ok := admitted[row.ObligationID]; ok {
@@ -896,7 +901,70 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 	return out
 }
 
-func admitParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, maxAnimals, used int32, admitted, admittedTargets map[string]struct{}, movable bool) int32 {
+func expandWholeParkRoutePartitions(rows []domain.ParkConsolidationCandidate, selected []string, configuredAnimalCap int32) []string {
+	if configuredAnimalCap <= 0 || len(selected) == 0 {
+		return selected
+	}
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = struct{}{}
+	}
+	type groupCounts struct {
+		all map[string]struct{}
+	}
+	groups := make(map[string]*groupCounts)
+	rowGroup := make(map[string]string, len(rows))
+	for _, row := range rows {
+		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
+		key := strings.TrimSpace(row.ParkID) + "\x00" +
+			strings.TrimSpace(row.ShedID) + "\x00" +
+			physicalShed + "\x00" +
+			partition + "\x00" +
+			strings.TrimSpace(row.RuleID)
+		rowGroup[row.ObligationID] = key
+		group := groups[key]
+		if group == nil {
+			group = &groupCounts{all: map[string]struct{}{}}
+			groups[key] = group
+		}
+		if targetKey := parkCandidateTargetKey(row); targetKey != "" {
+			group.all[targetKey] = struct{}{}
+		}
+	}
+	outSet := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		key, ok := rowGroup[id]
+		if !ok {
+			continue
+		}
+		group := groups[key]
+		if group == nil || int32(len(group.all)) > configuredAnimalCap {
+			outSet[id] = struct{}{}
+			continue
+		}
+		for _, row := range rows {
+			if rowGroup[row.ObligationID] == key {
+				outSet[row.ObligationID] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(outSet))
+	for _, row := range rows {
+		if _, ok := outSet[row.ObligationID]; ok {
+			out = append(out, row.ObligationID)
+		}
+	}
+	return out
+}
+
+func configuredParkAnimalCap(planner, capPlanner domain.DrivePlannerSettings) int32 {
+	if planner.MaxGoatsPerDrive > 0 {
+		return planner.MaxGoatsPerDrive
+	}
+	return capPlanner.MaxGoatsPerDrive
+}
+
+func admitParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, maxAnimals, configuredAnimalCap, used int32, admitted, admittedTargets map[string]struct{}, movable bool) int32 {
 	groups := parkRouteGroupsByMovability(now, rows, selectedSet, plannedDate, planner, admitted, movable)
 	for _, group := range groups {
 		needed := newTargetCount(group.rows, admittedTargets)
@@ -916,7 +984,7 @@ func admitParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidat
 				continue
 			}
 			if used+int32(partitionNeeded) > maxAnimals {
-				if int32(partition.targetCount) <= maxAnimals {
+				if int32(partition.targetCount) <= configuredAnimalCap {
 					continue
 				}
 				for _, row := range partition.rows {
@@ -969,6 +1037,9 @@ func parkRouteGroupsByMovability(now time.Time, rows []domain.ParkConsolidationC
 		if leftPartition != rightPartition {
 			return partitionLabelLess(leftPartition, rightPartition)
 		}
+		if ordered[i].RuleID != ordered[j].RuleID {
+			return ordered[i].RuleID < ordered[j].RuleID
+		}
 		if !ordered[i].DueAt.Equal(ordered[j].DueAt) {
 			return ordered[i].DueAt.Before(ordered[j].DueAt)
 		}
@@ -994,7 +1065,8 @@ func parkRouteGroupsByMovability(now time.Time, rows []domain.ParkConsolidationC
 		if physicalShed == "" {
 			physicalShed = "park"
 		}
-		key := physicalShed
+		ruleID := strings.TrimSpace(row.RuleID)
+		key := physicalShed + "\x00" + ruleID
 		group := groupByShed[key]
 		if group == nil {
 			group = &parkRouteGroup{physicalShed: physicalShed, routeRank: vaccinationRouteShedRank(physicalShed)}
@@ -1002,8 +1074,9 @@ func parkRouteGroupsByMovability(now time.Time, rows []domain.ParkConsolidationC
 			order = append(order, key)
 		}
 		group.rows = append(group.rows, row)
-		if len(group.partitions) == 0 || group.partitions[len(group.partitions)-1].partition != partition {
-			group.partitions = append(group.partitions, parkPartitionGroup{partition: partition})
+		partitionKey := partition + "\x00" + ruleID
+		if len(group.partitions) == 0 || group.partitions[len(group.partitions)-1].partition != partitionKey {
+			group.partitions = append(group.partitions, parkPartitionGroup{partition: partitionKey})
 		}
 		last := &group.partitions[len(group.partitions)-1]
 		last.rows = append(last.rows, row)

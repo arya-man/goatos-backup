@@ -565,6 +565,12 @@ one product; this skill is the navigation layer.
   tenant-default capacity; never coerce it to zero or silently leave the
   previous custom cap. Operator-cap SQL proof must be a real Postgres test for
   custom/null-default/week-off rows; a source-string guard is only a lint.
+- Date-scoped operator capacity overrides are explicit exceptions, not a new
+  normal cap source. CPT operator-drive seed uses one override for Darshan on
+  2026-07-25 so ET+TT can schedule 210 after only 114 completions on
+  2026-07-24; every other CPT operator/date remains governed by the standing
+  HRMS cap of 200 unless a future fixture explicitly declares another
+  `seed_catchup_overrides` row.
 
 ## Must Not
 
@@ -596,3 +602,4 @@ one product; this skill is the navigation layer.
 
 <!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->
 <!-- Coupling review 2026-07-24: for CPT operator-drive reseeds, keep the canonical source/history vaccination matrix intact but run the Makefile target with GOATOS_CPT_EXCLUDE_PPR_2026=1 so the packet publishes no PPR obligations in 2026. -->
+<!-- Coupling review 2026-07-24: CPT adult campaign generation ignores entry_date/post_arrival as a strict splitter; adults group by vaccine/rule plus physical shed/partition under the configured cap, using last vaccination date when present and otherwise the partition campaign start. Kid/young schedules keep strict age/entry timing. The one-time 2026-07-25 ET+TT 210-animal allowance is represented only as an explicit seed_catchup_overrides row; normal operator cap semantics remain 200. -->

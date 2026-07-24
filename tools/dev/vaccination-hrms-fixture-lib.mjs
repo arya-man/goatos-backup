@@ -564,3 +564,8 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-07-24 (CPT no-PPR 2026 seed): the CPT operator-drive
 // Makefile target may publish a packet-scoped rule subset without PPR. The
 // canonical source fixture and validator still preserve PPR history mapping.
+
+// Coupling review 2026-07-24: CPT adult campaign grouping and
+// seed_catchup_overrides affect only operator-drive rehearsal bundles that ship
+// cpt-operator-roster.json. The committed full fixture has no such contract file,
+// so raw fixture bytes and manifest hashes remain unchanged.

@@ -756,7 +756,7 @@ WITH capacity_config AS (
 ),
 candidate AS (
   SELECT wm.workforce_member_id, wm.updated_at,
-         COALESCE(MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))::int AS daily_cap
+         COALESCE(MAX(voco.max_animals), MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))::int AS daily_cap
   FROM workforce_members wm
   JOIN locations park_loc
     ON park_loc.tenant_id = $1
@@ -783,6 +783,11 @@ candidate AS (
    AND (pmd.effective_to IS NULL OR pmd.effective_to > $3::date)
    AND pmd.duty_type = 'execute'
    AND pmd.module_code IN ('preventive_care', 'vaccination', 'pc.vaccination')
+  LEFT JOIN vaccination_operator_capacity_overrides voco
+    ON voco.tenant_id = wm.tenant_id
+   AND voco.park_id = $2
+   AND voco.operator_id = wm.workforce_member_id
+   AND voco.capacity_date = $3::date
   WHERE wm.tenant_id = $1
     AND wm.status = 'active'
     AND NOT EXISTS (

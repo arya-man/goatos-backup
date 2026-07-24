@@ -1118,6 +1118,41 @@ func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDue(t *testing.T) {
+	ctx := context.Background()
+	entryEarly := time.Date(2026, time.June, 18, 0, 0, 0, 0, time.UTC)
+	entryLate := time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","species":"sheep","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-sheep-pox", DoseCode: "sheep_pox_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 35, DueWindowDays: 7,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "godel-main", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "sheep", Stage: "adult", EntryDate: &entryEarly, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+		{GoatID: "godel-late-singleton", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "sheep", Stage: "adult", EntryDate: &entryLate, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	wantDue := businessDayStart(entryEarly).AddDate(0, 0, 35)
+	if result.Generated != 2 || result.Deferred != 0 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want two normal campaign obligations", result, obl.inserted)
+	}
+	for _, inserted := range obl.inserted {
+		if !inserted.DueAt.Equal(wantDue) {
+			t.Fatalf("goat %s due=%s, want coalesced partition campaign due %s", inserted.TargetID, inserted.DueAt, wantDue)
+		}
+		if inserted.Status != "scheduled" {
+			t.Fatalf("goat %s status=%q, want scheduled normal campaign row", inserted.TargetID, inserted.Status)
+		}
+	}
+}
+
 func TestGenerateForVersionHonorsVaccinationRulesSourceScheduleWithTrustedHistory(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
