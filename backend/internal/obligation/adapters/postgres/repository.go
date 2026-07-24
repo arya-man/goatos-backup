@@ -114,16 +114,18 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
-	// Resolve the operator capacity of BOTH candidate landing dates (the original date for a
-	// restore/clear, the new date for a move) BEFORE opening the write transaction, so the re-plan
-	// never needs a second pooled connection while holding this transaction open.
-	originalCapacity, err := r.vaccinationOperatorCapacityForDate(ctx, override.TenantID, override.ParkID, original)
+	// Resolve candidate landing-date capacity BEFORE opening the write transaction, so the re-plan
+	// never needs a second pooled connection while holding this transaction open. Date moves get a
+	// short forward horizon: a moved vaccination drive starts on the requested date, then repacks
+	// remaining sheds/partitions onto the next executable operator-days instead of cramming every
+	// animal onto the first date.
+	originalCapacity, err := r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, original, original)
 	if err != nil {
 		return nil, err
 	}
 	nextCapacity := originalCapacity
 	if !next.Equal(original) {
-		nextCapacity, err = r.vaccinationOperatorCapacityForDate(ctx, override.TenantID, override.ParkID, next)
+		nextCapacity, err = r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, next, next.AddDate(0, 0, 13))
 		if err != nil {
 			return nil, err
 		}
