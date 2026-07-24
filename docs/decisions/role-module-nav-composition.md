@@ -46,10 +46,9 @@ Two facts drive it:
   at 3–5 items no matter how many modules a person holds; the drawer, not the bar,
   absorbs the growth.
 - **`shared_key` dedupe still applies** wherever several modules are composed into
-  ONE bar. That is not dead code: `composeNavigationFromModules()` takes a module
-  list, and the leadership bar is exactly that case (Overview + the cross-module
-  Calendar/Alerts). A module contributing `calendar`/`alerts` under the same
-  `shared_key` appears once, at the first contributing module's priority.
+  ONE bar. `composeNavigationFromModules()` takes a module list, and a module
+  contributing `calendar`/`alerts` under the same `shared_key` appears once, at
+  the first contributing module's priority.
 - **"Soon" modules are backend-declared.** A registry entry with
   `status: "soon"` (`feed_direction`, `breeding`) renders as a disabled drawer row
   for every principal via `soonModuleKeys` — it advertises the roadmap and confers
@@ -101,12 +100,13 @@ department_module_grants.module_key`, and leadership roles are **org-level — a
 Director is not a member of a department**, so department-scoping them would resolve
 to zero grants and hide every module. Their access is decided by permission alone.
 
-> **Superseded 2026-07-24 (see "Leadership drawer per-role matrix" below).** Leadership
-> candidates are no longer "every registry module". They are curated by leadership TIER
-> (`leadershipModuleKeys`): CEO gets Vaccination(home)+Counts+soon; PC Director / Park
-> Head get the Vaccination home ONLY. So the "park_head sees Counts" rows in the Counts
-> worked example just below are historical — a preventive-care leader's drawer no longer
-> contains the Counts module at all, even though he still holds the counts permissions.
+> **Superseded 2026-07-25 (see "Leadership drawer per-role matrix" below).** Leadership
+> candidates are curated by leadership TIER (`leadershipModuleKeys`), but the synthetic
+> `leadership` / Overview module has been removed. CEO gets the shared Vaccination
+> module + Counts + soon rows; PC Director / Park Head get the shared Vaccination module
+> only. So the "park_head sees Counts" rows in the Counts worked example just below are
+> historical — a preventive-care leader's drawer no longer contains the Counts module at
+> all, even though he still holds the counts permissions.
 
 **Worked example — the Counts matrix (maintainer decision 2026-07-18).** Counts
 contributes three items under two permissions: the census page `/counts` requires
@@ -180,12 +180,13 @@ chrome are both gone. Seed coupling for that table is
 `backend/cmd/seed-dev-grant -modules` (dev identities) — see
 `docs/runbooks/android-dev-device.md`.
 
-## Leadership drawer per-role matrix (maintainer decision 2026-07-24)
+## Leadership drawer per-role matrix (maintainer decision 2026-07-25)
 
-Leadership principals are no longer a single undifferentiated drawer. The synthetic
-`leadership` module is branded as the **Vaccination** leadership home (drawer label
-"Vaccination", syringe icon client-side) and the drawer is composed by leadership
-**tier**, not "all modules":
+Updated 2026-07-25: there is no mobile Leadership / Overview screen and no synthetic
+`leadership` module. Vaccination-related leadership users and legacy vaccination FCM
+payloads land in the shared **Vaccination** module.
+
+Leadership principals are still composed by leadership **tier**, not "all modules":
 
 | role         | drawer modules                                   | chrome   | park scope        |
 |--------------|--------------------------------------------------|----------|-------------------|
@@ -198,17 +199,15 @@ Leadership principals are no longer a single undifferentiated drawer. The synthe
 Rules encoded (`bootstrap_copy.go`):
 
 - `leadershipModuleKeys(grants)` returns the tier's set: CEO gets
-  `{leadership, counts, feed_direction, breeding}`; a preventive-care leader
-  (PC Director, Park Head) gets `{leadership}` only. Counts, Feed, and Breeding are
-  not preventive-care surfaces, so a PC leader never sees them.
-- The operator **vaccination** drives module and the **verification** module are
-  excluded from every leadership tier — a leader's vaccination home IS the
-  `leadership` module, and verification belongs to the verifier role. Both routes
-  stay permission-reachable; they are simply not leadership nav.
-- The leadership module **lands on Calendar** (`landingHref: /calendar`) while its
-  bottom bar keeps four tabs (Overview / Calendar / Alerts / You). The Overview tab
-  uses nav key `overview` (Home glyph) so the drawer module key `leadership` can
-  carry the syringe.
+  `{vaccination, counts, feed_direction, breeding}`; a preventive-care leader
+  (PC Director, Park Head) gets `{vaccination}` only. Counts, Feed, and Breeding
+  are not preventive-care surfaces, so a PC leader never sees them.
+- The **verification** module belongs to the verifier role. Vaccination leadership
+  uses the shared Vaccination module rather than a private leadership overview.
+- The Vaccination module lands on `/vaccination` and its bottom bar is
+  Drives / Alerts / You. FCM payloads for vaccination reminders, verification-pending
+  non-verifiers, verification-approved, and legacy `leadership_close` values resolve
+  to `/vaccination`, never `/leadership`.
 - `navChromeFor` derives chrome from the COMPOSED drawer: `>=2` available modules =
   expanded drawer (CEO), a single available module = minimal bottom bar
   (PC leaders). "Soon" roadmap rows are only shown to a leadership tier that is
@@ -216,8 +215,8 @@ Rules encoded (`bootstrap_copy.go`):
 - Park Head's single-park limit is **data scope** (his `user_scope_grant` /
   `scope_id`), not nav — the drawer change does not alter it.
 
-Read path for scan: a leadership principal opens a drive → shed/partition list
-read-only. The scan/capture screen is already gated by the operator capability
+Read path for scan: a leadership principal opens the Vaccination area → shed/partition
+list read-only. The scan/capture screen is already gated by the operator capability
 (`ScanViewModel.operatorAllowed`, bootstrap `primaryRoleHint == operator`), so no
 leadership tier reaches scan. No change was needed there.
 

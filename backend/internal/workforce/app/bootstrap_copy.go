@@ -58,7 +58,7 @@ const (
 //
 // Bottom-bar shape is MODULE-SCOPED: a module's bar is its own contributions, so
 // switching modules in the drawer switches the bar. Cross-module dedupe by shared_key
-// still applies when several modules are composed into one flat bar (leadership).
+// still applies when several modules are composed into one flat bar.
 // See docs/decisions/role-module-nav-composition.md.
 var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: this is the module registry, not a hardcoded per-role template
 	// "vaccination" is the Preventive Care (PC) Vaccination module.
@@ -117,29 +117,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusSoon,
 		priority:    4,
 	},
-	// Leadership principals (vaccination leadership / preventive-care oversight).
-	// This is a synthetic "module" representing the leadership nav state. The drawer
-	// row is branded as the Vaccination leadership surface (label "Vaccination",
-	// syringe icon on the client) because a leadership principal's home IS the
-	// vaccination overview -- there is no separate operator "vaccination" drives
-	// module in their drawer (see leadershipModuleKeys).
-	// The bottom bar keeps four tabs (Overview + Calendar + Alerts + You) but the
-	// module LANDS on Calendar: landingHref is /calendar, not the Overview page.
-	// The Overview tab uses the "overview" nav key so the client keeps its Home
-	// glyph while the drawer module ("leadership" key) renders the syringe.
-	"leadership": {
-		key:         "leadership",
-		labelKey:    "module.leadership",
-		landingHref: "/calendar", //nav-composition:ignore: registry entry -- leadership lands on Calendar
-		status:      moduleStatusAvailable,
-		priority:    0,
-		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.leadership", href: "/leadership", shared_key: "", priority: 0}, //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
-			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
-			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
-		},
-	},
 	// The cross-vertical verifier app is intentionally standalone. Verifiers review
 	// evidence; they never inherit operator capture or leadership action navigation.
 	"verification": {
@@ -159,7 +136,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 var soonModuleKeys = []string{"feed_direction", "breeding"}
 
 // visibleNavigationFor composes navigation from the person's granted modules.
-// If the person has any leadership grant, they see the leadership nav.
+// If the person has any leadership grant, they see the shared module set for that tier.
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
@@ -169,11 +146,15 @@ func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string,
 		return composeNavigationFromModules([]string{"verification"}, grants, localeTag)
 	}
 
-	// Leadership principals default to the leadership bar (Overview + Calendar + Alerts).
-	// They may ALSO hold other modules -- those appear in the drawer via modulesFor and
-	// the client switches to them; the default landing bar stays Overview.
+	// Leadership principals default to their curated module set. There is no synthetic
+	// leadership/overview screen; preventive-care leaders land on the shared
+	// Vaccination module, while CEO gets Vaccination plus org-level modules.
 	if isLeadershipPrincipal(grants) {
-		return composeNavigationFromModules([]string{"leadership"}, grants, localeTag)
+		keys := leadershipModuleKeys(grants)
+		if len(keys) == 0 {
+			return []domain.BootstrapNavigationItem{}
+		}
+		return composeNavigationFromModules([]string{keys[0]}, grants, localeTag)
 	}
 
 	// Non-leadership operators get the bar of their ACTIVE module. The bar is
@@ -234,24 +215,20 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 // permission filtering. Leadership is org-level (not department-scoped), so the set
 // is decided by leadership TIER, not by department_module_grants:
 //
-//   - CEO/CXO (ceo_internal) is whole-org: the vaccination leadership home plus
-//     Counts, plus the roadmap "soon" modules (Feed direction, Breeding).
+//   - CEO/CXO (ceo_internal) is whole-org: Vaccination plus Counts, plus the
+//     roadmap "soon" modules (Feed direction, Breeding).
 //   - Preventive-Care leadership (PC Director, Park Head) is specialty-scoped to
-//     preventive care: ONLY the vaccination leadership home. Counts, Feed, and
-//     Breeding are not preventive-care surfaces, so they never appear. Park Head is
-//     further limited to his own park by his grant scope (data scope), not by nav.
+//     preventive care: ONLY the shared Vaccination module. Counts, Feed, and Breeding
+//     are not preventive-care surfaces, so they never appear. Park Head is further
+//     limited to his own park by his grant scope (data scope), not by nav.
 //
-// The synthetic operator "vaccination" drives module and the "verification" module
-// are intentionally excluded from every leadership tier: a leadership principal's
-// vaccination home is the "leadership" module itself, and verification belongs to
-// the verifier role. Their routes stay permission-reachable; they are just not
-// leadership nav.
+// Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleCEOInternal) {
-		return []string{"leadership", "counts", "feed_direction", "breeding"}
+		return []string{"vaccination", "counts", "feed_direction", "breeding"}
 	}
 	// PC Director / Park Head: preventive-care specialty, vaccination home only.
-	return []string{"leadership"}
+	return []string{"vaccination"}
 }
 
 // hasRole reports whether any active grant carries the given role.
@@ -456,7 +433,6 @@ func localizedBootstrapLabel(localeTag, key string) string {
 
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
-		"nav.leadership":  "Overview",
 		"nav.verify":      "Verify",
 		"nav.calendar":    "Calendar",
 		"nav.alerts":      "Alerts",
@@ -467,9 +443,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "Approval",
 		"nav.you":         "You",
 
-		// The leadership drawer row is the vaccination leadership home; it is branded
-		// "Vaccination" (syringe icon client-side) rather than "Leadership".
-		"module.leadership":     "Vaccination",
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
 		"module.counts":         "Counts",
@@ -480,7 +453,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "Proof review",
 	},
 	"hi": {
-		"nav.leadership":  "अवलोकन",
 		"nav.verify":      "सत्यापित करें",
 		"nav.calendar":    "कैलेंडर",
 		"nav.alerts":      "अलर्ट",
@@ -491,7 +463,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "अनुमोदन",
 		"nav.you":         "आप",
 
-		"module.leadership":     "टीकाकरण",
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
 		"module.counts":         "गिनती",
@@ -502,7 +473,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "प्रूफ समीक्षा",
 	},
 	"kn": {
-		"nav.leadership":  "ಅವಲೋಕನ",
 		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
 		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":      "ಎಚ್ಚರಿಕೆಗಳು",
@@ -513,7 +483,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "ಅನುಮೋದನೆ",
 		"nav.you":         "ನೀವು",
 
-		"module.leadership":     "ಲಸಿಕೆ",
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.counts":         "ಎಣಿಕೆ",
@@ -524,7 +493,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 	},
 	"te": {
-		"nav.leadership":  "అవలోకనం",
 		"nav.verify":      "ధృవీకరించండి",
 		"nav.calendar":    "క్యాలెండర్",
 		"nav.alerts":      "అలర్ట్లు",
@@ -535,7 +503,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "ఆమోదం",
 		"nav.you":         "మీరు",
 
-		"module.leadership":     "టీకా",
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
 		"module.counts":         "లెక్కలు",

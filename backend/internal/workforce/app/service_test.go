@@ -134,11 +134,9 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 }
 
-// TestBootstrapLeadershipGetsFixedNav pins the leadership bottom bar: a
-// preventive-care leader (park_head) gets the four-tab Overview/Calendar/Alerts/You
-// bar. Its only drawer module is the vaccination home, so the chrome is minimal
-// (single module = bottom bar, not a one-row drawer). CEO's expanded-drawer case
-// is covered by TestLeadershipDrawerCompositionPerRole.
+// TestBootstrapLeadershipGetsFixedNav pins that a preventive-care leader
+// (park_head) lands in the shared Vaccination area. The standalone
+// leadership/overview screen is intentionally absent.
 func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
@@ -149,10 +147,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		// The Overview tab uses the "overview" key so the client keeps its Home glyph
-		// while the drawer module ("leadership") renders the syringe.
-		{Key: "overview", Label: "Overview", Href: "/leadership"},
-		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
@@ -256,12 +251,11 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 	})
 }
 
-// TestVisibleNavigationFor pins that leadership always gets the fixed
-// Calendar/Overview/Alerts nav, and operator gets the field execution nav; leadership keeps calendar.
+// TestVisibleNavigationFor pins that leadership lands in Vaccination after the
+// standalone Overview screen removal, while operator gets the same field execution nav.
 func TestVisibleNavigationFor(t *testing.T) {
 	leadershipWant := []domain.BootstrapNavigationItem{
-		{Key: "overview", Label: "Overview", Href: "/leadership"},
-		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -272,7 +266,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 		want    []domain.BootstrapNavigationItem
 	}{
 		{
-			name:    "leadership ignores module grants",
+			name:    "leadership lands in vaccination",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
 			modules: []string{"vaccination", "counts"},
 			want:    leadershipWant,
@@ -419,8 +413,8 @@ func TestNavChromeFor(t *testing.T) {
 // not hardcoded per-role. This test proves:
 // 1. Operator with single module (vaccination) gets bottom-bar-only nav (minimal chrome)
 // 2. Operator drawer chrome is disabled while module-specific bars still compose
-// 3. Leadership principals get overview + shared cross-module nav (expanded chrome)
-// 4. Nav items are deduplicated by shared_key (e.g., calendar appears once)
+// 3. Leadership principals use the shared Vaccination module after Overview removal
+// 4. Nav items are deduplicated by shared_key
 func TestBootstrapNavComposition(t *testing.T) {
 	operatorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
 	leadershipGrants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
@@ -461,16 +455,16 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("leadership principal gets overview + shared nav", func(t *testing.T) {
+	t.Run("leadership principal gets shared vaccination nav", func(t *testing.T) {
 		nav := visibleNavigationFor(leadershipGrants, nil, "")
-		if len(nav) != 4 {
-			t.Fatalf("leadership nav length=%d want 4 (overview + calendar + alerts + you)", len(nav))
+		if len(nav) != 3 {
+			t.Fatalf("leadership nav length=%d want 3 (vaccination + alerts + you)", len(nav))
 		}
-		if nav[0].Key != "overview" {
-			t.Fatalf("first nav item key=%q want 'overview'", nav[0].Key)
+		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
+			t.Fatalf("first nav item=%#v want vaccination at /vaccination", nav[0])
 		}
-		if nav[1].Key != "calendar" || nav[2].Key != "alerts" || nav[3].Key != "you" {
-			t.Fatalf("leadership nav should have calendar, alerts, and you; got %v", []string{nav[1].Key, nav[2].Key, nav[3].Key})
+		if nav[1].Key != "alerts" || nav[2].Key != "you" {
+			t.Fatalf("leadership nav should have alerts and you after vaccination; got %v", []string{nav[1].Key, nav[2].Key})
 		}
 	})
 
@@ -713,7 +707,7 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 
 // TestCountsModuleReplacesYouTabWithApproval pins the maintainer decision (2026-07-19) that the
 // Counts module owns its trailing bottom-bar slot: it contributes the Approval queue there, and
-// deliberately does NOT contribute the global "You" tab that vaccination and leadership do.
+// deliberately does NOT contribute the global "You" tab that Vaccination does.
 //
 // This is the backend half of removing the client's hardcoded trailing tab. The Android shell now
 // renders the composed bar verbatim with nothing appended, so these assertions are what actually
@@ -764,19 +758,17 @@ func TestCountsModuleReplacesYouTabWithApproval(t *testing.T) {
 		}
 	}
 
-	// ...while the modules that DO own it still emit it, so the profile surface stays reachable.
-	for _, module := range []string{"vaccination", "leadership"} {
-		grants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
-		items := composeNavigationFromModules([]string{module}, grants, "")
-		found := false
-		for _, item := range items {
-			if item.Key == "you" && item.Href == "/you" {
-				found = true
-			}
+	// ...while Vaccination still emits it, so the profile surface stays reachable.
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
+	items := composeNavigationFromModules([]string{"vaccination"}, grants, "")
+	found := false
+	for _, item := range items {
+		if item.Key == "you" && item.Href == "/you" {
+			found = true
 		}
-		if !found {
-			t.Fatalf("module %q must contribute the You tab at /you; got %#v", module, items)
-		}
+	}
+	if !found {
+		t.Fatalf("vaccination must contribute the You tab at /you; got %#v", items)
 	}
 }
 

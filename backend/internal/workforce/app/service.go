@@ -599,8 +599,8 @@ func hasCapability(items []domain.CapabilityAssignment, code string) bool {
 	return false
 }
 
-// leadershipGrantRoles are the workforce grant roles that see the fixed
-// leadership mobile nav (Calendar / Overview / Alerts). Mirrors the role-lens
+// leadershipGrantRoles are the workforce grant roles that get the curated
+// mobile module set (for example Vaccination plus CEO modules). Mirrors the role-lens
 // tiers already used for the admin-web bootstrap (see roleLensForRole in
 // internal/adminui/app/compiler.go): ceo_internal is CEO/CXO, pc_director is
 // the health director and park_head is the park manager.

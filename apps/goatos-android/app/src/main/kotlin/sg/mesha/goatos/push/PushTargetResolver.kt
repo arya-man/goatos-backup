@@ -26,7 +26,6 @@ private val RECORD_TYPES = setOf("record", "verification", "verification_closed"
  */
 fun resolvePushRoute(payload: Map<String, String>): String {
     val shedId = payload[PushExtras.SHED_ID]?.takeIf { it.isNotBlank() }
-    val obligationId = payload[PushExtras.OBLIGATION_ID]?.takeIf { it.isNotBlank() }
     val itemId = payload[PushExtras.ITEM_ID]?.takeIf { it.isNotBlank() }
     val category = payload[PushExtras.CATEGORY]?.takeIf { it.isNotBlank() }
     val role = payload[PushExtras.ROLE]?.lowercase()?.takeIf { it.isNotBlank() }
@@ -47,10 +46,10 @@ fun resolvePushRoute(payload: Map<String, String>): String {
                 role == "verifier" -> if (itemId != null) Routes.verifyDetailRoute(itemId, category) else Routes.VERIFY
                 else -> Routes.VACCINATION
             }
-        screen == "leadership_close" || type == "verification_approved" -> Routes.LEADERSHIP
+        screen == "leadership_close" || type == "verification_approved" -> Routes.VACCINATION
         screen in RECORD_TYPES || type in RECORD_TYPES ->
             if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
-        screen == "reschedule" || type == "reschedule" -> Routes.rescheduleRoute(obligationId)
+        screen == "reschedule" || type == "reschedule" -> Routes.VACCINATION
         screen == "calendar" || type == "calendar" -> Routes.CALENDAR
         else -> Routes.VACCINATION
     }

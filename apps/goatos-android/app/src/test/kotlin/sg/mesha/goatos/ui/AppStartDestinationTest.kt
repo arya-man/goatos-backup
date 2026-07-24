@@ -51,29 +51,26 @@ class AppStartDestinationTest {
     }
 
     @Test
-    fun `leadership cold start honors module landing (Calendar), not the first Overview tab`() {
-        val leadershipBar = listOf(
-            NavItem("overview", "Overview", Routes.LEADERSHIP),
-            NavItem("calendar", "Calendar", Routes.CALENDAR),
+    fun `leadership cold start lands in shared vaccination module`() {
+        val vaccinationBar = listOf(
+            NavItem("vaccination", "Vaccination", Routes.VACCINATION),
             NavItem("alerts", "Alerts", Routes.ALERTS),
             NavItem("you", "You", Routes.YOU),
         )
-        // Bar shows Overview first, but the default module (leadership, branded Vaccination)
-        // lands on Calendar. Cold start must follow the module href, not items[0].
         val state = NavState(
             chrome = NavChrome.MINIMAL,
-            items = leadershipBar,
+            items = vaccinationBar,
             modules = listOf(
                 NavModule(
-                    key = "leadership",
+                    key = "vaccination",
                     label = "Vaccination",
-                    href = Routes.CALENDAR,
+                    href = Routes.VACCINATION,
                     status = NavModuleStatus.AVAILABLE,
-                    navItems = leadershipBar,
+                    navItems = vaccinationBar,
                 ),
             ),
         )
-        assertEquals(Routes.CALENDAR, startDestinationFor(state))
+        assertEquals(Routes.VACCINATION, startDestinationFor(state))
     }
 
     @Test

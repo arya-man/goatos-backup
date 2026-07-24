@@ -13,10 +13,6 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.feature.calendar.CalendarScreen
-import sg.mesha.goatos.feature.leadership.LeadershipScreen
-import sg.mesha.goatos.feature.leadership.OverdueScreen
-import sg.mesha.goatos.feature.leadership.RescheduleScreen
-import sg.mesha.goatos.feature.leadership.VerificationClosureRow
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileScreen
 import sg.mesha.goatos.feature.profile.RfidScreen
@@ -190,9 +186,6 @@ class ScreenshotTest {
     }
 
     @Test
-    fun overview() = shot("overview") { LeadershipScreen(state = sampleLeadershipState()) }
-
-    @Test
     fun record() = shot("record") { RecordScreen(state = sampleRecordState()) }
 
     @Test
@@ -203,12 +196,6 @@ class ScreenshotTest {
 
     @Test
     fun you() = shot("you") { ProfileScreen(state = sampleProfileState()) }
-
-    @Test
-    fun overdue() = shot("overdue") { OverdueScreen(state = sampleOverdueState()) }
-
-    @Test
-    fun reschedule() = shot("reschedule") { RescheduleScreen(state = sampleRescheduleState()) }
 
     @Test
     fun timetable() = shot("timetable") { TimetableScreen(state = sampleTimetableState()) }
@@ -317,23 +304,4 @@ class ScreenshotTest {
         )
     }
 
-    @Test
-    fun vaccination_leadership_close() = shot("vaccination_leadership_close") {
-        LeadershipScreen(
-            state = sampleLeadershipState().copy(
-                todaySheds = emptyList(),
-                backlog = emptyList(),
-                needsDecision = emptyList(),
-                verificationClosures = listOf(
-                    VerificationClosureRow(
-                        submissionId = "drive-1",
-                        title = "Coimbatore · Vaccination drive",
-                        subtitle = "18 goats verified · Gandhi 1 · Arun",
-                    ),
-                ),
-                coverageByParkTitle = null,
-                coverageByPark = emptyList(),
-            ),
-        )
-    }
 }
