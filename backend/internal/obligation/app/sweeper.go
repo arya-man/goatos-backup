@@ -1245,7 +1245,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 		return false, 0, nil
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveAnimals(operationalAsOf, g.rows, selectedIDs, plannedDate, capPlanner, session)
+	cappedIDs := limitUnbatchedSelectionByDriveAnimals(operationalAsOf, g.rows, selectedIDs, plannedDate, capPlanner, planner.MaxGoatsPerDrive, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -1486,7 +1486,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 				_ = release(ctx)
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, session)
+			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, planner.MaxGoatsPerDrive, session)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 			score := scoreUnbatchedDriveDate(now, day, rows, cappedIDs, planner)
@@ -1537,7 +1537,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 		_ = release(ctx)
 		return bestDate, nil, nil, noopRelease, err
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, session)
+	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, planner.MaxGoatsPerDrive, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -1715,7 +1715,7 @@ func scoreUnbatchedDriveDate(now, plannedDate time.Time, rows []domain.Unbatched
 // the goat's own safe window / due+7 hold); pass 2 fills the remaining capacity with movable rows.
 // A movable row can never displace a last-safe row, and neither pass admits animals beyond the
 // operator-day cap.
-func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, session *SweepSession) []string {
+func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, configuredAnimalCap int32, session *SweepSession) []string {
 	if planner.MaxGoatsPerDrive <= 0 || plannedDate == nil || len(selected) == 0 {
 		return selected
 	}
@@ -1754,47 +1754,13 @@ func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.Unbatche
 	// Pass 1: immovable rows reserve capacity first, but only on a date that is legal for that
 	// row. A mixed/held sweep must not let past-window rows ride another cohort's later date as
 	// "immovable" overflow.
-	for _, row := range rows {
-		if _, ok := selectedSet[row.ObligationID]; !ok {
-			continue
-		}
-		if !feasibleOnPlannedDate(row) {
-			continue
-		}
-		if canMove(row) {
-			continue
-		}
-		targetKey := unbatchedTargetKey(row)
-		if _, ok := admittedTargets[targetKey]; !ok {
-			if used+1 > planner.MaxGoatsPerDrive {
-				continue
-			}
-			admittedTargets[targetKey] = struct{}{}
-			used++
-		}
-		admitted[row.ObligationID] = struct{}{}
-	}
+	used = admitUnbatchedRouteGroups(rows, selectedSet, admitted, admittedTargets, used, planner.MaxGoatsPerDrive, configuredAnimalCap, func(row domain.UnbatchedDue) bool {
+		return feasibleOnPlannedDate(row) && !canMove(row)
+	})
 	// Pass 2: movable rows fill only the remaining capacity, never pushing past the cap.
-	for _, row := range rows {
-		if _, ok := selectedSet[row.ObligationID]; !ok {
-			continue
-		}
-		if _, ok := admitted[row.ObligationID]; ok {
-			continue
-		}
-		if !feasibleOnPlannedDate(row) {
-			continue
-		}
-		targetKey := unbatchedTargetKey(row)
-		if _, ok := admittedTargets[targetKey]; !ok {
-			if used+1 > planner.MaxGoatsPerDrive {
-				continue
-			}
-			admittedTargets[targetKey] = struct{}{}
-			used++
-		}
-		admitted[row.ObligationID] = struct{}{}
-	}
+	used = admitUnbatchedRouteGroups(rows, selectedSet, admitted, admittedTargets, used, planner.MaxGoatsPerDrive, configuredAnimalCap, func(row domain.UnbatchedDue) bool {
+		return feasibleOnPlannedDate(row) && canMove(row)
+	})
 	out := make([]string, 0, len(admitted))
 	for _, row := range rows {
 		if _, ok := admitted[row.ObligationID]; ok {
@@ -1802,6 +1768,100 @@ func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.Unbatche
 		}
 	}
 	return out
+}
+
+func admitUnbatchedRouteGroups(rows []domain.UnbatchedDue, selectedSet, admitted, admittedTargets map[string]struct{}, used, cap, configuredCap int32, include func(domain.UnbatchedDue) bool) int32 {
+	groups := unbatchedRouteGroups(rows, selectedSet, admitted, include)
+	for _, group := range groups {
+		newTargets := unadmittedUnbatchedTargets(group.rows, admittedTargets)
+		if len(newTargets) == 0 {
+			for _, row := range group.rows {
+				admitted[row.ObligationID] = struct{}{}
+			}
+			continue
+		}
+		if configuredCap > 0 && len(newTargets) > int(configuredCap) {
+			used = admitUnbatchedRowsIndividually(group.rows, admitted, admittedTargets, used, cap)
+			continue
+		}
+		if cap > 0 && used+int32(len(newTargets)) > cap {
+			continue
+		}
+		for targetKey := range newTargets {
+			admittedTargets[targetKey] = struct{}{}
+		}
+		used += int32(len(newTargets))
+		for _, row := range group.rows {
+			admitted[row.ObligationID] = struct{}{}
+		}
+	}
+	return used
+}
+
+type unbatchedRouteGroup struct {
+	key  string
+	rows []domain.UnbatchedDue
+}
+
+func unbatchedRouteGroups(rows []domain.UnbatchedDue, selectedSet, admitted map[string]struct{}, include func(domain.UnbatchedDue) bool) []unbatchedRouteGroup {
+	byKey := make(map[string]int)
+	groups := make([]unbatchedRouteGroup, 0)
+	for _, row := range rows {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if _, ok := admitted[row.ObligationID]; ok {
+			continue
+		}
+		if !include(row) {
+			continue
+		}
+		key := unbatchedRouteGroupKey(row)
+		idx, ok := byKey[key]
+		if !ok {
+			idx = len(groups)
+			byKey[key] = idx
+			groups = append(groups, unbatchedRouteGroup{key: key})
+		}
+		groups[idx].rows = append(groups[idx].rows, row)
+	}
+	return groups
+}
+
+func unbatchedRouteGroupKey(row domain.UnbatchedDue) string {
+	physicalShed, partition := normalizeAssignmentShed(row.ShedName)
+	return strings.TrimSpace(row.ParkID) + "\x00" +
+		strings.TrimSpace(row.ScopeID) + "\x00" +
+		physicalShed + "\x00" +
+		partition + "\x00" +
+		strings.TrimSpace(row.RuleID)
+}
+
+func unadmittedUnbatchedTargets(rows []domain.UnbatchedDue, admittedTargets map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, row := range rows {
+		targetKey := unbatchedTargetKey(row)
+		if _, ok := admittedTargets[targetKey]; ok {
+			continue
+		}
+		out[targetKey] = struct{}{}
+	}
+	return out
+}
+
+func admitUnbatchedRowsIndividually(rows []domain.UnbatchedDue, admitted, admittedTargets map[string]struct{}, used, cap int32) int32 {
+	for _, row := range rows {
+		targetKey := unbatchedTargetKey(row)
+		if _, ok := admittedTargets[targetKey]; !ok {
+			if cap > 0 && used+1 > cap {
+				continue
+			}
+			admittedTargets[targetKey] = struct{}{}
+			used++
+		}
+		admitted[row.ObligationID] = struct{}{}
+	}
+	return used
 }
 
 func unbatchedTargetKey(row domain.UnbatchedDue) string {
