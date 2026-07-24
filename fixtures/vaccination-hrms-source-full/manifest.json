@@ -152,6 +152,11 @@
       "date": "2026-07-24",
       "change": "CPT operator-roster contract gained operator_android_login and per-operator email_hint validation. After DB seed, Amit, Darshan, and Sagar must each be provisioned with a distinct Firebase/Auth email-password Android login; shared operator credentials, founder/CXO Android execution shortcuts, and plaintext passwords in git are invalid seed evidence.",
       "vaccination_hrms_source_impact": "none to the committed full fixture bytes: this bundle ships no cpt-operator-roster.json, so full-fixture hashes/counts are unchanged. The CPT operator-drive rehearsal packet is affected: materialize-source, source validation, and seed-roster-real now fail loudly when operator email hints are missing/duplicated or the Android login contract permits a shared password or skips per-operator smoke proof."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "seed-roster-real deriveRoleHint now emits primary_role_hint='operator' for any member holding an active vaccination_operator_* position, overriding the frozen June-seat bestCode/bestTier that was computed before the operator-roster overlay ran. Fixes CPT operators Amit/Darshan/Sagar being mislabelled 'supervisor' (manager capacity-tier) or 'park_head' (a leftover higher-ranked seat), which silently dropped every mobile scan because the app gate keys on primary_role_hint=='operator'. Adds TestDeriveRoleHintVaccinationOperatorAlwaysOperator and a source-validator invariant guard (OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT). Capacity tier 'manager' remains a capacity/roster attribute only, never a role.",
+      "vaccination_hrms_source_impact": "none to the committed full fixture bytes: this bundle ships no cpt-operator-roster.json, so its overlay is a no-op and every non-operator member keeps its prior role hint (a real manager stays 'supervisor', a real park head stays 'park_head'). No file hash, count, or corrections-ledger entry changes; the adversarial self-test baseline is unaffected. Only members recast into vaccination_operator_* positions by a present operator-roster contract now resolve to 'operator'."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."

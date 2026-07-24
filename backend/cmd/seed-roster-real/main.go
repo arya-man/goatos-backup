@@ -1250,7 +1250,19 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 			locationID = &l
 		}
 
-		roleHint := deriveRoleHint(m, grade)
+		// A member is a vaccination-executing operator if they hold any active
+		// vaccination_operator_* position (the operator-roster overlay stamps that
+		// code onto their resolved seat). Computed from the post-overlay assignments,
+		// not from bestCode/bestTier, which were frozen from the original June seat.
+		var execVaccOperator bool
+		for _, a := range assignments {
+			if a.jun26Name == key && strings.HasPrefix(a.position.code, "vaccination_operator_") {
+				execVaccOperator = true
+				break
+			}
+		}
+
+		roleHint := deriveRoleHint(m, grade, execVaccOperator)
 
 		// Deterministic department guess: use position's deptGuess for best tier
 		var deptGuess string
@@ -1703,7 +1715,15 @@ WHERE department_module_grants.status <> 'active'`, tenantID, pairCodes, pairMod
 	return int(tag.RowsAffected()), nil
 }
 
-func deriveRoleHint(m *memberRec, grade *string) string {
+func deriveRoleHint(m *memberRec, grade *string, execVaccOperator bool) string {
+	// A vaccination-executing operator is always an "operator" for app/gate purposes,
+	// regardless of the HR capacity-tier (manager) used for roster/capacity or any
+	// higher-ranked June seat (e.g. park_head) the same person also holds. The mobile
+	// scan gate keys on primary_role_hint == "operator"; a field executor labelled
+	// supervisor/park_head would be silently locked out of scanning.
+	if execVaccOperator {
+		return "operator"
+	}
 	switch m.bestCode {
 	case "park_head":
 		return "park_head"

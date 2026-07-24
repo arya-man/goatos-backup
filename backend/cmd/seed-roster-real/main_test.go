@@ -293,3 +293,32 @@ func TestLoadOperatorRosterRejectsSharedPasswordContract(t *testing.T) {
 		t.Fatalf("expected weak Android password contract rejection, got: %v", err)
 	}
 }
+
+// TestDeriveRoleHintVaccinationOperatorAlwaysOperator locks the fix for the CPT
+// operator-drive incident: a vaccination-executing operator must resolve to
+// primary_role_hint="operator" even when their frozen June seat is a manager tier
+// (would map to "supervisor") or a park_head seat (would map to "park_head"). The
+// mobile scan gate keys on == "operator", so a wrong hint silently drops every scan.
+func TestDeriveRoleHintVaccinationOperatorAlwaysOperator(t *testing.T) {
+	mgr := "manager"
+	cases := []struct {
+		name     string
+		member   memberRec
+		grade    *string
+		execVacc bool
+		wantHint string
+	}{
+		{"manager-tier vacc operator (Amit/Darshan)", memberRec{bestCode: "vaccination_operator_amit", bestTier: "manager"}, &mgr, true, "operator"},
+		{"park_head-seat vacc operator (Sagar)", memberRec{bestCode: "park_head", bestTier: "head"}, &mgr, true, "operator"},
+		{"non-operator manager stays supervisor", memberRec{bestCode: "breeding_manager", bestTier: "manager"}, &mgr, false, "supervisor"},
+		{"non-operator park_head stays park_head", memberRec{bestCode: "park_head", bestTier: "head"}, nil, false, "park_head"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.member
+			if got := deriveRoleHint(&m, tc.grade, tc.execVacc); got != tc.wantHint {
+				t.Fatalf("deriveRoleHint = %q, want %q", got, tc.wantHint)
+			}
+		})
+	}
+}

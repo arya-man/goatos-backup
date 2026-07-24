@@ -228,6 +228,20 @@ Do not model raw partition-bearing shed names as separate canonical buildings.
 `Part 3` under physical shed `Godel 1`. Splitting them into separate `locations`
 rows multiplies work, breaks operator ownership, and makes UI grouping lie.
 
+Derive a person's role from their AUTHORITATIVE current position, not a frozen
+snapshot taken earlier in the seed. `seed-roster-real` recasts a rehearsal
+operator's resolved seat into a `vaccination_operator_<name>` position via the
+operator-roster overlay, but it computes `bestCode`/`bestTier` during the earlier
+June-seat mapping pass, BEFORE that overlay runs. Deriving `primary_role_hint`
+from that stale `bestCode`/`bestTier` labelled field executors by their old seat —
+manager tier → `supervisor`, or a leftover `park_head` seat → `park_head` — and
+the mobile scan gate (`operatorAllowed = primary_role_hint == "operator"`)
+silently dropped every scan for Amit/Darshan/Sagar on STG. The fix keys the hint
+off the member's actual post-overlay positions (any active `vaccination_operator_*`
+⇒ `operator`), locked by `TestDeriveRoleHintVaccinationOperatorAlwaysOperator`.
+The general rule: when a later pass mutates the authoritative record, recompute
+derived identity from the final record, never from a snapshot frozen upstream.
+
 Do not report drive assignment rows as the complete future schedule until the
 missing-obligation audit is clean. Adult ET+TT dose 1 history must always have
 same-goat adult ET+TT dose 2 work; otherwise the assignment table is just a
