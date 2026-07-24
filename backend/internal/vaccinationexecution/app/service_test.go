@@ -19,6 +19,7 @@ type fakeRepo struct {
 	shedAnimals []domain.ShedAnimalRow
 	planned     []domain.PlannedSession
 	capacityCfg domain.CapacityConfig
+	carryLines  []domain.VaccineCarryLine
 	err         error
 }
 
@@ -427,4 +428,80 @@ func projection(shedID string, dueAt time.Time, dose int, mutate func(*domain.Ex
 
 func (fakeRepo) AuthorizedParkOptions(context.Context, string, []string) ([]domain.ParkOption, error) {
 	return nil, nil
+}
+
+func (r fakeRepo) VaccinationExecutionCarrySummary(context.Context, domain.ExecutionQuery) ([]domain.VaccineCarryLine, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.carryLines, nil
+}
+
+func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDateParkScopeStatusBuckets(t *testing.T) {
+	// CRITICAL: Carry summary must be full-day aggregation, not sum of paginated rows.
+	// Fixture: one day (2026-07-24) with ET+TT vaccine, 3 goats total (200 doses each = 600 total).
+	// Paginated page contains only 2 goats (400 doses). Carry total must still be 600, not 400.
+	repo := &fakeRepo{
+		carryLines: []domain.VaccineCarryLine{
+			{
+				Date:           "2026-07-24",
+				VaccineLabel:   "ET+TT",
+				RemainingDoses: 600, // full-day total remaining (3 goats × 200)
+				TotalDoses:     600, // full-day total
+			},
+		},
+	}
+	svc := NewService(repo)
+	q := domain.ExecutionQuery{
+		TenantID:             "tenant-cpt",
+		OperatorScopeActorID: "darshan-uuid",
+		AsOf:                 time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		DueBefore:            time.Date(2026, 7, 30, 23, 59, 59, 0, time.UTC),
+		Limit:                20, // Pagination limit (loads only 2 of 3 goats)
+	}
+
+	resp, err := svc.VaccinationExecutionPage(context.Background(), q)
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage failed: %v", err)
+	}
+
+	// Verify carry summary is present for app requests
+	if resp.CarrySummary == nil {
+		t.Fatal("CarrySummary must not be nil for app requests (OperatorScopeActorID set)")
+	}
+
+	// Verify per-day structure
+	if len(resp.CarrySummary.CarryByDay) != 1 {
+		t.Errorf("Expected 1 day, got %d", len(resp.CarrySummary.CarryByDay))
+	}
+
+	day := resp.CarrySummary.CarryByDay[0]
+
+	// CRITICAL: verify date is included
+	if day.Date != "2026-07-24" {
+		t.Errorf("Expected date 2026-07-24, got %s", day.Date)
+	}
+
+	// CRITICAL: TotalRemaining must be full-day total (600), NOT page-dependent (400)
+	if day.TotalRemaining != 600 {
+		t.Errorf("Expected TotalRemaining=600 (full-day), got %d (page-dependent bug)", day.TotalRemaining)
+	}
+
+	// Verify per-vaccine breakdown
+	if len(day.VaccineBreakdown) != 1 {
+		t.Errorf("Expected 1 vaccine, got %d", len(day.VaccineBreakdown))
+	}
+
+	vaccine := day.VaccineBreakdown[0]
+	if vaccine.VaccineLabel != "ET+TT" {
+		t.Errorf("Expected vaccine ET+TT, got %s", vaccine.VaccineLabel)
+	}
+
+	if vaccine.RemainingDoses != 600 {
+		t.Errorf("Expected 600 remaining ET+TT doses, got %d", vaccine.RemainingDoses)
+	}
+
+	if vaccine.TotalDoses != 600 {
+		t.Errorf("Expected 600 total ET+TT doses, got %d", vaccine.TotalDoses)
+	}
 }

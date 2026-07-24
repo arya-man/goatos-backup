@@ -18,6 +18,8 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.sheds.ShedDayTab
+import sg.mesha.goatos.feature.sheds.CarryVaccine
+import sg.mesha.goatos.feature.sheds.DayCarry
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
 import sg.mesha.goatos.feature.sheds.ShedsEvent
@@ -244,6 +246,17 @@ class ShedsViewModel @Inject constructor(
                 .thenBy { it.name.lowercase() }
         )
         val totals = executionCounts(rowsForSelectedDay)
+        // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
+        // The screen renders these numbers verbatim — no client-side summing of shed rows.
+        val selectedKey = selectedDay.toString()
+        val carry = carrySummary?.carryByDay?.firstOrNull { it.date == selectedKey }?.let { day ->
+            DayCarry(
+                totalRemaining = day.totalRemaining,
+                vaccines = day.vaccineBreakdown
+                    .filter { it.remainingDoses > 0 }
+                    .map { CarryVaccine(label = it.vaccineLabel, remaining = it.remainingDoses) },
+            )
+        }
         return base.copy(
             title = "Next 7 days",
             // Vaccination operators do not need the executive Calendar's week/month/history
@@ -275,6 +288,7 @@ class ShedsViewModel @Inject constructor(
             roleNote = null,
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             rows = shedRows,
+            carry = carry,
             rosterChanges = emptyList(),
             kernelInfo = null,
         )

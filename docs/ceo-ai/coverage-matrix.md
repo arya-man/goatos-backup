@@ -470,3 +470,14 @@ plumbing: no counts, no KPI, no time-series, no read API, table, `ceo_ai.*` view
 Cube metric, or Toolbox tool. Leadership drive/coverage answers stay on the
 existing aggregate `/vaccination/*` surfaces; this only keeps operator drive
 sheets internally consistent after a within-shed partition move.
+
+**EXCLUDED — `func:VaccinationExecutionCarrySummary`**
+(`backend/internal/vaccinationexecution/adapters/postgres/repository.go`) — computes
+the per-operator, per-business-day "vaccines to carry" total (remaining doses by
+vaccine over that operator's own sheds for the day) served ONLY on the operator
+mobile execution response (`OperatorScopeActorID` set); admin/leadership reads get
+`nil`. It is operator field-work chrome — how many doses one operator packs for one
+day — not a leadership KPI, time-series, or tenant/park rollup. Same category as the
+already-excluded operator execution/scan internals; leadership drive/coverage answers
+stay on the existing aggregate `/vaccination/*` surfaces and `ceo_ai.*` views. No
+`ceo_ai.*` view, Cube metric, or Toolbox tool is warranted.
