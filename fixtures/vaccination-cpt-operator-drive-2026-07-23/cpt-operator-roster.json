@@ -17,6 +17,23 @@
     "default_animals_per_day": 200,
     "dose_count_is_not_capacity": true
   },
+  "operator_android_login": {
+    "required_after_database_seed": true,
+    "identity_provider": "firebase_email_password",
+    "source_email_field": "operators[].email_hint",
+    "unique_email_per_operator": true,
+    "unique_temporary_password_per_operator": true,
+    "shared_password_forbidden": true,
+    "plaintext_passwords_in_git_forbidden": true,
+    "must_send_or_record_individual_reset_flow": true,
+    "android_login_smoke_required": true,
+    "notes": [
+      "After the HRMS/vaccination seed completes, every vaccination operator in operators[] must have an individual Firebase/Auth email-password account for Android login.",
+      "Use each operator's email_hint as the login email. Do not seed one common operator email, one shared password, or a CEO/CXO login for field Android execution.",
+      "Generate a different temporary password per operator or send an individual reset flow; never commit passwords into this fixture or any runbook.",
+      "The seed is not closed until Android bootstrap/login is verified for Amit, Darshan, and Sagar against their own identities."
+    ]
+  },
   "operators": [
     {
       "code": "vaccination_operator_amit",

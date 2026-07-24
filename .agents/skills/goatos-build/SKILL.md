@@ -34,6 +34,13 @@ The director and the CEO/CXO grants come from the committed
 `backend/cmd/seed-roster-real` now genuinely consumes; a director is seeded with
 no `workforce_positions` row, so he carries zero field execution capacity, and
 that is asserted rather than assumed.
+After that DB seed, provision Android login for the three field operators from
+the same roster: Amit, Darshan, and Sagar each need their own Firebase/Auth
+email-password identity using their `operators[].email_hint`. Never use one
+common operator account, one shared password, or a CEO/CXO account for field
+Android execution; use unique temporary passwords or individual reset flows, do
+not commit plaintext passwords, and smoke-test Android bootstrap/login for each
+operator before calling the seed complete.
 
 Git identity rule: Goat OS commits must use a Mesha identity. Before committing
 or landing, verify `git config user.email` ends in `@mesha.sg`; never commit or

@@ -97,6 +97,30 @@ function readContract() {
       `(one per reviewed ${park} timetable seat); cpt-operator-roster.json declares ${operators.length}`,
     );
   }
+  const emails = new Map();
+  for (const op of operators) {
+    const label = op?.code || op?.display_name || "operator";
+    const email = String(op?.email_hint ?? "").trim().toLowerCase();
+    if (!email || !email.includes("@")) fail(`${label}: email_hint is required for Android login provisioning`);
+    if (emails.has(email)) fail(`${label}: email_hint duplicates ${emails.get(email)}; operator Android logins must be unique`);
+    emails.set(email, label);
+  }
+  const login = contract?.operator_android_login;
+  const requiredLogin = {
+    required_after_database_seed: true,
+    identity_provider: "firebase_email_password",
+    source_email_field: "operators[].email_hint",
+    unique_email_per_operator: true,
+    unique_temporary_password_per_operator: true,
+    shared_password_forbidden: true,
+    plaintext_passwords_in_git_forbidden: true,
+    must_send_or_record_individual_reset_flow: true,
+    android_login_smoke_required: true,
+  };
+  if (!login || typeof login !== "object") fail("cpt-operator-roster.json is missing operator_android_login contract");
+  for (const [key, expected] of Object.entries(requiredLogin)) {
+    if (login[key] !== expected) fail(`operator_android_login.${key} must be ${JSON.stringify(expected)}`);
+  }
   for (const center of contract?.source_scope?.centers_allowed ?? [park]) {
     if (FORBIDDEN_CENTERS.has(String(center).toUpperCase())) {
       fail(`centers_allowed contains forbidden center ${center}`);

@@ -68,6 +68,15 @@ export const OPERATOR_ROSTER_DIRECTORS_FIELD = "directors";
 export const OPERATOR_ROSTER_DIRECTOR_HAS_ZERO_EXECUTION_CAPACITY = true;
 export const OPERATOR_ROSTER_LEADERSHIP_FIELD = "leadership_full_access";
 export const OPERATOR_ROSTER_LEADERSHIP_GRANT_SCOPE = "tenant";
+// The same CPT operator-roster contract also owns Android field-login setup
+// after DB seed: every executable vaccination operator must have a distinct
+// email/password identity derived from operators[].email_hint. Shared operator
+// logins, shared passwords, founder/CXO logins for field execution, and
+// plaintext passwords in git are invalid seed evidence.
+export const OPERATOR_ANDROID_LOGIN_CONTRACT_FIELD = "operator_android_login";
+export const OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER = "firebase_email_password";
+export const OPERATOR_ANDROID_LOGIN_EMAIL_FIELD = "operators[].email_hint";
+export const OPERATOR_ANDROID_SHARED_PASSWORD_FORBIDDEN = true;
 // A reseed proof is only valid from an origin/main-identical, clean checkout:
 // `make seed-checkout-staleness-gate` runs read-only BEFORE any DB mutation in
 // both seed targets and fails closed (BUG-023). GOATOS_ALLOW_STALE_SEED_CHECKOUT=1

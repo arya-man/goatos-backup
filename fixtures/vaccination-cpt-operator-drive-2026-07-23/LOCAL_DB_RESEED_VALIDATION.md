@@ -56,6 +56,22 @@ Seed all of these people exactly:
 | Sagar Mahoor | vaccination operator | yes | Saturday | 200 |
 | Chandrakant | preventive care director | no | none | 0 |
 
+Each vaccination operator must also be provisioned for Android login after the
+database seed finishes:
+
+| Person | Android login email source | Password rule |
+|---|---|---|
+| Amit Kumar | `operators[].email_hint` in `cpt-operator-roster.json` | unique temporary password or individual reset flow |
+| Darshan Talwar | `operators[].email_hint` in `cpt-operator-roster.json` | unique temporary password or individual reset flow |
+| Sagar Mahoor | `operators[].email_hint` in `cpt-operator-roster.json` | unique temporary password or individual reset flow |
+
+Do not seed a common operator email, a shared field password, or a CEO/CXO login
+for Android execution. Plaintext passwords must never be committed to this
+fixture, runbook, screenshots, shell history, or seed evidence. The valid cloud
+path is to create/verify one Firebase/Auth email-password account per operator
+and send/record an individual reset flow; the valid local proof is to show each
+operator identity reaches Android bootstrap with its own email.
+
 Founder/CXO tenant grants must also exist for:
 
 - `ravi@mesha.sg`
@@ -71,6 +87,9 @@ Forbidden HRMS shapes:
 - Do not change Sagar week-off to Monday.
 - Do not leave any vaccination operator without `vaccination_daily_animal_cap`.
 - Do not leave any vaccination operator without `vaccination_operator_shift_config`.
+- Do not finish seed validation before unique Android login provisioning is
+  complete for Amit, Darshan, and Sagar.
+- Do not reuse one shared operator password across Amit, Darshan, and Sagar.
 - Do not turn Chandrakant into vaccination execution capacity.
 
 ## Capacity Rules
@@ -244,6 +263,9 @@ Treat the validation as failed if any of these happen:
   `GOATOS_EXPECTED_DRIVE_VARIANT` names the applied variant);
 - leave/cascade mutation runs on the same DB before clean reseed proof;
 - a test says PASS but executed zero tests;
+- operators share one Android login or one shared password;
+- any operator can execute vaccination in HRMS but cannot log into Android with
+  their own provisioned identity after seed;
 - the report relies on UI screenshots before DB rows.
 
 ## Separation Of Proofs

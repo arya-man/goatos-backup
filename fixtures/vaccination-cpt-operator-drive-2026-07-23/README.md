@@ -55,6 +55,15 @@ seed Amit as support, do not seed Sagar as support-only, and do not infer
 park-head ownership from old HRMS labels. Their timetable removes them from
 availability only on their week-off or an explicit dated leave row.
 
+All three operators also need their own Android login after the database seed is
+done. Use each `operators[].email_hint` value in `cpt-operator-roster.json` as
+that operator's Firebase/Auth email-password identity. Do not create one common
+operator login, do not reuse one shared password, and do not ask operators to use
+CEO/CXO accounts for field execution. The provisioning step must generate a
+different temporary password per operator or send an individual password-reset
+flow. Do not commit real passwords into git; seed evidence should prove the
+account exists and Android bootstrap works for Amit, Darshan, and Sagar.
+
 For the discussed vaccination-drive scenario, `default_operator_assignment`
 sets `active_operators_per_day=1` and `default_operator_code=
 vaccination_operator_darshan`. That is a drive-assignment rule, not an HRMS
@@ -128,6 +137,10 @@ operator per business date.
 Required seed contract:
 
 - keep Amit Kumar, Darshan Talwar, and Sagar Mahoor as vaccination operators;
+- provision separate Android email-password login identities for Amit, Darshan,
+  and Sagar from `operators[].email_hint`;
+- use unique temporary passwords or individual reset links for those operator
+  identities; never a shared password and never committed plaintext passwords;
 - keep Chandrakant as director/monitoring only;
 - keep the five founder/CXO tenant grants;
 - set per-operator animal cap to 200 unique animals/day;
@@ -190,10 +203,14 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
 4. Run the DB-free source audit before any DB write.
 5. Seed the five CEO/CXO pending email grants with `role=ceo_internal`.
 6. Seed only the three CPT vaccination operators plus Chandrakant as director.
-7. Seed operator cap `200` as animals/operator/day.
-8. Generate obligations through the vaccination rule engine, not from hardcoded
+7. After DB seed, provision Firebase/Auth email-password users for Amit,
+   Darshan, and Sagar from `cpt-operator-roster.json` `email_hint` values. Each
+   operator must receive a different temporary password or an individual reset
+   flow, and Android login/bootstrap must be smoke-tested per operator.
+8. Seed operator cap `200` as animals/operator/day.
+9. Generate obligations through the vaccination rule engine, not from hardcoded
    frontend tables.
-9. Run the operator drive planner and verify:
+10. Run the operator drive planner and verify:
    - no CBE/Coimbatore source rows exist;
    - open drive dates are `2026-07-23` or later;
    - all three operators exist in HRMS;
@@ -210,7 +227,7 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
    - the DB schedule for the discussed scenarios matches
      `expected-drive-schedules.json`; any mismatch must be explained by an
      explicit changed input, not by hidden frontend or seed defaults.
-10. Verify admin-web and mobile from backend APIs: no frontend hardcoded park,
+11. Verify admin-web and mobile from backend APIs: no frontend hardcoded park,
     operator, shed, cap, or schedule fallback may be needed.
 
 Do not replicate this to staging until the local/dev DB shows the expected CPT
