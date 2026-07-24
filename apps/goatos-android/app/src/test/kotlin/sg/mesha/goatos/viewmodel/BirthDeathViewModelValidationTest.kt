@@ -48,6 +48,7 @@ import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
+import sg.mesha.goatos.rfid.FakeScanSource
 
 /**
  * BirthDeathViewModel is now SELECTOR/SCAN-driven, so these lock in the two things the PR#11
@@ -66,6 +67,7 @@ class BirthDeathViewModelValidationTest {
 
     private lateinit var syncRepository: RecordingCountsSyncRepository
     private lateinit var countsRepository: FakeBirthDeathCountsRepository
+    private lateinit var scanSource: FakeScanSource
     private lateinit var analytics: AnalyticsPort
     private lateinit var crashReporter: CrashReporter
     private lateinit var savedStateHandle: SavedStateHandle
@@ -75,6 +77,7 @@ class BirthDeathViewModelValidationTest {
         Dispatchers.setMain(dispatcher)
         syncRepository = RecordingCountsSyncRepository()
         countsRepository = FakeBirthDeathCountsRepository()
+        scanSource = FakeScanSource()
         analytics = NoopAnalyticsPort()
         crashReporter = NoopTestCrashReporter()
         savedStateHandle = SavedStateHandle()
@@ -86,6 +89,7 @@ class BirthDeathViewModelValidationTest {
     private fun newViewModel() = BirthDeathViewModel(
         syncRepository,
         countsRepository,
+        scanSource,
         analytics,
         crashReporter,
         savedStateHandle,
@@ -331,6 +335,118 @@ class BirthDeathViewModelValidationTest {
         assertTrue("A death was enqueued", request != null)
         assertEquals("Death targets the resolved goat_id", GOAT_ID, request!!.goatId)
         assertEquals("row_version comes from the search result", ANIMAL_ROW_VERSION, request.rowVersion)
+    }
+
+    // --- Birth: the permanent identifiers are SCANNABLE ---------------------------------------
+
+    @Test
+    fun `a scanned tag fills the primary identifier and releases the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        assertTrue("The reader is listening", scanSource.isStarted)
+        assertEquals(BirthDeathField.TAG, vm.state.value.scanningField)
+
+        scanSource.emit("982000123456789")
+        advanceUntilIdle()
+
+        assertEquals("The scan lands in animal_identifier_1", "982000123456789", vm.state.value.tag)
+        // One ear tag is one identifier: capture stops so the NEXT animal's tag cannot silently
+        // overwrite the one just scanned.
+        assertEquals("Capture released after the read", null, vm.state.value.scanningField)
+        assertFalse("The BT-HID reader was stopped", scanSource.isStarted)
+    }
+
+    @Test
+    fun `tapping the scanning field again stops the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+
+        assertEquals(null, vm.state.value.scanningField)
+        assertFalse(scanSource.isStarted)
+    }
+
+    @Test
+    fun `scanning the second identifier hands the reader over from the first`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG2))
+        advanceUntilIdle()
+
+        assertEquals("Only the second field is listening", BirthDeathField.TAG2, vm.state.value.scanningField)
+
+        scanSource.emit("982000987654321")
+        advanceUntilIdle()
+
+        assertEquals("The scan lands in animal_identifier_2", "982000987654321", vm.state.value.tag2)
+        assertEquals("The first identifier is untouched", "", vm.state.value.tag)
+    }
+
+    @Test
+    fun `switching to the temporary path releases the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        // A provisional tag is hand-written — both permanent-RFID fields disappear, so a scan in
+        // progress has lost its destination and must not keep eating hardware key events.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, BIRTH_ID_KIND_TEMPORARY))
+        advanceUntilIdle()
+
+        assertEquals(null, vm.state.value.scanningField)
+        assertFalse(scanSource.isStarted)
+    }
+
+    @Test
+    fun `switching to the death mode releases the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.SelectMode(BirthDeathMode.DEATH))
+        advanceUntilIdle()
+
+        assertEquals("Death has no identifier field to scan into", null, vm.state.value.scanningField)
+        assertFalse(scanSource.isStarted)
+    }
+
+    @Test
+    fun `a scanned identifier submits exactly as a typed one would`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        scanSource.emit("982000123456789")
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2026-07-01"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+
+        assertTrue("A scanned tag satisfies the submit gate", vm.state.value.canSubmit)
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals(
+            "The scanned tag reaches the wire payload unchanged",
+            "982000123456789",
+            request!!.animalIdentifier1,
+        )
     }
 
     private companion object {

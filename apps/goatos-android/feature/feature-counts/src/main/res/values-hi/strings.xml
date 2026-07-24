@@ -86,6 +86,11 @@
     <string name="counts_field_tag2">पशु पहचानकर्ता 2 (वैकल्पिक)</string>
     <string name="counts_hint_tag2">दूसरा स्थायी RFID। यदि नवजात के पास केवल एक टैग है तो खाली छोड़ें।</string>
     <string name="counts_field_temp_tag">अस्थायी टैग</string>
+    <!-- Bluetooth RFID scan toggle on the permanent-identifier fields -->
+    <string name="counts_rfid_scan_start">ब्लूटूथ रीडर से यह RFID स्कैन करें</string>
+    <string name="counts_rfid_scan_stop">स्कैन करना रोकें</string>
+    <string name="counts_rfid_scan_listening">स्कैन हो रहा है… रीडर को टैग के पास ले जाएँ, या रोकने के लिए टैप करें</string>
+    <string name="counts_rfid_promote_scan_hint">ब्लूटूथ रीडर से स्थायी कान का टैग स्कैन करें, या टाइप करें।</string>
     <string name="counts_id_kind_permanent">स्थायी RFID</string>
     <string name="counts_id_kind_temporary">अस्थायी टैग</string>
     <string name="counts_field_breed">नस्ल</string>

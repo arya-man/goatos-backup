@@ -89,6 +89,17 @@ object AnalyticsEvents {
     /** The operator pressed "Promote to permanent RFID": the promote (retag) write was queued. */
     const val COUNTS_RFID_PROMOTE_SUBMITTED = "counts_rfid_promote_submitted"
 
+    /**
+     * The operator started the Bluetooth reader on a permanent-identifier field instead of typing
+     * it. [Params.KIND] is the surface (`birth`/`rfid_promote`); [Params.FIELD] is which identifier
+     * (`tag`/`tag2`/`primary`/`secondary`). Answers "is the field scanner actually being used, or
+     * are operators still transcribing 15-digit tags by hand".
+     */
+    const val COUNTS_RFID_SCAN_STARTED = "counts_rfid_scan_started"
+
+    /** A Bluetooth scan filled a permanent-identifier field with a completed tag read. */
+    const val COUNTS_RFID_SCAN_CAPTURED = "counts_rfid_scan_captured"
+
     /** A Counts write could not be queued at all. [Params.KIND] distinguishes
      *  birth/death/shifting; [Params.REASON] carries a coarse, non-PII cause. */
     const val COUNTS_WRITE_FAILURE = "counts_write_failure"
@@ -176,6 +187,15 @@ object AnalyticsEvents {
 
         /** Which Counts write/read a shared event refers to (`birth`/`death`/`shifting`/…). */
         const val KIND = "kind"
+
+        /**
+         * Which form field an event refers to (`tag`/`tag2`/`primary`/`secondary`).
+         *
+         * The field NAME only — never the scanned value. An RFID is livestock operations data
+         * rather than PII, but the analytics question here is "which identifier slot gets
+         * scanned", which the name answers and the tag id only bloats.
+         */
+        const val FIELD = "field"
 
         /** How an approval request was decided (`approved`/`rejected`). */
         const val DECISION = "decision"

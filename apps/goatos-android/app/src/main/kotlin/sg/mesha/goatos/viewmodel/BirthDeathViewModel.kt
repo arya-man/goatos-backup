@@ -35,6 +35,7 @@ import sg.mesha.goatos.feature.counts.BirthDeathMode
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
 import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
+import sg.mesha.goatos.rfid.ScanSource
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -66,11 +67,18 @@ import javax.inject.Inject
  * Medical guardrail: the death path targets identity's critical-death exit, where
  * `lifecycle_status="dead"` + `exit_reason="died"` is enforced server-side. This ViewModel sends
  * the DTO's constants and never lets the operator choose another pairing.
+ *
+ * The birth path's two permanent identifiers can be SCANNED rather than typed: [scanSource] is the
+ * same BT-HID keyboard-wedge port (`docs/mobile/rfid-keyboard-reader.md`) the Submit recording form
+ * uses, so no Bluetooth/InputManager API reaches this layer. A scan is applied through the SAME
+ * [onEditField] path a typed value takes, so the draft guard and submit gate cannot diverge between
+ * the two input methods.
  */
 @HiltViewModel
 class BirthDeathViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val countsRepository: CountsRepository,
+    private val scanSource: ScanSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
@@ -87,6 +95,7 @@ class BirthDeathViewModel @Inject constructor(
     val state: StateFlow<BirthDeathUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var scanJob: Job? = null
 
     init {
         // A ViewModel recreated after process death resumes following its already-queued write
@@ -102,6 +111,7 @@ class BirthDeathViewModel @Inject constructor(
         when (event) {
             is BirthDeathEvent.SelectMode -> onSelectMode(event.mode)
             is BirthDeathEvent.EditField -> onEditField(event.field, event.value)
+            is BirthDeathEvent.ToggleRfidScan -> toggleScan(event.field)
             is BirthDeathEvent.SelectPark -> onSelectPark(event.parkId)
             is BirthDeathEvent.SelectShed -> onSelectShed(event.shedId)
             is BirthDeathEvent.EditAnimalQuery -> onEditAnimalQuery(event.value)
@@ -114,6 +124,9 @@ class BirthDeathViewModel @Inject constructor(
 
     private fun onSelectMode(mode: BirthDeathMode) {
         if (_state.value.result.isCommitted) return
+        // Death has no permanent-identifier field; never leave the reader listening into a form
+        // that has nowhere to put a tag.
+        stopScanning()
         // Switching mode makes this a different write; drop the draft key so the new event can
         // never inherit the other mode's identity.
         idempotencyKey.invalidate()
@@ -141,6 +154,9 @@ class BirthDeathViewModel @Inject constructor(
 
     private fun onEditField(field: BirthDeathField, value: String) {
         if (!beginEdit()) return
+        // Switching to the temporary-tag path hides both permanent-RFID fields (a provisional tag
+        // has nothing to read), so any scan in progress has lost its destination.
+        if (field == BirthDeathField.ID_KIND && value == BIRTH_ID_KIND_TEMPORARY) stopScanning()
         _state.update { current ->
             when (field) {
                 BirthDeathField.ID_KIND -> current.copy(idKind = value)
@@ -156,6 +172,67 @@ class BirthDeathViewModel @Inject constructor(
             }
         }
         recomputeSubmitGate()
+    }
+
+    // -----------------------------------------------------------------------
+    // Bluetooth RFID scan — one permanent-identifier field at a time
+    // -----------------------------------------------------------------------
+
+    /**
+     * Hands the BT-HID reader to [field], or stops it when [field] is already the one listening.
+     * A completed tag fills that field and STOPS the reader: an ear tag is one identifier, so
+     * leaving capture running would let the next animal's tag silently overwrite it.
+     *
+     * Only the two permanent identifiers are scannable; any other field is ignored rather than
+     * silently starting a reader whose read has nowhere to land.
+     */
+    private fun toggleScan(field: BirthDeathField) {
+        if (field != BirthDeathField.TAG && field != BirthDeathField.TAG2) return
+        if (_state.value.result.isCommitted) return // the birth is durable; nothing left to edit
+        if (_state.value.scanningField == field) {
+            stopScanning()
+            return
+        }
+        stopScanning()
+        _state.update { it.copy(scanningField = field) }
+        scanSource.start()
+        analytics.track(
+            AnalyticsEvents.COUNTS_RFID_SCAN_STARTED,
+            mapOf(
+                AnalyticsEvents.Params.KIND to "birth",
+                AnalyticsEvents.Params.FIELD to field.name.lowercase(),
+            ),
+        )
+        scanJob = viewModelScope.launch {
+            scanSource.tags.collect { tag ->
+                // Through the ordinary edit path: same draft/re-key guard and submit gate a typed
+                // identifier gets, so scanning can never bypass a validation a keyboard cannot.
+                onEditField(field, tag)
+                analytics.track(
+                    AnalyticsEvents.COUNTS_RFID_SCAN_CAPTURED,
+                    mapOf(
+                        AnalyticsEvents.Params.KIND to "birth",
+                        AnalyticsEvents.Params.FIELD to field.name.lowercase(),
+                    ),
+                )
+                stopScanning()
+            }
+        }
+    }
+
+    private fun stopScanning() {
+        if (_state.value.scanningField == null) return
+        scanSource.stop()
+        scanJob?.cancel()
+        scanJob = null
+        _state.update { it.copy(scanningField = null) }
+    }
+
+    override fun onCleared() {
+        // Leaving the screen must release the reader: capture consumes hardware key events
+        // app-wide while enabled, so a leaked listener would eat another screen's input.
+        stopScanning()
+        super.onCleared()
     }
 
     // -----------------------------------------------------------------------
@@ -329,6 +406,7 @@ class BirthDeathViewModel @Inject constructor(
     // -----------------------------------------------------------------------
 
     private fun submit() {
+        stopScanning() // the identifiers are settled; release the reader before the write
         val current = _state.value
         if (!current.canSubmit) return
         // One stable key for this draft, reused verbatim on every retry the sync engine makes.

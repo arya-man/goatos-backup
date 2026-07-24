@@ -25,7 +25,9 @@ import sg.mesha.goatos.core.network.dto.TemporaryTaggedGoatDto
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.RfidPromoteEvent
+import sg.mesha.goatos.feature.counts.RfidPromoteField
 import sg.mesha.goatos.feature.counts.RfidPromoteUiState
+import sg.mesha.goatos.rfid.ScanSource
 import javax.inject.Inject
 
 /**
@@ -37,11 +39,18 @@ import javax.inject.Inject
  * `SavedStateHandle`-persisted key keyed to the goat, so a resend after process death collapses onto
  * the original promotion instead of retagging twice. The goat detail is read from the Room-cached
  * awaiting-RFID row (offline-first open): the operator tapped a row already in Room, so no refetch.
+ *
+ * The two permanent identifiers can be SCANNED rather than typed: [scanSource] is the same BT-HID
+ * keyboard-wedge port (`docs/mobile/rfid-keyboard-reader.md`) the Submit recording form uses, so no
+ * Bluetooth/InputManager API reaches this layer. A scan writes the tag through the SAME
+ * [RfidPromoteEvent.RfidChanged] / [RfidPromoteEvent.Rfid2Changed] path a typed value takes — the
+ * submit gate and validation cannot diverge between the two input methods.
  */
 @HiltViewModel
 class RfidPromoteViewModel @Inject constructor(
     private val repo: AwaitingRfidRepository,
     private val syncRepository: SyncRepository,
+    private val scanSource: ScanSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
@@ -60,6 +69,7 @@ class RfidPromoteViewModel @Inject constructor(
     val state: StateFlow<RfidPromoteUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var scanJob: Job? = null
 
     init {
         analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_OPENED)
@@ -71,9 +81,68 @@ class RfidPromoteViewModel @Inject constructor(
         when (event) {
             is RfidPromoteEvent.RfidChanged -> onRfidChanged(event.value)
             is RfidPromoteEvent.Rfid2Changed -> _state.update { it.copy(rfid2Input = event.value, inputError = null) }
+            is RfidPromoteEvent.ToggleRfidScan -> toggleScan(event.field)
             RfidPromoteEvent.Submit -> submit()
             RfidPromoteEvent.Back -> Unit // navigation — handled by the nav host.
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Bluetooth RFID scan — one field at a time
+    // -----------------------------------------------------------------------
+
+    /**
+     * Hands the BT-HID reader to [field], or stops it when [field] is already the one listening.
+     * A completed tag fills that field and STOPS the reader: an ear tag is one identifier, so
+     * leaving capture running would let the next animal's tag silently overwrite it.
+     */
+    private fun toggleScan(field: RfidPromoteField) {
+        if (_state.value.result.isCommitted) return // the retag is durable; nothing left to edit
+        if (_state.value.scanningField == field) {
+            stopScanning()
+            return
+        }
+        stopScanning()
+        _state.update { it.copy(scanningField = field) }
+        scanSource.start()
+        analytics.track(
+            AnalyticsEvents.COUNTS_RFID_SCAN_STARTED,
+            mapOf(
+                AnalyticsEvents.Params.KIND to "rfid_promote",
+                AnalyticsEvents.Params.FIELD to field.name.lowercase(),
+            ),
+        )
+        scanJob = viewModelScope.launch {
+            scanSource.tags.collect { tag ->
+                when (field) {
+                    RfidPromoteField.PRIMARY -> onRfidChanged(tag)
+                    RfidPromoteField.SECONDARY -> _state.update { it.copy(rfid2Input = tag, inputError = null) }
+                }
+                analytics.track(
+                    AnalyticsEvents.COUNTS_RFID_SCAN_CAPTURED,
+                    mapOf(
+                        AnalyticsEvents.Params.KIND to "rfid_promote",
+                        AnalyticsEvents.Params.FIELD to field.name.lowercase(),
+                    ),
+                )
+                stopScanning()
+            }
+        }
+    }
+
+    private fun stopScanning() {
+        if (_state.value.scanningField == null) return
+        scanSource.stop()
+        scanJob?.cancel()
+        scanJob = null
+        _state.update { it.copy(scanningField = null) }
+    }
+
+    override fun onCleared() {
+        // Leaving the screen must release the reader: capture consumes hardware key events
+        // app-wide while enabled, so a leaked listener would eat another screen's input.
+        stopScanning()
+        super.onCleared()
     }
 
     private fun loadGoat() {
@@ -100,6 +169,7 @@ class RfidPromoteViewModel @Inject constructor(
     }
 
     private fun submit() {
+        stopScanning() // the identifiers are settled; release the reader before the write
         val current = _state.value
         val rfid = current.rfidInput.trim()
         val rfid2 = current.rfid2Input.trim()

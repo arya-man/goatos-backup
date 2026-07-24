@@ -86,6 +86,11 @@
     <string name="counts_field_tag2">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 2 (ಐಚ್ಛಿಕ)</string>
     <string name="counts_hint_tag2">ಎರಡನೇ ಶಾಶ್ವತ RFID. ನವಜಾತಕ್ಕೆ ಒಂದೇ ಟ್ಯಾಗ್ ಇದ್ದರೆ ಖಾಲಿ ಬಿಡಿ.</string>
     <string name="counts_field_temp_tag">ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್</string>
+    <!-- Bluetooth RFID scan toggle on the permanent-identifier fields -->
+    <string name="counts_rfid_scan_start">ಬ್ಲೂಟೂತ್ ರೀಡರ್‌ನಿಂದ ಈ RFID ಸ್ಕ್ಯಾನ್ ಮಾಡಿ</string>
+    <string name="counts_rfid_scan_stop">ಸ್ಕ್ಯಾನ್ ನಿಲ್ಲಿಸಿ</string>
+    <string name="counts_rfid_scan_listening">ಸ್ಕ್ಯಾನ್ ಆಗುತ್ತಿದೆ… ರೀಡರ್ ಅನ್ನು ಟ್ಯಾಗ್ ಬಳಿ ಹಿಡಿಯಿರಿ, ಅಥವಾ ನಿಲ್ಲಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ</string>
+    <string name="counts_rfid_promote_scan_hint">ಬ್ಲೂಟೂತ್ ರೀಡರ್‌ನಿಂದ ಶಾಶ್ವತ ಕಿವಿ ಟ್ಯಾಗ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ, ಅಥವಾ ಟೈಪ್ ಮಾಡಿ.</string>
     <string name="counts_id_kind_permanent">ಶಾಶ್ವತ RFID</string>
     <string name="counts_id_kind_temporary">ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್</string>
     <string name="counts_field_breed">ತಳಿ</string>
