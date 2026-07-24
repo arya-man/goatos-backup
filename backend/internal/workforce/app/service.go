@@ -621,6 +621,10 @@ func isVerifierPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
+func isStandaloneVerifierPrincipal(grants []domain.GrantSummary) bool {
+	return isVerifierPrincipal(grants) && !isLeadershipPrincipal(grants)
+}
+
 // isLeadershipPrincipal reports whether any active grant carries a
 // leadership-tier role, regardless of the grant's scope (a park-scoped Park
 // Head or Health Manager is still leadership for their park, not an
@@ -642,7 +646,7 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 // Field operators stay on minimal chrome until the operator drawer rollout is
 // explicitly enabled again.
 func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
-	if isVerifierPrincipal(grants) {
+	if isStandaloneVerifierPrincipal(grants) {
 		return domain.NavChromeMinimal
 	}
 	if isLeadershipPrincipal(grants) {

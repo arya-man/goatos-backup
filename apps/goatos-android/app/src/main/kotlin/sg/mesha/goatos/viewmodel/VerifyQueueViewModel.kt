@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -45,8 +46,10 @@ private const val VERIFY_QUEUE_PAGE_SIZE = 20
 class VerifyQueueViewModel @Inject constructor(
     private val repo: VerificationRepository,
     private val analytics: AnalyticsPort,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
+    private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
     private val _selectedModule = MutableStateFlow(VerifyModuleTab.VACCINATION)
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
@@ -58,7 +61,11 @@ class VerifyQueueViewModel @Inject constructor(
     private val observedResource: StateFlow<Resource<VerificationQueueResponseDto>> =
         _selectedModule.flatMapLatest { module ->
             if (module == VerifyModuleTab.VACCINATION) {
-                repo.observeQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+                if (isActionQueue) {
+                    repo.observeActionQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+                } else {
+                    repo.observeQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+                }
             } else {
                 flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
             }
@@ -75,10 +82,11 @@ class VerifyQueueViewModel @Inject constructor(
         VerifyQueueUiState(
             rows = items.map { it.toRow() },
             selectedModule = module,
+            isActionQueue = isActionQueue,
             isRefreshing = isRefreshing,
             lastSyncedAt = resource.lastSyncedAt,
             isOffline = isOffline,
-            hasMore = resource.data?.nextCursor != null,
+            hasMore = !isActionQueue && resource.data?.nextCursor != null,
             isLoadingMore = isLoadingMore,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyQueueUiState())
@@ -108,7 +116,11 @@ class VerifyQueueViewModel @Inject constructor(
         try {
             if (_selectedModule.value != VerifyModuleTab.VACCINATION) return@launch
             AnalyticsFunnels.trackVerifyQueueOpened(analytics, VACCINATION_CATEGORY)
-            val result = repo.refreshQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+            val result = if (isActionQueue) {
+                repo.refreshActionQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+            } else {
+                repo.refreshQueue(category = VACCINATION_CATEGORY, limit = VERIFY_QUEUE_PAGE_SIZE)
+            }
             _isOffline.value = result.isFailure
         } finally {
             _isRefreshing.value = false

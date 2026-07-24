@@ -7,13 +7,18 @@
     <string name="verify_module_under_construction">निर्माणाधीन</string>
     <string name="verify_module_under_construction_subtitle">इसकी कार्यप्रणाली तैयार होने पर यह सत्यापन कतार यहाँ दिखाई देगी।</string>
     <string name="verify_queue_title">वीडियो सत्यापन</string>
+    <string name="verify_action_queue_title">टीकाकरण बंद करें</string>
     <string name="verify_queue_refresh">रीफ़्रेश करें</string>
     <string name="verify_queue_empty">कतार खाली है</string>
     <string name="verify_queue_empty_subtitle">अभी सत्यापित करने के लिए कोई वीडियो लंबित नहीं है</string>
+    <string name="verify_action_queue_empty">बंद करने के लिए कुछ नहीं</string>
+    <string name="verify_action_queue_empty_subtitle">अभी कोई स्वीकृत वीडियो बंद करने की प्रतीक्षा में नहीं है</string>
     <string name="verify_queue_load_more">और लोड करें</string>
     <string name="verify_queue_loading_more">और लोड हो रहे हैं…</string>
 
     <string name="verify_detail_close">बंद करें</string>
+    <string name="verify_detail_fullscreen">वीडियो फुलस्क्रीन खोलें</string>
+    <string name="verify_detail_exit_fullscreen">फुलस्क्रीन वीडियो बंद करें</string>
     <string name="verify_detail_context_title">संदर्भ</string>
     <string name="verify_detail_shed_label">शेड</string>
     <string name="verify_detail_park_label">पार्क</string>
@@ -23,6 +28,8 @@
     <string name="verify_detail_approve">स्वीकृत करें</string>
     <string name="verify_detail_reject">अस्वीकार करें</string>
     <string name="verify_detail_already_decided">पहले ही निर्णय लिया जा चुका — आगे कोई कार्रवाई आवश्यक नहीं</string>
+    <string name="verify_detail_already_closed">पहले ही बंद किया जा चुका — आगे कोई कार्रवाई आवश्यक नहीं</string>
+    <string name="verify_detail_close_submission">ड्राइव बंद करें</string>
     <string name="verify_detail_submitting">सबमिट हो रहा…</string>
 
     <string name="verify_reject_dialog_title">कारण सहित अस्वीकार करें</string>

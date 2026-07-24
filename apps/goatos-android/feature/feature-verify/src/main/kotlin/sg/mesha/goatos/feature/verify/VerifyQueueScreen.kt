@@ -82,6 +82,7 @@ enum class VerifyModuleTab { VACCINATION, COUNTS, FEED_DIRECTION }
 data class VerifyQueueUiState(
     val rows: List<VerificationQueueRow> = emptyList(),
     val selectedModule: VerifyModuleTab = VerifyModuleTab.VACCINATION,
+    val isActionQueue: Boolean = false,
     val categoryOptions: List<VerifyCategoryOption> = emptyList(),
     val selectedCategory: String? = null,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
@@ -134,10 +135,12 @@ fun VerifyQueueScreen(
             .background(MeshaColors.PageBg),
     ) {
         QueueHeader(state = state, onRefresh = { onEvent(VerifyQueueEvent.Refresh) })
-        ModuleTabs(
-            selected = state.selectedModule,
-            onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
-        )
+        if (!state.isActionQueue) {
+            ModuleTabs(
+                selected = state.selectedModule,
+                onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
+            )
+        }
         if (state.categoryOptions.size > 1) {
             CategoryFilterRow(
                 options = state.categoryOptions,
@@ -164,8 +167,8 @@ fun VerifyQueueScreen(
             } else if (state.rows.isEmpty()) {
                 item {
                     EmptyState(
-                        title = stringResource(R.string.verify_queue_empty),
-                        subtitle = stringResource(R.string.verify_queue_empty_subtitle),
+                        title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty else R.string.verify_queue_empty),
+                        subtitle = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty_subtitle else R.string.verify_queue_empty_subtitle),
                         icon = MeshaIcons.Video,
                         tone = EmptyTone.Positive,
                     )
@@ -216,7 +219,7 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.verify_queue_title),
+                text = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
                 color = MeshaColors.Ink,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.W800,
