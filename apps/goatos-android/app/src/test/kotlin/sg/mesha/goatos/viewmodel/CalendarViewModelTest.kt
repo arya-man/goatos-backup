@@ -41,12 +41,11 @@ class CalendarViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `calendar windows stay bounded to current week month and forty five history days`() {
+    fun `calendar windows stay bounded to current week and month`() {
         val today = LocalDate.of(2026, 7, 12)
 
         assertEquals(CalendarDateRange("2026-07-11", "2026-07-17"), calendarWeekRange(today))
         assertEquals(CalendarDateRange("2026-07-01", "2026-07-31"), calendarMonthRange(today))
-        assertEquals(CalendarDateRange("2026-05-29", "2026-07-12"), calendarHistoryRange(today))
     }
 
     @Test

@@ -46,17 +46,14 @@ func TestServiceAddsBackendControlledPresentation(t *testing.T) {
 	if len(resp.Presentation.Rhythm.Days) < 2 || resp.Presentation.Rhythm.Days[1].Label != "FEFO" {
 		t.Fatalf("rhythm days = %#v, want inventory rhythm labels", resp.Presentation.Rhythm.Days)
 	}
-	if len(resp.Presentation.ViewTabs) != 3 {
-		t.Fatalf("view tabs = %#v, want week/month/history tabs", resp.Presentation.ViewTabs)
+	if len(resp.Presentation.ViewTabs) != 2 {
+		t.Fatalf("view tabs = %#v, want week/month tabs", resp.Presentation.ViewTabs)
 	}
 	if resp.Presentation.PageSubtitle != "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date." {
 		t.Fatalf("page subtitle = %q", resp.Presentation.PageSubtitle)
 	}
-	if resp.Presentation.ViewTabs[0].Key != "week" || resp.Presentation.ViewTabs[1].Key != "month" || resp.Presentation.ViewTabs[2].Key != "history" {
-		t.Fatalf("view tabs = %#v, want week/month/history tabs", resp.Presentation.ViewTabs)
-	}
-	if resp.Presentation.ViewTabs[2].Query["status"] != domain.StatusCompleted {
-		t.Fatalf("completed view tab query = %#v, want status=completed", resp.Presentation.ViewTabs[2].Query)
+	if resp.Presentation.ViewTabs[0].Key != "week" || resp.Presentation.ViewTabs[1].Key != "month" {
+		t.Fatalf("view tabs = %#v, want week/month tabs", resp.Presentation.ViewTabs)
 	}
 	foundHistoryLabel := false
 	for _, item := range resp.Presentation.EventTypes {

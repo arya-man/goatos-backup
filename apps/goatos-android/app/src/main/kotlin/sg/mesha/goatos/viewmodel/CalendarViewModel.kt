@@ -38,7 +38,6 @@ import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.calendar.CalendarDriveSummary
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarFilterOption
-import sg.mesha.goatos.feature.calendar.CalendarHistoryRow
 import sg.mesha.goatos.feature.calendar.CalendarItem
 import sg.mesha.goatos.feature.calendar.CalendarMonthDay
 import sg.mesha.goatos.feature.calendar.CalendarMonthFilterOptions
@@ -74,7 +73,6 @@ class CalendarViewModel @Inject constructor(
 
     private val today = LocalDate.now(KOLKATA)
     private val weekRange = calendarWeekRange(today)
-    private val historyRange = calendarHistoryRange(today)
 
     private val _selectedDay = MutableStateFlow(today)
     private val _selectedSegmentId = MutableStateFlow<String?>(MONTH_SEGMENT)
@@ -82,7 +80,6 @@ class CalendarViewModel @Inject constructor(
         CalendarMonthFilters(year = today.year, month = today.monthValue),
     )
     private val _monthQuery = MutableStateFlow(initialMonthQuery(today))
-    private val _historyActive = MutableStateFlow(false)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val monthItems: Flow<PagingData<CalendarItem>> = _monthQuery
@@ -105,21 +102,6 @@ class CalendarViewModel @Inject constructor(
             .flatMapLatest { query -> repo.observeScheduleMetadata(query) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val historyResource: StateFlow<Resource<CalendarEventListResponseDto>> =
-        _historyActive.flatMapLatest { active ->
-            if (!active) {
-                flowOf(Resource(data = null))
-            } else {
-                repo.observeEvents(
-                    status = COMPLETED_STATUS,
-                    dateFrom = historyRange.dateFrom,
-                    dateTo = historyRange.dateTo,
-                    limit = CALENDAR_PAGE_SIZE,
-                )
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
-
     // Selected day resource is special because it changes based on user selection
     // flatMapLatest automatically cancels old collection and starts new when selectedDay changes
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -134,24 +116,21 @@ class CalendarViewModel @Inject constructor(
 
     // Transient flags
     private val _selectedDayLoadingMore = MutableStateFlow(false)
-    private val _historyLoadingMore = MutableStateFlow(false)
     private val _refreshInFlight = MutableStateFlow(false)
     private val _offline = MutableStateFlow(false)
     private val _refreshError = MutableStateFlow<String?>(null)
 
-    // Kotlin's typed `combine` overloads only cover up to 5 flows; this screen mixes 10 flows,
+    // Kotlin's typed `combine` overloads only cover up to 5 flows; this screen mixes 9 flows,
     // so we use the vararg form (one Array<*> param) and cast each element by its known index.
     @Suppress("UNCHECKED_CAST")
     val state: StateFlow<CalendarUiState> = combine(
         weekOverviewResource,
         monthMetadataResource,
         selectedDayResource,
-        historyResource,
         _selectedDay,
         _selectedSegmentId,
         _monthFilters,
         _selectedDayLoadingMore,
-        _historyLoadingMore,
         _refreshInFlight,
         _offline,
         _refreshError,
@@ -160,15 +139,13 @@ class CalendarViewModel @Inject constructor(
             week = values[0] as Resource<CalendarEventListResponseDto>,
             month = values[1] as Resource<CalendarEventListResponseDto>,
             selectedDay = values[2] as Resource<CalendarEventListResponseDto>,
-            history = values[3] as Resource<CalendarEventListResponseDto>,
-            currentSelectedDay = values[4] as LocalDate,
-            selectedSegmentId = values[5] as String?,
-            monthFilters = values[6] as CalendarMonthFilters,
-            dayLoadingMore = values[7] as Boolean,
-            historyLoadingMore = values[8] as Boolean,
-            refreshInFlight = values[9] as Boolean,
-            offline = values[10] as Boolean,
-            refreshError = values[11] as String?,
+            currentSelectedDay = values[3] as LocalDate,
+            selectedSegmentId = values[4] as String?,
+            monthFilters = values[5] as CalendarMonthFilters,
+            dayLoadingMore = values[6] as Boolean,
+            refreshInFlight = values[7] as Boolean,
+            offline = values[8] as Boolean,
+            refreshError = values[9] as String?,
         )
     }.stateIn(
         viewModelScope,
@@ -184,11 +161,10 @@ class CalendarViewModel @Inject constructor(
 
     fun refresh() = viewModelScope.launch {
         _selectedDayLoadingMore.value = false
-        _historyLoadingMore.value = false
         _refreshInFlight.value = true
         _refreshError.value = null
 
-        val requests = mutableListOf(
+        val requests = listOf(
             async {
                 repo.refreshEvents(
                     dateFrom = weekRange.dateFrom,
@@ -205,16 +181,6 @@ class CalendarViewModel @Inject constructor(
                 )
             },
         )
-        if (_historyActive.value) {
-            requests += async {
-                repo.refreshEvents(
-                    status = COMPLETED_STATUS,
-                    dateFrom = historyRange.dateFrom,
-                    dateTo = historyRange.dateTo,
-                    limit = CALENDAR_PAGE_SIZE,
-                )
-            }
-        }
         val results = requests.awaitAll()
 
         _refreshInFlight.value = false
@@ -229,11 +195,6 @@ class CalendarViewModel @Inject constructor(
                 _selectedSegmentId.value = event.segmentId
                 when (event.segmentId) {
                     MONTH_SEGMENT -> activateMonth()
-                    HISTORY_SEGMENT -> {
-                        val firstOpen = !_historyActive.value
-                        _historyActive.value = true
-                        if (firstOpen) refreshHistoryOnly()
-                    }
                 }
             }
 
@@ -244,14 +205,9 @@ class CalendarViewModel @Inject constructor(
             CalendarEvent.Refresh -> refresh()
             is CalendarEvent.TapDay -> selectDay(event.dateKey)
             CalendarEvent.LoadMoreWeek -> loadMoreSelectedDay()
-            CalendarEvent.LoadMoreHistory -> loadMoreHistory()
             is CalendarEvent.OpenDay -> Unit
             is CalendarEvent.TapItem -> {
-                // Completed-history rows open the read-only RecordViewModel, which emits its own
-                // record-open event. Everything else is a drive drill and advances the funnel.
-                if (!event.target.orEmpty().startsWith("record/")) {
-                    AnalyticsFunnels.trackDriveOpened(analytics, event.itemId)
-                }
+                AnalyticsFunnels.trackDriveOpened(analytics, event.itemId)
             }
         }
     }
@@ -278,19 +234,6 @@ class CalendarViewModel @Inject constructor(
             status = filters.status?.takeIf(String::isNotBlank),
         )
         activateMonth()
-    }
-
-    private fun refreshHistoryOnly() = viewModelScope.launch {
-        _refreshInFlight.value = true
-        val result = repo.refreshEvents(
-            status = COMPLETED_STATUS,
-            dateFrom = historyRange.dateFrom,
-            dateTo = historyRange.dateTo,
-            limit = CALENDAR_PAGE_SIZE,
-        )
-        _refreshInFlight.value = false
-        _offline.value = result.isFailure
-        reportFailure(result, "calendar history refresh failed")
     }
 
     private fun selectDay(dateKey: String) {
@@ -324,22 +267,6 @@ class CalendarViewModel @Inject constructor(
         _selectedDayLoadingMore.value = false
     }
 
-    private fun loadMoreHistory() = viewModelScope.launch {
-        val cursor = historyResource.value.data?.nextCursor ?: return@launch
-        _historyLoadingMore.value = true
-        // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
-        val result = repo.appendEvents(
-            cursor = cursor,
-            status = COMPLETED_STATUS,
-            dateFrom = historyRange.dateFrom,
-            dateTo = historyRange.dateTo,
-            limit = CALENDAR_PAGE_SIZE,
-        )
-        _offline.value = result.isFailure
-        reportFailure(result, "calendar history append failed")
-        _historyLoadingMore.value = false
-    }
-
     private fun reportFailure(result: Result<Unit>, message: String) {
         result.exceptionOrNull()?.let { crashReporter.recordException(it, message) }
     }
@@ -348,18 +275,16 @@ class CalendarViewModel @Inject constructor(
         week: Resource<CalendarEventListResponseDto>,
         month: Resource<CalendarEventListResponseDto>,
         selectedDay: Resource<CalendarEventListResponseDto>,
-        history: Resource<CalendarEventListResponseDto>,
         currentSelectedDay: LocalDate,
         selectedSegmentId: String?,
         monthFilters: CalendarMonthFilters,
         dayLoadingMore: Boolean,
-        historyLoadingMore: Boolean,
         refreshInFlight: Boolean,
         offline: Boolean,
         refreshError: String?,
     ): CalendarUiState {
         val base = sampleCalendarState()
-        val presentation = activePresentation(week, month, selectedDay, history)
+        val presentation = activePresentation(week, month, selectedDay)
         val segments = buildSegments(presentation, base)
         val resolvedSegmentId = resolveSelectedSegment(segments, presentation, base, selectedSegmentId)
 
@@ -367,9 +292,6 @@ class CalendarViewModel @Inject constructor(
         // appended page (bounded keyset window) — no ViewModel-side accumulation.
         val dayItems = selectedDay.data?.items.orEmpty()
             .sortedBy { it.currentScheduleDate }
-        val historyItems = history.data?.items.orEmpty()
-            .filter { it.status == COMPLETED_STATUS }
-            .sortedByDescending { it.currentScheduleDate }
 
         return base.copy(
             eyebrow = "Vaccination",
@@ -377,7 +299,6 @@ class CalendarViewModel @Inject constructor(
             selectedDateLabel = dateLabel(currentSelectedDay),
             windowLabel = when (resolvedSegmentId) {
                 MONTH_SEGMENT -> monthLabel(monthFilters.year, monthFilters.month)
-                "history" -> "${historyRange.dateFrom} → ${historyRange.dateTo}"
                 else -> null
             },
             isRefreshing = refreshInFlight,
@@ -385,11 +306,10 @@ class CalendarViewModel @Inject constructor(
                 week.lastSyncedAt,
                 month.lastSyncedAt,
                 selectedDay.lastSyncedAt,
-                history.lastSyncedAt,
             ).maxOrNull(),
             isOffline = offline,
             errorMessage = refreshError?.takeIf {
-                week.data == null && month.data == null && selectedDay.data == null && history.data == null
+                week.data == null && month.data == null && selectedDay.data == null
             }?.let { "Calendar could not load. Check your connection and try again." },
             segments = segments,
             selectedSegmentId = resolvedSegmentId,
@@ -407,21 +327,6 @@ class CalendarViewModel @Inject constructor(
             monthEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank {
                 "No vaccination drives match these filters"
             } ?: "No vaccination drives match these filters",
-            historyLabel = "",
-            historyCount = historyItems.size,
-            historyRows = historyItems.map { event ->
-                CalendarHistoryRow(
-                    id = event.eventId,
-                    title = event.title,
-                    subtitle = event.subtitle,
-                    badgeLabel = event.status,
-                    badgeTone = CalendarTone.Ok,
-                    target = event.routeTarget(),
-                )
-            },
-            historyEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank { base.historyEmptyLabel } ?: base.historyEmptyLabel,
-            historyHasMore = history.data?.nextCursor != null,
-            historyLoadingMore = historyLoadingMore,
         )
     }
 
@@ -435,7 +340,6 @@ class CalendarViewModel @Inject constructor(
                 label = tab.label,
                 kind = when (tab.key) {
                     "month" -> CalendarSegmentKind.Month
-                    "history" -> CalendarSegmentKind.History
                     else -> CalendarSegmentKind.Week
                 },
             )
@@ -456,13 +360,11 @@ class CalendarViewModel @Inject constructor(
         week: Resource<CalendarEventListResponseDto>,
         month: Resource<CalendarEventListResponseDto>,
         selectedDay: Resource<CalendarEventListResponseDto>,
-        history: Resource<CalendarEventListResponseDto>,
     ): CalendarPresentationDto? =
         listOfNotNull(
             week.data?.presentation?.takeIf(::hasPresentation),
             month.data?.presentation?.takeIf(::hasPresentation),
             selectedDay.data?.presentation?.takeIf(::hasPresentation),
-            history.data?.presentation?.takeIf(::hasPresentation),
         ).firstOrNull()
 
     private fun hasPresentation(presentation: CalendarPresentationDto): Boolean =
@@ -481,10 +383,8 @@ class CalendarViewModel @Inject constructor(
 
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 private const val MONTH_SEGMENT = "month"
-private const val HISTORY_SEGMENT = "history"
 internal const val COMPLETED_STATUS = "completed"
 internal const val CALENDAR_PAGE_SIZE = 20
-private const val HISTORY_WINDOW_DAYS = 45L
 
 internal data class CalendarDateRange(val dateFrom: String, val dateTo: String)
 
@@ -504,9 +404,6 @@ internal fun calendarMonthRange(today: LocalDate): CalendarDateRange {
     val month = YearMonth.from(today)
     return CalendarDateRange(month.atDay(1).toString(), month.atEndOfMonth().toString())
 }
-
-internal fun calendarHistoryRange(today: LocalDate): CalendarDateRange =
-    CalendarDateRange(today.minusDays(HISTORY_WINDOW_DAYS - 1).toString(), today.toString())
 
 private fun monthRange(filters: CalendarMonthFilters): CalendarDateRange =
     YearMonth.of(filters.year, filters.month).let {

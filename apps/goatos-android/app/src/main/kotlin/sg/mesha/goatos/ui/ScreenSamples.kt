@@ -65,7 +65,6 @@ fun sampleCalendarState(): CalendarUiState = CalendarUiState(
     segments = listOf(
         CalendarSegment("week", "Week", CalendarSegmentKind.Week),
         CalendarSegment("month", "Month", CalendarSegmentKind.Month),
-        CalendarSegment("history", "History", CalendarSegmentKind.History),
     ),
     selectedSegmentId = "week",
     // Calendar chips must stay readable on real phones; use short weekday labels,
@@ -94,8 +93,6 @@ fun sampleCalendarState(): CalendarUiState = CalendarUiState(
     weekEmptyLabel = "No work today",
     monthLabel = "July 2026",
     monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S"),
-    historyLabel = "Recent records",
-    historyEmptyLabel = "No records yet",
 )
 
 fun sampleShedsState(): ShedsUiState = ShedsUiState(
@@ -423,9 +420,7 @@ fun calendarPlaceholder(message: String): CalendarUiState =
     sampleCalendarState().copy(
         weekDays = emptyList(),
         weekItems = emptyList(),
-        historyRows = emptyList(),
         weekEmptyLabel = message,
-        historyEmptyLabel = message,
     )
 
 fun shedsPlaceholder(message: String): ShedsUiState =
