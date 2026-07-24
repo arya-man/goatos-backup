@@ -668,6 +668,43 @@ func TestSweeperAppliesVaccineDriveDateOverrideBeforeCapSelection(t *testing.T) 
 	}
 }
 
+func TestApplyUnbatchedDriveDateOverrideUsesTwoDayCloseoutWindow(t *testing.T) {
+	original := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	postponed := original.AddDate(0, 0, 7)
+	repo := &fakeSweepRepo{
+		overrides: map[string]domain.VaccineDriveDateOverride{
+			"tenant-1|park-1|ppr|" + businessDate(original).Format("2006-01-02"): {
+				TenantID:          "tenant-1",
+				ParkID:            "park-1",
+				VaccineCode:       "PPR",
+				OriginalDriveDate: original,
+				OverrideDate:      postponed,
+				Reason:            "CEO postponement",
+			},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	rows, err := svc.applyUnbatchedDriveDateOverrides(context.Background(), "tenant-1", "park-1", "PPR", []domain.UnbatchedDue{
+		{ObligationID: "obl-ppr", TargetID: "goat-1", RuleID: "rule-ppr", ParkID: "park-1", DueAt: original, WindowEnd: ptrTime(original.AddDate(0, 0, 14)), BatchingHoldCount: 1, FirstBatchingHoldUntil: ptrTime(original.AddDate(0, 0, 7))},
+	})
+	if err != nil {
+		t.Fatalf("applyUnbatchedDriveDateOverrides: %v", err)
+	}
+	if len(rows) != 1 || rows[0].WindowStart == nil || rows[0].WindowEnd == nil {
+		t.Fatalf("rewritten rows = %#v, want one row with override window", rows)
+	}
+	if got := businessDate(rows[0].DueAt); !got.Equal(businessDate(postponed)) {
+		t.Fatalf("due date = %s, want override %s", got.Format("2006-01-02"), businessDate(postponed).Format("2006-01-02"))
+	}
+	if got := businessDate(*rows[0].WindowEnd); !got.Equal(businessDate(postponed).AddDate(0, 0, 1)) {
+		t.Fatalf("window end = %s, want override + 1 day", got.Format("2006-01-02"))
+	}
+	if rows[0].BatchingHoldCount != 0 || rows[0].FirstBatchingHoldUntil != nil {
+		t.Fatalf("hold metadata = count %d until %v, want cleared", rows[0].BatchingHoldCount, rows[0].FirstBatchingHoldUntil)
+	}
+}
+
 func TestSweeperRollsBackShotCapClaimsWhenAttachPartiallySucceeds(t *testing.T) {
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
@@ -2682,9 +2719,9 @@ func TestLimitUnbatchedSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	}
 }
 
-// TestLimitUnbatchedSelectionAllLastSafeExceedsCap: when every selected row is on its last safe
-// day, all are admitted even beyond the cap (legitimate last-safe overflow, VAXCAP-006).
-func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
+// TestLimitUnbatchedSelectionAllLastSafeStillRespectsCap: when every selected row is on its last
+// safe day, the operator-day cap is still hard.
+func TestLimitUnbatchedSelectionAllLastSafeStillRespectsCap(t *testing.T) {
 	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	rows := []domain.UnbatchedDue{
 		{ObligationID: "obl-1", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
@@ -2695,8 +2732,8 @@ func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
 	planner.MaxGoatsPerDrive = 1
 
 	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession())
-	if len(out) != 3 {
-		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
+	if len(out) != 1 || out[0] != "obl-1" {
+		t.Fatalf("admitted = %#v, want only the first last-safe row inside cap 1", out)
 	}
 }
 

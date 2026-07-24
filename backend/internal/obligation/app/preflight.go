@@ -403,14 +403,24 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
-	addRows := func(rows []domain.ParkConsolidationCandidate) {
+	groupOrder := make([]string, 0)
+	addRows := func(rows []domain.ParkConsolidationCandidate) error {
+		var err error
+		rows, err = s.applyParkDriveDateOverrides(ctx, tenantID, cfg, rows)
+		if err != nil {
+			return err
+		}
 		for _, row := range rows {
 			if _, done := claimed[row.ObligationID]; done {
 				continue
 			}
-			key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
+			key := parkConsolidationGroupKey(cfg, row)
+			if _, ok := groups[key]; !ok {
+				groupOrder = append(groupOrder, key)
+			}
 			groups[key] = append(groups[key], row)
 		}
+		return nil
 	}
 	if candidateIDs != nil {
 		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
@@ -418,7 +428,9 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 			if err != nil {
 				return fmt.Errorf("obligation: preflight list park consolidation for version %s: %w", plan.VersionID, err)
 			}
-			addRows(rows)
+			if err := addRows(rows); err != nil {
+				return err
+			}
 		}
 	} else {
 		var after *domain.ParkConsolidationCursor
@@ -432,7 +444,9 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 			if len(rows) == 0 {
 				break
 			}
-			addRows(rows)
+			if err := addRows(rows); err != nil {
+				return err
+			}
 			if int32(len(rows)) < s.page {
 				break
 			}
@@ -450,7 +464,8 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 	}
 
 	now := biztime.BusinessDayStart(asOf)
-	for _, rows := range groups {
+	for _, key := range orderParkConsolidationGroups(groupOrder, groups, cfg) {
+		rows := groups[key]
 		if len(rows) == 0 {
 			continue
 		}

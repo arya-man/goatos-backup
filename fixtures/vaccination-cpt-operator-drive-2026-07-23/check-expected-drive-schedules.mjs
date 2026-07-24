@@ -210,9 +210,10 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
         failures.push(`variant ${variant.id}: expected drive rows on ${date}, database has none`);
         continue;
       }
-      for (const doseCode of seeded.keys()) {
-        if (![...families].some((family) => token(doseCode).startsWith(family))) {
-          failures.push(`variant ${variant.id}: ${date} carries dose_code ${doseCode}, expected only ${[...families].join(", ")}`);
+      for (const family of families) {
+        const present = [...seeded.keys()].some((doseCode) => token(doseCode).startsWith(family));
+        if (!present) {
+          failures.push(`variant ${variant.id}: ${date} missing expected ${family} drive`);
         }
       }
     }

@@ -82,6 +82,7 @@ type plannedVaccineClaim struct {
 	date        time.Time
 	vaccineCode string
 	class       vaccineMatrixClass
+	combos      []string
 }
 
 type shotCapReservation struct {
@@ -283,6 +284,7 @@ func (s *SweepSession) rememberPlannedVaccine(targetID string, date time.Time, i
 		date:        businessDate(date),
 		vaccineCode: vaccineCode,
 		class:       vaccineIdentityImmunoClass(identity),
+		combos:      vaccineComboSessionsForCode(vaccineCode),
 	})
 }
 
@@ -411,7 +413,84 @@ func (s *SweepSession) sameDayPlannedVaccineCount(targetID string, identity Rule
 	return count
 }
 
+func (s *SweepSession) sameDayCompatibleWithPlannedVaccines(targetID string, identity RuleVaccineIdentity, day time.Time) bool {
+	targetID = strings.TrimSpace(targetID)
+	vaccineCode := strings.TrimSpace(identity.VaccineCode)
+	if s == nil || targetID == "" || vaccineCode == "" || day.IsZero() {
+		return true
+	}
+	combos := vaccineComboSessionsForCode(vaccineCode)
+	if len(combos) == 0 {
+		return s.sameDayPlannedVaccineCount(targetID, identity, day) == 0
+	}
+	day = businessDate(day)
+	for _, claim := range s.plannedVaccineClaims[targetID] {
+		if claim.date.IsZero() || !businessDate(claim.date).Equal(day) {
+			continue
+		}
+		if strings.EqualFold(claim.vaccineCode, vaccineCode) {
+			continue
+		}
+		if !comboSessionListsOverlap(combos, claim.combos) {
+			return false
+		}
+	}
+	return true
+}
+
+func vaccineComboSessionsForCode(vaccineCode string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 2)
+	add := func(session string) {
+		session = strings.TrimSpace(session)
+		if session == "" {
+			return
+		}
+		if _, ok := seen[session]; ok {
+			return
+		}
+		seen[session] = struct{}{}
+		out = append(out, session)
+	}
+	if session := domain.VaccineComboSession(vaccineCode); session != "" {
+		add(session)
+	}
+	switch normalizedVaccineMatrixCode(vaccineCode) {
+	case "et tt", "et+tt":
+		add("combo:ET+TT+PPR")
+	case "ppr":
+		add("combo:ET+TT+PPR")
+		add("combo:PPR+Blue Tongue")
+	case "blue tongue":
+		add("combo:PPR+Blue Tongue")
+	case "goat pox":
+		add(domain.VaccineComboSession("Goat Pox"))
+	case "sheep pox":
+		add("combo:Sheep Pox+Blue Tongue")
+	}
+	return out
+}
+
+func comboSessionListsOverlap(left, right []string) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(left))
+	for _, session := range left {
+		seen[session] = struct{}{}
+	}
+	for _, session := range right {
+		if _, ok := seen[session]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SweepSession) vaccineFeasibleOnPlannerDate(now, day time.Time, row driveCandidate, planner domain.DrivePlannerSettings, identity RuleVaccineIdentity) bool {
+	if !s.sameDayCompatibleWithPlannedVaccines(row.TargetID, identity, day) {
+		return false
+	}
 	if s.sameDayPlannedVaccineCount(row.TargetID, identity, day) >= 2 {
 		return false
 	}

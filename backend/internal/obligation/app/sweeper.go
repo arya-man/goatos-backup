@@ -244,6 +244,85 @@ func (s *SweeperService) overriddenDriveDate(ctx context.Context, tenantID, park
 	return &day, nil
 }
 
+func (s *SweeperService) applyUnbatchedDriveDateOverrides(ctx context.Context, tenantID, parkID, vaccineCode string, rows []domain.UnbatchedDue) ([]domain.UnbatchedDue, error) {
+	reader, ok := s.repo.(vaccinationDriveDateOverrideReader)
+	if !ok || len(rows) == 0 || strings.TrimSpace(parkID) == "" || strings.TrimSpace(vaccineCode) == "" {
+		return rows, nil
+	}
+	cache := make(map[string]*time.Time)
+	out := append([]domain.UnbatchedDue(nil), rows...)
+	for i := range out {
+		if out[i].DueAt.IsZero() {
+			continue
+		}
+		original := businessDate(out[i].DueAt)
+		key := original.Format("2006-01-02")
+		overrideDate, seen := cache[key]
+		if !seen {
+			override, err := reader.ActiveVaccinationDriveDateOverride(ctx, tenantID, parkID, vaccineCode, original) // scale-guard:ignore: bounded by one due group and cached by original date; not a request path
+			if err != nil {
+				return nil, err
+			}
+			if override != nil && !override.OverrideDate.IsZero() {
+				day := businessDate(override.OverrideDate)
+				overrideDate = &day
+			}
+			cache[key] = overrideDate
+		}
+		if overrideDate == nil {
+			continue
+		}
+		overrideEnd := driveDateOverrideWindowEnd(*overrideDate)
+		out[i].DueAt = *overrideDate
+		out[i].WindowStart = overrideDate
+		out[i].WindowEnd = &overrideEnd
+		out[i].BatchingHoldCount = 0
+		out[i].FirstBatchingHoldUntil = nil
+	}
+	return out, nil
+}
+
+func driveDateOverrideWindowEnd(overrideDate time.Time) time.Time {
+	return businessDate(overrideDate).AddDate(0, 0, 1)
+}
+
+func (s *SweeperService) applyUnbatchedDriveDateOverridesForRows(ctx context.Context, tenantID string, cfg SweepConfig, rows []domain.UnbatchedDue) ([]domain.UnbatchedDue, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	type key struct {
+		parkID      string
+		vaccineCode string
+	}
+	grouped := make(map[key][]int)
+	for i, row := range rows {
+		identity := cfg.getRuleVaccineIdentity(row.RuleID)
+		k := key{parkID: strings.TrimSpace(row.ParkID), vaccineCode: strings.TrimSpace(identity.VaccineCode)}
+		if k.parkID == "" || k.vaccineCode == "" {
+			continue
+		}
+		grouped[k] = append(grouped[k], i)
+	}
+	if len(grouped) == 0 {
+		return rows, nil
+	}
+	out := append([]domain.UnbatchedDue(nil), rows...)
+	for k, indexes := range grouped {
+		groupRows := make([]domain.UnbatchedDue, 0, len(indexes))
+		for _, i := range indexes {
+			groupRows = append(groupRows, out[i])
+		}
+		rewritten, err := s.applyUnbatchedDriveDateOverrides(ctx, tenantID, k.parkID, k.vaccineCode, groupRows)
+		if err != nil {
+			return nil, err
+		}
+		for j, i := range indexes {
+			out[i] = rewritten[j]
+		}
+	}
+	return out, nil
+}
+
 func (s *SweeperService) createBatchWithAttachedIDs(ctx context.Context, in domain.NewBatch, obligationIDs []string, cellsByObligation map[string]int32) (string, []string, error) {
 	if creator, ok := s.repo.(batchCellsCreator); ok && cellsByObligation != nil {
 		return creator.CreateBatchWithObligationCells(ctx, in, obligationIDs, cellsByObligation)
@@ -1039,6 +1118,10 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 			if len(rows) == 0 {
 				break
 			}
+			rows, err = s.applyUnbatchedDriveDateOverridesForRows(ctx, tenantID, cfg, rows)
+			if err != nil {
+				return res, err
+			}
 
 			order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
 			order = orderDueGroupsByVaccinePriority(order, groups, cfg)
@@ -1102,6 +1185,21 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 // worker cannot commit a conflicting claim in between. If every row rejects on a candidate date, the
 // group walks later feasible dates in the safe window, re-seeding and re-locking for each date.
 func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf, dueBefore time.Time, session *SweepSession, g *dueGroup) (batched bool, obligations int64, err error) {
+	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
+	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
+	parkID := firstUnbatchedParkID(g.rows)
+	rows, err := s.applyUnbatchedDriveDateOverrides(ctx, tenantID, parkID, ruleVaccineID.VaccineCode, g.rows)
+	if err != nil {
+		return false, 0, err
+	}
+	if len(rows) != len(g.rows) {
+		return false, 0, fmt.Errorf("obligation: vaccination drive date override changed row cardinality for group %s/%s rule %s", g.scopeType, g.scopeID, g.ruleID)
+	}
+	if len(rows) > 0 {
+		local := *g
+		local.rows = rows
+		g = &local
+	}
 	operationalAsOf := dueGroupOperationalAsOf(asOf, dueBefore, g)
 	plannedDate := batchPlannedDate(g.rows[0].DueAt)
 	if planner.Enabled {
@@ -1112,8 +1210,6 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 	}
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
-	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
-	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
 	if overridden, overrideErr := s.overriddenDriveDate(ctx, tenantID, firstUnbatchedParkID(g.rows), plannedDate, ruleVaccineID.VaccineCode); overrideErr != nil {
 		return false, 0, overrideErr
 	} else {
@@ -1345,7 +1441,14 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 	var bestDate *time.Time
 	var bestIDs []string
 	bestScore := unbatchedDriveDateScore{inWindowAnimals: -1, animals: -1, obligations: -1}
-	for probe := businessDate(*plannedDate); !probe.After(latest); {
+	probeStart := earliestUnbatchedDriveProbeDate(now, rows)
+	if plannedDate != nil {
+		proposed := businessDate(*plannedDate)
+		if proposed.Before(probeStart) {
+			probeStart = proposed
+		}
+	}
+	for probe := probeStart; !probe.After(latest); {
 		if len(session.unbatchedObligationsFeasibleOnDateForVaccine(now, probe, rows, planner, ruleVaccineID)) > 0 {
 			day := probe
 			visitRelease, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session)
@@ -1383,6 +1486,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 			score := scoreUnbatchedDriveDate(now, day, rows, cappedIDs, planner)
+			score.existingCells = int(session.driveCapacityUsed(parkID, day))
 			session.releaseClaims(shotClaims)
 			if err := release(ctx); err != nil {
 				return plannedDate, nil, nil, noopRelease, err
@@ -1436,6 +1540,34 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 		selectedIDs = cappedIDs
 	}
 	return bestDate, selectedIDs, shotClaims, release, nil
+}
+
+func earliestUnbatchedDriveProbeDate(now time.Time, rows []domain.UnbatchedDue) time.Time {
+	start := businessDate(now)
+	var earliest *time.Time
+	for _, row := range rows {
+		candidate := driveEarliestDate(driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		})
+		if candidate.IsZero() || candidate.Before(start) {
+			continue
+		}
+		if earliest == nil || candidate.Before(*earliest) {
+			day := candidate
+			earliest = &day
+		}
+	}
+	if earliest != nil {
+		return *earliest
+	}
+	return start
 }
 
 func vaccinationDriveBatchScope(g *dueGroup, rows []domain.UnbatchedDue) (string, string, error) {
@@ -1529,6 +1661,7 @@ type unbatchedDriveDateScore struct {
 	inWindowAnimals int
 	animals         int
 	obligations     int
+	existingCells   int
 }
 
 func (s unbatchedDriveDateScore) betterThan(other unbatchedDriveDateScore) bool {
@@ -1537,6 +1670,9 @@ func (s unbatchedDriveDateScore) betterThan(other unbatchedDriveDateScore) bool 
 	}
 	if s.animals != other.animals {
 		return s.animals > other.animals
+	}
+	if s.animals <= 2 && s.existingCells != other.existingCells {
+		return s.existingCells > other.existingCells
 	}
 	return s.obligations > other.obligations
 }
@@ -1572,9 +1708,9 @@ func scoreUnbatchedDriveDate(now, plannedDate time.Time, rows []domain.Unbatched
 
 // limitUnbatchedSelectionByDriveAnimals enforces the park/date animal-slot cap with two-pass
 // admission (VAXCAP-006): pass 1 reserves slots for IMMOVABLE rows (no later feasible date inside
-// the goat's own safe window / due+7 hold), which are admitted even beyond cap; pass 2 fills the
-// remaining capacity with movable rows. Overflow beyond cap is legitimate only when the immovable
-// animals alone exceed it -- a movable row can never displace a last-safe row into overflow.
+// the goat's own safe window / due+7 hold); pass 2 fills the remaining capacity with movable rows.
+// A movable row can never displace a last-safe row, and neither pass admits animals beyond the
+// operator-day cap.
 func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, session *SweepSession) []string {
 	if planner.MaxGoatsPerDrive <= 0 || plannedDate == nil || len(selected) == 0 {
 		return selected
@@ -1626,6 +1762,9 @@ func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.Unbatche
 		}
 		targetKey := unbatchedTargetKey(row)
 		if _, ok := admittedTargets[targetKey]; !ok {
+			if used+1 > planner.MaxGoatsPerDrive {
+				continue
+			}
 			admittedTargets[targetKey] = struct{}{}
 			used++
 		}
