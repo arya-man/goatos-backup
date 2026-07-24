@@ -37,12 +37,21 @@ type moduleNavContribution struct {
 // in the Android client (GoatOsShell.kt SOON_MODULES + a literal Vaccination row);
 // it is backend-owned here so a new module is a registry entry, not a client change.
 type moduleDefinition struct {
-	key           string // stable module id, also the department_module_grants.module_key
-	labelKey      string // i18n key in bootstrapLabels for the drawer row
-	landingHref   string // route opened when the drawer row is tapped
-	status        string // moduleStatusAvailable | moduleStatusSoon
-	priority      int    // drawer ordering; lower first
-	contributions []moduleNavContribution
+	key         string // stable module id, also the department_module_grants.module_key
+	labelKey    string // i18n key in bootstrapLabels for the drawer row
+	landingHref string // route opened when the drawer row is tapped
+	status      string // moduleStatusAvailable | moduleStatusSoon
+	priority    int    // drawer ordering; lower first
+	// fieldWorkModule marks a module whose screens are per-operator field-execution
+	// work (the vaccination Drives/sheds capture queue). Leadership principals hold
+	// no assigned operator work, so that queue is always empty for them; their view
+	// of the same domain is the shared command lens (Calendar/Overview/Alerts).
+	// Such a module is therefore withheld from the leadership drawer -- see
+	// candidateModuleKeys and docs/decisions/role-module-nav-composition.md
+	// ("Leadership does not get operator field-work modules in the drawer").
+	// It has no effect on operators, who reach it through their department grant.
+	fieldWorkModule bool
+	contributions   []moduleNavContribution
 }
 
 const (
@@ -63,11 +72,12 @@ const (
 var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: this is the module registry, not a hardcoded per-role template
 	// "vaccination" is the Preventive Care (PC) Vaccination module.
 	"vaccination": {
-		key:         "vaccination",
-		labelKey:    "module.vaccination",
-		landingHref: "/vaccination", //nav-composition:ignore: registry entry
-		status:      moduleStatusAvailable,
-		priority:    1,
+		key:             "vaccination",
+		labelKey:        "module.vaccination",
+		landingHref:     "/vaccination", //nav-composition:ignore: registry entry
+		status:          moduleStatusAvailable,
+		priority:        1,
+		fieldWorkModule: true, // operator capture queue; leadership sees vaccination via Calendar, not this drawer row
 		contributions: []moduleNavContribution{
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
@@ -222,7 +232,15 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 		return grantedModules
 	}
 	keys := make([]string, 0, len(moduleNavRegistry))
-	for key := range moduleNavRegistry {
+	for key, def := range moduleNavRegistry {
+		// A field-work module (the operator vaccination capture queue) is never a
+		// leadership drawer row: leadership holds no assigned operator work, so its
+		// screens are always empty for them. Their view of that domain is the shared
+		// command lens (Calendar), which stays in the leadership bar. See
+		// docs/decisions/role-module-nav-composition.md.
+		if def.fieldWorkModule {
+			continue
+		}
 		keys = append(keys, key)
 	}
 	sort.Strings(keys) // deterministic; real ordering is by priority downstream

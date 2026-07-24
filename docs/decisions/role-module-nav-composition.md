@@ -103,6 +103,26 @@ to zero grants and hide every module. Their access is decided by permission alon
 This is a widening of *candidates*, not of access: a leadership principal still
 receives only the modules and items whose permissions they hold.
 
+**Leadership does not get operator field-work modules in the drawer (maintainer
+decision 2026-07-24).** The one exception to the "every registry module" widening
+above is a module flagged `fieldWorkModule` — a per-operator field-execution capture
+queue. Today that is **`vaccination`** (the Drives/sheds capture screen). Leadership
+holds no *assigned* operator work, so that queue is always empty for them and taps
+land them on a dead screen; their view of the same domain is the shared **Calendar**
+command lens, which is already in the leadership bar. So `candidateModuleKeys()` skips
+`fieldWorkModule` modules for leadership principals, dropping the row from their
+drawer, while operators are unaffected (they reach it through their department grant,
+not the leadership widening). This is a permission-independent product rule — a CEO
+*can* read vaccination data, they just read it through Calendar/Overview, not the
+operator queue — so it is expressed as a module flag on the registry entry, not as a
+per-role nav template (still banned) and not as a permission gate (which a broad CEO
+grant would defeat). Pinned by `TestLeadershipDrawerExcludesVaccinationFieldWork`
+(`backend/internal/workforce/app/service_test.go`): every leadership tier
+(`ceo_internal`, `pc_director`, `park_head`) is asserted to have no `vaccination`
+drawer row yet keep Calendar in its bar, and an operator still receives the module.
+Future operator field-work modules (e.g. a feed-direction capture queue) set the same
+flag rather than re-deriving this per role.
+
 **Worked example — the Counts matrix (maintainer decision 2026-07-18).** Counts
 contributes three items under two permissions: the census page `/counts` requires
 `counts.read`, and the two capture pages (`/counts/birth-death`, `/counts/shifting`)
