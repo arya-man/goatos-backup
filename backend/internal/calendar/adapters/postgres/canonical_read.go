@@ -531,7 +531,12 @@ batch_events AS (
           CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
         ) IS NOT NULL
       ) AS shed_labels,
-      GREATEST(ob.estimated_targets, 1)::int AS target_count,
+      -- Cross-surface parity: count DISTINCT animals (like the single-shed drive path at
+      -- count(DISTINCT oi.target_id) above and the operator drive schedule), NOT
+      -- ob.estimated_targets. estimated_targets is an obligation-ROW estimate (e.g. 200 animals x
+      -- 2 dose rows = 400), so rendering it as the drive's "doses" over-counted the calendar vs the
+      -- operator schedule (see docs/decisions/scale-anti-patterns.md -> cross-surface count parity).
+      GREATEST(count(DISTINCT oi.target_id), 1)::int AS target_count,
       pd.protocol_id,
       pv.protocol_version_id,
       ob.sop_task_id,
@@ -633,7 +638,6 @@ batch_events AS (
       CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
       CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END,
       CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END,
-      GREATEST(ob.estimated_targets, 1)::int,
       pd.protocol_id,
       pv.protocol_version_id,
       ob.sop_task_id,
