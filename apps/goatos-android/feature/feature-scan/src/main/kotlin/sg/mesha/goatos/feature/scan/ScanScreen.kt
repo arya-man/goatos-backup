@@ -118,6 +118,7 @@ data class RosterRow(
     val scannedAtLabel: String? = null,
     val goatId: String = "",
     val obligationId: String = "",
+    val proofRequired: Boolean = true,
     val proofClipCount: Int = 0,
     val proofUploadStatus: ProofUploadStatus = ProofUploadStatus.MISSING,
 )
@@ -1116,7 +1117,7 @@ private fun ScanListRow(
                 }
             }
         }
-        if (row.status == ScanStatus.DONE) {
+        if (row.status == ScanStatus.DONE && row.proofRequired) {
             Spacer(Modifier.height(6.dp))
             ProofActions(row = row, captureEnabled = captureEnabled, onEvent = onEvent)
         }

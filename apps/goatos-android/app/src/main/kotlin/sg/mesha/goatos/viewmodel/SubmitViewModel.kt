@@ -788,7 +788,11 @@ class SubmitViewModel @Inject constructor(
                 driveName = summary.driveName,
                 expectedCount = summary.expectedCount,
                 handledCount = summary.handledCount,
-                proofReadyCount = summary.proofReadyCount,
+                proofReadyCount = if (currentProofPolicy.isShedLevelVideo) {
+                    shedProofReadiness.synced
+                } else {
+                    summary.proofReadyCount
+                },
                 proofMode = summary.proofMode,
                 submitState = summary.submitState,
             )

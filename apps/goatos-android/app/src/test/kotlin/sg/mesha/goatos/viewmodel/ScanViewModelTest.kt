@@ -39,6 +39,7 @@ import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -408,6 +409,33 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `shed-level proof policy does not show per-animal camera proof actions`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val vm = proofGateVm(
+            doneRosterRepo(2),
+            proofRepo,
+            proofPolicy = ProofPolicy(
+                proofMode = "shed_level_video",
+                subjectScope = "shed",
+                expectedSubjects = listOf("shed"),
+                minimumCount = 1,
+                maximumCount = 5,
+            ),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.value.pendingCount)
+        assertTrue("shed-level policy lets scan proceed to submit once animals are done", vm.state.value.canSubmit)
+        assertTrue("shed-level proof is captured on submit screen, not per animal", vm.state.value.proofActionNeeded.isEmpty())
+        assertTrue(vm.state.value.roster.all { !it.proofRequired })
+
+        vm.onEvent(ScanEvent.CaptureProof("goat-1"))
+        advanceUntilIdle()
+        assertTrue("scan screen must not create goat proof captures for shed-level SOP", proofRepo.captureCalls.isEmpty())
+    }
+
+    @Test
     fun `a pending proof upload blocks submit and surfaces the animal`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val vm = proofGateVm(doneRosterRepo(3), proofRepo)
@@ -497,7 +525,11 @@ class ScanViewModelTest {
         assertEquals("scan screen re-entry must re-enqueue durable Room scans", 1, scanCaptures.enqueuePendingScansCalls)
     }
 
-    private fun proofGateVm(repo: ExecutionRepository, proofRepo: FakeProofCaptureRepository): ScanViewModel =
+    private fun proofGateVm(
+        repo: ExecutionRepository,
+        proofRepo: FakeProofCaptureRepository,
+        proofPolicy: ProofPolicy = ProofPolicy.Default,
+    ): ScanViewModel =
         ScanViewModel(
             repo = repo,
             reader = FakeRfidReaderPort(),
@@ -506,7 +538,13 @@ class ScanViewModelTest {
             proofCaptureRepository = proofRepo,
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
-            tasksRepository = FakeTasksRepositoryForCapture(),
+            tasksRepository = FakeTasksRepositoryForCapture(
+                TaskDetail(
+                    task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                    form = FormSpec.Empty,
+                    proofPolicy = proofPolicy,
+                ),
+            ),
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
