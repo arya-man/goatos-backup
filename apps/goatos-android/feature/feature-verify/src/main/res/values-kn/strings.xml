@@ -7,13 +7,18 @@
     <string name="verify_module_under_construction">ನಿರ್ಮಾಣ ಹಂತದಲ್ಲಿದೆ</string>
     <string name="verify_module_under_construction_subtitle">ಇದರ ಕಾರ್ಯಪ್ರವಾಹ ಸಿದ್ಧವಾದಾಗ ಈ ಪರಿಶೀಲನಾ ಸರತಿ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತದೆ.</string>
     <string name="verify_queue_title">ವೀಡಿಯೊ ಪರಿಶೀಲನೆ</string>
+    <string name="verify_action_queue_title">ಲಸಿಕೆಗಳನ್ನು ಮುಚ್ಚಿ</string>
     <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
     <string name="verify_queue_empty">ಸರತಿ ಖಾಲಿ ಇದೆ</string>
     <string name="verify_queue_empty_subtitle">ಇದೀಗ ಪರಿಶೀಲಿಸಲು ಯಾವುದೇ ಬಾಕಿ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
+    <string name="verify_action_queue_empty">ಮುಚ್ಚಲು ಏನೂ ಇಲ್ಲ</string>
+    <string name="verify_action_queue_empty_subtitle">ಮುಚ್ಚುವಿಕೆಗಾಗಿ ಕಾಯುತ್ತಿರುವ ಯಾವುದೇ ಅನುಮೋದಿತ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
     <string name="verify_queue_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="verify_queue_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
 
     <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
+    <string name="verify_detail_fullscreen">ವೀಡಿಯೊ ಪೂರ್ಣ ಪರದೆ ತೆರೆ</string>
+    <string name="verify_detail_exit_fullscreen">ಪೂರ್ಣ ಪರದೆ ವೀಡಿಯೊ ಮುಚ್ಚಿ</string>
     <string name="verify_detail_context_title">ಸಂದರ್ಭ</string>
     <string name="verify_detail_shed_label">ಶೆಡ್</string>
     <string name="verify_detail_park_label">ಪಾರ್ಕ್</string>
@@ -23,6 +28,8 @@
     <string name="verify_detail_approve">ಅನುಮೋದಿಸಿ</string>
     <string name="verify_detail_reject">ತಿರಸ್ಕರಿಸಿ</string>
     <string name="verify_detail_already_decided">ಈಗಾಗಲೇ ನಿರ್ಧರಿಸಲಾಗಿದೆ — ಮತ್ತಷ್ಟು ಕ್ರಮ ಅಗತ್ಯವಿಲ್ಲ</string>
+    <string name="verify_detail_already_closed">ಈಗಾಗಲೇ ಮುಚ್ಚಲಾಗಿದೆ — ಮತ್ತಷ್ಟು ಕ್ರಮ ಅಗತ್ಯವಿಲ್ಲ</string>
+    <string name="verify_detail_close_submission">ಡ್ರೈವ್ ಮುಚ್ಚಿ</string>
     <string name="verify_detail_submitting">ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ…</string>
 
     <string name="verify_reject_dialog_title">ಕಾರಣದೊಂದಿಗೆ ತಿರಸ್ಕರಿಸಿ</string>

@@ -58,6 +58,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				wantItems := []domain.BootstrapNavigationItem{
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+					{Key: "close", Label: "Close", Href: "/verify/action"},
 					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}
@@ -125,6 +126,21 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 			if verify.NavItems[i] != wantItems[i] {
 				t.Fatalf("verifier nav item[%d]=%+v want %+v", i, verify.NavItems[i], wantItems[i])
 			}
+		}
+	})
+
+	t.Run("pc director with verifier permission keeps director vaccination module", func(t *testing.T) {
+		grants := []domain.GrantSummary{
+			grantWithRole(permissions.RolePCDirector),
+			grantWithRole(permissions.RoleVerifier),
+		}
+		modules := modulesFor(grants, []string{"vaccination"}, en)
+		keys := moduleKeySet(modules)
+		if _, ok := keys["vaccination"]; !ok {
+			t.Fatalf("hybrid director must keep Vaccination; got %v", keys)
+		}
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("hybrid director must NOT collapse into verifier-only module; got %v", keys)
 		}
 	})
 

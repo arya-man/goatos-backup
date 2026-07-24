@@ -350,11 +350,13 @@ fun GoatOsShellChrome(
 }
 
 /**
- * Only exact bootstrap roots own global navigation chrome. A child route must
- * never inherit the bar from a root with a similar path prefix.
+ * Only bootstrap roots own global navigation chrome. Compose reports optional-query routes by
+ * their pattern (for example `/verify/action?actionMode={actionMode}`), while backend hrefs stay
+ * clean (`/verify/action`), so compare the base route exactly. A child route still cannot inherit
+ * the bar from a root with a similar path prefix.
  */
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
-    currentRoute != null && currentRoute in topLevelRoutes
+    currentRoute?.routeBase() in topLevelRoutes
 
 /**
  * Whether the destination on screen offers the module drawer — the single rule behind every
@@ -403,13 +405,14 @@ private fun MeshaNavBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
     ) {
+        val currentBaseRoute = currentRoute?.routeBase()
         // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
         // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
         // module's own tab "Drives", not "Vaccination").
         items.forEach { item ->
             NavigationBarItem(
-                selected = currentRoute == item.href,
+                selected = currentBaseRoute == item.href,
                 onClick = { onSelect(item.href) },
                 icon = {
                     Icon(
@@ -424,6 +427,8 @@ private fun MeshaNavBar(
         }
     }
 }
+
+private fun String.routeBase(): String = substringBefore('?')
 
 // ---------------------------------------------------------------------------
 // Module-switcher drawer — ports the mock's `ovl-drawer` (`mock/vaccination-mobile-

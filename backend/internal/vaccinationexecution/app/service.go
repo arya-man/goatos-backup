@@ -564,6 +564,8 @@ func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus 
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
+	case p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0:
+		return domain.VerificationStatusVerified
 	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
 		return domain.VerificationStatusPending
 	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:

@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -42,7 +43,7 @@ class VerifyQueueViewModelTest {
     @Test
     fun `refreshing a non-vaccination tab still clears isRefreshing via finally`() = runTest(dispatcher) {
         val repo = FakeVerifyQueueRepository()
-        val vm = VerifyQueueViewModel(repo = repo, analytics = NoopAnalytics())
+        val vm = VerifyQueueViewModel(repo = repo, analytics = NoopAnalytics(), savedStateHandle = SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
         // The constructor's own initial refresh() runs on the default VACCINATION tab, so it
@@ -68,7 +69,7 @@ class VerifyQueueViewModelTest {
     @Test
     fun `refreshing the vaccination tab still clears isRefreshing after a real refresh`() = runTest(dispatcher) {
         val repo = FakeVerifyQueueRepository()
-        val vm = VerifyQueueViewModel(repo = repo, analytics = NoopAnalytics())
+        val vm = VerifyQueueViewModel(repo = repo, analytics = NoopAnalytics(), savedStateHandle = SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 

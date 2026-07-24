@@ -74,9 +74,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},      //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.VaccinationOverviewRead},     //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},  //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},      //nav-composition:ignore: registry entry
+			{key: "close", labelKey: "nav.close", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},              //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -148,9 +149,10 @@ var soonModuleKeys = []string{"feed_direction", "breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
-	// A verifier sees only the generic media-verification module. Keep this check
-	// ahead of leadership so a verifier grant can never expose act/capture screens.
-	if isVerifierPrincipal(grants) {
+	// A standalone verifier sees only the generic media-verification module.
+	// Leadership principals may also hold review permission, but they still land
+	// in their leadership module rather than the verifier-only app.
+	if isStandaloneVerifierPrincipal(grants) {
 		return composeNavigationFromModules([]string{"verification"}, grants, localeTag)
 	}
 
@@ -214,7 +216,7 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 // from them. Their access is decided by permission alone. Everyone else is limited to
 // the modules their department is granted.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
-	if isVerifierPrincipal(grants) {
+	if isStandaloneVerifierPrincipal(grants) {
 		return []string{"verification"}
 	}
 	if !isLeadershipPrincipal(grants) {
@@ -454,6 +456,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "Birth/Death",
 		"nav.shifting":    "Shifting",
 		"nav.approval":    "Approval",
+		"nav.close":       "Close",
 		"nav.you":         "You",
 
 		"module.verification":   "Verification",
@@ -475,6 +478,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "जन्म/मृत्यु",
 		"nav.shifting":    "शिफ्टिंग",
 		"nav.approval":    "अनुमोदन",
+		"nav.close":       "बंद करें",
 		"nav.you":         "आप",
 
 		"module.verification":   "सत्यापन",
@@ -496,6 +500,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "ಜನನ/ಮರಣ",
 		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
 		"nav.approval":    "ಅನುಮೋದನೆ",
+		"nav.close":       "ಮುಚ್ಚಿ",
 		"nav.you":         "ನೀವು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
@@ -517,6 +522,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.birth_death": "జననం/మరణం",
 		"nav.shifting":    "షిఫ్టింగ్",
 		"nav.approval":    "ఆమోదం",
+		"nav.close":       "ముగించు",
 		"nav.you":         "మీరు",
 
 		"module.verification":   "ధృవీకరణ",

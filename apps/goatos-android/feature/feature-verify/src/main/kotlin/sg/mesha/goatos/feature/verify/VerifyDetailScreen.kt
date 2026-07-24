@@ -1,5 +1,9 @@
 package sg.mesha.goatos.feature.verify
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +28,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -46,6 +51,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -93,6 +100,8 @@ data class VerifyDetailUiState(
     val context: List<VerifyContextRow> = emptyList(),
     val statusTone: VerifyTone = VerifyTone.PENDING,
     val rowVersion: Int = 1,
+    val isCloseMode: Boolean = false,
+    val isCloseEnabled: Boolean = false,
     /** False once a verdict has already been recorded (server or a just-submitted local
      *  optimistic state) — the buttons disable rather than allow a second conflicting verdict. */
     // Fail closed while the requested item is absent/loading. The ViewModel enables decisions
@@ -109,6 +118,7 @@ data class VerifyDetailUiState(
 sealed interface VerifyDetailEvent {
     data object Close : VerifyDetailEvent
     data object Approve : VerifyDetailEvent
+    data object CloseSubmission : VerifyDetailEvent
     /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise. */
     data class Reject(val reason: String) : VerifyDetailEvent
     data object Refresh : VerifyDetailEvent
@@ -157,12 +167,20 @@ fun VerifyDetailScreen(
                     }
                 }
                 item {
-                    DecisionRow(
-                        enabled = state.isDecisionEnabled && !state.isSubmitting,
-                        isSubmitting = state.isSubmitting,
-                        onApprove = { onEvent(VerifyDetailEvent.Approve) },
-                        onReject = { showRejectDialog = true },
-                    )
+                    if (state.isCloseMode) {
+                        CloseSubmissionRow(
+                            enabled = state.isCloseEnabled && !state.isSubmitting,
+                            isSubmitting = state.isSubmitting,
+                            onClose = { onEvent(VerifyDetailEvent.CloseSubmission) },
+                        )
+                    } else {
+                        DecisionRow(
+                            enabled = state.isDecisionEnabled && !state.isSubmitting,
+                            isSubmitting = state.isSubmitting,
+                            onApprove = { onEvent(VerifyDetailEvent.Approve) },
+                            onReject = { showRejectDialog = true },
+                        )
+                    }
                 }
                 state.errorMessage?.let { message ->
                     item {
@@ -238,6 +256,7 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
 @Composable
 private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    var isFullscreen by remember(media.signedUrl) { mutableStateOf(false) }
     val player = remember(media.signedUrl) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
@@ -263,7 +282,116 @@ private fun VerifyVideoPlayer(media: VerifyMediaItem, modifier: Modifier = Modif
             },
             modifier = Modifier.fillMaxSize(),
         )
+        VideoFullscreenButton(
+            onClick = {
+                player.playWhenReady = false
+                isFullscreen = true
+            },
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+        )
     }
+
+    if (isFullscreen) {
+        FullscreenVideoDialog(
+            media = media,
+            onDismiss = { isFullscreen = false },
+        )
+    }
+}
+
+@Composable
+private fun VideoFullscreenButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .background(MeshaColors.Ink.copy(alpha = 0.72f), shape = RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        IconButton(onClick = onClick, modifier = Modifier.fillMaxSize()) {
+            Icon(
+                imageVector = MeshaIcons.Expand,
+                contentDescription = stringResource(R.string.verify_detail_fullscreen),
+                tint = MeshaColors.Surf,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FullscreenVideoDialog(
+    media: VerifyMediaItem,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    ForceLandscapeWhileVisible(context)
+    val player = remember(media.signedUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(MeshaColors.Ink)) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        useController = true
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .size(48.dp)
+                    .background(MeshaColors.Ink.copy(alpha = 0.72f), shape = RoundedCornerShape(12.dp))
+                    .clickable { onDismiss() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Close,
+                    contentDescription = stringResource(R.string.verify_detail_exit_fullscreen),
+                    tint = MeshaColors.Surf,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForceLandscapeWhileVisible(context: Context) {
+    val activity = remember(context) { context.findActivity() }
+    DisposableEffect(activity) {
+        if (activity == null) {
+            return@DisposableEffect onDispose { }
+        }
+        val originalOrientation = activity.requestedOrientation
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        onDispose {
+            activity.requestedOrientation = originalOrientation
+        }
+    }
+}
+
+internal tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable
@@ -366,6 +494,34 @@ private fun DecisionRow(
             modifier = Modifier.weight(1f),
         )
     }
+}
+
+@Composable
+private fun CloseSubmissionRow(
+    enabled: Boolean,
+    isSubmitting: Boolean,
+    onClose: () -> Unit,
+) {
+    if (!enabled && !isSubmitting) {
+        Text(
+            text = stringResource(R.string.verify_detail_already_closed),
+            color = MeshaColors.Muted,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.W600,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        )
+        return
+    }
+    DecisionButton(
+        label = stringResource(R.string.verify_detail_close_submission),
+        icon = MeshaIcons.CheckCircle,
+        bg = MeshaColors.OkX,
+        fg = MeshaColors.Ok,
+        enabled = enabled,
+        loading = isSubmitting,
+        onClick = onClose,
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp),
+    )
 }
 
 @Composable

@@ -121,6 +121,10 @@ object MeshaIcons {
         "M9.5 9.5a2.5 2.5 0 0 0 3.5 3.5",
         "M4 4l16 16",
     )
+    val Expand: ImageVector = strokeIcon(
+        "expand",
+        "M8.5 4H4v4.5M4 4l6 6M15.5 4H20v4.5M20 4l-6 6M8.5 20H4v-4.5M4 20l6-6M15.5 20H20v-4.5M20 20l-6-6",
+    )
     val Feed: ImageVector = strokeIcon(
         "feed",
         "M3.5 11h17a8.5 8.5 0 0 1 -17 0zM8 11c0-2 1-2.5 0-4.5M12 11c0-2 1-2.5 0-4.5M16 11c0-2 1-2.5 0-4.5",
@@ -179,7 +183,7 @@ object MeshaIcons {
         "birth_death", "birth", "death" -> ArrowUpDown
         "shifting" -> Transfer
         // The approver's queue: a decision to be made, not a record to be captured.
-        "approval", "approvals" -> CheckCircle
+        "approval", "approvals", "close" -> CheckCircle
         // Declared-but-unbuilt modules the backend advertises as "soon".
         "feed_direction" -> Feed
         "breeding" -> Goat

@@ -77,7 +77,7 @@ class ProfileViewModel @Inject constructor(
             // Mock subtitle is "role · location" (e.g. "Health Asst Mgr · CBE").
             scopeLabel = listOf(role, location).filter { it.isNotBlank() }.joinToString(" · "),
             initials = initialsOf(name),
-            rows = baseRows(langCode),
+            rows = baseRows(langCode, showRfid = role == OPERATOR_ROLE),
         )
     }
 
@@ -131,18 +131,19 @@ class ProfileViewModel @Inject constructor(
         roleLabel = "",
         scopeLabel = "",
         initials = "",
-        rows = baseRows("en"),
+        rows = baseRows("en", showRfid = false),
     )
 
-    private fun baseRows(langCode: String): List<SettingRow> = listOf(
-        SettingRow(SettingKind.LANGUAGE, "", value = LANGUAGES[langCode] ?: "English"),
-        SettingRow(SettingKind.RFID, ""),
-        // Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — the route +
-        // handler already existed (AppNavHost Routes.TIMETABLE); this row was missing so the
-        // screen was unreachable from You/Settings (maintainer review finding).
-        SettingRow(SettingKind.TIMETABLE, "", subtitle = ""),
-        SettingRow(SettingKind.SIGN_OUT, ""),
-    )
+    private fun baseRows(langCode: String, showRfid: Boolean): List<SettingRow> =
+        buildList {
+            add(SettingRow(SettingKind.LANGUAGE, "", value = LANGUAGES[langCode] ?: "English"))
+            if (showRfid) add(SettingRow(SettingKind.RFID, ""))
+            // Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — the route +
+            // handler already existed (AppNavHost Routes.TIMETABLE); this row was missing so the
+            // screen was unreachable from You/Settings (maintainer review finding).
+            add(SettingRow(SettingKind.TIMETABLE, "", subtitle = ""))
+            add(SettingRow(SettingKind.SIGN_OUT, ""))
+        }
 
     /** Reflect live reader readiness on the RFID settings row. */
     private fun List<SettingRow>.withRfid(status: RfidReaderStatus): List<SettingRow> = map { row ->
@@ -166,6 +167,8 @@ class ProfileViewModel @Inject constructor(
             .ifBlank { name.take(1).uppercase() }
 
     private companion object {
+        const val OPERATOR_ROLE = "operator"
+
         val LANGUAGES = linkedMapOf(
             "en" to "English",
             "hi" to "हिन्दी",

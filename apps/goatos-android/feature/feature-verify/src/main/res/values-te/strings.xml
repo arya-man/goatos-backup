@@ -7,13 +7,18 @@
     <string name="verify_module_under_construction">నిర్మాణంలో ఉంది</string>
     <string name="verify_module_under_construction_subtitle">దీని వర్క్‌ఫ్లో సిద్ధమైనప్పుడు ఈ ధృవీకరణ క్యూ ఇక్కడ కనిపిస్తుంది.</string>
     <string name="verify_queue_title">వీడియో ధృవీకరణ</string>
+    <string name="verify_action_queue_title">టీకాలు ముగించు</string>
     <string name="verify_queue_refresh">రిఫ్రెష్ చేయండి</string>
     <string name="verify_queue_empty">క్యూ ఖాళీగా ఉంది</string>
     <string name="verify_queue_empty_subtitle">ప్రస్తుతం ధృవీకరించడానికి పెండింగ్‌లో వీడియోలు లేవు</string>
+    <string name="verify_action_queue_empty">ముగించడానికి ఏమీ లేదు</string>
+    <string name="verify_action_queue_empty_subtitle">ముగింపుకు వేచి ఉన్న ఆమోదిత వీడియోలు ప్రస్తుతం లేవు</string>
     <string name="verify_queue_load_more">మరిన్ని లోడ్ చేయండి</string>
     <string name="verify_queue_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
 
     <string name="verify_detail_close">మూయి</string>
+    <string name="verify_detail_fullscreen">వీడియోను ఫుల్‌స్క్రీన్‌లో తెరవండి</string>
+    <string name="verify_detail_exit_fullscreen">ఫుల్‌స్క్రీన్ వీడియో మూసివేయండి</string>
     <string name="verify_detail_context_title">సందర్భం</string>
     <string name="verify_detail_shed_label">షెడ్</string>
     <string name="verify_detail_park_label">పార్క్</string>
@@ -23,6 +28,8 @@
     <string name="verify_detail_approve">ఆమోదించండి</string>
     <string name="verify_detail_reject">తిరస్కరించండి</string>
     <string name="verify_detail_already_decided">ఇప్పటికే నిర్ణయించబడింది — తదుపరి చర్య అవసరం లేదు</string>
+    <string name="verify_detail_already_closed">ఇప్పటికే ముగించబడింది — తదుపరి చర్య అవసరం లేదు</string>
+    <string name="verify_detail_close_submission">డ్రైవ్ ముగించు</string>
     <string name="verify_detail_submitting">సమర్పిస్తోంది…</string>
 
     <string name="verify_reject_dialog_title">కారణంతో తిరస్కరించండి</string>

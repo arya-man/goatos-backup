@@ -581,7 +581,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	}
 	cmd.SubmissionItems = buildSubmissionItemsWithDraftScans(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	cmd.MovementPayload = buildMovementPayload(task, cmd.Body)
-	cmd.SubmissionFanoutRequired = s.submission != nil && submissionFanoutNeeded(task) && cmd.TaskState == "accepted"
+	cmd.SubmissionFanoutRequired = s.submission != nil && submissionFanoutNeeded(task) && (cmd.TaskState == "accepted" || cmd.TaskState == "needs_review")
 	submission, updatedTask, replay, err := s.repo.SubmitTask(ctx, cmd)
 	if err != nil {
 		return nil, mapRepoErr(err)

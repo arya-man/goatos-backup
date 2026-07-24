@@ -38,6 +38,7 @@ import javax.inject.Inject
 
 private const val PAGE_LIMIT = 20
 private const val OPERATOR_WINDOW_DAYS = 7
+private const val OPEN_ONLY_QUERY = false
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /**
@@ -76,7 +77,7 @@ class ShedsViewModel @Inject constructor(
         repo.observeRows(
             asOf = workWindow.asOf,
             dueBefore = workWindow.dueBefore,
-            openOnly = true,
+            openOnly = OPEN_ONLY_QUERY,
             limit = PAGE_LIMIT,
         ).stateIn(
             viewModelScope,
@@ -140,7 +141,7 @@ class ShedsViewModel @Inject constructor(
         val result = repo.refreshRows(
             asOf = workWindow.asOf,
             dueBefore = workWindow.dueBefore,
-            openOnly = true,
+            openOnly = OPEN_ONLY_QUERY,
             limit = PAGE_LIMIT,
         )
         _isRefreshing.value = false
@@ -158,7 +159,7 @@ class ShedsViewModel @Inject constructor(
             cursor = cursor,
             asOf = workWindow.asOf,
             dueBefore = workWindow.dueBefore,
-            openOnly = true,
+            openOnly = OPEN_ONLY_QUERY,
             limit = PAGE_LIMIT,
         )
         _isLoadingMore.value = false
@@ -192,7 +193,7 @@ class ShedsViewModel @Inject constructor(
         val weekRows = rows
         val rowsForSelectedDay = weekRows.filter { row ->
             val dueDate = row.currentScheduleDate?.let(::parseExecutionDate)
-            val hasVisibleWork = row.openCount > 0 || row.doneCount > 0
+            val hasVisibleWork = row.hasOperatorVisibleWork()
             when {
                 !hasVisibleWork -> false
                 dueDate == null -> selectedDay == workWindow.today
@@ -399,14 +400,26 @@ private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
 private fun ShedStatus.readable(): String = name.lowercase().replaceFirstChar { it.uppercase() }
 
 private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: ShedStatus): String {
-    val inReview = any { row ->
-        row.proofStatus.equals("uploaded", ignoreCase = true) ||
-            row.verificationStatus.equals("pending", ignoreCase = true) ||
-            row.sopStatus.equals("submitted", ignoreCase = true) ||
-            row.workState.equals("verification_pending", ignoreCase = true)
-    }
+    val inReview = any { row -> row.isVerificationPending() }
     if (inReview) return "In review"
     return firstOrNull()?.workState.orEmpty().ifBlank { status.readable() }.readableState()
+}
+
+private fun VaccinationExecutionRowDto.hasOperatorVisibleWork(): Boolean =
+    openCount > 0 || isVerificationPending() || (doneCount > 0 && !isFinalClosed())
+
+private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
+    proofStatus.equals("uploaded", ignoreCase = true) ||
+        verificationStatus.equals("pending", ignoreCase = true) ||
+        sopStatus.equals("submitted", ignoreCase = true) ||
+        sopStatus.equals("needs_review", ignoreCase = true) ||
+        workState.equals("verification_pending", ignoreCase = true)
+
+private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatus.lowercase()) {
+    "accepted", "closed", "completed" -> true
+    else -> workState.equals("accepted", ignoreCase = true) ||
+        workState.equals("closed", ignoreCase = true) ||
+        workState.equals("completed", ignoreCase = true)
 }
 
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
