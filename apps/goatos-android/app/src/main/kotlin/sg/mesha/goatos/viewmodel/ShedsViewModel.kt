@@ -293,6 +293,9 @@ class ShedsViewModel @Inject constructor(
             roleNote = null,
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             rows = shedRows,
+            // Leadership oversight read: shed list is read-only, opening into the scan/execute
+            // loop is blocked (backend-owned; operators get viewerReadOnly=false).
+            canOpenShed = !viewerReadOnly,
             carry = carry,
             rosterChanges = emptyList(),
             kernelInfo = null,

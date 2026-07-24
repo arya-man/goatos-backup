@@ -172,6 +172,11 @@ data class ShedsUiState(
     val roleNote: String? = null,
     val dayTabs: List<ShedDayTab> = emptyList(),
     val rows: List<ShedRow> = emptyList(),
+    // Whether tapping a shed may open it into the operator scan/execute loop. Backend-owned:
+    // false for a leadership oversight read (read-only shed list; the open click is blocked so
+    // CEO/Director/Park Head never reach the scan screen). Defaults true so operators are
+    // unaffected. See VaccinationExecutionResponseDto.viewerReadOnly.
+    val canOpenShed: Boolean = true,
     // Backend-owned "vaccines to carry" for the selected day. Rendered verbatim; the screen
     // NEVER sums shed rows to derive these (that produced a partial-page total, e.g. 111 vs 200).
     val carry: DayCarry? = null,
@@ -587,8 +592,7 @@ private fun SectionCaption(text: String) {
 @Composable
 private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
     val tone = toneFor(row.status)
-    val actionLabel = row.actionLabel
-        ?: row.taskId?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.sheds_open_shed) }
+    // The whole card is the tap target; the redundant "Open shed ›" CTA text is not rendered.
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -606,10 +610,6 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
             NumsRow(row)
             Spacer(Modifier.height(12.dp))
             ProgressBar(row.progressFraction)
-            actionLabel?.let { label ->
-                Spacer(Modifier.height(12.dp))
-                ActionFooter(label = label, status = row.status)
-            }
         }
     }
 }
@@ -797,22 +797,6 @@ private fun NumDivider() {
             .fillMaxHeight()
             .width(1.dp)
             .background(Hair),
-    )
-}
-
-@Composable
-private fun ActionFooter(label: String, status: ShedStatus) {
-    // Colour follows the backend-provided status (delayed = red); the label itself
-    // is whatever action the backend returned — the screen does not compose it.
-    val color = if (status == ShedStatus.DELAYED) Danger else BrandD
-    Text(
-        text = label,
-        color = color,
-        fontSize = 12.5f.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
     )
 }
 

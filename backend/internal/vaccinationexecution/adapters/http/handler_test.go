@@ -337,6 +337,54 @@ func TestAppVaccinationExecutionRequiresAndCarriesOperatorScope(t *testing.T) {
 	}
 }
 
+// TestAppVaccinationExecutionLeadershipSkipsOperatorScope pins that a leadership principal
+// (CEO/CXO, PC Director, Park Head) reading the APP execution route is NOT
+// operator-assignment scoped: they get the park-scoped read-only oversight view of all
+// sheds, unlike a field operator who only sees their own assigned work. Without this,
+// operator scoping returns zero rows for a leader (they are not an assigned operator), which
+// is why a CEO's drive -> sheds view was empty.
+func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const actorID = "90000000-0000-4000-8000-000000000104"
+	const parkID = "30000000-0000-4000-8000-000000000001"
+	cases := []struct {
+		role  string
+		grant permissions.ActiveGrant
+	}{
+		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}},
+		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}},
+		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.role, func(t *testing.T) {
+			reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI}}
+			mux := http.NewServeMux()
+			Register(mux, NewHandler(reader, &fakeWriter{}))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution", nil)
+			ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+			ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{tc.grant})
+			req = req.WithContext(ctx)
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+			}
+			if reader.last.OperatorScopeActorID != "" {
+				t.Fatalf("leadership operator scope actor = %q want empty (park-scoped oversight)", reader.last.OperatorScopeActorID)
+			}
+			var resp domain.ExecutionResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if !resp.ViewerReadOnly {
+				t.Fatalf("leadership response viewerReadOnly = false, want true (read-only oversight; shed open blocked)")
+			}
+		})
+	}
+}
+
 func TestVaccinationScheduleParsesMonthWindow(t *testing.T) {
 	reader := &fakeReader{schedule: domain.OperationsResponse{Source: domain.SourceAPI}}
 	mux := http.NewServeMux()
