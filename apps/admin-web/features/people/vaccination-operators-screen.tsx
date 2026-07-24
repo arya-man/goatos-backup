@@ -143,7 +143,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   const [capRowVersion, setCapRowVersion] = useState(0);
   const [capConfigError, setCapConfigError] = useState<string | null>(null);
   const [capEditing, setCapEditing] = useState(false);
-  const [draftCommonCap, setDraftCommonCap] = useState('200');
   const [draftAnimalCap, setDraftAnimalCap] = useState('');
   const [savingCapCfg, setSavingCapCfg] = useState(false);
 
@@ -513,7 +512,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
 
   const openCapEditor = () => {
     if (capConfigError) return; // never edit against a config that failed to load
-    setDraftCommonCap(String(commonCap));
     setDraftAnimalCap(animalShotCap == null ? '' : String(animalShotCap));
     setCapError(null);
     setCapEditing(true);
@@ -521,14 +519,11 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
 
   const saveCapacityConfig = async () => {
     if (capConfigError) {
-      setCapError('Capacity config could not be loaded; reload before editing caps.');
+      setCapError('Capacity config could not be loaded; reload before editing the cap.');
       return;
     }
-    const nextCommon = Number(draftCommonCap.trim());
-    if (!Number.isInteger(nextCommon) || nextCommon < 1 || nextCommon > 100000) {
-      setCapError('Operator cap must be a whole number between 1 and 100000 animals/day.');
-      return;
-    }
+    // This control edits ONLY the per-animal shot cap; the operator daily cap is owned by the
+    // per-operator roster rows, so maxPerDay is sent back unchanged (current commonCap).
     // A cleared animal-cap field means "no override" (null → planner falls back to the rule DSL / default).
     // An explicit value must be a whole number >= 1; out-of-range is rejected, never silently defaulted.
     const animalRaw = draftAnimalCap.trim();
@@ -546,7 +541,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     try {
       const api = getAdminApi();
       const response = await api.putVaccinationCapacityConfig({
-        maxPerDay: nextCommon,
+        maxPerDay: commonCap,
         maxShotsPerAnimalPerDrive: nextAnimal,
         rowVersion: capRowVersion,
       });
@@ -555,7 +550,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
       setAnimalShotCap(updated.maxShotsPerAnimalPerDrive ?? null);
       setCapRowVersion(updated.rowVersion);
       setCapEditing(false);
-      showToast(`<b style="color:var(--brand)">Saved</b> · caps updated — future vaccination schedules are being re-planned`);
+      showToast(`<b style="color:var(--brand)">Saved</b> · animal shot cap updated — future vaccination schedules are being re-planned`);
     } catch (err) {
       setCapError(err instanceof Error ? err.message : 'Failed to save capacity config');
     } finally {
@@ -755,21 +750,11 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
           <h3>Operator roster & availability</h3>
           <div className="sp"></div>
           <div className="capctl">
+            {/* Operator cap is edited per-operator in the roster rows below + summarized in the KPI
+                card; this control edits ONLY the per-animal shot cap. */}
             {capEditing ? (
               <>
-                <span className="capctl-lab">Operator cap</span>
-                <input
-                  aria-label="Operator daily animal cap"
-                  className="capin"
-                  inputMode="numeric"
-                  min={1}
-                  max={100000}
-                  type="number"
-                  value={draftCommonCap}
-                  onChange={(event) => setDraftCommonCap(event.target.value)}
-                />
-                <span className="capunit">animals/day</span>
-                <span className="capctl-lab" style={{ marginLeft: 10 }}>Animal cap</span>
+                <span className="capctl-lab">Animal shot cap</span>
                 <input
                   aria-label="Per-animal shot cap per day"
                   className="capin"
@@ -790,10 +775,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               </>
             ) : (
               <>
-                <span className="capctl-lab">Cap / operator</span>
-                <b id="capText">{capConfigError ? '—' : commonCap}</b>
-                <span className="capunit">animals/day</span>
-                <span className="capctl-lab" style={{ marginLeft: 10 }}>Animal shot cap</span>
+                <span className="capctl-lab">Animal shot cap</span>
                 <b>{capConfigError ? '—' : animalShotCap == null ? 'default' : animalShotCap}</b>
                 <span className="capunit">shots/animal</span>
                 <button
@@ -802,9 +784,9 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                   type="button"
                   disabled={!!capConfigError}
                   aria-disabled={!!capConfigError}
-                  title={capConfigError ? `Capacity config failed to load — editing disabled. ${capConfigError}` : 'Edit operator + animal caps'}
+                  title={capConfigError ? `Capacity config failed to load — editing disabled. ${capConfigError}` : 'Edit animal shot cap'}
                 >
-                  Edit caps
+                  Edit cap
                 </button>
               </>
             )}
