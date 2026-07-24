@@ -100,8 +100,13 @@ module grants resolve `user → workforce_members.department_id →
 department_module_grants.module_key`, and leadership roles are **org-level — a CEO or
 Director is not a member of a department**, so department-scoping them would resolve
 to zero grants and hide every module. Their access is decided by permission alone.
-This is a widening of *candidates*, not of access: a leadership principal still
-receives only the modules and items whose permissions they hold.
+
+> **Superseded 2026-07-24 (see "Leadership drawer per-role matrix" below).** Leadership
+> candidates are no longer "every registry module". They are curated by leadership TIER
+> (`leadershipModuleKeys`): CEO gets Vaccination(home)+Counts+soon; PC Director / Park
+> Head get the Vaccination home ONLY. So the "park_head sees Counts" rows in the Counts
+> worked example just below are historical — a preventive-care leader's drawer no longer
+> contains the Counts module at all, even though he still holds the counts permissions.
 
 **Worked example — the Counts matrix (maintainer decision 2026-07-18).** Counts
 contributes three items under two permissions: the census page `/counts` requires
@@ -115,16 +120,18 @@ authorities.** One registry entry then yields:
 | role | census `/counts` | `/counts/birth-death` | `/counts/shifting` | module in drawer |
 |---|---|---|---|---|
 | `operator` | — | yes | yes | yes (2-item bar) |
-| `park_head` | — | yes | yes | yes (2-item bar) |
+| `park_head` | — | (holds `counts.write`) | (holds `counts.write`) | **NO — preventive-care leader, Vaccination-only drawer (2026-07-24)** |
 | `admin` | yes | yes | yes | yes (3-item bar) |
 | `ceo_internal` | yes | yes | yes | yes (3-item bar) |
-| `pc_director` | — | — | — | **NO — all items gated, module omitted** |
+| `pc_director` | — | — | — | **NO — all items gated + preventive-care leader** |
 | `verifier` | — | — | — | **NO — all items gated, module omitted** |
 
-Operator and Park Head land on `/counts/birth-death` via the landing-href fallback,
-since the declared `/counts` landing is gated away from them. `pc_director` and
-`verifier` hold neither counts permission, so the module disappears from their drawer
-entirely. Pinned by `TestCountsModuleRoleMatrix`
+Operator lands on `/counts/birth-death` via the landing-href fallback, since the
+declared `/counts` landing is gated away from it. `pc_director` and `verifier` hold no
+counts permission; `park_head` still holds `counts.write` but, as a preventive-care
+leader, no longer receives the Counts MODULE in his drawer (the item composition still
+holds by permission, the module is dropped at the leadership-tier candidate step).
+Pinned by `TestCountsModuleRoleMatrix`
 (`backend/internal/workforce/app/service_test.go`), which asserts the item sets, the
 two omissions, and that every module's landing href is among its permitted items.
 

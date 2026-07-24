@@ -63,6 +63,7 @@ import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.ApprovalViewModel
 import sg.mesha.goatos.viewmodel.BirthDeathViewModel
@@ -905,14 +906,24 @@ fun AppNavHost(
 }
 
 /**
- * Cold start must never land on a route the backend did not expose to this principal. The
- * bootstrap already orders the visible roots by job/module priority, so Android renders that
- * contract instead of hardcoding Calendar (which broke operator and verifier startup with a 403).
- * Unknown future roots fail safely to Calendar until the app graph learns the new destination.
+ * Cold start must never land on a route the backend did not expose to this principal, and it
+ * must honor the DEFAULT MODULE's landing href, not merely the first bottom-bar item. These
+ * differ for leadership: the bar shows Overview first (key "overview", /leadership) but the
+ * module lands on Calendar (module href /calendar) -- so keying off the first item would open
+ * Overview, ignoring the backend's landing choice (bootstrap_copy.go leadership landingHref).
+ *
+ * Precedence: the backend's default (first available) module's href, then the first supported
+ * bottom-bar item, then Calendar as a safe fallback. Operator/verifier are unaffected -- their
+ * default module href IS their landing (/vaccination, /verify). The `in supportedRootDestinations`
+ * guard keeps an unknown future root from failing startup with a 403.
  */
-internal fun startDestinationFor(navState: NavState): String =
-    navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
+internal fun startDestinationFor(navState: NavState): String {
+    navState.availableModules().firstOrNull()?.href
+        ?.takeIf { it in supportedRootDestinations }
+        ?.let { return it }
+    return navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
         ?: Routes.CALENDAR
+}
 
 private val supportedRootDestinations = setOf(
     Routes.CALENDAR,
