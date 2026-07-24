@@ -64,6 +64,13 @@ Assignment rows are operator/date/shed/partition metadata and never replace
 obligation membership; read models must collapse them before counting animals,
 proofs, completion, due, or overdue buckets.
 
+Accepted source history wins over regenerated one-time due work. After the seed
+imports an accepted vaccination completion and its completed history obligation,
+the same goat/rule must not remain as an active one-time obligation merely
+because kernel generation ran later in the same seed. The seed reconciliation
+repair may mark that duplicate active row `superseded`, but it must not delete
+or rewrite the accepted completion that backs goat history.
+
 Source shed labels with trailing partition numbers must be normalized before
 canonical DB writes. `Gandhi 1` means physical shed `Gandhi`, partition `1`;
 `Godel 1 - Part 3` means physical shed `Godel 1`, partition `Part 3`. The raw
@@ -111,40 +118,25 @@ commit plaintext passwords, and smoke-test Android bootstrap/login for each
 operator before calling the seed complete.
 The packet also includes `expected-drive-schedules.json`, a machine-readable
 post-seed validation sample. For the discussed 2026-07-24 drive, the expected
-final input is one active operator/day, default Darshan, 200 animals/day,
-ET+TT-only on `2026-07-24`, and PPR moved to `2026-08-07`. That produces ET+TT
-rows of 200 animals on `2026-07-24` and 124 animals on `2026-07-25`, plus PPR
-rows of 200 animals on `2026-08-07` and 124 animals on `2026-08-08`. Darshan is
-available Friday/Saturday and off Sunday; dose counts must not inflate animal
-capacity. The roster's `weekly_capacity_examples.total_capacity_animals` is raw
-HRMS availability math (`available_operators.length * 200`, so 2 available
-operators = 400 and 3 available operators = 600). It is not the final drive
-assignment cap; with `active_operators_per_day=1`, the final scheduled drive cap
-is 200 unique animals/day.
+final input is one active operator/day, default Darshan, 200 animals/day, and
+ET+TT-only seed scheduling from `2026-07-24`. PPR is excluded from this CPT seed
+packet for now; this is a seed-packet rule only and does not change the global
+vaccination protocol matrix. That produces ET+TT rows of 200 animals on
+`2026-07-24` and 10 animals on `2026-07-25`. Darshan is available Friday/Saturday
+and off Sunday; dose counts must not inflate animal capacity. The roster's
+`weekly_capacity_examples.total_capacity_animals` is raw HRMS availability math
+(`available_operators.length * 200`, so 2 available operators = 400 and 3
+available operators = 600). It is not the final drive assignment cap; with
+`active_operators_per_day=1`, the final scheduled drive cap is 200 unique
+animals/day.
 
-> **PPR deferral to 2026-08-07 is a CPT initial validation override, not a
-> permanent no-combo rule.**
->
-> This is not a global vaccine scheduling rule.
->
-> For the initial CPT/STG validation drive only:
-> - first drive starts 2026-07-24
-> - schedule ET+TT only on 2026-07-24 / 2026-07-25
-> - intentionally move PPR to 2026-08-07 / 2026-08-08
-> - this proves the first operator drive with one vaccine lane before adding PPR
->
-> For future real scheduling:
-> - ET+TT and PPR may be paired on the same date if the active business
->   rule/config says so
-> - same-day multi-vaccine scheduling is allowed
-> - when paired, animal capacity counts distinct goats, not doses
 
 For local DB reseed proof, the packet's exhaustive contract is
 `fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md`.
 Follow it before staging. It explicitly rejects the failure shapes observed in
 the 2026-07-24 validation attempt: stale checkout validation, throwaway
 two-operator roster overrides, Amit missing cap/shift config, Sagar week-off
-changed to Monday, PPR or other vaccine families mixed into the final
+changed to Monday, any PPR drive row in the CPT seed output, other vaccine families mixed into the final
 `2026-07-24` ET+TT-only drive, planned operator/date rows over 200 distinct
 animals, and using post-cascade superseded empty batches as clean seed proof.
 
@@ -397,8 +389,8 @@ before the contract business date, a CBE/Coimbatore park row, a superseded/empty
 shell batch presented as schedule, or a missing/mismatched operator shift config.
 Set `GOATOS_EXPECTED_DRIVE_VARIANT=<variant id>` to additionally compare the exact
 per-date rows of one named variant, after applying that variant's drive-policy
-input (the ET+TT-only/PPR-moved plan exists only after the date override; natural
-kernel interleaving is a mismatch report, not a seed defect).
+input. The current CPT variant is ET+TT-only and rejects any seeded PPR drive
+row.
 
 For an already-seeded database after additive migrations, do not rerun source
 seed just to fill derived tables. Apply the migrations, then run:

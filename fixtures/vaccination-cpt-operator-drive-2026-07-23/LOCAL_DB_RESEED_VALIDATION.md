@@ -150,8 +150,9 @@ Health normalization:
 
 ## Expected Due Counts To Report
 
-The validation report must include every vaccine family generated from the
-source/rules, even when the final drive scenario focuses on ET+TT and PPR.
+The validation report must include every seeded vaccine family generated from
+the source/rules. PPR is intentionally excluded from this CPT seed packet for
+now; this is not a global vaccination protocol rule change.
 
 Minimum expected due/history counts from the current CPT source discussion:
 
@@ -159,18 +160,16 @@ Minimum expected due/history counts from the current CPT source discussion:
 |---|---|
 | `et_tt_adult_w1` | 324 completed history |
 | `et_tt_adult_w2` | 114 completed history dated 2026-07-24; 210 remaining due by 2026-07-24 |
-| `ppr_adult_w1` | 231 due/eligible by 2026-07-24, but moved by drive policy |
-| `ppr_revac` | 93 future booster, not part of first drive |
 | Blue Tongue | report separately by planned date/operator/animal count |
 | FMD | report separately by planned date/operator/animal count |
 | HS | report separately by planned date/operator/animal count |
 | Goat pox | report separately by planned date/operator/animal count |
 | Sheep pox | report separately by planned date/operator/animal count |
 
-Do not hide non-ET+TT/PPR obligations. Do not mix them into the ET+TT/PPR final
-proof table.
+Do not hide non-PPR obligations. Do not mix them into the ET+TT final proof
+table.
 
-## Final Expected ET+TT/PPR Drive Schedule
+## Final Expected ET+TT Drive Schedule
 
 This is the final validation scenario.
 
@@ -178,11 +177,8 @@ This is the final validation scenario.
 |---|---|---|---:|---:|
 | 2026-07-24 | ET+TT | Darshan Talwar | 200 | 10 |
 | 2026-07-25 | ET+TT | Darshan Talwar | 10 | 0 |
-| 2026-08-07 | PPR | Darshan Talwar | 200 | 124 |
-| 2026-08-08 | PPR | Darshan Talwar | 124 | 0 |
 
-PPR must not be planned on 2026-07-24 or 2026-07-25 in this final scenario.
-ET+TT and PPR same-day is only a separate cap sanity variant.
+PPR must not be planned anywhere by this seed packet for now.
 
 ## Required DB Proof Queries
 
@@ -253,13 +249,13 @@ Treat the validation as failed if any of these happen:
 - Amit is missing, uncapped, or has no shift config;
 - Sagar week-off is anything other than Saturday;
 - any clean planned date/operator has more than 200 distinct animals;
-- PPR appears on 2026-07-24 or 2026-07-25 in the final scenario;
-- non-ET+TT/PPR vaccines are omitted from the report;
+- PPR appears anywhere in this CPT seed packet output;
+- non-PPR vaccines are omitted from the report;
 - superseded empty batches are used as schedule proof;
   (the cap, operator fan-out, contract-operator, pre-business-date, forbidden-park,
   shell-batch, and operator-shift-config failures above are now enforced in
   `seed-closeout` by `check-expected-drive-schedules.mjs` and FAIL the closeout;
-  the PPR-date and vaccine-family report rows are checked when
+  the prohibited-PPR and vaccine-family report rows are checked when
   `GOATOS_EXPECTED_DRIVE_VARIANT` names the applied variant);
 - leave/cascade mutation runs on the same DB before clean reseed proof;
 - a test says PASS but executed zero tests;

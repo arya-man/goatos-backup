@@ -800,7 +800,7 @@ seed-vaccination-cpt-operator-drive:
 	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -expect-null-false-dob=0
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	GOATOS_EXPECTED_DRIVE_SCHEDULES="$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/expected-drive-schedules.json" \
-	  GOATOS_EXPECTED_DRIVE_VARIANT="final_discussed_plan_et_tt_then_ppr_after_14_days" \
+	  GOATOS_EXPECTED_DRIVE_VARIANT="final_discussed_plan_et_tt_only_no_ppr" \
 	  GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF="$${GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF:-$(GOATOS_CPT_OPERATOR_DRIVE_AS_OF)T00:00:00+05:30}" \
 	  $(MAKE) seed-closeout
 	@if [ "$${GOATOS_ENV:-}" = "stg" ]; then \

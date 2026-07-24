@@ -83,7 +83,7 @@ fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md
 
 That contract is authoritative for this rehearsal's local DB proof. It covers
 the required source files, HRMS roster shape, all generated vaccine-family
-counts to report, final ET+TT/PPR schedule, SQL validation queries, and
+counts to report, final ET+TT-only schedule, SQL validation queries, and
 automatic failure cases. Do not replace it with a throwaway roster override or a
 post-cascade mutated DB snapshot.
 
@@ -149,8 +149,7 @@ Post-seed validation for this packet must compare the DB against
 That sample captures the agreed variants from the 2026-07-23 operator-drive
 debugging discussion:
 
-- final plan: ET+TT only from `2026-07-24` and PPR from `2026-08-07`;
-- cap sanity: ET+TT+PPR on the same date counts 200 animals, not 400 doses;
+- final plan: ET+TT only from `2026-07-24`; PPR is excluded from this CPT seed packet for now;
 - fallback sanity: Darshan is off only on Sunday, so Sagar covers Sunday and
   Darshan resumes Monday;
 - N=2 sanity: `active_operators_per_day=2` gives 400 same-day animal capacity.
@@ -162,26 +161,8 @@ It keeps Amit, Darshan, and Sagar as HRMS vaccination operators while
 operator to a drive day. `weekly_capacity_examples.total_capacity_animals`
 means raw available HRMS field capacity (`available_operators.length * 200`);
 it does not override the final drive cap. The final scheduled drive capacity is
-`active_operators_per_day * 200 = 200` unique animals/day. For the final plan,
-ET+TT starts on `2026-07-24`; PPR must be separated to `2026-08-07`, not paired
-with ET+TT on `2026-07-24`.
+`active_operators_per_day * 200 = 200` unique animals/day. For the final plan, ET+TT starts on `2026-07-24`; PPR must not be seeded, scheduled, or deferred by this CPT packet for now.
 
-> **PPR deferral to 2026-08-07 is a CPT initial validation override, not a
-> permanent no-combo rule.**
->
-> This is not a global vaccine scheduling rule.
->
-> For the initial CPT/STG validation drive only:
-> - first drive starts 2026-07-24
-> - schedule ET+TT only on 2026-07-24 / 2026-07-25
-> - intentionally move PPR to 2026-08-07 / 2026-08-08
-> - this proves the first operator drive with one vaccine lane before adding PPR
->
-> For future real scheduling:
-> - ET+TT and PPR may be paired on the same date if the active business
->   rule/config says so
-> - same-day multi-vaccine scheduling is allowed
-> - when paired, animal capacity counts distinct goats, not doses
 
 If seeded DB output does not match that sample under the same inputs, treat it
 as a seed/scheduler validation failure until a changed source/rule/config input
@@ -221,6 +202,12 @@ node tools/dev/validate-vaccination-hrms-source.mjs \
 The command is read-only. `--strict` exits non-zero if the source is unsafe for
 direct seed. A warning such as a genuinely unknown DOB remains visible but is
 not converted into invented data.
+
+Accepted vaccination history is also source truth. For one-time vaccine rules,
+an accepted completion imported from the selected source must remain visible in
+goat history and must supersede any regenerated active obligation for the same
+goat/rule during seed reconciliation. Do not change dated source cells to
+`Pending` or fabricate replacement dates to make generation look clean.
 
 Build the reviewed sanitized fixture only after reading the complete report:
 

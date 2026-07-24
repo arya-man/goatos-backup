@@ -20,10 +20,9 @@
 //     * no superseded batch and no zero-obligation shell batch is presented as schedule.
 //
 //   VARIANT COMPARISON (opt-in via GOATOS_EXPECTED_DRIVE_VARIANT=<variant id>) — the exact
-//   per-date/operator/animal-count rows of one named variant. These are NOT unconditional:
-//   the "ET+TT only on 2026-07-24, PPR moved to 2026-08-07" plan exists only after the drive
-//   date override is applied, and expected-drive-schedules.json itself records the
-//   natural-interleaving output as a mismatch report rather than a seed defect.
+//   per-date/operator/animal-count rows of one named variant. This CPT seed packet currently
+//   schedules ET+TT only; expected-drive-schedules.json also marks PPR dose-code prefixes as
+//   forbidden from seeded drive output.
 //
 // Usage:
 //   node check-expected-drive-schedules.mjs --self-test
@@ -56,7 +55,10 @@ function loadExpected(file) {
     const name = expected?.operator_rules?.[key]?.display_name;
     if (name) operatorNames.add(name);
   }
-  return { expected, cap, activeOperatorsPerDay, park, businessDate, operatorNames };
+  const prohibitedDosePrefixes = Array.isArray(expected?.prohibited_drive_dose_code_prefixes)
+    ? expected.prohibited_drive_dose_code_prefixes.map((value) => String(value).trim().toLowerCase()).filter(Boolean)
+    : [];
+  return { expected, cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes };
 }
 
 function psql(sql) {
@@ -144,7 +146,7 @@ ORDER BY 1`;
 
 export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows }) {
   const failures = [];
-  const { cap, activeOperatorsPerDay, park, businessDate, operatorNames } = contract;
+  const { cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes = [] } = contract;
 
   const operatorsByDate = new Map();
   for (const [date, operator, animalsText] of capRows) {
@@ -191,6 +193,14 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
     }
   }
 
+  for (const [date, doseCode, animalsText] of vaccineRows) {
+    const normalizedDose = String(doseCode ?? "").trim().toLowerCase();
+    const prefix = prohibitedDosePrefixes.find((candidate) => normalizedDose.startsWith(candidate));
+    if (prefix) {
+      failures.push(`prohibited seed vaccine: ${date} has ${animalsText} animal(s) for ${doseCode}; ${prefix.toUpperCase()} is excluded from this seed packet`);
+    }
+  }
+
   if (variant) {
     const byDate = new Map();
     for (const [date, doseCode, animalsText] of vaccineRows) {
@@ -228,6 +238,7 @@ function selfTest() {
     park: "CPT",
     businessDate: "2026-07-23",
     operatorNames: new Set(["Darshan Talwar", "Sagar Mahoor", "Amit Kumar"]),
+    prohibitedDosePrefixes: ["ppr"],
   };
   const clean = {
     contract,
@@ -249,6 +260,7 @@ function selfTest() {
     ["empty shell batch fails", { ...clean, shellRows: [["superseded", "2"]] }, 1],
     ["missing shift config fails", { ...clean, operatorRows: [["Darshan Talwar", "200", "sunday"]] }, 2],
     ["wrong cap fails", { ...clean, operatorRows: [["Amit Kumar", "200", "friday"], ["Darshan Talwar", "50", "sunday"], ["Sagar Mahoor", "200", "saturday"]] }, 1],
+    ["prohibited PPR drive fails", { ...clean, vaccineRows: [["2026-08-07", "ppr_adult_w1", "124"]] }, 1],
   ];
   let bad = 0;
   for (const [label, input, expectedCount] of cases) {
@@ -296,7 +308,7 @@ function main() {
     shellRows: psql(SHELL_BATCH_SQL(tenant)),
     operatorRows: psql(OPERATOR_CONFIG_SQL(tenant)),
     variant,
-    vaccineRows: variant ? psql(VACCINE_BY_DATE_SQL(tenant)) : [],
+    vaccineRows: (variant || contract.prohibitedDosePrefixes.length) ? psql(VACCINE_BY_DATE_SQL(tenant)) : [],
   });
 
   if (failures.length) {
