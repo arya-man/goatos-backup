@@ -1597,11 +1597,28 @@ func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.Unbatche
 			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
 		}, planner)
 	}
+	feasibleOnPlannedDate := func(row domain.UnbatchedDue) bool {
+		return driveCandidateFeasibleOnPlannerDate(now, *plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}, planner)
+	}
 	admitted := make(map[string]struct{}, len(selected))
 	admittedTargets := make(map[string]struct{}, len(selected))
-	// Pass 1: immovable rows reserve capacity first (admitted unconditionally -- last-safe overflow).
+	// Pass 1: immovable rows reserve capacity first, but only on a date that is legal for that
+	// row. A mixed/held sweep must not let past-window rows ride another cohort's later date as
+	// "immovable" overflow.
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if !feasibleOnPlannedDate(row) {
 			continue
 		}
 		if canMove(row) {
@@ -1620,6 +1637,9 @@ func limitUnbatchedSelectionByDriveAnimals(now time.Time, rows []domain.Unbatche
 			continue
 		}
 		if _, ok := admitted[row.ObligationID]; ok {
+			continue
+		}
+		if !feasibleOnPlannedDate(row) {
 			continue
 		}
 		targetKey := unbatchedTargetKey(row)

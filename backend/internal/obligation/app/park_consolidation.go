@@ -700,9 +700,14 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 	admitted := make(map[string]struct{}, len(selected))
 	admittedTargets := make(map[string]struct{}, len(selected))
 	// Pass 1: immovable (last-safe / hold-boundary) rows reserve capacity first. They are admitted
-	// unconditionally -- the only legitimate over-cap overflow is when these alone exceed the cap.
+	// before movable work, but never past the row's own feasible window. A mixed-vaccine park merge
+	// can choose a date because loose-window rows fit there; tight-window rows must not ride that
+	// later batch as "immovable" overflow.
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if !parkObligationFeasibleOnPlannerDate(now, plannedDate, row, planner) {
 			continue
 		}
 		if parkObligationCanMoveAfter(now, plannedDate, row, planner) {
@@ -818,6 +823,9 @@ func movableParkRouteGroups(now time.Time, rows []domain.ParkConsolidationCandid
 			continue
 		}
 		if _, ok := admitted[row.ObligationID]; ok {
+			continue
+		}
+		if !parkObligationFeasibleOnPlannerDate(now, plannedDate, row, planner) {
 			continue
 		}
 		if !parkObligationCanMoveAfter(now, plannedDate, row, planner) {
