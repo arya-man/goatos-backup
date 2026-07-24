@@ -44,8 +44,8 @@ Do not consider a STG seed done on pending-grant output alone.
 
 ## Canonical STG Personnel Rule (9 people total)
 
-There are **9 STG people total**: 5 Mesha leadership (SSO only) + 4 field users
-(Firebase email/password).
+There are **9 STG people total**: 5 Mesha leadership (Google SSO and Firebase
+email/password) + 4 field users (Firebase email/password).
 
 ### A) 5 Mesha leadership users — Google SSO **and** email/password
 
@@ -123,7 +123,8 @@ Field roles:
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
 > operators with capacity, Chandrakant appears as director, and the 5 Mesha
-> leadership users are SSO-only `ceo_internal`.
+> leadership users are `ceo_internal` with both Google SSO and Firebase
+> email/password login available. Leadership still adds no vaccination capacity.
 
 ---
 
