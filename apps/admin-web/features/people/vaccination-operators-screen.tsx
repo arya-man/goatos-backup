@@ -883,13 +883,19 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
                 ))}
               </select>
             </div>
-            <button
-              className="btn b"
-              onClick={persistOperatorConfig}
-              disabled={configSaving}
-            >
-              Save configuration
-            </button>
+            {/* Wrap in a .fld peer with a spacer label so the button sits on the same
+                baseline as the selects. The .fld margin-bottom shifts .ctl's flex-end
+                anchor; a bare button (no label row) otherwise drops ~13px below them. */}
+            <div className="fld">
+              <label aria-hidden="true">&nbsp;</label>
+              <button
+                className="btn b"
+                onClick={persistOperatorConfig}
+                disabled={configSaving}
+              >
+                Save configuration
+              </button>
+            </div>
           </div>
           <div className="note" style={{ marginTop: '10px' }}>
             Live preview of the assignment logic from the roster + week-offs. Configure and save active-operators
