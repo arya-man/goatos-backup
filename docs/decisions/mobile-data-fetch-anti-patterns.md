@@ -191,3 +191,33 @@ Re-verified against `origin/main` 05889b83 on 2026-07-20:
 - **`minimumCountPerSubject`** is enforced server-side at SOP submission
   (`backend/internal/sop/app/service.go` `validatePerGoatProofRefs`), the correct boundary. The Android
   client parses it for display only; that is not a missing-enforcement bug.
+
+## Compose lazy-list key correctness (machine: `make android-compose-lists-guard`)
+
+`LazyColumn`/`LazyRow`/`LazyVerticalGrid` item identity is the key. Two rules,
+both enforced by `tools/agent-hooks/check-android-compose-lists.mjs` (diff-scoped
+against `origin/main`; a genuinely-bounded case appends
+`compose-guard:ignore: <reason>` on the line):
+
+- **`lazy-list-entity-id-key` (crash).** Never key a per-ROW list by a per-ENTITY
+  id. The scan roster renders one row per **obligation**, so keying by `goatId`
+  put a goat with two due vaccines (ET+TT · PPR) on two rows with the SAME key →
+  `java.lang.IllegalArgumentException: Key "<uuid>" was already used. If you are
+  using LazyColumn/Row please make sure you provide a unique key for each item.`
+  thrown in the LazyList **measure pass**, which pops the whole screen. This
+  shipped in `0.1.6-stg` (Crashlytics, field operators) and was fixed in
+  `a9c35a1d` by keying on the unique per-row `obligationId`. The guard flags a
+  `key = { it.goatId }`-style bare entity selector (`goatId`, `animalId`,
+  `goatUuid`, …); a string-template or composite key
+  (`key = { "${it.goatId}|${it.vaccineLabel}" }`) is allowed because it is
+  row-unique.
+- **`lazy-list-missing-key` (state loss).** `items(<collection>)` /
+  `itemsIndexed(<collection>)` with no `key =` falls back to positional identity,
+  so an insert/remove/reorder reuses an item's remembered state (checkbox,
+  expand, scroll) for the WRONG row and some mutations crash. Supply
+  `key = { it.<uniqueRowId> }`. The count overload `items(<Int>)` is exempt (it
+  has no key parameter).
+
+Rule of thumb: **the key is the unique identity of the RENDERED ROW, not of the
+domain object it happens to show.** When a list can hold more than one row per
+entity, the entity id is not a valid key.

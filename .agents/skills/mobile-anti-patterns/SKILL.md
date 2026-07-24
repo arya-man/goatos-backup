@@ -38,6 +38,24 @@ compute-on-read.
   metric, not the grouping).
 - Genuinely bounded (e.g. fixed 7-cell week loop) → `// mobile-guard:ignore: <reason>`.
 
+## Compose lazy-list keys (machine: `make android-compose-lists-guard`)
+The `LazyColumn`/`LazyRow` `key` is the identity of the RENDERED ROW, not of the
+domain object it shows.
+- **Never key a per-row list by a per-ENTITY id.** The scan roster is one row per
+  **obligation**, so `key = { it.goatId }` put a two-vaccine goat (ET+TT · PPR) on
+  two rows with the same key → `IllegalArgumentException: Key "<x>" was already used`
+  in the LazyList measure pass → whole screen crashes/pops (shipped 0.1.6-stg, fixed
+  a9c35a1d). Key the unique per-row id (`obligationId`) or a composite
+  `key = { "${it.goatId}|${it.vaccineLabel}" }`.
+- **Always supply a `key`** on `items(<collection>)`/`itemsIndexed(<collection>)`;
+  positional keys reuse remembered row state (checkbox/expand/scroll) on
+  insert/reorder and can crash. The `items(<Int>)` count overload is exempt.
+- Bounded exception → `// compose-guard:ignore: <reason>`.
+- Also watch (review, not yet machine-checked): missing `contentType` on
+  heterogeneous lists, `mutableStateOf` without `remember`, unstable inline lambdas
+  passed per item, and a nested `Modifier.verticalScroll` wrapping a `LazyColumn`
+  (infinite-constraint measure crash).
+
 ## Room SSOT / offline-first (banned: network-only screen reads)
 - Every READ screen renders from **Room** (single source of truth); network refresh
   runs in background (stale-while-revalidate). Persist read → repo exposes `Flow` →

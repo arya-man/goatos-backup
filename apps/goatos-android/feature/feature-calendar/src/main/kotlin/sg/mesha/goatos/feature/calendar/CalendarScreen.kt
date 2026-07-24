@@ -789,7 +789,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
             }
         }
     }
-    items(state.monthDays.chunked(7)) { week ->
+    items(
+        state.monthDays.chunked(7),
+        key = { week -> week.firstNotNullOfOrNull { it.dateKey } ?: "empty-week" },
+    ) { week ->
         Row(
             Modifier.fillMaxWidth().padding(bottom = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
