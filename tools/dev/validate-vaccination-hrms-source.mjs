@@ -23,12 +23,20 @@ import {
   OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER,
   OPERATOR_ANDROID_LOGIN_EMAIL_FIELD,
   OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT,
+  OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY,
+  ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END,
   ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
 if (!ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS) {
   throw new Error("seed source contract must preserve accepted one-time vaccination history over regenerated active obligations");
+}
+if (!OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY) {
+  throw new Error("operator-roster seed contract must bootstrap only centers present in the selected source bundle");
+}
+if (!ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END) {
+  throw new Error("adult campaign seed contract must include same-business-day accepted history during generation");
 }
 
 const INPUT_FILES = [

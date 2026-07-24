@@ -31,7 +31,7 @@
 //   - Channapatna (CPT) only; CBE/Coimbatore rows are never synthesized;
 //   - Amit Kumar / Darshan Talwar / Sagar Mahoor are EQUAL vaccination operators;
 //   - Chandrakant is director-only monitoring (no operator seat, no field capacity);
-//   - business date 2026-07-23.
+//   - business/as-of date 2026-07-24.
 
 import fs from "node:fs";
 import path from "node:path";

@@ -132,15 +132,21 @@ WHERE ob.tenant_id = '${tenant}'::uuid
 GROUP BY 1`;
 
 const VACCINE_BY_DATE_SQL = (tenant) => `
-SELECT vda.planned_date::text, pr.dose_code, count(DISTINCT oi.target_id)
+SELECT vda.planned_date::text,
+       COALESCE(wm.display_name, '(unassigned)'),
+       pr.dose_code,
+       count(DISTINCT m.goat_id)
 FROM vaccination_drive_assignments vda
 JOIN obligation_batches ob ON ob.tenant_id = vda.tenant_id AND ob.batch_id = vda.batch_id
-JOIN obligation_instances oi ON oi.tenant_id = vda.tenant_id AND oi.batch_id = vda.batch_id
+JOIN vaccination_drive_assignment_members m
+  ON m.tenant_id = vda.tenant_id AND m.assignment_id = vda.assignment_id
+JOIN obligation_instances oi ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
 JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
+LEFT JOIN workforce_members wm ON wm.workforce_member_id = vda.operator_id
 WHERE vda.tenant_id = '${tenant}'::uuid
   AND ob.status <> 'superseded'
-GROUP BY 1, 2
-ORDER BY 1, 2`;
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3`;
 
 const OPERATOR_CONFIG_SQL = (tenant) => `
 SELECT wm.display_name, wp.vaccination_daily_animal_cap::text, sc.week_off_weekday
@@ -205,7 +211,10 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
     }
   }
 
-  for (const [date, doseCode, animalsText] of vaccineRows) {
+  for (const row of vaccineRows) {
+    const date = row[0];
+    const doseCode = row.length === 3 ? row[1] : row[2];
+    const animalsText = row.length === 3 ? row[2] : row[3];
     const normalizedDose = String(doseCode ?? "").trim().toLowerCase();
     const prefix = prohibitedDosePrefixes.find((candidate) => normalizedDose.startsWith(candidate));
     if (prefix) {
@@ -214,28 +223,37 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
   }
 
   if (variant) {
-    const byDate = new Map();
-    for (const [date, doseCode, animalsText] of vaccineRows) {
-      if (!byDate.has(date)) byDate.set(date, new Map());
-      byDate.get(date).set(doseCode, Number(animalsText));
+    const byDateOperator = new Map();
+    for (const row of vaccineRows) {
+      const date = row[0];
+      const operator = row.length === 3 ? "" : row[1];
+      const doseCode = row.length === 3 ? row[1] : row[2];
+      const animals = Number(row.length === 3 ? row[2] : row[3]);
+      const key = `${date}\u0000${operator}`;
+      if (!byDateOperator.has(key)) byDateOperator.set(key, new Map());
+      byDateOperator.get(key).set(doseCode, animals);
     }
-    const expectedDates = new Map();
     const token = (value) => String(value).toUpperCase().replace(/[^A-Z]/g, "");
     for (const row of variant.drive_rows ?? []) {
       const families = row.drive ? [row.drive] : (row.vaccines ?? []);
-      if (!expectedDates.has(row.date)) expectedDates.set(row.date, new Set());
-      for (const family of families) expectedDates.get(row.date).add(token(family));
-    }
-    for (const [date, families] of expectedDates) {
-      const seeded = byDate.get(date);
+      const expectedOperator = String(row.operator ?? "").trim();
+      const seeded = byDateOperator.get(`${row.date}\u0000${expectedOperator}`);
       if (!seeded) {
-        failures.push(`variant ${variant.id}: expected drive rows on ${date}, database has none`);
+        failures.push(`variant ${variant.id}: expected drive row on ${row.date} for ${expectedOperator}, database has none`);
         continue;
       }
       for (const family of families) {
-        const present = [...seeded.keys()].some((doseCode) => token(doseCode).startsWith(family));
-        if (!present) {
-          failures.push(`variant ${variant.id}: ${date} missing expected ${family} drive`);
+        const expectedFamily = token(family);
+        const matches = [...seeded.entries()].filter(([doseCode]) => token(doseCode).startsWith(expectedFamily));
+        if (matches.length === 0) {
+          failures.push(`variant ${variant.id}: ${row.date} ${expectedOperator} missing expected ${expectedFamily} drive`);
+          continue;
+        }
+        if (Number.isInteger(row.animals_scheduled)) {
+          const actual = matches.reduce((sum, [, animals]) => sum + animals, 0);
+          if (actual !== row.animals_scheduled) {
+            failures.push(`variant ${variant.id}: ${row.date} ${expectedOperator} ${expectedFamily} has ${actual} animals, expected ${row.animals_scheduled}`);
+          }
         }
       }
     }
@@ -261,6 +279,15 @@ function selfTest() {
     variant: null,
     vaccineRows: [],
   };
+  const exactVariant = {
+    id: "exact-210",
+    drive_rows: [{
+      date: "2026-07-25",
+      operator: "Darshan Talwar",
+      drive: "ET+TT",
+      animals_scheduled: 210,
+    }],
+  };
   const cases = [
     ["clean seed passes", clean, 0],
     ["cap breach fails", { ...clean, capRows: [["2026-07-24", "Darshan Talwar", "231"]] }, 1],
@@ -273,6 +300,8 @@ function selfTest() {
     ["missing shift config fails", { ...clean, operatorRows: [["Darshan Talwar", "200", "sunday"]] }, 2],
     ["wrong cap fails", { ...clean, operatorRows: [["Amit Kumar", "200", "friday"], ["Darshan Talwar", "50", "sunday"], ["Sagar Mahoor", "200", "saturday"]] }, 1],
     ["prohibited PPR drive fails", { ...clean, vaccineRows: [["2026-08-07", "ppr_adult_w1", "124"]] }, 1],
+    ["variant exact date/operator/count passes", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "210"]] }, 0],
+    ["variant exact date/operator/count fails", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "200"]] }, 1],
   ];
   let bad = 0;
   for (const [label, input, expectedCount] of cases) {

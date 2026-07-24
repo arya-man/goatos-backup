@@ -39,6 +39,10 @@ export const ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS = true
 // governs every other center/source that ships no such contract.
 export const OPERATOR_ROSTER_CONTRACT_FILE = "cpt-operator-roster.json";
 export const OPERATOR_ROSTER_OVERLAY_IS_AUTHORITATIVE_FIELD_CAPACITY = true;
+// CPT-only operator-roster bundles must be able to start from a clean migrated
+// local/dev DB: seed-roster-real resolves only centers present in the source
+// bundle and may create that required park row before member/position import.
+export const OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY = true;
 export const OPERATOR_ROSTER_ANIMAL_CAP_FIELD = "animal_cap_per_day";
 export const HRMS_VACCINATION_DAILY_ANIMAL_CAP_FIELD = "workforce_positions.vaccination_daily_animal_cap";
 export const OPERATOR_SHIFT_LABEL_FIELD = "shift_label";
@@ -73,6 +77,7 @@ export const OPERATOR_ROSTER_DIRECTORS_FIELD = "directors";
 export const OPERATOR_ROSTER_DIRECTOR_HAS_ZERO_EXECUTION_CAPACITY = true;
 export const OPERATOR_ROSTER_LEADERSHIP_FIELD = "leadership_full_access";
 export const OPERATOR_ROSTER_LEADERSHIP_GRANT_SCOPE = "tenant";
+export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
 // A vaccination operator's app designation is its EXECUTION capability, not its HR
 // capacity-tier. seed-roster-real gives each rehearsal operator a manager-tier
 // vaccination_operator_<name> position for capacity/roster, and a person may also

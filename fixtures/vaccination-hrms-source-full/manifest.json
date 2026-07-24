@@ -168,6 +168,11 @@
       "date": "2026-07-24",
       "change": "CPT adult campaign coalescing and one-time seed catch-up capacity override",
       "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no cpt-operator-roster.json and its raw vaccination rows are unchanged. CPT operator-drive rehearsal bundles may declare an explicit seed_catchup_overrides row; only that operator/date may exceed the standing HRMS cap. Adult campaign generation ignores entry_date/post_arrival as a strict splitter for same vaccine/rule plus physical shed/partition under cap, while kid/young schedule windows remain strict."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "CPT clean-DB operator-drive reseed and adult same-day history cutoff hardening",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle still has no cpt-operator-roster.json, no seed_catchup_overrides row, and no raw date/hash/count change. CPT-only operator-roster bundles may seed from a clean migrated local DB by resolving only centers present in the source and upserting the required park row before HRMS members/positions. Adult campaign generation reads accepted vaccination history through the end of the as-of business day, so 2026-07-24 ET+TT completions suppress duplicate open W2 work while the explicit 2026-07-25 Darshan seed_catchup_overrides row remains the only 210-animal exception to the standing 200 cap."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."
