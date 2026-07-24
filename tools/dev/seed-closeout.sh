@@ -81,14 +81,14 @@ candidate_vaccines AS (
          CASE
            WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt' THEN 'ET_TT'
            WHEN lower(btrim(v.vaccine_code)) = 'ppr' THEN 'PPR'
-           WHEN lower(btrim(v.vaccine_code)) = 'blue_tongue' THEN 'BLUE_TONGUE'
+           WHEN replace(lower(btrim(v.vaccine_code)), '_', ' ') = 'blue tongue' THEN 'BLUE_TONGUE'
            ELSE NULL
          END AS override_vaccine_code,
          (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date AS original_drive_date,
          CASE
            WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt' THEN DATE '2026-07-24'
            WHEN lower(btrim(v.vaccine_code)) = 'ppr' THEN DATE '2026-08-07'
-           WHEN lower(btrim(v.vaccine_code)) = 'blue_tongue' THEN DATE '2026-08-07'
+           WHEN replace(lower(btrim(v.vaccine_code)), '_', ' ') = 'blue tongue' THEN DATE '2026-08-07'
            ELSE NULL
          END AS override_date,
          CASE
@@ -96,7 +96,7 @@ candidate_vaccines AS (
              THEN 'CPT validation override: ET+TT first on reviewed business date'
            WHEN lower(btrim(v.vaccine_code)) = 'ppr'
              THEN 'CPT validation override: ET+TT first, PPR after 14 days'
-           WHEN lower(btrim(v.vaccine_code)) = 'blue_tongue'
+           WHEN replace(lower(btrim(v.vaccine_code)), '_', ' ') = 'blue tongue'
              THEN 'CPT validation override: align Blue Tongue with deferred PPR cohort'
            ELSE NULL
          END AS reason
