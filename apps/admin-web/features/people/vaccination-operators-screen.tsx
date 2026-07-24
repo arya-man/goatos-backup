@@ -842,7 +842,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               className="btn b sm"
               onClick={persistOperatorConfig}
               disabled={configSaving}
-              style={{ marginTop: '16px' }}
             >
               Save configuration
             </button>
