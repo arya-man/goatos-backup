@@ -47,6 +47,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -1177,12 +1178,48 @@ func importRoster(ctx context.Context, pool *pgxpool.Pool, tenantID string, memb
 	}
 	defer tx.Rollback(ctx)
 
-	// Resolve center locations
+	// Resolve only the center locations actually present in this source bundle.
+	// CPT operator-drive packets are intentionally CPT-only; requiring CBE here
+	// makes a clean local DB reseed fail before vaccination import can create the
+	// source-owned park locations.
 	centerLocationID := map[string]string{}
-	for _, center := range []string{"CBE", "CPT"} {
+	requiredCenters := map[string]bool{}
+	for _, m := range members {
+		center := strings.TrimSpace(m.location)
+		if center == "CBE" || center == "CPT" {
+			requiredCenters[center] = true
+		}
+	}
+	for _, assignment := range assignments {
+		center := strings.TrimSpace(assignment.center)
+		if center == "CBE" || center == "CPT" {
+			requiredCenters[center] = true
+		}
+	}
+	for center := range requiredCenters {
 		var locationID string
 		if err := tx.QueryRow(ctx, `SELECT location_id FROM locations WHERE tenant_id=$1 AND location_type='park' AND location_code=$2 LIMIT 1`, tenantID, center).Scan(&locationID); err != nil {
-			return ist, fmt.Errorf("resolve center location %s: %w", center, err)
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return ist, fmt.Errorf("resolve center location %s: %w", center, err)
+			}
+			locationID = detUUID("location", tenantID, "park", center)
+			name := center
+			if center == "CPT" {
+				name = "Channapatna"
+			} else if center == "CBE" {
+				name = "Coimbatore"
+			}
+			if _, err := tx.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', $3, $4, 'active')
+ON CONFLICT (location_id) DO UPDATE
+SET location_code = EXCLUDED.location_code,
+    name = EXCLUDED.name,
+    status = EXCLUDED.status,
+    updated_at = now()`,
+				locationID, tenantID, center, name); err != nil {
+				return ist, fmt.Errorf("upsert center location %s: %w", center, err)
+			}
 		}
 		centerLocationID[center] = locationID
 	}

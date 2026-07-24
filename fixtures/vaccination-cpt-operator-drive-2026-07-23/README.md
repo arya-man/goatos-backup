@@ -2,7 +2,7 @@
 
 Status: committed seed source for local/dev rehearsal before staging.
 
-Business start date: `2026-07-23`.
+Business/as-of date: `2026-07-24`.
 
 This packet preserves the exact CPT source files supplied for the operator-cap
 vaccination drive rehearsal and adds a small machine-readable roster that states
@@ -37,9 +37,10 @@ files happen to be named adult.
 - Default drive assignment: `active_operators_per_day=1`, Darshan first, Sagar
   fallback when Darshan is unavailable, Amit retained as secondary fallback.
 - Dose count is display/workload only; it is not the scheduling cap.
-- Drive start date for open work: `2026-07-23`.
-- No open drive work may be materialized on `2026-07-22` or earlier during a
-  fresh `2026-07-23` seed.
+- Drive start date for open work: `2026-07-24`.
+- No open drive work may be materialized on `2026-07-23` or earlier during a
+  fresh `2026-07-24` seed, except completed-history rows already recorded for
+  `2026-07-24`.
 
 ## People To Seed
 
@@ -200,7 +201,7 @@ Any PPR drive row from this seed packet is invalid for now.
 ## Seed/Verify Checklist For Local Or Dev
 
 1. Start from the latest `main` commit containing this packet.
-2. Use `2026-07-23` as the backend business date / `AS_OF` for this rehearsal.
+2. Use `2026-07-24` as the backend business date / `AS_OF` for this rehearsal.
 3. Run the CPT-specific seed command that consumes this packet:
    `make seed-vaccination-cpt-operator-drive`. It materializes the normalized
    bundle from these raw files, refuses to run from a non-`origin/main` checkout,

@@ -1139,7 +1139,7 @@ func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDue(t *test
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	wantDue := businessDayStart(entryEarly).AddDate(0, 0, 35)
+	wantDue := adultCampaignStart(time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC))
 	if result.Generated != 2 || result.Deferred != 0 || len(obl.inserted) != 2 {
 		t.Fatalf("result=%#v inserted=%#v, want two normal campaign obligations", result, obl.inserted)
 	}
@@ -1150,6 +1150,151 @@ func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDue(t *test
 		if inserted.Status != "scheduled" {
 			t.Fatalf("goat %s status=%q, want scheduled normal campaign row", inserted.TargetID, inserted.Status)
 		}
+	}
+}
+
+func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDueAcrossPages(t *testing.T) {
+	ctx := context.Background()
+	entryEarly := time.Date(2026, time.June, 18, 0, 0, 0, 0, time.UTC)
+	entryLate := time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","species":"sheep","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-sheep-pox", DoseCode: "sheep_pox_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 35, DueWindowDays: 7,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "godel-page-1", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "sheep", Stage: "adult", EntryDate: &entryEarly, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+		{GoatID: "godel-page-2", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "sheep", Stage: "adult", EntryDate: &entryLate, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+	gen.page = 1
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	wantDue := adultCampaignStart(asOf)
+	if result.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want two normal campaign obligations across pages", result, obl.inserted)
+	}
+	for _, inserted := range obl.inserted {
+		if !inserted.DueAt.Equal(wantDue) {
+			t.Fatalf("goat %s due=%s, want cross-page coalesced campaign due %s", inserted.TargetID, inserted.DueAt, wantDue)
+		}
+	}
+}
+
+func TestCampaignDueOverridesDoNotReplaceAdultSameVaccineHistory(t *testing.T) {
+	entryEarly := time.Date(2026, time.June, 18, 0, 0, 0, 0, time.UTC)
+	entryLate := time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC)
+	rule := protodomain.Rule{
+		RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 63,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"}}`),
+	}
+	plans := []goatGenerationPlan{
+		{
+			versionID: "version-1", rules: []protodomain.Rule{rule},
+			goat: domain.EligibleGoat{GoatID: "godel-main", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", EntryDate: &entryEarly, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+		},
+		{
+			versionID: "version-1", rules: []protodomain.Rule{rule},
+			goat: domain.EligibleGoat{GoatID: "godel-history", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", EntryDate: &entryLate, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+		},
+	}
+	overrides, err := campaignDueOverrides(plans, time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC), map[string][]domain.RecentVaccineAdministration{
+		"godel-history": {{AdministeredAt: time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC), VaccineCode: "FMD"}},
+	})
+	if err != nil {
+		t.Fatalf("campaign due overrides: %v", err)
+	}
+	historyKey := campaignDueGoatKey("version-1", "rule-fmd-adult-w1", "godel-history")
+	if _, found := overrides[historyKey]; found {
+		t.Fatalf("history-backed adult goat received campaign override %#v; same-vaccine history must keep last-vaccination precedence", overrides[historyKey])
+	}
+	blankKey := campaignDueGoatKey("version-1", "rule-fmd-adult-w1", "godel-main")
+	if got, found := overrides[blankKey]; !found || !got.Equal(adultCampaignStart(time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC))) {
+		t.Fatalf("blank-history adult override=%s found=%v, want next campaign date", got, found)
+	}
+}
+
+func TestGenerateForVersionSuppressesAdultSameDoseCompletedLaterOnAsOfDay(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC)
+	entry := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	completedLaterSameDay := time.Date(2026, time.July, 24, 14, 30, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ET_TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-ettt-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 49, DueWindowDays: 7,
+		}},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "done-today", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", EntryDate: &entry,
+			ParkID: "cpt", ShedID: "shed-godel-1", PartitionLabel: "Part 1",
+		}},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"done-today": {{
+				AdministeredAt: completedLaterSameDay,
+				VaccineCode:    "ET_TT",
+				VaccineType:    "toxoid",
+				PathogenClass:  "bacterial",
+				DoseCode:       "et_tt_adult_w2",
+				Sequence:       2,
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 0 || result.SuppressedByTrustedHistory != 1 || len(obl.inserted) != 0 {
+		t.Fatalf("result=%#v inserted=%#v, want same-dose completion on as-of day suppressed", result, obl.inserted)
+	}
+}
+
+func TestGenerateForVersionKeepsKidDOBTimingStrict(t *testing.T) {
+	ctx := context.Background()
+	olderDOB := time.Date(2026, time.March, 1, 0, 0, 0, 0, time.UTC)
+	youngerDOB := time.Date(2026, time.March, 8, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-ppr-kid", DoseCode: "ppr_kid_16w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112, DueWindowDays: 7,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "older-kid", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "K1", DOB: &olderDOB, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+		{GoatID: "younger-kid", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "K1", DOB: &youngerDOB, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want both kid obligations", result, obl.inserted)
+	}
+	got := map[string]time.Time{}
+	for _, inserted := range obl.inserted {
+		got[inserted.TargetID] = inserted.DueAt
+	}
+	if !got["older-kid"].Equal(businessDayStart(olderDOB).AddDate(0, 0, 112)) {
+		t.Fatalf("older kid due=%s, want DOB strict due", got["older-kid"])
+	}
+	if !got["younger-kid"].Equal(businessDayStart(youngerDOB).AddDate(0, 0, 112)) {
+		t.Fatalf("younger kid due=%s, want DOB strict due", got["younger-kid"])
+	}
+	if got["older-kid"].Equal(got["younger-kid"]) {
+		t.Fatalf("kid DOB timing was coalesced: %#v", got)
 	}
 }
 
@@ -2597,10 +2742,27 @@ type generationGoatFake struct {
 	vaccineHistory map[string][]domain.RecentVaccineAdministration
 }
 
-func (g *generationGoatFake) ListEligibleGoatsForGeneration(_ context.Context, f domain.ImpactFilter, _ string, _ int32) ([]domain.EligibleGoat, error) {
+func (g *generationGoatFake) ListEligibleGoatsForGeneration(_ context.Context, f domain.ImpactFilter, after string, limit int32) ([]domain.EligibleGoat, error) {
 	g.filters = append(g.filters, f)
 	if len(g.list) > 0 {
-		return defaultPlacedGoats(g.list), nil
+		start := 0
+		if after != "" {
+			start = len(g.list)
+			for i, goat := range g.list {
+				if goat.GoatID == after {
+					start = i + 1
+					break
+				}
+			}
+		}
+		if start >= len(g.list) {
+			return nil, nil
+		}
+		end := len(g.list)
+		if limit > 0 && start+int(limit) < end {
+			end = start + int(limit)
+		}
+		return defaultPlacedGoats(g.list[start:end]), nil
 	}
 	return []domain.EligibleGoat{defaultPlacedGoat(domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive"})}, nil
 }
@@ -2651,24 +2813,35 @@ func (g *generationGoatFake) HasTrustedCompletionEvidence(_ context.Context, _, 
 	return false, nil
 }
 
-func (g *generationGoatFake) LastRecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, _ time.Time) (map[string]domain.RecentVaccineAdministration, error) {
+func (g *generationGoatFake) LastRecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, before time.Time) (map[string]domain.RecentVaccineAdministration, error) {
 	out := make(map[string]domain.RecentVaccineAdministration, len(goatIDs))
 	for _, id := range goatIDs {
 		if admin, ok := g.lastVaccine[id]; ok {
+			if !admin.AdministeredAt.IsZero() && admin.AdministeredAt.After(before) {
+				continue
+			}
 			out[id] = admin
 		}
 	}
 	return out, nil
 }
 
-func (g *generationGoatFake) RecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, _ time.Time) (map[string][]domain.RecentVaccineAdministration, error) {
+func (g *generationGoatFake) RecentVaccineAdministrationsForGoats(_ context.Context, _ string, goatIDs []string, before time.Time) (map[string][]domain.RecentVaccineAdministration, error) {
 	out := make(map[string][]domain.RecentVaccineAdministration, len(goatIDs))
 	for _, id := range goatIDs {
 		if admins, ok := g.vaccineHistory[id]; ok {
-			out[id] = admins
+			for _, admin := range admins {
+				if !admin.AdministeredAt.IsZero() && admin.AdministeredAt.After(before) {
+					continue
+				}
+				out[id] = append(out[id], admin)
+			}
 			continue
 		}
 		if admin, ok := g.lastVaccine[id]; ok {
+			if !admin.AdministeredAt.IsZero() && admin.AdministeredAt.After(before) {
+				continue
+			}
 			out[id] = []domain.RecentVaccineAdministration{admin}
 		}
 	}

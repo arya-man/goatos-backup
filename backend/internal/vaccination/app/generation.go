@@ -537,6 +537,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 	plans := make(map[string]cachedVersionPlan)
 	effectiveVersionsByPark := make(map[string][]string)
 	failedGoats := make(map[string]struct{})
+	allPlans := make([]goatGenerationPlan, 0, s.page)
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
 		if err != nil {
@@ -572,36 +573,37 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 				})
 			}
 		}
-		vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
-		if err != nil {
-			return res, err
-		}
-		pageOpts := baseOpts
-		pageOpts.campaignDueByGoat, err = campaignDueOverrides(pagePlans, asOf, vaccineHistoryByGoat)
-		if err != nil {
-			return res, err
-		}
-		for i := range pagePlans {
-			pagePlans[i].opts = pageOpts
-		}
-		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf, vaccineHistoryByGoat)
-		if err != nil {
-			return res, err
-		}
-		for _, p := range pagePlans {
-			p.opts = pageOpts
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
-				if shouldAbortGeneration(err) {
-					return res, err
-				}
-				recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
-				continue
-			}
-		}
+		allPlans = append(allPlans, pagePlans...)
 		if int32(len(goats)) < s.page {
 			break
 		}
 		after = goats[len(goats)-1].GoatID
+	}
+	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, allPlans, businessDayEnd(asOf))
+	if err != nil {
+		return res, err
+	}
+	runOpts := baseOpts
+	runOpts.campaignDueByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for i := range allPlans {
+		allPlans[i].opts = runOpts
+	}
+	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for _, p := range allPlans {
+		p.opts = runOpts
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
+			if shouldAbortGeneration(err) {
+				return res, err
+			}
+			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
+			continue
+		}
 	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
@@ -858,16 +860,12 @@ func campaignDueGoatKey(versionID, ruleID, goatID string) string {
 	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(goatID)
 }
 
-func campaignPartitionKey(versionID string, rule protodomain.Rule, g domain.EligibleGoat) string {
-	partition := strings.TrimSpace(g.PartitionLabel)
-	if partition == "" {
-		partition = "whole"
-	}
-	return strings.TrimSpace(versionID) + "\x00" +
-		strings.TrimSpace(rule.RuleID) + "\x00" +
-		strings.TrimSpace(g.ParkID) + "\x00" +
-		strings.TrimSpace(g.ShedID) + "\x00" +
-		partition
+func adultCampaignStart(asOf time.Time) time.Time {
+	return businessDayStart(asOf).AddDate(0, 0, 1)
+}
+
+func businessDayEnd(asOf time.Time) time.Time {
+	return businessDayStart(asOf).AddDate(0, 0, 1).Add(-time.Nanosecond)
 }
 
 func isAdultCampaignRule(rule protodomain.Rule) bool {
@@ -875,14 +873,15 @@ func isAdultCampaignRule(rule protodomain.Rule) bool {
 	return strings.Contains(doseCode, "_adult_") || strings.HasSuffix(doseCode, "_adult")
 }
 
+func hasPhysicalCampaignPartition(g domain.EligibleGoat) bool {
+	return strings.TrimSpace(g.ParkID) != "" && strings.TrimSpace(g.ShedID) != "" && strings.TrimSpace(g.PartitionLabel) != ""
+}
+
 func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHistoryByGoat map[string][]domain.RecentVaccineAdministration) (map[string]time.Time, error) {
 	type candidate struct {
 		goatKey string
-		partKey string
-		due     time.Time
 	}
 	var candidates []candidate
-	earliestByPartition := make(map[string]time.Time)
 	for _, plan := range plans {
 		path := schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf, vaccineHistoryByGoat[plan.goat.GoatID])
 		for _, rule := range plan.rules {
@@ -890,6 +889,9 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 				continue
 			}
 			if !isAdultCampaignRule(rule) {
+				continue
+			}
+			if !hasPhysicalCampaignPartition(plan.goat) {
 				continue
 			}
 			ruleEligibility, _, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
@@ -902,6 +904,13 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 			if !ruleMatchesSchedulePath(rule, path) {
 				continue
 			}
+			_, ruleVaccine, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
+			if err != nil {
+				return nil, err
+			}
+			if hasVaccineAdministrationHistory(ruleVaccine, vaccineHistoryByGoat[plan.goat.GoatID]) {
+				continue
+			}
 			rowDeferStates := ruleEligibility.DeferStates
 			if len(rowDeferStates) == 0 {
 				rowDeferStates = plan.deferState
@@ -909,30 +918,18 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 			if deferredReason(plan.goat, rowDeferStates) != "" || policyDeferReason(plan.goat, plan.policies, asOf) != "" {
 				continue
 			}
-			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts, plan.policies)
-			if skip || !ok {
-				continue
-			}
-			partKey := campaignPartitionKey(plan.versionID, rule, plan.goat)
-			due = businessDayStart(due)
-			if current, found := earliestByPartition[partKey]; !found || due.Before(current) {
-				earliestByPartition[partKey] = due
-			}
 			candidates = append(candidates, candidate{
 				goatKey: campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
-				partKey: partKey,
-				due:     due,
 			})
 		}
 	}
 	if len(candidates) == 0 {
 		return nil, nil
 	}
+	campaignDate := adultCampaignStart(asOf)
 	out := make(map[string]time.Time, len(candidates))
 	for _, c := range candidates {
-		if earliest, found := earliestByPartition[c.partKey]; found && !c.due.Equal(earliest) {
-			out[c.goatKey] = earliest
-		}
+		out[c.goatKey] = campaignDate
 	}
 	return out, nil
 }
@@ -977,6 +974,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	}
 	effectiveVersionsByPark := make(map[string][]string)
 	failedGoats := make(map[string]struct{})
+	allPlans := make([]goatGenerationPlan, 0, s.page)
 	after := ""
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
@@ -1020,32 +1018,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				vaccineProfile: vaccineProf,
 			})
 		}
-		vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
-		if err != nil {
-			return res, err
-		}
-		pageOpts := opts
-		pageOpts.campaignDueByGoat, err = campaignDueOverrides(pagePlans, asOf, vaccineHistoryByGoat)
-		if err != nil {
-			return res, err
-		}
-		for i := range pagePlans {
-			pagePlans[i].opts = pageOpts
-		}
-		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf, vaccineHistoryByGoat)
-		if err != nil {
-			return res, err
-		}
-		for _, p := range pagePlans {
-			p.opts = pageOpts
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
-				if shouldAbortGeneration(err) {
-					return res, err
-				}
-				recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
-				continue
-			}
-		}
+		allPlans = append(allPlans, pagePlans...)
 		if opts.heartbeat != nil {
 			opts.heartbeat(ctx)
 		}
@@ -1053,6 +1026,32 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		after = goats[len(goats)-1].GoatID
+	}
+	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, allPlans, businessDayEnd(asOf))
+	if err != nil {
+		return res, err
+	}
+	runOpts := opts
+	runOpts.campaignDueByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for i := range allPlans {
+		allPlans[i].opts = runOpts
+	}
+	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, allPlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for _, p := range allPlans {
+		p.opts = runOpts
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
+			if shouldAbortGeneration(err) {
+				return res, err
+			}
+			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
+			continue
+		}
 	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
@@ -1412,6 +1411,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		if override, found := opts.campaignDueByGoat[campaignDueGoatKey(versionID, rule.RuleID, g.GoatID)]; found {
 			baseDue = override
+		}
+		if isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+			campaignStart := adultCampaignStart(asOf)
+			if baseDue.Before(campaignStart) {
+				baseDue = campaignStart
+			}
 		}
 		nearbyMissedDrive, err := s.nearbyMissedDoseDriveDate(ctx, tenantID, versionID, rule, ruleVaccine, g, baseDue, asOf, policies.MissedDose)
 		if err != nil {
@@ -1804,7 +1809,7 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 			vaccineProfile: p.vaccineProfile,
 		})
 	}
-	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, asOf)
+	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, businessDayEnd(asOf))
 	if err != nil {
 		return res, err
 	}
