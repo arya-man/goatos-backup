@@ -2551,6 +2551,10 @@ func (f *fakeSweepRepo) CancelOpenForGoat(context.Context, string, string, strin
 	return 0, nil
 }
 
+func (f *fakeSweepRepo) SyncPartitionMoveForGoat(context.Context, string, string, string, string, string) (int, error) {
+	return 0, nil
+}
+
 func (f *fakeSweepRepo) RecordStatusEvent(context.Context, domain.NewStatusEvent) (string, bool, error) {
 	return "", false, nil
 }
