@@ -16,6 +16,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -1503,6 +1504,14 @@ LIMIT ($5::int + 1);
 // current verification status. A dose administered before as_of but accepted after as_of is bounded out of
 // "completed" via completed_at, but its as_of verification sub-state is not yet reconstructed.
 //
+// SERVING SHAPE (BUG-036a): the effective-due-date window is bounded by an INDEX-USABLE superset on
+// bare obligation_instances columns (due_at window OR a batch id from due_window_batches) before the
+// exact COALESCE bound is applied as a residual filter, and the per-obligation drive-assignment
+// LATERAL is pre-aggregated once per (batch, shed) in drive_assignment_dates. Without both, the
+// planner had to read the whole obligation table per request. Gated by
+// TestVaccinationOperationsAggregateQueryPlanUsesIndexesAtScale at ~500k rows and by the
+// EffectiveDueWindowSuperset case in make validate-sqlc-plans.
+//
 // This is now the request-path serving read (VaccinationOperations), not only the projector replay.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 cohorts) canonical operations list, query-plan-tested (canonical_read_plan_test.go).
 const vaccinationOperationsSQL = `
@@ -1574,6 +1583,53 @@ asof_terminal AS (
     AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
+drive_assignment_dates AS (
+  -- ONE representative planned date per (batch, shed), pre-aggregated ONCE instead of probed per
+  -- obligation. This was a LEFT JOIN LATERAL ... LIMIT 1 correlated on (oi.batch_id, g.shed_id): a
+  -- per-row index probe into vaccination_drive_assignments, i.e. one round trip per obligation row,
+  -- which dominated the plan cost at the 500k envelope even after the due window became index-bound.
+  -- Distinct (batch, shed) pairs are bounded by planned DRIVES, not by animals, so collapsing to one
+  -- row per pair up front is strictly cheaper and set-based. DISTINCT ON reproduces the LATERAL's
+  -- ORDER BY ... LIMIT 1 tie-break exactly, so the selected assignment date is unchanged.
+  SELECT DISTINCT ON (assignment.batch_id, assignment.shed_id)
+    assignment.batch_id,
+    assignment.shed_id,
+    (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+  ORDER BY assignment.batch_id,
+           assignment.shed_id,
+           assignment.planned_date ASC,
+           assignment.partition_label ASC,
+           assignment.operator_id ASC NULLS LAST,
+           assignment.assignment_id ASC
+),
+due_window_batches AS (
+  -- SARGABLE PRE-FILTER SOURCE for the effective-due-date window below. The serving predicate is
+  -- COALESCE(assignment_planned_at, batch_planned_date, oi.due_at) <= $3, whose first two arms come from a
+  -- LEFT JOIN / LEFT JOIN LATERAL output. A predicate over a join output is not index-usable, so the
+  -- planner was forced to materialize EVERY obligation row of the tenant before it could filter -- a full
+  -- 500k sequential scan of obligation_instances (BUG-036a).
+  -- An obligation's effective date can only differ from oi.due_at when a batch or a drive assignment
+  -- overrides it, and BOTH override sources hang off oi.batch_id (ob.batch_id = oi.batch_id, and the
+  -- LATERAL assignment join keys on assignment.batch_id = oi.batch_id). Therefore:
+  --   effective_due <= $3 AND oi.due_at > $3  =>  oi.batch_id is a batch planned <= $3 (by the batch row
+  --   itself or by one of its drive assignments).
+  -- Collecting those batch ids from the SMALL planning tables lets the driving scan ride
+  -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) and
+  -- obligation_instances_batch_idx (tenant_id, batch_id, status) instead of reading the whole table.
+  -- This is a strict SUPERSET: the exact COALESCE predicate is still applied afterwards, so no row that
+  -- qualified before is dropped and no new row is admitted. Serving shape only, semantics unchanged.
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  WHERE ob.tenant_id = $1::uuid
+    AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $3::timestamptz
+  UNION
+  SELECT assignment.batch_id
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+    AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $3::timestamptz
+),
 raw AS (
   SELECT
     oi.obligation_id,
@@ -1620,18 +1676,9 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
-  LEFT JOIN LATERAL (
-    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
-    FROM vaccination_drive_assignments assignment
-    WHERE assignment.tenant_id = oi.tenant_id
-      AND assignment.batch_id = oi.batch_id
-      AND assignment.shed_id = g.shed_id
-    ORDER BY assignment.planned_date ASC,
-             assignment.partition_label ASC,
-             assignment.operator_id ASC NULLS LAST,
-             assignment.assignment_id ASC
-    LIMIT 1
-  ) vda ON true
+  LEFT JOIN drive_assignment_dates vda
+    ON vda.batch_id = oi.batch_id
+   AND vda.shed_id = g.shed_id
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -1639,6 +1686,18 @@ raw AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    -- INDEX-USABLE SUPERSET of the effective-due-date bound below. Both arms are bare
+    -- obligation_instances column predicates, so the planner can BitmapOr
+    -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) with
+    -- obligation_instances_batch_idx (tenant_id, batch_id, status) and prune the table instead of
+    -- scanning it whole. The batch list is materialized as an InitPlan ARRAY (not a correlated
+    -- IN-subquery) precisely so it stays a constant the index can be probed with.
+    AND (
+      oi.due_at <= $3::timestamptz
+      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
+    )
+    -- Exact effective-due-date bound (unchanged). Kept as the authoritative filter so a batch/assignment
+    -- that moved the date LATER than $3 is still excluded even though the superset admitted it.
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
 ),
 located AS (
@@ -2850,15 +2909,46 @@ func (r *Repository) OperatorShifts(ctx context.Context, tenantID, parkID string
 }
 
 // UpsertOperatorAssignmentConfig idempotently writes the park's assignment config with optimistic
-// concurrency. cfg.RowVersion == 0 means "first write, row must not already exist"; any other value must
-// match the currently stored row_version or ports.ErrOperatorAssignmentConfigConflict is returned.
+// concurrency and durably enqueues cascade events (vaccination.capacity.changed, vaccination.roster.changed)
+// to outbox_messages in the same transaction. cfg.RowVersion == 0 means "first write, row must not already
+// exist"; any other value must match the currently stored row_version or ports.ErrOperatorAssignmentConfigConflict
+// is returned. The config write and event enqueue are atomic: if either fails, the whole write fails.
 func (r *Repository) UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	// Begin transaction for atomic config write + outbox enqueue
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: begin config update tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Capture the pre-write state (locked) so we can emit precisely which cascade event(s) fired:
+	// vaccination.capacity.changed when N (active operators/day) changed, vaccination.roster.changed
+	// when the default operator changed. A first write emits both. FOR UPDATE serializes concurrent
+	// writers on this park row so the before/after comparison is race-free.
+	var (
+		prevN       int
+		prevDefault string
+		foundBefore bool
+	)
+	if err := tx.QueryRow(ctx, `
+SELECT active_operators_per_day, default_operator_id::text
+FROM vaccination_operator_assignment_config
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid
+FOR UPDATE`, tenantID, cfg.ParkID).Scan(&prevN, &prevDefault); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: read prior operator assignment config: %w", err)
+		}
+	} else {
+		foundBefore = true
+	}
+
+	var newVersion int64
 	if cfg.RowVersion == 0 {
-		var newVersion int64
-		err := r.pool.QueryRow(ctx, `
+		// Insert: new config for this park
+		err := tx.QueryRow(ctx, `
 INSERT INTO vaccination_operator_assignment_config
   (tenant_id, park_id, active_operators_per_day, default_operator_id, row_version, updated_at)
 VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 1, now())
@@ -2871,11 +2961,9 @@ RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.De
 			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: insert operator assignment config: %w", err)
 		}
 		cfg.RowVersion = newVersion
-		return cfg, nil
-	}
-
-	var newVersion int64
-	err := r.pool.QueryRow(ctx, `
+	} else {
+		// Update: config already exists, optimistic lock on row_version
+		err := tx.QueryRow(ctx, `
 UPDATE vaccination_operator_assignment_config
 SET active_operators_per_day = $3,
     default_operator_id = $4::uuid,
@@ -2883,12 +2971,150 @@ SET active_operators_per_day = $3,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND row_version = $5
 RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.RowVersion).Scan(&newVersion)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
+		}
+		if err != nil {
+			return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: update operator assignment config: %w", err)
+		}
+		cfg.RowVersion = newVersion
 	}
-	if err != nil {
-		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: update operator assignment config: %w", err)
+
+	// Enqueue cascade events to outbox_messages (same transaction as config write) for at-least-once
+	// delivery via the outbox relay. Emit precisely which changed:
+	//   - vaccination.capacity.changed when N (active operators/day) changed
+	//   - vaccination.roster.changed   when the default operator changed
+	// A first write (no prior row) emits both. Both events drive the same OperatorConfigReplanHandler
+	// recompute; the two-phase watermark makes redundant delivery idempotent.
+	capacityChanged := !foundBefore || prevN != cfg.ActiveOperatorsPerDay
+	rosterChanged := !foundBefore || prevDefault != cfg.DefaultOperatorID
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
+
+	enqueueCascade := func(eventType, keyKind string) error {
+		idempotencyKey := fmt.Sprintf("vaccination.operator-assignment-config.%s:%s:%d", keyKind, cfg.ParkID, newVersion)
+		eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+		// Conformant domain-event envelope (contracts/jsonschema/domain-event-envelope.schema.json,
+		// additionalProperties:false). subject is the park (a location); aggregate is the park config.
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     eventType,
+			"schema_version": "1.0.0",
+			"schema_ref":     "domain-event-envelope.v1",
+			"aggregate_type": "park",
+			"aggregate_id":   cfg.ParkID,
+			"occurred_at":    now,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "vaccination-execution",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "location",
+			"subject_id":   cfg.ParkID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+				"park_id":   cfg.ParkID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "location",
+				"evidence_id":   cfg.ParkID,
+			}},
+			"payload":  map[string]any{"park_id": cfg.ParkID},
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("vaccination execution: marshal %s envelope: %w", eventType, err)
+		}
+		headers, err := json.Marshal(map[string]any{
+			"producer":        "vaccination-execution.UpsertOperatorAssignmentConfig",
+			"schema_version":  "1.0.0",
+			"park_id":         cfg.ParkID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("vaccination execution: marshal %s headers: %w", eventType, err)
+		}
+		// The ON CONFLICT arbiter is a per-event-type partial unique index (migration 000038), so the
+		// WHERE predicate must name the same event_type literal. eventType here is a controlled
+		// constant, never user input.
+		sql := `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'park', $4::uuid,
+  'vaccination.events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' DO NOTHING`
+		if _, err := tx.Exec(ctx, sql, tenantID, eventID, eventType, cfg.ParkID, envelope, headers, idempotencyKey); err != nil {
+			return fmt.Errorf("vaccination execution: enqueue %s to outbox: %w", eventType, err)
+		}
+		return nil
 	}
-	cfg.RowVersion = newVersion
+
+	if capacityChanged {
+		if err := enqueueCascade("vaccination.capacity.changed", "capacity"); err != nil {
+			return domain.OperatorAssignmentConfig{}, err
+		}
+	}
+	if rosterChanged {
+		if err := enqueueCascade("vaccination.roster.changed", "roster"); err != nil {
+			return domain.OperatorAssignmentConfig{}, err
+		}
+	}
+
+	// Commit: if we reach here, both config write and outbox enqueue are atomic
+	if err := tx.Commit(ctx); err != nil {
+		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: commit config update tx: %w", err)
+	}
+
 	return cfg, nil
+}
+
+// authorizedParkOptionsSQL reads the tenant's active parks from canonical `locations`, optionally
+// narrowed to the caller's park-scoped grants. BOUNDED configuration catalog (a handful of parks per
+// tenant, sized by parks the business physically operates, not by herd size) so it is returned whole
+// and deliberately not paginated. The park-id predicate keeps the indexed column BARE and casts the
+// bound array instead (`location_id = ANY($2::uuid[])`), so a column-side cast can never disable the
+// index; an empty array means "no grant narrowing" (tenant-wide actor).
+const authorizedParkOptionsSQL = `
+SELECT location_id::text,
+       COALESCE(location_code, '') AS code,
+       name
+FROM locations
+WHERE tenant_id = $1::uuid
+  AND location_type = 'park'
+  AND status = 'active'
+  AND (cardinality($2::uuid[]) = 0 OR location_id = ANY($2::uuid[]))
+ORDER BY name ASC, location_id ASC;`
+
+// AuthorizedParkOptions returns the park vocabulary the caller may act in (see ports.Repository).
+func (r *Repository) AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]domain.ParkOption, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	ids := parkIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	rows, err := r.pool.Query(ctx, authorizedParkOptionsSQL, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: authorized park options: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.ParkOption, 0, 8)
+	for rows.Next() {
+		var p domain.ParkOption
+		if err := rows.Scan(&p.ParkID, &p.Code, &p.Name); err != nil {
+			return nil, fmt.Errorf("vaccination execution: authorized park options scan: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: authorized park options rows: %w", err)
+	}
+	return out, nil
 }

@@ -2,10 +2,9 @@ import { getVaccinationOperatorAssignmentConfig, putVaccinationOperatorAssignmen
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
-  const parkId = request.nextUrl.searchParams.get("park_id");
-  if (!parkId) {
-    return NextResponse.json({ error: "park_id is required" }, { status: 400 });
-  }
+  // park_id is optional: the backend owns park-scope resolution and echoes the
+  // resolved parkId back to the client (BUG-019).
+  const parkId = request.nextUrl.searchParams.get("park_id") ?? undefined;
 
   const result = await getVaccinationOperatorAssignmentConfig(parkId);
   if (!result.ok) {

@@ -415,6 +415,24 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	if replay.Position.RowVersion != 2 {
 		t.Fatalf("replay row_version = %d, want 2 (no second update)", replay.Position.RowVersion)
 	}
+	// The replay must return the ORIGINAL response body, not a fresh read of the record's CURRENT
+	// state: two unrelated edits (the cap set + the cap clear) landed between the first call and this
+	// replay, and their effects must not leak out under this key (BUG-037).
+	if replay.Position.PositionTier != "head" || replay.Position.WeekOffWeekday == nil || *replay.Position.WeekOffWeekday != "sunday" {
+		t.Fatalf("replay body = tier %q week_off %v, want the original head/sunday",
+			replay.Position.PositionTier, replay.Position.WeekOffWeekday)
+	}
+	if replay.Position.VaccinationDailyAnimalCap != nil {
+		t.Fatalf("replay vaccination_daily_animal_cap = %v, want the original nil (later edits must not leak into a replay)",
+			replay.Position.VaccinationDailyAnimalCap)
+	}
+	// ...and the replay must not have written anything: current state is still the post-clear v4.
+	if current, err := repo.GetPositionByID(ctx, rosterTenant, posID); err != nil {
+		t.Fatalf("GetPositionByID after replay: %v", err)
+	} else if current.RowVersion != capCleared.Position.RowVersion {
+		t.Fatalf("stored row_version after replay = %d, want unchanged %d (no side effects on replay)",
+			current.RowVersion, capCleared.Position.RowVersion)
+	}
 
 	// Same key, different payload -> idempotency conflict.
 	otherTier := "director"
@@ -668,5 +686,245 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 		if !errors.As(err, &appErr) || appErr.Code != "idempotency_conflict" {
 			t.Fatalf("expected idempotency_conflict, got %v", err)
 		}
+	}
+}
+
+// TestUpdatePositionEnqueuesVaccinationOperatorCascade reproduces a real gap found on the CPT
+// operator-drive validation: editing vaccination_daily_animal_cap or week_off_weekday directly on a
+// vaccination_operator_* workforce_positions seat (the admin HRMS "Config" screen's real write
+// path, PATCH /admin/roster/positions/{id}) silently updated the seat with zero cascade -- unlike
+// UpsertOperatorAssignmentConfig (N/default-operator) and ApplyLeave, which both already enqueue
+// vaccination.capacity.changed/vaccination.roster.changed. A non-vaccination position edit (e.g.
+// preventive_care_manager, exercised earlier in this file) must NOT enqueue either event.
+func TestUpdatePositionEnqueuesVaccinationOperatorCascade(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const tenantID = rosterTenant
+	const parkID = "00000000-0000-4000-8000-0000000000c2"
+	const memberID = "00000000-0000-4000-8000-0000000000c3"
+	const actorID = rosterActor
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'PARK-CASCADE', 'Cascade Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, parkID, tenantID); err != nil {
+		t.Fatalf("seed park location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1, $2, 'OP-CASCADE-01', 'Cascade Operator', 'active', 'operator')`, memberID, tenantID); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	created, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{
+		TenantID: tenantID, ActorID: actorID,
+		Body: domain.CreatePositionRequest{
+			WorkforceMemberID: memberID, ScopeType: "center", ScopeID: parkID,
+			PositionCode: "vaccination_operator_cascadetest", PositionTier: "manager",
+		},
+	}, "t-cascade-create")
+	if err != nil {
+		t.Fatalf("CreatePosition: %v", err)
+	}
+	posID := created.Position.PositionID
+
+	countOutbox := func(eventType string) int {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1::uuid AND event_type=$2`, tenantID, eventType).Scan(&n); err != nil {
+			t.Fatalf("count outbox %s: %v", eventType, err)
+		}
+		return n
+	}
+
+	if n := countOutbox("vaccination.capacity.changed") + countOutbox("vaccination.roster.changed"); n != 0 {
+		t.Fatalf("cascade outbox rows before any edit = %d, want 0", n)
+	}
+
+	cap := 150
+	if _, err := svc.UpdatePosition(ctx, tenantID, actorID, posID, domain.UpdatePositionRequest{
+		RowVersion: 1, VaccinationDailyAnimalCap: domain.NullInt{Set: true, Value: &cap},
+	}, "t-cascade-cap"); err != nil {
+		t.Fatalf("UpdatePosition cap: %v", err)
+	}
+	if n := countOutbox("vaccination.capacity.changed"); n != 1 {
+		t.Fatalf("vaccination.capacity.changed outbox rows after cap edit = %d, want 1 (editing a vaccination_operator_* seat's cap must enqueue the same event UpsertOperatorAssignmentConfig uses)", n)
+	}
+
+	weekOff := "sunday"
+	if _, err := svc.UpdatePosition(ctx, tenantID, actorID, posID, domain.UpdatePositionRequest{
+		RowVersion: 2, WeekOffWeekday: &weekOff,
+	}, "t-cascade-weekoff"); err != nil {
+		t.Fatalf("UpdatePosition week-off: %v", err)
+	}
+	if n := countOutbox("vaccination.roster.changed"); n != 1 {
+		t.Fatalf("vaccination.roster.changed outbox rows after week-off edit = %d, want 1", n)
+	}
+
+	// A non-vaccination position (already created above in the sibling test as
+	// preventive_care_manager) must never enqueue either cascade event on the same edit shape.
+	pcCreated, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{
+		TenantID: tenantID, ActorID: actorID,
+		Body: domain.CreatePositionRequest{
+			WorkforceMemberID: memberID, ScopeType: "center", ScopeID: parkID,
+			PositionCode: "goats_head", PositionTier: "head",
+		},
+	}, "t-cascade-noop-create")
+	if err != nil {
+		t.Fatalf("CreatePosition non-vaccination: %v", err)
+	}
+	if _, err := svc.UpdatePosition(ctx, tenantID, actorID, pcCreated.Position.PositionID, domain.UpdatePositionRequest{
+		RowVersion: 1, WeekOffWeekday: &weekOff,
+	}, "t-cascade-noop-update"); err != nil {
+		t.Fatalf("UpdatePosition non-vaccination: %v", err)
+	}
+	if n := countOutbox("vaccination.capacity.changed") + countOutbox("vaccination.roster.changed"); n != 2 {
+		t.Fatalf("cascade outbox rows after editing a non-vaccination position = %d, want unchanged 2 (non-vaccination position edits must not enqueue either cascade event)", n)
+	}
+}
+
+// TestLeaveCascadeEmitsOnEffectiveTransitions reproduces the leave-cascade timing defect.
+//
+// ApplyLeave enqueues vaccination.leave.changed while the absence is still status='reported',
+// but the scheduler's availability predicate
+// (obligation/adapters/postgres/visit_shot_lock.go:586 and :694) only EXCLUDES an operator whose
+// absence status IN ('approved','escalation_required'). So the event fires when nothing has
+// changed for planning, and the transitions that DO change availability -- approval
+// (reported -> approved) and coverage resolution/escalation -- emit nothing at all. A
+// park/center-scoped operator leave (the shape vaccination_operator_* seats use) emits nothing
+// even on apply, because ApplyLeave only enqueues for scope_type='shed'.
+func TestLeaveCascadeEmitsOnEffectiveTransitions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const tenantID = rosterTenant
+	const parkID = "00000000-0000-4000-8000-0000000000d2"
+	const operatorMember = "00000000-0000-4000-8000-0000000000d3"
+	const backupMember = "00000000-0000-4000-8000-0000000000d4"
+	const actorID = rosterActor
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'PARK-LEAVE-CASCADE', 'Leave Cascade Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, parkID, tenantID); err != nil {
+		t.Fatalf("seed park location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint) VALUES
+  ($2, $1, 'OP-LEAVE-01', 'Leave Cascade Operator', 'active', 'operator'),
+  ($3, $1, 'OP-LEAVE-BKP', 'Leave Cascade Backup', 'active', 'operator')`,
+		tenantID, operatorMember, backupMember); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	backupGroup := "operator_backup"
+	if _, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: tenantID, ActorID: actorID,
+		Body: domain.CreatePositionRequest{WorkforceMemberID: operatorMember, ScopeType: "center", ScopeID: parkID,
+			PositionCode: "vaccination_operator_leavetest", PositionTier: "manager", BackupGroupCode: &backupGroup}},
+		"lc-create-op"); err != nil {
+		t.Fatalf("CreatePosition operator: %v", err)
+	}
+	if _, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: tenantID, ActorID: actorID,
+		Body: domain.CreatePositionRequest{WorkforceMemberID: backupMember, ScopeType: "center", ScopeID: parkID,
+			PositionCode: "backup_manager", PositionTier: "manager", IsBackupSlot: true, BackupGroupCode: &backupGroup}},
+		"lc-create-backup"); err != nil {
+		t.Fatalf("CreatePosition backup: %v", err)
+	}
+
+	countLeaveEventsBy := func(producer string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'vaccination.leave.changed'
+  AND headers->>'producer' = $2`, tenantID, producer).Scan(&n); err != nil {
+			t.Fatalf("count leave.changed by %s: %v", producer, err)
+		}
+		return n
+	}
+
+	applied, err := svc.ApplyLeave(ctx, tenantID, actorID, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: operatorMember, ScopeType: "center", ScopeID: parkID,
+		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+	}, "lc-apply")
+	if err != nil {
+		t.Fatalf("ApplyLeave: %v", err)
+	}
+	absenceID := applied.Leave.AbsenceID
+	if applied.Leave.Status != domain.LeaveStatusReported {
+		t.Fatalf("applied leave status = %q, want reported", applied.Leave.Status)
+	}
+
+	// The APPROVAL is the transition that actually changes scheduler availability
+	// (status becomes 'approved', which the availability predicate excludes).
+	approveKey := "idem-leave-cascade-approve"
+	approved, err := svc.ApproveLeave(ctx, tenantID, actorID, absenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1, IdempotencyKey: &approveKey}, "lc-approve")
+	if err != nil {
+		t.Fatalf("ApproveLeave: %v", err)
+	}
+	if approved.Leave.Status != domain.LeaveStatusApproved {
+		t.Fatalf("approved leave status = %q, want approved", approved.Leave.Status)
+	}
+	if n := countLeaveEventsBy("workforce.ApproveLeave"); n != 1 {
+		t.Fatalf("vaccination.leave.changed rows produced by the APPROVAL transition = %d, want 1 "+
+			"(approval is the moment the scheduler starts excluding this operator; without an event the "+
+			"already-planned future drives are never re-planned)", n)
+	}
+
+	// The approval-produced event must carry the park scope the replan consumer routes on.
+	var parkFromPayload, scopeType, scopeID, aggregateType string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(payload#>>'{payload,park_id}', ''), COALESCE(payload#>>'{payload,scope_type}', ''),
+       COALESCE(payload#>>'{payload,scope_id}', ''), aggregate_type
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'vaccination.leave.changed'
+  AND headers->>'producer' = 'workforce.ApproveLeave'`, tenantID).
+		Scan(&parkFromPayload, &scopeType, &scopeID, &aggregateType); err != nil {
+		t.Fatalf("read approval-produced envelope: %v", err)
+	}
+	if parkFromPayload != parkID || scopeType != "center" || scopeID != parkID {
+		t.Fatalf("approval envelope payload park_id=%q scope_type=%q scope_id=%q, want %q/center/%q",
+			parkFromPayload, scopeType, scopeID, parkID, parkID)
+	}
+	if aggregateType != "absence" {
+		t.Fatalf("approval envelope aggregate_type = %q, want absence", aggregateType)
+	}
+
+	// Exact idempotent replay of the approval must NOT enqueue a second event.
+	if _, err := svc.ApproveLeave(ctx, tenantID, actorID, absenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1, IdempotencyKey: &approveKey}, "lc-approve-replay"); err != nil {
+		t.Fatalf("replay ApproveLeave: %v", err)
+	}
+	if n := countLeaveEventsBy("workforce.ApproveLeave"); n != 1 {
+		t.Fatalf("vaccination.leave.changed rows after approve replay = %d, want 1 (idempotent)", n)
+	}
+
+	// Coverage resolution / escalation also changes who actually covers the park,
+	// so it must cascade too.
+	beforeResolve := countLeaveEventsBy("workforce.ResolveLeaveCoverage")
+	resolveKey := "idem-leave-cascade-resolve"
+	if _, err := svc.ResolveLeaveCoverage(ctx, tenantID, actorID, absenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: strptr(""), IdempotencyKey: &resolveKey}, "lc-resolve"); err != nil {
+		t.Fatalf("ResolveLeaveCoverage (escalate): %v", err)
+	}
+	if n := countLeaveEventsBy("workforce.ResolveLeaveCoverage"); n != beforeResolve+1 {
+		t.Fatalf("vaccination.leave.changed rows produced by coverage resolution = %d, want %d", n, beforeResolve+1)
+	}
+	if _, err := svc.ResolveLeaveCoverage(ctx, tenantID, actorID, absenceID,
+		domain.ResolveLeaveCoverageRequest{ReplacementMemberID: strptr(""), IdempotencyKey: &resolveKey}, "lc-resolve-replay"); err != nil {
+		t.Fatalf("replay ResolveLeaveCoverage: %v", err)
+	}
+	if n := countLeaveEventsBy("workforce.ResolveLeaveCoverage"); n != beforeResolve+1 {
+		t.Fatalf("vaccination.leave.changed rows after resolve replay = %d, want %d (idempotent)", n, beforeResolve+1)
 	}
 }

@@ -8,6 +8,7 @@ set -euo pipefail
 
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$repo" ] || { echo "land-main: run inside a Git worktree" >&2; exit 2; }
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo"
 
 die() {
@@ -19,6 +20,23 @@ short_sha() {
   printf '%.12s' "$1"
 }
 
+patch_id_against() {
+  local base="$1"
+  local head="${2:-HEAD}"
+  git diff --binary "$base...$head" | git patch-id --stable | awk '{print $1}'
+}
+
+selected_jobs_against() {
+  local base="$1"
+  local head="${2:-HEAD}"
+  if [ ! -f tools/ci/ci-scope.mjs ]; then
+    echo "common,backend,query-plans,admin-web,android"
+    return
+  fi
+  node tools/ci/ci-scope.mjs --base "$base" --head "$head" --format github \
+    | sed -n 's/^selected_jobs=//p'
+}
+
 is_clean() {
   [ -z "$(git status --porcelain --untracked-files=all)" ]
 }
@@ -26,6 +44,14 @@ is_clean() {
 fetch_main() {
   git fetch --quiet origin main
   git rev-parse refs/remotes/origin/main
+}
+
+local_ci_evidence_script() {
+  if [ -f tools/ci/check-local-ci-evidence.mjs ]; then
+    echo "tools/ci/check-local-ci-evidence.mjs"
+  else
+    echo "$script_dir/check-local-ci-evidence.mjs"
+  fi
 }
 
 test_mode="${GOATOS_LAND_TEST_MODE:-0}"
@@ -72,6 +98,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
   is_clean || die "rebase left tracked or untracked changes; refusing to certify or push"
   candidate_sha="$(git rev-parse HEAD)"
+  candidate_patch_id="$(patch_id_against "$base_before" "$candidate_sha")"
 
   if [ "$candidate_sha" = "$base_before" ]; then
     echo "land-main: candidate already equals current origin/main; nothing to push"
@@ -97,7 +124,49 @@ while [ "$attempt" -le "$max_attempts" ]; do
       echo "land-main: origin/main already contains candidate $(short_sha "$candidate_sha")"
       exit 0
     fi
-    echo "land-main: origin/main moved $(short_sha "$base_before") -> $(short_sha "$base_after"); rebasing and rerunning CI"
+    echo "land-main: origin/main moved $(short_sha "$base_before") -> $(short_sha "$base_after"); rebasing"
+    if git rebase "$base_after"; then
+      is_clean || die "rebase left tracked or untracked changes; refusing to reuse CI evidence"
+      rebased_sha="$(git rev-parse HEAD)"
+      rebased_patch_id="$(patch_id_against "$base_after" "$rebased_sha")"
+      if [ -n "$candidate_patch_id" ] && [ "$candidate_patch_id" = "$rebased_patch_id" ]; then
+        rebased_jobs="$(selected_jobs_against "$base_after" "$rebased_sha")"
+        if [ -n "$rebased_jobs" ] && node "$(local_ci_evidence_script)" \
+          --reuse-after-rebase \
+          --old-sha "$candidate_sha" \
+          --new-sha "$rebased_sha" \
+          --new-base "$base_after" \
+          --jobs "$rebased_jobs"; then
+          echo "land-main: reused green CI receipt after patch-identical rebase $(short_sha "$candidate_sha") -> $(short_sha "$rebased_sha")"
+          candidate_sha="$rebased_sha"
+          base_before="$base_after"
+          if [ "$test_mode" = "1" ]; then
+            echo "land-main: test mode verified patch-identical rebase receipt reuse at $(short_sha "$candidate_sha"); push skipped"
+            exit 0
+          fi
+          echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
+          if git mesha-push HEAD:main; then
+            landed="$(fetch_main)"
+            if [ "$landed" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$landed"; then
+              echo "land-main: LANDED $(short_sha "$candidate_sha"); origin/main is $(short_sha "$landed")"
+              exit 0
+            fi
+            die "push returned success, but origin/main does not contain $(short_sha "$candidate_sha")"
+          fi
+          newest="$(fetch_main)"
+          if [ "$newest" != "$base_after" ]; then
+            echo "land-main: push raced with main $(short_sha "$base_after") -> $(short_sha "$newest"); retrying from fresh main"
+            attempt=$((attempt + 1))
+            continue
+          fi
+          die "push failed without origin/main moving; check the Mesha token and push-guard output"
+        fi
+      fi
+      echo "land-main: rebased patch changed or CI scope changed; rerunning CI"
+    else
+      git rebase --abort >/dev/null 2>&1 || true
+      die "automatic rebase conflicted and was aborted; resolve the conflict in an isolated worktree, then run make land-main again"
+    fi
     attempt=$((attempt + 1))
     continue
   fi

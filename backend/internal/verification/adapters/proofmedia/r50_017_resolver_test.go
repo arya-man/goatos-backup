@@ -10,8 +10,8 @@ import (
 
 // Mock proof downloader for testing.
 type mockDownloader struct {
-	responses map[string]string          // proofID -> URL
-	errors    map[string]error           // proofID -> error
+	responses map[string]string // proofID -> URL
+	errors    map[string]error  // proofID -> error
 	artifacts map[string]proofdomain.Artifact
 }
 

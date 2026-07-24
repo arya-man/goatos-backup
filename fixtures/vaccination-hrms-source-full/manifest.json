@@ -11,7 +11,10 @@
     "vaccination_sop_code": "vaccination.drive",
     "proof_mode": "shed_level_video",
     "video_proof_subject_scope": "shed",
-    "video_capture_sources": ["in_app_camera", "gallery_picker"],
+    "video_capture_sources": [
+      "in_app_camera",
+      "gallery_picker"
+    ],
     "minimum_video_count_per_shed": 1,
     "maximum_video_count_per_shed": 5,
     "verifier_approval_required": true,
@@ -139,6 +142,12 @@
       "date": "2026-07-23",
       "change": "migration 000035_vaccination_operator_assignment_config creates vaccination_operator_shift_config (shift_label, shift_start_minute, shift_end_minute) and vaccination_operator_assignment_config (active_operators_per_day, default_operator_code) to bind per-operator shift schedules and tenant-scoped default assignment rules consumed by the scheduler.",
       "vaccination_hrms_source_impact": "none to the committed full fixture bytes. CPT operator-roster rehearsal may supply shift_label/shift_start_minute/shift_end_minute and active_operators_per_day/default_operator_code in cpt-operator-roster.json, which seed-roster-real parses and writes to scheduler-consumed tables. The committed jun-26 fixture has no operator-roster file, so seed behavior is unchanged."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "Seed pipeline hardening BUG-009/010/011/023/024: (a) new `make seed-vaccination-cpt-operator-drive` target that materializes the committed CPT packet into the normalized bundle shape both seed commands require and then runs the documented chain against it, so the documented command and the executable shape agree; (b) new read-only `make seed-checkout-staleness-gate`, run before any DB write in both seed targets, enforcing the previously documentation-only automatic-failure condition that a reseed proof must come from a clean checkout identical to origin/main (GOATOS_ALLOW_STALE_SEED_CHECKOUT=1 is a loud escape hatch that voids the proof); (c) seed-closeout now executes the packet's check-expected-drive-schedules.mjs against real DB rows when GOATOS_EXPECTED_DRIVE_SCHEDULES is set, turning a documented-but-unrun comparison into a failing gate; (d) backend/cmd/seed-roster-real decodes cpt-operator-roster.json with DisallowUnknownFields, so an unconsumed contract block is a hard named error instead of an encoding/json silent drop, and the previously discarded `directors` and `leadership_full_access` blocks are now consumed (directors seed monitoring-only workforce_members with no workforce_positions row, asserted zero field capacity; leadership_full_access seeds tenant-scoped auth_pending_email_grants); (e) the source validator's operator shift end-minute range corrected from 1..1440 to 0..1439 to match the migration 000035 CHECK and the vaccinationexecution domain validator.",
+      "vaccination_hrms_source_impact": "none to the committed jun-26 fixture bytes. This bundle ships no cpt-operator-roster.json, so the loader, contract-block, and shift-minute changes are a no-op for it: every file hash, animal/shed/vaccination-cell count, and corrections-ledger entry is unchanged, and the adversarial self-test baseline is unaffected. The new make targets and the staleness/expected-drive gates operate outside the fixture. Operator-drive rehearsal bundles are affected: an end-minute of 1440 is now rejected at preflight instead of at the seed boundary, 0 is accepted, and any contract block this seeder does not consume fails the seed loudly."
     }
-  ]
+  ],
+  "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."
 }

@@ -172,6 +172,21 @@ Two recurrence classes are prohibited on every hot path:
   value from one `env {}` block with a good value from a later sibling and go
   green. Every guard must include an adversarial self-test for that bypass and
   the self-test plus the real check must run in `ci-local`.
+- **A literal-token guard sold as an architectural boundary.** A guard that
+  greps for the exact string from the original incident enforces that string,
+  not the rule. State the guard's blind spots in its own header comment and add
+  a self-test fixture for each one, or narrow the guard's advertised claim.
+  Concrete failure: `tools/agent-hooks/check-ceo-ai-core-boundary.mjs:39-42`
+  is two literal `ceo_ai.` SQL regexes plus a path-prefix classifier
+  (`:78-96`). It is blind by construction to a dynamic schema name
+  (`fmt.Sprintf("SELECT %s.fn(x)", os.Getenv("REPORTING_SCHEMA"))`), to
+  `SET search_path TO ceo_ai, public` followed by an unqualified call, and to a
+  core package importing a `backend/internal/ceoai/**` helper that runs the SQL
+  internally — so the coupling that caused the CT/AC 500s can return green.
+  When the rule is "package A must not depend on package B", the guard must
+  check the **import graph**, not call-site strings; when the rule is about
+  runtime schema resolution, a static scan cannot close it and the guard must
+  say so.
 
 These are recurrence rules, not one-off review advice: `make scale-guard`,
 `make validate-sqlc-plans`, and deployment-guard self-tests are the
@@ -649,6 +664,372 @@ change is a false-green seed and is blocked by the seed fixture guard.
 Client screens must not fetch all target animals just to prove this point; shed
 proof upload stays shed-grain while animal evidence stays the paged scan roster.
 
+## Config-present must fail closed, never fall back to defaults
+
+A critical anti-pattern at any scale: when a config/policy/capacity row EXISTS
+for a scope but resolution yields an EMPTY result, code must **fail closed**
+(defer/flag/zero-capacity/reject) rather than silently falling back to the
+unconfigured/default behavior.
+
+This pattern guards against two distinct failure cases:
+
+1. **Silent misconfiguration**: A park/operator/stage config exists but is
+   incomplete or empty. The code must not treat "no active results" as "no config
+   present" and fall through to base defaults. The presence of the config row
+   itself signals that the operator intended to override the default; an empty
+   result means the override failed or is incomplete.
+
+2. **Data inconsistency**: A scheduler, filter, or policy read returns zero
+   candidates where the config explicitly claims there should be results. This
+   mismatch is a data integrity red flag, not a "gracefully degrade to defaults"
+   moment.
+
+**Concrete failure case (vaccination operator assignment):**
+`visit_shot_lock.go` filters the global operator-capacity candidate set by
+applied `active_operators_per_day` config. If the config row exists for the park
+but the filter yields **zero executable operators**, the sweeper must NOT treat
+`len(operators)==0` as "no config present" and fall back to base operator
+capacity. Instead, it must:
+
+- Defer the work (flag as pending config resolution)
+- Log the mismatch (capacity available but no permitted operators for this drive)
+- Fail the assignment or escalate to leadership review
+
+The seeded fixture and database proof must always distinguish:
+- "No config for this park" → use base capacity
+- "Config exists but filter returned empty" → FAIL CLOSED (do not use base capacity)
+
+Code pattern (Go pseudocode):
+```go
+// WRONG: silently degrades to defaults when config is present but empty
+config := findVaccinationOperatorConfig(tenant, park, date)
+if config == nil {
+  return baseCapacity  // correct: no config, use default
+}
+operators := filterActiveOperators(config)
+if len(operators) == 0 {
+  return baseCapacity  // WRONG: config exists but is empty, should fail closed
+}
+```
+
+```go
+// CORRECT: fails closed when config is present but filter returns empty
+config := findVaccinationOperatorConfig(tenant, park, date)
+if config == nil {
+  return baseCapacity  // correct: no config, use default
+}
+operators := filterActiveOperators(config)
+if len(operators) == 0 {
+  return nil, ErrConfigPresentButEmpty  // CORRECT: config exists but is incomplete
+}
+```
+
+This pattern is enforced at review time by the code-review skill
+(`.agents/skills/goatos-code-review/references/`) and must appear in every
+pull request that reads config and filters results. Regression test: any query
+that reads a config row must have an E2E case where the config exists but the
+filter yields zero results, and that case must document the expected fail-closed
+behavior (deferral, escalation, or explicit rejection).
+
+`make scale-guard` catches the raw N+1 and compute-on-read anti-patterns; this
+one requires human review and regression test coverage.
+
+## Operator-cascade wiring anti-patterns
+
+A config/roster change must travel an unbroken chain before a planned drive is
+re-planned:
+
+```text
+write path mutates scheduling-relevant state   (must EMIT its cascade event)
+  -> outbox relay dispatches onto the domain bus (handler must be on the DURABLE bus)
+    -> sweeper re-selects work under the operator cap (must NET session-reserved load)
+```
+
+All three links broke at once on `origin/main` f9a44b84 while every isolated
+unit and E2E test stayed green, so all three are named anti-patterns and all
+three are machine-enforced by `make cascade-event-wiring-guard`
+(`tools/agent-hooks/check-cascade-event-wiring.mjs`).
+
+### A. Session-reserved capacity ignored at the selection layer
+
+A per-actor/per-day capacity read from the database is only net of load
+committed by **prior** runs. Whatever the **current** sweep session has already
+reserved lives in memory (`SweepSession.vaccinationOperatorLoads`), and the
+underlying DB snapshot is cached per session
+(`SweepSession.cachedVaccinationOperators`). Summing the DB-reported remaining
+capacity without subtracting the in-session reservation is an over-selection
+bug, not a rounding error.
+
+Concrete failure: `totalVaccinationOperatorCap` summed each operator's
+DB-reported remaining capacity for `(tenant, park, date)` and fed it into
+`operatorCapacityPlanner` / `effectiveOperatorAnimalCap`, which is what bounds
+how many obligations a due-group may attach to a batch. A later rule-version in
+the same sweep (e.g. `sheep_pox` after `blue_tongue`) re-read the same cached
+pre-session snapshot, saw the operator's full un-reserved capacity again, and
+selected on top of what an earlier due-group in that same sweep had already
+committed. A real CPT reseed produced 221-223 animals against a 200
+animals/operator/day cap.
+
+The assignment-split layer (`planVaccinationDriveAssignments`) already did the
+subtraction. Fixing only the later layer is a band-aid: the **selection** layer
+is what decides how much work enters the batch at all.
+
+Rule: any function that consumes a DB-reported per-actor capacity inside a sweep
+must subtract the same session's reserved load for that exact
+`(tenant, park, date, actor)` key before treating it as headroom. A cheap
+in-memory reservation ledger is mandatory whenever one pass re-reads a cached
+snapshot that an earlier pass in the same run already spent against.
+
+### B. Domain-event handler registered on a bus nothing real dispatches to
+
+Goat OS has four places that look like a domain bus. Only two are durable
+dispatch paths:
+
+| Bus | Reality |
+|---|---|
+| `backend/internal/kernelstages/bus.go` (`BuildDomainBus`) | **DURABLE** — backs the in-process outbox-relay publisher and the continuous domain-consumer stage |
+| `backend/cmd/domain-event-consumer/main.go` (`buildDomainBus`) | **DURABLE** — the standalone Pub/Sub consumer binary |
+| `backend/internal/bootstrap/api.go` | the API process's own in-process bus; for several event types its producers are dead code |
+| `backend/internal/domainconsumer/wiring/bus.go` | wired into **no** `cmd/*` binary — tests only |
+
+Concrete failure: `OperatorConfigReplanHandler` was registered in
+`bootstrap/api.go` and `domainconsumer/wiring/bus.go` only. A green isolated E2E
+test built the wiring bus itself and proved the handler logic end to end, while
+production dispatched every `vaccination.capacity.changed` /
+`vaccination.roster.changed` / `vaccination.operator_leave.changed` event onto a
+bus that had no subscriber and silently dropped it. Planned drives kept the
+stale cap and roster forever.
+
+Rule: every type exposing `Register(bus eventbus.Bus)` must be registered on
+**every** durable bus. Registering on a test/API-only bus is not integration.
+A test that constructs its own bus proves handler logic, never wiring — the
+wiring assertion must name the production bus builder
+(see `backend/internal/kernelstages/bus_test.go`). A deliberate omission must be
+declared in `DURABLE_BUS_EXEMPTIONS` in the guard with a written reason and the
+file that really does register it; the guard re-verifies that claim, so an
+exemption cannot decay into "registered nowhere".
+
+### C. Write path mutates scheduling-relevant state without emitting its cascade
+
+A mutation is "scheduling-relevant" when a consumer's already-materialised
+future work would be wrong if it never heard about the change. Such a write must
+enqueue its cascade event to `outbox_messages` **in the same transaction** as
+the state change — the emit is part of the write, not a follow-up.
+
+Concrete failures:
+
+- workforce `UpdatePosition` changed a vaccination operator seat's
+  `vaccination_daily_animal_cap`, `week_off_weekday`, `status`, or `valid_to`
+  directly on `workforce_positions` and emitted nothing. The only wired
+  producers were `UpsertOperatorAssignmentConfig` (N / default operator) and
+  `ApplyLeave` — so HRMS-side seat edits were invisible to vaccination.
+- protocol `publishVersion` synced the tenant-wide `vaccination_capacity_config`
+  transactionally but emitted only `protocol.version.published`, which is
+  consumed by obligation **regeneration**, not by capacity replan. Every park
+  with an operator-assignment config kept planning against the old capacity.
+
+Rule: enumerate the columns/tables that feed a scheduler, and treat any writer
+of them as a registered producer with a cascade event, per
+`context/architecture/domain-event-integration-contract.md`. "Another endpoint
+already emits this event" is not coverage — coverage is per **write path**. The
+guard currently pins three: `workforce_positions` cap/week-off,
+`vaccination_capacity_config`, and `vaccination_operator_assignment_config`;
+extend `CASCADE_WRITE_RULES` when a new scheduler input appears.
+
+Seed CLIs under `backend/cmd/` are deliberately out of scope: a seed run is
+always followed by an explicit generate/replan step.
+
+### D. Cascade payload written, propagated, and read by no consumer
+
+An event payload field that no consumer parses is not "captured for later" — it
+is a silent accept-and-discard, and it reads to every future author as though
+the fact is already honored. A payload key belongs in an event only when a named
+consumer reads it, or when the decision to ignore it is written down.
+
+Concrete failure: procurement writes supplier-claimed prior vaccination history
+into the `goat.created` payload
+(`backend/internal/procurement/adapters/postgres/goat_created_outbox.go:34-43`,
+key `trusted_vaccination_history`). `GoatCreatedHandler`
+(`backend/internal/vaccination/app/generation_handler.go:11-75`) reacts to the
+event type only and recomputes from the goat's persisted row; a repo-wide grep
+outside `procurement` finds no reader. `AdminGoatCreateRequest.VaccinationHistory`
+(`backend/internal/identity/domain/types.go:193`) is declared and never
+referenced. A procured adult with genuine ET+TT/PPR coverage is therefore
+scheduled from scratch on the full adult primary course.
+
+Rule: every payload key must either be consumed by a handler named in
+`context/architecture/domain-event-registry.json`, or be deleted along with the
+struct field that fed it and replaced by an explicit ignore decision (for
+example "unverifiable supplier claims are never canonicalized") recorded in the
+registry entry. "Written for a future consumer" is not an accepted state.
+
+## Read-model grain is not the grain the consumer assumes
+
+**This is an adherence failure, not a coverage gap.** AGENTS.md has required for
+a long time that every aggregate "identify the canonical membership source, use
+the same stable group key on producer and consumer, prove every join is 1:1 or
+deduplicate/pre-aggregate the many side". Five instances shipped on
+`origin/main` anyway. A sixth restatement of the principle would change
+nothing, so this section does not restate it — it converts it into a mechanical
+proof obligation that a reviewer can demand and an author can discharge in
+writing.
+
+### The proof obligation (state it in the PR, next to the `projection-review:` marker)
+
+For any query that binds a fact to a plan/aggregate row, or that puts a
+numerator and a denominator side by side, write these three lines out:
+
+1. **Group key** — the exact column list the producer is unique on, and the
+   exact column list the consumer matches/groups on. Put them side by side. If
+   they differ by even one column, that difference is the bug until proven
+   otherwise.
+2. **Row multiplicity of each joined side** — for every join, `1:1`, `1:N`
+   pre-aggregated, or semijoin. A column you left out of the key is a column
+   you are asserting cannot vary; say so explicitly or add it.
+3. **Numerator and denominator over the same key set** — when a ratio, cap
+   check, or coverage percentage is computed, name the key set each side ranges
+   over and show they are identical. "Both read the same `cohort_ids`" is not
+   sufficient if one side then collapses a dimension the other keeps.
+
+If those three lines cannot be written, the query is not reviewable and is not
+approved.
+
+### Sub-shape A — missing dimension in the WHERE (predicate form)
+
+`vaccination_drive_assignments` is an aggregate plan row, not per-goat
+membership. Its uniqueness grain is batch + planned date + park + shed +
+physical shed + `partition_label` + operator
+(`backend/migrations/postgres/000022_vaccination_drive_assignment_operator_grain.sql`),
+and each row additionally carries `vaccine_rule_ids`. Selecting on
+`tenant_id + batch_id + shed_id` and taking `LIMIT 1` is not a near-miss; in a
+mixed-vaccine or partitioned batch it is deterministically wrong.
+
+Four independent live defects on `origin/main` f9a44b84, in four modules that
+each re-derived the lookup by hand:
+
+| Site | Missing dimension |
+|---|---|
+| `backend/internal/vaccinationexecution/adapters/postgres/repository.go:745-756` (repeated at `:1624-1634`, `:1914-1930`, `:2728-2737`) | `vaccine_rule_ids` — a moved vaccine's date becomes the execution date for its siblings |
+| `backend/internal/processintegrity/adapters/postgres/repository.go:637-655` | `vaccine_rule_ids` **and** `partition_label`; the date surfaces as public `due_at` at `:746-747` into Action Center / Protocol Adherence / Control Tower |
+| `backend/internal/calendar/adapters/postgres/targets.go:127-139` | `vaccine_rule_ids` — the drive drawer lists animals for sibling vaccines that never moved |
+| same-partition operator/date splits from `backend/internal/vaccinationexecution/app/operator_drive_planner.go:207` | no dimension can disambiguate — two rows are legitimately equal at every column the reader has |
+
+Passport and the Calendar list are the reference implementations and already
+carry the rule guard: `cardinality(assignment.vaccine_rule_ids) = 0 OR
+oi.rule_id = ANY(assignment.vaccine_rule_ids)`
+(`backend/internal/obligation/adapters/postgres/sqlc/query.sql:48`,
+`backend/internal/calendar/adapters/postgres/canonical_read.go:743`). Two
+surfaces being right while four are wrong is the signature of a hand-copied
+predicate, and it is the same shape as the effective-date duplication already
+recorded in this repo: the fix is one shared primitive plus a parity test, not
+four more hand-edits.
+
+### Sub-shape B — missing column in the GROUP BY key (aggregation form)
+
+The predicate can be complete and the query still wrong, because the defect
+moved from the `WHERE` to the `GROUP BY`. An author who reads sub-shape A and
+adds `vaccine_rule_ids` to their `WHERE` has **not** complied if their
+aggregation then collapses a dimension the other half of the same expression
+keeps.
+
+Concrete failure (BUG-027,
+`backend/internal/processintegrity/adapters/postgres/repository.go`). The split
+cohort at `:900-915` deliberately matches siblings on
+`batch_id`/`shed_id`/`partition_label`/`vaccine_rule_ids` and deliberately
+**excludes** `planned_date`, so a cohort may legitimately span several dates.
+The numerator at `:920` respects that — `SUM(a.animal_count)` over every row in
+the cohort, all dates. The denominator at `:938-948` does not:
+
+```sql
+SELECT a.operator_id, MIN(a.planned_date) AS planned_date
+FROM vaccination_drive_assignments a
+WHERE ... AND a.assignment_id = ANY(drive_split.cohort_ids)
+GROUP BY a.operator_id            -- collapses to ONE operator-day per operator
+```
+
+`operator_cap` then sums one daily cap per operator. A same-operator, two-date
+split therefore compares two operator-days of assigned animals against one
+operator-day of capacity, fabricating `over_cap_required` on legitimately
+distributed work — and hiding a real over-cap in the inverse case. The fix is
+`GROUP BY a.operator_id, a.planned_date`: the real operator-day grain, matching
+the date set the numerator ranges over.
+
+Rules for both sub-shapes:
+
+- Before writing the lookup, name the grain of the table you are joining to and
+  list every column in it — then check the `WHERE`, the `GROUP BY`, **and** the
+  key set of anything the result is divided by or compared against. All three
+  must agree.
+- A deliberate exclusion in a match key (here, `planned_date` out of the cohort
+  key) is a contract, and it propagates: every aggregate computed over that
+  cohort must either preserve the excluded dimension or state why collapsing it
+  is safe. A `MIN(...)` used as a display representative is not a licence to
+  aggregate capacity at that collapsed grain.
+- When the planner can legitimately emit two rows indistinguishable to the
+  reader (a partition split across operators or dates), `ORDER BY ... LIMIT 1`
+  is not a tie-break, it is a fabricated answer. Fix it with an exact
+  membership source (goat-level assignment membership or an equivalent
+  deterministic ledger), not a better ranking.
+- A new consumer of `vaccination_drive_assignments` must be added to the shared
+  predicate/helper, and a parity test must assert that every consumer resolves
+  the same obligation to the same row.
+
+Mandatory fixture for any change in this area: a mixed ET+TT/PPR batch where
+PPR alone is date-overridden, a shed with two `goat_shed_partitions` values,
+**and** one cohort split across two dates for the same operator. A
+single-vaccine, single-partition, single-date fixture proves nothing here and is
+a false green — and the single-date case is what let sub-shape B through a
+review that had already learned sub-shape A.
+
+## Documented gate with no executable enforcement
+
+A rule that exists only as prose in a runbook or validation doc is not a gate —
+it is a hope. If a document states an automatic-failure condition or a required
+post-step, either an executable check enforces it or the document must be
+rewritten to describe what the pipeline actually does.
+
+Concrete failures:
+
+- `fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md`
+  lists "the checkout SHA is not latest `origin/main`" as an automatic-failure
+  condition, and no target, guard, or seed command checks git ref state before
+  mutating the DB (`Makefile: seed-vaccination-source-full`). A stale checkout
+  can produce a "clean reseed proof" from out-of-date rule code — precisely the
+  scenario the doc's own failure list exists to prevent.
+- CPT expected-drive validation is documented as part of seed closeout but is
+  not invoked by the closeout path, so the documented assertion never runs.
+
+Rule: when a doc says "must", grep for the code that enforces it in the same
+review. If there is none, the finding is the missing check, not the missing
+sentence. Enforcement belongs in the `make` target that performs the mutation,
+so it cannot be skipped by running the underlying command directly.
+
+## Unknown keys in a contract fixture, silently dropped
+
+Go's `encoding/json` discards keys with no matching struct field without an
+error. A fixture that carries a block the loader has no field for therefore
+seeds nothing, reports success, and contradicts its own validation doc.
+
+Concrete failure: `operatorRosterContract`
+(`backend/cmd/seed-roster-real/main.go:561-589`) declares only `Schema`,
+`OperatorCapacity`, `SourceScope`, `Operators`, and
+`DefaultOperatorAssignment`. The fixture's top-level `directors` (Chandrakant)
+and `leadership_full_access` (five CXO emails) in
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/cpt-operator-roster.json`
+have no fields and are dropped. The documented CPT reseed seeds neither the
+director nor the CXO grants, and the "director has zero execution capacity"
+property holds only incidentally — because he is never touched — rather than as
+an enforced invariant.
+
+Rule: every loader of a committed fixture or seed contract must use
+`Decoder.DisallowUnknownFields()` (or an explicit schema validation pass), so an
+unconsumed block fails loud at load time. This is mechanically checkable: a
+guard can enumerate `json.Unmarshal`/`json.NewDecoder` call sites under
+`backend/cmd/**` that read a path under `fixtures/` and require
+`DisallowUnknownFields`. Adding a field to make the key consumed is the fix;
+leaving the key present and unread is not.
+
+
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create read-only SQL views (ceo_ai.vaccination_operator_status, vaccination_shed_status, vaccination_dose_pickup, action_center) that query canonical vaccination/obligation/workforce tables. They do not modify the seed source data, HRMS schema, vaccination protocol rules, or SOP contracts. The reported reads stay tenant-scoped, indexed, and bounded by the 5k-50k envelope exemption for canonical-read screens; they are not full-tenant recomputes or projection-drift anti-patterns. -->
@@ -656,3 +1037,5 @@ proof upload stays shed-grain while animal evidence stays the paged scan roster.
 
 <!-- Coupling review 2026-07-23: the seed-roster-real operator-roster overlay does not alter scale posture. It is a bounded per-park recast of a fixed set of resolved roster seats into per-person vaccination_operator_<name> positions during seeding (no per-row I/O, no request-path query, no new read model); drive splitting continues to read DB-backed operator availability. No scale anti-pattern is introduced or relaxed. -->
 <!-- Coupling review 2026-07-23: vaccination operator assignment config is scheduler-consumed, not config-only. The bounded point lookup filters the already-loaded daily operator-capacity candidate set by active_operators_per_day/default_operator_code and shift fallback identity; it does not introduce tenant-wide scans, per-animal reads, or time-of-day drive splitting. -->
+
+<!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->

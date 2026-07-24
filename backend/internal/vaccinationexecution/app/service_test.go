@@ -424,3 +424,7 @@ func projection(shedID string, dueAt time.Time, dose int, mutate func(*domain.Ex
 	}
 	return p
 }
+
+func (fakeRepo) AuthorizedParkOptions(context.Context, string, []string) ([]domain.ParkOption, error) {
+	return nil, nil
+}

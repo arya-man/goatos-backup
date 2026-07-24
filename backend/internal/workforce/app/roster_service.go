@@ -8,10 +8,16 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
+
+// EventVaccinationLeaveChanged mirrors the constant of the same name in
+// backend/internal/obligation/app/operator_config_replan.go (kept in sync manually to avoid a
+// cross-module import cycle; obligation already depends on workforce-adjacent concepts, not vice versa).
+const EventVaccinationLeaveChanged = "vaccination.leave.changed"
 
 // RosterService implements the HR roster / RBAC position-coverage model
 // approved in docs/hr/roster-rbac-design.md (2026-07-10). It is deliberately
@@ -38,10 +44,19 @@ type RosterService struct {
 	repo         ports.RosterRepository
 	capabilities ports.CapabilityGranter
 	now          func() time.Time
+	bus          eventbus.Bus
 }
 
 func NewRosterService(repo ports.RosterRepository, capabilities ports.CapabilityGranter) *RosterService {
 	return &RosterService{repo: repo, capabilities: capabilities, now: time.Now}
+}
+
+// WithBus attaches the domain-event bus ApplyLeave publishes vaccination.leave.changed to (auto-cascade
+// producer for backend/internal/obligation/app/operator_config_replan.go). Optional: a nil/unset bus
+// makes leave writes a no-op for the cascade, never blocking the leave write itself.
+func (s *RosterService) WithBus(bus eventbus.Bus) *RosterService {
+	s.bus = bus
+	return s
 }
 
 // The covered-position -> execute-capability mapping that a temporary backup
@@ -428,6 +443,9 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
+	// Cascade event (vaccination.leave.changed) is now durably enqueued to outbox_messages
+	// by the repository within the same transaction as the leave write. The outbox relay
+	// will deliver it asynchronously to the OperatorConfigReplanHandler.
 	return &domain.StaffLeaveResponse{Leave: leave, TraceID: traceID}, nil
 }
 

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	procapp "github.com/vgoats/goatos/backend/internal/procurement/app"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
-	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 // These regression tests cover PROC-001: the batched arrival-review upsert conflicts on

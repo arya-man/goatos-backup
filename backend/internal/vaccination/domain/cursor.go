@@ -14,7 +14,6 @@ type recordedCompletionCursorPayload struct {
 	CompletionID   string `json:"c"`
 }
 
-
 func EncodeRecordedCompletionCursor(cursor RecordedCompletionCursor) (string, error) {
 	raw, err := json.Marshal(recordedCompletionCursorPayload{
 		AdministeredAt: cursor.AdministeredAt.UTC().Format(time.RFC3339Nano),
@@ -47,4 +46,3 @@ func DecodeRecordedCompletionCursor(value string) (RecordedCompletionCursor, err
 		CompletionID:   payload.CompletionID,
 	}, nil
 }
-

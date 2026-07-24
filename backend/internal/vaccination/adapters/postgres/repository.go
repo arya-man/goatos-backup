@@ -3289,12 +3289,57 @@ trusted_admins AS (
     ) BETWEEN 28 AND 35
     AND ev.administered_at >= plg.warmup_started_at
     AND (plg.warmup_ended_at IS NULL OR ev.administered_at <= plg.warmup_ended_at)
+),
+-- BUG-017: reviewed PRE-ARRIVAL supplier-claimed history. A separate channel from trusted_admins
+-- on purpose: those claims have no proof artifact and predate the holding-farm warm-up window, so
+-- they can never satisfy that gate. They earn history status only by surviving the pre-arrival
+-- review (validated against published rules + the animal's independently classified schedule
+-- path), which is what review_status='accepted' records. Rejected rows are never selected here, so
+-- an impossible supplier claim can never suppress due work.
+prearrival_admins AS (
+  SELECT ph.goat_id::text AS goat_id,
+         ph.administered_at,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+           NULLIF(ph.vaccine_code, ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''),
+           ''
+         )::text AS vaccine_code,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'type', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'type', ''),
+           ''
+         )::text AS vaccine_type,
+         COALESCE(
+           NULLIF(pr.eligibility_json -> 'vaccine' ->> 'pathogen_class', ''),
+           NULLIF(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', ''),
+           ''
+         )::text AS pathogen_class,
+         COALESCE(NULLIF(pr.dose_code, ''), NULLIF(ph.dose_code, ''), '')::text AS dose_code,
+         COALESCE(pr.sequence, ph.sequence, 0)::int AS sequence,
+         ph.protocol_version_id::text AS protocol_version_id,
+         pv.protocol_id::text AS protocol_id
+  FROM vaccination_prearrival_history_entries ph
+  JOIN protocol_versions pv
+    ON pv.tenant_id = ph.tenant_id
+   AND pv.protocol_version_id = ph.protocol_version_id
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = ph.tenant_id
+   AND pr.protocol_version_id = ph.protocol_version_id
+   AND pr.rule_id = ph.rule_id
+  WHERE ph.tenant_id = $1
+    AND ph.goat_id = ANY($2::uuid[])
+    AND ph.review_status = 'accepted'
+    AND ph.administered_at <= $3::timestamptz
+    AND ph.reviewed_at <= $3::timestamptz
 )
 SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id, protocol_id
 FROM (
   SELECT * FROM completion_admins
   UNION ALL
   SELECT * FROM trusted_admins
+  UNION ALL
+  SELECT * FROM prearrival_admins
 ) admins
 ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(before))
 	if err != nil {

@@ -25,6 +25,15 @@ Chandrakant is director-only monitoring scope. The five founder/CXO emails in
 `docs/runbooks/auth.md` must receive tenant-scoped `ceo_internal` grants. The
 `Adult` filename is only source naming; kid/adult/booster/clinical/combo/buffer
 rules still come from the backend vaccination rule engine.
+Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes
+the packet's documented `raw/` layout into the normalized bundle both seed
+commands require and then runs the documented chain against it, so the documented
+command and the executable shape agree. Do not hand-run the individual binaries.
+The director and the CEO/CXO grants come from the committed
+`cpt-operator-roster.json` (`directors[]`, `leadership_full_access`), which
+`backend/cmd/seed-roster-real` now genuinely consumes; a director is seeded with
+no `workforce_positions` row, so he carries zero field execution capacity, and
+that is asserted rather than assumed.
 
 Git identity rule: Goat OS commits must use a Mesha identity. Before committing
 or landing, verify `git config user.email` ends in `@mesha.sg`; never commit or
@@ -311,6 +320,19 @@ one product; this skill is the navigation layer.
   until vaccination generation and the drive-batching sweeper have also run
   through the visible schedule horizon and the closeout check proves zero
   in-window `scheduled`/`due` vaccination obligations remain unbatched.
+- **A reseed proof requires a clean, origin/main-identical checkout, and it is
+  gated.** `make seed-checkout-staleness-gate` runs read-only as the first step
+  of every seed target, before any DB write, and fails closed on an unreachable
+  origin, a `HEAD` that differs from `origin/main`, or a dirty tree.
+  `GOATOS_ALLOW_STALE_SEED_CHECKOUT=1` bypasses it loudly and voids the proof.
+- **A documented DB comparison must be executed, not just described.**
+  `tools/dev/seed-closeout.sh` runs the drive packet's
+  `check-expected-drive-schedules.mjs` (self-test, then the real row comparison)
+  whenever `GOATOS_EXPECTED_DRIVE_SCHEDULES` names a packet expectation file; a
+  missing file or a packet without the checker fails the closeout. Without this
+  the reseed can report "clean" while breaching a per-operator animal cap,
+  fanning out past `active_operators_per_day`, assigning a non-contract
+  operator, or presenting superseded/zero-obligation shell batches.
 - **Any new vaccination/HRMS sheet is validated before DB access.** Normalize it
   to the canonical six-file bundle and run `make vaccination-hrms-source-audit
   SOURCE=/absolute/path AS_OF=YYYY-MM-DD`. Read every failure category, apply
@@ -322,6 +344,15 @@ one product; this skill is the navigation layer.
   validator, adversarial self-test, transform, fixture hashes,
   `docs/runbooks/source-seed-data-validation.md`, source-date contract, and
   anti-pattern docs in the same patch; the coupling guard must fail otherwise.
+  A source-audit range must be identical to the DB `CHECK` and the domain
+  validator for the same field, or the preflight does not predict the seed:
+  operator `shift_start_minute`/`shift_end_minute` are minutes-of-day `0..1439`
+  on both bounds, in all three places.
+  Committed fixture/contract loaders must fail loud on unknown keys.
+  `backend/cmd/seed-roster-real` decodes `cpt-operator-roster.json` with
+  `Decoder.DisallowUnknownFields()`, so a declared block with no consuming struct
+  field is a hard named error instead of an `encoding/json` silent drop. Adding a
+  block to that contract requires adding its consumer in the same change.
   For vaccination `health_status` source data, keep case-log vocabulary separate
   from clinical state: `Open -> sick`, `Extended -> under_treatment`,
   `Closed -> healthy`, `Fine -> healthy`. Never seed `Closed` or `Fine` as
@@ -530,6 +561,7 @@ one product; this skill is the navigation layer.
 - Do not add direct BigQuery queries to React pages.
 - Do not add direct Firestore/GCS writes to the operator app.
 - Do not let AI-created decisions become canonical without deterministic validation and evidence.
+  When an agent claims a test passes, the test must have actually executed (not "[no test files]"/"no tests to run"/skipped). Paste the real test RUN line, its pass/fail output, and commit SHA. A reviewer or orchestrator MUST re-run the claimed test independently to verify the agent's result. Any code review claiming a fix is complete must have pasted test evidence on the real production path, not only a unit test in isolation — the production caller, the retry path, the race condition, or the edge case must reproduce the exact failure first, then pass after the fix.
 - Do not copy old repos blindly into `goatos/`; dashboard frontends are the
   intentional exception and should be snapshot/cloned into `goatos/apps/` for
   safe rewiring while live repos stay untouched.
@@ -550,3 +582,5 @@ one product; this skill is the navigation layer.
 
 <!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
 <!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->
+
+<!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->

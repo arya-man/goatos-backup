@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -311,6 +312,11 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	}
 	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, parkID, shedID, dueAt, obligationID)
 
+	// $3 is the drive business DATE. ListDriveTargets always binds the real day parsed off the event
+	// id, and the fragment now casts it with $3::date (vaccination_drive_assignments.planned_date /
+	// obligation_batches.planned_date are DATE columns), so an empty string is not a legal bind here.
+	driveDay := dueAt.In(biztime.DefaultLocation()).Format("2006-01-02")
+
 	queryTargets := func(sessionTZ string) int64 {
 		t.Helper()
 		tx, err := pool.Begin(ctx)
@@ -331,7 +337,7 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 SELECT count(*)
 FROM (`+calendarDriveTargetsSQL+`) targets
 WHERE animal_id::text = $15::text`,
-			testTenantID, batchID, "", parkID, shedID, tenantID, ruleID, cursorID, true, parkIDs, shedIDs, false, 21, "", goatID).Scan(&got)
+			testTenantID, batchID, driveDay, parkID, shedID, tenantID, ruleID, cursorID, true, parkIDs, shedIDs, false, 21, "", goatID).Scan(&got)
 		if err != nil {
 			t.Fatalf("query due_at fragment under session tz %s: %v", sessionTZ, err)
 		}

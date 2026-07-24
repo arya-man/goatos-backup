@@ -775,7 +775,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Phase 1 CONFIG-ONLY: read a park's N-active-operators-per-day + default-operator config plus every operator's authored shift, for the admin Config screen. Not yet consumed by the drive scheduler (Phase 5). */
+        /**
+         * Phase 1 CONFIG-ONLY: read a park's N-active-operators-per-day + default-operator config plus every operator's authored shift, for the admin Config screen. Not yet consumed by the drive scheduler (Phase 5).
+         * @description park_id is OPTIONAL: omit it and the backend resolves the caller's single authorized park scope and echoes it back as parkId, which is the park the client must scope its roster reads to. An actor whose grants do not resolve to exactly one park (for example a tenant-wide CEO grant in a multi-park tenant) receives 409 park_scope_ambiguous and must pass park_id explicitly -- the client must never blend several parks' rosters into one view.
+         */
         get: operations["getVaccinationOperatorAssignmentConfig"];
         /** Phase 1 CONFIG-ONLY: write a park's active-operators-per-day + default-operator config (validate-or-reject; optimistic concurrency via rowVersion). Not yet consumed by the drive scheduler (Phase 5). */
         put: operations["putVaccinationOperatorAssignmentConfig"];
@@ -4579,11 +4582,34 @@ export interface components {
              */
             weekOffWeekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
         };
+        /** @description One selectable park in the backend-owned park-scope vocabulary. Ids and labels are canonical Postgres `locations` rows compiled by the backend; clients render them and send parkId back. */
+        VaccinationParkScopeOption: {
+            /** Format: uuid */
+            parkId: string;
+            /** @description Short park code (may be empty when the park has none). */
+            code: string;
+            /** @description Display name for the park option. */
+            name: string;
+        };
+        /** @description 409 body for a read whose park scope the caller must choose. availableParks is the exact set the caller is authorized for; an empty array means the caller has no active park scope at all (a grant problem), which is a different situation from having several. */
+        VaccinationParkScopeAmbiguous: {
+            /** @enum {string} */
+            code: "park_scope_ambiguous";
+            /** @description Backend-owned user-facing reason. Clients render this text; they do not compose their own. */
+            message: string;
+            trace_id: string;
+            availableParks: components["schemas"]["VaccinationParkScopeOption"][];
+        };
         /**
          * @description Phase 1 CONFIG-ONLY: a park's N-active-operators-per-day + CEO-set default operator, plus every
          *     operator's authored shift. Not yet consumed by the drive scheduler (Phase 5).
          */
         VaccinationOperatorAssignmentConfig: {
+            /**
+             * Format: uuid
+             * @description The park this config belongs to, as RESOLVED by the backend (echoing an explicit park_id, or the caller's single authorized park scope). Clients scope their roster/capacity reads to this value instead of inferring a park from returned rows.
+             */
+            parkId: string;
             /** @description N operators active per business day for this park. CPT runs N=1 today. */
             activeOperatorsPerDay: number;
             /**
@@ -6999,8 +7025,8 @@ export interface operations {
     };
     getVaccinationOperatorAssignmentConfig: {
         parameters: {
-            query: {
-                park_id: string;
+            query?: {
+                park_id?: string;
             };
             header?: never;
             path?: never;
@@ -7021,6 +7047,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The caller's scope does not resolve to exactly one park. The body carries the parks the caller may choose from so the client renders a backend-owned selector and re-requests with park_id; it must never assemble or label a park list of its own. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationParkScopeAmbiguous"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

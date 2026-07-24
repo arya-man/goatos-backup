@@ -25,12 +25,17 @@ type DriveOperator struct {
 }
 
 type DriveWorkBlock struct {
-	ID             string
-	Park           string
-	RawShed        string
-	PhysicalShed   string
-	Partition      string
-	Animals        int
+	ID           string
+	Park         string
+	RawShed      string
+	PhysicalShed string
+	Partition    string
+	Animals      int
+	// GoatIDs is the EXACT set of animals behind Animals, when the caller knows them. The planner
+	// then DECIDES which named animals go to which operator/date arm instead of leaving a count
+	// split ("200 on Jul 24, 124 on Jul 25") to be synthesized at persist time. Optional: a
+	// count-only block (empty GoatIDs) plans exactly as before and produces unnamed arms.
+	GoatIDs        []string
 	Species        string
 	Bundle         string
 	DueDate        time.Time
@@ -56,8 +61,12 @@ type DrivePlanAssignment struct {
 	PhysicalShed string
 	Partitions   []string
 	Animals      int
-	BlockIDs     []string
-	Warnings     []string
+	// GoatIDs names the animals this arm covers -- the planner's decision, not an artifact of
+	// insertion order downstream. Empty exactly when every contributing block was count-only.
+	// len(GoatIDs) == Animals whenever the arm's blocks carried identities.
+	GoatIDs  []string
+	BlockIDs []string
+	Warnings []string
 }
 
 type DrivePlanDay struct {
@@ -208,6 +217,7 @@ func splitLatestSafeGroupAcrossOperators(date string, loads []operatorLoad, bloc
 	assignments := make([]DrivePlanAssignment, 0, len(blocks))
 	for _, block := range blocks {
 		remaining := block.Animals
+		cursor := 0
 		for remaining > 0 {
 			choice := bestOperatorWithAnyCapacity(loads)
 			if choice < 0 {
@@ -219,6 +229,8 @@ func splitLatestSafeGroupAcrossOperators(date string, loads []operatorLoad, bloc
 			}
 			chunkBlock := block
 			chunkBlock.Animals = chunk
+			chunkBlock.GoatIDs = sliceGoatIDs(block.GoatIDs, cursor, chunk)
+			cursor += chunk
 			assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, chunkBlock, []string{"forced_partition_split"}))
 			loads[choice].remaining -= chunk
 			loads[choice].assigned += chunk
@@ -233,6 +245,7 @@ func splitLatestSafeGroupAcrossOperators(date string, loads []operatorLoad, bloc
 		}
 		overCapBlock := block
 		overCapBlock.Animals = remaining
+		overCapBlock.GoatIDs = sliceGoatIDs(block.GoatIDs, cursor, remaining)
 		loads[choice].remaining -= remaining
 		loads[choice].assigned += remaining
 		assignments = mergeAssignment(assignments, assignmentForBlock(date, loads[choice].op, overCapBlock, []string{"over_cap_required_latest_safe", "forced_partition_split"}))
@@ -243,6 +256,9 @@ func splitLatestSafeGroupAcrossOperators(date string, loads []operatorLoad, bloc
 func splitOversizedBlockAcrossOperators(date string, loads []operatorLoad, block DriveWorkBlock) ([]DrivePlanAssignment, DriveWorkBlock) {
 	assignments := make([]DrivePlanAssignment, 0)
 	remaining := block.Animals
+	// Named animals are handed out in the block's canonical order, so chunk k always covers the same
+	// animals for the same inputs; the chunk SIZES are unchanged from the count-only behaviour.
+	cursor := 0
 	for remaining > 0 {
 		choice := bestOperatorWithAnyCapacity(loads)
 		if choice < 0 {
@@ -254,6 +270,8 @@ func splitOversizedBlockAcrossOperators(date string, loads []operatorLoad, block
 		}
 		chunkBlock := block
 		chunkBlock.Animals = chunk
+		chunkBlock.GoatIDs = sliceGoatIDs(block.GoatIDs, cursor, chunk)
+		cursor += chunk
 		assignments = append(assignments, assignmentForBlock(date, loads[choice].op, chunkBlock, []string{"forced_partition_split"}))
 		loads[choice].remaining -= chunk
 		loads[choice].assigned += chunk
@@ -261,6 +279,7 @@ func splitOversizedBlockAcrossOperators(date string, loads []operatorLoad, block
 	}
 	residual := block
 	residual.Animals = remaining
+	residual.GoatIDs = sliceGoatIDs(block.GoatIDs, cursor, remaining)
 	return assignments, residual
 }
 
@@ -340,6 +359,49 @@ func groupWorkBlocksByPhysicalShed(blocks []DriveWorkBlock) []physicalShedWorkGr
 	return groups
 }
 
+// canonicalGoatIDs is the planner's stable animal ordering: de-duplicated, blank-free and sorted.
+// Every split hands animals out in this order, which is what makes the goat-to-arm mapping
+// reproducible across runs and across processes -- unlike Go map iteration or a caller's row order.
+func canonicalGoatIDs(goatIDs []string) []string {
+	if len(goatIDs) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(goatIDs))
+	out := make([]string, 0, len(goatIDs))
+	for _, goatID := range goatIDs {
+		goatID = strings.TrimSpace(goatID)
+		if goatID == "" {
+			continue
+		}
+		if _, dup := seen[goatID]; dup {
+			continue
+		}
+		seen[goatID] = struct{}{}
+		out = append(out, goatID)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// sliceGoatIDs takes the n names starting at offset, clamped. A count-only block (no names) yields
+// nil, so the caller's count behaviour is unchanged.
+func sliceGoatIDs(goatIDs []string, offset, n int) []string {
+	if len(goatIDs) == 0 || n <= 0 {
+		return nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(goatIDs) {
+		return nil
+	}
+	end := offset + n
+	if end > len(goatIDs) {
+		end = len(goatIDs)
+	}
+	return append([]string(nil), goatIDs[offset:end]...)
+}
+
 func totalBlockAnimals(blocks []DriveWorkBlock) int {
 	total := 0
 	for _, block := range blocks {
@@ -357,6 +419,7 @@ func assignmentForBlock(date string, operator DriveOperator, block DriveWorkBloc
 		PhysicalShed: block.PhysicalShed,
 		Partitions:   []string{block.Partition},
 		Animals:      block.Animals,
+		GoatIDs:      append([]string(nil), block.GoatIDs...),
 		BlockIDs:     []string{block.ID},
 		Warnings:     warnings,
 	}
@@ -397,6 +460,12 @@ func normalizeDriveWorkBlocks(blocks []DriveWorkBlock) []DriveWorkBlock {
 		}
 		if block.Partition == "" {
 			block.Partition = "whole"
+		}
+		// Names and count must be the same fact, and the name order must be canonical so the
+		// goat-to-arm mapping is reproducible run to run (a Go map or a caller's scan order is not).
+		if len(block.GoatIDs) > 0 {
+			block.GoatIDs = canonicalGoatIDs(block.GoatIDs)
+			block.Animals = len(block.GoatIDs)
 		}
 		out = append(out, block)
 	}
@@ -448,6 +517,7 @@ func mergeAssignment(assignments []DrivePlanAssignment, next DrivePlanAssignment
 			existing.Park == next.Park &&
 			existing.PhysicalShed == next.PhysicalShed {
 			existing.Animals += next.Animals
+			existing.GoatIDs = canonicalGoatIDs(append(existing.GoatIDs, next.GoatIDs...))
 			existing.Partitions = appendUniqueStrings(existing.Partitions, next.Partitions...)
 			existing.BlockIDs = append(existing.BlockIDs, next.BlockIDs...)
 			existing.Warnings = appendUniqueStrings(existing.Warnings, next.Warnings...)
