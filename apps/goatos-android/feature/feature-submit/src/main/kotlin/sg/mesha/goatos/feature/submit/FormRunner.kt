@@ -443,13 +443,13 @@ private fun ProofBoxControl(
                 Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.Brand, modifier = Modifier.size(24.dp))
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = if (field.proofItems.isEmpty()) "Record ${field.label.lowercase()}" else "Add another video",
+                    text = proofCaptureTitle(field),
                     color = MeshaColors.Ink,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.W700,
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(text = field.helpText ?: "1 required · up to 5 videos", color = MeshaColors.Muted, fontSize = 11.sp)
+                Text(text = proofCaptureHint(field), color = MeshaColors.Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProofActionButton("Record", Modifier.weight(1f)) { onCaptureVideo(field.key, "in_app_camera") }
@@ -460,6 +460,29 @@ private fun ProofBoxControl(
             }
         }
         field.proofItems.forEach { item -> ProofItemRow(field.key, item, onCaption, onRemoveProof, onRetryProof) }
+    }
+}
+
+private fun proofCaptureTitle(field: FormFieldUi): String {
+    val synced = field.proofItems.count { it.syncStatus == "SYNCED" }
+    return when {
+        field.proofItems.isEmpty() -> "Record ${field.label.lowercase()}"
+        field.required && synced > 0 -> "Add optional video"
+        else -> "Add another video"
+    }
+}
+
+private fun proofCaptureHint(field: FormFieldUi): String {
+    val synced = field.proofItems.count { it.syncStatus == "SYNCED" }
+    val uploading = field.proofItems.count { it.syncStatus == "IN_FLIGHT" || it.syncStatus == "PENDING" }
+    val failed = field.proofItems.count { it.syncStatus == "FAILED" }
+    return when {
+        field.required && synced > 0 && failed > 0 -> "Required video synced · retry or remove failed extra"
+        field.required && synced > 0 -> "$synced synced · extra videos are optional"
+        uploading > 0 && failed > 0 -> "Upload still pending · failed video can be retried"
+        uploading > 0 -> "Uploading video · keep this screen available"
+        failed > 0 -> "Upload failed · retry or remove and record again"
+        else -> field.helpText ?: "1 required · up to 5 videos"
     }
 }
 
