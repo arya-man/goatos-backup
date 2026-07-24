@@ -424,9 +424,8 @@ internal fun buildWeekDays(
     selectedDay: LocalDate,
     today: LocalDate,
 ): List<CalendarWeekDay> {
-    // Rolling 8-day strip anchored on TODAY (IST): yesterday (today-1) through today+6, matching
-    // calendarWeekRange. Not a fixed Monday-Sunday week. Every day is a clickable tab; today stays
-    // selected on landing.
+    // Rolling 7-day strip (IST): yesterday (today-1) through today+5, matching calendarWeekRange.
+    // Not a fixed Monday-Sunday week. Every day is a clickable tab; today stays selected on landing.
     val start = today.minusDays(1)
     val byDate = markers.associateBy { it.date }
     return (0..6).map { offset ->

@@ -29,7 +29,8 @@ import java.time.ZoneId
 /**
  * Regression: a vaccination-sheds view with NO data for the window (a CEO/leadership principal
  * with no assigned sheds, an operator on a drive-free day, or the loading/offline moment) must
- * still anchor its day strip on today and stay tap-responsive.
+ * still render the real day strip — one prior day (yesterday) through today+5, landing on today —
+ * and stay tap-responsive.
  *
  * The bug: the empty/loading/offline branch fell to [sg.mesha.goatos.ui.shedsPlaceholder], which
  * copies `sampleShedsState()` and never resets its hardcoded sample `dayTabs`
@@ -48,17 +49,21 @@ class ShedsEmptyStateDayStripTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `empty response anchors the day strip on today, not the sample date`() = runTest(dispatcher) {
+    fun `empty response anchors the day strip on yesterday and lands on today`() = runTest(dispatcher) {
         val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        val today = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+        val todayDate = LocalDate.now(ZoneId.of("Asia/Kolkata"))
+        val today = todayDate.toString()
+        val yesterday = todayDate.minusDays(1).toString()
         val tabs = vm.state.value.dayTabs
 
         assertTrue("empty state must still render a day strip", tabs.isNotEmpty())
-        assertEquals("day strip must start at today", today, tabs.first().dateKey)
-        assertEquals("today must be the selected tab", today, tabs.single { it.isSelected }.dateKey)
+        assertEquals("day strip must start one day before today", yesterday, tabs.first().dateKey)
+        assertEquals("strip is a 7-day window", 7, tabs.size)
+        assertEquals("last tab is today+5", todayDate.plusDays(5).toString(), tabs.last().dateKey)
+        assertEquals("today must be the selected/landing tab", today, tabs.single { it.isSelected }.dateKey)
     }
 }
 

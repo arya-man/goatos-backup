@@ -67,7 +67,7 @@ class ShedsViewModel @Inject constructor(
     private val initialDay: LocalDate =
         savedStateHandle.get<String>("dateKey")
             ?.let(::parseExecutionDate)
-            ?.takeIf { it >= workWindow.today && it <= workWindow.lastDay }
+            ?.takeIf { it >= workWindow.firstDay && it <= workWindow.lastDay }
             ?: workWindow.today
     private val _selectedDay = MutableStateFlow(initialDay)
 
@@ -194,7 +194,10 @@ class ShedsViewModel @Inject constructor(
             when {
                 !hasOpenWork -> false
                 dueDate == null -> selectedDay == workWindow.today
-                selectedDay == workWindow.today -> !dueDate.isAfter(workWindow.today)
+                // Today folds in the deep backlog (due strictly before the visible yesterday
+                // tab) plus today's own work; yesterday is its own tab, so it is excluded here.
+                selectedDay == workWindow.today ->
+                    dueDate.isEqual(workWindow.today) || dueDate.isBefore(workWindow.firstDay)
                 else -> dueDate == selectedDay
             }
         }
@@ -398,23 +401,31 @@ internal data class OperatorWorkWindow(
     val todayLabel: String,
     val windowLabel: String,
     val today: LocalDate,
+    val firstDay: LocalDate,
     val lastDay: LocalDate,
 ) {
     companion object {
         fun today(now: ZonedDateTime = ZonedDateTime.now(KOLKATA)): OperatorWorkWindow {
             val today = now.toLocalDate()
-            val lastDay = today.plusDays((OPERATOR_WINDOW_DAYS - 1).toLong())
+            // The strip shows one prior day so yesterday's slip is visible, then today +5:
+            // firstDay = today-1, lastDay = today+5 (OPERATOR_WINDOW_DAYS tabs). Landing stays
+            // on today (see initialDay). Matches the leadership Calendar week window.
+            val firstDay = today.minusDays(1)
+            val lastDay = firstDay.plusDays((OPERATOR_WINDOW_DAYS - 1).toLong())
             return OperatorWorkWindow(
                 // Live operator work is a current-view read. Do not send a phone-generated
                 // as_of timestamp: by the time it reaches the API it is already historical,
                 // and the backend correctly rejects historical point-in-time execution reads.
                 // Omitting as_of lets the server anchor the query to its own current clock.
                 asOf = null,
-                dueBefore = now.plusDays(OPERATOR_WINDOW_DAYS.toLong())
+                // Upper bound covers lastDay (today+5); the backend still returns past-due
+                // rows for the yesterday tab and today's backlog fold.
+                dueBefore = now.plusDays((OPERATOR_WINDOW_DAYS - 1).toLong())
                     .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 todayLabel = "Today · ${shortDateLabel(today)}",
-                windowLabel = "${shortDateLabel(today)} → ${shortDateLabel(lastDay)}",
+                windowLabel = "${shortDateLabel(firstDay)} → ${shortDateLabel(lastDay)}",
                 today = today,
+                firstDay = firstDay,
                 lastDay = lastDay,
             )
         }
@@ -430,14 +441,19 @@ private fun buildOperatorDayTabs(
         .filterKeys { it != null }
         .mapKeys { it.key!! }
         .mapValues { (_, dueRows) -> executionCounts(dueRows).open }
+    // Today's tab folds in the deep backlog (anything due strictly BEFORE the visible
+    // yesterday tab), plus today's own work. Yesterday now has its own tab, so it is
+    // excluded here to avoid counting the same slip twice.
     val todayBacklogCount = rows
         .filter { row ->
-            row.openCount > 0 && row.currentScheduleDate?.let(::parseExecutionDate)?.isAfter(window.today) != true
+            if (row.openCount <= 0) return@filter false
+            val due = row.currentScheduleDate?.let(::parseExecutionDate) ?: return@filter false
+            due.isEqual(window.today) || due.isBefore(window.firstDay)
         }
         .let(::executionCounts)
         .open
     return (0 until OPERATOR_WINDOW_DAYS).map { offset ->
-        val date = window.today.plusDays(offset.toLong())
+        val date = window.firstDay.plusDays(offset.toLong())
         ShedDayTab(
             dateKey = date.toString(),
             dayLabel = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH).uppercase(Locale.ENGLISH),
@@ -459,7 +475,7 @@ private fun buildOperatorDayTabs(
  * with no assigned sheds, an operator on a drive-free day, or the loading/offline moment —
  * rendered those sample dates: never defaulting to today and ignoring date taps (reproduced
  * live on the CEO/CXO "Vaccination" screen). Rebuild the strip from the live [window] +
- * [selectedDay] so the empty state still lands on today, shows today → today+6, and stays
+ * [selectedDay] so the empty state still lands on today, shows yesterday → today+5, and stays
  * tap-responsive.
  */
 internal fun emptyShedsState(
