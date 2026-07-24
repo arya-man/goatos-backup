@@ -56,6 +56,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.sheds.R
 
@@ -242,6 +244,7 @@ fun ShedsScreen(
     onEvent: (ShedsEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
         if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
@@ -478,22 +481,11 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
             )
         },
         actions = {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Surf2)
-                    .border(1.dp, Hair, RoundedCornerShape(12.dp))
-                    .clickable(onClick = onRefresh),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = MeshaIcons.Refresh,
-                    contentDescription = stringResource(R.string.sheds_refresh_description),
-                    tint = Muted,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+            SyncIconButton(
+                isSyncing = state.isRefreshing,
+                onSync = onRefresh,
+                contentDescription = stringResource(R.string.sheds_refresh_description),
+            )
         },
     )
 }

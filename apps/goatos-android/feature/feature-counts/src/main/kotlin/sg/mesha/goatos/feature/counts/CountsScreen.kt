@@ -47,6 +47,8 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 /**
@@ -240,6 +242,7 @@ fun CountsScreen(
     // screen is layout, not a backend-owned fact. Every option/selection inside it still comes
     // from state.filters.
     var filterSheetOpen by remember { mutableStateOf(false) }
+    RefreshOnResume { onEvent(CountsEvent.Refresh) }
 
     Column(
         modifier = modifier
@@ -342,21 +345,11 @@ private fun CountsHeader(state: CountsUiState, onRefresh: () -> Unit) {
             )
         },
         actions = {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
-                    .clickable(enabled = !state.isRefreshing, onClick = onRefresh),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = MeshaIcons.Refresh,
-                    contentDescription = stringResource(R.string.counts_refresh_description),
-                    tint = MeshaColors.Muted,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+            SyncIconButton(
+                isSyncing = state.isRefreshing,
+                onSync = onRefresh,
+                contentDescription = stringResource(R.string.counts_refresh_description),
+            )
         },
     )
 }

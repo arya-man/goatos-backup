@@ -52,6 +52,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.leadership.R
 
@@ -256,6 +258,7 @@ fun LeadershipScreen(
     onEvent: (LeadershipEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(LeadershipEvent.Refresh) }
     Column(
         modifier
             .fillMaxSize()
@@ -268,6 +271,7 @@ fun LeadershipScreen(
             title = stringResource(R.string.overview_title),
             // No leading argument: `/leadership` is a backend nav_item, so the shared header
             // renders the module drawer here and this screen never asks about it.
+            isSyncing = state.isRefreshing,
             onRefresh = { onEvent(LeadershipEvent.Refresh) },
             refreshContentDescription = stringResource(R.string.overview_refresh_content_description),
         )
@@ -683,6 +687,7 @@ internal fun LeadTopBar(
     eyebrow: String,
     title: String,
     onBack: (() -> Unit)? = null,
+    isSyncing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
     refreshContentDescription: String? = null,
 ) {
@@ -695,7 +700,11 @@ internal fun LeadTopBar(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
         actions = {
             if (onRefresh != null) {
-                IconButton(icon = MeshaIcons.Refresh, contentDescription = refreshContentDescription, onClick = onRefresh)
+                SyncIconButton(
+                    isSyncing = isSyncing,
+                    onSync = onRefresh,
+                    contentDescription = refreshContentDescription,
+                )
             }
         },
     )

@@ -34,6 +34,7 @@ import androidx.paging.compose.LazyPagingItems
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.RefreshOnResume
 
 /**
  * The approver's pending-decision queue (`/counts/approvals`) — an L0 root of the Counts module,
@@ -97,6 +98,7 @@ fun ApprovalScreen(
     onEvent: (ApprovalEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(ApprovalEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = stringResource(R.string.counts_approval_title),
