@@ -32,6 +32,17 @@ type fakeRosterRepo struct {
 	// same-key/different-payload) is unit-testable without Postgres. Keyed by
 	// "scope:key"; value pairs the semantic fingerprint with the stored result id.
 	idem map[string]fakeIdem
+	// vaccinationDutyPositions simulates position_module_duties rows carrying an active
+	// duty_type='execute' + module_code IN (preventive_care/vaccination/pc.vaccination) --
+	// the SAME membership predicate ParkIDsForVaccinationOperator/ListVaccinationOperatorsForPark
+	// use in Postgres. Keyed by position_code; a code present here (regardless of its
+	// naming convention) is counted as a vaccination-operator seat, a code absent is not --
+	// this is what makes the duty-based-vs-position-code-prefix distinction unit-testable.
+	vaccinationDutyPositions map[string]bool
+	// shedParkOf maps a shed-scope scope_id to its parent park's location id, so a
+	// shed-scoped position/leave can be resolved to its park in the fake exactly like the
+	// real `locations.parent_location_id` join does.
+	shedParkOf map[string]string
 }
 
 type fakeIdem struct {
@@ -41,11 +52,78 @@ type fakeIdem struct {
 
 func newFakeRosterRepo() *fakeRosterRepo {
 	return &fakeRosterRepo{
-		positions:            map[string]domain.Position{},
-		leaves:               map[string]domain.StaffLeave{},
-		idem:                 map[string]fakeIdem{},
-		foreignTenantMembers: map[string]bool{},
+		positions:                map[string]domain.Position{},
+		leaves:                   map[string]domain.StaffLeave{},
+		idem:                     map[string]fakeIdem{},
+		foreignTenantMembers:     map[string]bool{},
+		vaccinationDutyPositions: map[string]bool{},
+		shedParkOf:               map[string]string{},
 	}
+}
+
+// registerVaccinationDuty marks positionCode as carrying an active vaccination-execute
+// duty (position_module_duties: duty_type='execute', module_code IN preventive_care/
+// vaccination/pc.vaccination) -- the duty-based membership predicate, independent of
+// the position's naming convention.
+func (f *fakeRosterRepo) registerVaccinationDuty(positionCode string) {
+	f.vaccinationDutyPositions[positionCode] = true
+}
+
+// registerShedPark records that shedID's parent park is parkID, for shed-scope
+// resolution in ParkIDsForVaccinationOperator / ListVaccinationOperatorsForPark.
+func (f *fakeRosterRepo) registerShedPark(shedID, parkID string) {
+	f.shedParkOf[shedID] = parkID
+}
+
+// parkForPosition resolves a position's affected park: itself for scope_type="center",
+// or its registered parent park for scope_type="shed". Returns ("", false) otherwise.
+func (f *fakeRosterRepo) parkForPosition(p domain.Position) (string, bool) {
+	switch p.ScopeType {
+	case "center":
+		return p.ScopeID, true
+	case "shed":
+		parkID, ok := f.shedParkOf[p.ScopeID]
+		return parkID, ok
+	default:
+		return "", false
+	}
+}
+
+func (f *fakeRosterRepo) ParkIDsForVaccinationOperator(_ context.Context, _, workforceMemberID string, _ time.Time) ([]string, error) {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range f.positions {
+		if p.WorkforceMemberID != workforceMemberID || p.Status != "active" || p.PositionTier == "director" {
+			continue
+		}
+		if !f.vaccinationDutyPositions[p.PositionCode] {
+			continue
+		}
+		parkID, ok := f.parkForPosition(p)
+		if !ok || seen[parkID] {
+			continue
+		}
+		seen[parkID] = true
+		out = append(out, parkID)
+	}
+	return out, nil
+}
+
+func (f *fakeRosterRepo) ListVaccinationOperatorsForPark(_ context.Context, _, parkID string, _ time.Time) ([]domain.Position, error) {
+	var out []domain.Position
+	for _, p := range f.positions {
+		if p.Status != "active" || p.PositionTier == "director" {
+			continue
+		}
+		if !f.vaccinationDutyPositions[p.PositionCode] {
+			continue
+		}
+		if resolved, ok := f.parkForPosition(p); !ok || resolved != parkID {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // markForeignTenantMember flags workforceMemberID as belonging to a different

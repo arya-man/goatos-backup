@@ -141,6 +141,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   // scheduler-read tables and emits vaccination.capacity.changed per park, re-planning all future drives.
   const [animalShotCap, setAnimalShotCap] = useState<number | null>(null);
   const [capRowVersion, setCapRowVersion] = useState(0);
+  const [capConfigError, setCapConfigError] = useState<string | null>(null);
   const [capEditing, setCapEditing] = useState(false);
   const [draftCommonCap, setDraftCommonCap] = useState('200');
   const [draftAnimalCap, setDraftAnimalCap] = useState('');
@@ -214,6 +215,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         setCommonCap(result.commonCap);
         setAnimalShotCap(result.animalShotCap);
         setCapRowVersion(result.capRowVersion);
+        setCapConfigError(result.capConfigError);
         if (!config) {
           // No config authored yet: fall back to the first NON-BACKUP operator of
           // THIS park. operatorsList/orderedOps filter out backup slots, so a
@@ -510,6 +512,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   };
 
   const openCapEditor = () => {
+    if (capConfigError) return; // never edit against a config that failed to load
     setDraftCommonCap(String(commonCap));
     setDraftAnimalCap(animalShotCap == null ? '' : String(animalShotCap));
     setCapError(null);
@@ -517,6 +520,10 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   };
 
   const saveCapacityConfig = async () => {
+    if (capConfigError) {
+      setCapError('Capacity config could not be loaded; reload before editing caps.');
+      return;
+    }
     const nextCommon = Number(draftCommonCap.trim());
     if (!Number.isInteger(nextCommon) || nextCommon < 1 || nextCommon > 100000) {
       setCapError('Operator cap must be a whole number between 1 and 100000 animals/day.');
@@ -784,18 +791,30 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
             ) : (
               <>
                 <span className="capctl-lab">Cap / operator</span>
-                <b id="capText">{commonCap}</b>
+                <b id="capText">{capConfigError ? '—' : commonCap}</b>
                 <span className="capunit">animals/day</span>
                 <span className="capctl-lab" style={{ marginLeft: 10 }}>Animal shot cap</span>
-                <b>{animalShotCap == null ? 'default' : animalShotCap}</b>
+                <b>{capConfigError ? '—' : animalShotCap == null ? 'default' : animalShotCap}</b>
                 <span className="capunit">shots/animal</span>
-                <button className="btn sm" onClick={openCapEditor} type="button" title="Edit operator + animal caps">
+                <button
+                  className="btn sm"
+                  onClick={openCapEditor}
+                  type="button"
+                  disabled={!!capConfigError}
+                  aria-disabled={!!capConfigError}
+                  title={capConfigError ? `Capacity config failed to load — editing disabled. ${capConfigError}` : 'Edit operator + animal caps'}
+                >
                   Edit caps
                 </button>
               </>
             )}
           </div>
         </div>
+        {capConfigError ? (
+          <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>
+            Couldn’t load the vaccination capacity config, so operator and animal caps can’t be edited right now. Reload to try again. ({capConfigError})
+          </div>
+        ) : null}
         {capError ? <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>{capError}</div> : null}
         <div className="bd" style={{ overflowX: 'auto' }}>
           <table>

@@ -186,6 +186,27 @@ type RosterRepository interface {
 	// absent on a later day of it (design doc S4.7).
 	HasApprovedLeaveInWindow(ctx context.Context, tenantID, workforceMemberID string, startsAt, endsAt time.Time) (bool, string, error)
 
+	// ParkIDsForVaccinationOperator returns the park (center-scope) location ids where
+	// workforceMemberID currently holds an active, non-director, DUTY-BASED vaccination-execute
+	// seat -- i.e. a workforce_positions row (scope center=park, or shed under that park) joined
+	// to an active position_module_duties row with duty_type='execute' and module_code IN
+	// ('preventive_care','vaccination','pc.vaccination'). This is the SAME membership predicate
+	// the obligation package's scheduler read (AvailableVaccinationOperatorsForDrive,
+	// backend/internal/obligation/adapters/postgres/visit_shot_lock.go) uses -- kept in sync
+	// manually since workforce must not import obligation. It deliberately does NOT filter by
+	// position_code prefix. Used to determine which park(s) a leave (of ANY scope_type: tenant,
+	// center, or shed) must guard coverage for -- the guard is keyed off the LEAVING MEMBER's own
+	// seat, not the leave's own scope, so a tenant- or shed-scoped leave is guarded exactly like a
+	// center-scoped one.
+	ParkIDsForVaccinationOperator(ctx context.Context, tenantID, workforceMemberID string, at time.Time) ([]string, error)
+
+	// ListVaccinationOperatorsForPark returns the active vaccination-execute duty-based operator
+	// seats for a park (parkID), at scope center=parkID or a shed under it, mirroring the same
+	// scheduler membership predicate as ParkIDsForVaccinationOperator (position_module_duties,
+	// duty_type='execute', module_code IN preventive_care/vaccination/pc.vaccination), NOT
+	// position_code prefix matching.
+	ListVaccinationOperatorsForPark(ctx context.Context, tenantID, parkID string, at time.Time) ([]domain.Position, error)
+
 	// ListBackupConfig returns all backup slot configurations for a scope,
 	// joined with their configured holder names.
 	ListBackupConfig(ctx context.Context, params ListBackupConfigParams) ([]domain.BackupConfig, error)

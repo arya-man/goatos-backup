@@ -119,11 +119,21 @@ ORDER BY batch_id
 		batchUUIDs[i] = uuid
 	}
 
-	// 1. Release obligations back to unbatched (batch_id = NULL)
+	// 1. Release obligations back to unbatched (batch_id = NULL) — ONLY rows that are
+	// still open/replannable. Completed/accepted/verified/history/cancelled (terminal,
+	// already-executed) rows must never be detached from their batch: this is the same
+	// open-status classification reScopeOpenObligationsForGoat uses when detaching a
+	// goat's obligations from a still-'planned' batch (backend/internal/obligation/
+	// adapters/postgres/repository.go, "status IN ('scheduled', 'due', 'deferred')
+	// AND ob.status = 'planned'"). If drift (seed/import/repair) ever leaves a
+	// completed row inside a future-dated batch, a cap/leave/operator config change
+	// must not silently detach that history.
 	_, err = tx.Exec(ctx, `
 UPDATE obligation_instances
 SET batch_id = NULL
-WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
+WHERE tenant_id = $1
+  AND batch_id = ANY($2::uuid[])
+  AND status IN ('scheduled', 'due', 'deferred')
 `, tenantUUID, batchUUIDs)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: release obligations from batches: %w", err)

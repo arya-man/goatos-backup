@@ -38,6 +38,10 @@ func operatorCoverageFixture(t *testing.T) (*RosterService, *fakeRosterRepo) {
 		}, "trace-fixture"); err != nil {
 			t.Fatalf("create position %s: %v", code, err)
 		}
+		// Duty-based membership (BLOCKER 3): register the vaccination-execute duty for this
+		// seat's code, matching the scheduler's position_module_duties predicate rather than
+		// a position_code prefix.
+		repo.registerVaccinationDuty(code)
 	}
 	create(coverageOperatorA, "vaccination_operator_a", "monday")
 	create(coverageOperatorB, "vaccination_operator_b", "tuesday")

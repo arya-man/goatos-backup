@@ -1218,78 +1218,80 @@ func parseLeaveWindow(leave domain.StaffLeave) (startsAt, endsAt time.Time, err 
 	return startsAt, endsAt, nil
 }
 
-// vaccinationOperatorPositionPrefix identifies a vaccination-operator seat
-// (position_code LIKE 'vaccination_operator_%', scope_type='center'/park) --
-// the same identity convention the obligation-package scheduler read
-// (AvailableVaccinationOperatorsForDrive) uses, kept in sync manually since
-// workforce must not import obligation (wrong dependency direction: obligation
-// depends on workforce-adjacent concepts, never the reverse -- see this file's
-// package doc comment).
-const vaccinationOperatorPositionPrefix = "vaccination_operator_"
-
 // checkMinOperatorCoverage enforces the coverage-guard invariant: approving a
 // leave must never leave FEWER THAN 1 available vaccination operator on any
-// business day (Asia/Kolkata) the leave covers, for the park (scopeType
-// "center") the leave is scoped to. "Available" on a given day = an active
-// vaccination-operator seat at this scope whose week_off_weekday is not that
-// day's weekday, AND who has no OTHER approved/escalation_required leave
-// overlapping that day -- excluding leavingMemberID, who is the one being
-// marked unavailable by THIS approval.
+// business day (Asia/Kolkata) the leave covers, for every park the LEAVING
+// MEMBER holds an active vaccination-operator duty in. "Available" on a given
+// day = an active vaccination-operator seat at that park whose
+// week_off_weekday is not that day's weekday, AND who has no OTHER
+// approved/escalation_required leave overlapping that day (at ANY scope --
+// tenant-wide, their own center/park, or a shed within it) -- excluding
+// leavingMemberID, who is the one being marked unavailable by THIS approval.
 //
-// Only reads: ListPositions (existing roster seat catalog) and
-// HasApprovedLeaveInWindow (existing per-member leave-overlap check). No new
-// scheduler logic is introduced -- this reuses the same roster/leave reads the
-// rest of this file already uses, at a coarser (count-only, no capacity/load)
-// grain than the obligation package's drive-assignment scheduler.
-func (s *RosterService) checkMinOperatorCoverage(ctx context.Context, tenantID, scopeType, scopeID string, startsAt, endsAt time.Time, leavingMemberID string) error {
-	if scopeType != "center" || scopeID == "" {
-		// Vaccination-operator seats are park (center) scoped; leaves at any
-		// other scope have no operator-coverage invariant to guard.
-		return nil
-	}
-	positions, err := s.repo.ListPositions(ctx, ports.ListPositionsParams{
-		TenantID: tenantID, ScopeType: scopeType, ScopeID: scopeID, Status: "active", Limit: 500,
-	})
+// Deliberately scope-agnostic w.r.t. the LEAVE being applied/approved
+// (scopeType/scopeID params, kept for call-site/logging symmetry but no
+// longer used to gate the check): the affected park(s) are derived from the
+// leaving member's OWN seat via ParkIDsForVaccinationOperator, not from the
+// leave's own scope_type. A tenant-scoped or shed-scoped leave for a
+// vaccination operator is therefore guarded identically to a center-scoped
+// one -- matching the scheduler's operator-availability predicate
+// (AvailableVaccinationOperatorsForDrive), which excludes an operator for
+// approved/escalation leave at ANY scope, not just leaves scoped to their
+// park.
+//
+// Membership (which seats count as "vaccination operators") is duty-based --
+// ParkIDsForVaccinationOperator / ListVaccinationOperatorsForPark join
+// position_module_duties (duty_type='execute', module_code IN
+// preventive_care/vaccination/pc.vaccination) exactly like the scheduler
+// does, NOT a position_code prefix match, so a differently-named seat with
+// the vaccination execute duty is counted and a vaccination_operator_*-named
+// seat WITHOUT that duty is not.
+func (s *RosterService) checkMinOperatorCoverage(ctx context.Context, tenantID, _, _ string, startsAt, endsAt time.Time, leavingMemberID string) error {
+	parkIDs, err := s.repo.ParkIDsForVaccinationOperator(ctx, tenantID, leavingMemberID, startsAt)
 	if err != nil {
 		return mapRepoErr(err)
 	}
-	var operators []domain.Position
-	for _, p := range positions {
-		if strings.HasPrefix(p.PositionCode, vaccinationOperatorPositionPrefix) {
-			operators = append(operators, p)
-		}
-	}
-	if len(operators) == 0 {
-		// No vaccination-operator seats configured at this scope -- nothing to guard.
+	if len(parkIDs) == 0 {
+		// The leaving member holds no vaccination-operator duty anywhere -- nothing to guard.
 		return nil
 	}
-	for day := biztime.BusinessDayStart(startsAt); day.Before(endsAt); day = day.AddDate(0, 0, 1) {
-		dayEnd := day.AddDate(0, 0, 1)
-		available := 0
-		for _, op := range operators {
-			if op.WorkforceMemberID == leavingMemberID {
-				continue // this approval is what makes them unavailable
-			}
-			if op.WeekOffWeekday != nil && *op.WeekOffWeekday == weekdayName(day) {
-				continue
-			}
-			// Min-operator coverage check on a rare leave-approval action, bounded by operators-per-park
-			// (single digits) x days-in-one-leave-window; roster loaded once above, only leave overlap probed.
-			// scale-guard:ignore: bounded operators-per-park x leave-window-days on rare leave-approval path
-			onLeave, _, err := s.repo.HasApprovedLeaveInWindow(ctx, tenantID, op.WorkforceMemberID, day, dayEnd)
-			if err != nil {
-				return mapRepoErr(err)
-			}
-			if onLeave {
-				continue
-			}
-			available++
+	for _, parkID := range parkIDs {
+		// scale-guard:ignore: a vaccination operator's seat resolves to ~1 park (parkIDs is that seat's park set); bounded, rare admin leave path, not per-request/per-goat
+		operators, err := s.repo.ListVaccinationOperatorsForPark(ctx, tenantID, parkID, startsAt)
+		if err != nil {
+			return mapRepoErr(err)
 		}
-		if available < 1 {
-			return Conflict("min_operator_coverage", fmt.Sprintf(
-				"approving this leave would leave fewer than 1 available vaccination operator on %s for this park",
-				day.Format("2006-01-02"),
-			))
+		if len(operators) == 0 {
+			continue
+		}
+		for day := biztime.BusinessDayStart(startsAt); day.Before(endsAt); day = day.AddDate(0, 0, 1) {
+			dayEnd := day.AddDate(0, 0, 1)
+			available := 0
+			for _, op := range operators {
+				if op.WorkforceMemberID == leavingMemberID {
+					continue // this approval is what makes them unavailable
+				}
+				if op.WeekOffWeekday != nil && *op.WeekOffWeekday == weekdayName(day) {
+					continue
+				}
+				// Min-operator coverage check on a rare leave-approval action, bounded by operators-per-park
+				// (single digits) x days-in-one-leave-window; roster loaded once above, only leave overlap probed.
+				// scale-guard:ignore: bounded operators-per-park x leave-window-days on rare leave-approval path
+				onLeave, _, err := s.repo.HasApprovedLeaveInWindow(ctx, tenantID, op.WorkforceMemberID, day, dayEnd)
+				if err != nil {
+					return mapRepoErr(err)
+				}
+				if onLeave {
+					continue
+				}
+				available++
+			}
+			if available < 1 {
+				return Conflict("min_operator_coverage", fmt.Sprintf(
+					"approving this leave would leave fewer than 1 available vaccination operator on %s for this park",
+					day.Format("2006-01-02"),
+				))
+			}
 		}
 	}
 	return nil

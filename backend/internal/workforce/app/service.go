@@ -544,6 +544,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrDenied) {
 		return Forbidden("operator_gate_denied", "operator gate denied")
 	}
+	if errors.Is(err, ports.ErrMinOperatorCoverage) {
+		return Conflict("min_operator_coverage", err.Error())
+	}
 	var appErr *Error
 	if errors.As(err, &appErr) {
 		return appErr

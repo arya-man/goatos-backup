@@ -49,6 +49,10 @@ export type VaccinationOperatorsScreenData =
       commonCap: number;
       animalShotCap: number | null;
       capRowVersion: number;
+      // Non-null when the capacity config failed to load. The screen must surface this and
+      // DISABLE cap editing rather than let the CEO save against a fabricated 200 / rowVersion 0
+      // (which would silently overwrite the real cap or hit an optimistic-lock conflict).
+      capConfigError: string | null;
       leaveItems: unknown[];
     };
 
@@ -75,20 +79,31 @@ export async function loadVaccinationOperatorsScreen(
     throw new Error('Park scope unavailable for this account. The roster cannot be shown without a single resolved park.');
   }
 
-  const [posRes, capRes, leaveRes] = await Promise.all([
+  const [posRes, capResult, leaveRes] = await Promise.all([
     api.listStaffPositions({ status: 'active', scope_type: 'center', scope_id: resolvedParkId, limit: 500 }),
-    api.getVaccinationCapacityConfig().catch(() => ({ data: { maxPerDay: 200, maxShotsPerAnimalPerDrive: null, rowVersion: 0 } })),
+    // Do NOT swallow a capacity-config load failure into a fabricated 200/rowVersion-0 default:
+    // that would let the CEO edit and save against a fake row-version. Capture the failure so the
+    // screen can surface it and disable cap editing.
+    api
+      .getVaccinationCapacityConfig()
+      .then((res) => ({ ok: true as const, data: res.data }))
+      .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : 'Failed to load vaccination capacity config' })),
     api.listStaffLeave({ limit: 500 }).catch(() => ({ data: { items: [] } })),
   ]);
+
+  const capConfigError = capResult.ok ? null : capResult.error;
+  const capData = capResult.ok ? capResult.data : undefined;
 
   return {
     state: 'ready',
     parkId: resolvedParkId,
     config,
     positions: posRes.data?.items ?? [],
-    commonCap: capRes.data?.maxPerDay ?? 200,
-    animalShotCap: capRes.data?.maxShotsPerAnimalPerDrive ?? null,
-    capRowVersion: capRes.data?.rowVersion ?? 0,
+    // On load failure these are display-only placeholders; capConfigError gates editing/saving.
+    commonCap: capData?.maxPerDay ?? 200,
+    animalShotCap: capData?.maxShotsPerAnimalPerDrive ?? null,
+    capRowVersion: capData?.rowVersion ?? 0,
+    capConfigError,
     leaveItems: leaveRes.data?.items ?? [],
   };
 }
