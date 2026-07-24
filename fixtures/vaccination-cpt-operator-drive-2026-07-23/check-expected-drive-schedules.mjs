@@ -177,7 +177,15 @@ ORDER BY 1`;
 const ADULT_POST_ARRIVAL_RULE_SQL = (tenant) => `
 SELECT pr.dose_code, pr.trigger_type
 FROM protocol_rules pr
+JOIN protocol_versions pv
+  ON pv.tenant_id = pr.tenant_id
+ AND pv.protocol_version_id = pr.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
 WHERE pr.tenant_id = '${tenant}'::uuid
+  AND pv.status = 'published'
+  AND pd.category = 'vaccination'
   AND pr.dose_code LIKE '%\\_adult\\_%' ESCAPE '\\'
   AND pr.dose_code NOT LIKE '%\\_revac' ESCAPE '\\'
   AND pr.trigger_type = 'post_arrival'

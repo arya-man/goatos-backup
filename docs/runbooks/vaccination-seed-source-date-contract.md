@@ -122,12 +122,16 @@ commit plaintext passwords, and smoke-test Android bootstrap/login for each
 operator before calling the seed complete.
 The packet also includes `expected-drive-schedules.json`, a machine-readable
 post-seed validation sample. For the discussed 2026-07-24 drive, the expected
-final input is one active operator/day, default Darshan, 200 animals/day, and
-ET+TT-only seed scheduling from `2026-07-24`. PPR is excluded from this CPT seed
+final input is one active operator/day, default Darshan, normal standing cap 200
+animals/day, and ET+TT-only seed scheduling. PPR is excluded from this CPT seed
 packet for now; this is a seed-packet rule only and does not change the global
-vaccination protocol matrix. That produces ET+TT rows of 200 animals on
-`2026-07-24` and 10 animals on `2026-07-25`. Darshan is available Friday/Saturday
-and off Sunday; dose counts must not inflate animal capacity. The roster's
+vaccination protocol matrix. The source contains 114 accepted ET+TT W2 history
+rows on `2026-07-24`, so those animals are done history, not open assignment
+work. The remaining ET+TT W2 catch-up is scheduled as one explicit packet
+exception of 210 animals on `2026-07-25`; later/future rows return to the normal
+200-animal cap unless another reviewed seed fixture declares its own exception.
+Darshan is available Friday/Saturday and off Sunday; dose counts must not inflate
+animal capacity. The roster's
 `weekly_capacity_examples.total_capacity_animals` is raw HRMS availability math
 (`available_operators.length * 200`, so 2 available operators = 400 and 3
 available operators = 600). It is not the final drive assignment cap; with
@@ -201,8 +205,10 @@ missing-entry-date blocker is materialized.
 
 Missing scheduling-anchor checks are trigger-specific. `birth_age` rules need
 DOB, `post_arrival` rules need entry date, and `after_previous_completion`
-rules need accepted completion evidence. Do not treat an unrelated missing
-field as a blocker for a rule that does not use that field.
+rules need accepted completion evidence. Adult vaccination rules must not be
+authored or regenerated as `post_arrival` entry-date work; adult no-history
+animals enter a reviewed manual campaign/catch-up cohort instead. Do not treat
+an unrelated missing field as a blocker for a rule that does not use that field.
 
 ### Authoritative Per-Vaccine Anchor Order
 
@@ -215,11 +221,12 @@ replay, and dynamic recomputation:
    multi-dose course, use the accepted course completion required by that rule.
 2. **Trusted DOB**, only when the vaccine has no accepted administration
    history and the animal is eligible to start an age-based course.
-3. **Trusted herd-entry date**, only when the vaccine has no accepted
-   administration history and the applicable path is procurement/adult primary.
-4. **Adult catch-up/primary at the next compatible drive** when that vaccine has
-   no accepted history and neither DOB nor entry date is available. Missing
-   identity dates alone are not a clinical defer reason.
+3. **Trusted herd-entry date**, only for non-adult paths whose published rule is
+   explicitly `post_arrival`.
+4. **Adult catch-up/primary at the next compatible reviewed campaign drive**
+   when an adult vaccine has no accepted same-vaccine history. Adult
+   `entry_date` / `post_arrival` is never a vaccination due-date anchor, so
+   different adult arrival dates must not create singleton drives.
 
 This is per vaccine, not per goat. An ET+TT date cannot anchor FMD, PPR, pox,
 HS, or Blue Tongue. The kernel must never reverse-engineer or infer DOB from a
