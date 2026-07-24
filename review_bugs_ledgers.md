@@ -51,99 +51,102 @@ the live state.
 | BUG-037 | High | Fixed — ported and integrated | pending port | RE-VERIFIED | **My original diagnosis was wrong and the agent corrected it with proof.** The replay does NOT re-apply the update: it passes `RowVersion: 1` against a stored row at 4, so an `UPDATE … AND row_version = $3` would have matched 0 rows and returned `ErrConflict`. It returned a position, no error — `reserveIdempotency` correctly short-circuited with `ON CONFLICT DO NOTHING` + fingerprint compare. The REAL defect is the other half of the contract: replay did `GetPositionByID` — a fresh read of CURRENT state — so two unrelated intervening edits leaked out under the first key. `idempotency_keys` only stored `result_type`/`result_id`, never the body. Fix: `result_snapshot jsonb` (migration, nullable no-default ⇒ catalog-only, no rewrite), persisted in the SAME txn as the side effects, and the result read INSIDE the write txn so a concurrent writer can't move it |
 | BUG-038 | **Blocker** | Fixed — ported and integrated | pending port | RE-VERIFIED | Guard now renders with a placeholder AND asserts the compose file still carries the `:?` required form, so the runtime fail-fast is machine-checked instead of accidentally load-bearing on the lint. Committed 5-fixture self-test including the **adversarial sibling-block** case (`:?` present on `kernel-maintenance` but absent on `kernel-workers`) that a block-unaware grep would false-green on, plus a topology-break control proving the negatives aren't just the guard crashing. Verbatim: no-env before → `EXIT=1`; after → `PASS EXIT=0`; `:?`→`:-` downgrade → guard fails. ORIGINAL: **`make ci-local` CANNOT go green on any machine, so the exact-SHA push gate is unsatisfiable.** `local-gcp-kernel-parity-guard` is a static lint that runs `docker compose -f compose.local-kernel.yml config`, but `f78d62b9` made the tenant a hard-required interpolation `${GOATOS_TENANT_ID:?...}`. `compose config` evaluates `:?` at render time, so the guard aborts before checking anything, and nothing in `Makefile`/`tools/`/`.github/` exports that var. Proven: exporting a placeholder → `local GCP kernel parity guard: PASS`. Fix = render-only placeholder in the guard PLUS an assertion that the compose file still carries the `:?` form, so the runtime fail-fast stays machine-checked |
 
-**Current working state (2026-07-24):** 17 resolved or accepted out of the ledger
-population, 9 outstanding.
+**Current working state (2026-07-24, after landing `8cf98961`):** 25 closed, 6 outstanding.
 
 | State | Count | IDs |
 |---|---:|---|
-| Fixed, pending land | 9 | BUG-001, BUG-008, BUG-009, BUG-010, BUG-011, BUG-016, BUG-020, BUG-023, BUG-024 |
-| Closed by other session | 7 | BUG-002, BUG-003, BUG-004, BUG-012, BUG-013, BUG-014, BUG-027 |
+| Landed on main at `8cf98961` | 17 | BUG-001, BUG-005, BUG-008, BUG-009, BUG-010, BUG-011, BUG-015, BUG-016, BUG-017, BUG-019, BUG-020, BUG-023, BUG-024, BUG-028, BUG-033, BUG-034, BUG-035 |
+| Landed by the parallel session | 7 | BUG-002, BUG-003, BUG-004, BUG-012, BUG-013, BUG-014, BUG-027 |
+| Landed: scale / contract / gate | 3 | BUG-036, BUG-037, BUG-038 |
 | WONTFIX / accepted risk | 1 | BUG-018 |
 | Not counted / prior-resolved | 4 | BUG-021, BUG-022, BUG-025, BUG-026 |
-| Proof in flight | 3 | BUG-005, BUG-015, BUG-019 |
-| Fix in flight | 5 | BUG-017, BUG-028, BUG-029, BUG-030, BUG-032 |
-| Sequenced last | 1 | BUG-031 |
+| **Open** | **6** | BUG-029 (half), BUG-030 (matrix landed, extensions open), BUG-031, BUG-032 (40 of 58 remain), BUG-039, + MD-1/MD-2 decisions |
 
-### Blockers that must clear before any of this lands
+Counts overlap by design: BUG-030's matrix landed as tests, and the defects it found
+(BUG-033/034/035) are counted as landed in their own rows.
 
-1. ~~**BUG-018 maintainer conflict.**~~ **CLOSED WONTFIX 2026-07-24 — no longer a blocker.**
-   See "ADR note: broad assistant read is intentional" below. Nothing to land; the attempted
-   fix was reverted in full.
-2. **`make vaccination-hrms-seed-fixture-guard` fails.** Editing `seed-roster-real/main.go`
-   + `Makefile` obligates a matching update to `fixtures/vaccination-hrms-source-full/
-   manifest.json`, `tools/dev/vaccination-hrms-fixture-lib.mjs`,
-   `docs/runbooks/source-seed-data-validation.md`, and
-   `.agents/skills/goatos-build/SKILL.md`. Being cleared; must NOT be satisfied by
-   weakening the guard or adding an exemption.
-3. **BUG-019 proof gap.** See its row — backend, screen, and passthrough code now line up,
-   but closure still needs a server-side passthrough test for `normalizeApiError` or an
-   end-to-end render through the route.
+### Landing evidence
 
-### Not Closed / Follow-Up Register (2026-07-24)
+`make ci-local` GREEN (mode `all`) at `8cf9896135c1a8c607fb19b4e0d26e5ee5ebf869`, receipt
+recorded, pushed via `make land-main` (`f97e7fe6..8cf98961`). The push gate is exact-SHA, so
+what is on main is the certified commit itself, not a rebase of it.
 
-These are deliberately **not** counted as closed just because related fixes exist:
+### Blockers — all cleared as of `8cf98961`
 
-1. **Planner named-animal membership — BUG-029.** Migration `000040` records exact
-   per-goat drive membership after persistence, so downstream reads and exit/death removal
-   have a real membership source going forward. But the planner still splits by counts
-   ("200 goats here, 124 goats there"), and the exact goats are assigned later at persist
-   time in deterministic `goat_id` order. That is stable/auditable, but the planner itself
-   still does not name members.
-2. **Lifecycle / health / shift cap-safety matrix — BUG-030.** The single-path fixes do
-   not replace an end-to-end matrix across born, shed-shift, sick/under-treatment,
-   quarantine/ICU, recovery, death/sold/culled/transfer, and leave. Need proof that both
-   obligations and drive-assignment counts recalculate correctly across the combinations.
-3. **Procurement history canonicalization — BUG-017.** The engine behaves correctly once
-   trusted vaccination history exists, but procurement handoff history is still not
-   persisted into accepted/trusted vaccination evidence with proof/review metadata.
-4. **Pre-existing broken test baseline — BUG-032.** About 24 non-calendar failures were
-   reproduced on clean `origin/main` before this work, plus the calendar baseline. They are
-   not regressions from these fixes, but they block a clean `make ci-local` landing until
-   triaged or quarantined with an explicit baseline policy.
-5. **Fresh CPT reseed proof — BUG-031.** No clean exact-`origin/main` CPT reseed has run
-   after the fixes. This is the real end-to-end proof that the cap breach and schedule
-   defects stay gone with membership live.
+1. ~~**BUG-018 maintainer conflict.**~~ CLOSED WONTFIX — see the ADR note below.
+2. ~~**`make vaccination-hrms-seed-fixture-guard`.**~~ Cleared without weakening the guard:
+   the four companion files were updated to genuinely describe what the seed change shipped.
+3. ~~**BUG-019 proof gap.**~~ Closed with backend red/green, a frontend contract test, and
+   browser screenshots with a network trace showing `?park_id=` reaching the roster read.
 
-### ADR note: broad assistant read is intentional (MAINTAINER DECISION, 2026-07-24)
+## BUG-039: membership producer drops the vaccine dimension mid-pipeline
 
-**Status: accepted. Supersedes BUG-018 and any language in this ledger that treats the
-assistant's broad public-schema read grant as a defect.**
+Severity: **High**
+Area: Backend | Data Consistency | Aggregate Grain
+Status: **Fixed** — RE-VERIFIED (real red/green). Fixed at the GRAIN, not the join: the cell key
+is now `(batch, park, shed, physical_shed, partition_label, lane_key)` end to end, where
+`lane_key` is the assignment's own `vaccine_rule_ids` normalized to a SORTED array (unsorted
+would make two rows declaring the same set in different order into two lanes, each claiming
+the whole cell and colliding on `UNIQUE (tenant_id, obligation_id)`). Both the `w_ord`
+running-sum window AND `rn_last` now partition by `lane_key`, so `lo`/`hi` are no longer
+summed across vaccines. RED was deterministic, not probabilistic, on all five adversarial
+axes. Follow-up recorded below: whether the app-layer planner sizes `animal_count` per-cell
+or per-lane is a separate question — the producer is now correct for whatever it emits.
+Found reviewing the LANDED code at `8cf98961`
+Files involved:
+- backend/internal/obligation/adapters/postgres/visit_shot_lock.go
 
-The leadership assistant's read-only roles (`mesha_ceo_readonly` and siblings) intentionally
-hold broad `SELECT` across the public schema, including `ALTER DEFAULT PRIVILEGES` so future
-tables are covered automatically. This is a deliberate design decision, not drift, and not a
-finding to be re-raised.
+### Summary
+`syncVaccinationDriveAssignmentMembersTx` establishes the vaccine match correctly and then
+discards it, so a goat's obligation can be bound to an assignment row planning a DIFFERENT
+vaccine.
 
-**Rationale.** The assistant is a **CEO-only surface**. Its user is already entitled to see
-every row in the tenant. A permission wall on that surface is a product failure — the
-assistant silently failing to answer a question the CEO is authorised to ask is worse than
-the marginal exposure of the underlying grant. Table-level least privilege buys little here
-because the principal at the keyboard already has full business entitlement, while costing a
-migration every time a table is added and producing exactly the class of silent breakage the
-grant was widened to prevent.
+### Evidence
+`obl` (~:355) filters correctly —
+`AND (cardinality(s.vaccine_rule_ids) = 0 OR oi.rule_id = ANY(s.vaccine_rule_ids))` — but its
+SELECT list carries only `obligation_id, goat_id, batch_id, park_id, shed_id, physical_shed,
+partition_label`. **The matched rule and the matched `s.assignment_id` are both thrown away.**
+`goat_rank` (~:379) then dedupes to location + `goat_id`; `alloc` (~:387) re-joins `split` on
+location keys plus the `lo`/`hi` count window; and the final INSERT (~:397) joins `obl` to
+`alloc` on location keys only, never re-checking `vaccine_rule_ids` against the obligation's
+own `rule_id`.
 
-**Where the control boundary actually lives** — these are the real enforcement points, and
-they are what to strengthen if this area needs hardening:
-- the SQL guard on the assistant's query path,
-- tenant scoping (every assistant read stays inside the caller's tenant),
-- audit logging of assistant queries.
+Deeper: the `w_ord` window (~:350) partitions by
+`(batch_id, park_id, shed_id, physical_shed, partition_label)` with **no vaccine dimension**,
+so the `lo`/`hi` running counters are computed across rows planning different vaccines. The
+split arithmetic is vaccine-blind, not just the final join — patching only the INSERT
+predicate would leave a goat allocated into a slot range sized using another vaccine's rows.
 
-**Explicitly NOT the control boundary:** table-level GRANT/REVOKE. Do not propose, build, or
-land a migration that narrows these roles to a table allowlist or to `ceo_ai.*`-only.
+### Risk / Impact
+`vaccination_drive_assignment_members` is the provable goat -> operator-day -> vaccine binding
+that every decrement path now trusts (`removeGoatFromDriveAssignmentsTx` plus the BUG-033
+defer and BUG-034 shed-shift call sites). A mis-bound member makes a death or a clinical
+defer decrement the WRONG vaccine's drive row: a real animal is removed from one operator's
+route while remaining counted on the route it actually belongs to.
 
-**What this does not change.** The `ceo-ai` reporting boundary
-(`docs/decisions/ceo-ai-reporting-boundary.md`) still stands in the other direction: core
-operator read paths must never join `ceo_ai.*`, and `make ceo-ai-boundary-guard` still
-enforces that. Broad READ for the assistant and one-way data flow are independent rules.
+### Why existing coverage missed it
+`drive_assignment_membership_stability_integration_test.go:100` covers same-vaccine sibling
+rows across partition/operator/date. It has no case for same-shed/same-partition rows that
+differ ONLY by `vaccine_rule_ids`.
 
-**History.** A least-privilege migration plus tests was built during the 2026-07-24 review
-round on the reasoning that migration `000030` had moved the five Cube models onto
-owner-rights `ceo_ai.*_base` views, making the public grant dead privilege. That reasoning was
-technically correct about the Cube models and still the wrong call for the product: it
-optimised a boundary that is not the boundary. The migration
-(`000041_assistant_roles_least_privilege.sql`), its test, and the two seed-script edits
-(`tools/dev/setup-ceo-ai-local-role.sh`, `tools/dev/grant-assistant-public-read.sh`) were
-reverted in full. Nothing of it remains in the tree.
+### Root-Cause Class — the sixth instance
+Same class as BUG-006, BUG-007, BUG-008, BUG-027 and BUG-035: a grain is established and then
+dropped before the consumer uses it. **The written grain-proof rule landed in this very round
+did not catch it, because the proof was written for the DECREMENT path and this is the
+PRODUCER.** That is the lesson worth recording: the proof obligation must attach to every
+side of a read model — the writer that establishes membership as much as the reader that
+spends it. A proof on one side is not a proof of the model.
+
+### Suggested Fix
+Carry the vaccine dimension through the whole chain — `obl`'s projection, `goat_rank`'s
+partition key, `alloc`'s join, the `w_ord` window, and the final INSERT — so allocation counts
+and the final binding are both computed per vaccine. Preserve the BUG-035 partition-stability
+ordering, the `cardinality(...) = 0` legacy fallback, and `UNIQUE (tenant_id, obligation_id)`.
+
+### Suggested Tests
+One batch, one shed, one partition, TWO assignment rows differing only by `vaccine_rule_ids`
+(ET+TT and PPR), goats holding obligations for each. Assert every obligation binds to the row
+whose `vaccine_rule_ids` contains its own `rule_id`. Keep the 8-round stability test green.
 
 ### TWO OPEN MAINTAINER DECISIONS (not defects — deliberate test failures)
 
