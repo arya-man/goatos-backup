@@ -30,6 +30,34 @@
       "docs/runbooks/staging-vaccination-seed-preflight.md"
     ]
   },
+  "stg_personnel_seed": {
+    "canonical_runbook": "docs/runbooks/stg-login-seed-contract.md",
+    "total_people": 9,
+    "field_email_password_users": {
+      "operators": ["Amit Kumar", "Darshan Talwar", "Sagar Mahoor"],
+      "director": "Chandrakant"
+    },
+    "password_convention": "<FirstName>@2026",
+    "field_passwords": {
+      "Amit Kumar": "Amit@2026",
+      "Darshan Talwar": "Darshan@2026",
+      "Sagar Mahoor": "Sagar@2026",
+      "Chandrakant": "Chandra@2026"
+    },
+    "default_vaccination_operator": "Darshan Talwar",
+    "fallback_vaccination_operator": "Sagar Mahoor",
+    "vaccination_capacity_users": ["Amit Kumar", "Darshan Talwar", "Sagar Mahoor"],
+    "non_capacity_users": ["Chandrakant"],
+    "leadership_sso_count": 5,
+    "leadership_role": "ceo_internal",
+    "leadership_auth": "google_sso_only",
+    "leadership_adds_vaccination_capacity": false,
+    "firebase_allowlist_is_not_enough": true,
+    "firebase_user_existing_is_not_enough": true,
+    "backend_grant_required": true,
+    "bootstrap_must_pass": true,
+    "seed_fail_condition": "FAIL unless Amit, Darshan, and Sagar appear as HRMS/vaccination operators with capacity, Chandrakant appears as director, and the 5 Mesha leadership users are SSO-only ceo_internal"
+  },
   "stg_gcs_video_upload": {
     "runbook": "docs/runbooks/stg-gcs-video-upload-wiring.md",
     "required_for_android_video_proof": true,

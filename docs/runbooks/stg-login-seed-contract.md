@@ -1,5 +1,72 @@
 # STG Login Seed Contract
 
+> **This is the canonical STG personnel-seed rule.** Every other STG login/seed
+> runbook and `context/deploy-contract.json` point here. If any doc disagrees
+> with this section, this section wins.
+
+## Canonical STG Personnel Rule (9 people total)
+
+There are **9 STG people total**: 5 Mesha leadership (SSO only) + 4 field users
+(Firebase email/password).
+
+### A) 5 Mesha leadership users — Google SSO only
+
+- Log in with **Google SSO only**.
+- Role/grant: **`ceo_internal`**.
+- Do **NOT** create email/password credentials for them.
+- Do **NOT** count them as vaccination operators.
+- Seed is complete only when the SSO grant exists and `/app/bootstrap` returns
+  CEO/internal context.
+
+### B) 4 field users — Firebase email/password login
+
+- Log in with **Firebase email/password**.
+- Password convention is always **`<FirstName>@2026`**:
+
+  | Person | First name | STG password |
+  |---|---|---|
+  | Amit | Amit | `Amit@2026` |
+  | Darshan | Darshan | `Darshan@2026` |
+  | Sagar | Sagar | `Sagar@2026` |
+  | Chandrakant | Chandra | `Chandra@2026` |
+
+- These are **STG throwaway credentials only**.
+- Firebase allowed-emails is **NOT** enough.
+- Firebase user existing is **NOT** enough.
+- Backend grant **AND** `/app/bootstrap` context must pass.
+
+Field roles:
+
+| Person | Role |
+|---|---|
+| Amit Kumar | operator |
+| Darshan Talwar | operator, **default vaccination operator** |
+| Sagar Mahoor | operator, **fallback vaccination operator** |
+| Chandrakant | **director** |
+
+### Vaccination capacity rule
+
+- **ONLY** Amit + Darshan + Sagar count toward vaccination operator animal
+  capacity.
+- Chandrakant is **director** and must **NOT** add vaccination operator capacity.
+- The 5 SSO leadership users must **NOT** add vaccination operator capacity.
+
+### Seed completion criteria
+
+- all 4 field users have Firebase email/password credentials
+- all 4 field users have backend grants
+- all 4 field users pass `/app/bootstrap` with correct role/context
+- all 5 leadership users have active `ceo_internal` SSO grants
+- all 5 leadership users pass `/app/bootstrap` after SSO
+- HRMS/operator screens show Amit, Darshan, Sagar as operators
+- Chandrakant shows director context, not operator capacity
+
+> **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
+> operators with capacity, Chandrakant appears as director, and the 5 Mesha
+> leadership users are SSO-only `ceo_internal`.
+
+---
+
 STG seed must create/verify login readiness for two separate user classes.
 
 ## 1. Field Android Users — Email / Password
