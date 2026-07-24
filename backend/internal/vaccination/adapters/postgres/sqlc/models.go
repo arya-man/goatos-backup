@@ -937,6 +937,15 @@ type GoatOwnership struct {
 	CreatedBy    pgtype.UUID
 }
 
+type GoatShedPartition struct {
+	TenantID       pgtype.UUID
+	GoatID         pgtype.UUID
+	ShedID         pgtype.UUID
+	PartitionLabel string
+	SourceShedName string
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type HerdRegisterGoatProjection struct {
 	TenantID          pgtype.UUID
 	GoatID            pgtype.UUID

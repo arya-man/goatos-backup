@@ -48,6 +48,14 @@
   "operator_rules": {
     "capacity_unit": "unique_animals_per_operator_per_business_date",
     "dose_count_is_not_capacity": true,
+    "seed_catchup_overrides": [
+      {
+        "date": "2026-07-25",
+        "operator": "Darshan Talwar",
+        "max_animals": 210,
+        "reason": "one-time initial CPT seed catch-up after 114 ET+TT animals were completed on 2026-07-24; standing operator cap remains 200"
+      }
+    ],
     "default_active_operators_per_day": 1,
     "default_operator": {
       "code": "vaccination_operator_darshan",
@@ -96,7 +104,8 @@
       "status": "expected_final_validation",
       "inputs": {
         "active_operators_per_day": 1,
-        "operator_cap_animals_per_day": 210,
+        "operator_cap_animals_per_day": 200,
+        "seed_catchup_animal_cap_override": 210,
         "default_operator": "vaccination_operator_darshan",
         "vaccines_on_2026_07_24": [
           "ET+TT"
@@ -124,7 +133,7 @@
           "doses_scheduled": 210,
           "animals_remaining_after_day": 0,
           "deferred_or_skipped_animals": 0,
-          "operator_availability_note": "Darshan available; 114 ET+TT booster animals already completed on 2026-07-24; remaining 210 fit under cap 210 on the next drive day"
+          "operator_availability_note": "Darshan available; 114 ET+TT booster animals already completed on 2026-07-24; remaining 210 use the one-time seed catch-up allowance on the next drive day; standing operator cap remains 200"
         }
       ]
     },
@@ -133,7 +142,8 @@
       "status": "operator_fallback_validation_variant",
       "inputs": {
         "active_operators_per_day": 1,
-        "operator_cap_animals_per_day": 210,
+        "operator_cap_animals_per_day": 200,
+        "seed_catchup_animal_cap_override": 210,
         "default_operator": "vaccination_operator_darshan",
         "drive_start_date": "2026-07-26",
         "vaccines": [
@@ -162,7 +172,8 @@
       "status": "capacity_validation_variant",
       "inputs": {
         "active_operators_per_day": 2,
-        "operator_cap_animals_per_day": 210,
+        "operator_cap_animals_per_day": 200,
+        "seed_catchup_animal_cap_override": 210,
         "default_operator": "vaccination_operator_darshan",
         "drive_start_date": "2026-07-24",
         "vaccines": [
@@ -212,7 +223,7 @@
       "id": "operator_day_cap_over_200",
       "status": "invalid_schedule",
       "observed_bad_shape": "Any planned date/operator with more than 200 distinct animals, such as 218/225/231 animals assigned to Darshan, violates the N=1 cap.",
-      "why_invalid": "Capacity is unique animals per operator per business date. With active_operators_per_day=1 and cap=200, no operator/date may exceed 200 distinct animals, regardless of vaccine family or dose count."
+      "why_invalid": "Capacity is unique animals per operator per business date. With active_operators_per_day=1 and cap=200, no operator/date may exceed 200 distinct animals, except the explicit 2026-07-25 ET+TT seed catch-up allowance of 210."
     },
     {
       "id": "empty_superseded_batches_used_as_schedule_proof",
@@ -230,7 +241,7 @@
     "With N=1/default Darshan and ET+TT only on 2026-07-24, no ET+TT drive row may be assigned to Amit or Sagar.",
     "No PPR drive rows may appear anywhere in this CPT seed packet output for now.",
     "Darshan is available on Friday and Saturday; his weekly off is Sunday.",
-    "No planned date/operator may exceed 200 distinct animals when active_operators_per_day=1.",
+    "No planned date/operator may exceed 200 distinct animals when active_operators_per_day=1, except the explicit one-time 2026-07-25 ET+TT seed catch-up allowance of 210.",
     "Do not use superseded batches or batches with zero attached obligation_instances as schedule proof.",
     "Report non-PPR vaccine obligations separately by dose_code, planned_date, operator, and distinct animal count."
   ]

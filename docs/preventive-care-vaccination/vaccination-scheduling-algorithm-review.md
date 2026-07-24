@@ -183,7 +183,7 @@ is live and must wait 4 weeks after PPR.
 4. Blue Tongue + Blue Tongue booster where due by sheep path
 5. FMD + HS
 
-**Important:** Adults do **not** replay the full kid age matrix. They enter via `post_arrival` triggers off `entry_date`. A prior dose can shift/suppress that work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
+**Important:** Adults do **not** replay the full kid age matrix. For adult campaign drives, `entry_date` / `post_arrival` is an eligibility fallback, not a strict splitter. Adult campaign work is grouped by the physical shed/partition for the same vaccine/rule; if trusted same-vaccine history exists, booster/repeat timing anchors from that last vaccination date, otherwise the animal travels with the partition campaign start. A later adult entry date must not create a one-animal campaign fragment. Strict DOB/entry/age-window timing remains for kids and young animals through the configured kid schedule window, roughly 16-20 weeks. A prior dose can shift/suppress adult work only when it was administered in our park or our supervised procurement holding park under SOP/video/physical validation; third-party/vendor claims outside that lifecycle do not count.
 
 ---
 

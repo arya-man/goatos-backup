@@ -58,7 +58,14 @@ function loadExpected(file) {
   const prohibitedDosePrefixes = Array.isArray(expected?.prohibited_drive_dose_code_prefixes)
     ? expected.prohibited_drive_dose_code_prefixes.map((value) => String(value).trim().toLowerCase()).filter(Boolean)
     : [];
-  return { expected, cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes };
+  const seedCatchupOverrides = Array.isArray(expected?.operator_rules?.seed_catchup_overrides)
+    ? expected.operator_rules.seed_catchup_overrides.map((row) => ({
+      date: String(row?.date ?? "").trim(),
+      operator: String(row?.operator ?? "").trim(),
+      maxAnimals: Number(row?.max_animals),
+    })).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && row.operator && Number.isInteger(row.maxAnimals) && row.maxAnimals >= cap)
+    : [];
+  return { expected, cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes, seedCatchupOverrides };
 }
 
 function psql(sql) {
@@ -146,13 +153,18 @@ ORDER BY 1`;
 
 export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows }) {
   const failures = [];
-  const { cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes = [] } = contract;
+  const { cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes = [], seedCatchupOverrides = [] } = contract;
+  const capFor = (date, operator) => {
+    const override = seedCatchupOverrides.find((row) => row.date === date && row.operator === operator);
+    return override?.maxAnimals ?? cap;
+  };
 
   const operatorsByDate = new Map();
   for (const [date, operator, animalsText] of capRows) {
     const animals = Number(animalsText);
-    if (animals > cap) {
-      failures.push(`cap breach: ${date} operator ${operator} has ${animals} distinct animals (cap ${cap})`);
+    const allowedCap = capFor(date, operator);
+    if (animals > allowedCap) {
+      failures.push(`cap breach: ${date} operator ${operator} has ${animals} distinct animals (cap ${allowedCap})`);
     }
     if (date < businessDate) {
       failures.push(`pre-business-date drive: ${date} is before the contract business date ${businessDate}`);

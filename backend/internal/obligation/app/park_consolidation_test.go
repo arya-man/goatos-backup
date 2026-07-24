@@ -732,7 +732,7 @@ func TestLimitParkSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
@@ -750,7 +750,7 @@ func TestLimitParkSelectionAllLastSafeStillRespectsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-1" {
 		t.Fatalf("admitted = %#v, want only the first last-safe row inside cap 1", out)
 	}
@@ -768,7 +768,7 @@ func TestLimitParkSelectionRejectsPastWindowRideAlongOverflow(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveAnimals(now, rows, []string{"obl-blue-tongue", "obl-loose"}, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(now, rows, []string{"obl-blue-tongue", "obl-loose"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-loose" {
 		t.Fatalf("admitted = %#v, want only loose-window row; past-window blue_tongue must not ride 07-31 batch", out)
 	}
@@ -785,7 +785,7 @@ func TestLimitParkSelectionCountsDistinctAnimals(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 2
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
 	}
@@ -822,7 +822,7 @@ func TestLimitParkSelectionPacksWholePhysicalShedsBeforeFillingCap(t *testing.T)
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 200
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	gotRows := filterRows(rows, out)
 	if got := uniqueParkTargetCount(gotRows); got != 199 {
 		t.Fatalf("admitted animals = %d, want 199", got)
@@ -871,7 +871,7 @@ func TestLimitParkSelectionFallsBackToWholePartitionsWhenShedExceedsRemainingCap
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 200
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, NewSweepSession())
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	gotRows := filterRows(rows, out)
 	if got := uniqueParkTargetCount(gotRows); got != 162 {
 		t.Fatalf("admitted animals = %d, want 162", got)
@@ -919,7 +919,7 @@ func TestLimitParkSelectionLatestSafeKeepsWholePartitionPastResidualCapacity(t *
 	session := NewSweepSession()
 	session.claimDriveCapacity("cpt", planned, "existing-199", 199)
 
-	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, session)
+	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, session)
 	if len(out) != 0 {
 		t.Fatalf("admitted = %#v, want none; latest-safe residual capacity must not split a normal partition", out)
 	}

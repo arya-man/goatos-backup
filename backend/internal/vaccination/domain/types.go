@@ -180,6 +180,7 @@ type EligibleGoat struct {
 	ReproductiveStatus   string
 	ShedID               string
 	ParkID               string
+	PartitionLabel       string
 	Sex                  string
 	Breed                string
 	Stage                string

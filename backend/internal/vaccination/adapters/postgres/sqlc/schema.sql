@@ -3366,6 +3366,22 @@ CREATE TABLE public.goats (
 
 
 --
+-- Name: goat_shed_partitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_shed_partitions (
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    partition_label text DEFAULT 'whole'::text NOT NULL,
+    source_shed_name text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT goat_shed_partitions_partition_nonblank CHECK ((btrim(partition_label) <> ''::text)),
+    CONSTRAINT goat_shed_partitions_source_nonblank CHECK ((btrim(source_shed_name) <> ''::text))
+);
+
+
+--
 -- Name: herd_register_goat_projection; Type: TABLE; Schema: public; Owner: -
 --
 

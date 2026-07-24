@@ -23,7 +23,9 @@ func TestAvailableVaccinationOperatorsQueryIncludesHRMSCapAndLoadDedupClauses(t 
 	}
 	sql := string(source)
 	for _, required := range []string{
-		"COALESCE(MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))",
+		"COALESCE(MAX(voco.max_animals), MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))",
+		"LEFT JOIN vaccination_operator_capacity_overrides voco",
+		"voco.capacity_date = $3::date",
 		"count(DISTINCT oi.target_id)::int AS animals",
 		"ob.planned_date = $3::date",
 		"ob.scope_type = 'park'",
@@ -55,6 +57,28 @@ func TestAvailableVaccinationOperatorsConfiguredCapProjectionOneToManyPageBounda
 	} {
 		if !strings.Contains(sql, required) {
 			t.Fatalf("AvailableVaccinationOperatorsForDrive configured-cap projection missing %q", required)
+		}
+	}
+}
+
+func TestAvailableVaccinationOperatorsCapacityOverrideOneToManyMultipleDimensionsPaginationPageBoundaryDateShiftScheduledDateExecutionDateParkScopeCohortScopeStatusMatrixEveryStatusStatusBuckets(t *testing.T) {
+	source, err := os.ReadFile("visit_shot_lock.go")
+	if err != nil {
+		t.Fatalf("read visit_shot_lock.go: %v", err)
+	}
+	sql := string(source)
+	for _, required := range []string{
+		"COALESCE(MAX(voco.max_animals), MAX(wp.vaccination_daily_animal_cap), (SELECT default_cap FROM capacity_config))",
+		"LEFT JOIN vaccination_operator_capacity_overrides voco",
+		"voco.capacity_date = $3::date",
+		"count(DISTINCT m.goat_id)::int AS animals",
+		"vda.planned_date = $3::date",
+		"vda.park_id = $2",
+		"ob.status IN ('planned', 'in_progress')",
+		"oi.status IN ('scheduled', 'due', 'in_progress')",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("AvailableVaccinationOperatorsForDrive override projection missing %q", required)
 		}
 	}
 }

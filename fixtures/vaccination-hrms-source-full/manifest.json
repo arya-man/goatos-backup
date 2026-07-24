@@ -163,6 +163,11 @@
       "date": "2026-07-24",
       "change": "CPT ET+TT-only operator-drive seed sets GOATOS_CPT_EXCLUDE_PPR_2026=1 so seed-vaccination-real publishes a packet-scoped rule matrix without PPR while keeping the canonical matrix for source/history mapping.",
       "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no CPT operator-drive seed variant flag, and canonical PPR source/history mapping remains available. Only the CPT operator-drive make target publishes the no-PPR 2026 rule subset, so PPR obligations are not generated or batched in the 2026 CPT seed proof."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "CPT adult campaign coalescing and one-time seed catch-up capacity override",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no cpt-operator-roster.json and its raw vaccination rows are unchanged. CPT operator-drive rehearsal bundles may declare an explicit seed_catchup_overrides row; only that operator/date may exceed the standing HRMS cap. Adult campaign generation ignores entry_date/post_arrival as a strict splitter for same vaccine/rule plus physical shed/partition under cap, while kid/young schedule windows remain strict."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."

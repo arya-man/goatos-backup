@@ -624,6 +624,12 @@ type operatorRosterContract struct {
 		Unit                  string `json:"unit"`
 		DefaultAnimalsPerDay  *int   `json:"default_animals_per_day"`
 		DoseCountIsNotCapaity bool   `json:"dose_count_is_not_capacity"`
+		SeedCatchupOverrides  []struct {
+			Date         string `json:"date"`
+			OperatorCode string `json:"operator_code"`
+			MaxAnimals   int    `json:"max_animals"`
+			Reason       string `json:"reason"`
+		} `json:"seed_catchup_overrides"`
 	} `json:"operator_capacity"`
 	SourceScope struct {
 		Tenant           string   `json:"tenant"`
@@ -1635,6 +1641,33 @@ ON CONFLICT (tenant_id, operator_id, park_id) DO UPDATE SET
   updated_at = now();`,
 			tenantID, mID, parkID, op.ShiftLabel, *op.ShiftStartMinute, *op.ShiftEndMinute, weekOffArg); err != nil {
 			return fmt.Errorf("upsert shift config for %s: %w", op.Code, err)
+		}
+	}
+
+	for _, override := range contract.OperatorCapacity.SeedCatchupOverrides {
+		operatorID, ok := operatorIDByCode[override.OperatorCode]
+		if !ok || operatorID == "" {
+			return fmt.Errorf("operator capacity override: operator_code %q does not resolve to a seeded shift operator", override.OperatorCode)
+		}
+		if _, err := time.Parse("2006-01-02", strings.TrimSpace(override.Date)); err != nil {
+			return fmt.Errorf("operator capacity override for %s has invalid date %q: %w", override.OperatorCode, override.Date, err)
+		}
+		if override.MaxAnimals < 1 {
+			return fmt.Errorf("operator capacity override for %s on %s has max_animals=%d", override.OperatorCode, override.Date, override.MaxAnimals)
+		}
+		if strings.TrimSpace(override.Reason) == "" {
+			return fmt.Errorf("operator capacity override for %s on %s requires reason", override.OperatorCode, override.Date)
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_operator_capacity_overrides
+  (tenant_id, park_id, operator_id, capacity_date, max_animals, reason, updated_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $5, $6, now())
+ON CONFLICT (tenant_id, park_id, operator_id, capacity_date) DO UPDATE SET
+  max_animals = EXCLUDED.max_animals,
+  reason = EXCLUDED.reason,
+  updated_at = now();`,
+			tenantID, parkID, operatorID, override.Date, override.MaxAnimals, strings.TrimSpace(override.Reason)); err != nil {
+			return fmt.Errorf("upsert capacity override for %s on %s: %w", override.OperatorCode, override.Date, err)
 		}
 	}
 

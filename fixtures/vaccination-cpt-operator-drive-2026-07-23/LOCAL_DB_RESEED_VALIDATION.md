@@ -98,6 +98,12 @@ Forbidden HRMS shapes:
 - Capacity unit is distinct animals per operator per business date.
 - Dose count is not capacity.
 - With `active_operators_per_day = 1`, final drive capacity is 200 animals/day.
+- The CPT `2026-07-25` ET+TT seed catch-up is the only exception in this
+  packet: Darshan may be scheduled for 210 remaining ET+TT animals because 114
+  ET+TT animals were already completed on `2026-07-24`. This is a seed/proof
+  fixture exception, not a production cap change.
+- No future drive may use 210 unless its source fixture explicitly declares a
+  `seed_catchup_overrides` row.
 - HRMS raw availability can still be 400 or 600:
   - 2 available operators * 200 = 400 raw available field capacity.
   - 3 available operators * 200 = 600 raw available field capacity.
@@ -175,8 +181,11 @@ This is the final validation scenario.
 
 | Date | Vaccine | Operator | Animals | Remaining |
 |---|---|---|---:|---:|
-| 2026-07-24 | ET+TT | Darshan Talwar | 200 | 10 |
-| 2026-07-25 | ET+TT | Darshan Talwar | 10 | 0 |
+| 2026-07-25 | ET+TT | Darshan Talwar | 210 | 0 |
+
+The 210 row is allowed only by the packet's explicit one-time
+`seed_catchup_overrides` entry. The configured operator cap remains 200 for all
+normal planning and subsequent drives.
 
 PPR must not be planned anywhere by this seed packet for now.
 
