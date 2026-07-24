@@ -72,24 +72,11 @@ the Counts summary — still survive and are still recomputed here.
    Confirm their canonical-read APIs answer once the obligation write is final,
    rather than materializing and reconciling a projection.
 
-## CPT PPR Deferral Is A Validation Override, Not A Product Rule
+## CPT PPR Is Excluded From This Seed Packet
 
-> **PPR deferral to 2026-08-07 is a CPT initial validation override, not a
-> permanent no-combo rule.**
->
-> This is not a global vaccine scheduling rule.
->
-> For the initial CPT/STG validation drive only:
-> - first drive starts 2026-07-24
-> - schedule ET+TT only on 2026-07-24 / 2026-07-25
-> - intentionally move PPR to 2026-08-07 / 2026-08-08
-> - this proves the first operator drive with one vaccine lane before adding PPR
->
-> For future real scheduling:
-> - ET+TT and PPR may be paired on the same date if the active business
->   rule/config says so
-> - same-day multi-vaccine scheduling is allowed
-> - when paired, animal capacity counts distinct goats, not doses
+PPR must not be seeded, scheduled, or deferred by the CPT operator-drive seed
+packet for now. This is a seed-packet rule only; it does not change the global
+vaccination protocol matrix or future explicit PPR enablement.
 
 ## Required Inputs
 
@@ -312,14 +299,12 @@ possible — never random `LIMIT 1` assignment guessing.
 
 For CPT seed/catch-up:
 
-- ET+TT/PPR must match the expected plan in
+- ET+TT must match the expected plan in
   `fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json`.
-- PPR must not appear on `2026-07-24` / `2026-07-25`.
-- If the rule schedules PPR after ET+TT for seed/catch-up, the anchor is the
-  ET+TT actual drive/completion date, not the raw obligation due date.
+- PPR must not appear anywhere in CPT seed drive rows for now.
 - Other intentional same-day combos (FMD+HS, pox pairs) must stay allowed when
-  the matrix says same-day. See the CPT PPR deferral scope section above: PPR
-  deferral is a CPT validation override, not a global no-combo rule.
+  the matrix says same-day. The PPR exclusion is a CPT seed-packet rule, not a
+  global no-combo rule.
 
 ### 7. Failure rule
 

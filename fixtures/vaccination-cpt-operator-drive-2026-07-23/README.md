@@ -17,10 +17,10 @@ reverse-engineer the whole timetable workbook.
 | `raw/CPT-Adult-vaccination.json` | Supplied CPT vaccination history/source rows. |
 | `raw/CPT_Nuanced Timetable.xlsx` | Supplied CPT timetable workbook. |
 | `cpt-operator-roster.json` | Normalized seed contract for operators, director, capacity, week-offs, CEO/CXO grants, and the N=1 Darshan-default drive assignment. |
-| `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, PPR after 14 days, same-day ET+TT+PPR cap check, Darshan Sunday fallback, and N=2 capacity sanity. |
+| `expected-drive-schedules.json` | Post-seed validation numbers for the discussed CPT drive variants: ET+TT-only first drive, Darshan Sunday fallback, and N=2 capacity sanity. PPR is excluded from this seed packet for now. |
 | `materialize-source.mjs` | Deterministic transform: raw source + roster contract -> the normalized seed bundle the validator and seed commands actually read. Output goes outside `fixtures/` (gitignored `build/`) because it carries reviewed runtime staff names. |
 | `check-expected-drive-schedules.mjs` | DB-proving gate run by `tools/dev/seed-closeout.sh`; fails the closeout when seeded rows violate `expected-drive-schedules.json`. |
-| `LOCAL_DB_RESEED_VALIDATION.md` | Exhaustive local DB reseed contract: required inputs, HRMS shape, all vaccine-family reporting, exact ET+TT/PPR final schedule, SQL proof queries, and automatic failure cases. |
+| `LOCAL_DB_RESEED_VALIDATION.md` | Exhaustive local DB reseed contract: required inputs, HRMS shape, vaccine-family reporting with PPR excluded from seeding, exact ET+TT final schedule, SQL proof queries, and automatic failure cases. |
 
 The `Adult` filename is a source label only. The seed must still use the
 published Goat OS vaccination rule engine for kids, adults, boosters, sick/ICU,
@@ -152,26 +152,10 @@ Required seed contract:
 - use shift labels only to identify fallback coverage.
 
 For the final validation plan, schedule ET+TT only from `2026-07-24`. Do not
-pair PPR with ET+TT on `2026-07-24`; move PPR to `2026-08-07`, exactly 14 days
-later. With `active_operators_per_day=1`, the scheduled drive cap is 200 unique
-animals per day even when more operators are available in HRMS.
-
-> **PPR deferral to 2026-08-07 is a CPT initial validation override, not a
-> permanent no-combo rule.**
->
-> This is not a global vaccine scheduling rule.
->
-> For the initial CPT/STG validation drive only:
-> - first drive starts 2026-07-24
-> - schedule ET+TT only on 2026-07-24 / 2026-07-25
-> - intentionally move PPR to 2026-08-07 / 2026-08-08
-> - this proves the first operator drive with one vaccine lane before adding PPR
->
-> For future real scheduling:
-> - ET+TT and PPR may be paired on the same date if the active business
->   rule/config says so
-> - same-day multi-vaccine scheduling is allowed
-> - when paired, animal capacity counts distinct goats, not doses
+seed, schedule, or defer PPR drive work from this CPT packet for now. This is a
+seed-packet rule only; it does not change the global vaccination protocol matrix.
+With `active_operators_per_day=1`, the scheduled drive cap is 200 unique animals
+per day even when more operators are available in HRMS.
 
 The `weekly_capacity_examples` rows are raw HRMS availability examples:
 `total_capacity_animals = available_operators.length * 200`. They are not the
@@ -196,20 +180,17 @@ The updated goat source has no active health defers: health status counts are
 explicit healthy status; neither may be seeded as `recovering`,
 `under_treatment`, or any other vaccination defer.
 
-For the maintainer-discussed validation scenario where the UI moves PPR two
-weeks after the first ET+TT drive, the expected day-grained schedule is
-machine-readable in `expected-drive-schedules.json`. The headline numbers are:
+For the maintainer-discussed ET+TT-only validation scenario, the expected
+day-grained schedule is machine-readable in `expected-drive-schedules.json`.
+The headline numbers are:
 
 | Scenario | Date | Operator | Vaccines | Animals | Doses |
 |---|---|---|---|---:|---:|
 | Final ET+TT day 1 | 2026-07-24 Fri | Darshan Talwar | ET+TT | 200 | 200 |
 | Final ET+TT day 2 | 2026-07-25 Sat | Darshan Talwar | ET+TT | 10 | 10 |
-| Final PPR day 1 | 2026-08-07 Fri | Darshan Talwar | PPR | 200 | 200 |
-| Final PPR day 2 | 2026-08-08 Sat | Darshan Talwar | PPR | 124 | 124 |
 
 Darshan is available on both Friday and Saturday; his weekly off is Sunday.
-If ET+TT and PPR are left on the same `2026-07-24` date for a cap sanity check,
-the first day is still capped at 200 animals, even though it carries 400 doses.
+Any PPR drive row from this seed packet is invalid for now.
 
 ## Seed/Verify Checklist For Local Or Dev
 
@@ -242,7 +223,7 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
      source-health exclusions from this packet;
    - ET+TT booster source history has 114 completed rows and 210 remaining due
      rows for the final validation drive;
-   - ET+TT adult booster, PPR, Blue Tongue, HS, FMD, kid/adult rules, combo
+   - ET+TT adult booster, Blue Tongue, HS, FMD, kid/adult rules, combo
      spacing, sick/ICU/pregnancy/terminal exclusions, and `+1 week` buffer all
      come from backend rules.
    - the DB schedule for the discussed scenarios matches

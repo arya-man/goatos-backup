@@ -50,7 +50,7 @@ apply_expected_drive_variant_inputs() {
   if [ -z "${expected// }" ] || [ -z "${variant// }" ]; then
     return
   fi
-  if [ "$variant" != "final_discussed_plan_et_tt_then_ppr_after_14_days" ]; then
+  if [ "$variant" != "final_discussed_plan_et_tt_only_no_ppr" ]; then
     return
   fi
   if [ ! -f "$expected" ]; then
@@ -59,7 +59,7 @@ apply_expected_drive_variant_inputs() {
   fi
   echo "==> seed-closeout: apply expected-drive variant input (${variant})"
   if [ "$dry_run" -eq 1 ]; then
-    printf '    # derive CPT ET+TT/PPR original due dates from unbatched vaccination obligations and upsert postpone overrides\n'
+    printf '    # derive CPT ET+TT original due dates from unbatched vaccination obligations and upsert reviewed-date overrides\n'
     return
   fi
   if [ -z "${DATABASE_URL:-}" ]; then
@@ -80,24 +80,16 @@ candidate_vaccines AS (
   SELECT DISTINCT
          CASE
            WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt' THEN 'ET_TT'
-           WHEN lower(btrim(v.vaccine_code)) = 'ppr' THEN 'PPR'
-           WHEN replace(lower(btrim(v.vaccine_code)), '_', ' ') = 'blue tongue' THEN 'BLUE_TONGUE'
            ELSE NULL
          END AS override_vaccine_code,
          (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date AS original_drive_date,
          CASE
            WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt' THEN DATE '2026-07-24'
-           WHEN lower(btrim(v.vaccine_code)) = 'ppr' THEN DATE '2026-08-07'
-           WHEN replace(lower(btrim(v.vaccine_code)), '_', ' ') = 'blue tongue' THEN DATE '2026-08-07'
            ELSE NULL
          END AS override_date,
          CASE
            WHEN replace(replace(lower(btrim(v.vaccine_code)), '_', ' '), '+', ' ') = 'et tt'
              THEN 'CPT validation override: ET+TT first on reviewed business date'
-           WHEN lower(btrim(v.vaccine_code)) = 'ppr'
-             THEN 'CPT validation override: ET+TT first, PPR after 14 days'
-           WHEN replace(lower(btrim(v.vaccine_code)), '_', ' ') = 'blue tongue'
-             THEN 'CPT validation override: align Blue Tongue with deferred PPR cohort'
            ELSE NULL
          END AS reason
   FROM obligation_instances oi

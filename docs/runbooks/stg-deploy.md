@@ -118,7 +118,7 @@ after a full DB reseed + expected-schedule gate + integrity zeros, all validated
 from the DB (not logs). Required checks — membership integrity, lifecycle
 mutations (add/death/exit/shed-move/partition-move/missed-cancel-reap/date-
 override/operator-cap), read surfaces (Calendar/CT/AC/WF/PA/Vaccination
-L1/L2/L3), and CPT seed/catch-up ET+TT/PPR behavior — plus the failure rule and
+L1/L2/L3), and CPT seed/catch-up ET+TT-only behavior — plus the failure rule and
 proof artifacts live in:
 
 `docs/runbooks/staging-vaccination-clean-slate.md` → "STG Vaccination Seed
