@@ -396,6 +396,16 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-compose-lists",
+      "script": "tools/agent-hooks/check-android-compose-lists.mjs",
+      "makeTarget": "android-compose-lists-guard",
+      "realCheck": "node tools/agent-hooks/check-android-compose-lists.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-compose-lists.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-compose-lists-guard"
+    },
+    {
       "id": "calendar-endpoint-grain",
       "script": "tools/agent-hooks/check-calendar-endpoint-grain.mjs",
       "makeTarget": "calendar-endpoint-grain-guard",
