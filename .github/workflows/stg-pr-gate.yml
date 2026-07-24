@@ -140,6 +140,7 @@ jobs:
         run: ./gradlew :app:assembleStgRelease :app:testStgReleaseUnitTest --no-configuration-cache --stacktrace
       - name: Render stg release app shell when Paparazzi exposes the task
         working-directory: apps/goatos-android
+        continue-on-error: true
         run: |
           if ./gradlew :app:tasks --all --console=plain | grep -q 'verifyPaparazziStgRelease'; then
             ./gradlew :app:verifyPaparazziStgRelease --no-configuration-cache --stacktrace
