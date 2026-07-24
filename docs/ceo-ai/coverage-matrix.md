@@ -460,3 +460,13 @@ Cube metric, or Toolbox tool. Leadership drive/coverage answers stay on the
 existing aggregate `/vaccination/*` surfaces and `ceo_ai.*` views; these functions
 only keep the operator drive sheets internally consistent after a combo-align
 merge. Same category as the already-excluded operator execution/scan internals.
+
+**EXCLUDED — `func:SyncPartitionMoveForGoat`**
+(`backend/internal/obligation/adapters/postgres/partition_move.go`) — a repository
+transactional primitive that, on a same-shed partition move, updates
+`goat_shed_partitions.partition_label` and re-syncs the goat's vaccination
+drive-assignment membership to the new partition arm. It is operator/scheduler
+plumbing: no counts, no KPI, no time-series, no read API, table, `ceo_ai.*` view,
+Cube metric, or Toolbox tool. Leadership drive/coverage answers stay on the
+existing aggregate `/vaccination/*` surfaces; this only keeps operator drive
+sheets internally consistent after a within-shed partition move.
