@@ -58,27 +58,73 @@ func applyLeave(t *testing.T, svc *RosterService, memberID, startsOn, endsOn str
 	return applied.Leave
 }
 
-// TestRosterApproveLeaveRejectsWhenCoverageWouldHitZero: 2026-08-10 is a
-// Monday (Operator A's week-off), so Operator A is already unavailable on
-// that day by week-off alone. Operator B takes approved leave covering that
-// same Monday, leaving only Operator C. Now approving Operator C's OWN leave
-// for that Monday would leave ZERO available operators that day -- must be
-// REJECTED and must NOT write a row (status stays 'reported', row_version
-// unchanged).
-func TestRosterApproveLeaveRejectsWhenCoverageWouldHitZero(t *testing.T) {
+// applyLeaveExpectErr requests a leave and returns the error WITHOUT failing the
+// test, so an apply-time coverage rejection can be asserted.
+func applyLeaveExpectErr(t *testing.T, svc *RosterService, memberID, startsOn, endsOn string) error {
+	t.Helper()
+	_, err := svc.ApplyLeave(context.Background(), testTenant, testActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: memberID, ScopeType: "center", ScopeID: rosterCenter,
+		ReasonCode: "personal", StartsOn: startsOn, EndsOn: endsOn,
+	}, "trace-leave")
+	return err
+}
+
+// TestRosterApplyLeaveRejectsWhenCoverageWouldHitZero is the apply-time coverage
+// guard (P1 partial-write fix): the admin-web flow is apply-then-approve, so the
+// check must run at APPLY, before any 'reported' row is written. Monday 2026-08-10
+// is Operator A's week-off; Operator B holds approved leave that day; requesting
+// Operator C's leave for the same Monday would leave 0 available operators.
+// ApplyLeave(C) itself must be REJECTED and must NOT create a reported row.
+func TestRosterApplyLeaveRejectsWhenCoverageWouldHitZero(t *testing.T) {
 	svc, repo := operatorCoverageFixture(t)
 	ctx := context.Background()
 
-	// Operator B approved-leave covering Monday 2026-08-10.
 	leaveB := applyLeave(t, svc, coverageOperatorB, "2026-08-10", "2026-08-10")
 	if _, err := svc.ApproveLeave(ctx, testTenant, testActor, leaveB.AbsenceID, domain.ApproveStaffLeaveRequest{RowVersion: 1}, "trace-approve-b"); err != nil {
 		t.Fatalf("ApproveLeave(B): %v", err)
 	}
 
-	// Operator C requests leave for the SAME Monday. Operator A is off
-	// (week-off=monday) and Operator B is on approved leave that day, so
-	// approving C's leave would leave 0 available operators on 2026-08-10.
+	before := len(repo.leaves)
+	err := applyLeaveExpectErr(t, svc, coverageOperatorC, "2026-08-10", "2026-08-10")
+	if err == nil {
+		t.Fatal("ApplyLeave(C) succeeded, want apply-time rejection: coverage would hit zero on 2026-08-10")
+	}
+	appErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T, want *app.Error", err)
+	}
+	if appErr.Code != "min_operator_coverage" || appErr.HTTPStatus != 409 {
+		t.Fatalf("error = {%q, %d}, want {min_operator_coverage, 409}", appErr.Code, appErr.HTTPStatus)
+	}
+	// No partial write: the rejected apply must NOT have created a reported row.
+	if len(repo.leaves) != before {
+		t.Fatalf("leave store size = %d, want unchanged %d (apply-time rejection must not create a reported row)", len(repo.leaves), before)
+	}
+}
+
+// TestRosterApproveLeaveRejectsWhenCoverageWouldHitZero is the APPROVE-time
+// coverage guard (defense in depth for the case where coverage was still fine at
+// apply but degraded before approve). Monday 2026-08-10 is Operator A's week-off.
+// Operator C applies first (only A off, B still available -> apply passes).
+// Operator B then applies and is APPROVED (A off, C still merely 'reported' and
+// thus available -> both pass). Now approving Operator C would leave 0 available
+// operators (A off + B approved) -- approve must be REJECTED and must NOT mutate
+// the row (status stays 'reported', row_version unchanged).
+func TestRosterApproveLeaveRejectsWhenCoverageWouldHitZero(t *testing.T) {
+	svc, repo := operatorCoverageFixture(t)
+	ctx := context.Background()
+
+	// Operator C applies for Monday while B is still available (apply passes).
 	leaveC := applyLeave(t, svc, coverageOperatorC, "2026-08-10", "2026-08-10")
+	// Operator B applies+approves for the same Monday (C is only 'reported', so
+	// counts as available -> B's apply and approve both pass).
+	leaveB := applyLeave(t, svc, coverageOperatorB, "2026-08-10", "2026-08-10")
+	if _, err := svc.ApproveLeave(ctx, testTenant, testActor, leaveB.AbsenceID, domain.ApproveStaffLeaveRequest{RowVersion: 1}, "trace-approve-b"); err != nil {
+		t.Fatalf("ApproveLeave(B): %v", err)
+	}
+
+	// Coverage has now degraded: A off (week-off) + B approved -> approving C
+	// would leave 0 available operators on 2026-08-10.
 	_, err := svc.ApproveLeave(ctx, testTenant, testActor, leaveC.AbsenceID, domain.ApproveStaffLeaveRequest{RowVersion: 1}, "trace-approve-c")
 	if err == nil {
 		t.Fatal("ApproveLeave(C) succeeded, want rejection: coverage would hit zero on 2026-08-10")
@@ -144,10 +190,10 @@ func TestRosterMinOperatorCoverageCountsWeekOffAsUnavailable(t *testing.T) {
 
 	// Now push a SECOND leave (Operator A) for the same Wednesday: Operator B
 	// already approved-absent, Operator C off (week-off=wednesday) -> 0 remain.
-	leaveA := applyLeave(t, svc, coverageOperatorA, "2026-08-12", "2026-08-12")
-	_, err := svc.ApproveLeave(ctx, testTenant, testActor, leaveA.AbsenceID, domain.ApproveStaffLeaveRequest{RowVersion: 1}, "trace-approve-a")
+	// The apply-time guard rejects this before any reported row is written.
+	err := applyLeaveExpectErr(t, svc, coverageOperatorA, "2026-08-12", "2026-08-12")
 	if err == nil {
-		t.Fatal("ApproveLeave(A) succeeded, want rejection: week-off (Operator C) + approved leave (Operator B) leaves 0 available on Wednesday")
+		t.Fatal("ApplyLeave(A) succeeded, want rejection: week-off (Operator C) + approved leave (Operator B) leaves 0 available on Wednesday")
 	}
 	appErr, ok := err.(*Error)
 	if !ok || appErr.Code != "min_operator_coverage" {
