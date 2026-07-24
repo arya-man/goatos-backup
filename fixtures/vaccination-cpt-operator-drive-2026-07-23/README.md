@@ -156,6 +156,23 @@ pair PPR with ET+TT on `2026-07-24`; move PPR to `2026-08-07`, exactly 14 days
 later. With `active_operators_per_day=1`, the scheduled drive cap is 200 unique
 animals per day even when more operators are available in HRMS.
 
+> **PPR deferral to 2026-08-07 is a CPT initial validation override, not a
+> permanent no-combo rule.**
+>
+> This is not a global vaccine scheduling rule.
+>
+> For the initial CPT/STG validation drive only:
+> - first drive starts 2026-07-24
+> - schedule ET+TT only on 2026-07-24 / 2026-07-25
+> - intentionally move PPR to 2026-08-07 / 2026-08-08
+> - this proves the first operator drive with one vaccine lane before adding PPR
+>
+> For future real scheduling:
+> - ET+TT and PPR may be paired on the same date if the active business
+>   rule/config says so
+> - same-day multi-vaccine scheduling is allowed
+> - when paired, animal capacity counts distinct goats, not doses
+
 The `weekly_capacity_examples` rows are raw HRMS availability examples:
 `total_capacity_animals = available_operators.length * 200`. They are not the
 scheduled drive cap. The scheduled drive cap is
