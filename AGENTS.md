@@ -801,6 +801,23 @@ Do:
   `.agents/skills/goatos-code-review/references/aggregates-and-projections.md`
   and run `make aggregate-projection-guard`; the required CI guard includes
   committed, staged, unstaged, and untracked changes.
+- Cross-surface count parity (Claude AND Codex): the SAME business fact must show
+  the SAME number on every surface that renders it — admin-web, the mobile app,
+  and the API. If two surfaces disagree (e.g. a drive shows 200 doses on the web
+  operator schedule but 400 on the mobile calendar), one backend read model is
+  wrong even if each query is internally consistent — the frontend/mobile is
+  usually faithfully rendering a wrong backend number, so "web fine, mobile
+  broken" is really "two backend read models of the same fact disagree". Pick ONE
+  authoritative source+grain per business count and reuse it across surfaces
+  (for "animals in a drive/day" that is `count(DISTINCT target_id)` over the real
+  `vaccination_drive_assignments`, the grain the operator schedule uses). NEVER
+  render an estimate/rollup column (`estimated_targets`, `estimated_*`,
+  `*_quantity`, cached counters) as a user-facing count while a sibling surface
+  reads the actuals. When you add or change a count shown on more than one
+  surface, prove parity in the same change next to the `projection-review:`
+  marker and add a test asserting the surfaces resolve to the same source/grain.
+  Full rule + the 200-vs-400 incident:
+  `docs/decisions/scale-anti-patterns.md` -> "Cross-surface count parity".
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
   this repo and surfaced on the GitHub Pages CI report site before handoff. The

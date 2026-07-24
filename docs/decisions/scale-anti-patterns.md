@@ -981,6 +981,54 @@ single-vaccine, single-partition, single-date fixture proves nothing here and is
 a false green — and the single-date case is what let sub-shape B through a
 review that had already learned sub-shape A.
 
+## Cross-surface count parity (web = mobile = API must show the same number)
+
+**The same business fact must produce the SAME number on every surface that
+shows it — admin-web, the mobile app, and the API. If two surfaces disagree,
+one of them is a bug, even when each query is internally "correct".**
+
+The concrete incident: a vaccination drive on one day showed **200 doses** on the
+admin-web operator drive schedule and **400 doses** on the mobile calendar for
+the identical drive. Neither the phone nor the web was wrong to render what it
+got — the two BACKEND read models counted different things:
+
+- Operator drive schedule → `count(DISTINCT oi.target_id)` from
+  `vaccination_drive_assignments` = **200 distinct animals** (correct).
+- Calendar park-drive marker → `GREATEST(ob.estimated_targets, 1)` =
+  `obligation_batches.estimated_targets` = **400**, which is the obligation-ROW
+  estimate (200 animals × 2 dose rows), not distinct animals.
+
+The mobile app was NOT at fault — it faithfully rendered a wrong backend number.
+"Frontend is fine, mobile is broken" was actually "two backend read models of the
+same fact disagree", and the phone happened to consume the wrong one.
+
+Rules (Claude AND Codex):
+
+1. **Pick ONE authoritative source per business count and reuse it.** For "how
+   many animals in this drive/day", that is `count(DISTINCT target_id)` over the
+   actual `vaccination_drive_assignments`/obligations — the same grain the
+   operator schedule uses. Never let one surface read an *estimate* column
+   (`estimated_targets`, `estimated_*`, `*_quantity`, a cached rollup) as a
+   user-facing count while a sibling surface reads the actuals.
+2. **Estimate columns are not display counts.** `estimated_targets` is a
+   pre-split planning estimate and can legitimately differ from realized work
+   (row-grain, pre-move, pre-cap-split). It may drive capacity planning; it must
+   never be rendered as the drive's animals/doses on a user surface.
+3. **When you add or change a count that appears on more than one surface, prove
+   parity in the same change**: state, next to the `projection-review:` marker,
+   that the web/mobile/API paths for that fact resolve to the same source and
+   grain, and add a test that asserts `calendar_marker_count ==
+   operator_schedule_count == raw_assignment_distinct_animals` for a drive.
+4. Different *labels* are fine (one surface may say "animals", another "doses"),
+   but the underlying **number for the same fact must match**. A single-injection
+   vaccine is 1 dose per animal; if "doses" ≠ "animals" for such a vaccine, the
+   count is double-counting dose rows.
+
+Fixed at `backend/internal/calendar/adapters/postgres/canonical_read.go` by
+switching the park-drive `target_count` from `ob.estimated_targets` to
+`count(DISTINCT oi.target_id)` — the same grain the single-shed drive path and
+the operator schedule already use.
+
 ## Documented gate with no executable enforcement
 
 A rule that exists only as prose in a runbook or validation doc is not a gate —

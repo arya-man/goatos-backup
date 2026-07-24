@@ -177,6 +177,22 @@ func TestCalendarParkDriveScheduledCountIgnoresCompletedBatchSourcesStatusBucket
 	}
 }
 
+func TestCalendarParkDriveDosesCountDistinctAnimalsNotEstimatedTargetsOneToManyMultiPageScheduledDateParkScopeStatusBuckets(t *testing.T) {
+	// Cross-surface count parity: the park-drive marker must count DISTINCT animals — the
+	// same grain the operator drive schedule uses — not obligation_batches.estimated_targets,
+	// which is an obligation-ROW estimate (e.g. 200 animals x 2 dose rows = 400) and made the
+	// mobile calendar show 400 doses where web showed 200. See
+	// docs/decisions/scale-anti-patterns.md -> "Cross-surface count parity".
+	const distinctAnimals = "GREATEST(count(DISTINCT oi.target_id), 1)::int AS target_count"
+	if !strings.Contains(calendarCanonicalListSQL, distinctAnimals) {
+		t.Fatalf("park-drive target_count must count DISTINCT animals for cross-surface parity; missing %q", distinctAnimals)
+	}
+	const rowEstimate = "GREATEST(ob.estimated_targets, 1)::int AS target_count"
+	if strings.Contains(calendarCanonicalListSQL, rowEstimate) {
+		t.Fatalf("park-drive target_count still renders estimated_targets (obligation-row estimate) as doses; use count(DISTINCT oi.target_id)")
+	}
+}
+
 func TestCalendarDriveShedSummaryScheduledDateParkScopeOneToManyMultiPageStatusBuckets(t *testing.T) {
 	checks := map[string]string{
 		"shed animal cte":      "obligation_drive_shed_animals AS",
