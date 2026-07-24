@@ -18,11 +18,21 @@ A STG seed is **INCOMPLETE** until:
 
 1. all 9 accounts have an **ACTIVE** (`status = 'active'`) `user_scope_grants`
    row — not merely a pending email grant;
-2. the 4 field users (Amit, Darshan, Sagar, Chandrakant) are bound to their
+2. **all 9 accounts have an active `workforce_members` profile.** The mobile
+   `/app/bootstrap` (`activeProfileAndGrants`) hard-requires a profile row for
+   the signed-in user and returns `403 operator_profile_missing` without one —
+   this applies to the 5 leadership users too, not just field users. The 4
+   field users bind to their existing named roster row (see step 3); the 5
+   leadership users get an `auth:<uid>` profile via `ensureLeadershipMember`.
+   Admin-web tolerates a missing profile; the phone does not. (Historical
+   failure mode: leadership could open admin-web but got "Couldn't load your
+   workspace" on the Android app because only field users were given a
+   profile.)
+3. the 4 field users (Amit, Darshan, Sagar, Chandrakant) are bound to their
    existing named `workforce_members` roster row with a non-null
    `department_id` (`preventive_care`), so `department_module_grants` gives
    them the vaccination bottom bar; and
-3. `docs/runbooks/stg-9-person-login-verification.md` has been run and its
+4. `docs/runbooks/stg-9-person-login-verification.md` has been run and its
    checklist passes.
 
 `make seed-stg-9-person-login` (backend/cmd/seed-stg-login-grants) is the
@@ -37,14 +47,33 @@ Do not consider a STG seed done on pending-grant output alone.
 There are **9 STG people total**: 5 Mesha leadership (SSO only) + 4 field users
 (Firebase email/password).
 
-### A) 5 Mesha leadership users — Google SSO only
+### A) 5 Mesha leadership users — Google SSO **and** email/password
 
-- Log in with **Google SSO only**.
-- Role/grant: **`ceo_internal`**.
-- Do **NOT** create email/password credentials for them.
+> **Maintainer decision 2026-07-24:** leadership is no longer SSO-only. The
+> previous "Google SSO only / do NOT create email/password credentials" rule is
+> **RETIRED**. Leadership now logs in with **either** Google SSO **or** Firebase
+> email/password, same as field users.
+
+- Log in with **Google SSO OR Firebase email/password** (either works).
+- Role/grant: **`ceo_internal`**, tenant scope.
+- Password convention is the same `<FirstName>@2026` used for field users:
+
+  | Person | STG password |
+  |---|---|
+  | Ravi | `Ravi@2026` |
+  | Manohar (Manohark) | `Manohark@2026` |
+  | Manju | `Manju@2026` |
+  | Abhishek | `Abhishek@2026` |
+  | Aryaman | `Aryaman@2026` |
+
+- These are **STG throwaway credentials only**. The Firebase email/password
+  provider must be added to each leadership account in the `goatos-stg`
+  Firebase project (Authentication → Users); the SSO (`google.com`) provider
+  stays as well.
 - Do **NOT** count them as vaccination operators.
-- Seed is complete only when the SSO grant exists and `/app/bootstrap` returns
-  CEO/internal context.
+- Seed is complete only when the `ceo_internal` grant is ACTIVE, an active
+  `workforce_members` profile exists (see mandatory section above), and
+  `/app/bootstrap` returns CEO/internal leadership context.
 
 ### B) 4 field users — Firebase email/password login
 
@@ -84,8 +113,11 @@ Field roles:
 - all 4 field users have Firebase email/password credentials
 - all 4 field users have backend grants
 - all 4 field users pass `/app/bootstrap` with correct role/context
-- all 5 leadership users have active `ceo_internal` SSO grants
-- all 5 leadership users pass `/app/bootstrap` after SSO
+- all 5 leadership users have active `ceo_internal` grants
+- all 5 leadership users have Firebase email/password credentials (in addition
+  to Google SSO) and an active `workforce_members` profile
+- all 5 leadership users pass `/app/bootstrap` (mobile) AND
+  `/admin-web/bootstrap` after either SSO or password login
 - HRMS/operator screens show Amit, Darshan, Sagar as operators
 - Chandrakant shows director context, not operator capacity
 
@@ -106,7 +138,7 @@ These users log in with Firebase email/password.
 | Amit | vaccination operator | amit797069@gmail.com | `Amit@2026` |
 | Darshan | vaccination operator | darshantalawar033@gmail.com | `Darshan@2026` |
 | Sagar | vaccination operator | sagarmahoor143@gmail.com | `Sagar@2026` |
-| Chandrakant | director | chandrakant119527@gmail.com | `Chandra@2026` |
+| Chandrakant | director | chandrakanth119527@gmail.com | `Chandra@2026` |
 
 Seed requirements:
 
@@ -117,25 +149,36 @@ Seed requirements:
 - backend identity/role binding exists
 - `/app/bootstrap` returns the correct operator/director context
 
-Agents must not invent random passwords.
+Agents must not invent random passwords (use the `<FirstName>@2026` convention).
 Agents must not use shared passwords.
-Agents must not create leadership password users.
 
-## 2. Leadership Users — SSO Only
+## 2. Leadership Users — SSO **and** email/password
 
-The 5 CEO/internal leadership users log in through SSO.
+The 5 CEO/internal leadership users log in through **either** Google SSO **or**
+Firebase email/password (maintainer decision 2026-07-24; the prior SSO-only rule
+is retired).
 
 Seed requirements:
 
-- no email/password login is created for leadership users
+- Firebase email/password provider is added to each leadership account in
+  `goatos-stg` (SSO `google.com` provider stays as well)
+- password follows the `<FirstName>@2026` convention (`Ravi@2026`,
+  `Manohark@2026`, `Manju@2026`, `Abhishek@2026`, `Aryaman@2026`)
 - SSO identity is allowlisted for STG
-- `ceo_internal` grant exists
-- backend identity/role binding exists after claim/login
-- `/admin-web/bootstrap` returns leadership / CEO internal context
+- `ceo_internal` grant exists and is ACTIVE
+- an active `workforce_members` profile exists (auto-created by
+  `ensureLeadershipMember` in `seed-stg-login-grants`) — required for the
+  mobile `/app/bootstrap`
+- `/admin-web/bootstrap` returns leadership / CEO internal context AND the
+  mobile `/app/bootstrap` returns leadership context
 
-Agents must not invent passwords for leadership users.
-Agents must not reset leadership SSO passwords.
-Agents must not confuse leadership SSO users with field Android users.
+Agents must not invent random passwords (use `<FirstName>@2026`).
+Agents must not confuse leadership users with field Android users for the
+vaccination-operator capacity rules (leadership never add operator capacity).
+
+> Credential-setting boundary: the actual Firebase password for each account is
+> set by the maintainer (Firebase console / Admin SDK). Agents seed grants,
+> profiles, and docs — they do not set login passwords.
 
 ## Required Seed Verification
 

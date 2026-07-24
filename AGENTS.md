@@ -1170,6 +1170,16 @@ Do not:
   `docs/runbooks/stg-9-person-login-verification.md` before declaring the seed
   done. `docs/runbooks/stg-login-seed-contract.md` is the canonical personnel
   rule this command implements.
+  **Leadership log in with Google SSO OR Firebase email/password** (maintainer
+  decision 2026-07-24; the prior SSO-only rule is retired — password convention
+  `<FirstName>@2026`, maintainer sets the Firebase password). **All 9 accounts,
+  leadership included, also need an active `workforce_members` profile**: the
+  mobile `/app/bootstrap` hard-requires a profile row and returns
+  `403 operator_profile_missing` without one, so leadership could open admin-web
+  but got "Couldn't load your workspace" on the Android app until
+  `ensureLeadershipMember` (in `seed-stg-login-grants`) created their
+  `auth:<uid>` profile. Materialized grant alone is not enough; the profile is
+  part of the completion bar.
 - CPT operator-drive rehearsal seed invariant: the committed packet at
   `fixtures/vaccination-cpt-operator-drive-2026-07-23/` is CPT/Channapatna only
   and uses business date `2026-07-23`. Do not synthesize CBE/Coimbatore rows.

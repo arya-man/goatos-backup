@@ -59,6 +59,9 @@ type Account struct {
 	// person's existing workforce_members roster row should be bound to.
 	// Empty for the 5 ceo_internal leadership accounts, which have no
 	// department (bootstrap_copy.go:214 grants them every module without one).
+	// Leadership accounts still get an active auth:<uid> workforce_members
+	// profile via ensureLeadershipMember — the mobile /app/bootstrap requires
+	// a profile row even though admin-web tolerates its absence.
 	DepartmentCode string
 	// RosterDisplayNameMatch is the (case-insensitive) display_name to look
 	// up on the EXISTING workforce_members row seeded by seed-roster-real /
@@ -72,7 +75,8 @@ type Account struct {
 // docs/runbooks/stg-operator-login-credentials.md (do not let this list and
 // those docs drift — update both in the same change).
 var stgLoginAccounts = []Account{
-	// --- 5 leadership: Google SSO, ceo_internal, tenant scope, no department ---
+	// --- 5 leadership: Google SSO + Firebase email/password, ceo_internal,
+	//     tenant scope, no department, mobile profile via ensureLeadershipMember ---
 	{DisplayName: "Ravi", Email: "ravi@mesha.sg", FirebaseUID: "VNAvpunR93ck7Ckf3mz6JZyDgjV2", Role: permissions.RoleCEOInternal},
 	{DisplayName: "Manohar K", Email: "manohark@mesha.sg", FirebaseUID: "h8oAB7Asc5YCuvR5y5btaUtatX53", Role: permissions.RoleCEOInternal},
 	{DisplayName: "Manju", Email: "manju@mesha.sg", FirebaseUID: "Iz3I6SC3ZTeAjFJQ7sqjb6ZLSHB3", Role: permissions.RoleCEOInternal},

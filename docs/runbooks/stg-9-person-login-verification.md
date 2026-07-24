@@ -78,6 +78,34 @@ WHERE d.tenant_id = '00000000-0000-4000-8000-000000000001'
 -- Expect a row with module_key = 'vaccination', status = 'active'.
 ```
 
+## 2b. Workforce profile presence (ALL 9 — SQL, required)
+
+The mobile `/app/bootstrap` (`activeProfileAndGrants`) returns
+`403 operator_profile_missing` for any signed-in user with no active
+`workforce_members` profile — **including the 5 leadership users.** Field users
+get a named roster row (Section 2); leadership get an `auth:<uid>` profile from
+`ensureLeadershipMember`. This query must return **9**:
+
+```sql
+SELECT count(*) AS active_profiles
+FROM auth_pending_email_grants g
+JOIN workforce_members wm
+  ON wm.user_id = g.last_claimed_user_id
+ AND wm.status = 'active'
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND g.normalized_email IN (
+    'ravi@mesha.sg','manohark@mesha.sg','manju@mesha.sg','abhishek@mesha.sg','aryaman@mesha.sg',
+    'amit797069@gmail.com','darshantalawar033@gmail.com','sagarmahoor143@gmail.com','chandrakanth119527@gmail.com'
+  );
+-- Expect: active_profiles = 9. Anything < 9 is a FAIL: the missing account(s)
+-- authenticate but get "Couldn't load your workspace" on the Android app.
+```
+
+Historical failure (2026-07-24): all 5 leadership users had an active
+`ceo_internal` grant but NO `workforce_members` row, so SSO worked yet the
+Android app showed "Couldn't load your workspace." `ensureLeadershipMember`
+now closes this in `seed-stg-login-grants`.
+
 ## 3. Live bootstrap/app checks (manual, per account)
 
 | # | Person | Email | Surface | Expected |
@@ -96,13 +124,26 @@ Report this table filled in (PASS/FAIL per row) before declaring a STG seed
 done. A row that 403s or shows an empty bottom bar is a FAIL — file it as a
 login-materialization defect, not a "wait for next sign-in" note.
 
+> Leadership (rows 1–5) now also log in on the **mobile** app (SSO or
+> `<FirstName>@2026` password) and must load the leadership mobile context
+> (Calendar / Overview / Alerts) via `/app/bootstrap` — not just admin-web.
+> A leadership account that opens admin-web but 403s on the phone is a FAIL
+> (Section 2b catches the usual cause: missing `workforce_members` profile).
+
 ## 4. STANDING invariants this checklist enforces
 
 - Pending grants are NOT enough — see `docs/runbooks/stg-login-seed-contract.md`.
 - Only Amit + Darshan + Sagar count toward vaccination operator animal
   capacity. Chandrakant and the 5 leadership accounts must NOT.
-- Do not invent random passwords, use a shared password, or create leadership
-  password users — see `docs/runbooks/stg-operator-login-credentials.md`.
+- Do not invent random passwords or use a shared password — use the
+  `<FirstName>@2026` convention. Leadership now DO get email/password logins in
+  addition to SSO (maintainer decision 2026-07-24); see
+  `docs/runbooks/stg-operator-login-credentials.md`. The maintainer sets the
+  Firebase passwords; agents do not.
+- ALL 9 accounts (not just field users) must have an active
+  `workforce_members` profile — Section 2b. Leadership profiles are the
+  `auth:<uid>` rows created by `ensureLeadershipMember`; do not fabricate a
+  named roster row for them.
 - Do not fabricate a `workforce_members` roster row to pass department
   binding — Section 2 must match an EXISTING named roster row seeded by
   `seed-roster-real` / `seed-vaccination-cpt-operator-drive`. A missing/

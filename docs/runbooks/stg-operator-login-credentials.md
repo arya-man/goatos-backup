@@ -6,9 +6,23 @@
 
 ## Canonical STG Personnel Rule (9 people total)
 
-9 STG people total: **5 Mesha leadership (Google SSO only, `ceo_internal`, NO
-password, NO vaccination capacity)** + **4 field users (Firebase email/password,
-password `<FirstName>@2026`)**.
+9 STG people total: **5 Mesha leadership (Google SSO **and** Firebase email/
+password, `ceo_internal`, NO vaccination capacity)** + **4 field users (Firebase
+email/password)**. All use the `<FirstName>@2026` password convention.
+
+> **Maintainer decision 2026-07-24:** leadership is no longer SSO-only. The 5
+> leadership accounts now also have Firebase email/password logins (in addition
+> to Google SSO). The prior "NO password / SSO-only" leadership rule is retired.
+
+Leadership passwords (in addition to SSO):
+
+| Person | Firebase password | Role | Adds vaccination capacity? |
+|---|---|---|---|
+| Ravi | `Ravi@2026` | ceo_internal | **no** |
+| Manohar (Manohark) | `Manohark@2026` | ceo_internal | **no** |
+| Manju | `Manju@2026` | ceo_internal | **no** |
+| Abhishek | `Abhishek@2026` | ceo_internal | **no** |
+| Aryaman | `Aryaman@2026` | ceo_internal | **no** |
 
 Field roles and vaccination capacity:
 
@@ -20,14 +34,19 @@ Field roles and vaccination capacity:
 | Chandrakant | `Chandra@2026` | **director** | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
-- Chandrakant is director; the 5 SSO leadership users are `ceo_internal` SSO-only.
-  Neither adds vaccination operator capacity.
+- Chandrakant is director; the 5 leadership users are `ceo_internal`. Neither
+  adds vaccination operator capacity.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
-  backend grant AND `/app/bootstrap` context must pass for all 4 field users.
+  backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
+  context must pass — for the 4 field users AND the 5 leadership users (leadership
+  profile via `ensureLeadershipMember`).
+- The maintainer sets the Firebase passwords (console / Admin SDK); agents seed
+  grants + profiles + docs, not login passwords.
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
 > operators with capacity, Chandrakant appears as director, and the 5 Mesha
-> leadership users are SSO-only `ceo_internal`.
+> leadership users are `ceo_internal` with an active profile that loads on both
+> admin-web and the mobile app.
 
 ## STG Temporary Password Convention
 
