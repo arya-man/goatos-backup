@@ -137,11 +137,28 @@ object AnalyticsEvents {
          * operators reach for", which the name answers and the id only bloats.
          */
         const val DIMENSION = "dimension"
+
+        /**
+         * This install's stable device id (`DeviceStore.appInstallId()`), stamped onto every event
+         * by [FirebaseAnalyticsAdapter.track] from [AnalyticsContext.deviceId] so the same login on
+         * two phones is distinguishable per-event (the user-scoped [UserProps.DEVICE_ID] is
+         * last-write-wins and only reflects the current device).
+         */
+        const val DEVICE_ID = "device_id"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */
     object UserProps {
         const val ROLE = "role"
+
+        /** The signed-in user's email (Firebase Auth). Business-owner decision: this is the primary
+         *  user identity dimension for segmentation. */
+        const val EMAIL = "email"
+
+        /** This install's stable device id (`DeviceStore.appInstallId()`). GA4 scopes a user
+         *  property to the user, so this is LAST-WRITE-WINS — it reflects the device the principal
+         *  most recently bootstrapped on. For per-event device attribution use [Params.DEVICE_ID]. */
+        const val DEVICE_ID = "device_id"
 
         /** Display label (e.g. "Park A") — kept for backward compatibility with existing
          *  dashboards. Prefer [PARK_ID] (a stable id) for new analytics/segmentation. */
