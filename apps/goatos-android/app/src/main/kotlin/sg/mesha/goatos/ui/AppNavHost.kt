@@ -932,6 +932,14 @@ private val supportedRootDestinations = setOf(
     Routes.VERIFY,
     Routes.ALERTS,
     Routes.TIMETABLE,
+    // Counts roots: a Counts-only principal's default landing is the first page they may
+    // open (/counts census for CEO/admin, /counts/birth-death for a capture operator).
+    // These are registered top-level composables, so cold start must accept them instead
+    // of falling back to Calendar (which a Counts-only principal may not be granted).
+    Routes.COUNTS,
+    Routes.COUNTS_BIRTH_DEATH,
+    Routes.COUNTS_SHIFTING,
+    Routes.COUNTS_APPROVALS,
 )
 
 private fun executionRoutePattern(base: String): String =
