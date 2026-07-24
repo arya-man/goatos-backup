@@ -17,8 +17,8 @@ private val RECORD_TYPES = setOf("record", "verification", "verification_closed"
  *  - `screen`/`type` "record"/"verification"/"verify"/"rework" -> the read-only/verify record
  *    for [PushExtras.SHED_ID] (falls back to the Vaccination landing with no shed id).
  *  - `screen`/`type` "reschedule" -> the reschedule form for [PushExtras.OBLIGATION_ID].
- *  - reminder/shed payloads -> the recipient's role home surface. Push taps never open Scan; scanning
- *    starts only after the operator picks a shed from Vaccination.
+ *  - reminder/shed payloads -> Vaccination. Push taps never open Scan; scanning starts only after
+ *    the operator picks a shed from Vaccination.
  *  - `screen` "calendar" -> Calendar.
  *  - anything else / no recognizable field -> the Vaccination landing (never a crash or blank
  *    screen for an unrecognized push shape — see [sg.mesha.goatos.MainActivity]'s "robust
@@ -34,7 +34,7 @@ fun resolvePushRoute(payload: Map<String, String>): String {
     val type = payload[PushExtras.TYPE]?.lowercase()?.takeIf { it.isNotBlank() }
 
     if (screen == "scan" || screen == "shed" || screen == "vaccination" || type == "reminder" || type == "vaccination_reminder") {
-        return role.roleHomeRoute()
+        return Routes.VACCINATION
     }
 
     val target = payload[PushExtras.TARGET]?.takeIf { it.isNotBlank() }
@@ -45,7 +45,6 @@ fun resolvePushRoute(payload: Map<String, String>): String {
         screen == "verification" || type == "verification_pending" ->
             when {
                 role == "verifier" -> if (itemId != null) Routes.verifyDetailRoute(itemId, category) else Routes.VERIFY
-                role.isLeadershipRole() -> Routes.LEADERSHIP
                 else -> Routes.VACCINATION
             }
         screen == "leadership_close" || type == "verification_approved" -> Routes.LEADERSHIP
@@ -56,9 +55,3 @@ fun resolvePushRoute(payload: Map<String, String>): String {
         else -> Routes.VACCINATION
     }
 }
-
-private fun String?.roleHomeRoute(): String =
-    if (isLeadershipRole()) Routes.LEADERSHIP else Routes.VACCINATION
-
-private fun String?.isLeadershipRole(): Boolean =
-    this == "pc_director" || this == "ceo" || this == "ceo_internal" || this == "director" || this == "cxo"
