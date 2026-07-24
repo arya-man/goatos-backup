@@ -434,6 +434,16 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 	if !endsAt.After(startsAt) {
 		return nil, BadRequest("invalid_leave_window", "ends_on must be on or after starts_on")
 	}
+	// Min-operator coverage guard at APPLY time, not just approve. The admin-web flow is
+	// apply-then-approve; a reported row created here that can never be approved (it would drop
+	// a park below one available operator) is a partial write the UI still renders as booked.
+	// Running the same check before the insert keeps the whole apply->approve flow atomic-by-
+	// rejection: no reported row is written when coverage would break. Approve re-checks too
+	// (defense in depth, in case coverage changed between apply and approve). The helper is
+	// scope-gated to center (park) vaccination-operator leave and no-ops for other scopes.
+	if err := s.checkMinOperatorCoverage(ctx, tenantID, body.ScopeType, body.ScopeID, startsAt, endsAt, body.WorkforceMemberID); err != nil {
+		return nil, err
+	}
 	leave, err := s.repo.ApplyLeave(ctx, ports.ApplyLeaveCommand{
 		TenantID: tenantID,
 		ActorID:  actorID,

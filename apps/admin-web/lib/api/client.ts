@@ -233,7 +233,10 @@ export function getAdminApi() {
         body: JSON.stringify(requestBody),
       });
       if (!response.ok) {
-        throw new Error(`Failed to apply leave: ${response.statusText}`);
+        // Surface the backend's business message (e.g. the min-operator coverage
+        // block) instead of a bare "Conflict", so the operator sees the reason.
+        const errBody = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errBody?.message ?? `Failed to apply leave: ${response.statusText}`);
       }
       const body = (await response.json()) as AdminApiComponents['schemas']['StaffLeaveResponse'];
       return { data: body };
