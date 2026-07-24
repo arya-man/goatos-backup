@@ -62,6 +62,7 @@ class SessionViewModelAnalyticsTest {
         override suspend fun signInWithGoogle(activityContext: Context): Result<Unit> = Result.success(Unit)
         override suspend fun sendPasswordReset(email: String): Result<Unit> = Result.success(Unit)
         override suspend fun currentIdToken(forceRefresh: Boolean): String? = null
+        override fun currentEmail(): String? = null
         override fun signOut() { signedOut = true }
     }
 
