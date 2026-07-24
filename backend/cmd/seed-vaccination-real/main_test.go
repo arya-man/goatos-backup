@@ -640,6 +640,17 @@ func TestSeedSchedulePathUsesLiveCutoffForSourceHistory(t *testing.T) {
 	}
 }
 
+func TestCPTPublicationMatrixCanExcludePPRFor2026SeedPacket(t *testing.T) {
+	t.Setenv("GOATOS_CPT_EXCLUDE_PPR_2026", "1")
+	matrix := buildSeedPublicationVaccinationMatrix()
+	if _, ok := matrix["PPR"]; ok {
+		t.Fatalf("PPR present in CPT 2026 seed publication matrix")
+	}
+	if _, ok := buildCanonicalVaccinationMatrix()["PPR"]; !ok {
+		t.Fatalf("canonical matrix must still include PPR for source/history mapping")
+	}
+}
+
 // TestSeedSchedulePathClassifiesByDoseDateNotCurrentAge is the R50-001 regression guard.
 // A kid-age (15-week) dose administration on an animal that is NOW 30+ weeks old (well past the
 // 16/20-week kid-course cutoff, so no longer a "continuation" case even with a kid-stage tag) must
