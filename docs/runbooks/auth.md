@@ -678,11 +678,12 @@ For STG Android operator/director test login credentials, use:
 STG seed/login rules are governed by:
 `docs/runbooks/stg-login-seed-contract.md`
 
-## Canonical STG Personnel Rule (9 people total)
+## Canonical STG Personnel Rule (10 people total)
 
-9 STG people total: **5 Mesha leadership (Google SSO only, `ceo_internal`, NO
-password, NO vaccination capacity)** + **4 field users (Firebase email/password,
-password `<FirstName>@2026`)**. Canonical source:
+10 STG people total: **5 Mesha leadership (Google SSO and Firebase
+email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
+(Firebase email/password, password `<FirstName>@2026`)** + **1 verifier
+(Firebase email/password, password `Jyothi@2025`)**. Canonical source:
 `docs/runbooks/stg-login-seed-contract.md`.
 
 | Person | Auth | Role | Adds vaccination capacity? |
@@ -691,15 +692,17 @@ password `<FirstName>@2026`)**. Canonical source:
 | Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
 | Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
 | Chandrakant | Firebase `Chandra@2026` | **director** | **no** |
-| 5 Mesha leadership | Google SSO only | `ceo_internal` | **no** |
+| Jyothi | Firebase `Jyothi@2025` | **verifier** | **no** |
+| 5 Mesha leadership | Google SSO + Firebase `<FirstName>@2026` | `ceo_internal` | **no** |
 
-The 5 Mesha leadership users are SSO-only `ceo_internal`: never create
-email/password credentials for them and never count them as vaccination
-operators. For the 4 field users, Firebase allowlist alone / Firebase user
-existing is NOT enough — backend grant AND `/app/bootstrap` context must pass.
+The 5 Mesha leadership users are `ceo_internal` with both Google SSO and
+Firebase email/password, and they never count as vaccination operators. For the
+4 field users and Jyothi, Firebase allowlist alone / Firebase user existing is
+NOT enough — backend grant AND bootstrap context must pass.
 ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity;
-Chandrakant (director) does not.
+Chandrakant (director) and Jyothi (verifier) do not.
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
-> operators with capacity, Chandrakant appears as director, and the 5 Mesha
-> leadership users are SSO-only `ceo_internal`.
+> operators with capacity, Chandrakant appears as director, Jyothi has verifier
+> login/grant readiness, and the 5 Mesha leadership users are `ceo_internal`
+> with both Google SSO and Firebase email/password available.

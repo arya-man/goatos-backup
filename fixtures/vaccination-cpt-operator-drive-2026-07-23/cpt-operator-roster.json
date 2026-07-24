@@ -127,6 +127,24 @@
       ]
     }
   ],
+  "verifiers": [
+    {
+      "code": "preventive_care_verifier_jyothi",
+      "display_name": "Jyothi",
+      "email": "jyothipvg12345@gmail.com",
+      "role": "verifier",
+      "identity_provider": "firebase_email_password",
+      "park_scope": [
+        "CPT"
+      ],
+      "can_execute_vaccination": false,
+      "adds_vaccination_capacity": false,
+      "notes": [
+        "Verifier reviews submitted proof and must not add vaccination operator capacity.",
+        "Seed Firebase email/password for STG with the documented temporary password convention."
+      ]
+    }
+  ],
   "leadership_full_access": {
     "grant_role": "ceo_internal",
     "scope_type": "tenant",

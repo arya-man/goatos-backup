@@ -69,6 +69,10 @@ async function seedUser(user) {
     account = await markEmailVerified(account.localId);
     action = action === "created" ? "created_verified" : "verified_existing";
   }
+  if (user.password && existing) {
+    account = await setPassword(account.localId, user.password);
+    action = action === "verified_existing" ? "verified_password_set" : "password_set";
+  }
 
   let resetEmail = "skipped";
   if (options.sendResetEmail) {
@@ -96,7 +100,7 @@ async function lookupUser(email) {
 async function createUser(user) {
   const response = await identityToolkitRequest(`projects/${encodeURIComponent(options.project)}/accounts`, {
     email: user.email,
-    password: randomTemporaryPassword(),
+    password: user.password || randomTemporaryPassword(),
     displayName: user.displayName,
     emailVerified: true,
     targetProjectId: options.project,
@@ -113,6 +117,20 @@ async function markEmailVerified(localId) {
   const response = await identityToolkitRequest(`projects/${encodeURIComponent(options.project)}/accounts:update`, {
     localId,
     emailVerified: true,
+    targetProjectId: options.project,
+  });
+  return {
+    localId: response.localId || localId,
+    email: response.email,
+    displayName: response.displayName,
+    emailVerified: response.emailVerified === true,
+  };
+}
+
+async function setPassword(localId, password) {
+  const response = await identityToolkitRequest(`projects/${encodeURIComponent(options.project)}/accounts:update`, {
+    localId,
+    password,
     targetProjectId: options.project,
   });
   return {
@@ -189,6 +207,18 @@ function parseArgs(args) {
     else if (arg === "--continue-url") parsed.continueUrl = nextValue(args, ++index, arg);
     else if (arg === "--email") addEmailUsers(parsed.users, nextValue(args, ++index, arg));
     else if (arg === "--user") parsed.users.push(parseUser(nextValue(args, ++index, arg)));
+    else if (arg === "--user-password") {
+      const credential = parseUserPassword(nextValue(args, ++index, arg));
+      const existing = parsed.users.find((user) => user.email === credential.email);
+      if (existing) existing.password = credential.password;
+      else {
+        parsed.users.push({
+          email: credential.email,
+          displayName: displayNameFromEmail(credential.email),
+          password: credential.password,
+        });
+      }
+    }
     else fail(`Unknown argument: ${arg}`);
   }
 
@@ -217,6 +247,15 @@ function parseUser(value) {
   if (!email) fail(`Invalid --user email: ${value}`);
   const displayName = nameParts.join("=").trim() || displayNameFromEmail(email);
   return { email, displayName };
+}
+
+function parseUserPassword(value) {
+  const [rawEmail, ...passwordParts] = value.split("=");
+  const email = normalizeEmail(rawEmail);
+  const password = passwordParts.join("=");
+  if (!email) fail(`Invalid --user-password email: ${value}`);
+  if (password.length < 6) fail(`Password for ${email} is too short.`);
+  return { email, password };
 }
 
 function uniqueUsers(users) {
@@ -253,6 +292,7 @@ function printUsage(exitCode) {
 Options:
   --project <id>              Required Google Cloud/Firebase project id.
   --user <email=Display>      Seed one user with a display name. Repeatable.
+  --user-password <email=pw>  Optional fixed temporary password for a seeded user.
   --email <a,b,c>             Seed emails with display names derived from local parts.
   --send-reset-email          Send Firebase password-reset emails after seeding.
   --continue-url <url>        Optional post-reset dashboard URL.

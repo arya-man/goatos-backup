@@ -179,6 +179,11 @@
       "date": "2026-07-25",
       "change": "Adult campaign generation now uses a stable idempotency key for non-repeating physical-partition campaign obligations and realigns unbatched open rows on replay instead of minting a second same-goat/same-dose obligation when the seed as-of date changes.",
       "vaccination_hrms_source_impact": "none to committed full fixture bytes: animal, roster, SOP, and vaccination source files are unchanged. The change is generation idempotency for derived obligations only; it prevents CPT operator-drive duplicates such as ET+TT W2 or FMD W1 replay rows while preserving kid/young strict timing and repeating booster cycle fences."
+    },
+    {
+      "date": "2026-07-25",
+      "change": "CPT operator-roster contract gained verifier-only email-password grants; Jyothi jyothipvg12345@gmail.com is seeded as verifier with no vaccination execution seat, shift row, or animal capacity.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle has no cpt-operator-roster.json, so the verifier grant lane is inactive for it and all raw animal/vaccination/HRMS hashes and counts stay unchanged. CPT-only operator-drive packets with verifiers[] must consume the block as auth_pending_email_grants only; verifiers never affect drive packing capacity."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."

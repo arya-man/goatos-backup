@@ -16,9 +16,11 @@ admin-web and an empty bottom bar on mobile.
 
 A STG seed is **INCOMPLETE** until:
 
-1. all 9 accounts have an **ACTIVE** (`status = 'active'`) `user_scope_grants`
-   row — not merely a pending email grant;
-2. **all 9 accounts have an active `workforce_members` profile.** The mobile
+1. all 9 UID-backed accounts have an **ACTIVE** (`status = 'active'`)
+   `user_scope_grants` row — not merely a pending email grant — and Jyothi has
+   an active CPT verifier pending-email grant that materializes on first
+   verified sign-in;
+2. **all 9 UID-backed accounts have an active `workforce_members` profile.** The mobile
    `/app/bootstrap` (`activeProfileAndGrants`) hard-requires a profile row for
    the signed-in user and returns `403 operator_profile_missing` without one —
    this applies to the 5 leadership users too, not just field users. The 4
@@ -32,20 +34,26 @@ A STG seed is **INCOMPLETE** until:
    existing named `workforce_members` roster row with a non-null
    `department_id` (`preventive_care`), so `department_module_grants` gives
    them the vaccination bottom bar; and
-4. `docs/runbooks/stg-9-person-login-verification.md` has been run and its
-   checklist passes.
+4. `docs/runbooks/stg-9-person-login-verification.md` has been run for the
+   UID-backed accounts, plus the Jyothi verifier sign-in/grant check passes.
 
 `make seed-stg-9-person-login` (backend/cmd/seed-stg-login-grants) is the
-permanent, idempotent command that materializes step 1 and 2 directly — it
-does not wait for a claim event. It is wired as a required final step of
-`make seed-vaccination-source-full` and `make seed-vaccination-cpt-operator-drive`
-when `GOATOS_ENV=stg`. Run `make verify-stg-9-person-login` afterward for step 3.
-Do not consider a STG seed done on pending-grant output alone.
+permanent, idempotent command that materializes step 1 and 2 directly for the
+original 9 UID-backed accounts — it does not wait for a claim event. It is wired
+as a required final step of `make seed-vaccination-source-full` and
+`make seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg`. Run
+`make verify-stg-9-person-login` afterward for step 3. Jyothi is an additional
+CPT verifier account without a committed Firebase UID; her verifier grant is
+seeded by the CPT roster into `auth_pending_email_grants` and becomes active on
+first verified sign-in through `/auth/session-events`. Do not consider a STG seed
+done on pending-grant output alone unless that exception is explicitly the
+Jyothi UID-less verifier lane and her sign-in check has been run.
 
-## Canonical STG Personnel Rule (9 people total)
+## Canonical STG Personnel Rule (10 people total)
 
-There are **9 STG people total**: 5 Mesha leadership (Google SSO and Firebase
-email/password) + 4 field users (Firebase email/password).
+There are **10 STG people total**: 5 Mesha leadership (Google SSO and Firebase
+email/password) + 4 field users (Firebase email/password) + 1 proof verifier
+(Firebase email/password).
 
 ### A) 5 Mesha leadership users — Google SSO **and** email/password
 
@@ -108,6 +116,19 @@ Field roles:
 - Chandrakant is **director** and must **NOT** add vaccination operator capacity.
 - The 5 SSO leadership users must **NOT** add vaccination operator capacity.
 
+### C) 1 verifier — Firebase email/password login
+
+- Jyothi logs in with **Firebase email/password**.
+- Email: `jyothipvg12345@gmail.com`.
+- Password: `Jyothi@2025`.
+- Role/grant: **`verifier`**, tenant scope.
+- Seed path: the CPT operator-drive roster seeds an active
+  `auth_pending_email_grants` row for this email/role during DB seed. Because
+  the repo does not commit Jyothi's Firebase UID, the active
+  `user_scope_grants` row is materialized by the normal `/auth/session-events`
+  claim path on first verified sign-in.
+- Jyothi is proof-review only and must **NOT** add vaccination operator capacity.
+
 ### Seed completion criteria
 
 - all 4 field users have Firebase email/password credentials
@@ -118,13 +139,19 @@ Field roles:
   to Google SSO) and an active `workforce_members` profile
 - all 5 leadership users pass `/app/bootstrap` (mobile) AND
   `/admin-web/bootstrap` after either SSO or password login
+- Jyothi has Firebase email/password credentials, a verifier pending email
+  grant from CPT DB seed, and `/admin-web/bootstrap` verifier access after first
+  sign-in materializes the active grant
 - HRMS/operator screens show Amit, Darshan, Sagar as operators
 - Chandrakant shows director context, not operator capacity
+- Jyothi never appears as a vaccination operator and never contributes to
+  operator animal capacity
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
 > operators with capacity, Chandrakant appears as director, and the 5 Mesha
 > leadership users are `ceo_internal` with both Google SSO and Firebase
-> email/password login available. Leadership still adds no vaccination capacity.
+> email/password login available. Jyothi must have verifier login/grant
+> readiness. Leadership and verifier users still add no vaccination capacity.
 
 ---
 

@@ -601,6 +601,21 @@ type operatorRosterLeadership struct {
 	Emails        []string `json:"emails"`
 }
 
+// operatorRosterVerifier is a tenant-scoped verifier login declared by the CPT
+// seed packet. Verifiers review proof and never add vaccination execution
+// capacity, so the roster seeder only seeds the approved-email grant path.
+type operatorRosterVerifier struct {
+	Code                    string   `json:"code"`
+	DisplayName             string   `json:"display_name"`
+	Email                   string   `json:"email"`
+	Role                    string   `json:"role"`
+	IdentityProvider        string   `json:"identity_provider"`
+	ParkScope               []string `json:"park_scope"`
+	CanExecuteVaccinaton    bool     `json:"can_execute_vaccination"`
+	AddsVaccinationCapacity bool     `json:"adds_vaccination_capacity"`
+	Notes                   []string `json:"notes"`
+}
+
 // operatorRosterAndroidLogin is the post-DB-seed mobile provisioning contract for
 // field executors. The roster seeder validates it so the block cannot be silently
 // ignored, but it deliberately does not create Firebase users: cloud identity
@@ -657,6 +672,7 @@ type operatorRosterContract struct {
 		Notes                         []string `json:"notes"`
 	} `json:"default_operator_assignment"`
 	Directors             []operatorRosterDirector  `json:"directors"`
+	Verifiers             []operatorRosterVerifier  `json:"verifiers"`
 	LeadershipFullAccess  *operatorRosterLeadership `json:"leadership_full_access"`
 	WeeklyCapacityExample []struct {
 		Weekday                    string   `json:"weekday"`
@@ -727,6 +743,27 @@ func loadOperatorRoster(sourcePath string) (*operatorRosterContract, error) {
 		}
 		if operatorCodes[director.Code] || operatorKeys[operatorNameKey(director.DisplayName)] {
 			return nil, fmt.Errorf("operator roster director %s is also declared as a vaccination operator", director.Code)
+		}
+	}
+	for _, verifier := range contract.Verifiers {
+		if strings.TrimSpace(verifier.Code) == "" || strings.TrimSpace(verifier.DisplayName) == "" {
+			return nil, fmt.Errorf("operator roster verifier requires code and display_name")
+		}
+		email := strings.ToLower(strings.TrimSpace(verifier.Email))
+		if email == "" || !strings.Contains(email, "@") {
+			return nil, fmt.Errorf("operator roster verifier %s requires email", verifier.Code)
+		}
+		if strings.TrimSpace(verifier.Role) != "verifier" {
+			return nil, fmt.Errorf("operator roster verifier %s role must be verifier", verifier.Code)
+		}
+		if strings.TrimSpace(verifier.IdentityProvider) != "firebase_email_password" {
+			return nil, fmt.Errorf("operator roster verifier %s identity_provider must be firebase_email_password", verifier.Code)
+		}
+		if verifier.CanExecuteVaccinaton || verifier.AddsVaccinationCapacity {
+			return nil, fmt.Errorf("operator roster verifier %s must not execute vaccination or add capacity", verifier.Code)
+		}
+		if operatorCodes[verifier.Code] || operatorKeys[operatorNameKey(verifier.DisplayName)] {
+			return nil, fmt.Errorf("operator roster verifier %s is also declared as a vaccination operator", verifier.Code)
 		}
 	}
 	if lead := contract.LeadershipFullAccess; lead != nil {
@@ -1506,7 +1543,7 @@ SET location_code = EXCLUDED.location_code,
 	// thrown away. Same transaction as the roster import: a roster that commits its operators
 	// without the monitoring director and the CEO/CXO grants is exactly the half-seeded HRMS
 	// state LOCAL_DB_RESEED_VALIDATION.md forbids.
-	directors, grants, err := seedContractDirectorsAndLeadership(ctx, tx, tenantID, centerLocationID, operatorRoster, resolveDept, assignments)
+	directors, grants, err := seedContractPeopleAndEmailGrants(ctx, tx, tenantID, centerLocationID, operatorRoster, resolveDept, assignments)
 	if err != nil {
 		return ist, fmt.Errorf("seed contract directors/leadership: %w", err)
 	}
@@ -1519,7 +1556,7 @@ SET location_code = EXCLUDED.location_code,
 	return ist, nil
 }
 
-// seedContractDirectorsAndLeadership seeds the operator-roster contract blocks that the seeder
+// seedContractPeopleAndEmailGrants seeds the operator-roster contract blocks that the seeder
 // previously dropped on the floor (BUG-024):
 //
 //   - `directors[]`  -> a workforce_members row per director with hr_designation_grade=director,
@@ -1530,9 +1567,11 @@ SET location_code = EXCLUDED.location_code,
 //   - `leadership_full_access` -> tenant-scoped auth_pending_email_grants rows, the same table and
 //     shape backend/cmd/seed-dev-email-grants writes, so a CPT-only reseed no longer depends on
 //     GOATOS_DEV_DASHBOARD_ADMIN_EMAILS being set by hand.
+//   - `verifiers[]` -> tenant-scoped auth_pending_email_grants rows for proof
+//     reviewers. Verifiers do not get workforce_positions or vaccination capacity.
 //
 // No-ops for sources without the contract. Returns (directorsSeeded, leadershipGrantsSeeded).
-func seedContractDirectorsAndLeadership(
+func seedContractPeopleAndEmailGrants(
 	ctx context.Context,
 	tx pgx.Tx,
 	tenantID string,
@@ -1620,6 +1659,23 @@ DO UPDATE SET email = EXCLUDED.email, source = EXCLUDED.source, updated_at = now
 			}
 			grantsSeeded++
 		}
+	}
+	for _, verifier := range contract.Verifiers {
+		email := strings.ToLower(strings.TrimSpace(verifier.Email))
+		if email == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO auth_pending_email_grants (
+  tenant_id, email, normalized_email, role, scope_type, scope_id, status, valid_from, source
+) VALUES ($1, $2, $2, 'verifier', 'tenant', $1, 'active', now(), 'cpt_operator_roster_contract')
+ON CONFLICT (tenant_id, normalized_email, role, scope_type, scope_id)
+  WHERE status = 'active' AND valid_to IS NULL
+DO UPDATE SET email = EXCLUDED.email, source = EXCLUDED.source, updated_at = now()`,
+			tenantID, email); err != nil {
+			return 0, 0, fmt.Errorf("upsert verifier grant: %w", err)
+		}
+		grantsSeeded++
 	}
 	return directorsSeeded, grantsSeeded, nil
 }

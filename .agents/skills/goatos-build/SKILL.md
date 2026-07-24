@@ -23,6 +23,9 @@ Coimbatore. The only field operators are Amit Kumar, Darshan Talwar, and Sagar
 Mahoor, all equal vaccination operators at `200` unique animals/day/operator.
 Chandrakant is director-only monitoring scope. The five founder/CXO emails in
 `docs/runbooks/auth.md` must receive tenant-scoped `ceo_internal` grants. The
+same roster may include verifier-only Firebase email-password grants; Jyothi
+`jyothipvg12345@gmail.com` is a verifier for CPT seed review and must not gain a
+vaccination operator seat or animal capacity.
 `Adult` filename is only source naming; kid/adult/booster/clinical/combo/buffer
 rules still come from the backend vaccination rule engine.
 Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes

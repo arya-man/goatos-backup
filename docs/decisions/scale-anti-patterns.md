@@ -41,6 +41,12 @@ none of them is support-only, backup-only, or park-head-only. Their week-offs
 must come from HRMS/timetable seed data and reduce the available operator pool
 for that business date before animal-cap splitting runs.
 
+Verifier-capacity drift is the adjacent seed anti-pattern. A verifier login
+grant such as Jyothi's CPT seed account is review authority only. If the seeder
+turns a verifier into a `vaccination_operator_*` position, shift row, or animal
+cap contributor, the drive planner silently gains fake capacity and every
+operator-day proof becomes suspect.
+
 ## Sub-500ms serving-read budget
 
 Every operator-facing API, SSR page load, dashboard read, schedule/calendar
