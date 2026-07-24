@@ -75,3 +75,22 @@ BUG-041 is NOT a deployment blocker unless explicitly stated. If BUG-041 remains
 - validation must report the impact
 - do not claim vaccination E2E is fully clean
 - do not patch BUG-041 inside the deploy task
+
+## STG Seed Closeout Timeouts
+
+STG seed closeout runs over Cloud SQL and may need a larger per-query timeout
+than local development. The normal runtime defaults (`GOATOS_PG_QUERY_TIMEOUT`
+is `15s` on the API service and `30s` on the worker) are not enough for STG
+Cloud SQL seed closeout.
+
+For seed/closeout jobs only, set:
+
+```bash
+GOATOS_PG_QUERY_TIMEOUT=60s
+```
+
+This is allowed for destructive/admin seed closeout because it generates drive
+assignments, memberships, projections, and proof tables over Cloud SQL. Do not
+change normal API/runtime query timeouts just to make seed closeout pass. If
+closeout needs this timeout, report the slow step and keep it scoped to the
+seed command.

@@ -154,6 +154,27 @@ source shed.
     then verify its operational and generation stages each run once successfully
     before handoff.
 
+## STG Seed Closeout Timeouts
+
+STG seed closeout (steps 7-10 above: `seed-vaccination-real`, embedded
+reconciliation, surviving-summary recompute, and the obligation sweeper stage)
+runs over Cloud SQL and may need a larger per-query timeout than local
+development. The normal runtime defaults (`GOATOS_PG_QUERY_TIMEOUT` is `15s` on
+the API service and `30s` on the worker) are not enough for STG Cloud SQL seed
+closeout.
+
+For the CPT reseed/closeout command only, set:
+
+```bash
+GOATOS_PG_QUERY_TIMEOUT=60s
+```
+
+This is allowed for destructive/admin seed closeout because it generates drive
+assignments, memberships, projections, and proof tables over Cloud SQL. Do not
+change normal API/runtime query timeouts just to make seed closeout pass. If
+closeout needs this timeout, report the slow step and keep it scoped to the
+seed command.
+
 ## Mandatory Postflight Invariants
 
 The seed command enforces the obligation/history subset. The operational
