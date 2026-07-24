@@ -574,3 +574,8 @@ export function updateManifestHashes(directory, manifest) {
 // seed_catchup_overrides affect only operator-drive rehearsal bundles that ship
 // cpt-operator-roster.json. The committed full fixture has no such contract file,
 // so raw fixture bytes and manifest hashes remain unchanged.
+
+// Coupling review 2026-07-25: adult non-repeating physical-partition campaign
+// obligations are generation-idempotent at campaign grain. Replaying with a
+// corrected as-of date may realign unbatched derived obligations, but this
+// fixture library's raw source hashes/counts remain unchanged.

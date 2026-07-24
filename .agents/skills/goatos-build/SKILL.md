@@ -571,6 +571,10 @@ one product; this skill is the navigation layer.
   2026-07-24; every other CPT operator/date remains governed by the standing
   HRMS cap of 200 unless a future fixture explicitly declares another
   `seed_catchup_overrides` row.
+- Adult non-repeating physical-partition campaign obligations must be
+  idempotent at campaign grain across seed replays. A corrected seed as-of may
+  realign an unbatched open obligation to the reviewed campaign day, but must
+  not create another open obligation for the same goat+dose.
 
 ## Must Not
 

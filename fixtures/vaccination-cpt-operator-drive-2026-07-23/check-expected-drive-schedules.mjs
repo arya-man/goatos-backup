@@ -145,8 +145,25 @@ JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
 LEFT JOIN workforce_members wm ON wm.workforce_member_id = vda.operator_id
 WHERE vda.tenant_id = '${tenant}'::uuid
   AND ob.status <> 'superseded'
+  AND oi.status IN ('scheduled', 'due', 'missed')
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 3`;
+
+const DUPLICATE_OPEN_ASSIGNMENT_SQL = (tenant) => `
+SELECT pr.dose_code,
+       m.goat_id::text,
+       count(DISTINCT m.assignment_id)::text
+FROM vaccination_drive_assignment_members m
+JOIN obligation_instances oi ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
+JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
+WHERE m.tenant_id = '${tenant}'::uuid
+  AND oi.status IN ('scheduled', 'due', 'missed')
+  AND ob.status <> 'superseded'
+GROUP BY 1, 2
+HAVING count(DISTINCT m.assignment_id) > 1
+ORDER BY 1, 2
+LIMIT 20`;
 
 const OPERATOR_CONFIG_SQL = (tenant) => `
 SELECT wm.display_name, wp.vaccination_daily_animal_cap::text, sc.week_off_weekday
@@ -157,7 +174,7 @@ LEFT JOIN workforce_positions wp
 WHERE sc.tenant_id = '${tenant}'::uuid
 ORDER BY 1`;
 
-export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows }) {
+export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows, variant, vaccineRows, duplicateOpenAssignmentRows = [] }) {
   const failures = [];
   const { cap, activeOperatorsPerDay, park, businessDate, operatorNames, prohibitedDosePrefixes = [], seedCatchupOverrides = [] } = contract;
   const capFor = (date, operator) => {
@@ -199,6 +216,10 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
     failures.push(`empty shell batch: ${count} ${status} batch(es) carry drive assignments with zero attached obligations`);
   }
 
+  for (const [doseCode, goatID, count] of duplicateOpenAssignmentRows) {
+    failures.push(`duplicate open assignment: goat ${goatID} has ${count} open assignments for ${doseCode}`);
+  }
+
   const configuredOperators = new Set(operatorRows.map(([name]) => name));
   for (const name of operatorNames) {
     if (!configuredOperators.has(name)) {
@@ -224,6 +245,7 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
 
   if (variant) {
     const byDateOperator = new Map();
+    const expectedByFamily = new Map();
     for (const row of vaccineRows) {
       const date = row[0];
       const operator = row.length === 3 ? "" : row[1];
@@ -250,11 +272,28 @@ export function evaluate({ contract, capRows, parkRows, shellRows, operatorRows,
           continue;
         }
         if (Number.isInteger(row.animals_scheduled)) {
+          expectedByFamily.set(expectedFamily, (expectedByFamily.get(expectedFamily) ?? 0) + row.animals_scheduled);
           const actual = matches.reduce((sum, [, animals]) => sum + animals, 0);
           if (actual !== row.animals_scheduled) {
             failures.push(`variant ${variant.id}: ${row.date} ${expectedOperator} ${expectedFamily} has ${actual} animals, expected ${row.animals_scheduled}`);
           }
         }
+      }
+    }
+    for (const [expectedFamily, expectedAnimals] of expectedByFamily) {
+      let actualAnimals = 0;
+      const actualRows = [];
+      for (const row of vaccineRows) {
+        const date = row[0];
+        const operator = row.length === 3 ? "" : row[1];
+        const doseCode = row.length === 3 ? row[1] : row[2];
+        const animals = Number(row.length === 3 ? row[2] : row[3]);
+        if (!token(doseCode).startsWith(expectedFamily)) continue;
+        actualAnimals += animals;
+        actualRows.push(`${date} ${operator || "(no operator)"} ${doseCode} ${animals}`);
+      }
+      if (actualAnimals !== expectedAnimals) {
+        failures.push(`variant ${variant.id}: ${expectedFamily} total has ${actualAnimals} animals across open assignments, expected ${expectedAnimals}; rows: ${actualRows.join("; ") || "(none)"}`);
       }
     }
   }
@@ -278,6 +317,7 @@ function selfTest() {
     operatorRows: [["Amit Kumar", "200", "friday"], ["Darshan Talwar", "200", "sunday"], ["Sagar Mahoor", "200", "saturday"]],
     variant: null,
     vaccineRows: [],
+    duplicateOpenAssignmentRows: [],
   };
   const exactVariant = {
     id: "exact-210",
@@ -301,7 +341,9 @@ function selfTest() {
     ["wrong cap fails", { ...clean, operatorRows: [["Amit Kumar", "200", "friday"], ["Darshan Talwar", "50", "sunday"], ["Sagar Mahoor", "200", "saturday"]] }, 1],
     ["prohibited PPR drive fails", { ...clean, vaccineRows: [["2026-08-07", "ppr_adult_w1", "124"]] }, 1],
     ["variant exact date/operator/count passes", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "210"]] }, 0],
-    ["variant exact date/operator/count fails", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "200"]] }, 1],
+    ["variant exact date/operator/count fails", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "200"]] }, 2],
+    ["variant extra ET+TT rows fail", { ...clean, variant: exactVariant, vaccineRows: [["2026-07-25", "Darshan Talwar", "et_tt_adult_w2", "210"], ["2026-07-26", "Sagar Mahoor", "et_tt_adult_w2", "199"], ["2026-07-27", "Darshan Talwar", "et_tt_adult_w2", "11"]] }, 1],
+    ["duplicate goat dose assignments fail", { ...clean, duplicateOpenAssignmentRows: [["et_tt_adult_w2", "goat-1", "2"]] }, 1],
   ];
   let bad = 0;
   for (const [label, input, expectedCount] of cases) {
@@ -350,6 +392,7 @@ function main() {
     operatorRows: psql(OPERATOR_CONFIG_SQL(tenant)),
     variant,
     vaccineRows: (variant || contract.prohibitedDosePrefixes.length) ? psql(VACCINE_BY_DATE_SQL(tenant)) : [],
+    duplicateOpenAssignmentRows: psql(DUPLICATE_OPEN_ASSIGNMENT_SQL(tenant)),
   });
 
   if (failures.length) {

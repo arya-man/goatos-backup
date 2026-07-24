@@ -1467,7 +1467,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return err
 		}
 		keyDue := obligationKeyDue(rule, baseDue, due)
-		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDue.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
+		keyDueToken := keyDue.UTC().Format(time.RFC3339)
+		if isStableAdultCampaignObligationKey(rule, g) {
+			keyDueToken = "adult_campaign"
+		}
+		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDueToken, strconv.Itoa(int(rule.Sequence)))
 		if anchorCatchUpKey != "" {
 			key = anchorCatchUpKey
 		}
@@ -1964,6 +1968,14 @@ func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveD
 
 func obligationKeyDue(rule protodomain.Rule, baseDue, materializedDue time.Time) time.Time {
 	return baseDue
+}
+
+func isStableAdultCampaignObligationKey(rule protodomain.Rule, g domain.EligibleGoat) bool {
+	repeat := strings.TrimSpace(rule.Repeat)
+	if repeat != "" && !strings.EqualFold(repeat, "none") {
+		return false
+	}
+	return isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g)
 }
 
 func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
