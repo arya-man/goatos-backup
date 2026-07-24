@@ -257,9 +257,9 @@ Firebase email/password and backend role binding for them.
 
 Canonical source: `docs/runbooks/stg-login-seed-contract.md`.
 
-9 STG people total: **5 Mesha leadership (Google SSO only, `ceo_internal`, NO
-password, NO vaccination capacity)** + **4 field users (Firebase email/password,
-password `<FirstName>@2026`)**.
+9 STG people total: **5 Mesha leadership (Google SSO and Firebase
+email/password, `ceo_internal`, NO vaccination capacity)** + **4 field users
+(Firebase email/password, password `<FirstName>@2026`)**.
 
 | Person | Auth | Role | Adds vaccination capacity? |
 |---|---|---|---|
@@ -267,14 +267,35 @@ password `<FirstName>@2026`)**.
 | Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
 | Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
 | Chandrakant | Firebase `Chandra@2026` | **director** | **no** |
-| 5 Mesha leadership | Google SSO only | `ceo_internal` | **no** |
+| 5 Mesha leadership | Google SSO + Firebase `<FirstName>@2026` | `ceo_internal` | **no** |
 
 - ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
-  Chandrakant is director and must NOT add capacity; the 5 SSO leadership users
-  are `ceo_internal` SSO-only and must NOT add capacity.
+  Chandrakant is director and must NOT add capacity; the 5 leadership users are
+  `ceo_internal` and must NOT add capacity even though they have both Google SSO
+  and Firebase email/password login.
 - For the 4 field users, Firebase allowlist alone / Firebase user existing is NOT
   enough: backend grant AND `/app/bootstrap` context must pass.
+- For the 5 leadership users, Google SSO alone is NOT enough for STG validation:
+  Firebase email/password, active `ceo_internal` grant, active leadership profile,
+  admin-web bootstrap, mobile bootstrap, and CEO AI access must all pass.
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
 > operators with capacity, Chandrakant appears as director, and the 5 Mesha
-> leadership users are SSO-only `ceo_internal`.
+> leadership users are `ceo_internal` with both Google SSO and Firebase
+> email/password available.
+
+## STG Platform Wiring Required With This Seed
+
+The CPT seed is not STG-ready just because the vaccination rows exist. The seed
+handoff must also verify platform wiring:
+
+- CEO AI / chatbot follows `docs/runbooks/stg-chatbot-ai-wiring.md`: leadership
+  users can see the assistant, non-leadership users cannot, and `/ceo-ai/*`
+  reaches the STG backend path with configured Vertex/Cube/MCP/read-only DB
+  dependencies or reports the exact missing dependency.
+- GCS-backed evidence/storage wiring follows the STG deployment runbooks: buckets
+  and service-account permissions must point at `goatos-stg`, not local/dev/prod
+  placeholders, before proof upload or closeout evidence is claimed.
+- Login proof must cover both surfaces: admin-web/FE and Android/mobile. A user
+  existing in Firebase, a pending email grant, or a successful admin-web login
+  alone is not enough.
