@@ -2240,6 +2240,8 @@ func (r *Repository) ListCompletionsByGoat(ctx context.Context, tenantID, goatID
 			Status:              row.Status,
 			Doses:               row.Doses,
 			RouteSite:           row.RouteSite,
+			DoseCode:            row.DoseCode,
+			VaccineLabel:        row.VaccineLabel,
 			AdverseReaction:     row.AdverseReaction,
 			WithdrawalUntilDate: pgconv.DateValue(row.WithdrawalUntilDate),
 		})

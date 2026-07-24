@@ -76,6 +76,10 @@ type OpenObligation struct {
 	ScopeType         string
 	ScopeID           string
 	DueAt             time.Time
+	ClinicalDueAt     time.Time
+	ScheduledFor      *time.Time
+	DoseCode          string
+	VaccineLabel      string
 	Status            string
 	Sequence          int32
 }

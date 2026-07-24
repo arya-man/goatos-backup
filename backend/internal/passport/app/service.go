@@ -6,6 +6,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -36,14 +38,19 @@ func NewService(vacc VaccinationReader, obl ObligationReader) *Service {
 
 // DueItem is one open obligation in the passport (API DTO).
 type DueItem struct {
-	ObligationID      string    `json:"obligation_id"`
-	ProtocolVersionID string    `json:"protocol_version_id"`
-	RuleID            string    `json:"rule_id"`
-	BatchID           string    `json:"batch_id,omitempty"`
-	WorkflowRowID     string    `json:"workflow_row_id"`
-	Status            string    `json:"status"`
-	DueAt             time.Time `json:"due_at"`
-	Sequence          int32     `json:"sequence"`
+	ObligationID      string     `json:"obligation_id"`
+	ProtocolVersionID string     `json:"protocol_version_id"`
+	RuleID            string     `json:"rule_id"`
+	BatchID           string     `json:"batch_id,omitempty"`
+	WorkflowRowID     string     `json:"workflow_row_id"`
+	Status            string     `json:"status"`
+	DueAt             time.Time  `json:"due_at"`
+	ClinicalDueAt     time.Time  `json:"clinical_due_at"`
+	ScheduledFor      *time.Time `json:"scheduled_for,omitempty"`
+	Sequence          int32      `json:"sequence"`
+	DoseCode          string     `json:"dose_code"`
+	VaccineLabel      string     `json:"vaccine_label"`
+	DisplayLabel      string     `json:"display_label"`
 }
 
 // HistoryItem is one administered/verified dose in the passport (API DTO).
@@ -55,6 +62,9 @@ type HistoryItem struct {
 	RouteSite       string     `json:"route_site,omitempty"`
 	AdministeredAt  time.Time  `json:"administered_at"`
 	Doses           int32      `json:"doses"`
+	DoseCode        string     `json:"dose_code"`
+	VaccineLabel    string     `json:"vaccine_label"`
+	DisplayLabel    string     `json:"display_label"`
 	AdverseReaction bool       `json:"adverse_reaction"`
 	WithdrawalUntil *time.Time `json:"withdrawal_until,omitempty"`
 }
@@ -107,7 +117,12 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 			WorkflowRowID:     workflowRowID(o),
 			Status:            o.Status,
 			DueAt:             o.DueAt,
+			ClinicalDueAt:     o.ClinicalDueAt,
+			ScheduledFor:      o.ScheduledFor,
 			Sequence:          o.Sequence,
+			DoseCode:          o.DoseCode,
+			VaccineLabel:      o.VaccineLabel,
+			DisplayLabel:      vaccineDisplayLabel(o.VaccineLabel, o.DoseCode, o.Sequence),
 		})
 	}
 	if len(p.OpenObligations) > 0 {
@@ -123,6 +138,9 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 			RouteSite:       h.RouteSite,
 			AdministeredAt:  h.AdministeredAt,
 			Doses:           h.Doses,
+			DoseCode:        h.DoseCode,
+			VaccineLabel:    h.VaccineLabel,
+			DisplayLabel:    vaccineDisplayLabel(h.VaccineLabel, h.DoseCode, 0),
 			AdverseReaction: h.AdverseReaction,
 			WithdrawalUntil: h.WithdrawalUntilDate,
 		})
@@ -135,6 +153,42 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 		}
 	}
 	return p, nil
+}
+
+func vaccineDisplayLabel(vaccineLabel, doseCode string, sequence int32) string {
+	label := readableVaccineLabel(vaccineLabel)
+	if label == "" {
+		label = readableVaccineLabel(doseCode)
+	}
+	if label == "" {
+		return ""
+	}
+	if wave := doseWaveLabel(doseCode); wave != "" {
+		return fmt.Sprintf("%s %s", label, wave)
+	}
+	if sequence > 0 && doseCode == "" {
+		return fmt.Sprintf("%s W%d", label, sequence)
+	}
+	return label
+}
+
+var doseWavePattern = regexp.MustCompile(`(?i)(?:^|_)w([0-9]+)$`)
+
+func doseWaveLabel(doseCode string) string {
+	match := doseWavePattern.FindStringSubmatch(strings.TrimSpace(doseCode))
+	if len(match) != 2 {
+		return ""
+	}
+	return "W" + match[1]
+}
+
+func readableVaccineLabel(label string) string {
+	trimmed := strings.TrimSpace(label)
+	if trimmed == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer("ET_TT", "ET+TT", "et_tt", "ET+TT", "_", " ")
+	return strings.TrimSpace(replacer.Replace(trimmed))
 }
 
 func workflowRowID(o obldomain.OpenObligation) string {

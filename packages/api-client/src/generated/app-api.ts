@@ -4670,6 +4670,13 @@ export interface components {
             status: string;
             /** Format: date-time */
             due_at: string;
+            /** Format: date-time */
+            clinical_due_at: string;
+            /** Format: date-time */
+            scheduled_for?: string;
+            dose_code: string;
+            vaccine_label: string;
+            display_label: string;
             sequence: number;
         };
         VaccinationPassportHistoryItem: {
@@ -4681,6 +4688,9 @@ export interface components {
             /** Format: date-time */
             administered_at: string;
             doses: number;
+            dose_code: string;
+            vaccine_label: string;
+            display_label: string;
             adverse_reaction: boolean;
             /** Format: date-time */
             withdrawal_until?: string | null;

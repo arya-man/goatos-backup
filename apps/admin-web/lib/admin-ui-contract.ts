@@ -205,6 +205,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "drawer.passport.close_label": "Close Animal Passport drawer",
     "action.full_change_history": "Full change history",
     "action.close": "Close",
+    "vaccination.clinical_due": "clinical due",
   },
 };
 

@@ -5230,6 +5230,19 @@ CREATE TABLE public.vaccination_drive_assignments (
 
 
 --
+-- Name: vaccination_drive_assignment_members; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_drive_assignment_members (
+    tenant_id uuid NOT NULL,
+    assignment_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: vaccination_eligibility_rollups; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7312,6 +7325,22 @@ ALTER TABLE ONLY public.vaccination_completions
 
 ALTER TABLE ONLY public.vaccination_drive_assignments
     ADD CONSTRAINT vaccination_drive_assignments_pkey PRIMARY KEY (assignment_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_pkey PRIMARY KEY (assignment_id, obligation_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_tenant_obligation_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_tenant_obligation_uq UNIQUE (tenant_id, obligation_id);
 
 
 --
@@ -9795,6 +9824,20 @@ CREATE INDEX vaccination_completions_submission_item_idx ON public.vaccination_c
 --
 
 CREATE UNIQUE INDEX vaccination_drive_assignments_batch_shed_part_operator_uq ON public.vaccination_drive_assignments USING btree (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label, COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+
+--
+-- Name: vaccination_drive_assignment_members_tenant_assignment_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignment_members_tenant_assignment_idx ON public.vaccination_drive_assignment_members USING btree (tenant_id, assignment_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members_tenant_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignment_members_tenant_goat_idx ON public.vaccination_drive_assignment_members USING btree (tenant_id, goat_id);
 
 
 --
@@ -13329,6 +13372,30 @@ ALTER TABLE ONLY public.vaccination_drive_assignments
 
 ALTER TABLE ONLY public.vaccination_drive_assignments
     ADD CONSTRAINT vaccination_drive_assignments_tenant_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_assignment_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_assignment_fk FOREIGN KEY (assignment_id) REFERENCES public.vaccination_drive_assignments(assignment_id) ON DELETE CASCADE;
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members vaccination_drive_assignment_members_obligation_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_drive_assignment_members
+    ADD CONSTRAINT vaccination_drive_assignment_members_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id) REFERENCES public.obligation_instances(tenant_id, obligation_id) ON DELETE CASCADE;
 
 
 --

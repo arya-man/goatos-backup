@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
 import path from "node:path";
@@ -39,6 +40,7 @@ assertOriginMainLocalStack(repoRoot, "admin-web", { port });
 assertNotTempCheckout();
 await assertPortFree(host, port);
 const childEnv = await prepareLocalEnvironment();
+ensureStandaloneStaticAssets();
 
 const nextArgs = [mode, "-H", host, "-p", String(port)];
 if (mode === "dev") {
@@ -232,6 +234,15 @@ function assertNotTempCheckout() {
     console.error("GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK=1 for an explicit throwaway experiment.");
     process.exit(2);
   }
+}
+
+function ensureStandaloneStaticAssets() {
+  const appRoot = path.join(repoRoot, "apps/admin-web");
+  const builtStatic = path.join(appRoot, ".next/static");
+  const standaloneStatic = path.join(appRoot, ".next/standalone/apps/admin-web/.next/static");
+  if (!fs.existsSync(builtStatic)) return;
+  fs.mkdirSync(standaloneStatic, { recursive: true });
+  fs.cpSync(builtStatic, standaloneStatic, { recursive: true, force: true });
 }
 
 function optionValue(args, names) {

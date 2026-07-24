@@ -2168,6 +2168,14 @@ type VaccinationDriveAssignment struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type VaccinationDriveAssignmentMember struct {
+	TenantID     pgtype.UUID
+	AssignmentID pgtype.UUID
+	ObligationID pgtype.UUID
+	GoatID       pgtype.UUID
+	CreatedAt    pgtype.Timestamptz
+}
+
 type VaccinationEligibilityRollup struct {
 	RollupID             int64
 	TenantID             pgtype.UUID

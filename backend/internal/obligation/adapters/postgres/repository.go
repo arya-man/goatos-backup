@@ -5877,6 +5877,11 @@ func (r *Repository) ListOpenByGoat(ctx context.Context, tenantID, goatID string
 	}
 	out := make([]domain.OpenObligation, 0, len(rows))
 	for _, row := range rows {
+		var scheduledFor *time.Time
+		if row.ScheduledFor.Valid {
+			value := row.ScheduledFor.Time
+			scheduledFor = &value
+		}
 		out = append(out, domain.OpenObligation{
 			ObligationID:      row.ObligationID,
 			ProtocolVersionID: row.ProtocolVersionID,
@@ -5885,6 +5890,10 @@ func (r *Repository) ListOpenByGoat(ctx context.Context, tenantID, goatID string
 			ScopeType:         row.ScopeType,
 			ScopeID:           row.ScopeID,
 			DueAt:             row.DueAt.Time,
+			ClinicalDueAt:     row.ClinicalDueAt.Time,
+			ScheduledFor:      scheduledFor,
+			DoseCode:          row.DoseCode,
+			VaccineLabel:      row.VaccineLabel,
 			Status:            row.Status,
 			Sequence:          row.Sequence,
 		})
