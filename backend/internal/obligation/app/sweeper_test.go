@@ -2700,6 +2700,24 @@ func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
 	}
 }
 
+func TestLimitUnbatchedSelectionRejectsPastWindowRideAlongOverflow(t *testing.T) {
+	now := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	tightEnd := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	looseEnd := time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-blue-tongue", TargetID: "goat-1", ParkID: "park-1", DueAt: time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC), WindowEnd: &tightEnd, BatchingHoldCount: 1},
+		{ObligationID: "obl-loose", TargetID: "goat-2", ParkID: "park-1", DueAt: planned, WindowEnd: &looseEnd},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 1
+
+	out := limitUnbatchedSelectionByDriveAnimals(now, rows, []string{"obl-blue-tongue", "obl-loose"}, &planned, planner, NewSweepSession())
+	if len(out) != 1 || out[0] != "obl-loose" {
+		t.Fatalf("admitted = %#v, want only loose-window row; past-window blue_tongue must not ride 07-31 batch", out)
+	}
+}
+
 func TestLimitUnbatchedSelectionCountsDistinctAnimals(t *testing.T) {
 	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
