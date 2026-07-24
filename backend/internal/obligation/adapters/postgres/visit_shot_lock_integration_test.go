@@ -193,6 +193,110 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid`, tenantID, parkID, opOff); er
 	}
 }
 
+func TestAvailableVaccinationOperatorsForDriveOneToManyPaginationExecutionDateParkScopeStatusMatrixCountsExactAssignmentMemberLoad(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.operator.assignmentload", 1)
+
+	const (
+		parkID    = "93000000-0000-4000-8000-00000000a001"
+		operatorA = "91000000-0000-4000-8000-00000000a001"
+		operatorB = "91000000-0000-4000-8000-00000000a002"
+		goatA     = "92000000-0000-4000-8000-00000000a001"
+		goatB     = "92000000-0000-4000-8000-00000000a002"
+		goatC     = "92000000-0000-4000-8000-00000000a003"
+	)
+	planned := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'assignment-load-proof', 'Assignment Load Proof', 'active')
+ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err != nil {
+		t.Fatalf("seed park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
+VALUES ($1::uuid, 'assignment_load_operator', 'vaccination', 'execute', 'vaccination.drive.execute')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+		t.Fatalf("seed duty: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id, updated_at)
+VALUES
+  ($1::uuid, $3::uuid, 'AL-A', 'Assignment Load A', 'active', 'operator', $4::uuid, now()),
+  ($2::uuid, $3::uuid, 'AL-B', 'Assignment Load B', 'active', 'operator', $4::uuid, now() + interval '1 second')
+ON CONFLICT (workforce_member_id) DO UPDATE SET status='active'`, operatorA, operatorB, tenantID, parkID); err != nil {
+		t.Fatalf("seed operators: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, vaccination_daily_animal_cap, status, valid_from)
+VALUES
+  ($1::uuid, $2::uuid, 'center', $4::uuid, 'assignment_load_operator', 'manager', 2, 'active', '2026-01-01'),
+  ($1::uuid, $3::uuid, 'center', $4::uuid, 'assignment_load_operator', 'manager', 2, 'active', '2026-01-01')`,
+		tenantID, operatorA, operatorB, parkID); err != nil {
+		t.Fatalf("seed positions: %v", err)
+	}
+	seedReserveGoats(t, ctx, pool, parkID, parkID, goatA, goatB, goatC)
+
+	obligationIDs := make([]string, 0, 3)
+	for i, goatID := range []string{goatA, goatB, goatC} {
+		oblID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: versions[0].versionID, RuleID: versions[0].ruleID,
+			TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: parkID,
+			DueAt: planned, Status: "scheduled", IdempotencyKey: "assignment-load-" + strconv.Itoa(i), Sequence: 1,
+		})
+		if err != nil || !applied {
+			t.Fatalf("seed obligation %d: applied=%v err=%v", i, applied, err)
+		}
+		obligationIDs = append(obligationIDs, oblID)
+	}
+	batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versions[0].versionID, ScopeType: "park", ScopeID: parkID,
+		Session: "assignment-load", PlannedDate: &planned, Status: "planned", ConductedBy: testStringPtr(operatorA),
+		EstimatedTargets: 3, PlannedQuantity: "3", QuantityUnit: "dose",
+	}, obligationIDs)
+	if err != nil {
+		t.Fatalf("create batch: %v", err)
+	}
+	if attached != 3 {
+		t.Fatalf("attached = %d, want 3", attached)
+	}
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{
+		{
+			BatchID: batchID, PlannedDate: planned, OperatorID: testStringPtr(operatorA), ParkID: parkID,
+			PhysicalShed: "park", PartitionLabel: "whole", AnimalCount: 1,
+			VaccineRuleIDs: []string{versions[0].ruleID}, TotalDoses: 1, CapacityStatus: "within_cap",
+		},
+		{
+			BatchID: batchID, PlannedDate: planned, OperatorID: testStringPtr(operatorB), ParkID: parkID,
+			PhysicalShed: "park", PartitionLabel: "whole", AnimalCount: 2,
+			VaccineRuleIDs: []string{versions[0].ruleID}, TotalDoses: 2, CapacityStatus: "within_cap",
+		},
+	}); err != nil {
+		t.Fatalf("upsert drive assignments: %v", err)
+	}
+
+	got, err := repo.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, planned, 2)
+	if err != nil {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive: %v", err)
+	}
+	remaining := map[string]int32{}
+	for _, op := range got {
+		remaining[op.OperatorID] = op.Cap
+	}
+	if remaining[operatorA] != 1 {
+		t.Fatalf("operator A remaining cap = %d, want 1 (only its exact assignment member, not the whole conducted_by batch)", remaining[operatorA])
+	}
+	if remaining[operatorB] != 0 {
+		t.Fatalf("operator B remaining cap = %d, want 0 (two exact assignment members at cap)", remaining[operatorB])
+	}
+}
+
 // seedShotCapVersions creates n independent vaccination protocol versions (one rule each) --
 // standing in for n different vaccines' obligation-sweeper versions -- and returns their
 // (versionID, ruleID) pairs. Each is swept independently (mirroring the production caller sweeping
