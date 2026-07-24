@@ -44,6 +44,8 @@ type CompletionHistoryItem struct {
 	Status              string
 	Doses               int32
 	RouteSite           string
+	DoseCode            string
+	VaccineLabel        string
 	AdverseReaction     bool
 	WithdrawalUntilDate *time.Time
 }

@@ -259,8 +259,8 @@ func pages() []domain.PageContract {
 		page("calendar", "/calendar", "/calendar", "Calendar", "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date.", "command-lens",
 			[]domain.TableContract{
 				table("calendar-events", "Due work", "/calendar/vaccination/events", []string{"due_at", "owner", "title", "status", "severity"}, "cal_event"),
-				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"due_at", "dose", "status", "workflow"}, "obligation_id"),
-				table("vaccination-history", "Vaccination", "/goats/{goat_id}/passport", []string{"administered", "doses", "status", "proof", "source_obligation"}, "completion_id"),
+				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"scheduled_for", "vaccine", "status", "workflow"}, "obligation_id"),
+				table("vaccination-history", "Vaccination", "/goats/{goat_id}/passport", []string{"administered", "vaccine", "status", "proof", "source_obligation"}, "completion_id"),
 			}),
 		page("protocol-adherence", "/protocol-adherence", "/protocol-adherence", "Protocol Adherence", "Expected vs actual vaccination ledger, evidence, operator assignment, and next action.", "command-lens",
 			[]domain.TableContract{table("adherence-ledger", "Vaccination", "/vaccination/adherence", []string{"expected", "actual", "gap", "severity", "owner_chain", "next_action", "evidence"}, "adh_row")}),
@@ -377,8 +377,8 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("sop-library", "SOP Library", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("goat-passport", "/goats/{goat_id}", "/goats/{goat_id}", "Goat Passport", "Contextual goat identity, timeline, and vaccination passport detail.", "record-drilldown",
 			[]domain.TableContract{
-				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"due_at", "dose", "status", "workflow", "action_center"}, "obligation_id"),
-				table("vaccination-history", "Vaccination", "/goats/{goat_id}/passport", []string{"administered", "doses", "route", "status", "proof", "source_obligation", "workflow"}, "completion_id"),
+				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"scheduled_for", "vaccine", "status", "workflow", "action_center"}, "obligation_id"),
+				table("vaccination-history", "Vaccination", "/goats/{goat_id}/passport", []string{"administered", "vaccine", "route", "status", "proof", "source_obligation", "workflow"}, "completion_id"),
 			}),
 	}
 }
@@ -893,6 +893,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"vaccination.empty_history":               "No vaccination history yet. Once a protocol is published and a dose is administered + verified, it appears here with its proof/verification status and protocol version.",
 			"vaccination.empty_open":                  "No open vaccination obligations for this goat.",
 			"vaccination.no_upcoming":                 "no upcoming dose",
+			"vaccination.clinical_due":                "clinical due",
 			"vaccination.proof_verified":              "proof verified",
 			"vaccination.awaiting_verify":             "awaiting verification",
 			"vaccination.rework_rejected":             "rework / rejected",
@@ -2931,6 +2932,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"vaccination.history":            "History",
 			"vaccination.empty_history":      "No vaccination history yet. Once a protocol is published and a dose is administered + verified, it appears here with its proof/verification status and protocol version.",
 			"vaccination.empty_open":         "No open vaccination obligations for this goat.",
+			"vaccination.clinical_due":       "clinical due",
 			"vaccination.proof_verified":     "proof verified",
 			"vaccination.awaiting_verify":    "awaiting verification",
 			"vaccination.rework_rejected":    "rework / rejected",

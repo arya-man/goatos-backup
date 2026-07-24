@@ -12567,7 +12567,11 @@ components:
         - workflow_row_id
         - status
         - due_at
+        - clinical_due_at
         - sequence
+        - dose_code
+        - vaccine_label
+        - display_label
       properties:
         obligation_id:
           type: string
@@ -12584,6 +12588,18 @@ components:
         due_at:
           type: string
           format: date-time
+        clinical_due_at:
+          type: string
+          format: date-time
+        scheduled_for:
+          type: string
+          format: date-time
+        dose_code:
+          type: string
+        vaccine_label:
+          type: string
+        display_label:
+          type: string
         sequence:
           type: integer
     VaccinationPassportHistoryItem:
@@ -12595,6 +12611,9 @@ components:
         - status
         - administered_at
         - doses
+        - dose_code
+        - vaccine_label
+        - display_label
         - adverse_reaction
       properties:
         completion_id:
@@ -12612,6 +12631,12 @@ components:
           format: date-time
         doses:
           type: integer
+        dose_code:
+          type: string
+        vaccine_label:
+          type: string
+        display_label:
+          type: string
         adverse_reaction:
           type: boolean
         withdrawal_until:
