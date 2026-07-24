@@ -204,8 +204,10 @@ Rules encoded (`bootstrap_copy.go`):
   are not preventive-care surfaces, so a PC leader never sees them.
 - The **verification** module belongs to the verifier role. Vaccination leadership
   uses the shared Vaccination module rather than a private leadership overview.
-- The Vaccination module lands on `/vaccination` and its bottom bar is
-  Drives / Alerts / You. FCM payloads for vaccination reminders, verification-pending
+- The Vaccination module lands on `/vaccination`. For CEO/CXO, the module's
+  bottom bar is Overview (`/vaccination`) / Calendar (`/calendar`) / Alerts / You.
+  For operators and preventive-care field leaders, the module's bottom bar is
+  Drives (`/vaccination`) / Alerts / You. FCM payloads for vaccination reminders, verification-pending
   non-verifiers, verification-approved, and legacy `leadership_close` values resolve
   to `/vaccination`, never `/leadership`.
 - `navChromeFor` derives chrome from the COMPOSED drawer: `>=2` available modules =

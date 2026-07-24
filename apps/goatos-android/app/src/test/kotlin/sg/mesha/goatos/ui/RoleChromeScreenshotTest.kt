@@ -57,12 +57,20 @@ class RoleChromeScreenshotTest {
         }
     }
 
-    // Vaccination nav — Vaccination/Alerts/You. Used by leadership and operator roles
-    // now that the standalone leadership overview screen has been removed.
-    private fun vaccinationNavItems() = listOf(
-        NavItem(key = "vaccination", label = "Vaccination", href = Routes.VACCINATION),
+    // Operator / preventive-care field lens: Drives/Alerts/You.
+    private fun vaccinationFieldNavItems() = listOf(
+        NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
         // Backend emits the You tab (module contribution, priority 100) — the bar is 3 tabs.
+        NavItem(key = "you", label = "You", href = Routes.YOU),
+    )
+
+    // CEO/CXO strategic lens inside the Vaccination module. The old standalone
+    // Leadership module is gone; Overview is the /vaccination tab inside Vaccination.
+    private fun vaccinationCeoNavItems() = listOf(
+        NavItem(key = "overview", label = "Overview", href = Routes.VACCINATION),
+        NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 
@@ -78,14 +86,22 @@ class RoleChromeScreenshotTest {
         label = "Vaccination",
         href = Routes.VACCINATION,
         status = NavModuleStatus.AVAILABLE,
-        navItems = vaccinationNavItems(),
+        navItems = vaccinationFieldNavItems(),
+    )
+
+    private fun ceoVaccinationModule() = NavModule(
+        key = "vaccination",
+        label = "Vaccination",
+        href = Routes.VACCINATION,
+        status = NavModuleStatus.AVAILABLE,
+        navItems = vaccinationCeoNavItems(),
     )
 
     // CEO/CXO drawer: Vaccination + Counts + the two roadmap "soon" rows.
     // A preventive-care leader (Director/Park Head) does NOT get this drawer -- see their
     // MINIMAL single-module fixtures below.
     private fun drawerModules() = listOf(
-        vaccinationModule(),
+        ceoVaccinationModule(),
         NavModule(
             key = "counts",
             label = "Counts",
@@ -107,7 +123,7 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
-                items = vaccinationNavItems(),
+                items = vaccinationCeoNavItems(),
                 modules = drawerModules(),
             ),
             currentRoute = Routes.VACCINATION,
@@ -124,7 +140,7 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
-                items = vaccinationNavItems(),
+                items = vaccinationCeoNavItems(),
                 modules = drawerModules(),
             ),
             // Vaccination active on its landing so the golden shows the
@@ -146,7 +162,7 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = vaccinationNavItems(),
+                items = vaccinationFieldNavItems(),
                 modules = listOf(vaccinationModule()),
             ),
             currentRoute = Routes.VACCINATION,
@@ -163,7 +179,7 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = vaccinationNavItems(),
+                items = vaccinationFieldNavItems(),
                 modules = listOf(vaccinationModule()),
             ),
             currentRoute = Routes.VACCINATION,
@@ -180,7 +196,7 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = vaccinationNavItems(),
+                items = vaccinationFieldNavItems(),
             ),
             currentRoute = Routes.VACCINATION,
             onNavigate = {},
@@ -189,14 +205,14 @@ class RoleChromeScreenshotTest {
         }
     }
 
-    // Operator (single-vertical, Vaccination) — MINIMAL bottom-bar, items Vaccination/Alerts/You,
+    // Operator (single-vertical, Vaccination) — MINIMAL bottom-bar, items Drives/Alerts/You,
     // landing shed-first on today's work inside the 7-day queue.
     @Test
     fun role_operator() = shot("role_operator") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = vaccinationNavItems(),
+                items = vaccinationFieldNavItems(),
             ),
             currentRoute = Routes.VACCINATION,
             onNavigate = {},

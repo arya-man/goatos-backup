@@ -26,7 +26,7 @@ func moduleKeySet(modules []domain.BootstrapModule) map[string]string {
 func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 	const en = localization.DefaultTag
 
-	t.Run("ceo sees vaccination+counts+soon, no leadership overview, no verification", func(t *testing.T) {
+	t.Run("ceo sees vaccination+counts+soon, no synthetic leadership module, no verification", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
 		modules := modulesFor(grants, nil, en)
 		keys := moduleKeySet(modules)
@@ -55,14 +55,24 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				if m.Href != "/vaccination" {
 					t.Fatalf("vaccination row lands on %q, want /vaccination", m.Href)
 				}
-				var hasVaccination bool
+				wantItems := []domain.BootstrapNavigationItem{
+					{Key: "overview", Label: "Overview", Href: "/vaccination"},
+					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+					{Key: "you", Label: "You", Href: "/you"},
+				}
+				if len(m.NavItems) != len(wantItems) {
+					t.Fatalf("CEO vaccination bar=%+v want %+v", m.NavItems, wantItems)
+				}
 				for _, it := range m.NavItems {
-					if it.Key == "vaccination" && it.Href == "/vaccination" {
-						hasVaccination = true
+					if it.Key == "vaccination" || it.Href == "/leadership" {
+						t.Fatalf("CEO vaccination bar must not contain operator Drives or /leadership; got %+v", m.NavItems)
 					}
 				}
-				if !hasVaccination {
-					t.Fatalf("vaccination bar must include the Vaccination tab; got %+v", m.NavItems)
+				for i := range wantItems {
+					if m.NavItems[i] != wantItems[i] {
+						t.Fatalf("CEO vaccination bar[%d]=%+v want %+v", i, m.NavItems[i], wantItems[i])
+					}
 				}
 			}
 		}
@@ -95,12 +105,26 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 
 	t.Run("verifier sees verification only", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
-		keys := moduleKeySet(modulesFor(grants, []string{"vaccination"}, en))
+		modules := modulesFor(grants, []string{"vaccination"}, en)
+		keys := moduleKeySet(modules)
 		if _, ok := keys["verification"]; !ok {
 			t.Fatalf("verifier must see Verification; got %v", keys)
 		}
 		if _, ok := keys["leadership"]; ok {
 			t.Fatalf("verifier must NOT see leadership; got %v", keys)
+		}
+		verify := modules[0]
+		wantItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(verify.NavItems) != len(wantItems) {
+			t.Fatalf("verifier nav items = %+v want %+v", verify.NavItems, wantItems)
+		}
+		for i := range wantItems {
+			if verify.NavItems[i] != wantItems[i] {
+				t.Fatalf("verifier nav item[%d]=%+v want %+v", i, verify.NavItems[i], wantItems[i])
+			}
 		}
 	})
 

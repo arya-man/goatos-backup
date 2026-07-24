@@ -24,6 +24,8 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleCEOInternal, SOPPublish, true},
 		{RoleParkHead, TaskAssign, true},
 		{RoleParkHead, VaccinationRead, true},
+		{RoleCEOInternal, VaccinationOverviewRead, true},
+		{RoleOperator, VaccinationOverviewRead, false},
 		{RolePCDirector, VaccinationVerify, true},
 		{RolePCDirector, CalendarAction, true},
 		{RolePCDirector, ProcurementWrite, false},
