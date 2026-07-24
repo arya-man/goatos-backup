@@ -1,5 +1,9 @@
 // Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
 // (migrations 000024-000027) to load and validate vaccination source data.
+// Coupling review 2026-07-25: migration 000045 adds a nullable
+// vaccination_capacity_config.max_shots_per_animal_per_drive admin override. This fixture
+// seeds no override (sweeper falls back to rule_dsl/default), so its data and hashes are
+// unchanged; the loader/validator needs no new field handling.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";

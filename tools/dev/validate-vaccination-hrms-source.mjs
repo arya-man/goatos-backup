@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Validates vaccination HRMS source data before seeding.
 // Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).
+// Coupling review 2026-07-25: migration 000045's nullable capacity shot-cap override is not
+// part of the source fixture — seed leaves it NULL and the sweeper uses rule_dsl/default — so
+// source validation is unchanged by the caps-editable feature.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

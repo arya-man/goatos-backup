@@ -35,7 +35,7 @@ function ambiguousParkScope(err: unknown): { availableParks: ParkScopeOption[]; 
 export interface VaccinationOperatorsScreenApi {
   getVaccinationOperatorAssignmentConfig(parkId?: string): Promise<{ data?: unknown }>;
   listStaffPositions(params: Record<string, unknown>): Promise<{ data?: { items?: unknown[] } }>;
-  getVaccinationCapacityConfig(): Promise<{ data?: { maxPerDay?: number } }>;
+  getVaccinationCapacityConfig(): Promise<{ data?: { maxPerDay?: number; maxShotsPerAnimalPerDrive?: number | null; rowVersion?: number } }>;
   listStaffLeave(params?: Record<string, unknown>): Promise<{ data?: { items?: unknown[] } }>;
 }
 
@@ -47,6 +47,8 @@ export type VaccinationOperatorsScreenData =
       config: Record<string, unknown> | null;
       positions: unknown[];
       commonCap: number;
+      animalShotCap: number | null;
+      capRowVersion: number;
       leaveItems: unknown[];
     };
 
@@ -75,7 +77,7 @@ export async function loadVaccinationOperatorsScreen(
 
   const [posRes, capRes, leaveRes] = await Promise.all([
     api.listStaffPositions({ status: 'active', scope_type: 'center', scope_id: resolvedParkId, limit: 500 }),
-    api.getVaccinationCapacityConfig().catch(() => ({ data: { maxPerDay: 200 } })),
+    api.getVaccinationCapacityConfig().catch(() => ({ data: { maxPerDay: 200, maxShotsPerAnimalPerDrive: null, rowVersion: 0 } })),
     api.listStaffLeave({ limit: 500 }).catch(() => ({ data: { items: [] } })),
   ]);
 
@@ -85,6 +87,8 @@ export async function loadVaccinationOperatorsScreen(
     config,
     positions: posRes.data?.items ?? [],
     commonCap: capRes.data?.maxPerDay ?? 200,
+    animalShotCap: capRes.data?.maxShotsPerAnimalPerDrive ?? null,
+    capRowVersion: capRes.data?.rowVersion ?? 0,
     leaveItems: leaveRes.data?.items ?? [],
   };
 }

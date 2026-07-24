@@ -178,6 +178,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getVaccinationShedDetail", Method: "GET", Pattern: "/vaccination/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationShedAnimals", Method: "GET", Pattern: "/vaccination/sheds/{shed_id}/animals", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationCapacityConfig", Method: "GET", Pattern: "/vaccination/capacity-config", Permissions: []string{ProtocolRead}},
+	{OperationID: "putVaccinationCapacityConfig", Method: "PUT", Pattern: "/vaccination/capacity-config", Permissions: []string{VaccinationCampaign}},
 	// Phase 1 CONFIG-ONLY: operator shift + N-active-operators-per-day default assignment config.
 	// Not yet consumed by the drive scheduler (Phase 5). Same config-authority permission as capacity.
 	{OperationID: "getVaccinationOperatorAssignmentConfig", Method: "GET", Pattern: "/vaccination/operator-assignment/config", Permissions: []string{ProtocolRead}},

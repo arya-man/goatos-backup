@@ -89,6 +89,7 @@ export type VaccinationCapacityConfig = AppApiComponents["schemas"]["Vaccination
 export type VaccinationOperatorAssignmentConfig = AppApiComponents["schemas"]["VaccinationOperatorAssignmentConfig"];
 export type VaccinationOperatorShift = AppApiComponents["schemas"]["VaccinationOperatorShift"];
 export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
+export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
@@ -1184,6 +1185,24 @@ export async function putVaccinationOperatorAssignmentConfig(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<VaccinationOperatorAssignmentConfig>("/vaccination/operator-assignment/config", {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+// Admin update vaccination capacity config (common operator daily animal cap + per-animal shot-cap
+// override). Validate-or-reject, optimistic concurrency via rowVersion. The backend write emits
+// vaccination.capacity.changed per active park, which re-plans all future vaccination drives.
+export async function putVaccinationCapacityConfig(
+  body: UpdateVaccinationCapacityConfigRequest
+): Promise<ApiResult<VaccinationCapacityConfig>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationCapacityConfig>("/vaccination/capacity-config", {
       method: "PUT",
       cache: "no-store",
       body,
