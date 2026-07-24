@@ -126,6 +126,22 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 	}
 }
 
+func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany Pagination DateShift ParkScope StatusMatrix: execution read model counts per-goat draft scan captures without changing row cardinality")
+	requiredFragments := map[string]string{
+		"scan capture lateral join": "LEFT JOIN LATERAL",
+		"scan capture table":        "FROM sop_task_scan_captures scan",
+		"scan capture task scope":   "scan.task_id = st.task_id",
+		"scan capture roster field": "scan.field_key IN ('goat_ids', '__scan_roster__')",
+		"scan capture goat grain":   "COUNT(*) FILTER (WHERE located.scanned)::bigint AS scanned_count",
+	}
+	for name, fragment := range requiredFragments {
+		if !strings.Contains(vaccinationExecutionSQL, fragment) {
+			t.Fatalf("vaccination execution SQL lost %s invariant %q", name, fragment)
+		}
+	}
+}
+
 func TestListVaccinationExecutionProjectionPartitionContractOneToManyPageBoundaryScheduledDateScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

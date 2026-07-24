@@ -77,6 +77,7 @@ import sg.mesha.goatos.core.data.sync.ConnectivityGate
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
+import sg.mesha.goatos.core.data.sync.LocalBackendConnectivityGate
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
@@ -417,7 +418,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideConnectivityGate(@ApplicationContext context: Context): ConnectivityGate =
-        AndroidConnectivityGate(context)
+        LocalBackendConnectivityGate(
+            delegate = AndroidConnectivityGate(context),
+            apiBaseUrl = BuildConfig.API_BASE_URL,
+        )
 
     @Provides
     @Singleton

@@ -6847,6 +6847,7 @@ components:
         - upload_method
         - headers
         - expires_at
+        - upload_protocol
       properties:
         proof:
           $ref: "#/components/schemas/ProofArtifact"
@@ -6856,6 +6857,7 @@ components:
           type: string
           enum:
             - PUT
+            - POST
         headers:
           type: object
           additionalProperties:
@@ -6863,6 +6865,15 @@ components:
         expires_at:
           type: string
           format: date-time
+        upload_protocol:
+          type: string
+          enum:
+            - simple_put
+            - gcs_resumable_v1
+        chunk_size_bytes:
+          type: integer
+          format: int64
+          minimum: 262144
     ProofResponse:
       type: object
       additionalProperties: false
@@ -10638,6 +10649,7 @@ components:
         - proofStatus
         - verificationStatus
         - nextAction
+        - primaryActionKey
       properties:
         parkId:
           type: string
@@ -10693,6 +10705,12 @@ components:
           $ref: "#/components/schemas/VaccinationExecutionVerificationStatus"
         nextAction:
           type: string
+        primaryActionKey:
+          type: string
+          enum:
+            - scan
+            - none
+          description: Backend-owned primary row action. Clients may open Scan only for "scan"; "none" keeps the row on the current vaccination surface unless a backend-owned review/detail action is added.
         obligationId:
           type: string
           format: uuid

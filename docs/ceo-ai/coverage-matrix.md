@@ -385,6 +385,17 @@ Toolbox tool; the leadership assistant read surface, read-only SQL fallback, and
 tool catalog are unchanged. Explicit documented exclusion — no coverage-matrix
 mapping required.
 
+## Explicit exclusion: vaccination scan draft + shed-readiness helpers (2026-07-25)
+
+`func:RecordScanCapture` persists per-tap draft scan rows for the mobile operator
+outbox, and `func:ShedCompletionReadiness` gates whether a shed-level submission
+has the expected scans/proofs before it can enter verification. Both are internal
+write/readiness helpers on the existing vaccination SOP execution path. They add
+NO new leadership KPI, table, read API route, Cube metric, `ceo_ai.*` view, or
+MCP Toolbox tool; the leadership assistant read surface remains the existing
+vaccination execution/process-integrity coverage. Explicit documented exclusion —
+no coverage-matrix mapping required.
+
 ## Pre-arrival vaccination history: covered table + excluded write/repair surfaces (2026-07-24)
 
 The pre-arrival supplier vaccination-history change (migration 000041) and the

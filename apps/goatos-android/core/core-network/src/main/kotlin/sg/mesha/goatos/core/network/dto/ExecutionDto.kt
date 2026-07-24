@@ -51,6 +51,7 @@ data class VaccinationExecutionRowDto(
     @SerialName("proofStatus") val proofStatus: String = "",
     @SerialName("verificationStatus") val verificationStatus: String = "",
     @SerialName("nextAction") val nextAction: String = "",
+    @SerialName("primaryActionKey") val primaryActionKey: String = "",
     @SerialName("obligationId") val obligationId: String? = null,
     @SerialName("batchId") val batchId: String? = null,
     @SerialName("sopTaskId") val sopTaskId: String? = null,

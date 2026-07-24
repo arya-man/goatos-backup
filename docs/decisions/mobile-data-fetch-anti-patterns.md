@@ -192,6 +192,37 @@ Re-verified against `origin/main` 05889b83 on 2026-07-20:
   (`backend/internal/sop/app/service.go` `validatePerGoatProofRefs`), the correct boundary. The Android
   client parses it for display only; that is not a missing-enforcement bug.
 
+## Antipattern: routing vaccination review back into the generic Record screen
+
+The vaccination operator flow is **Vaccination sheds -> Scan -> Submit -> Vaccination sheds**.
+After a shed video submission is synced, the operator should see the shed/drive as submitted or
+in review on the Vaccination sheds list. Do **not** route that state into the old generic
+`/record` surface just because scanning is no longer allowed.
+
+Backend owns this state and the executable row action for both mobile and admin-web. Clients render
+the backend `workState`, `sopStatus`, `proofStatus`, `verificationStatus`, counts, `carrySummary`,
+and `primaryActionKey`. They must not author a separate "in review", "done", or "open record" truth
+from local status combinations.
+
+The generic Record screen is not the vaccination shed-submit review surface: it can show unrelated
+record counts such as `0 doses` / `0 / 1 done`, which is worse than doing nothing because it
+contradicts the backend submit state. For vaccination execution rows:
+
+- `primaryActionKey=scan` may open the Scan flow. `primaryActionKey=none` must stay on the
+  vaccination surface unless a backend-owned vaccination detail/review action is added.
+- `submitted`, `needs_review`, and verification-pending states must stay in the vaccination
+  execution surface unless there is a dedicated vaccination review/detail route.
+- A click on an in-review/completed vaccination shed must never navigate to `Routes.recordRoute(...)`
+  as a fallback. If there is no correct detail surface, keep the user on Vaccination sheds.
+- The submit screen's synced/acked state must use explicit operator copy such as `Submitted`, not
+  a dead disabled `Submit` button with only an outbox technical banner.
+- The Vaccines-to-carry card is part of the Vaccination sheds screen. It renders only from
+  backend `carrySummary`; do not delete or hide the card path to work around missing backend data.
+
+Regression proof for this class is a phone/emulator UI check of the real stack, not source
+inspection: submit a shed, confirm the app returns to Vaccination sheds, confirm the submitted
+state is visible there, and tap the row to prove it does not open the generic Record screen.
+
 ## Compose lazy-list key correctness (machine: `make android-compose-lists-guard`)
 
 `LazyColumn`/`LazyRow`/`LazyVerticalGrid` item identity is the key. Two rules,

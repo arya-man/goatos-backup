@@ -294,6 +294,8 @@ class SyncEngine(
             uploadUrl = registered.uploadUrl,
             uploadMethod = registered.uploadMethod,
             uploadHeaders = registered.headers,
+            uploadProtocol = registered.uploadProtocol,
+            chunkSizeBytes = registered.chunkSizeBytes,
             mimeType = payload.request.mimeType,
             filePath = payload.localFilePath,
             durationMs = payload.durationMs,

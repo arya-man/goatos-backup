@@ -192,9 +192,9 @@ class ShedsViewModel @Inject constructor(
         val weekRows = rows
         val rowsForSelectedDay = weekRows.filter { row ->
             val dueDate = row.currentScheduleDate?.let(::parseExecutionDate)
-            val hasOpenWork = row.openCount > 0
+            val hasVisibleWork = row.openCount > 0 || row.doneCount > 0
             when {
-                !hasOpenWork -> false
+                !hasVisibleWork -> false
                 dueDate == null -> selectedDay == workWindow.today
                 // Today folds in the deep backlog (due strictly before the visible yesterday
                 // tab) plus today's own work; yesterday is its own tab, so it is excluded here.
@@ -230,7 +230,7 @@ class ShedsViewModel @Inject constructor(
                 scheduleDateKey = scheduleDate?.toString().orEmpty(),
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
-                statusLabel = first.workState.ifBlank { status.readable() }.let { it.readableState() },
+                statusLabel = group.reviewAwareStatusLabel(status),
                 vaccineGroups = vaccineGroups,
                 inShed = counts.target.toString(),
                 due = counts.open.toString(),
@@ -243,6 +243,7 @@ class ShedsViewModel @Inject constructor(
                 taskId = identity.taskId,
                 sopVersionId = identity.sopVersionId,
                 taskRowVersion = identity.taskRowVersion,
+                opensRecordOnly = !group.canOpenScanFromBackend(),
             )
         }.sortedWith(
             compareBy<ShedRow> { row ->
@@ -396,6 +397,20 @@ private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
 )
 
 private fun ShedStatus.readable(): String = name.lowercase().replaceFirstChar { it.uppercase() }
+
+private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: ShedStatus): String {
+    val inReview = any { row ->
+        row.proofStatus.equals("uploaded", ignoreCase = true) ||
+            row.verificationStatus.equals("pending", ignoreCase = true) ||
+            row.sopStatus.equals("submitted", ignoreCase = true) ||
+            row.workState.equals("verification_pending", ignoreCase = true)
+    }
+    if (inReview) return "In review"
+    return firstOrNull()?.workState.orEmpty().ifBlank { status.readable() }.readableState()
+}
+
+private fun List<VaccinationExecutionRowDto>.canOpenScanFromBackend(): Boolean =
+    any { row -> row.primaryActionKey.equals("scan", ignoreCase = true) }
 
 private fun String.readableState(): String =
     replace('_', ' ').replaceFirstChar { it.uppercase() }

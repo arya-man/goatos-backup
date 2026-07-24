@@ -2601,12 +2601,16 @@ export interface components {
             proof: components["schemas"]["ProofArtifact"];
             upload_url: string;
             /** @enum {string} */
-            upload_method: "PUT";
+            upload_method: "PUT" | "POST";
             headers: {
                 [key: string]: string;
             };
             /** Format: date-time */
             expires_at: string;
+            /** @enum {string} */
+            upload_protocol: "simple_put" | "gcs_resumable_v1";
+            /** Format: int64 */
+            chunk_size_bytes?: number;
         };
         ProofResponse: {
             proof: components["schemas"]["ProofArtifact"];
@@ -3902,6 +3906,11 @@ export interface components {
             proofStatus: components["schemas"]["VaccinationExecutionProofStatus"];
             verificationStatus: components["schemas"]["VaccinationExecutionVerificationStatus"];
             nextAction: string;
+            /**
+             * @description Backend-owned primary row action. Clients may open Scan only for "scan"; "none" keeps the row on the current vaccination surface unless a backend-owned review/detail action is added.
+             * @enum {string}
+             */
+            primaryActionKey: "scan" | "none";
             /** Format: uuid */
             obligationId?: string;
             /** Format: uuid */

@@ -99,6 +99,7 @@ type ExecutionRow struct {
 	ProofStatus        ProofStatus        `json:"proofStatus"`
 	VerificationStatus VerificationStatus `json:"verificationStatus"`
 	NextAction         string             `json:"nextAction"`
+	PrimaryActionKey   string             `json:"primaryActionKey"`
 	ObligationID       *string            `json:"obligationId,omitempty"`
 	BatchID            *string            `json:"batchId,omitempty"`
 	SOPTaskID          *string            `json:"sopTaskId,omitempty"`
@@ -427,6 +428,8 @@ type ExecutionProjection struct {
 	CompletionAccepted   int
 	CompletionRejected   int
 	CompletionReversed   int
+	ScannedCount         int
+	ProofSubmittedCount  int
 	BatchStatus          *string
 	TaskState            *string
 	OperatorName         *string

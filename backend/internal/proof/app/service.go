@@ -47,6 +47,9 @@ func (s *Service) CreateUpload(ctx context.Context, in domain.CreateUpload) (dom
 	if target.ExpiresAt.IsZero() {
 		target.ExpiresAt = s.now().Add(s.ttl).UTC()
 	}
+	if strings.TrimSpace(target.UploadProtocol) == "" {
+		target.UploadProtocol = "simple_put"
+	}
 	return target, nil
 }
 

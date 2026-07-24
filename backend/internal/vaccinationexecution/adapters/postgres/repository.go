@@ -127,7 +127,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
-		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount int64
+		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount, scannedCount, proofSubmittedCount int64
 		var rejectedCount, reversedCount, healthDeferredCount int64
 		var workState string
 		if err := rows.Scan(
@@ -154,6 +154,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&acceptedCount,
 			&rejectedCount,
 			&reversedCount,
+			&scannedCount,
+			&proofSubmittedCount,
 			&batchStatus,
 			&taskState,
 			&operatorName,
@@ -190,6 +192,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		p.CompletionAccepted = int(acceptedCount)
 		p.CompletionRejected = int(rejectedCount)
 		p.CompletionReversed = int(reversedCount)
+		p.ScannedCount = int(scannedCount)
+		p.ProofSubmittedCount = int(proofSubmittedCount)
 		p.BatchStatus = textPtr(batchStatus)
 		p.TaskState = textPtr(taskState)
 		p.OperatorName = textPtr(operatorName)
@@ -1087,6 +1091,7 @@ raw AS (
     g.management_stage AS goat_stage,
     c.effective_status AS completion_status,
     c.completion_id,
+    sc.capture_id IS NOT NULL AS scanned,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -1177,6 +1182,19 @@ raw AS (
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
+  LEFT JOIN LATERAL (
+    SELECT scan.capture_id
+    FROM sop_task_scan_captures scan
+    WHERE scan.tenant_id = oi.tenant_id
+      AND scan.task_id = st.task_id
+      AND scan.field_key IN ('goat_ids', '__scan_roster__')
+      AND (
+        scan.obligation_id = oi.obligation_id
+        OR (scan.obligation_id IS NULL AND scan.goat_id = oi.target_id)
+      )
+    ORDER BY scan.captured_at DESC, scan.capture_id DESC
+    LIMIT 1
+  ) sc ON st.task_id IS NOT NULL
   LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
@@ -1196,6 +1214,7 @@ located AS (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
+    COALESCE(shed_proof.submitted_count, 0) > 0 AS shed_proof_submitted,
     COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at,
     -- as_of-effective obligation status (reconstructed AT as_of, not the current stored status).
     CASE
@@ -1219,6 +1238,18 @@ located AS (
     ON shed_loc.tenant_id = $1::uuid
    AND shed_loc.location_id = raw.shed_uuid
    AND shed_loc.location_type = 'shed'
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*)::bigint AS submitted_count
+    FROM sop_submissions submission
+    CROSS JOIN LATERAL jsonb_array_elements(submission.proof_refs) AS proof(ref)
+    WHERE submission.tenant_id = $1::uuid
+      AND submission.task_id = raw.sop_task_id
+      AND submission.state IN ('submitted', 'needs_review')
+      AND proof.ref ->> 'upload_state' = 'completed'
+      AND proof.ref ->> 'proof_type' = 'video'
+      AND proof.ref ->> 'subject_type' = 'shed'
+      AND proof.ref ->> 'subject_id' = raw.shed_uuid::text
+  ) shed_proof ON raw.sop_task_id IS NOT NULL AND raw.shed_uuid IS NOT NULL
   WHERE raw.shed_uuid IS NOT NULL
 ),
 -- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at obligation grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
@@ -1246,6 +1277,8 @@ grouped AS (
     COUNT(*) FILTER (WHERE located.completion_status = 'accepted')::bigint AS completion_accepted,
     COUNT(*) FILTER (WHERE located.completion_status = 'rejected')::bigint AS completion_rejected,
     COUNT(*) FILTER (WHERE located.completion_status = 'reversed')::bigint AS completion_reversed,
+    COUNT(*) FILTER (WHERE located.scanned)::bigint AS scanned_count,
+    COUNT(*) FILTER (WHERE located.shed_proof_submitted)::bigint AS proof_submitted_count,
     (ARRAY_AGG(located.batch_status ORDER BY
       CASE located.batch_status
         WHEN 'in_progress' THEN 0
@@ -1376,7 +1409,7 @@ stateful AS (
        AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
-        OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
+        OR enriched.proof_submitted_count > 0 THEN 'verification_pending'
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
@@ -1465,6 +1498,8 @@ SELECT
   grouped.completion_accepted,
   grouped.completion_rejected,
   grouped.completion_reversed,
+  grouped.scanned_count,
+  grouped.proof_submitted_count,
   grouped.batch_status,
   grouped.task_state,
   grouped.operator_name,
@@ -3187,8 +3222,16 @@ SELECT eff_date::date as eff_date, vaccine_label,
        count(DISTINCT goat_id) AS total
 FROM scoped
 WHERE operator_id = (SELECT wm.workforce_member_id FROM workforce_members wm
-                     WHERE wm.tenant_id = $1 AND wm.workforce_member_id = NULLIF($2::text,'')::uuid
-                       AND wm.status='active' LIMIT 1)
+                     WHERE wm.tenant_id = $1
+                       AND (
+                         wm.workforce_member_id = NULLIF($2::text,'')::uuid
+                         OR wm.user_id = NULLIF($2::text,'')::uuid
+                       )
+                       AND wm.status='active'
+                     ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($2::text,'')::uuid THEN 0 ELSE 1 END,
+                              wm.updated_at DESC,
+                              wm.workforce_member_id DESC
+                     LIMIT 1)
   AND eff_date BETWEEN $3::date AND $4::date
 GROUP BY eff_date::date, vaccine_label
 ORDER BY eff_date::date, vaccine_label

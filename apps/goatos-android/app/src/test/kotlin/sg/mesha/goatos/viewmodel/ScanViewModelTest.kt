@@ -217,7 +217,7 @@ class ScanViewModelTest {
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
-        assertEquals(2, scanVm.state.value.feed.size)
+        assertEquals(1, scanVm.state.value.feed.size)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
     }
 
@@ -260,7 +260,7 @@ class ScanViewModelTest {
         assertEquals("goat_already_scanned", scanAttempts.calls[1].reason)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
         assertEquals(1, scanVm.state.value.doneCount)
-        assertTrue(scanVm.state.value.feed.first().vaccineLabel.contains("already scanned"))
+        assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
     }
 
     @Test
@@ -449,7 +449,7 @@ class ScanViewModelTest {
         val vm = proofGateVm(doneRosterRepo(21), proofRepo)
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
-        assertEquals("window is bounded to one page", 20, vm.state.value.roster.size)
+        assertEquals("window plus off-page done row is visible", 21, vm.state.value.roster.size)
         assertTrue(vm.state.value.hasMore)
 
         (1..20).forEach { seedSyncedProof(proofRepo, "goat-$it") } // everyone in the window is synced
@@ -457,11 +457,44 @@ class ScanViewModelTest {
 
         assertFalse("the off-window page-N animal still blocks submit", vm.state.value.canSubmit)
         assertEquals(listOf("goat-21"), vm.state.value.proofActionNeeded.map { it.goatId })
-        assertFalse("goat-21 is not in the visible window", vm.state.value.roster.any { it.goatId == "goat-21" })
+        assertTrue("goat-21 is restored into the visible done/proof context", vm.state.value.roster.any { it.goatId == "goat-21" })
 
         seedSyncedProof(proofRepo, "goat-21")
         advanceUntilIdle()
         assertTrue("all done animals synced ⇒ submit allowed", vm.state.value.canSubmit)
+    }
+
+    @Test
+    fun `persisted page-N scan restores scanned goats feed after process recreation`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        scanCaptures.recordScan(
+            taskId = "task-1",
+            fieldKey = ROSTER_SCAN_FIELD_KEY,
+            tag = "TAG-21",
+            goatId = "goat-21",
+            obligationId = "obl-21",
+            capturedAtMs = 42L,
+        )
+        val vm = ScanViewModel(
+            repo = pendingRosterRepo(21),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue("the bounded window still has more rows", vm.state.value.hasMore)
+        assertEquals(1, vm.state.value.doneCount)
+        assertTrue("persisted scan below the first page must render in Scanned goats", vm.state.value.feed.any { it.primaryTag == "TAG-21" })
+        assertEquals(ScanStatus.DONE, vm.state.value.roster.single { it.goatId == "goat-21" }.status)
+        assertEquals("scan screen re-entry must re-enqueue durable Room scans", 1, scanCaptures.enqueuePendingScansCalls)
     }
 
     private fun proofGateVm(repo: ExecutionRepository, proofRepo: FakeProofCaptureRepository): ScanViewModel =
@@ -490,7 +523,17 @@ class ScanViewModelTest {
 
     private fun doneRosterRepo(n: Int): FakeScanExecutionRepository {
         val done = (1..n).map { scanRow("goat-$it", "TAG-$it", "obl-$it").copy(status = "done") }
-        val pages = done.chunked(20)
+        return rosterRepo(done)
+    }
+
+    private fun pendingRosterRepo(n: Int): FakeScanExecutionRepository {
+        val pending = (1..n).map { scanRow("goat-$it", "TAG-$it", "obl-$it") }
+        return rosterRepo(pending)
+    }
+
+    private fun rosterRepo(rows: List<ScanRosterRowDto>): FakeScanExecutionRepository {
+        val pages = rows.chunked(20)
+        check(pages.isNotEmpty())
         val continuation = mutableMapOf<String, ScanRosterResponseDto>()
         pages.forEachIndexed { index, pageRows ->
             val next = if (index + 1 < pages.size) "cursor-${index + 1}" else null
