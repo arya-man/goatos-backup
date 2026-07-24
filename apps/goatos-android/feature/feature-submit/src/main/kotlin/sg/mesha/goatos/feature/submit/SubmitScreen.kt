@@ -346,17 +346,19 @@ fun SubmitScreen(
                         )
                     }
                 }
-                runner.blockedReason?.let { reason ->
-                    item {
-                        Text(
-                            text = reason,
-                            color = T.warn,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
+                runner.blockedReason
+                    ?.takeUnless { it.trim() == state.blockingReason?.trim() }
+                    ?.let { reason ->
+                        item {
+                            Text(
+                                text = reason,
+                                color = T.warn,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
                     }
-                }
             }
             if (state.groups.isNotEmpty() && state.dueSectionLabel.isNotBlank()) {
                 item {

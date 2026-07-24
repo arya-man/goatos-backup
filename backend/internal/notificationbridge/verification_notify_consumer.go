@@ -47,6 +47,8 @@ const (
 const (
 	legacyVaccinationSourceModule  = "vaccination"
 	legacyVaccinationSourceRefType = "sop_submission"
+	positionPCDirector             = "pc_director"
+	positionCEOInternal            = "ceo_internal"
 )
 
 // verificationSource is the producer's source back-reference (verificationVerdictPayload /
@@ -262,10 +264,11 @@ func decodePayload(raw []byte) (VerificationEventPayload, error) {
 	return p, nil
 }
 
-// handleItemPending notifies the assigned verifier — whoever holds duty_type='verify' for
-// pc.vaccination at the item's park (ResolveModuleDutyRecipients). This closes the
-// verification_pending TODO in verification_notify.go. No legacy overlap exists on the pending
-// path (the legacy notifier only fires on rejected/accepted), so no suppression applies here.
+// handleItemPending notifies everyone who must react when an operator submits a shed for review:
+// the park's vaccination verifier duty holder, that park's head, tenant PC directors, and tenant
+// CEOs. Multiple goat-level verification items can be created for one shed submission; when the
+// source carries submission_id, the idempotency key is submission-scoped so those items collapse to
+// one queued push per recipient device.
 func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p VerificationEventPayload) error {
 	tenantID := strings.TrimSpace(p.TenantID)
 	itemID := strings.TrimSpace(p.ItemID)
@@ -280,14 +283,35 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	if err != nil {
 		return fmt.Errorf("verification_notify_consumer: resolve verifier recipients: %w", err) // retryable
 	}
-	if len(verifierDevices) == 0 && c.logger != nil {
+	parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve park head recipients: %w", err)
+	}
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve pc director recipients: %w", err)
+	}
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve ceo recipients: %w", err)
+	}
+	recipients := dedupeQueueRecipients(
+		append(append(append(
+			toQueueRecipients(verifierDevices, "verifier"),
+			toQueueRecipients(parkHeadDevices, "park_head")...),
+			toQueueRecipients(directorDevices, "pc_director")...),
+			toQueueRecipients(ceoDevices, "ceo")...),
+	)
+	if len(recipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "verification_pending_notification_no_recipients",
 			"tenant_id", tenantID, "item_id", itemID, "park_id", parkID)
 	}
 
-	// Idempotency: item-scoped EventKey → per-device (tenant, eventKey, device) idempotency_key.
-	// Exact replay of this same pending event is a guaranteed no-op per recipient.
-	eventKey := EventVerificationItemPending + ":" + itemID
+	eventKeySubject := itemID
+	if sourceSubmissionID := strings.TrimSpace(p.Source.SubmissionID); sourceSubmissionID != "" {
+		eventKeySubject = "submission:" + sourceSubmissionID
+	}
+	eventKey := EventVerificationItemPending + ":" + eventKeySubject
 	body := "A proof has been submitted for your review."
 	if p.Category != "" {
 		body = "A " + p.Category + " proof has been submitted for your review."
@@ -315,7 +339,7 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 			"collapse_key": "verification:" + parkID + ":" + p.Category,
 			"priority":     priorityNormal,
 		},
-		Recipients: toQueueRecipients(verifierDevices, "verifier"),
+		Recipients: recipients,
 	})
 	return err
 }

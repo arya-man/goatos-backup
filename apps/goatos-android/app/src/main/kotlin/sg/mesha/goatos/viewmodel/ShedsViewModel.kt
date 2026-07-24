@@ -243,7 +243,7 @@ class ShedsViewModel @Inject constructor(
                 taskId = identity.taskId,
                 sopVersionId = identity.sopVersionId,
                 taskRowVersion = identity.taskRowVersion,
-                opensRecordOnly = !group.canOpenScanFromBackend(),
+                opensRecordOnly = group.opensSubmittedRecordOnly(),
             )
         }.sortedWith(
             compareBy<ShedRow> { row ->
@@ -409,8 +409,13 @@ private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: Shed
     return firstOrNull()?.workState.orEmpty().ifBlank { status.readable() }.readableState()
 }
 
-private fun List<VaccinationExecutionRowDto>.canOpenScanFromBackend(): Boolean =
-    any { row -> row.primaryActionKey.equals("scan", ignoreCase = true) }
+internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
+    isNotEmpty() && all { row -> row.sopStatus.isSubmissionTerminalStatus() }
+
+private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
+    "submitted", "needs_review", "accepted", "closed", "completed" -> true
+    else -> false
+}
 
 private fun String.readableState(): String =
     replace('_', ' ').replaceFirstChar { it.uppercase() }

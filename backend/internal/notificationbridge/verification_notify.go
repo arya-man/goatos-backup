@@ -255,21 +255,28 @@ func toQueueRecipients(recipients []workforcedomain.NotificationRecipient, role 
 	return out
 }
 
-// ---- Integration contract for verification_pending notifications -----
-//
-// TODO: verification_pending notifications are NOT YET WIRED end-to-end.
-// This notifier subscribes to vaccination.verify.rejected and vaccination.verify.accepted today.
-// For verification_pending notifications (notifying verifiers when a proof is submitted for review),
-// the submission/proof vertical MUST publish a vaccination.verification.awaiting_review event when
-// a proof enters verification-pending status. Define this contract:
-//   - Topic: "vaccination.verification.awaiting_review"
-//   - Payload JSON:
-//     {
-//       "completion_id": "<uuid>",
-//       "submitted_by": "<workforce_member_id (executor)>",
-//       (optional) "submitted_at": "<RFC3339 timestamp>"
-//     }
-//
-// Once published, this notifier will subscribe to that event and route notifications to the park's
-// 'verify' duty holders via ResolveModuleDutyRecipients(moduleVaccination, dutyVerify).
-// See vaccination-notification-rules.md §4c for the full routing table.
+func dedupeQueueRecipients(recipients []calendarports.NotificationRecipient) []calendarports.NotificationRecipient {
+	if len(recipients) < 2 {
+		return recipients
+	}
+	seen := make(map[string]struct{}, len(recipients))
+	out := make([]calendarports.NotificationRecipient, 0, len(recipients))
+	for _, recipient := range recipients {
+		key := strings.TrimSpace(recipient.DeviceID)
+		if key == "" {
+			key = strings.TrimSpace(recipient.FCMToken)
+		}
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, recipient)
+	}
+	return out
+}
+
+// verification_pending notifications are handled by VerificationEventConsumer, which consumes the
+// generic verification.item.pending event emitted when vaccination proof review items are created.

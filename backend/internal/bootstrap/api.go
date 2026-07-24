@@ -536,12 +536,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
-	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): a read-only
-	// consumer of vaccination.verify.rejected/accepted events published by sopbridge.
-	// It resolves each completion_id to its obligation context via calendarService, then routes
-	// rework notifications to the executor + park head. verification_pending notifications
-	// require the submission vertical to publish a vaccination.verification.awaiting_review event
-	// (cross-session contract documented in verification_notify.go).
+	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
+	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
+	// events published by sopbridge. They resolve each completion to its obligation context, then
+	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).

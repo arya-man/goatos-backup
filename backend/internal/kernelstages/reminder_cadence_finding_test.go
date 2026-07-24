@@ -75,15 +75,15 @@ func TestReminderCadenceP1Finding1NoRecipientRetryable(t *testing.T) {
 		t.Fatalf("run 2 failed: %v", err)
 	}
 	afterAssign := reminderNotificationCount(t, ctx, pool)
-	if afterAssign != 3 { // one due_today fire x 3 recipient devices
-		t.Fatalf("run 2 produced %d notifications, want 3 (due_today fire x 3 recipients)", afterAssign)
+	if afterAssign != 5 { // one due_today fire x 5 recipient devices
+		t.Fatalf("run 2 produced %d notifications, want 5 (due_today fire x 5 recipients)", afterAssign)
 	}
 	if got := reminderFireMarkerCount(t, ctx, pool); got < 1 {
 		t.Fatalf("run 2 claimed %d fire markers, want >=1 (the fire is now claimed exactly once)", got)
 	}
 	dueTodayTokens := reminderRecipientTokensForType(t, ctx, pool, "due_today")
-	if len(dueTodayTokens) != 3 {
-		t.Fatalf("run 2 due_today recipients = %v, want 3 seeded devices", dueTodayTokens)
+	if len(dueTodayTokens) != 5 {
+		t.Fatalf("run 2 due_today recipients = %v, want 5 seeded devices", dueTodayTokens)
 	}
 	t.Logf("FINDING 1: run 2 (recipients assigned) -> %d notifications, fire claimed exactly once — OK", afterAssign)
 
@@ -144,16 +144,16 @@ func TestReminderCadenceP1Finding2DrainWithRecipients(t *testing.T) {
 		t.Fatalf("drain run failed: %v", err)
 	}
 
-	// Every ladder slot must have fired, addressed to all three seeded recipients.
+	// Every ladder slot must have fired, addressed to all five seeded recipients.
 	for _, slot := range []string{"advance_notice", "reminder", "due_today"} {
 		tokens := reminderRecipientTokensForType(t, ctx, pool, slot)
-		if len(tokens) != 3 {
-			t.Fatalf("FINDING 2: ladder slot %q got %d notifications, want 3 — a fire group STARVED despite >200 events", slot, len(tokens))
+		if len(tokens) != 5 {
+			t.Fatalf("FINDING 2: ladder slot %q got %d notifications, want 5 — a fire group STARVED despite >200 events", slot, len(tokens))
 		}
 	}
 	total := reminderNotificationCount(t, ctx, pool)
-	if total != 9 { // 3 slots x 3 recipients
-		t.Fatalf("FINDING 2: total notifications = %d, want 9 (3 collapsed fire groups x 3 recipients)", total)
+	if total != 15 { // 3 slots x 5 recipients
+		t.Fatalf("FINDING 2: total notifications = %d, want 15 (3 collapsed fire groups x 5 recipients)", total)
 	}
 	if markers := reminderFireMarkerCount(t, ctx, pool); markers < 3 {
 		t.Fatalf("FINDING 2: claimed %d fire markers, want >=3 (one per collapsed fire group)", markers)
@@ -175,7 +175,7 @@ func TestReminderCadenceP1Finding2DrainWithRecipients(t *testing.T) {
 	if got := reminderNotificationCount(t, ctx, pool); got != total {
 		t.Fatalf("FINDING 2: second run DUPLICATED notifications: %d -> %d", total, got)
 	}
-	t.Logf("FINDING 2 GUARD (drain): PASS — >200 events drained fully to 9 notifications, no duplicate")
+	t.Logf("FINDING 2 GUARD (drain): PASS — >200 events drained fully to 15 notifications, no duplicate")
 }
 
 // TestReminderCadenceP1Finding2NoRecipientDeferNoSpin is the FINDING 2 GUARD (defer half).
