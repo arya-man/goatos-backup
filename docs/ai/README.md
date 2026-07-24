@@ -47,8 +47,9 @@ stack before doing the actual work:
 - `make ai-setup` also installs a machine-local Git `pre-push` hook scoped to
   `vgoats/goatos`. It blocks every direct update to remote `stg`, including
   `HEAD:stg`, `main:stg`, local `stg`, deletions, and forced updates. Human and
-  agent pushes are both covered. The only staging promotion path is a merged
-  same-repository `main -> stg` pull request in GitHub.
+  agent pushes are both covered. Remote `stg` is not deployment authority; Goat
+  OS staging deploys through the manual Cloud Deploy runbook from the latest
+  approved `origin/main`.
 - Codex and Claude hook configs reject direct agent-issued pushes to `main` and
   route the landing through `make land-main`. That target performs fresh-main
   fetch + rebase before local CI and retries the sequence if main moves. This is
@@ -69,8 +70,8 @@ make ai-doctor
 - `graphify` for local docs graph generation/querying.
 - `rtk` when Homebrew is available, otherwise it prints the install instruction.
 - Both machine-local Git pre-push guards via `tools/agent-hooks/install-stg-push-guard.sh`:
-  - **Direct staging-promotion block**: prevents pushes to remote `stg`; only GitHub
-    merging a `main → stg` PR is authorized.
+  - **Direct staging-branch block**: prevents pushes to remote `stg`; staging is
+    deployed through the manual Cloud Deploy runbook, not by branch mutation.
   - **Exact-SHA local-CI main push gate**: only a full green `make ci-local` on the
     exact commit SHA that contains current remote main authorizes a `main` push;
     enforced via a machine-local receipt in the worktree git directory. Agents

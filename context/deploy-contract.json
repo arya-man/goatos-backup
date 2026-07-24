@@ -1,0 +1,21 @@
+{
+  "stg_deploy": {
+    "github_actions_enabled": false,
+    "pr_driven_deploy": false,
+    "manual_cloud_deploy": true,
+    "deploy_authority": "google-cloud-deploy",
+    "runbook": "docs/runbooks/stg-deploy.md",
+    "full_mechanics_runbook": "docs/runbooks/cloud-deploy-staging.md",
+    "org_boundary_runbook": "docs/runbooks/google-cloud-environments.md",
+    "scripts_glob": "tools/deploy/stg-clouddeploy-*.sh",
+    "source_ref": "origin/main",
+    "requires_clean_worktree": true,
+    "required_account": "ravi@mesha.sg",
+    "required_org": "vgoats.com",
+    "required_project": "goatos-stg",
+    "forbidden_identities": ["slice", "heva"],
+    "forbidden_projects": ["hevaplatform", "goatos-sheets", "system-gsuite", "apps-script"],
+    "ci_validation": "make ci-local",
+    "bug_041_blocks_deploy": false
+  }
+}
