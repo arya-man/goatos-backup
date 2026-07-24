@@ -49,6 +49,36 @@ func TestPickBestParkDriveDateMaximizesFeasibleGoats(t *testing.T) {
 	}
 }
 
+func TestParkConsolidationOverrideWindowKeepsPPRBlueTongueComboTogether(t *testing.T) {
+	due := businessDate(time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC))
+	windowEnd := due.AddDate(0, 0, 1)
+	cfg := SweepConfig{
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-ppr": {VaccineCode: "PPR", VaccinePriority: 2},
+			"rule-bt":  {VaccineCode: "BLUE_TONGUE", VaccinePriority: 4},
+		},
+	}
+	ppr := domain.ParkConsolidationCandidate{
+		ParkID:       "park-cpt",
+		RuleID:       "rule-ppr",
+		ObligationID: "obl-ppr",
+		TargetID:     "goat-1",
+		DueAt:        due,
+		WindowStart:  &due,
+		WindowEnd:    &windowEnd,
+	}
+	bt := ppr
+	bt.RuleID = "rule-bt"
+	bt.ObligationID = "obl-bt"
+
+	if got, want := parkConsolidationGroupKey(cfg, ppr), "park-cpt|combo:PPR+Blue Tongue"; got != want {
+		t.Fatalf("PPR group key = %q, want %q", got, want)
+	}
+	if got, want := parkConsolidationGroupKey(cfg, bt), "park-cpt|combo:PPR+Blue Tongue"; got != want {
+		t.Fatalf("Blue Tongue group key = %q, want %q", got, want)
+	}
+}
+
 func TestPickBestParkDriveDateRespectsLatestWindow(t *testing.T) {
 	now := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	rows := []domain.ParkConsolidationCandidate{

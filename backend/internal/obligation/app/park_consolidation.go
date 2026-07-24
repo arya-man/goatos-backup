@@ -426,6 +426,9 @@ func parkConsolidationCursor(row domain.ParkConsolidationCandidate) *domain.Park
 func parkConsolidationDriveGroupKey(cfg SweepConfig, row domain.ParkConsolidationCandidate) string {
 	identity := cfg.getRuleVaccineIdentity(row.RuleID)
 	if parkCandidateUsesDriveDateOverrideWindow(row) {
+		if session := batchSession(row.RuleID, identity.VaccineCode); strings.HasPrefix(strings.TrimSpace(session), "combo:") {
+			return session
+		}
 		if code := strings.TrimSpace(identity.VaccineCode); code != "" {
 			return "vaccine:" + normalizedVaccineMatrixCode(code)
 		}
