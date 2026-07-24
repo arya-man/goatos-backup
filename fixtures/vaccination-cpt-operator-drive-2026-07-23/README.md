@@ -238,3 +238,9 @@ The CPT roster fixture owns operator emails/login identity. STG temporary
 password convention is documented in:
 `docs/runbooks/stg-operator-login-credentials.md`.
 Do not invent random STG operator passwords.
+
+The CPT seed must satisfy the STG login seed contract:
+`docs/runbooks/stg-login-seed-contract.md`
+
+The roster owns field operator/director identity. STG seed must also verify
+Firebase email/password and backend role binding for them.

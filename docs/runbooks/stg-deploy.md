@@ -107,3 +107,11 @@ Canonical credentials and backend binding requirements live in:
 `docs/runbooks/stg-operator-login-credentials.md`
 
 Do not invent random passwords during deploy, seed, or Android release tasks.
+
+## STG Login Seed Contract
+
+After reseed, verify login readiness using:
+
+`docs/runbooks/stg-login-seed-contract.md`
+
+Field Android users are email/password. Leadership users are SSO only.

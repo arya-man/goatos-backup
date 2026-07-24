@@ -674,3 +674,6 @@ Terraform variables, plan files, state, or repo docs.
 
 For STG Android operator/director test login credentials, use:
 `docs/runbooks/stg-operator-login-credentials.md`.
+
+STG seed/login rules are governed by:
+`docs/runbooks/stg-login-seed-contract.md`
