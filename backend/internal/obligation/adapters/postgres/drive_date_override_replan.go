@@ -96,10 +96,11 @@ func (r *Repository) vaccinationOperatorCapacityForDate(ctx context.Context, ten
 			continue
 		}
 		out = append(out, vaccexecapp.DriveOperator{
-			ID:        operatorID,
-			Name:      operatorID,
-			Cap:       int(operator.Cap),
-			Available: operator.Cap > 0,
+			ID:            operatorID,
+			Name:          operatorID,
+			Cap:           int(operator.Cap),
+			ConfiguredCap: int(operator.ConfiguredCap),
+			Available:     operator.Cap > 0,
 		})
 	}
 	return out, nil
@@ -570,9 +571,10 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, availability []vacce
 	}
 
 	plan, err := (vaccexecapp.OperatorDrivePlanner{}).Plan(vaccexecapp.DrivePlanRequest{
-		StartDate:    target,
-		Availability: availability,
-		WorkBlocks:   blocks,
+		StartDate:             target,
+		Availability:          availability,
+		ConfiguredOperatorCap: configuredOperatorCapFromAvailability(availability),
+		WorkBlocks:            blocks,
 	})
 	if err != nil {
 		// A planner error must never silently drop planned work: park every moved row on the target
@@ -629,6 +631,18 @@ func planMovedDriveAssignments(rows []movedDriveAssignment, availability []vacce
 			[]string{"no vaccination operator capacity is available on the moved drive date"})
 	}
 	return mergePlannedDriveAssignments(planned)
+}
+
+func configuredOperatorCapFromAvailability(availability []vaccexecapp.DriveDateAvailability) int {
+	maxCap := 0
+	for _, day := range availability {
+		for _, operator := range day.Operators {
+			if operator.ConfiguredCap > maxCap {
+				maxCap = operator.ConfiguredCap
+			}
+		}
+	}
+	return maxCap
 }
 
 // mergePlannedDriveAssignments folds rows that share the persisted uniqueness key (batch, park,

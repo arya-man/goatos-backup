@@ -117,8 +117,9 @@ type DriveAssignment struct {
 }
 
 type DriveOperatorCapacity struct {
-	OperatorID string
-	Cap        int32
+	OperatorID    string
+	Cap           int32
+	ConfiguredCap int32
 }
 
 type VaccineDriveDateOverride struct {
