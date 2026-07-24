@@ -22,9 +22,9 @@ class PushTargetResolverTest {
     }
 
     @Test
-    fun `leadership vaccination reminder opens leadership landing`() {
+    fun `leadership vaccination reminder opens vaccination landing`() {
         assertEquals(
-            Routes.LEADERSHIP,
+            Routes.VACCINATION,
             resolvePushRoute(
                 mapOf(
                     PushExtras.TYPE to "vaccination_reminder",
@@ -69,9 +69,9 @@ class PushTargetResolverTest {
     }
 
     @Test
-    fun `verification pending opens leadership for director and ceo recipients`() {
+    fun `verification pending opens vaccination for director and ceo recipients`() {
         assertEquals(
-            Routes.LEADERSHIP,
+            Routes.VACCINATION,
             resolvePushRoute(
                 mapOf(
                     PushExtras.TYPE to "verification_pending",

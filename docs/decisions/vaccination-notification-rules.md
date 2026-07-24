@@ -250,7 +250,7 @@ from the Vaccination sheds list only.
 |---|---|---|
 | `operator`, `park_head`, `phc_manager` | Vaccination | Vaccination |
 | `verifier` | Vaccination | Verify item detail |
-| `pc_director`, `ceo_internal` | Leadership vaccination view | Leadership vaccination view |
+| `pc_director`, `ceo_internal` | Vaccination tab | Vaccination tab |
 
 ---
 
