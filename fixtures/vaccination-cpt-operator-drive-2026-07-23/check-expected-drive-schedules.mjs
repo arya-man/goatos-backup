@@ -83,21 +83,26 @@ function psql(sql) {
 }
 
 // Distinct animals per (operator, planned_date) for non-superseded vaccination drive batches.
-// Grain note (aggregates-and-projections lens): vaccination_drive_assignments is per
-// shed/partition, so summing animal_count would double-count an animal appearing in two
-// partitions; capacity is DISTINCT animals per operator per business date, counted from the
-// obligations attached to that operator's batches.
+// Grain note (aggregates-and-projections lens): capacity is DISTINCT goats per operator per
+// business date. Count them from the EXACT membership table vaccination_drive_assignment_members
+// (one row per goat-obligation, keyed to the assignment_id the goat actually landed on), NOT by
+// joining obligation_instances to the whole batch: a batch can hold several operator arms, so the
+// coarse batch join attributes every batch obligation to every operator on it and can both
+// over-count one operator and hide a real breach. The exact member join makes the proof tie to the
+// operator each goat is truly assigned to, so three same-day batches on one operator
+// (120 + 84 + 17 = 221) correctly aggregate to a single 221 > 200 breach.
 const CAP_SQL = (tenant) => `
 SELECT vda.planned_date::text,
        COALESCE(wm.display_name, '(unassigned)'),
-       count(DISTINCT oi.target_id)
+       count(DISTINCT m.goat_id)
 FROM vaccination_drive_assignments vda
 JOIN obligation_batches ob ON ob.tenant_id = vda.tenant_id AND ob.batch_id = vda.batch_id
-JOIN obligation_instances oi ON oi.tenant_id = vda.tenant_id AND oi.batch_id = vda.batch_id
+JOIN vaccination_drive_assignment_members m
+  ON m.tenant_id = vda.tenant_id AND m.assignment_id = vda.assignment_id
 LEFT JOIN workforce_members wm ON wm.workforce_member_id = vda.operator_id
 WHERE vda.tenant_id = '${tenant}'::uuid
   AND ob.status <> 'superseded'
-GROUP BY 1, 2
+GROUP BY vda.planned_date, COALESCE(wm.display_name, '(unassigned)'), vda.operator_id
 ORDER BY 1, 2`;
 
 const PARK_SQL = (tenant) => `
