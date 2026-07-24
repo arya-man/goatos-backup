@@ -233,3 +233,8 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
 Do not replicate this to staging until the local/dev DB shows the expected CPT
 scope, HRMS roster, date start, operator capacity split, booster obligations,
 and vaccine-date override recalculation from backend data.
+
+The CPT roster fixture owns operator emails/login identity. STG temporary
+password convention is documented in:
+`docs/runbooks/stg-operator-login-credentials.md`.
+Do not invent random STG operator passwords.

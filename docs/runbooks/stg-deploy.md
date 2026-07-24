@@ -94,3 +94,16 @@ assignments, memberships, projections, and proof tables over Cloud SQL. Do not
 change normal API/runtime query timeouts just to make seed closeout pass. If
 closeout needs this timeout, report the slow step and keep it scoped to the
 seed command.
+
+## STG Operator Login Credentials
+
+STG Android operator/director test passwords follow:
+
+```text
+<FirstName>@2026
+```
+
+Canonical credentials and backend binding requirements live in:
+`docs/runbooks/stg-operator-login-credentials.md`
+
+Do not invent random passwords during deploy, seed, or Android release tasks.
