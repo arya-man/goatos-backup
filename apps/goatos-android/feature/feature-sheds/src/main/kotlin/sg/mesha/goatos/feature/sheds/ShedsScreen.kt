@@ -394,13 +394,6 @@ private fun VaccineCarryCard(rows: List<ShedRow>) {
                     fontWeight = FontWeight.ExtraBold,
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Selected day · all sheds below",
-                color = Muted,
-                fontSize = 11.5f.sp,
-                fontWeight = FontWeight.Medium,
-            )
             Spacer(Modifier.height(12.dp))
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
