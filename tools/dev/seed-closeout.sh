@@ -216,7 +216,11 @@ run_vaccination_drive_batching() {
     return
   fi
 
-  run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id"
+  if [ -n "${as_of// }" ]; then
+    run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id" -as-of "$as_of"
+  else
+    run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id"
+  fi
   apply_expected_drive_variant_inputs
   run_goat_shed_integrity_proof
   local sweep_limit="${GOATOS_SEED_CLOSEOUT_SWEEP_PASSES:-8}"
