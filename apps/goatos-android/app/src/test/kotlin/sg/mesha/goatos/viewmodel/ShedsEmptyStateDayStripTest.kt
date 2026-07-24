@@ -65,6 +65,20 @@ class ShedsEmptyStateDayStripTest {
         assertEquals("last tab is today+5", todayDate.plusDays(5).toString(), tabs.last().dateKey)
         assertEquals("today must be the selected/landing tab", today, tabs.single { it.isSelected }.dateKey)
     }
+
+    @Test
+    fun `yesterday tab is selectable`() = runTest(dispatcher) {
+        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val yesterday = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(1).toString()
+        vm.onEvent(sg.mesha.goatos.feature.sheds.ShedsEvent.SelectDay(yesterday))
+        advanceUntilIdle()
+
+        val tabs = vm.state.value.dayTabs
+        assertEquals("tapping yesterday selects it", yesterday, tabs.single { it.isSelected }.dateKey)
+    }
 }
 
 /** Emits a single empty-but-present execution response (hasData = true, zero rows). */

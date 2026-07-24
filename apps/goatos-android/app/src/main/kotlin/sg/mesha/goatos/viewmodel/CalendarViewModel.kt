@@ -394,9 +394,9 @@ private fun initialMonthQuery(today: LocalDate): CalendarScheduleQuery {
 }
 
 internal fun calendarWeekRange(today: LocalDate): CalendarDateRange {
-    // Rolling 8-day strip in IST: yesterday (today-1) through today+6, so the strip is always
-    // anchored on TODAY (which stays selected) with one day of look-back and a week of look-ahead,
-    // instead of a fixed Monday-Sunday calendar week. Every day in this range is a clickable tab.
+    // Rolling 7-day strip in IST: yesterday (today-1) through today+5, so the strip has one day
+    // of look-back with today staying selected on landing, instead of a fixed Monday-Sunday
+    // calendar week. Every day in this range is a clickable tab.
     return CalendarDateRange(today.minusDays(1).toString(), today.plusDays(5).toString())
 }
 
