@@ -183,8 +183,10 @@ start on `2026-07-23`, not `2026-07-22`. For the final `2026-07-24` validation
 drive, the planner must use only the single assigned operator for that business
 date, while still keeping all three operators in HRMS availability.
 
-The source packet contains 324 animal rows. The planner may schedule fewer open
-animals on a given date depending on accepted history, booster eligibility,
+The source packet contains 324 animal rows. The updated vaccination source marks
+114 ET+TT booster rows completed on `2026-07-24`, so the final ET+TT validation
+lane schedules the remaining 210 animals only. The planner may schedule fewer
+open animals on a given date depending on accepted history, booster eligibility,
 combo-spacing rules, clinical exclusions, and date overrides, but it must never
 drop adult ET+TT booster obligations or quietly move safe-window breaches beyond
 their latest safe date.
@@ -201,7 +203,7 @@ machine-readable in `expected-drive-schedules.json`. The headline numbers are:
 | Scenario | Date | Operator | Vaccines | Animals | Doses |
 |---|---|---|---|---:|---:|
 | Final ET+TT day 1 | 2026-07-24 Fri | Darshan Talwar | ET+TT | 200 | 200 |
-| Final ET+TT day 2 | 2026-07-25 Sat | Darshan Talwar | ET+TT | 124 | 124 |
+| Final ET+TT day 2 | 2026-07-25 Sat | Darshan Talwar | ET+TT | 10 | 10 |
 | Final PPR day 1 | 2026-08-07 Fri | Darshan Talwar | PPR | 200 | 200 |
 | Final PPR day 2 | 2026-08-08 Sat | Darshan Talwar | PPR | 124 | 124 |
 
@@ -238,6 +240,8 @@ the first day is still capped at 200 animals, even though it carries 400 doses.
    - physical sheds are grouped while partitions remain visible in assignments;
    - all 324 animals are considered against vaccination rules, with zero
      source-health exclusions from this packet;
+   - ET+TT booster source history has 114 completed rows and 210 remaining due
+     rows for the final validation drive;
    - ET+TT adult booster, PPR, Blue Tongue, HS, FMD, kid/adult rules, combo
      spacing, sick/ICU/pregnancy/terminal exclusions, and `+1 week` buffer all
      come from backend rules.
