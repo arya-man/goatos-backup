@@ -108,17 +108,20 @@ class ProfileViewModelLogoutTest {
             outboxWiper = OutboxWiper { outboxCleared = true },
             syncJobsCanceller = SyncJobsCanceller { jobsCancelled = true },
         )
+        var relaunched = false
         val vm = ProfileViewModel(
             bootstrap = FakeBootstrapRepository(),
             authRepository = auth,
             reader = FakeRfidReaderPort(),
             logoutCoordinator = logoutCoordinator,
+            relauncher = { relaunched = true },
         )
 
         vm.signOut()
         advanceUntilIdle()
 
         assertTrue("vendor auth sign-out invoked", auth.signedOut)
+        assertTrue("process relaunched for a clean in-memory slate", relaunched)
         assertEquals("device deregister attempted", 1, api.deregisterCallCount)
         assertTrue("Room screen caches wiped", cacheCleared)
         assertTrue("outbox wiped", outboxCleared)

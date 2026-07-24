@@ -70,6 +70,7 @@ class ProfileViewModelWhileSubscribedTest {
             authRepository = FakeAuthRepository(),
             reader = reader,
             logoutCoordinator = buildLogoutCoordinator(),
+            relauncher = {},
         )
 
         // No UI subscriber yet -> WhileSubscribed keeps the upstream cold.

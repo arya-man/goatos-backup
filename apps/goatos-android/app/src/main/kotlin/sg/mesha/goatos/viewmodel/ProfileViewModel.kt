@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.auth.AuthRepository
+import sg.mesha.goatos.boot.SessionRelauncher
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
@@ -34,6 +35,7 @@ class ProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val reader: RfidReaderPort,
     private val logoutCoordinator: LogoutCoordinator,
+    private val relauncher: SessionRelauncher,
 ) : ViewModel() {
 
     // Imperatively-updated profile/settings data (load/signOut/setLanguage/cycleLanguage). The
@@ -90,6 +92,10 @@ class ProfileViewModel @Inject constructor(
     fun signOut() {
         viewModelScope.launch {
             logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+            // Disk is now wiped; relaunch the process so no in-memory state (singleton repo
+            // caches, retained ViewModels, Coil memory cache, AppLocaleState) from the departing
+            // principal can bleed into the next account. See [SessionRelauncher].
+            relauncher.relaunchToLogin()
         }
     }
 
