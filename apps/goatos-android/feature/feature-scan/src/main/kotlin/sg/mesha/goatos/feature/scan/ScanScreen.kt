@@ -995,8 +995,20 @@ fun ScanListSheet(
                     state = rosterListState,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder
-                    items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag }, contentType = { "scan_row" }) { row ->
+                    // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder.
+                    // The key MUST be unique per ROW, not per goat: a multi-vaccine drive (e.g. ET+TT · PPR)
+                    // puts the SAME goatId on two rows, so keying by goatId first threw
+                    // "Key <uuid> was already used" in LazyColumn measure and popped the screen
+                    // (Crashlytics IllegalArgumentException). obligationId is unique per obligation/row;
+                    // fall back to a composite that still separates two vaccines of the same goat.
+                    items(
+                        filtered,
+                        key = { row ->
+                            row.obligationId.takeIf { it.isNotBlank() }
+                                ?: "${row.goatId}|${row.vaccineLabel}|${row.primaryTag}|${row.secondaryTag.orEmpty()}"
+                        },
+                        contentType = { "scan_row" },
+                    ) { row ->
                         ScanListRow(row, captureEnabled, onEvent)
                     }
                     if (isLoadingMore && query.isBlank()) {
