@@ -2924,17 +2924,21 @@ LIMIT $` + strconv.Itoa(argIdx)
 	return out, nil
 }
 
-// UpdateBatchPlannedDate moves a planned batch to a harmonized combo drive date.
-func (r *Repository) UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) error {
+// UpdateBatchPlannedDate moves a planned batch to a harmonized combo drive date. When the target
+// date already holds a compatible planned batch, the source batch's obligations are MERGED into that
+// target batch instead (mergeUnfinalizedBatchIntoPlannedDate) and the target batch id is returned so
+// the caller (AlignComboDrives) can rebuild the target's drive-assignment rows over its now-larger
+// attached obligation set (BUG-041). A plain same-batch date move returns "" -- no rebuild needed.
+func (r *Repository) UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) (string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return fmt.Errorf("obligation: tenant id: %w", err)
+		return "", fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	batch, err := pgconv.UUID(batchID)
 	if err != nil {
-		return fmt.Errorf("obligation: batch id: %w", err)
+		return "", fmt.Errorf("obligation: batch id: %w", err)
 	}
 	tag, err := r.pool.Exec(ctx, `
 UPDATE obligation_batches
@@ -2947,27 +2951,39 @@ WHERE tenant_id = $1
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			if mergeErr := r.mergeUnfinalizedBatchIntoPlannedDate(ctx, tenant, batch, plannedDate); mergeErr == nil {
-				return nil
+			targetBatchID, mergeErr := r.mergeUnfinalizedBatchIntoPlannedDate(ctx, tenant, batch, plannedDate)
+			if mergeErr == nil {
+				return targetBatchID, nil
 			}
 		}
-		return fmt.Errorf("obligation: update batch planned date: %w", err)
+		return "", fmt.Errorf("obligation: update batch planned date: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
-	return nil
+	return "", nil
 }
 
-func (r *Repository) mergeUnfinalizedBatchIntoPlannedDate(ctx context.Context, tenant, sourceBatch pgtype.UUID, plannedDate time.Time) error {
+// mergeUnfinalizedBatchIntoPlannedDate moves the source batch's obligations into the compatible
+// planned target batch on plannedDate, supersedes the source batch, and DELETES the source batch's
+// stale vaccination_drive_assignments (which cascade-deletes their member rows, so the moved
+// obligations are free of the members UNIQUE(tenant_id, obligation_id) constraint before the caller
+// rebinds them). It returns the target batch id so the caller can rebuild the target's
+// drive-assignment rows over the merged (old target + moved source) obligation set -- WITHOUT this
+// rebuild the target's rows only know its original obligations, leaving the moved goats' (shed,
+// vaccine-lane) with no covering cell and therefore no operator drive lane (BUG-041). Both source
+// and target batch rows are locked FOR UPDATE inside this transaction so two concurrent aligns cannot
+// both rebuild from half-old state.
+func (r *Repository) mergeUnfinalizedBatchIntoPlannedDate(ctx context.Context, tenant, sourceBatch pgtype.UUID, plannedDate time.Time) (string, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("obligation: begin merge aligned batch: %w", err)
+		return "", fmt.Errorf("obligation: begin merge aligned batch: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var moved int64
 	var retired bool
+	var targetBatchID string
 	err = tx.QueryRow(ctx, `
 WITH source AS (
     SELECT *
@@ -3032,19 +3048,129 @@ retired AS (
       AND b.batch_id = $2
       AND EXISTS (SELECT 1 FROM target)
     RETURNING 1
+),
+-- The source batch is now superseded; its drive-assignment rows are stale (they describe obligations
+-- that just moved to the target) and their member rows would still pin the moved obligations under
+-- members UNIQUE(tenant_id, obligation_id), blocking the target rebind. Delete them here (member rows
+-- cascade). scale-guard:ignore: single superseded batch, bounded by its own row set.
+source_assignments_deleted AS (
+    DELETE FROM vaccination_drive_assignments v
+    WHERE v.tenant_id = $1
+      AND v.batch_id = $2
+      AND EXISTS (SELECT 1 FROM target)
+    RETURNING 1
 )
-SELECT (SELECT count(*) FROM moved), EXISTS (SELECT 1 FROM retired)`,
-		tenant, sourceBatch, pgconv.Date(&plannedDate)).Scan(&moved, &retired)
+SELECT (SELECT count(*) FROM moved), EXISTS (SELECT 1 FROM retired), (SELECT batch_id::text FROM target)`,
+		tenant, sourceBatch, pgconv.Date(&plannedDate)).Scan(&moved, &retired, &targetBatchID)
 	if err != nil {
-		return fmt.Errorf("obligation: merge aligned batch: %w", err)
+		return "", fmt.Errorf("obligation: merge aligned batch: %w", err)
 	}
 	if !retired {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("obligation: commit merge aligned batch: %w", err)
+		return "", fmt.Errorf("obligation: commit merge aligned batch: %w", err)
 	}
-	return nil
+	return targetBatchID, nil
+}
+
+// DriveRebuildInputsForBatch returns everything the app-layer planner needs to rebuild one batch's
+// drive-assignment rows from its FULL current attached obligation set (BUG-041): the park scope, the
+// batch planned_date, and one domain.UnbatchedDue per non-canceled goat obligation attached to the
+// batch, carrying the SAME per-goat shed label the sweep read path builds (shed name + goat_shed_
+// partitions partition) so a rebuilt cell keys identically to an originally-planned cell. ok is false
+// when the batch is not a rebuildable target -- not found, not planned, or already operationally
+// committed (a SOP task or stock reservation): those must never be rebuilt (item 7).
+func (r *Repository) DriveRebuildInputsForBatch(ctx context.Context, tenantID, batchID string) (parkID string, plannedDate time.Time, conductedBy *string, rows []domain.UnbatchedDue, ok bool, err error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: batch id: %w", err)
+	}
+	var scopeType, scopeID string
+	var planned pgtype.Date
+	var conducted pgtype.UUID
+	scanErr := r.pool.QueryRow(ctx, `
+SELECT scope_type, scope_id::text, planned_date, conducted_by
+FROM obligation_batches
+WHERE tenant_id = $1
+  AND batch_id = $2
+  AND status = 'planned'
+  AND sop_task_id IS NULL
+  AND NOT (context ? 'stock_reservation')`, tenant, batch).Scan(&scopeType, &scopeID, &planned, &conducted)
+	if errors.Is(scanErr, pgx.ErrNoRows) {
+		return "", time.Time{}, nil, nil, false, nil
+	}
+	if scanErr != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: read rebuild batch: %w", scanErr)
+	}
+	if !planned.Valid {
+		return "", time.Time{}, nil, nil, false, nil
+	}
+	if pd := pgconv.DateValue(planned); pd != nil {
+		plannedDate = *pd
+	}
+	if conducted.Valid {
+		c := pgconv.UUIDString(conducted)
+		if c != "" {
+			conductedBy = &c
+		}
+	}
+
+	// scale-guard:ignore: one batch's own attached obligation set, bounded by the batch.
+	qrows, err := r.pool.Query(ctx, `
+SELECT oi.obligation_id::text,
+       oi.rule_id::text,
+       oi.scope_type,
+       oi.scope_id::text,
+       COALESCE(g.park_id::text, '')::text AS park_id,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
+       oi.target_id::text,
+       oi.due_at
+FROM obligation_instances oi
+LEFT JOIN goats g
+  ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+LEFT JOIN locations shed
+  ON shed.tenant_id = oi.tenant_id
+ AND shed.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+ AND shed.location_type = 'shed'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = shed.location_id
+WHERE oi.tenant_id = $1
+  AND oi.batch_id = $2
+  AND oi.target_type = 'goat'
+  AND oi.status <> 'canceled'
+ORDER BY oi.obligation_id`, tenant, batch)
+	if err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: read rebuild obligations: %w", err)
+	}
+	defer qrows.Close()
+	for qrows.Next() {
+		var u domain.UnbatchedDue
+		if err := qrows.Scan(&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.ShedName, &u.TargetID, &u.DueAt); err != nil {
+			return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: scan rebuild obligation: %w", err)
+		}
+		rows = append(rows, u)
+	}
+	if err := qrows.Err(); err != nil {
+		return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: rebuild obligation rows: %w", err)
+	}
+	if scopeType == "park" {
+		parkID = scopeID
+	} else if len(rows) > 0 {
+		parkID = rows[0].ParkID
+	}
+	return parkID, plannedDate, conductedBy, rows, true, nil
 }
 
 // AttachObligationsToBatch attaches still-unbatched obligations to a batch (returns count attached).

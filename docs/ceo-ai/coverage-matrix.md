@@ -447,3 +447,16 @@ business measure, no time dimension, nothing to trend or compare. It is the same
 category as the already-excluded `GET /app/counts/shifting/destinations`
 operator picker. The leadership assistant derives park scope from the
 server-side session, never from a UI picker endpoint.
+
+**EXCLUDED — BUG-041 obligation-engine drive-assignment rebuild internals**
+(`backend/internal/obligation/...`) — `UpdateBatchPlannedDate`,
+`mergeUnfinalizedBatchIntoPlannedDate`'s target return, `DriveRebuildInputsForBatch`,
+`AvailableVaccinationOperatorsForDriveExcludingBatch`,
+`RebuildMergedBatchDriveAssignments`, and the `SweepSession` rebuild-outcome
+accessors `DriveRebuilds` / `Rebuilt` are internal sweeper/scheduler mechanics for
+rebuilding a merged vaccination drive batch's operator assignments. They produce no
+counts, no KPI, no time-series, and expose no read API, table, `ceo_ai.*` view,
+Cube metric, or Toolbox tool. Leadership drive/coverage answers stay on the
+existing aggregate `/vaccination/*` surfaces and `ceo_ai.*` views; these functions
+only keep the operator drive sheets internally consistent after a combo-align
+merge. Same category as the already-excluded operator execution/scan internals.
