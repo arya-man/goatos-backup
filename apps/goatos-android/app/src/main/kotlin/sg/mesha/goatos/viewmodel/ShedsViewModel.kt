@@ -100,12 +100,17 @@ class ShedsViewModel @Inject constructor(
         val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !isOffline
         val effectiveSelectedDay = dto?.effectiveSelectedDay(selectedDay) ?: selectedDay
         val base = dto?.toShedsUiState(effectiveSelectedDay)
-            ?: if (resource.hasData) {
-                shedsPlaceholder("No sheds scheduled today")
-            } else if (isOffline) {
-                shedsPlaceholder("Couldn't load vaccination drives. Pull to refresh or try again.")
-            } else {
-                shedsPlaceholder("Loading…")
+            ?: run {
+                val message = when {
+                    resource.hasData -> if (effectiveSelectedDay == workWindow.today) {
+                        "No sheds scheduled today"
+                    } else {
+                        "No sheds scheduled for ${shortDateLabel(effectiveSelectedDay)}"
+                    }
+                    isOffline -> "Couldn't load vaccination drives. Pull to refresh or try again."
+                    else -> "Loading…"
+                }
+                emptyShedsState(message, workWindow, effectiveSelectedDay)
             }
         base.copy(
             isRefreshing = isRefreshing,
@@ -431,6 +436,28 @@ private fun buildOperatorDayTabs(
         )
     }
 }
+
+/**
+ * Empty / loading / offline sheds state that KEEPS the real today-anchored day strip.
+ *
+ * [shedsPlaceholder] copies `sampleShedsState()` and does not reset its hardcoded sample
+ * [ShedDayTab]s (2026-07-22 "WED" selected), so a no-data view — a CEO/leadership principal
+ * with no assigned sheds, an operator on a drive-free day, or the loading/offline moment —
+ * rendered those sample dates: never defaulting to today and ignoring date taps (reproduced
+ * live on the CEO/CXO "Vaccination" screen). Rebuild the strip from the live [window] +
+ * [selectedDay] so the empty state still lands on today, shows today → today+6, and stays
+ * tap-responsive.
+ */
+internal fun emptyShedsState(
+    message: String,
+    window: OperatorWorkWindow,
+    selectedDay: LocalDate,
+): ShedsUiState = shedsPlaceholder(message).copy(
+    title = "Next 7 days",
+    date = if (selectedDay == window.today) "Today · ${shortDateLabel(selectedDay)}" else shortDateLabel(selectedDay),
+    window = window.windowLabel,
+    dayTabs = buildOperatorDayTabs(emptyList(), window, selectedDay),
+)
 
 internal fun parseExecutionDate(raw: String): LocalDate? =
     runCatching { LocalDate.parse(raw) }.getOrNull()
