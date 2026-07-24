@@ -802,6 +802,7 @@ seed-vaccination-cpt-operator-drive:
 	GOATOS_EXPECTED_DRIVE_SCHEDULES="$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/expected-drive-schedules.json" \
 	  GOATOS_EXPECTED_DRIVE_VARIANT="final_discussed_plan_et_tt_only_no_ppr" \
 	  GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF="$${GOATOS_SEED_CLOSEOUT_SWEEP_AS_OF:-$(GOATOS_CPT_OPERATOR_DRIVE_AS_OF)T00:00:00+05:30}" \
+	  GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF="$${GOATOS_RUN_CPT_PASSPORT_DISPLAY_PROOF:-1}" \
 	  $(MAKE) seed-closeout
 	@if [ "$${GOATOS_ENV:-}" = "stg" ]; then \
 		$(MAKE) seed-stg-9-person-login; \

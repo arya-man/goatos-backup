@@ -687,10 +687,12 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // Coupling review 2026-07-24: GOATOS_CPT_EXCLUDE_PPR_2026 is a CPT operator-drive
 // publication flag only. It does not rewrite source vaccination rows or remove
 // canonical PPR history validation.
-// Coupling review 2026-07-24: Adult campaign coalescing ignores
-// entry_date/post_arrival as a strict splitter during generation; source
-// validation still preserves kid/young age-window checks and does not route
-// singleton adult rows into make-up/defer logic without an explicit source reason.
+// Coupling review 2026-07-24/25: Adult entry_date is never a vaccination
+// due-date anchor. Adult blank-history work must be generated as
+// campaign/catch-up cohort work packed by physical shed/partition, not as
+// post_arrival singleton work; source validation still preserves kid/young
+// age-window checks and does not route singleton adult rows into make-up/defer
+// logic without an explicit source reason.
 // Coupling review 2026-07-25: stable adult campaign generation keys and
 // unbatched open-row realignment prevent same-goat/same-dose duplicates in
 // derived obligations. Source validation inputs and raw fixture hashes stay

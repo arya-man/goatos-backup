@@ -158,9 +158,12 @@ Timeouts".
 - Accepted history wins over missing scheduling anchors. A completed source
   dose must not become a deferred missing-DOB/missing-entry-date obligation.
 - Missing scheduling anchors are checked by trigger, not globally. `birth_age`
-  rules require DOB, `post_arrival` rules require entry date, and
-  `after_previous_completion` rules require accepted completion evidence. A
-  rule must not create normal active work when its own anchor is missing.
+  rules require DOB and `after_previous_completion` rules require accepted
+  completion evidence. Adult vaccination initial work must not use
+  `post_arrival` or `entry_date` as a due-date anchor: adult blank-history
+  animals join the configured adult campaign/catch-up cohort, packed by whole
+  physical shed/partition. Adult entry_date is never a vaccination due-date
+  anchor.
 - Sidebar counts must be backend-computed, never seeded constants. After seed,
   `Action Center`, `Preventive Care (PC)`, and `Vaccination` badges must be
   reconciled to the same grouped open-work query used by the page list. A number

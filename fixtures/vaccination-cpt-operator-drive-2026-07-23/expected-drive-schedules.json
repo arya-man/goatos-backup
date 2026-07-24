@@ -1,6 +1,6 @@
 {
   "schema": "goatos.cpt_operator_drive_expected_schedule.v1",
-  "purpose": "Post-seed validation sample for the CPT operator-drive rehearsal. Compare seeded DB batches/drive assignments against these ET+TT-only seed rules; PPR is excluded from this seed packet for now.",
+  "purpose": "Post-seed validation sample for the CPT operator-drive rehearsal. Compare seeded DB batches/drive assignments against these ET+TT-only seed rules; PPR is excluded from this seed packet for now, and adult entry_date must never generate adult vaccination drives.",
   "source_packet": "fixtures/vaccination-cpt-operator-drive-2026-07-23",
   "source_business_date": "2026-07-23",
   "discussion_locked_at": "2026-07-23",
@@ -40,7 +40,8 @@
       "The updated CPT goat source has no active sick/under-treatment animals for this validation.",
       "Closed is resolved history and Fine is healthy; neither may become recovering or a vaccination defer.",
       "The 2026-07-24 source update marks 114 ET+TT booster rows completed; the final ET+TT validation lane now schedules only the remaining 210 animals.",
-      "PPR is intentionally excluded from CPT seed drive scheduling for now."
+      "PPR is intentionally excluded from CPT seed drive scheduling for now.",
+      "Adult entry_date is never a vaccination due-date anchor; adult blank-history animals join campaign/catch-up cohorts by physical shed/partition."
     ],
     "et_tt_adult_w2_completed_history_animals": 114,
     "et_tt_adult_w2_remaining_due_animals": 210
@@ -95,7 +96,7 @@
       "dose_code": "other_non_ppr_vaccine_families",
       "expected_status": "must_be_reported_separately_if_seeded",
       "animals": null,
-      "notes": "Blue Tongue, FMD, HS, goat pox, sheep pox, and their boosters are valid kernel obligations from the source/rules, but they are not part of the final ET+TT-only seed proof. PPR is intentionally excluded from this seed packet for now."
+      "notes": "Blue Tongue, FMD, HS, goat pox, sheep pox, and their boosters are valid protocol families, but this CPT seed proof must not auto-schedule them merely because adult entry_date exists. PPR is intentionally excluded from this seed packet for now."
     }
   ],
   "variants": [
@@ -198,7 +199,12 @@
     }
   ],
   "prohibited_drive_dose_code_prefixes": [
-    "ppr"
+    "ppr",
+    "blue_tongue_adult",
+    "goat_pox_adult",
+    "sheep_pox_adult",
+    "fmd_adult",
+    "hs_adult"
   ],
   "rejected_validation_outputs": [
     {
@@ -218,6 +224,12 @@
       "status": "invalid_seed_validation",
       "observed_bad_shape": "Any PPR drive row appears in the CPT seed output, whether same-day with ET+TT or deferred to a later date.",
       "why_invalid": "The current CPT seed packet schedules ET+TT only. PPR remains a protocol vaccine but is not seeded into drive work for now."
+    },
+    {
+      "id": "adult_entry_date_generated_non_ettt_drives",
+      "status": "invalid_seed_validation",
+      "observed_bad_shape": "Blue Tongue, Goat Pox, Sheep Pox, FMD, or HS adult drive rows appear only because adult source entry_date exists.",
+      "why_invalid": "Adult entry_date is never a vaccination due-date anchor. Adult blank-history work must be campaign/catch-up cohort work packed by physical shed/partition, not post_arrival scheduling."
     },
     {
       "id": "operator_day_cap_over_200",
@@ -240,6 +252,8 @@
     "Clean reseed schedule proof must run before any leave/cascade mutation test, or in a separate disposable DB.",
     "With N=1/default Darshan and ET+TT only on 2026-07-24, no ET+TT drive row may be assigned to Amit or Sagar.",
     "No PPR drive rows may appear anywhere in this CPT seed packet output for now.",
+    "No Blue Tongue, Goat Pox, Sheep Pox, FMD, or HS adult drive rows may appear merely from adult entry_date/post_arrival scheduling.",
+    "No adult initial protocol rule with an adult dose_code may have trigger_type=post_arrival.",
     "Darshan is available on Friday and Saturday; his weekly off is Sunday.",
     "No planned date/operator may exceed 200 distinct animals when active_operators_per_day=1, except the explicit one-time 2026-07-25 ET+TT seed catch-up allowance of 210.",
     "Do not use superseded batches or batches with zero attached obligation_instances as schedule proof.",

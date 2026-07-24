@@ -690,7 +690,7 @@ func TestPrimaryCourseContinuationFromHistoryKeepsKidAndBlueTongueGaps(t *testin
 func TestSingleDoseRepeatDoesNotWaitForMissingPrimaryCourseDose(t *testing.T) {
 	administered := time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC)
 	rules := []protodomain.Rule{
-		{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 63},
+		{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "manual_campaign", OffsetDays: 63},
 		{RuleID: "rule-fmd-revac", DoseCode: "fmd_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 274, MinGapDays: 274, Repeat: "every_n_days"},
 	}
 	history := []domain.RecentVaccineAdministration{{
@@ -1118,14 +1118,14 @@ func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
 	}
 }
 
-func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDue(t *testing.T) {
+func TestGenerateForVersionDoesNotAnchorAdultManualCampaignToEntryDate(t *testing.T) {
 	ctx := context.Background()
 	entryEarly := time.Date(2026, time.June, 18, 0, 0, 0, 0, time.UTC)
 	entryLate := time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","species":"sheep","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"]}}`),
 		rules: []protodomain.Rule{{
-			RuleID: "rule-sheep-pox", DoseCode: "sheep_pox_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 35, DueWindowDays: 7,
+			RuleID: "rule-sheep-pox", DoseCode: "sheep_pox_adult_w1", Sequence: 1, TriggerType: "manual_campaign", OffsetDays: 35, DueWindowDays: 7,
 		}},
 	}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
@@ -1135,17 +1135,26 @@ func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDue(t *test
 	obl := &generationObligationFake{seen: map[string]bool{}}
 	gen := NewGenerationService(proto, goats, obl)
 
-	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC))
+	asOf := time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC)
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
 	if err != nil {
-		t.Fatalf("generate: %v", err)
+		t.Fatalf("normal generate: %v", err)
 	}
-	wantDue := adultCampaignStart(time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC))
+	if result.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("normal result=%#v inserted=%#v, want adult manual campaign to skip normal entry-date generation", result, obl.inserted)
+	}
+
+	result, err = gen.GenerateManualCampaignForVersion(ctx, "tenant-1", "version-1", "cpt-adult-campaign", asOf)
+	if err != nil {
+		t.Fatalf("manual campaign generate: %v", err)
+	}
+	wantDue := adultCampaignStart(asOf)
 	if result.Generated != 2 || result.Deferred != 0 || len(obl.inserted) != 2 {
 		t.Fatalf("result=%#v inserted=%#v, want two normal campaign obligations", result, obl.inserted)
 	}
 	for _, inserted := range obl.inserted {
 		if !inserted.DueAt.Equal(wantDue) {
-			t.Fatalf("goat %s due=%s, want coalesced partition campaign due %s", inserted.TargetID, inserted.DueAt, wantDue)
+			t.Fatalf("goat %s due=%s, want manual campaign due %s", inserted.TargetID, inserted.DueAt, wantDue)
 		}
 		if inserted.Status != "scheduled" {
 			t.Fatalf("goat %s status=%q, want scheduled normal campaign row", inserted.TargetID, inserted.Status)
@@ -1153,7 +1162,7 @@ func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDue(t *test
 	}
 }
 
-func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDueAcrossPages(t *testing.T) {
+func TestGenerateManualCampaignForVersionCoalescesAdultPartitionCampaignDueAcrossPages(t *testing.T) {
 	ctx := context.Background()
 	entryEarly := time.Date(2026, time.June, 18, 0, 0, 0, 0, time.UTC)
 	entryLate := time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC)
@@ -1161,7 +1170,7 @@ func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDueAcrossPa
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","species":"sheep","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"]}}`),
 		rules: []protodomain.Rule{{
-			RuleID: "rule-sheep-pox", DoseCode: "sheep_pox_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 35, DueWindowDays: 7,
+			RuleID: "rule-sheep-pox", DoseCode: "sheep_pox_adult_w1", Sequence: 1, TriggerType: "manual_campaign", OffsetDays: 35, DueWindowDays: 7,
 		}},
 	}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
@@ -1172,7 +1181,7 @@ func TestGenerateForVersionCoalescesAdultPostArrivalPartitionCampaignDueAcrossPa
 	gen := NewGenerationService(proto, goats, obl)
 	gen.page = 1
 
-	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	result, err := gen.GenerateManualCampaignForVersion(ctx, "tenant-1", "version-1", "cpt-adult-campaign", asOf)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -1191,7 +1200,7 @@ func TestCampaignDueOverridesDoNotReplaceAdultSameVaccineHistory(t *testing.T) {
 	entryEarly := time.Date(2026, time.June, 18, 0, 0, 0, 0, time.UTC)
 	entryLate := time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC)
 	rule := protodomain.Rule{
-		RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 63,
+		RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "manual_campaign", OffsetDays: 63,
 		EligibilityJSON: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"}}`),
 	}
 	plans := []goatGenerationPlan{
