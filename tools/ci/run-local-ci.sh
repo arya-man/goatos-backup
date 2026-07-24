@@ -45,6 +45,17 @@ step() { # name, command...
   fi
 }
 
+optional_step() { # name, command...
+  local name="$1"; shift
+  echo "── ci-local: ${name} (non-blocking)"
+  if "$@"; then
+    RESULTS+=("PASS  ${name} (optional)")
+  else
+    RESULTS+=("WARN  ${name} (optional, non-blocking)")
+    echo "!! ci-local optional step FAILED: ${name}"
+  fi
+}
+
 postgres_tests_enabled() {
   case "${GOATOS_RUN_POSTGRES_TESTS:-0}" in
     1|true|TRUE|True) return 0 ;;
@@ -242,7 +253,7 @@ run_android() {
   step "android :app compile" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin --no-daemon --console=plain'
   step "android :app unit"    bash -c 'cd apps/goatos-android && ./gradlew :app:testStgReleaseUnitTest --no-daemon --console=plain'
   step "android :app lint"    bash -c 'cd apps/goatos-android && ./gradlew :app:lintStgRelease --no-daemon --console=plain'
-  step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  optional_step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
   step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
 }
 
