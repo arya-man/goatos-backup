@@ -111,12 +111,17 @@ class SessionViewModelAnalyticsTest {
             onOutboxCleared = { outboxCleared = true },
             onJobsCancelled = { jobsCancelled = true },
         )
-        val vm = SessionViewModel(store, auth, analytics, logoutCoordinator, SyncJobsScheduler { }, api)
+        var relaunched = false
+        val vm = SessionViewModel(
+            store, auth, analytics, logoutCoordinator, SyncJobsScheduler { }, api,
+            SessionRelauncher { relaunched = true },
+        )
 
         vm.signOut()
         advanceUntilIdle()
 
         assertTrue("auth repository sign-out invoked", auth.signedOut)
+        assertTrue("process relaunched for a clean in-memory slate", relaunched)
         assertNull("session token cleared", store.tokenFlow.value)
         assertEquals("device deregister attempted", 1, api.deregisterCallCount)
         assertTrue("Room screen caches wiped", cacheCleared)

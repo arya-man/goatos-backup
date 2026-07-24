@@ -82,6 +82,7 @@ class SessionViewModel @Inject constructor(
     private val logoutCoordinator: LogoutCoordinator,
     private val syncJobsScheduler: SyncJobsScheduler,
     private val appApi: AppApi,
+    private val relauncher: SessionRelauncher,
 ) : ViewModel() {
 
     private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
@@ -177,6 +178,10 @@ class SessionViewModel @Inject constructor(
             logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
             analytics.track(AnalyticsEvents.SIGN_OUT)
             _uiState.value = LoginUiState()
+            // Disk is now wiped; relaunch the process so no in-memory state (singleton repo
+            // caches, retained ViewModels, Coil memory cache, AppLocaleState) from the departing
+            // principal can bleed into the next account. See [SessionRelauncher].
+            relauncher.relaunchToLogin()
         }
     }
 

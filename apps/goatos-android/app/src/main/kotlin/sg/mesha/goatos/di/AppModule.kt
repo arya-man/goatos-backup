@@ -433,6 +433,12 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSessionRelauncher(
+        impl: sg.mesha.goatos.boot.ProcessSessionRelauncher,
+    ): sg.mesha.goatos.boot.SessionRelauncher = impl
+
+    @Provides
+    @Singleton
     fun provideLogoutCoordinator(
         api: AppApi,
         deviceStore: DeviceStore,
