@@ -27,7 +27,12 @@ same roster may include verifier-only Firebase email-password grants; Jyothi
 `jyothipvg12345@gmail.com` is a verifier for CPT seed review and must not gain a
 vaccination operator seat or animal capacity.
 `Adult` filename is only source naming; kid/adult/booster/clinical/combo/buffer
-rules still come from the backend vaccination rule engine.
+rules still come from the backend vaccination rule engine. Adult vaccination
+generation must not use `entry_date` / `post_arrival` as a due-date anchor:
+accepted same-vaccine history drives adult booster/repeat timing, and adult
+blank-history animals enter the reviewed manual campaign/catch-up cohort packed
+by whole physical shed/partition. Kid/young DOB and age-window timing remains
+strict.
 Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes
 the packet's documented `raw/` layout into the normalized bundle both seed
 commands require and then runs the documented chain against it, so the documented
