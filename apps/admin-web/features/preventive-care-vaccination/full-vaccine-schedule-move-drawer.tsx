@@ -23,6 +23,7 @@ export type ScheduleMoveDrawerRow = {
   totalDoses: number;
   vaccineCodes: string[];
   vaccineOriginalDates: Record<string, string>;
+  vaccineOriginalDateSets: Record<string, string[]>;
   vaccineNames: string[];
   returnTo: string;
 };
@@ -137,6 +138,13 @@ export function ScheduleMoveDrawer({
             type="hidden"
             name="original_drive_date"
             value={displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate}
+          />
+          <input
+            type="hidden"
+            name="original_drive_dates"
+            value={(displayedRow.vaccineOriginalDateSets[selectedVaccineCode] ?? [
+              displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate,
+            ]).join(",")}
           />
           <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
           <input type="hidden" name="return_to" value={displayedRow.returnTo} />
