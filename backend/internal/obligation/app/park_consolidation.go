@@ -29,14 +29,22 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
+	groupOrder := make([]string, 0)
 	if candidateIDs != nil {
 		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
 			rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, versionID, dueBefore, s.page, nil, createdAtHWM, chunk)
 			if err != nil {
 				return res, err
 			}
+			rows, err = s.applyParkDriveDateOverrides(ctx, tenantID, cfg, rows)
+			if err != nil {
+				return res, err
+			}
 			for _, row := range rows {
-				key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
+				key := parkConsolidationGroupKey(cfg, row)
+				if _, ok := groups[key]; !ok {
+					groupOrder = append(groupOrder, key)
+				}
 				groups[key] = append(groups[key], row)
 			}
 		}
@@ -51,8 +59,15 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 			if len(rows) == 0 {
 				break
 			}
-			for _, row := range rows {
-				key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
+			groupRows, err := s.applyParkDriveDateOverrides(ctx, tenantID, cfg, rows)
+			if err != nil {
+				return res, err
+			}
+			for _, row := range groupRows {
+				key := parkConsolidationGroupKey(cfg, row)
+				if _, ok := groups[key]; !ok {
+					groupOrder = append(groupOrder, key)
+				}
 				groups[key] = append(groups[key], row)
 			}
 			if int32(len(rows)) < s.page {
@@ -72,7 +87,8 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 	}
 
 	now := biztime.BusinessDayStart(asOf)
-	for _, rows := range groups {
+	for _, key := range orderParkConsolidationGroups(groupOrder, groups, cfg) {
+		rows := groups[key]
 		if len(rows) == 0 {
 			continue
 		}
@@ -110,6 +126,10 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 // (nothing left to merge, or a hard cap/error condition), whether or not this call itself attached
 // anything.
 func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, asOf time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets int32, excludedDates map[string]struct{}) (newRemaining []domain.ParkConsolidationCandidate, attached int64, plannedDate *time.Time, animalCapReached bool, stop bool, err error) {
+	remaining, err = s.applyParkDriveDateOverrides(ctx, tenantID, cfg, remaining)
+	if err != nil {
+		return remaining, 0, nil, false, true, err
+	}
 	// VAXCAP-005: pick the drive date by scoring EVERY feasible candidate date post-capacity
 	// (persisted park/date animal slots + session claims), not by uncapped animal counts.
 	plannedDate, err = s.selectBestParkDriveDateWithCapacity(ctx, tenantID, cfg, planner, now, remaining, minMergeTargets, excludedDates, session)
@@ -247,6 +267,52 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	return removeRows(remaining, attachedIDs), int64(len(attachedIDs)), plannedDate, animalCapReached, false, nil
 }
 
+func (s *SweeperService) applyParkDriveDateOverrides(ctx context.Context, tenantID string, cfg SweepConfig, rows []domain.ParkConsolidationCandidate) ([]domain.ParkConsolidationCandidate, error) {
+	reader, ok := s.repo.(vaccinationDriveDateOverrideReader)
+	if !ok || len(rows) == 0 {
+		return rows, nil
+	}
+	type key struct {
+		parkID      string
+		vaccineCode string
+		original    string
+	}
+	cache := make(map[key]*time.Time)
+	out := append([]domain.ParkConsolidationCandidate(nil), rows...)
+	for i := range out {
+		identity := cfg.getRuleVaccineIdentity(out[i].RuleID)
+		vaccineCode := strings.TrimSpace(identity.VaccineCode)
+		parkID := strings.TrimSpace(out[i].ParkID)
+		if vaccineCode == "" || parkID == "" || out[i].DueAt.IsZero() {
+			continue
+		}
+		original := businessDate(out[i].DueAt)
+		k := key{parkID: parkID, vaccineCode: vaccineCode, original: original.Format("2006-01-02")}
+		overrideDate, seen := cache[k]
+		if !seen {
+			override, err := reader.ActiveVaccinationDriveDateOverride(ctx, tenantID, parkID, vaccineCode, original) // scale-guard:ignore: bounded by sweeper page and cached by park/vaccine/original date; not a request path
+			if err != nil {
+				return nil, err
+			}
+			if override != nil && !override.OverrideDate.IsZero() {
+				day := businessDate(override.OverrideDate)
+				overrideDate = &day
+			}
+			cache[k] = overrideDate
+		}
+		if overrideDate == nil {
+			continue
+		}
+		overrideEnd := driveDateOverrideWindowEnd(*overrideDate)
+		out[i].DueAt = *overrideDate
+		out[i].WindowStart = overrideDate
+		out[i].WindowEnd = &overrideEnd
+		out[i].BatchingHoldCount = 0
+		out[i].FirstBatchingHoldUntil = nil
+	}
+	return out, nil
+}
+
 func claimParkDriveAnimals(session *SweepSession, rows []domain.ParkConsolidationCandidate, plannedDate time.Time) {
 	if session == nil {
 		return
@@ -355,6 +421,108 @@ func parkConsolidationCursor(row domain.ParkConsolidationCandidate) *domain.Park
 		RuleID:            row.RuleID,
 		ObligationID:      row.ObligationID,
 	}
+}
+
+func parkConsolidationDriveGroupKey(cfg SweepConfig, row domain.ParkConsolidationCandidate) string {
+	identity := cfg.getRuleVaccineIdentity(row.RuleID)
+	if parkCandidateUsesDriveDateOverrideWindow(row) {
+		if code := strings.TrimSpace(identity.VaccineCode); code != "" {
+			return "vaccine:" + normalizedVaccineMatrixCode(code)
+		}
+	}
+	if session := batchSession(row.RuleID, identity.VaccineCode); strings.TrimSpace(session) != "" {
+		return session
+	}
+	if code := strings.TrimSpace(identity.VaccineCode); code != "" {
+		return "vaccine:" + normalizedVaccineMatrixCode(code)
+	}
+	if ruleID := strings.TrimSpace(row.RuleID); ruleID != "" {
+		return "rule:" + ruleID
+	}
+	return "vaccine:unknown"
+}
+
+func parkConsolidationGroupKey(cfg SweepConfig, row domain.ParkConsolidationCandidate) string {
+	return strings.TrimSpace(row.ParkID) + "|" + parkConsolidationDriveGroupKey(cfg, row)
+}
+
+func parkCandidateUsesDriveDateOverrideWindow(row domain.ParkConsolidationCandidate) bool {
+	if row.DueAt.IsZero() || row.WindowStart == nil || row.WindowEnd == nil {
+		return false
+	}
+	start := businessDate(*row.WindowStart)
+	due := businessDate(row.DueAt)
+	end := businessDate(*row.WindowEnd)
+	return start.Equal(due) && end.Equal(due.AddDate(0, 0, 1)) && row.BatchingHoldCount == 0 && row.FirstBatchingHoldUntil == nil
+}
+
+func parkSelectionUsesDriveDateOverrideWindow(rows []domain.ParkConsolidationCandidate) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	for _, row := range rows {
+		if !parkCandidateUsesDriveDateOverrideWindow(row) {
+			return false
+		}
+	}
+	return true
+}
+
+func orderParkConsolidationGroups(order []string, groups map[string][]domain.ParkConsolidationCandidate, cfg SweepConfig) []string {
+	out := append([]string(nil), order...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := groups[out[i]]
+		right := groups[out[j]]
+		leftEnd := parkConsolidationGroupLatestSafeDate(left)
+		rightEnd := parkConsolidationGroupLatestSafeDate(right)
+		if !leftEnd.Equal(rightEnd) {
+			if leftEnd.IsZero() {
+				return false
+			}
+			if rightEnd.IsZero() {
+				return true
+			}
+			return leftEnd.Before(rightEnd)
+		}
+		leftPriority := parkConsolidationGroupVaccinePriority(left, cfg)
+		rightPriority := parkConsolidationGroupVaccinePriority(right, cfg)
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func parkConsolidationGroupLatestSafeDate(rows []domain.ParkConsolidationCandidate) time.Time {
+	var latest time.Time
+	for _, row := range rows {
+		rowLatest := parkCandidateLatestSafeDate(row)
+		if rowLatest.IsZero() {
+			continue
+		}
+		if latest.IsZero() || rowLatest.Before(latest) {
+			latest = rowLatest
+		}
+	}
+	return latest
+}
+
+func parkConsolidationGroupVaccinePriority(rows []domain.ParkConsolidationCandidate, cfg SweepConfig) int32 {
+	var priority int32
+	for _, row := range rows {
+		rowPriority := cfg.getRuleVaccineIdentity(row.RuleID).VaccinePriority
+		if rowPriority <= 0 {
+			continue
+		}
+		if priority == 0 || rowPriority < priority {
+			priority = rowPriority
+		}
+	}
+	if priority <= 0 {
+		return normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode).VaccinePriority
+	}
+	return priority
 }
 
 func (s *SweeperService) recordParkBatchingHoldIfNeeded(ctx context.Context, tenantID string, ids []string, rows []domain.ParkConsolidationCandidate, plannedDate *time.Time, occurredAt time.Time) error {
@@ -516,6 +684,7 @@ func (s *SweeperService) selectBestParkDriveDateWithCapacity(ctx context.Context
 	bestAnimals := -1
 	bestObligations := -1
 	var bestDate *time.Time
+	overrideWindow := parkSelectionUsesDriveDateOverrideWindow(remaining)
 	for _, candidate := range candidates {
 		if candidate.Before(nowDay) {
 			continue
@@ -564,13 +733,21 @@ func (s *SweeperService) selectBestParkDriveDateWithCapacity(ctx context.Context
 			// the same animals inside its free capacity.
 			scored = parkSelectionWithinCapNoOverflow(now, orderedRemaining, capped, day, capPlanner, session, cfg)
 		}
-		animals := uniqueParkTargetCount(filterRows(remaining, capped))
 		scoreAnimals := uniqueParkTargetCount(filterRows(remaining, scored))
 		session.releaseClaims(shotClaims)
 		if err := release(ctx); err != nil {
 			return nil, err
 		}
-		if int32(animals) < minMergeTargets {
+		if int32(scoreAnimals) < minMergeTargets {
+			continue
+		}
+		if overrideWindow {
+			if bestDate == nil || day.Before(*bestDate) {
+				bestAnimals = scoreAnimals
+				bestObligations = len(scored)
+				chosen := day
+				bestDate = &chosen
+			}
 			continue
 		}
 		// Strictly-greater comparisons + ascending date iteration = earliest date wins ties only.
@@ -683,10 +860,9 @@ func obligationsFeasibleOnDateForPlanner(now, day time.Time, rows []domain.ParkC
 
 // limitParkSelectionByDriveAnimals enforces the park/date animal-slot cap with two-pass admission
 // (VAXCAP-006): pass 1 reserves slots for IMMOVABLE rows -- obligations that cannot legally move
-// to any later feasible date (last-safe-day / due+7 hold boundary), which are admitted even beyond
-// cap because moving them would violate the goat's own medical window; pass 2 fills the remaining
-// capacity with movable rows in priority order. A movable row can therefore never consume a slot a
-// last-safe row needs, and overflow beyond cap happens only when immovable animals alone exceed it.
+// to any later feasible date (last-safe-day / due+7 hold boundary); pass 2 fills the remaining
+// capacity with movable rows in route order. A movable row can therefore never consume a slot a
+// last-safe row needs, and neither pass admits animals beyond the operator-day cap.
 func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolidationCandidate, selected []string, plannedDate time.Time, planner domain.DrivePlannerSettings, session *SweepSession) []string {
 	maxAnimals := planner.MaxGoatsPerDrive
 	if maxAnimals <= 0 || len(selected) == 0 {
@@ -715,6 +891,9 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 		}
 		targetKey := parkCandidateTargetKey(row)
 		if _, ok := admittedTargets[targetKey]; !ok {
+			if used+1 > maxAnimals {
+				continue
+			}
 			admittedTargets[targetKey] = struct{}{}
 			used++
 		}
@@ -722,8 +901,8 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 	}
 	// Pass 2: movable rows fill only the remaining capacity and never push past the cap. The unit of
 	// admission is a route/shed chunk, not arbitrary obligation scan order: finish a physical shed
-	// when it fits; if it does not fit, carry that shed to the next operator-day. Only a shed that is
-	// itself larger than the day cap may be split, and then at partition boundaries first.
+	// when it fits; otherwise try whole partitions. Carry partitions that do not fit to the next
+	// operator-day, and split row-by-row only when a partition itself is larger than the day cap.
 	used = admitMovableParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, used, admitted, admittedTargets)
 	out := make([]string, 0, len(admitted))
 	for _, row := range rows {
@@ -745,9 +924,6 @@ func admitMovableParkRouteChunks(now time.Time, rows []domain.ParkConsolidationC
 		if used+int32(needed) <= maxAnimals {
 			admitParkRows(group.rows, admitted, admittedTargets)
 			used += int32(needed)
-			continue
-		}
-		if int32(group.targetCount) <= maxAnimals {
 			continue
 		}
 		for _, partition := range group.partitions {

@@ -47,6 +47,21 @@ func TestVaccineFeasibleOnPlannerDateBlocksThirdSameDayVaccine(t *testing.T) {
 	}
 }
 
+func TestVaccineFeasibleOnPlannerDateBlocksUnapprovedSameDayPair(t *testing.T) {
+	planned := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
+	planner := domain.DefaultDrivePlannerSettings()
+	session := NewSweepSession()
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "FMD", VaccineType: "killed"})
+
+	candidate := driveCandidate{TargetID: "goat-1", DueAt: planned, WindowEnd: &planned}
+	if session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"}) {
+		t.Fatal("FMD+PPR same-day pair was feasible; want blocked because it is not an approved combo")
+	}
+	if !session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "HS", VaccineType: "killed"}) {
+		t.Fatal("FMD+HS should remain feasible as an approved same-day combo")
+	}
+}
+
 func TestScoreUnbatchedDriveDateRanksMedicalWindowBeforeOverflowDensity(t *testing.T) {
 	now := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
 	inWindowDay := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
