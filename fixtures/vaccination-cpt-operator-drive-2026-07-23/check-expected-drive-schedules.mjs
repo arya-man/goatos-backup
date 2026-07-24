@@ -240,6 +240,7 @@ function selfTest() {
   const cases = [
     ["clean seed passes", clean, 0],
     ["cap breach fails", { ...clean, capRows: [["2026-07-24", "Darshan Talwar", "231"]] }, 1],
+    ["multi-batch aggregate cap breach fails", { ...clean, capRows: [["2026-08-23", "Sagar Mahoor", String(120 + 84 + 17)]] }, 1],
     ["operator fan-out fails", { ...clean, capRows: [["2026-07-24", "Darshan Talwar", "200"], ["2026-07-24", "Sagar Mahoor", "124"]] }, 1],
     ["pre-business-date drive fails", { ...clean, capRows: [["2026-07-22", "Darshan Talwar", "10"]] }, 1],
     ["unknown operator fails", { ...clean, capRows: [["2026-07-24", "Someone Else", "10"]] }, 1],
