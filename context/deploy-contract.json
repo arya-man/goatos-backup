@@ -58,6 +58,22 @@
     "bootstrap_must_pass": true,
     "seed_fail_condition": "FAIL unless Amit, Darshan, and Sagar appear as HRMS/vaccination operators with capacity, Chandrakant appears as director, and the 5 Mesha leadership users are SSO-only ceo_internal"
   },
+  "cpt_ppr_deferral_scope": {
+    "headline": "PPR deferral to 2026-08-07 is a CPT initial validation override, not a permanent no-combo rule.",
+    "is_global_vaccine_scheduling_rule": false,
+    "canonical_fixture": "fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json",
+    "initial_cpt_stg_validation_drive_only": {
+      "first_drive_starts": "2026-07-24",
+      "et_tt_only_dates": ["2026-07-24", "2026-07-25"],
+      "ppr_moved_to_dates": ["2026-08-07", "2026-08-08"],
+      "reason": "prove the first operator drive with one vaccine lane before adding PPR"
+    },
+    "future_real_scheduling": {
+      "et_tt_and_ppr_may_be_paired_same_date_if_active_rule_says_so": true,
+      "same_day_multi_vaccine_scheduling_allowed": true,
+      "paired_capacity_counts_distinct_goats_not_doses": true
+    }
+  },
   "stg_gcs_video_upload": {
     "runbook": "docs/runbooks/stg-gcs-video-upload-wiring.md",
     "required_for_android_video_proof": true,
