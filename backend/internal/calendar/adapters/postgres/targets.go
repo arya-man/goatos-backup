@@ -115,7 +115,8 @@ SELECT
   g.exit_reason,
   defer_event.defer_status,
   oi.status,
-  COALESCE(target_assignment.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at
+  -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), falling back to the guess LATERAL only when the obligation has no member row; group_key=(tenant_id, obligation_id) one member row per obligation; join_cardinality=members->assignment many-to-one on the assignment PK so scheduled_at is 1:1 per obligation, guess LATERAL is a LIMIT 1 scalar fallback; pagination=n/a -- scheduled_at is a per-obligation scalar, not an aggregate across a page boundary (caller pages matched_obligations); scope=park/shed from the batch's own scope, unchanged by this member join
+  COALESCE(target_assignment.assignment_planned_at, target_assignment_guess.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at
 FROM obligation_instances oi
 JOIN protocol_versions pv
   ON pv.tenant_id = oi.tenant_id
@@ -151,19 +152,29 @@ LEFT JOIN locations goat_current_grand
 LEFT JOIN obligation_batches target_batch
   ON target_batch.tenant_id = oi.tenant_id
  AND target_batch.batch_id = oi.batch_id
+-- projection-review: membership=vaccination_drive_assignment_members(tenant_id, obligation_id) UNIQUE exact 1:1 binding for the obligation, falling back to the guess LATERAL (target_assignment_guess) only when the obligation has no member row; group_key=(tenant_id, obligation_id) -- one member row per obligation; join_cardinality=members->assignment is many-to-one on the assignment PK (tenant_id, assignment_id) so it is 1:1 per obligation, and the guess LATERAL is a LIMIT 1 scalar fallback only, so neither path fans obligation_instances out; pagination=n/a -- this is a per-obligation scalar assignment lookup, no aggregate computed across a page boundary (the caller pages matched_obligations); scope=park/shed resolved from the BATCH's own scope via the matched_batches CTE, unchanged by this member join
+-- HYBRID: prefer exact member assignment, fall back to guess LATERAL when unbound
+LEFT JOIN vaccination_drive_assignment_members m
+  ON m.tenant_id = oi.tenant_id
+ AND m.obligation_id = oi.obligation_id
+LEFT JOIN vaccination_drive_assignments assignment
+  ON assignment.tenant_id = m.tenant_id
+ AND assignment.assignment_id = m.assignment_id
+ AND assignment.planned_date = $3::date
+-- Guess path: find assignment via LATERAL when no membership
+LEFT JOIN LATERAL (
+  SELECT vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at
+  FROM vaccination_drive_assignments vda_guess
+  WHERE vda_guess.tenant_id = oi.tenant_id
+    AND vda_guess.batch_id = oi.batch_id
+    AND vda_guess.planned_date = $3::date
+  ORDER BY vda_guess.created_at DESC
+  LIMIT 1
+) target_assignment_guess ON true
+-- Member path: formatted assignment when membership exists
 LEFT JOIN LATERAL (
   SELECT assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at
-  FROM vaccination_drive_assignments assignment
-  WHERE assignment.tenant_id = oi.tenant_id
-    AND assignment.batch_id = oi.batch_id
-    AND assignment.shed_id = g.shed_id
-    AND assignment.planned_date = $3::date
-  ORDER BY assignment.planned_date ASC,
-           assignment.partition_label ASC,
-           assignment.operator_id ASC NULLS LAST,
-           assignment.assignment_id ASC
-  LIMIT 1
-) target_assignment ON true
+) target_assignment ON assignment.assignment_id IS NOT NULL
 LEFT JOIN locations batch_scope_loc
   ON batch_scope_loc.tenant_id = target_batch.tenant_id
  AND batch_scope_loc.location_id = target_batch.scope_id
