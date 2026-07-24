@@ -685,17 +685,19 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 			continue
 		}
 		ops = append(ops, vaccexecapp.DriveOperator{
-			ID:        operatorID,
-			Name:      operatorID,
-			Cap:       remaining,
-			Available: true,
+			ID:            operatorID,
+			Name:          operatorID,
+			Cap:           remaining,
+			ConfiguredCap: int(capacity),
+			Available:     true,
 		})
 	}
 	if len(ops) == 0 {
 		return assignments, nil
 	}
 	plan, err := (vaccexecapp.OperatorDrivePlanner{}).Plan(vaccexecapp.DrivePlanRequest{
-		StartDate: plannedDate,
+		StartDate:             plannedDate,
+		ConfiguredOperatorCap: int(capPerOperator),
 		Availability: []vaccexecapp.DriveDateAvailability{{
 			Date:      plannedDate,
 			Operators: ops,
@@ -738,6 +740,8 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 	for _, block := range plan.Unassigned {
 		if base, ok := byID[block.ID]; ok {
 			base.AnimalCount = int32(block.Animals)
+			base.CapacityStatus = "capacity_action"
+			base.Warnings = append(base.Warnings, "no vaccination operator has capacity for the whole shed/partition under the configured animal cap")
 			out = append(out, base)
 		}
 	}

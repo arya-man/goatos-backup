@@ -7,7 +7,7 @@ import (
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 )
 
-func TestPlanMovedDriveAssignmentsOneToManyPageBoundaryDateShiftParkScopeStatusMatrixSpreadsAcrossForwardAvailability(t *testing.T) {
+func TestPlanMovedDriveAssignmentsKeepsWholePartitionWhenTargetDateHasOnlyResidualCapacity(t *testing.T) {
 	source := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
 	target := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
 	next := target.AddDate(0, 0, 1)
@@ -25,8 +25,8 @@ func TestPlanMovedDriveAssignmentsOneToManyPageBoundaryDateShiftParkScopeStatusM
 		},
 	}
 	planned := planMovedDriveAssignments(rows, []vaccexecapp.DriveDateAvailability{
-		{Date: target, Operators: []vaccexecapp.DriveOperator{{ID: operator, Name: "Darshan", Cap: 1, Available: true}}},
-		{Date: next, Operators: []vaccexecapp.DriveOperator{{ID: operator, Name: "Darshan", Cap: 200, Available: true}}},
+		{Date: target, Operators: []vaccexecapp.DriveOperator{{ID: operator, Name: "Darshan", Cap: 1, ConfiguredCap: 200, Available: true}}},
+		{Date: next, Operators: []vaccexecapp.DriveOperator{{ID: operator, Name: "Darshan", Cap: 200, ConfiguredCap: 200, Available: true}}},
 	}, target)
 
 	byDate := map[string]int32{}
@@ -36,14 +36,14 @@ func TestPlanMovedDriveAssignmentsOneToManyPageBoundaryDateShiftParkScopeStatusM
 		}
 		byDate[row.plannedDate.Format("2006-01-02")] += row.animalCount
 	}
-	if got := byDate[target.Format("2006-01-02")]; got != 1 {
-		t.Fatalf("target date animals = %d, want 1 remaining-cap animal: %+v", got, planned)
+	if got := byDate[target.Format("2006-01-02")]; got != 0 {
+		t.Fatalf("target date animals = %d, want 0 because the 3-animal partition must move whole: %+v", got, planned)
 	}
-	if got := byDate[next.Format("2006-01-02")]; got != 2 {
-		t.Fatalf("next date animals = %d, want 2 overflow animals: %+v", got, planned)
+	if got := byDate[next.Format("2006-01-02")]; got != 3 {
+		t.Fatalf("next date animals = %d, want all 3 animals in the whole partition: %+v", got, planned)
 	}
-	if len(byDate) != 2 {
-		t.Fatalf("planned dates = %#v, want exactly target+next", byDate)
+	if len(byDate) != 1 {
+		t.Fatalf("planned dates = %#v, want only next date for the intact partition", byDate)
 	}
 	if source.After(target) {
 		t.Fatalf("fixture sanity: source %s should not be after target %s", source, target)

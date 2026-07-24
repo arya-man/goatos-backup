@@ -38,6 +38,27 @@ func TestAvailableVaccinationOperatorsQueryIncludesHRMSCapAndLoadDedupClauses(t 
 	}
 }
 
+func TestAvailableVaccinationOperatorsConfiguredCapProjectionOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	source, err := os.ReadFile("visit_shot_lock.go")
+	if err != nil {
+		t.Fatalf("read visit_shot_lock.go: %v", err)
+	}
+	sql := string(source)
+	for _, required := range []string{
+		"GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int",
+		"c.daily_cap::int",
+		"count(DISTINCT m.goat_id)::int AS animals",
+		"vda.planned_date = $3::date",
+		"vda.park_id = $2",
+		"ob.status IN ('planned', 'in_progress')",
+		"oi.status IN ('scheduled', 'due', 'in_progress')",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("AvailableVaccinationOperatorsForDrive configured-cap projection missing %q", required)
+		}
+	}
+}
+
 func TestAvailableVaccinationOperatorsForDriveReadsHRMSCapsAndLoadWithDockerPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

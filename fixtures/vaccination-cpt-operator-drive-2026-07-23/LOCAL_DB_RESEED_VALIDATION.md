@@ -135,11 +135,11 @@ Expected physical shed totals:
 
 | Shed | Animals |
 |---|---:|
-| Gandhi | 115 |
+| Gandhi | 114 |
 | Godel 1 | 120 |
 | Godel 2 | 32 |
 | Mandela 2 | 47 |
-| Old Yashoda | 10 |
+| Old Yashoda | 11 |
 
 Health normalization:
 

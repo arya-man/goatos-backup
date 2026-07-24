@@ -860,7 +860,9 @@ candidate AS (
   ) all_load
   GROUP BY workforce_member_id
 )
-SELECT c.workforce_member_id::text, GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int
+SELECT c.workforce_member_id::text,
+       GREATEST(c.daily_cap - COALESCE(l.animals, 0), 0)::int,
+       c.daily_cap::int
 FROM candidate c
 LEFT JOIN load l ON l.workforce_member_id = c.workforce_member_id
 ORDER BY
@@ -875,7 +877,7 @@ ORDER BY
 	out := make([]domain.DriveOperatorCapacity, 0)
 	for rows.Next() {
 		var operator domain.DriveOperatorCapacity
-		if err := rows.Scan(&operator.OperatorID, &operator.Cap); err != nil {
+		if err := rows.Scan(&operator.OperatorID, &operator.Cap, &operator.ConfiguredCap); err != nil {
 			return nil, fmt.Errorf("obligation: scan vaccination operator: %w", err)
 		}
 		out = append(out, operator)
