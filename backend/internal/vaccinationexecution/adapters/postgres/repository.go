@@ -2012,6 +2012,10 @@ LEFT JOIN LATERAL (
       $9::text = ''
       OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
     )
+    AND (
+      cardinality(assignment.vaccine_rule_ids) = 0
+      OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
+    )
   ORDER BY assignment.planned_date ASC,
            assignment.partition_label ASC,
            assignment.operator_id ASC NULLS LAST,
@@ -2051,6 +2055,7 @@ WHERE oi.tenant_id = $1::uuid
   AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND ($9::text = '' OR vda.assignment_planned_at IS NOT NULL)
+  AND vda.assignment_planned_at IS NOT NULL
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
     OR (g.goat_id = NULLIF($5, '')::uuid AND oi.obligation_id > NULLIF($6, '')::uuid)
