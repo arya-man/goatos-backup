@@ -41,6 +41,15 @@ none of them is support-only, backup-only, or park-head-only. Their week-offs
 must come from HRMS/timetable seed data and reduce the available operator pool
 for that business date before animal-cap splitting runs.
 
+Adult vaccination date drift is also a seed-scale anti-pattern. Adult
+`entry_date` / `post_arrival` must not create private due windows, singleton
+drives, or shed/partition fragments. Adult timing comes from accepted
+same-vaccine history when present; adult no-history animals join the reviewed
+manual campaign/catch-up cohort and are packed by the same whole
+physical-shed/partition operator-cap rule as the rest of the drive. Kid and
+young-stock DOB/age timing remains strict and must not be weakened by this adult
+campaign rule.
+
 Verifier-capacity drift is the adjacent seed anti-pattern. A verifier login
 grant such as Jyothi's CPT seed account is review authority only. If the seeder
 turns a verifier into a `vaccination_operator_*` position, shift row, or animal
