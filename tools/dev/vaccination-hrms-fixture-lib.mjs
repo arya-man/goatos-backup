@@ -560,3 +560,7 @@ export function updateManifestHashes(directory, manifest) {
 // the loader/contract changes are a no-op for it and every manifest hash, row count,
 // and correction-ledger entry is unchanged. Recorded in
 // fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+
+// Coupling review 2026-07-24 (CPT no-PPR 2026 seed): the CPT operator-drive
+// Makefile target may publish a packet-scoped rule subset without PPR. The
+// canonical source fixture and validator still preserve PPR history mapping.
