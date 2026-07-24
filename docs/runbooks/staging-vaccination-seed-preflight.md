@@ -23,6 +23,20 @@ postflight gates in:
 docs/runbooks/staging-vaccination-clean-slate.md
 ```
 
+## Seed Closeout Query Timeout
+
+Before STG seed closeout, set and print:
+
+```bash
+GOATOS_PG_QUERY_TIMEOUT=60s
+```
+
+This must be scoped to seed/closeout only. STG Cloud SQL seed closeout needs a
+larger per-query timeout than the normal runtime defaults (`15s` API / `30s`
+worker); do not raise the API/runtime query timeouts to make closeout pass. See
+`docs/runbooks/staging-vaccination-clean-slate.md` → "STG Seed Closeout
+Timeouts".
+
 ## Source Of Record
 
 - Use `Vaccination_DB_-V2` / `Demo DB` as the vaccination seed source. Demo DB

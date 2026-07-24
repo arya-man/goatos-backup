@@ -18,6 +18,18 @@
     "ci_validation": "make ci-local",
     "bug_041_blocks_deploy": false
   },
+  "stg_seed_closeout": {
+    "query_timeout_env": "GOATOS_PG_QUERY_TIMEOUT",
+    "recommended_query_timeout": "60s",
+    "runtime_defaults": { "api": "15s", "worker": "30s" },
+    "scope": "seed_closeout_only",
+    "do_not_change_api_runtime_defaults": true,
+    "runbooks": [
+      "docs/runbooks/stg-deploy.md",
+      "docs/runbooks/staging-vaccination-clean-slate.md",
+      "docs/runbooks/staging-vaccination-seed-preflight.md"
+    ]
+  },
   "stg_gcs_video_upload": {
     "runbook": "docs/runbooks/stg-gcs-video-upload-wiring.md",
     "required_for_android_video_proof": true,
