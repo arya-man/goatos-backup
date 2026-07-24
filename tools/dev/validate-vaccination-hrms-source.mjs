@@ -27,6 +27,9 @@ import {
   OPERATOR_ANDROID_LOGIN_EMAIL_FIELD,
   OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT,
   OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY,
+  OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY,
+  OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER,
+  OPERATOR_ROSTER_VERIFIER_ROLE,
   ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END,
   ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
   sourceAnimalKey,
@@ -508,6 +511,7 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       const validWeekdays = new Set(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
       const operatorCodes = new Set();
       const operatorEmails = new Map();
+      const operatorEmailsOnly = new Set();
       let hasPMShift = false;
       for (const op of ops) {
         const label = op?.code || op?.display_name || "operator";
@@ -541,7 +545,28 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         const email = String(op?.email_hint ?? "").trim().toLowerCase();
         if (!email || !email.includes("@")) pushSample(operatorRosterProblems, `${label}: email_hint is required for per-operator Android login provisioning`);
         else if (operatorEmails.has(email)) pushSample(operatorRosterProblems, `${label}: email_hint duplicates ${operatorEmails.get(email)}; Android operator logins must be unique`);
-        else operatorEmails.set(email, label);
+        else {
+          operatorEmails.set(email, label);
+          operatorEmailsOnly.add(email);
+        }
+      }
+      const verifierEmails = new Map();
+      const verifiers = Array.isArray(contract?.verifiers) ? contract.verifiers : [];
+      for (const verifier of verifiers) {
+        const label = verifier?.code || verifier?.display_name || "verifier";
+        const role = String(verifier?.role || "").trim();
+        const provider = String(verifier?.identity_provider || "").trim();
+        const email = String(verifier?.email || "").trim().toLowerCase();
+        if (!/^preventive_care_verifier_[a-z0-9_]+$/.test(String(verifier?.code || ""))) pushSample(operatorRosterProblems, `${label}: verifier code must be preventive_care_verifier_<name>`);
+        if (!email || !email.includes("@")) pushSample(operatorRosterProblems, `${label}: verifier email is required`);
+        else if (operatorEmailsOnly.has(email)) pushSample(operatorRosterProblems, `${label}: verifier email must not reuse an executable operator email`);
+        else if (verifierEmails.has(email)) pushSample(operatorRosterProblems, `${label}: verifier email duplicates ${verifierEmails.get(email)}`);
+        else verifierEmails.set(email, label);
+        if (role !== OPERATOR_ROSTER_VERIFIER_ROLE) pushSample(operatorRosterProblems, `${label}: verifier role must be ${OPERATOR_ROSTER_VERIFIER_ROLE}`);
+        if (provider !== OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER) pushSample(operatorRosterProblems, `${label}: verifier identity_provider must be ${OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER}`);
+        if (verifier?.can_execute_vaccination !== false) pushSample(operatorRosterProblems, `${label}: verifier can_execute_vaccination must be false`);
+        if (verifier?.adds_vaccination_capacity !== false) pushSample(operatorRosterProblems, `${label}: verifier adds_vaccination_capacity must be false`);
+        if (OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY !== true) pushSample(operatorRosterProblems, `${label}: verifier must have zero execution capacity`);
       }
       const androidLogin = contract?.operator_android_login;
       if (!androidLogin || typeof androidLogin !== "object") {
@@ -595,8 +620,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "operator_roster_contract",
     operatorRosterProblems.length,
-    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, a unique email_hint for Android login, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, one pm shift operator when default_operator_assignment is present, and an operator_android_login block requiring Firebase email-password, unique per-operator temporary passwords/reset flow, no shared password, no plaintext passwords in git, and per-operator Android login smoke proof after DB seed.",
+    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, verifier grants with zero field capacity, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, a unique email_hint for Android login, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, one pm shift operator when default_operator_assignment is present, verifiers with role=verifier, Firebase email-password identity, can_execute_vaccination=false, adds_vaccination_capacity=false, and an operator_android_login block requiring Firebase email-password, unique per-operator temporary passwords/reset flow, no shared password, no plaintext passwords in git, and per-operator Android login smoke proof after DB seed.",
     operatorRosterProblems,
   ));
 

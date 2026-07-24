@@ -121,6 +121,13 @@ flow; plaintext passwords must never be committed to git or pasted into seed
 evidence. A seed is not complete until Amit, Darshan, and Sagar can each reach
 Android bootstrap with their own identity.
 
+Verifier access is a separate grant lane, not operator capacity. For the CPT
+packet, `verifiers[]` seeds Jyothi (`jyothipvg12345@gmail.com`) as a
+Firebase/email-password `verifier` with password `Jyothi@2025` during
+provisioning. Verifiers can review vaccination evidence after sign-in, but they
+must not receive `vaccination_operator_*` positions, week-off/shift rows, or any
+animal/day capacity.
+
 ### Operator Shift Configuration
 
 The `cpt-operator-roster.json` may include operator shift schedules (migration 000035):

@@ -198,6 +198,12 @@ func TestLoadOperatorRosterConsumesDirectorsAndLeadership(t *testing.T) {
 	if contract.Directors[0].CanExecuteVaccinaton {
 		t.Fatal("director must not declare execution capacity")
 	}
+	if len(contract.Verifiers) != 1 || contract.Verifiers[0].Email != "jyothipvg12345@gmail.com" {
+		t.Fatalf("verifiers block dropped or wrong: %+v", contract.Verifiers)
+	}
+	if contract.Verifiers[0].Role != "verifier" || contract.Verifiers[0].CanExecuteVaccinaton || contract.Verifiers[0].AddsVaccinationCapacity {
+		t.Fatalf("verifier must be verifier-only with no capacity: %+v", contract.Verifiers[0])
+	}
 	if contract.LeadershipFullAccess == nil {
 		t.Fatal("leadership_full_access block dropped")
 	}

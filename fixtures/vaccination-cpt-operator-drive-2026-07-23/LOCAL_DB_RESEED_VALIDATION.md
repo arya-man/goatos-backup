@@ -55,6 +55,7 @@ Seed all of these people exactly:
 | Darshan Talwar | vaccination operator | yes | Sunday | 200 |
 | Sagar Mahoor | vaccination operator | yes | Saturday | 200 |
 | Chandrakant | preventive care director | no | none | 0 |
+| Jyothi | verifier | no | none | 0 |
 
 Each vaccination operator must also be provisioned for Android login after the
 database seed finishes:
@@ -86,6 +87,12 @@ SSO and Firebase email/password available, active `ceo_internal` grant, active
 leadership profile, admin-web bootstrap, mobile bootstrap, and CEO AI access.
 They never add vaccination operator capacity.
 
+Verifier login/grant readiness must also exist for `jyothipvg12345@gmail.com`.
+For STG, Jyothi uses Firebase email/password `Jyothi@2025` and receives the
+tenant-scoped `verifier` grant through the CPT roster seed's
+`auth_pending_email_grants` row. Jyothi reviews proof and never adds vaccination
+operator capacity.
+
 Forbidden HRMS shapes:
 
 - Do not remove Amit.
@@ -98,9 +105,11 @@ Forbidden HRMS shapes:
 - Do not reuse one shared operator password across Amit, Darshan, and Sagar.
 - Do not turn Chandrakant into vaccination execution capacity.
 - Do not finish STG validation with only pending grants, only Firebase users, or
-  only admin-web login. All 9 users must pass the canonical login verification.
+  only admin-web login. All 10 users must pass the canonical login verification.
 - Do not mark leadership complete with Google SSO only; the 5 leadership users
   also need Firebase email/password for STG.
+- Do not count Jyothi as a vaccination operator or schedule operator capacity
+  from the verifier grant.
 
 ## Capacity Rules
 
@@ -225,9 +234,9 @@ packet and must stay guarded before any STG seed:
   pending work. They must be visible through goat passport/register reads for the
   114 completed animals.
 - **STG identity/platform wiring:** 5 leadership users need both Google SSO and
-  Firebase email/password, 3 operators plus 1 director need Firebase
-  email/password, all 9 need active backend grants/profiles/bootstrap, CEO AI
-  must be gated to leadership, and GCS/evidence storage must point to
+  Firebase email/password, 3 operators plus 1 director plus 1 verifier need
+  Firebase email/password, all 10 need active backend grants/profiles/bootstrap,
+  CEO AI must be gated to leadership, and GCS/evidence storage must point to
   `goatos-stg`.
 - **Clean proof isolation:** do not run leave/cap/date-move cascade experiments
   on the same database before claiming clean reseed proof.
@@ -379,6 +388,8 @@ Treat the validation as failed if any of these happen:
   their own provisioned identity after seed;
 - Chandrakant cannot log in with his own Firebase email/password identity or
   appears as vaccination execution capacity instead of director capacity;
+- Jyothi cannot log in with Firebase email/password, lacks verifier grant
+  readiness, or appears as vaccination execution capacity;
 - any of the 5 leadership users lacks either Google SSO, Firebase email/password,
   active `ceo_internal` grant, active profile, admin-web bootstrap, mobile
   bootstrap, or CEO AI access;

@@ -81,6 +81,10 @@ export const OPERATOR_ROSTER_DIRECTORS_FIELD = "directors";
 export const OPERATOR_ROSTER_DIRECTOR_HAS_ZERO_EXECUTION_CAPACITY = true;
 export const OPERATOR_ROSTER_LEADERSHIP_FIELD = "leadership_full_access";
 export const OPERATOR_ROSTER_LEADERSHIP_GRANT_SCOPE = "tenant";
+export const OPERATOR_ROSTER_VERIFIERS_FIELD = "verifiers";
+export const OPERATOR_ROSTER_VERIFIER_ROLE = "verifier";
+export const OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER = "firebase_email_password";
+export const OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY = true;
 export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
 // A vaccination operator's app designation is its EXECUTION capability, not its HR
 // capacity-tier. seed-roster-real gives each rehearsal operator a manager-tier
@@ -583,3 +587,7 @@ export function updateManifestHashes(directory, manifest) {
 // obligations are generation-idempotent at campaign grain. Replaying with a
 // corrected as-of date may realign unbatched derived obligations, but this
 // fixture library's raw source hashes/counts remain unchanged.
+
+// Coupling review 2026-07-25: CPT operator-roster verifiers are auth/workflow
+// reviewers only. They seed pending Firebase email-password verifier grants and
+// must never become vaccination operators, shift seats, or animal-capacity rows.
