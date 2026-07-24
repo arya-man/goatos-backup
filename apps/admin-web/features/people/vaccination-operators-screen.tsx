@@ -422,15 +422,6 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   }, [operatorsList, operatorCount, defaultOperator]);
 
   const weeklyPlan = useMemo(() => {
-    // Find PM operator for fallback chains
-    let pmOp: Position | undefined;
-    if (assignmentConfig?.shifts) {
-      const pmShift = assignmentConfig.shifts.find((s) => s.shiftLabel === 'pm');
-      if (pmShift) {
-        pmOp = operatorsList.find((op) => op.workforce_member_id === pmShift.operatorId);
-      }
-    }
-
     // Map a recurring weekday to its next real occurrence (today or forward within 7 days),
     // so date-range leave applies to the preview the same way the backend resolves per date.
     const dateForDow = (dow: string): string => {
@@ -456,12 +447,15 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         const op = chosen[0];
         const def = orderedOps[0];
         if (op.position_id === def?.position_id) return { dow, ops: chosen, reason: 'default', kind: 'brand' as const };
-        const fallbackName = pmOp ? firstName(pmOp) : firstName(op);
+        // "First available wins": the covering operator IS the chosen op, so the reason must
+        // name that same operator — never a separate PM-shift operator that isn't running the day.
+        const fallbackName = firstName(op);
         const defName = def ? firstName(def) : 'Default';
-        // Distinguish WHY the default dropped out: leave vs recurring week-off.
+        // Distinguish WHY the default dropped out: leave vs recurring week-off (mock wording).
         const defWhy = def && isOnLeave(def) ? 'on leave' : 'week-off';
+        const verb = defWhy === 'on leave' ? 'covers' : 'fills';
         const kind = defWhy === 'on leave' ? ('warn' as const) : ('info' as const);
-        return { dow, ops: chosen, reason: `${defName} ${defWhy} → ${fallbackName} covers`, kind };
+        return { dow, ops: chosen, reason: `${defName} ${defWhy} → ${fallbackName} ${verb}`, kind };
       }
       const off = orderedOps.filter((o) => isWeekOff(o) || isOnLeave(o));
       return {
@@ -473,7 +467,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         kind: off.length ? ('info' as const) : ('brand' as const),
       };
     });
-  }, [orderedOps, operatorCount, assignmentConfig, operatorsList, leaves]);
+  }, [orderedOps, operatorCount, leaves]);
 
   const kindColor: Record<string, string> = { brand: 'var(--brand)', info: 'var(--info)', warn: 'var(--warn)', danger: 'var(--danger)' };
 
