@@ -65,6 +65,8 @@ class RoleChromeScreenshotTest {
         NavItem(key = "overview", label = "Overview", href = Routes.LEADERSHIP),
         NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        // Backend emits the You tab (module contribution, priority 100) — the bar is 4 tabs.
+        NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 
     // Single-vertical operational nav — Vaccination/Alerts (+ "You"). Used by every
@@ -74,6 +76,8 @@ class RoleChromeScreenshotTest {
     private fun operationalNavItems() = listOf(
         NavItem(key = "vaccination", label = "Vaccination", href = Routes.VACCINATION),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        // Backend emits the You tab (module contribution, priority 100) — the bar is 3 tabs.
+        NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 
     /**

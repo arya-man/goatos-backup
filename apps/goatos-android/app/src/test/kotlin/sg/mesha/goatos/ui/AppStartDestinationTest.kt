@@ -76,6 +76,30 @@ class AppStartDestinationTest {
         assertEquals(Routes.CALENDAR, startDestinationFor(state))
     }
 
+    @Test
+    fun `counts-only operator cold starts on its counts landing, not calendar`() {
+        val countsBar = listOf(
+            NavItem("birth_death", "Birth/Death", Routes.COUNTS_BIRTH_DEATH),
+            NavItem("shifting", "Shifting", Routes.COUNTS_SHIFTING),
+        )
+        // The backend lands a capture operator on /counts/birth-death (the census /counts is
+        // gated away). Calendar is NOT exposed to them, so the fallback must not fire.
+        val state = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = countsBar,
+            modules = listOf(
+                NavModule(
+                    key = "counts",
+                    label = "Counts",
+                    href = Routes.COUNTS_BIRTH_DEATH,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = countsBar,
+                ),
+            ),
+        )
+        assertEquals(Routes.COUNTS_BIRTH_DEATH, startDestinationFor(state))
+    }
+
     private fun navState(vararg items: NavItem) =
         NavState(chrome = NavChrome.MINIMAL, items = items.toList())
 }
