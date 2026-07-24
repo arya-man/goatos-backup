@@ -928,3 +928,230 @@ WHERE tenant_id = $1::uuid AND event_type = 'vaccination.leave.changed'
 		t.Fatalf("vaccination.leave.changed rows after resolve replay = %d, want %d (idempotent)", n, beforeResolve+1)
 	}
 }
+
+// TestApplyLeaveShedScopeEmitsNoEvent is the direct regression test for BLOCKER 5: prior to
+// the fix, ApplyLeave enqueued vaccination.leave.changed for scope_type='shed' leaves WHILE the
+// absence was still status='reported' -- a status the scheduler's availability predicate does
+// not exclude on, so the event described a no-op for planning and caused needless replan churn
+// for a leave that was not yet even approved. A reported apply (any scope) must enqueue NOTHING;
+// only ApproveLeave / ResolveLeaveCoverage (the transitions that actually change availability)
+// may enqueue.
+func TestApplyLeaveShedScopeEmitsNoEvent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const tenantID = rosterTenant
+	const parkID = "00000000-0000-4000-8000-0000000000e2"
+	const shedID = "00000000-0000-4000-8000-0000000000e3"
+	const operatorMember = "00000000-0000-4000-8000-0000000000e4"
+	const actorID = rosterActor
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'PARK-SHED-APPLY', 'Shed Apply Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, parkID, tenantID); err != nil {
+		t.Fatalf("seed park location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id)
+VALUES ($1::uuid, $2::uuid, 'shed', 'SHED-APPLY', 'Shed Apply Shed', 'active', $3::uuid)
+ON CONFLICT (location_id) DO NOTHING`, shedID, tenantID, parkID); err != nil {
+		t.Fatalf("seed shed location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES ($2, $1, 'OP-SHED-APPLY', 'Shed Apply Operator', 'active', 'operator')`,
+		tenantID, operatorMember); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	if _, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: tenantID, ActorID: actorID,
+		Body: domain.CreatePositionRequest{WorkforceMemberID: operatorMember, ScopeType: "shed", ScopeID: shedID,
+			PositionCode: "vaccination_operator_shedapply", PositionTier: "assistant"}},
+		"sa-create-op"); err != nil {
+		t.Fatalf("CreatePosition operator: %v", err)
+	}
+
+	// Filtered by producer: ApproveLeave's own resolveLeaveCoverage auto-run (S4.7, no backup
+	// configured in this fixture) ALSO legitimately enqueues its own leave.changed row via
+	// ResolveLeaveCoverage -- that is correct cascade behavior (coverage resolution changes who
+	// covers the park too), not double-counting of the SAME transition. This test's concern is
+	// narrower: a plain 'reported' ApplyLeave must enqueue NOTHING at all.
+	countEventsByProducer := func(producer string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'vaccination.leave.changed' AND headers->>'producer' = $2`,
+			tenantID, producer).Scan(&n); err != nil {
+			t.Fatalf("count leave.changed by %s: %v", producer, err)
+		}
+		return n
+	}
+	countEvents := func() int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'vaccination.leave.changed'`,
+			tenantID).Scan(&n); err != nil {
+			t.Fatalf("count leave.changed: %v", err)
+		}
+		return n
+	}
+
+	before := countEvents()
+	applied, err := svc.ApplyLeave(ctx, tenantID, actorID, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: operatorMember, ScopeType: "shed", ScopeID: shedID,
+		ReasonCode: "personal", StartsOn: "2026-09-03", EndsOn: "2026-09-03",
+	}, "sa-apply")
+	if err != nil {
+		t.Fatalf("ApplyLeave (shed scope): %v", err)
+	}
+	if applied.Leave.Status != domain.LeaveStatusReported {
+		t.Fatalf("applied leave status = %q, want reported", applied.Leave.Status)
+	}
+	if n := countEvents(); n != before {
+		t.Fatalf("vaccination.leave.changed rows after a plain SHED-scoped ApplyLeave = %d, want unchanged %d "+
+			"(a reported-only leave has not changed scheduler availability yet)", n, before)
+	}
+
+	if _, err := svc.ApproveLeave(ctx, tenantID, actorID, applied.Leave.AbsenceID,
+		domain.ApproveStaffLeaveRequest{RowVersion: 1}, "sa-approve"); err != nil {
+		t.Fatalf("ApproveLeave: %v", err)
+	}
+	// Approval DOES change availability, so the approve transition itself must cascade
+	// exactly once (regardless of whatever the subsequent coverage-resolution step also does).
+	if n := countEventsByProducer("workforce.ApproveLeave"); n != 1 {
+		t.Fatalf("vaccination.leave.changed rows produced by the APPROVAL transition = %d, want 1", n)
+	}
+}
+
+// TestConcurrentApproveLeaveSerializesOnMinOperatorCoverage is the BLOCKER 4 regression test:
+// two vaccination operators are the last two operators covering a park on the same day. Both
+// apply for leave (both applies pass -- coverage is still fine with the other one merely
+// 'reported'). Two goroutines then race to APPROVE both leaves concurrently. The service-level
+// pre-check alone is TOCTOU-raceable (both could read "coverage still OK" before either commits);
+// the fix adds a transaction-scoped advisory lock + re-check inside ApproveLeave's own
+// transaction (lockAndCheckMinOperatorCoverage), serializing the two approvals against the same
+// tenant+park+day key so the second one always sees the first's committed state. Exactly ONE
+// approval must succeed; the other must be rejected with min_operator_coverage, and the park must
+// never end up with 0 available operators on that day.
+func TestConcurrentApproveLeaveSerializesOnMinOperatorCoverage(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const tenantID = rosterTenant
+	const parkID = "00000000-0000-4000-8000-0000000000f2"
+	const memberX = "00000000-0000-4000-8000-0000000000f3"
+	const memberY = "00000000-0000-4000-8000-0000000000f4"
+	const actorID = rosterActor
+	const day = "2026-09-10"
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'PARK-RACE', 'Race Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, parkID, tenantID); err != nil {
+		t.Fatalf("seed park location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint) VALUES
+  ($2, $1, 'OP-RACE-X', 'Race Operator X', 'active', 'operator'),
+  ($3, $1, 'OP-RACE-Y', 'Race Operator Y', 'active', 'operator')`,
+		tenantID, memberX, memberY); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	createOperator := func(memberID, code string) {
+		if _, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: tenantID, ActorID: actorID,
+			Body: domain.CreatePositionRequest{WorkforceMemberID: memberID, ScopeType: "center", ScopeID: parkID,
+				PositionCode: code, PositionTier: "assistant"}},
+			"race-create-"+code); err != nil {
+			t.Fatalf("CreatePosition %s: %v", code, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type)
+VALUES ($1::uuid, $2, 'vaccination', 'execute')`, tenantID, code); err != nil {
+			t.Fatalf("seed position_module_duties for %s: %v", code, err)
+		}
+	}
+	createOperator(memberX, "vaccination_operator_racex")
+	createOperator(memberY, "vaccination_operator_racey")
+
+	applyFor := func(memberID string) domain.StaffLeave {
+		applied, err := svc.ApplyLeave(ctx, tenantID, actorID, domain.ApplyStaffLeaveRequest{
+			WorkforceMemberID: memberID, ScopeType: "center", ScopeID: parkID,
+			ReasonCode: "personal", StartsOn: day, EndsOn: day,
+		}, "race-apply-"+memberID)
+		if err != nil {
+			t.Fatalf("ApplyLeave(%s): %v", memberID, err)
+		}
+		return applied.Leave
+	}
+	leaveX := applyFor(memberX)
+	leaveY := applyFor(memberY)
+
+	type approveResult struct {
+		ok  bool
+		err error
+	}
+	results := make(chan approveResult, 2)
+	start := make(chan struct{})
+	approve := func(absenceID string) {
+		<-start
+		_, err := svc.ApproveLeave(ctx, tenantID, actorID, absenceID,
+			domain.ApproveStaffLeaveRequest{RowVersion: 1}, "race-approve-"+absenceID)
+		results <- approveResult{ok: err == nil, err: err}
+	}
+	go approve(leaveX.AbsenceID)
+	go approve(leaveY.AbsenceID)
+	close(start)
+
+	first := <-results
+	second := <-results
+
+	successCount := 0
+	var rejection error
+	for _, r := range []approveResult{first, second} {
+		if r.ok {
+			successCount++
+		} else {
+			rejection = r.err
+		}
+	}
+	if successCount != 1 {
+		t.Fatalf("concurrent approvals: %d succeeded, want EXACTLY 1 (the min-operator-coverage guard must serialize the two racing approvals)", successCount)
+	}
+	if rejection == nil {
+		t.Fatal("expected the losing approval to be rejected, got nil error")
+	}
+
+	// Final committed state must never allow 0 available operators that day: exactly one of the
+	// two leaves must have LEFT 'reported' (i.e. resolved to 'approved' or, if no backup is
+	// configured for these seats, the coverage engine's own 'escalation_required' -- either is a
+	// real, granted absence per RosterService's own IsMemberOnApprovedLeave doc comment), and the
+	// other must still be 'reported' (rejected, not partially applied).
+	var resolvedCount, reportedCount int
+	if err := pool.QueryRow(ctx, `
+SELECT
+  count(*) FILTER (WHERE status IN ('approved', 'escalation_required')),
+  count(*) FILTER (WHERE status = 'reported')
+FROM workforce_absences
+WHERE tenant_id = $1::uuid AND absence_id IN ($2::uuid, $3::uuid)`,
+		tenantID, leaveX.AbsenceID, leaveY.AbsenceID).Scan(&resolvedCount, &reportedCount); err != nil {
+		t.Fatalf("read final leave statuses: %v", err)
+	}
+	if resolvedCount != 1 || reportedCount != 1 {
+		t.Fatalf("final statuses: resolved(approved/escalation_required)=%d reported=%d, want exactly 1 resolved and 1 reported "+
+			"(the park must retain >=1 available operator on %s)", resolvedCount, reportedCount, day)
+	}
+}

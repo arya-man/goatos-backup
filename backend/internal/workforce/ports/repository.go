@@ -13,6 +13,12 @@ var (
 	ErrInvalidFilter       = errors.New("invalid filter")
 	ErrDenied              = errors.New("denied")
 	ErrIdempotencyConflict = errors.New("idempotency key conflict: same key with different payload")
+	// ErrMinOperatorCoverage signals that a leave-approval transition, if committed, would drop a
+	// park's available vaccination-operator count below 1 on some business day it covers. Raised
+	// from INSIDE the same transaction as the approval's status write (behind a per
+	// tenant+park+day pg_advisory_xact_lock), so it also serializes concurrent approvals racing
+	// for the same park's last remaining operator -- see RosterRepository.ApproveLeave.
+	ErrMinOperatorCoverage = errors.New("approving this leave would leave fewer than 1 available vaccination operator")
 )
 
 type ListOperatorsParams struct {

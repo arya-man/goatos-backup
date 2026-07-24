@@ -405,6 +405,137 @@ WHERE tenant_id = $1::uuid AND batch_id = $2::uuid
 	t.Log("Red test PASSED: RecomputeFutureVaccinationDrives genuinely changed state (batch from planned to superseded)")
 }
 
+// TestRecomputeFutureVaccinationDrivesPreservesCompletedHistory verifies the P1
+// data-integrity fix: when a future "planned" batch contains a MIX of a still-open
+// obligation (status 'scheduled') and a terminal/history obligation (status
+// 'completed'), RecomputeFutureVaccinationDrives must release ONLY the open row
+// back to unbatched and must NOT detach the completed row from its batch. Prior
+// to the fix, the release UPDATE had no status predicate and would null out
+// batch_id on every row in the batch — including completed/accepted history —
+// which is a data-integrity defect (drift from seed/import/repair can leave
+// completed rows inside a future-dated batch).
+func TestRecomputeFutureVaccinationDrivesPreservesCompletedHistory(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const shedID = "40000000-0000-4000-8000-000000000099"
+	const goatOpen = "50000000-0000-4000-8000-000000000091"
+	const goatDone = "50000000-0000-4000-8000-000000000092"
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ($1::uuid, 'Test Tenant Mixed', 'active')
+ON CONFLICT DO NOTHING
+`, tenantID); err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (tenant_id, location_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'SHED-MIX', 'Shed Mix', $3::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING
+`, tenantID, shedID, cbePark); err != nil {
+		t.Fatalf("seed shed location: %v", err)
+	}
+
+	for _, goatID := range []string{goatOpen, goatDone} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goats (
+  tenant_id, goat_id, lifecycle_status, species, custodian_party_id, sex,
+  current_location_id, park_id
+)
+VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'male', $4::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO NOTHING
+`, tenantID, goatID, meshaParty, shedID, cbePark); err != nil {
+			t.Fatalf("seed goat %s: %v", goatID, err)
+		}
+	}
+
+	protoRepo := protopg.NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, protoRepo, "operator.recompute.mixed_test", 1)
+	versionID := versions[0].versionID
+	ruleID := versions[0].ruleID
+
+	bizDate := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	plannedDate := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
+	dueAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	mixedBatchID := "80000000-0000-4000-8000-000000000099"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_batches (
+  batch_id, tenant_id, protocol_version_id, scope_type, scope_id, session, planned_date,
+  status, estimated_targets
+)
+VALUES ($5::uuid, $1::uuid, $2::uuid, 'park', $3::uuid, 'mixed-batch', $4::date, 'planned', 2)
+`, tenantID, versionID, cbePark, plannedDate, mixedBatchID); err != nil {
+		t.Fatalf("seed mixed batch: %v", err)
+	}
+
+	openObligationID := "70000000-0000-4000-8000-000000000091"
+	doneObligationID := "70000000-0000-4000-8000-000000000092"
+
+	// Still-open obligation (should be released by recompute).
+	if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_instances (
+  tenant_id, protocol_version_id, rule_id, obligation_id, target_type, target_id,
+  scope_type, scope_id, due_at, status, batch_id, idempotency_key
+)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $9::uuid, 'goat', $4::uuid, 'shed', $5::uuid, $6::timestamptz, 'scheduled', $7::uuid, $8)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+`, tenantID, versionID, ruleID, goatOpen, shedID, dueAt, mixedBatchID, "mixed-open-"+goatOpen, openObligationID); err != nil {
+		t.Fatalf("seed open obligation: %v", err)
+	}
+
+	// Completed/history obligation attached to the SAME future batch (drift scenario:
+	// seed/import/repair left a completed row inside a still-planned batch). This row
+	// must NOT be detached by recompute.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_instances (
+  tenant_id, protocol_version_id, rule_id, obligation_id, target_type, target_id,
+  scope_type, scope_id, due_at, status, batch_id, idempotency_key
+)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $9::uuid, 'goat', $4::uuid, 'shed', $5::uuid, $6::timestamptz, 'completed', $7::uuid, $8)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+`, tenantID, versionID, ruleID, goatDone, shedID, dueAt, mixedBatchID, "mixed-done-"+goatDone, doneObligationID); err != nil {
+		t.Fatalf("seed completed obligation: %v", err)
+	}
+
+	obligationRepo := NewRepository(pool, 5*time.Second)
+	if _, err := obligationRepo.RecomputeFutureVaccinationDrives(ctx, tenantID, cbePark, bizDate.Add(24*time.Hour)); err != nil {
+		t.Fatalf("RecomputeFutureVaccinationDrives failed: %v", err)
+	}
+
+	// The open obligation must be released (unbatched).
+	var openBatchID *string
+	if err := pool.QueryRow(ctx, `
+SELECT batch_id::text FROM obligation_instances
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid
+`, tenantID, openObligationID).Scan(&openBatchID); err != nil {
+		t.Fatalf("query open obligation after recompute: %v", err)
+	}
+	if openBatchID != nil {
+		t.Errorf("expected open (scheduled) obligation to be released to unbatched, still has batch_id=%v", *openBatchID)
+	}
+
+	// The completed/history obligation must remain attached, untouched.
+	var doneBatchID *string
+	var doneStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT batch_id::text, status FROM obligation_instances
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid
+`, tenantID, doneObligationID).Scan(&doneBatchID, &doneStatus); err != nil {
+		t.Fatalf("query completed obligation after recompute: %v", err)
+	}
+	if doneBatchID == nil || *doneBatchID != mixedBatchID {
+		t.Errorf("data-integrity defect: completed/history obligation was detached from its batch (batch_id=%v), expected it to remain attached to %s", doneBatchID, mixedBatchID)
+	}
+	if doneStatus != "completed" {
+		t.Errorf("expected completed obligation status to remain 'completed', got %q", doneStatus)
+	}
+}
+
 // TestRecomputeFutureVaccinationDrivesAdvisoryLockMatchesSweeper verifies that the
 // advisory lock key used by RecomputeFutureVaccinationDrives matches exactly what
 // the sweeper uses (tenantSweepLockNamespace + canonicalUUID).
