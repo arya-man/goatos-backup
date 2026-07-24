@@ -393,7 +393,16 @@ WITH a AS (
   -- (a specific lane and a legacy unspecific one), the specific lane wins deterministically instead
   -- of a random UUID picking the lane.
   ORDER BY oi.obligation_id,
-           (gsp.partition_label IS NOT NULL AND s.partition_label = gsp.partition_label) DESC,
+           -- Partition-label canonicalization: the assignment row stores the DISPLAY form ("Part 1")
+           -- while goat_shed_partitions stores the normalized form ("1"), so a raw equality never
+           -- matched for numeric-partition sheds (Gandhi 1/2/3) and every goat fell through to the
+           -- alphabetical s.partition_label tiebreak below -- collapsing all of a shed's partitions
+           -- onto its first arm. Strip a leading "part " on both sides so the goat binds to its OWN
+           -- partition cell. (BUG-029 follow-up: proven by the CPT reseed, Gandhi Part 3 goats were
+           -- landing on Part 1 rows.)
+           (gsp.partition_label IS NOT NULL
+             AND regexp_replace(lower(btrim(s.partition_label)), '^part[[:space:]]+', '')
+               = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')) DESC,
            s.physical_shed, s.partition_label,
            (cardinality(s.lane_key) > 0) DESC, s.lane_key, s.assignment_id
 ), goat_rank AS (

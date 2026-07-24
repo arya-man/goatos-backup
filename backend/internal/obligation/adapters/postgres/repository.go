@@ -3872,8 +3872,13 @@ matched AS (
    AND vda.animal_count > 0
    -- The animal's own partition when it is known; legacy animals without a partition row stay
    -- eligible for every partition of their shed rather than silently never being removed.
+   -- Partition-label canonicalization (BUG-029 follow-up): the assignment stores the display form
+   -- ("Part 1") and goat_shed_partitions the normalized form ("1"); a raw equality never matched for
+   -- numeric-partition sheds, so a Gandhi-style goat exit failed to decrement its own assignment row.
+   -- Strip a leading "part " on both sides so exit/death decrements the correct partition arm.
    AND (NOT EXISTS (SELECT 1 FROM goat_partition)
-        OR vda.partition_label = (SELECT partition_label FROM goat_partition))
+        OR regexp_replace(lower(btrim(vda.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim((SELECT partition_label FROM goat_partition))), '^part[[:space:]]+', ''))
    -- The vaccine dimension: either the row plans one of the rules just canceled for this animal,
    -- or the row predates vaccine_rule_ids (legacy '{}') and cannot be discriminated by vaccine.
    AND (vda.vaccine_rule_ids && r.rule_ids OR cardinality(vda.vaccine_rule_ids) = 0)
