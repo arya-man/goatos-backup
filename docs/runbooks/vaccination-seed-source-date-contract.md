@@ -76,10 +76,10 @@ animal counts, or independent read-model totals.
 
 CPT-only operator-drive rehearsal data is valid when the source center is CPT
 only and the reviewed roster contains exactly the three vaccination
-operators/managers required for that seed. Do not synthesize Coimbatore/CBE
+operators required for that seed. Do not synthesize Coimbatore/CBE
 owners just because the full production fixture also covers CBE.
-The three CPT vaccination operators are Amit, Darshan, and Sagar as
-manager-tier vaccination operators. Do not infer "support", park-head, or backup
+The three CPT vaccination operators are Amit, Darshan, and Sagar,
+all vaccination operators. Do not infer "support", park-head, or backup
 ownership from their old HRMS seat labels in this rehearsal. Their recurring
 week-offs come from the CPT timetable: Amit = Friday, Darshan = Sunday,
 Sagar = Saturday.

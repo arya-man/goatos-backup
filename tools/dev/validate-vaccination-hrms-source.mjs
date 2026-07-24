@@ -22,6 +22,7 @@ import {
   OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY,
   OPERATOR_ANDROID_LOGIN_IDENTITY_PROVIDER,
   OPERATOR_ANDROID_LOGIN_EMAIL_FIELD,
+  OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
@@ -499,6 +500,11 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         else operatorCodes.add(code);
         if (op?.tier !== "manager") pushSample(operatorRosterProblems, `${label}: tier must be manager (equal operator)`);
         if (op?.can_execute_vaccination !== true) pushSample(operatorRosterProblems, `${label}: can_execute_vaccination must be true`);
+        // Capacity tier "manager" is NOT a role: a vaccination operator must resolve
+        // to primary_role_hint="operator" so the mobile scan gate admits them. Guard
+        // the invariant so a regression that reintroduces supervisor/park_head hints
+        // for field executors fails here (the Amit/Darshan/Sagar STG incident).
+        if (OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT !== true) pushSample(operatorRosterProblems, `${label}: vaccination operators must resolve to primary_role_hint=operator regardless of capacity tier`);
         const wk = String(op?.week_off || "").toLowerCase();
         if (!validWeekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: invalid week_off '${op?.week_off}'`);
         else if (weekdays.has(wk)) pushSample(operatorRosterProblems, `${label}: duplicate week_off '${wk}'`);

@@ -68,6 +68,16 @@ export const OPERATOR_ROSTER_DIRECTORS_FIELD = "directors";
 export const OPERATOR_ROSTER_DIRECTOR_HAS_ZERO_EXECUTION_CAPACITY = true;
 export const OPERATOR_ROSTER_LEADERSHIP_FIELD = "leadership_full_access";
 export const OPERATOR_ROSTER_LEADERSHIP_GRANT_SCOPE = "tenant";
+// A vaccination operator's app designation is its EXECUTION capability, not its HR
+// capacity-tier. seed-roster-real gives each rehearsal operator a manager-tier
+// vaccination_operator_<name> position for capacity/roster, and a person may also
+// hold a higher-ranked June seat (e.g. park_head). deriveRoleHint must still emit
+// primary_role_hint="operator" for anyone holding an active vaccination_operator_*
+// position, overriding tier/bestCode — otherwise the mobile scan gate
+// (operatorAllowed = primary_role_hint == "operator") silently drops every scan for
+// a field executor mislabelled supervisor/park_head (the Amit/Darshan/Sagar STG
+// incident). Capacity tier "manager" is NOT a role and never a non-operator hint.
+export const OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT = true;
 // The same CPT operator-roster contract also owns Android field-login setup
 // after DB seed: every executable vaccination operator must have a distinct
 // email/password identity derived from operators[].email_hint. Shared operator
