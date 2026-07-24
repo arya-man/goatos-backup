@@ -722,7 +722,7 @@ raw AS (
     g.park_id AS direct_park_uuid,
     c.effective_status AS completion_status,
     c.last_accepted_at,
-    COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
+    COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id
@@ -742,18 +742,29 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
+  -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), falling back to the guess LATERAL only when the obligation has no member row; group_key=(tenant_id, obligation_id) one member row per obligation; join_cardinality=members->assignment many-to-one on the assignment PK so execution_due_at is 1:1 per obligation, guess LATERAL is a LIMIT 1 scalar fallback; pagination=n/a -- per-obligation scalar assignment date, not an aggregate across a page boundary; scope=park/shed from the batch's own scope, unchanged by this member join
+  -- HYBRID: prefer exact member assignment, fall back to guess LATERAL when unbound
+  LEFT JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = oi.tenant_id
+   AND m.obligation_id = oi.obligation_id
+  LEFT JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = m.tenant_id
+   AND assignment.assignment_id = m.assignment_id
+   AND assignment.shed_id = g.shed_id
+  -- Guess path: find assignment via LATERAL when no membership
+  LEFT JOIN LATERAL (
+    SELECT (vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments vda_guess
+    WHERE vda_guess.tenant_id = oi.tenant_id
+      AND vda_guess.batch_id = oi.batch_id
+      AND vda_guess.shed_id = g.shed_id
+    ORDER BY vda_guess.created_at DESC
+    LIMIT 1
+  ) vda_guess ON true
+  -- Member path: formatted assignment when membership exists
   LEFT JOIN LATERAL (
     SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
-    FROM vaccination_drive_assignments assignment
-    WHERE assignment.tenant_id = oi.tenant_id
-      AND assignment.batch_id = oi.batch_id
-      AND assignment.shed_id = g.shed_id
-    ORDER BY assignment.planned_date ASC,
-             assignment.partition_label ASC,
-             assignment.operator_id ASC NULLS LAST,
-             assignment.assignment_id ASC
-    LIMIT 1
-  ) vda ON true
+  ) vda_member ON assignment.assignment_id IS NOT NULL
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -762,7 +773,7 @@ raw AS (
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND (
-      COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
+      COALESCE(COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at), ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
       OR c.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz
     )
 ),
@@ -1061,10 +1072,11 @@ raw AS (
     pd.name AS protocol_name,
     (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS batch_planned_at,
     ob.status AS batch_status,
-    vda.operator_id AS conducted_by,
-    vda.assignment_planned_at,
-    vda.physical_shed,
-    vda.partition_label,
+    -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), falling back to the guess LATERAL only when the obligation has no member row; group_key=(tenant_id, obligation_id) one member row per obligation; join_cardinality=members->assignment many-to-one on the assignment PK so operator/date/shed/partition are 1:1 per obligation, guess LATERAL is a LIMIT 1 scalar fallback; pagination=n/a -- per-obligation scalar columns, not an aggregate across a page boundary; scope=park/shed from the batch's own scope, unchanged by this member join
+    COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
+    COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
+    COALESCE(vda_member.physical_shed, vda_guess.physical_shed) AS physical_shed,
+    COALESCE(vda_member.partition_label, vda_guess.partition_label) AS partition_label,
     st.state AS task_state,
     st.task_id AS sop_task_id,
     st.sop_version_id AS sop_version_id,
@@ -1110,41 +1122,56 @@ raw AS (
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
+  -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), HYBRID fallback to the guess LATERAL (vda_guess LIMIT 1) only when the obligation has no member row; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_name, dose_code) with COUNT(*) at obligation grain; join_cardinality=members->assignment many-to-one on the assignment PK so operator/date is 1:1 per obligation (vda_member LATERAL 1:1 when bound, vda_guess LATERAL LIMIT 1 fallback when unbound); pagination=keyset-grouped rows pre-aggregated before GROUP BY, total_count over the full tenant/category/scope/date-filtered set; scope=park/shed via located.park_uuid/shed_uuid with explicit tenant filter, location joins 1:1 per shed_uuid
+  -- HYBRID: prefer exact member assignment, fall back to guess LATERAL when unbound;
+  -- operator_filter applies on COALESCE(vda_member.operator_id, vda_guess.operator_id) result
+  LEFT JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = oi.tenant_id
+   AND m.obligation_id = oi.obligation_id
+  LEFT JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = m.tenant_id
+   AND assignment.assignment_id = m.assignment_id
+   AND assignment.shed_id = CASE
+        WHEN g.shed_id IS NOT NULL THEN g.shed_id
+        WHEN oi.target_type = 'shed' THEN oi.target_id
+        WHEN oi.scope_type = 'shed' THEN oi.scope_id
+        ELSE NULL
+      END
+   AND (
+        assignment.partition_label = 'whole'
+        OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
+      )
+  -- Guess path: find assignment via LATERAL when no membership
+  LEFT JOIN LATERAL (
+    SELECT
+      vda_guess.operator_id,
+      (vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      vda_guess.physical_shed,
+      vda_guess.partition_label
+    FROM vaccination_drive_assignments vda_guess
+    WHERE vda_guess.tenant_id = oi.tenant_id
+      AND vda_guess.batch_id = oi.batch_id
+      AND vda_guess.shed_id = CASE
+            WHEN g.shed_id IS NOT NULL THEN g.shed_id
+            WHEN oi.target_type = 'shed' THEN oi.target_id
+            WHEN oi.scope_type = 'shed' THEN oi.scope_id
+            ELSE NULL
+          END
+      AND (
+            vda_guess.partition_label = 'whole'
+            OR vda_guess.partition_label = COALESCE(gsp.partition_label, 'whole')
+          )
+    ORDER BY vda_guess.created_at DESC
+    LIMIT 1
+  ) vda_guess ON true
+  -- Member path: formatted assignment when membership exists
   LEFT JOIN LATERAL (
     SELECT
       assignment.operator_id,
       (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
       assignment.physical_shed,
       assignment.partition_label
-    FROM vaccination_drive_assignments assignment
-    WHERE assignment.tenant_id = oi.tenant_id
-      AND assignment.batch_id = oi.batch_id
-      AND assignment.shed_id = CASE
-        WHEN g.shed_id IS NOT NULL THEN g.shed_id
-        WHEN oi.target_type = 'shed' THEN oi.target_id
-        WHEN oi.scope_type = 'shed' THEN oi.scope_id
-        ELSE NULL
-      END
-      AND (
-        assignment.partition_label = 'whole'
-        OR assignment.partition_label = COALESCE(gsp.partition_label, 'whole')
-      )
-      AND (
-        $15::text = ''
-        OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
-      )
-    ORDER BY
-      CASE
-        WHEN assignment.shed_id = g.shed_id THEN 0
-        WHEN assignment.shed_id IS NOT NULL THEN 1
-        ELSE 2
-      END,
-      assignment.planned_date ASC,
-      assignment.partition_label ASC,
-      assignment.operator_id ASC NULLS LAST,
-      assignment.assignment_id ASC
-    LIMIT 1
-  ) vda ON true
+  ) vda_member ON assignment.assignment_id IS NOT NULL
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
@@ -1156,8 +1183,8 @@ raw AS (
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
     AND COALESCE(st.state, '') <> 'canceled'
-    AND ($15::text = '' OR vda.assignment_planned_at IS NOT NULL)
-    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
+    AND ($15::text = '' OR COALESCE(vda_member.operator_id, vda_guess.operator_id) IS NOT NULL)
+    AND COALESCE(COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at), ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       OR oi.due_at >= $8::timestamptz

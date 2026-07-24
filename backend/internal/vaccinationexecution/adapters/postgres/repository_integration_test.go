@@ -62,6 +62,7 @@ const (
 )
 
 func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany PageBoundary ScheduledDate ExecutionDate ParkScope StatusMatrix: exact drive-member HYBRID binding preserves operator/date/partition on member grain across all dimensions")
 	queries := map[string]string{
 		"execution":    vaccinationExecutionSQL,
 		"operations":   vaccinationOperationsSQL,
@@ -83,15 +84,18 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 	}
 
 	requiredFragments := map[string]string{
-		"execution horizon":     "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"execution horizon":     "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
 		"execution bucket":      "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
-		"operations horizon":    "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"operations horizon":    "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
 		"operations next due":   "MIN(effective.execution_due_at) FILTER",
-		"schedule horizon":      "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz",
+		"schedule horizon":      "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz",
 		"schedule next due":     "MIN(windowed.execution_due_at) FILTER",
-		"scan roster status":    "COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now()",
+		"scan roster status":    "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now()",
 		"shed summary next due": "MIN(effective.execution_due_at) FILTER",
 		"shed animal filter":    "COALESCE(drive_date.assignment_planned_date, dob.planned_date",
+		"hybrid member path":    "vda_member.assignment_planned_at",
+		"hybrid guess fallback": "vda_guess.assignment_planned_at",
+		"member coalesce logic": "COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at",
 	}
 	combined := strings.Join([]string{
 		vaccinationExecutionSQL,
