@@ -1344,7 +1344,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 
 	var bestDate *time.Time
 	var bestIDs []string
-	bestAnimals := -1
+	bestScore := unbatchedDriveDateScore{inWindowAnimals: -1, animals: -1, obligations: -1}
 	for probe := businessDate(*plannedDate); !probe.After(latest); {
 		if len(session.unbatchedObligationsFeasibleOnDateForVaccine(now, probe, rows, planner, ruleVaccineID)) > 0 {
 			day := probe
@@ -1382,16 +1382,16 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, session)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
-			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, cappedIDs))
+			score := scoreUnbatchedDriveDate(now, day, rows, cappedIDs, planner)
 			session.releaseClaims(shotClaims)
 			if err := release(ctx); err != nil {
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			if animals > bestAnimals || (animals == bestAnimals && len(cappedIDs) > len(bestIDs)) {
+			if score.betterThan(bestScore) {
 				chosen := day
 				bestDate = &chosen
 				bestIDs = append(bestIDs[:0], cappedIDs...)
-				bestAnimals = animals
+				bestScore = score
 			}
 		}
 		probe = probe.AddDate(0, 0, 1)
@@ -1523,6 +1523,51 @@ func uniqueUnbatchedTargetCount(rows []domain.UnbatchedDue) int {
 		seen[targetID] = struct{}{}
 	}
 	return len(seen)
+}
+
+type unbatchedDriveDateScore struct {
+	inWindowAnimals int
+	animals         int
+	obligations     int
+}
+
+func (s unbatchedDriveDateScore) betterThan(other unbatchedDriveDateScore) bool {
+	if s.inWindowAnimals != other.inWindowAnimals {
+		return s.inWindowAnimals > other.inWindowAnimals
+	}
+	if s.animals != other.animals {
+		return s.animals > other.animals
+	}
+	return s.obligations > other.obligations
+}
+
+func scoreUnbatchedDriveDate(now, plannedDate time.Time, rows []domain.UnbatchedDue, selected []string, planner domain.DrivePlannerSettings) unbatchedDriveDateScore {
+	selectedRows := selectedUnbatchedRows(rows, selected)
+	score := unbatchedDriveDateScore{
+		animals:     uniqueUnbatchedTargetCount(selectedRows),
+		obligations: len(selected),
+	}
+	inWindowTargets := make(map[string]struct{}, len(selectedRows))
+	for _, row := range selectedRows {
+		if !driveCandidateFeasibleOnPlannerDate(now, plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}, planner) {
+			continue
+		}
+		targetKey := unbatchedTargetKey(row)
+		if targetKey != "" {
+			inWindowTargets[targetKey] = struct{}{}
+		}
+	}
+	score.inWindowAnimals = len(inWindowTargets)
+	return score
 }
 
 // limitUnbatchedSelectionByDriveAnimals enforces the park/date animal-slot cap with two-pass
