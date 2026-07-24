@@ -253,7 +253,12 @@ run_android() {
   step "android :app compile" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin --no-daemon --console=plain'
   step "android :app unit"    bash -c 'cd apps/goatos-android && ./gradlew :app:testStgReleaseUnitTest --no-daemon --console=plain'
   step "android :app lint"    bash -c 'cd apps/goatos-android && ./gradlew :app:lintStgRelease --no-daemon --console=plain'
-  optional_step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  if [ "${GOATOS_SKIP_ANDROID_SCREENSHOTS:-0}" = "1" ]; then
+    echo "── ci-local: android screenshots SKIPPED by GOATOS_SKIP_ANDROID_SCREENSHOTS=1"
+    RESULTS+=("SKIP  android screenshots (GOATOS_SKIP_ANDROID_SCREENSHOTS=1)")
+  else
+    optional_step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --tests "sg.mesha.goatos.ui.ScreenshotTest" --tests "sg.mesha.goatos.ui.RoleChromeScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofCompactScreenshotTest" --tests "sg.mesha.goatos.ui.ScanProofExpandedScreenshotTest" --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  fi
   step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
 }
 
