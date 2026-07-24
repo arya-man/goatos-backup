@@ -117,18 +117,24 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusSoon,
 		priority:    4,
 	},
-	// Leadership principals (overview/overdue management).
-	// This is a synthetic "module" representing the leadership nav state.
-	// When a person has >=1 leadership grant, they get overview + calendar + alerts
-	// (the shared cross-module nav) instead of the module-specific nav.
+	// Leadership principals (vaccination leadership / preventive-care oversight).
+	// This is a synthetic "module" representing the leadership nav state. The drawer
+	// row is branded as the Vaccination leadership surface (label "Vaccination",
+	// syringe icon on the client) because a leadership principal's home IS the
+	// vaccination overview -- there is no separate operator "vaccination" drives
+	// module in their drawer (see leadershipModuleKeys).
+	// The bottom bar keeps four tabs (Overview + Calendar + Alerts + You) but the
+	// module LANDS on Calendar: landingHref is /calendar, not the Overview page.
+	// The Overview tab uses the "overview" nav key so the client keeps its Home
+	// glyph while the drawer module ("leadership" key) renders the syringe.
 	"leadership": {
 		key:         "leadership",
 		labelKey:    "module.leadership",
-		landingHref: "/leadership", //nav-composition:ignore: registry entry
+		landingHref: "/calendar", //nav-composition:ignore: registry entry -- leadership lands on Calendar
 		status:      moduleStatusAvailable,
 		priority:    0,
 		contributions: []moduleNavContribution{
-			{key: "leadership", labelKey: "nav.leadership", href: "/leadership", shared_key: "", priority: 0}, //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.leadership", href: "/leadership", shared_key: "", priority: 0}, //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
@@ -221,12 +227,41 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 	if !isLeadershipPrincipal(grants) {
 		return grantedModules
 	}
-	keys := make([]string, 0, len(moduleNavRegistry))
-	for key := range moduleNavRegistry {
-		keys = append(keys, key)
+	return leadershipModuleKeys(grants)
+}
+
+// leadershipModuleKeys is the curated drawer set for a leadership principal, before
+// permission filtering. Leadership is org-level (not department-scoped), so the set
+// is decided by leadership TIER, not by department_module_grants:
+//
+//   - CEO/CXO (ceo_internal) is whole-org: the vaccination leadership home plus
+//     Counts, plus the roadmap "soon" modules (Feed direction, Breeding).
+//   - Preventive-Care leadership (PC Director, Park Head) is specialty-scoped to
+//     preventive care: ONLY the vaccination leadership home. Counts, Feed, and
+//     Breeding are not preventive-care surfaces, so they never appear. Park Head is
+//     further limited to his own park by his grant scope (data scope), not by nav.
+//
+// The synthetic operator "vaccination" drives module and the "verification" module
+// are intentionally excluded from every leadership tier: a leadership principal's
+// vaccination home is the "leadership" module itself, and verification belongs to
+// the verifier role. Their routes stay permission-reachable; they are just not
+// leadership nav.
+func leadershipModuleKeys(grants []domain.GrantSummary) []string {
+	if hasRole(grants, permissions.RoleCEOInternal) {
+		return []string{"leadership", "counts", "feed_direction", "breeding"}
 	}
-	sort.Strings(keys) // deterministic; real ordering is by priority downstream
-	return keys
+	// PC Director / Park Head: preventive-care specialty, vaccination home only.
+	return []string{"leadership"}
+}
+
+// hasRole reports whether any active grant carries the given role.
+func hasRole(grants []domain.GrantSummary, role string) bool {
+	for _, g := range grants {
+		if g.Role == role {
+			return true
+		}
+	}
+	return false
 }
 
 // countAvailableModules counts modules the principal can actually render: known,
@@ -311,9 +346,21 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 			NavItems: items,
 		})
 	}
+	// "Soon" roadmap rows advertise unbuilt modules. They are surfaced globally to
+	// non-leadership principals, but a leadership drawer only shows the "soon" rows
+	// its tier is actually offered (candidateModuleKeys): CEO sees Feed + Breeding,
+	// a preventive-care leader (PC Director, Park Head) sees none.
+	allowSoon := func(string) bool { return true }
+	if isLeadershipPrincipal(grants) {
+		offered := make(map[string]bool, len(keys))
+		for _, k := range keys {
+			offered[k] = true
+		}
+		allowSoon = func(k string) bool { return offered[k] }
+	}
 	for _, key := range soonModuleKeys {
 		def, ok := moduleNavRegistry[key]
-		if !ok || seen[def.key] {
+		if !ok || seen[def.key] || !allowSoon(key) {
 			continue
 		}
 		out = append(out, domain.BootstrapModule{
@@ -420,7 +467,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "Approval",
 		"nav.you":         "You",
 
-		"module.leadership":     "Leadership",
+		// The leadership drawer row is the vaccination leadership home; it is branded
+		// "Vaccination" (syringe icon client-side) rather than "Leadership".
+		"module.leadership":     "Vaccination",
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
 		"module.counts":         "Counts",
@@ -442,7 +491,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "अनुमोदन",
 		"nav.you":         "आप",
 
-		"module.leadership":     "नेतृत्व",
+		"module.leadership":     "टीकाकरण",
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
 		"module.counts":         "गिनती",
@@ -464,7 +513,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "ಅನುಮೋದನೆ",
 		"nav.you":         "ನೀವು",
 
-		"module.leadership":     "ನಾಯಕತ್ವ",
+		"module.leadership":     "ಲಸಿಕೆ",
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.counts":         "ಎಣಿಕೆ",
@@ -486,7 +535,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.approval":    "ఆమోదం",
 		"nav.you":         "మీరు",
 
-		"module.leadership":     "నాయకత్వం",
+		"module.leadership":     "టీకా",
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
 		"module.counts":         "లెక్కలు",

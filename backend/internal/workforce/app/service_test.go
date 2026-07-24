@@ -134,10 +134,11 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 }
 
-// TestBootstrapLeadershipGetsFixedNav pins the leadership
-// loop: a leadership-tier grant (park_head here, but the role set below
-// covers every leadership tier) gets the fixed Calendar/Overview/Alerts nav
-// and expanded chrome.
+// TestBootstrapLeadershipGetsFixedNav pins the leadership bottom bar: a
+// preventive-care leader (park_head) gets the four-tab Overview/Calendar/Alerts/You
+// bar. Its only drawer module is the vaccination home, so the chrome is minimal
+// (single module = bottom bar, not a one-row drawer). CEO's expanded-drawer case
+// is covered by TestLeadershipDrawerCompositionPerRole.
 func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
@@ -148,7 +149,9 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "leadership", Label: "Overview", Href: "/leadership"},
+		// The Overview tab uses the "overview" key so the client keeps its Home glyph
+		// while the drawer module ("leadership") renders the syringe.
+		{Key: "overview", Label: "Overview", Href: "/leadership"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
@@ -162,8 +165,8 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeExpanded {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeExpanded)
+	if got.NavChrome != domain.NavChromeMinimal {
+		t.Fatalf("NavChrome=%q want %q (park_head has a single module)", got.NavChrome, domain.NavChromeMinimal)
 	}
 }
 
@@ -257,7 +260,7 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 // Calendar/Overview/Alerts nav, and operator gets the field execution nav; leadership keeps calendar.
 func TestVisibleNavigationFor(t *testing.T) {
 	leadershipWant := []domain.BootstrapNavigationItem{
-		{Key: "leadership", Label: "Overview", Href: "/leadership"},
+		{Key: "overview", Label: "Overview", Href: "/leadership"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
@@ -354,57 +357,58 @@ func TestVisibleNavigationFor(t *testing.T) {
 	}
 }
 
-// TestNavChromeFor verifies that leadership principals get expanded chrome
-// (module drawer) while field operators get minimal chrome (bottom bar only).
+// TestNavChromeFor verifies chrome follows the composed drawer: a leadership
+// principal with >=2 available modules (CEO: vaccination + counts) gets the
+// expanded drawer; a single-module leader (PC Director / Park Head) and every
+// field operator get minimal chrome (bottom bar only). Chrome is derived from
+// the composed modules, so cases pass the real modulesFor() output.
 func TestNavChromeFor(t *testing.T) {
 	tests := []struct {
-		name    string
-		grants  []domain.GrantSummary
-		modules []string
-		want    string
+		name           string
+		grants         []domain.GrantSummary
+		grantedModules []string
+		want           string
 	}{
 		{
-			name:    "leadership expanded",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
-			modules: nil,
-			want:    domain.NavChromeExpanded,
+			name:   "ceo with vaccination+counts expands",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
+			want:   domain.NavChromeExpanded,
 		},
 		{
-			name:    "operator minimal",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination"},
-			want:    domain.NavChromeMinimal,
+			name:           "pc director single module stays minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
+			grantedModules: []string{"vaccination", "counts"},
+			want:           domain.NavChromeMinimal,
+		},
+		{
+			name:           "park head single module stays minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)},
+			grantedModules: []string{"vaccination", "counts"},
+			want:           domain.NavChromeMinimal,
+		},
+		{
+			name:           "operator minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			grantedModules: []string{"vaccination"},
+			want:           domain.NavChromeMinimal,
 		},
 		{
 			// Operator drawer rollout is disabled for now, even with multiple modules.
-			name:    "operator with two modules stays minimal",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination", "counts"},
-			want:    domain.NavChromeMinimal,
+			name:           "operator with two modules stays minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
+			grantedModules: []string{"vaccination", "counts"},
+			want:           domain.NavChromeMinimal,
 		},
 		{
-			// A disabled roadmap row must not promote a single-module operator.
-			name:    "soon module does not earn the drawer",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination", "breeding"},
-			want:    domain.NavChromeMinimal,
-		},
-		{
-			name:    "duplicate grants do not earn the drawer",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
-			modules: []string{"vaccination", "vaccination"},
-			want:    domain.NavChromeMinimal,
-		},
-		{
-			name:    "ceo expanded",
-			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
-			modules: nil,
-			want:    domain.NavChromeExpanded,
+			name:   "verifier minimal",
+			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+			want:   domain.NavChromeMinimal,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := navChromeFor(tc.grants, tc.modules); got != tc.want {
+			modules := modulesFor(tc.grants, tc.grantedModules, "")
+			if got := navChromeFor(tc.grants, modules); got != tc.want {
 				t.Fatalf("navChromeFor()=%q want %q", got, tc.want)
 			}
 		})
@@ -422,7 +426,7 @@ func TestBootstrapNavComposition(t *testing.T) {
 	leadershipGrants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
 
 	t.Run("operator with single module gets minimal nav chrome", func(t *testing.T) {
-		chrome := navChromeFor(operatorGrants, []string{"vaccination"})
+		chrome := navChromeFor(operatorGrants, modulesFor(operatorGrants, []string{"vaccination"}, ""))
 		if chrome != domain.NavChromeMinimal {
 			t.Fatalf("navChromeFor(operator)=%q want %q (single module = minimal)", chrome, domain.NavChromeMinimal)
 		}
@@ -462,18 +466,26 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if len(nav) != 4 {
 			t.Fatalf("leadership nav length=%d want 4 (overview + calendar + alerts + you)", len(nav))
 		}
-		if nav[0].Key != "leadership" {
-			t.Fatalf("first nav item key=%q want 'leadership'", nav[0].Key)
+		if nav[0].Key != "overview" {
+			t.Fatalf("first nav item key=%q want 'overview'", nav[0].Key)
 		}
 		if nav[1].Key != "calendar" || nav[2].Key != "alerts" || nav[3].Key != "you" {
 			t.Fatalf("leadership nav should have calendar, alerts, and you; got %v", []string{nav[1].Key, nav[2].Key, nav[3].Key})
 		}
 	})
 
-	t.Run("leadership gets expanded nav chrome", func(t *testing.T) {
-		chrome := navChromeFor(leadershipGrants, nil)
+	t.Run("ceo (multi-module leader) gets expanded nav chrome", func(t *testing.T) {
+		ceoGrants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
+		chrome := navChromeFor(ceoGrants, modulesFor(ceoGrants, nil, ""))
 		if chrome != domain.NavChromeExpanded {
-			t.Fatalf("navChromeFor(leadership)=%q want %q", chrome, domain.NavChromeExpanded)
+			t.Fatalf("navChromeFor(ceo)=%q want %q", chrome, domain.NavChromeExpanded)
+		}
+	})
+
+	t.Run("pc leader (single-module) gets minimal nav chrome", func(t *testing.T) {
+		chrome := navChromeFor(leadershipGrants, modulesFor(leadershipGrants, []string{"vaccination", "counts"}, ""))
+		if chrome != domain.NavChromeMinimal {
+			t.Fatalf("navChromeFor(park_head)=%q want %q", chrome, domain.NavChromeMinimal)
 		}
 	})
 }
@@ -634,21 +646,26 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 // principal with no approval permission gets a strictly shorter bar rather than a disabled
 // row — most importantly, an Operator's Counts bar is exactly [birth_death, shifting].
 //
+// Counts item composition is still permission-gated (counts.read / counts.write /
+// counts.approve_access). Whether the Counts MODULE appears in the drawer at all is
+// decided upstream by the drawer matrix: operators get it via their department
+// grant, CEO gets it via the leadership tier, and preventive-care leaders
+// (PC Director, Park Head) do NOT — their drawer is the vaccination home only
+// (maintainer decision 2026-07-24).
+//
 //	role          | census | birth/death | shifting | approval | module in drawer
 //	operator      |   -    |      x      |    x     |    -     | yes
-//	park_head     |   -    |      x      |    x     |    x     | yes   (shifting only, server-side)
-//	admin         |   x    |      x      |    x     |    x     | yes
+//	park_head     |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
 //	ceo_internal  |   x    |      x      |    x     |    x     | yes
-//	pc_director   |   -    |      -      |    -     |    -     | NO
+//	pc_director   |   -    |      -      |    -     |    -     | NO  (preventive-care leader)
 //	verifier      |   -    |      -      |    -     |    -     | NO
 func TestCountsModuleRoleMatrix(t *testing.T) {
 	tests := []struct {
 		role      string
-		wantItems []string // nav item keys inside the counts module, "" => module absent
+		wantItems []string // nav item keys inside the counts module, nil => module absent
 	}{
 		{permissions.RoleOperator, []string{"birth_death", "shifting"}},
-		{permissions.RoleParkHead, []string{"birth_death", "shifting", "approval"}},
-		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "approval"}},
+		{permissions.RoleParkHead, nil},
 		{permissions.RoleCEOInternal, []string{"counts", "birth_death", "shifting", "approval"}},
 		{permissions.RolePCDirector, nil},
 		{permissions.RoleVerifier, nil},
