@@ -40,15 +40,19 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
-    fun `operator shed queue window is today through the next seven days in India time`() {
+    fun `operator shed queue window is yesterday through today plus five in India time`() {
         val window = OperatorWorkWindow.today(
             ZonedDateTime.of(2026, 7, 21, 9, 30, 0, 0, ZoneId.of("Asia/Kolkata")),
         )
 
         assertEquals(null, window.asOf)
-        assertEquals("2026-07-28T09:30:00+05:30", window.dueBefore)
+        // Upper bound covers lastDay (today+5 = 26 Jul).
+        assertEquals("2026-07-27T09:30:00+05:30", window.dueBefore)
         assertEquals("Today · Tue 21 Jul", window.todayLabel)
-        assertEquals("Tue 21 Jul → Mon 27 Jul", window.windowLabel)
+        // Strip: yesterday (Mon 20) → today+5 (Sun 26); landing stays on today.
+        assertEquals(java.time.LocalDate.of(2026, 7, 20), window.firstDay)
+        assertEquals(java.time.LocalDate.of(2026, 7, 26), window.lastDay)
+        assertEquals("Mon 20 Jul → Sun 26 Jul", window.windowLabel)
     }
 
     @Test
