@@ -967,7 +967,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
             className="dscrim on"
             onClick={closeDrawer}
           ></div>
-          <aside className="drawer" role="dialog" aria-modal="true">
+          <aside className="drawer on" role="dialog" aria-modal="true">
             <div className="dh">
               <div className="av">{(drawerOp.person_display_name ?? 'OP')[0]}</div>
               <div style={{ flex: 1 }}>
@@ -1025,7 +1025,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
       {modalOpen && (
         <>
           <div className="scrim on" onClick={closeModal}></div>
-          <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal on" role="dialog" aria-modal="true">
             <div className="mh">
               <div className="av">{(operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP')[0]}</div>
               <div>
