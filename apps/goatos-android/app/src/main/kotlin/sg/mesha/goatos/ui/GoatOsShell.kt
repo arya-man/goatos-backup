@@ -249,7 +249,7 @@ fun GoatOsShellChrome(
     // L0 roots: exactly the OPEN module's backend-composed destinations, and nothing else.
     //
     // The You tab used to be appended here as client-static chrome. It is now a nav
-    // contribution like any other (`bootstrap_copy.go` -> vaccination/leadership contribute
+    // contribution like any other (`bootstrap_copy.go` -> vaccination contributes
     // `you`; Counts contributes `approval` in that trailing slot instead), so the L0 set is
     // whatever the backend composed — no client-side addition. That is what let the Counts
     // module replace the trailing tab without a client release.

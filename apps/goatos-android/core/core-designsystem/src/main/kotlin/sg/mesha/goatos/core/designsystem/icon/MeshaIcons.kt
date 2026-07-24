@@ -169,10 +169,7 @@ object MeshaIcons {
     fun forNavKey(key: String): ImageVector = when (key.lowercase()) {
         "calendar" -> Calendar
         // Vaccination MODULE + its own destinations. The syringe is scoped to this module.
-        // "leadership" is the leadership vaccination-home drawer module (branded
-        // "Vaccination"); it carries the syringe. The Overview bottom tab uses the
-        // "overview" key so it keeps the Home glyph.
-        "vaccination", "sheds", "pc.vaccination", "execution", "leadership" -> Syringe
+        "vaccination", "sheds", "pc.vaccination", "execution" -> Syringe
         "home", "dhome", "overview" -> Home
         "alerts", "notifications" -> Bell
         "you", "profile", "settings" -> User

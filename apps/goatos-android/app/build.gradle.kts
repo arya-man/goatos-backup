@@ -188,7 +188,6 @@ dependencies {
     implementation(project(":feature:feature-sheds"))
     implementation(project(":feature:feature-scan"))
     implementation(project(":feature:feature-submit"))
-    implementation(project(":feature:feature-leadership"))
     implementation(project(":feature:feature-record"))
     implementation(project(":feature:feature-profile"))
     implementation(project(":feature:feature-timetable"))

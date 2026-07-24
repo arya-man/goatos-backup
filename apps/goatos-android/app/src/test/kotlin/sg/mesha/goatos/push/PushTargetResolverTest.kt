@@ -97,10 +97,18 @@ class PushTargetResolverTest {
     }
 
     @Test
-    fun `verification approved opens leadership closure from type-only payload`() {
+    fun `verification approved opens vaccination after leadership screen removal`() {
         assertEquals(
-            Routes.LEADERSHIP,
+            Routes.VACCINATION,
             resolvePushRoute(mapOf(PushExtras.TYPE to "verification_approved")),
+        )
+    }
+
+    @Test
+    fun `legacy leadership close payload opens vaccination after leadership screen removal`() {
+        assertEquals(
+            Routes.VACCINATION,
+            resolvePushRoute(mapOf(PushExtras.SCREEN to "leadership_close")),
         )
     }
 

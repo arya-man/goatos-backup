@@ -15,7 +15,6 @@ import sg.mesha.goatos.core.model.nav.resolveModule
 
 class TopLevelChromeTest {
     private val roots = listOf(
-        Routes.LEADERSHIP,
         Routes.CALENDAR,
         Routes.VACCINATION,
         Routes.ALERTS,

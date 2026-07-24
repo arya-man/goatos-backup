@@ -16,8 +16,6 @@ import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavModule
 import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
-import sg.mesha.goatos.feature.calendar.CalendarScreen
-import sg.mesha.goatos.feature.leadership.LeadershipScreen
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 
 /**
@@ -59,21 +57,9 @@ class RoleChromeScreenshotTest {
         }
     }
 
-    // Leadership-tier nav — Overview/Calendar/Alerts (+ the shell's always-present "You" tab).
-    // Used by every EXPANDED-chrome role below (CEO, Director, Park Head).
-    private fun leadershipNavItems() = listOf(
-        NavItem(key = "overview", label = "Overview", href = Routes.LEADERSHIP),
-        NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
-        // Backend emits the You tab (module contribution, priority 100) — the bar is 4 tabs.
-        NavItem(key = "you", label = "You", href = Routes.YOU),
-    )
-
-    // Single-vertical operational nav — Vaccination/Alerts (+ "You"). Used by every
-    // MINIMAL-chrome, vaccination-department-only role below (Park Manager, Operator).
-    // Vaccination operators must not get the leadership planning Calendar/week/month/history
-    // surface; they land directly on the shed-first 7-day execution queue.
-    private fun operationalNavItems() = listOf(
+    // Vaccination nav — Vaccination/Alerts/You. Used by leadership and operator roles
+    // now that the standalone leadership overview screen has been removed.
+    private fun vaccinationNavItems() = listOf(
         NavItem(key = "vaccination", label = "Vaccination", href = Routes.VACCINATION),
         NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
         // Backend emits the You tab (module contribution, priority 100) — the bar is 3 tabs.
@@ -87,24 +73,19 @@ class RoleChromeScreenshotTest {
      * holds a module list of its own — so these fixtures are what the EXPANDED goldens prove.
      * Labels are backend copy and render verbatim.
      */
-    // The leadership vaccination-home drawer row (backend module key "leadership",
-    // branded "Vaccination", syringe icon). Its bar is the leadership bar and it LANDS on
-    // Calendar (href = /calendar). This is the ONLY vaccination surface in a leadership
-    // drawer -- the operator vaccination-drives module is not leadership nav
-    // (role-module-nav-composition.md, maintainer decision 2026-07-24).
-    private fun leadershipVaccinationModule() = NavModule(
-        key = "leadership",
+    private fun vaccinationModule() = NavModule(
+        key = "vaccination",
         label = "Vaccination",
-        href = Routes.CALENDAR,
+        href = Routes.VACCINATION,
         status = NavModuleStatus.AVAILABLE,
-        navItems = leadershipNavItems(),
+        navItems = vaccinationNavItems(),
     )
 
-    // CEO/CXO drawer: Vaccination (leadership home) + Counts + the two roadmap "soon" rows.
+    // CEO/CXO drawer: Vaccination + Counts + the two roadmap "soon" rows.
     // A preventive-care leader (Director/Park Head) does NOT get this drawer -- see their
     // MINIMAL single-module fixtures below.
     private fun drawerModules() = listOf(
-        leadershipVaccinationModule(),
+        vaccinationModule(),
         NavModule(
             key = "counts",
             label = "Counts",
@@ -120,19 +101,19 @@ class RoleChromeScreenshotTest {
         NavModule(key = "breeding", label = "Breeding", href = "", status = NavModuleStatus.SOON, navItems = emptyList()),
     )
 
-    // CEO / superuser (role `ceo_internal`, tenant-scoped): EXPANDED, lands on Calendar.
+    // CEO / superuser (role `ceo_internal`, tenant-scoped): EXPANDED, lands on Vaccination.
     @Test
     fun role_ceo() = shot("role_ceo") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
-                items = leadershipNavItems(),
+                items = vaccinationNavItems(),
                 modules = drawerModules(),
             ),
-            currentRoute = Routes.CALENDAR,
+            currentRoute = Routes.VACCINATION,
             onNavigate = {},
         ) {
-            LeadershipScreen(state = sampleLeadershipState())
+            ShedsScreen(state = sampleShedsState())
         }
     }
 
@@ -143,52 +124,52 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.EXPANDED,
-                items = leadershipNavItems(),
+                items = vaccinationNavItems(),
                 modules = drawerModules(),
             ),
-            // Vaccination (leadership home) active on its Calendar landing so the golden shows the
+            // Vaccination active on its landing so the golden shows the
             // active-module state (green rail + check) alongside the visible modules, Soon rows,
             // Settings, and Sign-out.
-            currentRoute = Routes.CALENDAR,
+            currentRoute = Routes.VACCINATION,
             onNavigate = {},
             initialDrawerValue = DrawerValue.Open,
             drawerProfile = DrawerProfile(name = "Arun Kumar", role = "Health Asst Mgr · CBE", initials = "AK"),
         ) {
-            LeadershipScreen(state = sampleLeadershipState())
+            ShedsScreen(state = sampleShedsState())
         }
     }
 
     // PC Director (preventive-care specialty) — MINIMAL bottom bar, Vaccination home only
-    // (no Counts/Feed/Breeding), landing on Calendar (maintainer decision 2026-07-24).
+    // (no Counts/Feed/Breeding), landing on Vaccination.
     @Test
     fun role_director() = shot("role_director") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = leadershipNavItems(),
-                modules = listOf(leadershipVaccinationModule()),
+                items = vaccinationNavItems(),
+                modules = listOf(vaccinationModule()),
             ),
-            currentRoute = Routes.CALENDAR,
+            currentRoute = Routes.VACCINATION,
             onNavigate = {},
         ) {
-            LeadershipScreen(state = sampleLeadershipState())
+            ShedsScreen(state = sampleShedsState())
         }
     }
 
     // Park Head (oversees one park) — MINIMAL bottom bar, Vaccination home only, landing
-    // on Calendar. His single-park limit is grant data-scope, not nav.
+    // on Vaccination. His single-park limit is grant data-scope, not nav.
     @Test
     fun role_park_head() = shot("role_park_head") {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = leadershipNavItems(),
-                modules = listOf(leadershipVaccinationModule()),
+                items = vaccinationNavItems(),
+                modules = listOf(vaccinationModule()),
             ),
-            currentRoute = Routes.CALENDAR,
+            currentRoute = Routes.VACCINATION,
             onNavigate = {},
         ) {
-            LeadershipScreen(state = sampleLeadershipState())
+            ShedsScreen(state = sampleShedsState())
         }
     }
 
@@ -199,7 +180,7 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = operationalNavItems(),
+                items = vaccinationNavItems(),
             ),
             currentRoute = Routes.VACCINATION,
             onNavigate = {},
@@ -215,7 +196,7 @@ class RoleChromeScreenshotTest {
         GoatOsShellChrome(
             navState = NavState(
                 chrome = NavChrome.MINIMAL,
-                items = operationalNavItems(),
+                items = vaccinationNavItems(),
             ),
             currentRoute = Routes.VACCINATION,
             onNavigate = {},

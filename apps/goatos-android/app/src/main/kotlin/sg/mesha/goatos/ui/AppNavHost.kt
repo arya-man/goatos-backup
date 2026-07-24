@@ -39,10 +39,6 @@ import sg.mesha.goatos.feature.counts.CountsEvent
 import sg.mesha.goatos.feature.counts.CountsScreen
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingScreen
-import sg.mesha.goatos.feature.leadership.LeadershipEvent
-import sg.mesha.goatos.feature.leadership.LeadershipScreen
-import sg.mesha.goatos.feature.leadership.OverdueScreen
-import sg.mesha.goatos.feature.leadership.RescheduleScreen
 import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileEvent
 import sg.mesha.goatos.feature.profile.ProfileScreen
@@ -73,11 +69,8 @@ import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CountsViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
-import sg.mesha.goatos.viewmodel.LeadershipViewModel
-import sg.mesha.goatos.viewmodel.OverdueViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
-import sg.mesha.goatos.viewmodel.RescheduleViewModel
 import sg.mesha.goatos.viewmodel.RfidViewModel
 import sg.mesha.goatos.viewmodel.ScanViewModel
 import sg.mesha.goatos.viewmodel.ShedsViewModel
@@ -103,10 +96,7 @@ object Routes {
     const val CALENDAR_DRIVE_HOSTED_ARG = "calendarHosted"
     const val SCAN = "/scan"
     const val SUBMIT = "/submit"
-    const val LEADERSHIP = "/leadership"
     const val RECORD = "/record"
-    const val OVERDUE = "/overdue"
-    const val RESCHEDULE = "/reschedule"
     /**
      * Profile/settings. Path-shaped like every other route because it is now a BACKEND-composed
      * nav item (`bootstrap_copy.go` — the vaccination and leadership modules each contribute
@@ -159,7 +149,6 @@ object Routes {
 
     /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
     const val RECORD_SHED_ARG = "shedId"
-    const val RESCHEDULE_OBLIGATION_ARG = "obligationId"
 
     /** Record route for a specific shed (null → generic first-shed record). */
     fun recordRoute(shedId: String?): String =
@@ -234,8 +223,6 @@ object Routes {
             }
         }
 
-    fun rescheduleRoute(obligationId: String?): String =
-        if (obligationId.isNullOrBlank()) RESCHEDULE else "$RESCHEDULE?$RESCHEDULE_OBLIGATION_ARG=${Uri.encode(obligationId)}"
 }
 
 /**
@@ -589,122 +576,6 @@ fun AppNavHost(
             }
         }
 
-        // Leadership overview — a decision drills to reschedule; the "doses given" KPI
-        // opens the per-vaccine drill sheet, other KPIs open the overdue list; the scope
-        // + data-gap pills open their sheets; refresh + inert taps stay in the VM.
-        composable(Routes.LEADERSHIP) {
-            val vm: LeadershipViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            val gapsState by vm.gapsState.collectAsStateWithLifecycle()
-            val dosesState by vm.dosesState.collectAsStateWithLifecycle()
-            var showScope by remember { mutableStateOf(false) }
-            var showGaps by remember { mutableStateOf(false) }
-            var showGiven by remember { mutableStateOf(false) }
-            LaunchedEffect(showGaps) {
-                if (showGaps) vm.loadGaps()
-            }
-            LaunchedEffect(showGiven) {
-                if (showGiven) vm.loadDosesGiven()
-            }
-            LeadershipScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is LeadershipEvent.DecisionTapped ->
-                            navController.navigate(Routes.rescheduleRoute(event.id)) { launchSingleTop = true }
-                        // Leadership taps a shed → the read-only record (their lens is follow-up).
-                        is LeadershipEvent.ShedTapped ->
-                            navController.navigate(Routes.recordRoute(event.shedId)) { launchSingleTop = true }
-                        is LeadershipEvent.OpenScopePicker -> showScope = true
-                        is LeadershipEvent.OpenDataGaps -> showGaps = true
-                        is LeadershipEvent.KpiTapped ->
-                            if (event.id == "given") {
-                                showGiven = true
-                            } else {
-                                navController.navigate(Routes.OVERDUE) { launchSingleTop = true }
-                            }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-            if (showScope) {
-                ScopePickerSheet(
-                    scopes = defaultScopeOptions(),
-                    onSelect = { label, token ->
-                        // TODO(backend): send the chosen scope token to re-scope the reads.
-                        showScope = false
-                    },
-                    onDismiss = { showScope = false },
-                )
-            }
-            if (showGaps) {
-                DataGapsSheet(
-                    gapsData = gapsState.items,
-                    isLoading = gapsState.isLoading,
-                    isLoadingMore = gapsState.isLoadingMore,
-                    hasMore = gapsState.hasMore,
-                    errorMessage = gapsState.errorMessage,
-                    isRefreshing = gapsState.isRefreshing,
-                    lastSyncedAt = gapsState.lastSyncedAt,
-                    isOffline = gapsState.isOffline,
-                    onLoadMore = vm::loadMoreGaps,
-                    onDismiss = { showGaps = false },
-                )
-            }
-            if (showGiven) {
-                DosesGivenSheet(
-                    rows = dosesState.items,
-                    isLoading = dosesState.isLoading,
-                    errorMessage = dosesState.errorMessage,
-                    isRefreshing = dosesState.isRefreshing,
-                    lastSyncedAt = dosesState.lastSyncedAt,
-                    isOffline = dosesState.isOffline,
-                    onDismiss = { showGiven = false },
-                )
-            }
-        }
-
-        // Overdue list — a row drills to reschedule; Back pops; refresh stays in the VM.
-        composable(Routes.OVERDUE) {
-            val vm: OverdueViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            OverdueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is LeadershipEvent.OverdueRowTapped ->
-                            navController.navigate(Routes.rescheduleRoute(event.id)) { launchSingleTop = true }
-                        LeadershipEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
-        // Reschedule form — segment/date selection stays local; Confirm + Back pop back.
-        composable(
-            route = "${Routes.RESCHEDULE}?${Routes.RESCHEDULE_OBLIGATION_ARG}={${Routes.RESCHEDULE_OBLIGATION_ARG}}",
-            arguments = listOf(
-                navArgument(Routes.RESCHEDULE_OBLIGATION_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
-        ) {
-            val vm: RescheduleViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            RescheduleScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        LeadershipEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
-        }
-
         // Record — read-only; Close pops back. Optional shedId arg selects WHICH shed's
         // record loads (RecordViewModel reads it from SavedStateHandle). The record surface
         // is display-only and has NO verify/rework capability (leadership verify/rework is
@@ -926,10 +797,7 @@ fun AppNavHost(
 
 /**
  * Cold start must never land on a route the backend did not expose to this principal, and it
- * must honor the DEFAULT MODULE's landing href, not merely the first bottom-bar item. These
- * differ for leadership: the bar shows Overview first (key "overview", /leadership) but the
- * module lands on Calendar (module href /calendar) -- so keying off the first item would open
- * Overview, ignoring the backend's landing choice (bootstrap_copy.go leadership landingHref).
+ * must honor the DEFAULT MODULE's landing href, not merely the first bottom-bar item.
  *
  * Precedence: the backend's default (first available) module's href, then the first supported
  * bottom-bar item, then Calendar as a safe fallback. Operator/verifier are unaffected -- their
@@ -947,7 +815,6 @@ internal fun startDestinationFor(navState: NavState): String {
 private val supportedRootDestinations = setOf(
     Routes.CALENDAR,
     Routes.VACCINATION,
-    Routes.LEADERSHIP,
     Routes.VERIFY,
     Routes.ALERTS,
     Routes.TIMETABLE,
