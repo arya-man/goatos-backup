@@ -715,24 +715,11 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 		}
 		admitted[row.ObligationID] = struct{}{}
 	}
-	// Pass 2: movable rows fill only the remaining capacity and never push past the cap.
-	for _, row := range rows {
-		if _, ok := selectedSet[row.ObligationID]; !ok {
-			continue
-		}
-		if _, ok := admitted[row.ObligationID]; ok {
-			continue
-		}
-		targetKey := parkCandidateTargetKey(row)
-		if _, ok := admittedTargets[targetKey]; !ok {
-			if used+1 > maxAnimals {
-				continue
-			}
-			admittedTargets[targetKey] = struct{}{}
-			used++
-		}
-		admitted[row.ObligationID] = struct{}{}
-	}
+	// Pass 2: movable rows fill only the remaining capacity and never push past the cap. The unit of
+	// admission is a route/shed chunk, not arbitrary obligation scan order: finish a physical shed
+	// when it fits; if it does not fit, carry that shed to the next operator-day. Only a shed that is
+	// itself larger than the day cap may be split, and then at partition boundaries first.
+	used = admitMovableParkRouteChunks(now, rows, selectedSet, plannedDate, planner, maxAnimals, used, admitted, admittedTargets)
 	out := make([]string, 0, len(admitted))
 	for _, row := range rows {
 		if _, ok := admitted[row.ObligationID]; ok {
@@ -740,6 +727,204 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 		}
 	}
 	return out
+}
+
+func admitMovableParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, maxAnimals, used int32, admitted, admittedTargets map[string]struct{}) int32 {
+	groups := movableParkRouteGroups(now, rows, selectedSet, plannedDate, planner, admitted)
+	for _, group := range groups {
+		needed := newTargetCount(group.rows, admittedTargets)
+		if needed == 0 {
+			admitParkRows(group.rows, admitted, admittedTargets)
+			continue
+		}
+		if used+int32(needed) <= maxAnimals {
+			admitParkRows(group.rows, admitted, admittedTargets)
+			used += int32(needed)
+			continue
+		}
+		if int32(group.targetCount) <= maxAnimals {
+			continue
+		}
+		for _, partition := range group.partitions {
+			partitionNeeded := newTargetCount(partition.rows, admittedTargets)
+			if partitionNeeded == 0 {
+				admitParkRows(partition.rows, admitted, admittedTargets)
+				continue
+			}
+			if used+int32(partitionNeeded) > maxAnimals {
+				if int32(partition.targetCount) <= maxAnimals {
+					continue
+				}
+				for _, row := range partition.rows {
+					targetKey := parkCandidateTargetKey(row)
+					if _, ok := admittedTargets[targetKey]; !ok {
+						if used+1 > maxAnimals {
+							break
+						}
+						admittedTargets[targetKey] = struct{}{}
+						used++
+					}
+					admitted[row.ObligationID] = struct{}{}
+				}
+				continue
+			}
+			admitParkRows(partition.rows, admitted, admittedTargets)
+			used += int32(partitionNeeded)
+		}
+	}
+	return used
+}
+
+type parkRouteGroup struct {
+	physicalShed string
+	routeRank    int
+	rows         []domain.ParkConsolidationCandidate
+	partitions   []parkPartitionGroup
+	targetCount  int
+}
+
+type parkPartitionGroup struct {
+	partition   string
+	rows        []domain.ParkConsolidationCandidate
+	targetCount int
+}
+
+func movableParkRouteGroups(now time.Time, rows []domain.ParkConsolidationCandidate, selectedSet map[string]struct{}, plannedDate time.Time, planner domain.DrivePlannerSettings, admitted map[string]struct{}) []parkRouteGroup {
+	ordered := append([]domain.ParkConsolidationCandidate(nil), rows...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		leftShed, leftPartition := normalizeAssignmentShed(ordered[i].ShedName)
+		rightShed, rightPartition := normalizeAssignmentShed(ordered[j].ShedName)
+		leftRank := vaccinationRouteShedRank(leftShed)
+		rightRank := vaccinationRouteShedRank(rightShed)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if leftShed != rightShed {
+			return leftShed < rightShed
+		}
+		if leftPartition != rightPartition {
+			return partitionLabelLess(leftPartition, rightPartition)
+		}
+		if !ordered[i].DueAt.Equal(ordered[j].DueAt) {
+			return ordered[i].DueAt.Before(ordered[j].DueAt)
+		}
+		return ordered[i].ObligationID < ordered[j].ObligationID
+	})
+
+	groupByShed := make(map[string]*parkRouteGroup)
+	order := make([]string, 0)
+	for _, row := range ordered {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if _, ok := admitted[row.ObligationID]; ok {
+			continue
+		}
+		if !parkObligationCanMoveAfter(now, plannedDate, row, planner) {
+			continue
+		}
+		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
+		if physicalShed == "" {
+			physicalShed = "park"
+		}
+		key := physicalShed
+		group := groupByShed[key]
+		if group == nil {
+			group = &parkRouteGroup{physicalShed: physicalShed, routeRank: vaccinationRouteShedRank(physicalShed)}
+			groupByShed[key] = group
+			order = append(order, key)
+		}
+		group.rows = append(group.rows, row)
+		if len(group.partitions) == 0 || group.partitions[len(group.partitions)-1].partition != partition {
+			group.partitions = append(group.partitions, parkPartitionGroup{partition: partition})
+		}
+		last := &group.partitions[len(group.partitions)-1]
+		last.rows = append(last.rows, row)
+	}
+
+	out := make([]parkRouteGroup, 0, len(order))
+	for _, key := range order {
+		group := groupByShed[key]
+		group.targetCount = distinctParkTargetCount(group.rows)
+		for i := range group.partitions {
+			group.partitions[i].targetCount = distinctParkTargetCount(group.partitions[i].rows)
+		}
+		out = append(out, *group)
+	}
+	return out
+}
+
+func admitParkRows(rows []domain.ParkConsolidationCandidate, admitted, admittedTargets map[string]struct{}) {
+	for _, row := range rows {
+		targetKey := parkCandidateTargetKey(row)
+		if targetKey != "" {
+			admittedTargets[targetKey] = struct{}{}
+		}
+		admitted[row.ObligationID] = struct{}{}
+	}
+}
+
+func newTargetCount(rows []domain.ParkConsolidationCandidate, admittedTargets map[string]struct{}) int {
+	seen := make(map[string]struct{})
+	for _, row := range rows {
+		targetKey := parkCandidateTargetKey(row)
+		if targetKey == "" {
+			continue
+		}
+		if _, ok := admittedTargets[targetKey]; ok {
+			continue
+		}
+		seen[targetKey] = struct{}{}
+	}
+	return len(seen)
+}
+
+func distinctParkTargetCount(rows []domain.ParkConsolidationCandidate) int {
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		targetKey := parkCandidateTargetKey(row)
+		if targetKey == "" {
+			continue
+		}
+		seen[targetKey] = struct{}{}
+	}
+	return len(seen)
+}
+
+func vaccinationRouteShedRank(physicalShed string) int {
+	switch strings.ToLower(strings.TrimSpace(physicalShed)) {
+	case "godel 1":
+		return 10
+	case "godel 2":
+		return 20
+	case "mandela 2":
+		return 30
+	case "old yashoda":
+		return 40
+	case "gandhi":
+		return 50
+	default:
+		return 1000
+	}
+}
+
+func partitionLabelLess(left, right string) bool {
+	leftN, leftOK := partitionLabelNumber(left)
+	rightN, rightOK := partitionLabelNumber(right)
+	if leftOK && rightOK && leftN != rightN {
+		return leftN < rightN
+	}
+	if leftOK != rightOK {
+		return leftOK
+	}
+	return left < right
+}
+
+func partitionLabelNumber(value string) (int, bool) {
+	cleaned := strings.TrimSpace(strings.ToLower(value))
+	cleaned = strings.TrimPrefix(cleaned, "part ")
+	n, err := strconv.Atoi(strings.TrimSpace(cleaned))
+	return n, err == nil
 }
 
 func parkCandidateTargetKey(row domain.ParkConsolidationCandidate) string {
