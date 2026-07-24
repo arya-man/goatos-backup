@@ -172,3 +172,49 @@ chrome are both gone. Seed coupling for that table is
 `backend/cmd/seed-roster-real` (department defaults for the source seed) and
 `backend/cmd/seed-dev-grant -modules` (dev identities) — see
 `docs/runbooks/android-dev-device.md`.
+
+## Leadership drawer per-role matrix (maintainer decision 2026-07-24)
+
+Leadership principals are no longer a single undifferentiated drawer. The synthetic
+`leadership` module is branded as the **Vaccination** leadership home (drawer label
+"Vaccination", syringe icon client-side) and the drawer is composed by leadership
+**tier**, not "all modules":
+
+| role         | drawer modules                                   | chrome   | park scope        |
+|--------------|--------------------------------------------------|----------|-------------------|
+| ceo_internal | Vaccination + Counts + Feed(soon) + Breeding(soon) | expanded | all / multi-park |
+| pc_director  | Vaccination only                                 | minimal  | multi-park        |
+| park_head    | Vaccination only                                 | minimal  | own park (grant scope) |
+| verifier     | Verification only                                | minimal  | n/a               |
+| operator     | department-granted modules                       | minimal  | grant scope       |
+
+Rules encoded (`bootstrap_copy.go`):
+
+- `leadershipModuleKeys(grants)` returns the tier's set: CEO gets
+  `{leadership, counts, feed_direction, breeding}`; a preventive-care leader
+  (PC Director, Park Head) gets `{leadership}` only. Counts, Feed, and Breeding are
+  not preventive-care surfaces, so a PC leader never sees them.
+- The operator **vaccination** drives module and the **verification** module are
+  excluded from every leadership tier — a leader's vaccination home IS the
+  `leadership` module, and verification belongs to the verifier role. Both routes
+  stay permission-reachable; they are simply not leadership nav.
+- The leadership module **lands on Calendar** (`landingHref: /calendar`) while its
+  bottom bar keeps four tabs (Overview / Calendar / Alerts / You). The Overview tab
+  uses nav key `overview` (Home glyph) so the drawer module key `leadership` can
+  carry the syringe.
+- `navChromeFor` derives chrome from the COMPOSED drawer: `>=2` available modules =
+  expanded drawer (CEO), a single available module = minimal bottom bar
+  (PC leaders). "Soon" roadmap rows are only shown to a leadership tier that is
+  actually offered them (CEO), never to a PC leader.
+- Park Head's single-park limit is **data scope** (his `user_scope_grant` /
+  `scope_id`), not nav — the drawer change does not alter it.
+
+Read path for scan: a leadership principal opens a drive → shed/partition list
+read-only. The scan/capture screen is already gated by the operator capability
+(`ScanViewModel.operatorAllowed`, bootstrap `primaryRoleHint == operator`), so no
+leadership tier reaches scan. No change was needed there.
+
+Guard + tests: `TestLeadershipDrawerCompositionPerRole` (per-role drawer set +
+chrome) and the updated `TestNavChromeFor` / `TestCountsModuleRoleMatrix` pin this
+matrix; `make nav-composition-guard` still passes because the tiering lives in
+composition helpers, not a per-role nav-template literal.

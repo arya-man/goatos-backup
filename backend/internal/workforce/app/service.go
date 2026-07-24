@@ -381,6 +381,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
 	}
 	now := s.now().UTC()
+	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
 		OperatorProfile:        profile,
@@ -395,8 +396,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"animal_id_scan": hasCapability(caps, "animal_id.scan"),
 		},
 		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),
-		Modules:                 modulesFor(grants, grantedModules, localeTag),
-		NavChrome:               navChromeFor(grants, grantedModules),
+		Modules:                 bootstrapModules,
+		NavChrome:               navChromeFor(grants, bootstrapModules),
 		TaskQueueDescriptors:    queuesFor(caps, localeTag),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
 		SupportedFieldTypes:     []string{"text", "number", "date_time", "boolean", "select", "multiselect", "goat_scan", "animal_id_scan", "goat_lookup", "shed_picker", "photo_proof", "video_proof"},
@@ -630,17 +631,29 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// navChromeFor decides the nav chrome. Leadership principals get expanded because
-// their nav spans modules by definition. Field operators stay on minimal chrome
-// until the operator drawer rollout is explicitly enabled again.
-func navChromeFor(grants []domain.GrantSummary, modules []string) string {
+// navChromeFor decides the nav chrome from the COMPOSED drawer, following the
+// nav-composition rule "1 module -> bottom bar, >=2 -> drawer". A leadership
+// principal with a single available module (a preventive-care leader whose only
+// drawer entry is the vaccination home) gets the clean bottom bar, not a
+// one-row drawer; a CEO with vaccination + counts gets the expanded drawer.
+// Field operators stay on minimal chrome until the operator drawer rollout is
+// explicitly enabled again.
+func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
 	if isVerifierPrincipal(grants) {
 		return domain.NavChromeMinimal
 	}
 	if isLeadershipPrincipal(grants) {
-		return domain.NavChromeExpanded
+		available := 0
+		for _, m := range modules {
+			if m.Status == moduleStatusAvailable {
+				available++
+			}
+		}
+		if available >= 2 {
+			return domain.NavChromeExpanded
+		}
+		return domain.NavChromeMinimal
 	}
-	_ = modules
 	return domain.NavChromeMinimal
 }
 
