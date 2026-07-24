@@ -3688,8 +3688,10 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		Schedule    []scheduleRow  `json:"schedule"`
 	}
 
-	// Build the canonical vaccination matrix per spec
-	vaccMatrixDef := buildCanonicalVaccinationMatrix()
+	// Build the canonical vaccination matrix per spec. CPT's ET+TT-only validation seed can publish
+	// a packet-scoped subset, while source/history mapping above keeps using the full canonical
+	// matrix so dated facts still reconcile against reviewed vaccine names.
+	vaccMatrixDef := buildSeedPublicationVaccinationMatrix()
 
 	rows := make([]matrixRow, 0)
 	schedule := []scheduleRow{}
@@ -3941,6 +3943,21 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			RevaccinationDays: 365,
 		},
 	}
+}
+
+func buildSeedPublicationVaccinationMatrix() map[string]vaccMatrixSpec {
+	matrix := buildCanonicalVaccinationMatrix()
+	if os.Getenv("GOATOS_CPT_EXCLUDE_PPR_2026") != "1" {
+		return matrix
+	}
+	filtered := make(map[string]vaccMatrixSpec, len(matrix))
+	for name, spec := range matrix {
+		if strings.EqualFold(strings.TrimSpace(name), "PPR") {
+			continue
+		}
+		filtered[name] = spec
+	}
+	return filtered
 }
 
 type vaccMatrixSpec struct {

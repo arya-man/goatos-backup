@@ -797,7 +797,7 @@ seed-vaccination-cpt-operator-drive:
 	node "$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/check-expected-drive-schedules.mjs" --self-test
 	node tools/dev/validate-vaccination-hrms-source.mjs --source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" --as-of "$(GOATOS_CPT_OPERATOR_DRIVE_AS_OF)" --strict
 	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -strict
-	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -expect-null-false-dob=0
+	cd backend && GOATOS_CPT_EXCLUDE_PPR_2026=1 go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_CPT_OPERATOR_DRIVE_BUILD_DIR)" -expect-null-false-dob=0
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -strict
 	GOATOS_EXPECTED_DRIVE_SCHEDULES="$(GOATOS_CPT_OPERATOR_DRIVE_PACKET)/expected-drive-schedules.json" \
 	  GOATOS_EXPECTED_DRIVE_VARIANT="final_discussed_plan_et_tt_only_no_ppr" \
