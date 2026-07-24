@@ -303,7 +303,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 
 	var bestDate *time.Time
 	var bestIDs []string
-	bestAnimals := -1
+	bestScore := unbatchedDriveDateScore{inWindowAnimals: -1, animals: -1, obligations: -1}
 	for probe := businessDate(*plannedDate); !probe.After(latest); {
 		if len(session.unbatchedObligationsFeasibleOnDateForVaccine(now, probe, rows, planner, ruleVaccineID)) > 0 {
 			day := probe
@@ -333,16 +333,16 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, session)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
-			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, cappedIDs))
+			score := scoreUnbatchedDriveDate(now, day, rows, cappedIDs, planner)
 			session.releaseClaims(shotClaims)
 			if err := driveRelease(ctx); err != nil {
 				return plannedDate, nil, nil, err
 			}
-			if animals > bestAnimals || (animals == bestAnimals && len(cappedIDs) > len(bestIDs)) {
+			if score.betterThan(bestScore) {
 				chosen := day
 				bestDate = &chosen
 				bestIDs = append(bestIDs[:0], cappedIDs...)
-				bestAnimals = animals
+				bestScore = score
 			}
 		}
 		probe = probe.AddDate(0, 0, 1)
