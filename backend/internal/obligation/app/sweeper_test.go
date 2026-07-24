@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -2722,7 +2723,7 @@ func TestLimitUnbatchedSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, NewSweepSession())
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
@@ -2740,7 +2741,7 @@ func TestLimitUnbatchedSelectionAllLastSafeStillRespectsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession())
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-1" {
 		t.Fatalf("admitted = %#v, want only the first last-safe row inside cap 1", out)
 	}
@@ -2758,7 +2759,7 @@ func TestLimitUnbatchedSelectionRejectsPastWindowRideAlongOverflow(t *testing.T)
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveAnimals(now, rows, []string{"obl-blue-tongue", "obl-loose"}, &planned, planner, NewSweepSession())
+	out := limitUnbatchedSelectionByDriveAnimals(now, rows, []string{"obl-blue-tongue", "obl-loose"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 1 || out[0] != "obl-loose" {
 		t.Fatalf("admitted = %#v, want only loose-window row; past-window blue_tongue must not ride 07-31 batch", out)
 	}
@@ -2775,9 +2776,67 @@ func TestLimitUnbatchedSelectionCountsDistinctAnimals(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 2
 
-	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, &planned, planner, NewSweepSession())
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, []string{"obl-ettt", "obl-ppr", "obl-goat-2"}, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all obligations for two distinct animals within cap 2", out)
+	}
+}
+
+func TestLimitUnbatchedSelectionCarriesWholePartitionPastResidualCapacity(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := make([]domain.UnbatchedDue, 0, 42)
+	selected := make([]string, 0, 42)
+	for i := 0; i < 42; i++ {
+		id := fmt.Sprintf("obl-%02d", i+1)
+		rows = append(rows, domain.UnbatchedDue{
+			ObligationID: id,
+			RuleID:       "rule-fmd",
+			ScopeType:    "shed",
+			ScopeID:      "shed-gandhi",
+			ParkID:       "park-1",
+			TargetID:     fmt.Sprintf("goat-%02d", i+1),
+			ShedName:     "Gandhi 3",
+			DueAt:        planned,
+			WindowEnd:    &movableEnd,
+		})
+		selected = append(selected, id)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 4
+
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, selected, &planned, planner, 200, NewSweepSession())
+	if len(out) != 0 {
+		t.Fatalf("admitted = %#v, want no 4-animal fragment from Gandhi Part 3", out)
+	}
+}
+
+func TestLimitUnbatchedSelectionOnlySplitsPartitionLargerThanCap(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := make([]domain.UnbatchedDue, 0, 6)
+	selected := make([]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		id := fmt.Sprintf("obl-oversized-%02d", i+1)
+		rows = append(rows, domain.UnbatchedDue{
+			ObligationID: id,
+			RuleID:       "rule-fmd",
+			ScopeType:    "shed",
+			ScopeID:      "shed-gandhi",
+			ParkID:       "park-1",
+			TargetID:     fmt.Sprintf("goat-oversized-%02d", i+1),
+			ShedName:     "Gandhi 3",
+			DueAt:        planned,
+			WindowEnd:    &movableEnd,
+		})
+		selected = append(selected, id)
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 4
+
+	out := limitUnbatchedSelectionByDriveAnimals(planned, rows, selected, &planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
+	if len(out) != 4 {
+		t.Fatalf("admitted = %#v, want 4 rows only because the partition itself exceeds cap 4", out)
 	}
 }
 

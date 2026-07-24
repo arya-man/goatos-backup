@@ -286,7 +286,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			_ = release(ctx)
 			return plannedDate, nil, nil, err
 		}
-		cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, plannedDate, capPlanner, session)
+		cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, plannedDate, capPlanner, planner.MaxGoatsPerDrive, session)
 		if len(cappedIDs) < len(selectedIDs) {
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -330,7 +330,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 				_ = driveRelease(ctx)
 				return plannedDate, nil, nil, err
 			}
-			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, session)
+			cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, &day, capPlanner, planner.MaxGoatsPerDrive, session)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 			score := scoreUnbatchedDriveDate(now, day, rows, cappedIDs, planner)
@@ -373,7 +373,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		_ = driveRelease(ctx)
 		return bestDate, nil, nil, err
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, session)
+	cappedIDs := limitUnbatchedSelectionByDriveAnimals(now, rows, selectedIDs, bestDate, capPlanner, planner.MaxGoatsPerDrive, session)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
