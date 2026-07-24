@@ -62,9 +62,14 @@ shed `Godel 1` with partition `Part 3`. Seed/import must write the physical
 shed to `locations`/`goats.shed_id`; drive assignment/read models carry the
 partition label separately.
 
-Adult ET+TT dose 2 is a post-seed hard gate. Accepted `et_tt_adult_w1` history
-without a same-goat `et_tt_adult_w2` obligation or completion is an invalid
-seed/generation output, even if later unrelated drive rows exist.
+Adult vaccination scheduling must not use source `entry_date` / `post_arrival`
+as a due-date anchor. For adults, accepted same-vaccine history is the timing
+authority; if no same-vaccine history exists, the animal joins the reviewed
+manual campaign/catch-up cohort for that vaccine instead of getting a private
+arrival-derived singleton date. Adult ET+TT dose 2 is a post-seed hard gate:
+accepted `et_tt_adult_w1` history without a same-goat `et_tt_adult_w2`
+obligation or completion is an invalid seed/generation output, even if later
+unrelated drive rows exist.
 
 ## CPT Operator-Drive Rehearsal Packet
 
@@ -292,7 +297,10 @@ transform may repair surrounding mock metadata but must never change a dated,
   allowed bound. If there is no defensible DOB, keep it null. Never create a
   birthday merely to make a check green.
 - A missing DOB retains the reviewed source kid/adult stage fallback. Runtime
-  uses accepted same-vaccine history, entry date, or adult catch-up as designed.
+  uses accepted same-vaccine history for adults when present; adult blank-history
+  animals join the reviewed campaign/catch-up cohort rather than using
+  `entry_date` as a vaccination due-date anchor. Kid/young timing remains strict
+  under the published DOB/age rules.
 - If vaccination occurs after a mock death/sale, keep the vaccination and remove
   the contradictory terminal fact, restoring the animal to Alive.
 - Preserve health case-log semantics. `Closed` means the source case is

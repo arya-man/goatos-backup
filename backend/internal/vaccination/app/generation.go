@@ -1284,7 +1284,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// Match the SPECIFIC dose (not any dose of the vaccine): a still-required later dose of the
 		// same course (ET+TT week-7 booster, adult wave two) has no matching administration yet and
 		// must still be scheduled from its own anchor (VACC-REV-06).
-		if isPrimaryAnchorRule(rule) && hasSameDoseAdministration(rule, ruleVaccine, vaccineHistory) {
+		if isPrimaryCourseRule(rule) && hasSameDoseAdministration(rule, ruleVaccine, vaccineHistory) {
 			res.SuppressedByTrustedHistory++
 			// Supersede any stale no-anchor catch-up placeholder for THIS dose from an earlier pass so
 			// history + a later DOB fix never leave a duplicate of the already-given dose behind.
@@ -2242,12 +2242,11 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 	return businessDayStart(latest).AddDate(0, 0, int(gap)), true
 }
 
-// primaryCourseContinuationDueFromHistory handles course rows that are authored as DOB/arrival
-// anchored primaries (for example ET+TT adult dose 1/dose 2 or kid 4w/7w) but whose first dose was
+// primaryCourseContinuationDueFromHistory handles primary-course rows whose earlier course dose was
 // imported as real history. In that case the next primary-course dose must continue from the actual
 // administered date plus the configured row-to-row gap, not from a stale/missing DOB or entry date.
 func primaryCourseContinuationDueFromHistory(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string, history []domain.RecentVaccineAdministration) (time.Time, bool, error) {
-	if !isPrimaryAnchorRule(rule) {
+	if !isPrimaryCourseRule(rule) {
 		return time.Time{}, false, nil
 	}
 	prev, prevVaccine, found, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, fallbackEligibility, fallbackVaccine, path)
@@ -2284,7 +2283,7 @@ func repeatMustWaitForPrimaryCourse(rule protodomain.Rule, ruleVaccine vaccinePr
 		return false, err
 	}
 	for _, candidate := range rules {
-		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
 			continue
 		}
 		candidateEligibility, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
@@ -2311,7 +2310,7 @@ func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile
 	var bestVaccine vaccineProfile
 	found := false
 	for _, candidate := range rules {
-		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
 			continue
 		}
 		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
@@ -2335,7 +2334,7 @@ func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile
 
 func primaryRuleForAdministration(ruleVaccine vaccineProfile, admin domain.RecentVaccineAdministration, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string) (protodomain.Rule, vaccineProfile, bool, error) {
 	for _, candidate := range rules {
-		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+		if !isPrimaryCourseRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
 			continue
 		}
 		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)

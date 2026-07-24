@@ -1480,28 +1480,17 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, err
 	}
 
-	// Run kernel generation IN THE SEED to produce derived obligations. The normal
-	// effective pass materializes kid DOB rules and history-anchored revac/booster
-	// work; the explicit campaign pass materializes adult initial campaign rules
-	// without ever using entry_date/post_arrival as the adult due anchor.
+	// Run kernel generation IN THE SEED to produce derived obligations. This
+	// materializes kid DOB rules and history-anchored revac/booster work. Adult
+	// blank-history initial rows are manual campaign rules and must not fire here:
+	// adult entry_date is never a vaccination due anchor, and a campaign trigger is
+	// required before blank-history adult cohorts become work.
 	protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
 	genRes, err := gen.GenerateEffectiveForAllGoats(ctx, tenantID, now)
-	if err == nil || vaccinationapp.IsGenerationPartialFailure(err) {
-		campaignRes, campaignErr := gen.GenerateManualCampaignForVersion(ctx, tenantID, versionID, "cpt-adult-campaign-"+now.Format("2006-01-02"), now)
-		genRes.Generated += campaignRes.Generated
-		genRes.Deferred += campaignRes.Deferred
-		genRes.Reopened += campaignRes.Reopened
-		genRes.FailedGoats += campaignRes.FailedGoats
-		genRes.SkippedNoDueDate += campaignRes.SkippedNoDueDate
-		genRes.SuppressedByTrustedHistory += campaignRes.SuppressedByTrustedHistory
-		if campaignErr != nil && err == nil {
-			err = campaignErr
-		}
-	}
 	st.KernelGenerated = genRes.Generated
 	st.KernelDeferred = genRes.Deferred
 	st.KernelSuppressed = genRes.SuppressedByTrustedHistory
@@ -3747,18 +3736,22 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			schedule = append(schedule, cell)
 		}
 
-		// Adult campaign doses. Adult entry_date is never a vaccination due-date
-		// anchor; blank-history adults join campaign/catch-up cohorts packed by
-		// physical shed/partition, while dated accepted history feeds the
-		// after_previous_completion rules below.
+		// Adult course doses. Adult entry_date is never a vaccination due-date
+		// anchor; blank-history adult dose 1 joins campaign/catch-up cohorts packed
+		// by physical shed/partition, while later course doses (for example ET+TT
+		// W2) are anchored to accepted prior-dose history.
 		for waveIdx, wave := range spec.PostArrivalWaves {
 			sequenceCounter++
 			dose := fmt.Sprintf("%s_adult_w%d", def.Code, waveIdx+1)
+			triggerType := "manual_campaign"
+			if waveIdx > 0 {
+				triggerType = "after_previous_completion"
+			}
 			cell := scheduleRow{
 				DoseCode:            dose,
 				SourceDoseCode:      dose,
 				Sequence:            sequenceCounter,
-				TriggerType:         "manual_campaign",
+				TriggerType:         triggerType,
 				OffsetDays:          wave.Days,
 				DueWindowDays:       7,
 				DoseAmount:          def.DoseML,
