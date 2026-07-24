@@ -158,6 +158,11 @@
       "date": "2026-07-24",
       "change": "seed-roster-real deriveRoleHint now emits primary_role_hint='operator' for any member holding an active vaccination_operator_* position, overriding the frozen June-seat bestCode/bestTier that was computed before the operator-roster overlay ran. Fixes CPT operators Amit/Darshan/Sagar being mislabelled 'supervisor' (manager capacity-tier) or 'park_head' (a leftover higher-ranked seat), which silently dropped every mobile scan because the app gate keys on primary_role_hint=='operator'. Adds TestDeriveRoleHintVaccinationOperatorAlwaysOperator and a source-validator invariant guard (OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT). Capacity tier 'manager' remains a capacity/roster attribute only, never a role.",
       "vaccination_hrms_source_impact": "none to the committed full fixture bytes: this bundle ships no cpt-operator-roster.json, so its overlay is a no-op and every non-operator member keeps its prior role hint (a real manager stays 'supervisor', a real park head stays 'park_head'). No file hash, count, or corrections-ledger entry changes; the adversarial self-test baseline is unaffected. Only members recast into vaccination_operator_* positions by a present operator-roster contract now resolve to 'operator'."
+    },
+    {
+      "date": "2026-07-24",
+      "change": "CPT ET+TT-only operator-drive seed sets GOATOS_CPT_EXCLUDE_PPR_2026=1 so seed-vaccination-real publishes a packet-scoped rule matrix without PPR while keeping the canonical matrix for source/history mapping.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes: this bundle ships no CPT operator-drive seed variant flag, and canonical PPR source/history mapping remains available. Only the CPT operator-drive make target publishes the no-PPR 2026 rule subset, so PPR obligations are not generated or batched in the 2026 CPT seed proof."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows."
