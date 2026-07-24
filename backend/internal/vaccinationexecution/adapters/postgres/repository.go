@@ -3154,3 +3154,63 @@ func (r *Repository) AuthorizedParkOptions(ctx context.Context, tenantID string,
 	}
 	return out, nil
 }
+
+func (r *Repository) VaccinationExecutionCarrySummary(ctx context.Context, q domain.ExecutionQuery) ([]domain.VaccineCarryLine, error) {
+	if q.OperatorScopeActorID == "" {
+		return nil, fmt.Errorf("carry summary requires operator scope")
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// Real SQL from coordinator: aggregates obligation_instances by (eff_date, vaccine_label)
+	// for the scoped operator, with override-aware date resolution.
+	// OperatorScopeActorID is already the workforce_member_id; no external resolution.
+	sql := `
+WITH scoped AS (
+  SELECT oi.obligation_id, oi.status, m.goat_id,
+         COALESCE(pr.eligibility_json->'vaccine'->>'name', pr.dose_code) AS vaccine_label,
+         COALESCE(ovr.override_date, vda.planned_date) AS eff_date,
+         vda.operator_id
+  FROM obligation_instances oi
+  JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id
+  JOIN vaccination_drive_assignments vda ON vda.assignment_id = m.assignment_id
+  JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
+  LEFT JOIN vaccination_drive_date_overrides ovr
+    ON ovr.tenant_id = vda.tenant_id AND ovr.park_id = vda.park_id AND ovr.canceled_at IS NULL
+   AND lower(btrim(ovr.vaccine_code)) = lower(btrim(COALESCE(pr.eligibility_json->'vaccine'->>'code','')))
+   AND (ovr.original_drive_date = vda.planned_date OR ovr.override_date = vda.planned_date)
+  WHERE oi.tenant_id = $1
+)
+-- projection-review: membership=obligation_instances joined 1:1 to their vaccination_drive_assignment_members row (obligation_id unique) and that row's assignment, for the operator's day range; group_key=(effective_drive_date, vaccine_label) where effective_drive_date=COALESCE(active override.override_date, vda.planned_date) so a moved-away vaccine counts on its NEW day only; join_cardinality=member->assignment many-to-one and obligation->protocol_rule 1:1, and count(DISTINCT goat_id) collapses any multi-row fan-out so remaining/total are per-animal not per-obligation-row; pagination=NONE — full-day carry aggregate computed independently of the paginated row window, total never changes with the loaded page; scope=tenant ($1) + operator workforce_member ($2) + effective-date BETWEEN $3 and $4, park/shed implicit via the operator's own assignments.
+SELECT eff_date::date as eff_date, vaccine_label,
+       count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS remaining,
+       count(DISTINCT goat_id) AS total
+FROM scoped
+WHERE operator_id = (SELECT wm.workforce_member_id FROM workforce_members wm
+                     WHERE wm.tenant_id = $1 AND wm.workforce_member_id = NULLIF($2::text,'')::uuid
+                       AND wm.status='active' LIMIT 1)
+  AND eff_date BETWEEN $3::date AND $4::date
+GROUP BY eff_date::date, vaccine_label
+ORDER BY eff_date::date, vaccine_label
+`
+	rows, err := r.pool.Query(ctx, sql, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: carry summary query: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]domain.VaccineCarryLine, 0, 16)
+	for rows.Next() {
+		var line domain.VaccineCarryLine
+		var effDate time.Time
+		if err := rows.Scan(&effDate, &line.VaccineLabel, &line.RemainingDoses, &line.TotalDoses); err != nil {
+			return nil, fmt.Errorf("vaccination execution: carry summary scan: %w", err)
+		}
+		line.Date = effDate.Format("2006-01-02") // ISO date
+		out = append(out, line)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: carry summary rows: %w", err)
+	}
+	return out, nil
+}

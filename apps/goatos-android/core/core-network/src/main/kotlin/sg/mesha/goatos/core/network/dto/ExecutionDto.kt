@@ -82,6 +82,27 @@ data class VaccinationExecutionResponseDto(
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
     @SerialName("totalCount") val totalCount: Int = 0,
     @SerialName("nextCursor") val nextCursor: String? = null,
+    // Backend-owned "vaccines to carry" totals, per business day, over the WHOLE day (not the
+    // paginated page). The client renders these verbatim — it never sums shed rows.
+    @SerialName("carrySummary") val carrySummary: CarrySummaryDto? = null,
+)
+
+@Serializable
+data class VaccineCarrySummaryDto(
+    @SerialName("vaccineLabel") val vaccineLabel: String = "",
+    @SerialName("remainingDoses") val remainingDoses: Int = 0,
+)
+
+@Serializable
+data class CarryDayDto(
+    @SerialName("date") val date: String = "",
+    @SerialName("vaccineBreakdown") val vaccineBreakdown: List<VaccineCarrySummaryDto> = emptyList(),
+    @SerialName("totalRemaining") val totalRemaining: Int = 0,
+)
+
+@Serializable
+data class CarrySummaryDto(
+    @SerialName("carryByDay") val carryByDay: List<CarryDayDto> = emptyList(),
 )
 
 @Serializable

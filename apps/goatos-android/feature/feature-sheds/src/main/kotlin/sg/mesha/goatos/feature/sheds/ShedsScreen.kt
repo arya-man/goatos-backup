@@ -172,6 +172,9 @@ data class ShedsUiState(
     val roleNote: String? = null,
     val dayTabs: List<ShedDayTab> = emptyList(),
     val rows: List<ShedRow> = emptyList(),
+    // Backend-owned "vaccines to carry" for the selected day. Rendered verbatim; the screen
+    // NEVER sums shed rows to derive these (that produced a partial-page total, e.g. 111 vs 200).
+    val carry: DayCarry? = null,
     val rosterChanges: List<RosterChange> = emptyList(),
     val kernelInfo: String? = null,
     // Offline-first sync state (docs/decisions/android-offline-first.md), rendered by
@@ -271,7 +274,7 @@ fun ShedsScreen(
         ) {
             if (state.dayTabs.isNotEmpty()) {
                 item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
-                item { VaccineCarryCard(rows = state.rows) }
+                item { VaccineCarryCard(carry = state.carry) }
             } else {
                 item { DriveMeta(state) }
                 item { DayProgress(state) }
@@ -365,10 +368,14 @@ private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
     }
 }
 
+/** Backend-owned "vaccines to carry" for the selected day. The screen renders these numbers
+ *  verbatim — it never sums shed rows (that produced a partial-page total, 111 vs 200). */
+data class CarryVaccine(val label: String, val remaining: Int)
+data class DayCarry(val totalRemaining: Int, val vaccines: List<CarryVaccine>)
+
 @Composable
-private fun VaccineCarryCard(rows: List<ShedRow>) {
-    val totals = vaccineCarryTotals(rows)
-    if (totals.isEmpty()) return
+private fun VaccineCarryCard(carry: DayCarry?) {
+    if (carry == null || carry.vaccines.isEmpty()) return
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -388,7 +395,7 @@ private fun VaccineCarryCard(rows: List<ShedRow>) {
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "${totals.values.sum()} doses",
+                    text = "${carry.totalRemaining} doses",
                     color = BrandD,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -400,35 +407,12 @@ private fun VaccineCarryCard(rows: List<ShedRow>) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                totals.forEach { (label, count) ->
-                    VaccineChip(VaccineGroup(label = label, countLabel = "$count doses"))
+                carry.vaccines.forEach { v ->
+                    VaccineChip(VaccineGroup(label = v.label, countLabel = "${v.remaining} doses"))
                 }
             }
         }
     }
-}
-
-private fun vaccineCarryTotals(rows: List<ShedRow>): Map<String, Int> {
-    return rows
-        .asSequence()
-        .flatMap { row ->
-            row.vaccineGroups.asSequence().mapNotNull { group ->
-                val remaining = remainingDoseCount(group.countLabel)
-                if (remaining > 0) group.label to remaining else null
-            }
-        }
-        .groupingBy { it.first }
-        .fold(0) { total, (_, remaining) -> total + remaining }
-}
-
-private fun remainingDoseCount(countLabel: String): Int {
-    val parts = countLabel.split("/", limit = 2)
-    if (parts.size == 2) {
-        val done = parts[0].filter(Char::isDigit).toIntOrNull() ?: 0
-        val total = parts[1].filter(Char::isDigit).toIntOrNull() ?: return 0
-        return (total - done).coerceAtLeast(0)
-    }
-    return countLabel.filter(Char::isDigit).toIntOrNull() ?: 0
 }
 
 // ---------------------------------------------------------------------------

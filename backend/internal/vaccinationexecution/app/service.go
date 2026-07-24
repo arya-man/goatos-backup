@@ -55,6 +55,7 @@ func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQu
 
 // VaccinationExecutionPage returns one server-filtered keyset page plus the authoritative filtered
 // total. The repository fetches limit+1 rows in the same query, so pagination never adds a count call.
+// For app/mobile requests (OperatorScopeActorID != ""), includes per-day carry summary (page-independent).
 func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionResponse, error) {
 	page, err := s.repo.ListVaccinationExecutionPage(ctx, q)
 	if err != nil {
@@ -73,7 +74,41 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		}
 		next = &encoded
 	}
-	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness}, nil
+
+	// For app/mobile requests: fetch per-day carry summary (page-independent, full-date-range aggregation)
+	var carrySummary *domain.CarrySummary
+	if q.OperatorScopeActorID != "" {
+		carryLines, err := s.repo.VaccinationExecutionCarrySummary(ctx, q)
+		if err == nil && len(carryLines) > 0 {
+			// Group by date, aggregate per-date vaccines and totals
+			carryByDate := make(map[string][]domain.VaccineCarrySummary)
+			dayTotals := make(map[string]int64)
+			for _, line := range carryLines {
+				carryByDate[line.Date] = append(carryByDate[line.Date], domain.VaccineCarrySummary{
+					VaccineLabel:   line.VaccineLabel,
+					RemainingDoses: line.RemainingDoses,
+					TotalDoses:     line.TotalDoses,
+				})
+				dayTotals[line.Date] += line.RemainingDoses
+			}
+			// Build ordered CarryDay slice
+			carryDays := make([]domain.CarryDay, 0, len(carryByDate))
+			for _, line := range carryLines {
+				// Avoid duplicates by checking if we've already seen this date
+				if len(carryDays) > 0 && carryDays[len(carryDays)-1].Date == line.Date {
+					continue
+				}
+				carryDays = append(carryDays, domain.CarryDay{
+					Date:             line.Date,
+					VaccineBreakdown: carryByDate[line.Date],
+					TotalRemaining:   dayTotals[line.Date],
+				})
+			}
+			carrySummary = &domain.CarrySummary{CarryByDay: carryDays}
+		}
+	}
+
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary}, nil
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {

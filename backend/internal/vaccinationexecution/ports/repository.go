@@ -62,4 +62,8 @@ type Repository interface {
 	// 0 the row must not already exist (first write); otherwise rowVersion must match the current stored
 	// value or ErrOperatorAssignmentConfigConflict is returned.
 	UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error)
+	// VaccinationExecutionCarrySummary returns per-day carry summary (dose counts by vaccine) for an operator
+	// across a date range. Aggregated FULL-DAY (not paginated). Date range is inclusive: from q.AsOf to q.DueBefore.
+	// Returns VaccineCarryLine rows keyed by (date, vaccine_label).
+	VaccinationExecutionCarrySummary(ctx context.Context, q domain.ExecutionQuery) ([]domain.VaccineCarryLine, error)
 }
