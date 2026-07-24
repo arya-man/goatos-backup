@@ -49,6 +49,15 @@ Expected:
 - source SHA: latest approved `origin/main`
 - working tree: clean
 
+## Chatbot / CEO AI Verification
+
+After backend/admin-web deploy, verify the leadership assistant using:
+
+`docs/runbooks/stg-chatbot-ai-wiring.md`
+
+Do not assume Vertex/Gemini, Cube, or MCP Toolbox are wired merely because the
+backend deployed. Report each as deployed, fallback-only, placeholder, or missing.
+
 ## BUG-041 Policy
 
 BUG-041 is NOT a deployment blocker unless explicitly stated. If BUG-041 remains:
