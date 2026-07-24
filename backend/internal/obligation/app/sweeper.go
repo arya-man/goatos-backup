@@ -1237,11 +1237,33 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			session.releaseClaims(claimChunk)
 			continue
 		}
-		// Scope drive assignments to only those obligations that actually attached, then REPLACE
-		// (not upsert) the batch's whole drive-assignment row set with exactly that scoped set, so
-		// no row for a selected-but-unattached obligation (a different shed/partition/operator key)
-		// can survive -- idempotent/replay-safe: re-running the same attach recomputes and
-		// re-replaces the identical set.
+		// BUG-041 (per-rule sweep path): a batch is matched/reused across sweep passes by
+		// (version, scope, session, planned_date, window) -- and batchSession() maps sibling vaccines
+		// onto ONE combo session ("combo:FMD+HS", "combo:PPR+Blue Tongue"), while a single rule can
+		// also attach across shed/date chunks -- so THIS pass's attach may leave EARLIER passes'
+		// obligations already on the batch. Rebuilding drive rows from only THIS pass's attachedRows
+		// and REPLACE-ing the whole batch would delete the earlier passes' shed/lane cells, leaving
+		// those obligations due but on no operator drive lane (the 109-unbound CPT reseed shape:
+		// combo:FMD+HS batch keeping only the HS lane; a rule:<uuid> Blue-Tongue batch keeping only
+		// the Old-Yashoda arm). Rebuild from the batch's FULL attached obligation set instead -- the
+		// same authoritative full-batch rebuild the combo-align merge path uses. It reads
+		// obligation_instances for the whole batch, buckets by (park, shed, physical_shed, partition,
+		// vaccine lane), distributes across real operators with THIS batch excluded from its own
+		// capacity load, and atomically replaces + membership-syncs. The legacy attachedRows path
+		// stays only as the fallback for repos that cannot read the full batch (in-memory test fakes).
+		if _, ok := s.repo.(driveRebuildInputsReader); ok {
+			if err := s.RebuildMergedBatchDriveAssignments(ctx, tenantID, batchID, planner.MaxGoatsPerDrive, session); err != nil {
+				session.releaseClaims(claimChunk)
+				return batched, obligations, err
+			}
+			claimUnbatchedDriveAnimals(session, selectedUnbatchedRows(g.rows, attachedIDs), *plannedDate)
+			session.releaseClaims(claimsOutsideSelection(claimChunk, attachedIDs))
+			batched = true
+			obligations += int64(len(attachedIDs))
+			continue
+		}
+		// Fallback (test fakes without full-batch read): scope drive assignments to only those
+		// obligations that actually attached, then REPLACE the batch's whole drive-assignment row set.
 		attachedRows := selectedUnbatchedRows(selectedRows, attachedIDs)
 		scopedAssignments := driveAssignmentsForUnbatched(batchID, newBatch, attachedRows)
 		// projection-review: BUG-001 -- the persisted drive-assignment row set is the DISTRIBUTED
