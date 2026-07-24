@@ -233,3 +233,11 @@ the dashboard look clean.
 - A successful seed is never inferred from a UI screenshot. Preserve the source
   manifest, backup ID, deployed image digest, seed reconciliation output, DB
   invariant query output, job execution status, and final API/UI evidence.
+
+## Login Seed Contract
+
+The STG reseed must also satisfy:
+
+`docs/runbooks/stg-login-seed-contract.md`
+
+Do not stop after goat/vaccination/HRMS rows. Verify field Android users and leadership SSO users.
