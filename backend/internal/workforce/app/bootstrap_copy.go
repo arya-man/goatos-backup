@@ -30,6 +30,11 @@ type moduleNavContribution struct {
 	// permissions.routePermissions requires the same permission, so an unlisted page is
 	// unreachable rather than merely invisible.
 	requiredPermission string
+	// excludedPermission suppresses a field-lens item when the principal holds a
+	// higher-level module lens. This keeps one Vaccination module reusable without
+	// turning the nav builder into a per-role template: the role table grants the
+	// lens permission, and the registry declares how that lens changes the bar.
+	excludedPermission string
 }
 
 // moduleDefinition is a module's drawer identity plus the nav items it contributes
@@ -69,7 +74,9 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:      moduleStatusAvailable,
 		priority:    1,
 		contributions: []moduleNavContribution{
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},      //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.VaccinationOverviewRead},     //nav-composition:ignore: registry entry
 			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
@@ -127,6 +134,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		priority:    0,
 		contributions: []moduleNavContribution{
 			{key: "verify", labelKey: "nav.verify", href: "/verify", shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                         //nav-composition:ignore: registry entry
 		},
 	},
 }
@@ -189,9 +197,13 @@ func grantsHavePermission(grants []domain.GrantSummary, permission string) bool 
 func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) []moduleNavContribution {
 	out := make([]moduleNavContribution, 0, len(def.contributions))
 	for _, contrib := range def.contributions {
-		if grantsHavePermission(grants, contrib.requiredPermission) {
-			out = append(out, contrib)
+		if !grantsHavePermission(grants, contrib.requiredPermission) {
+			continue
 		}
+		if contrib.excludedPermission != "" && grantsHavePermission(grants, contrib.excludedPermission) {
+			continue
+		}
+		out = append(out, contrib)
 	}
 	return out
 }
@@ -434,6 +446,7 @@ func localizedBootstrapLabel(localeTag, key string) string {
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
 		"nav.verify":      "Verify",
+		"nav.overview":    "Overview",
 		"nav.calendar":    "Calendar",
 		"nav.alerts":      "Alerts",
 		"nav.drives":      "Drives",
@@ -454,6 +467,7 @@ var bootstrapLabels = map[string]map[string]string{
 	},
 	"hi": {
 		"nav.verify":      "सत्यापित करें",
+		"nav.overview":    "अवलोकन",
 		"nav.calendar":    "कैलेंडर",
 		"nav.alerts":      "अलर्ट",
 		"nav.drives":      "ड्राइव",
@@ -474,6 +488,7 @@ var bootstrapLabels = map[string]map[string]string{
 	},
 	"kn": {
 		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
+		"nav.overview":    "ಅವಲೋಕನ",
 		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":      "ಎಚ್ಚರಿಕೆಗಳು",
 		"nav.drives":      "ಡ್ರೈವ್‌ಗಳು",
@@ -494,6 +509,7 @@ var bootstrapLabels = map[string]map[string]string{
 	},
 	"te": {
 		"nav.verify":      "ధృవీకరించండి",
+		"nav.overview":    "అవలోకనం",
 		"nav.calendar":    "క్యాలెండర్",
 		"nav.alerts":      "అలర్ట్లు",
 		"nav.drives":      "డ్రైవ్‌లు",

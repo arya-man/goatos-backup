@@ -174,9 +174,17 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
-	want := []domain.BootstrapNavigationItem{{Key: "verify", Label: "Verify", Href: "/verify"}}
-	if len(got.VisibleNavigation) != len(want) || got.VisibleNavigation[0] != want[0] {
+	want := []domain.BootstrapNavigationItem{
+		{Key: "verify", Label: "Verify", Href: "/verify"},
+		{Key: "you", Label: "You", Href: "/you"},
+	}
+	if len(got.VisibleNavigation) != len(want) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
+	}
+	for i := range want {
+		if got.VisibleNavigation[i] != want[i] {
+			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
+		}
 	}
 	if got.NavChrome != domain.NavChromeMinimal {
 		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
@@ -251,11 +259,14 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 	})
 }
 
-// TestVisibleNavigationFor pins that leadership lands in Vaccination after the
-// standalone Overview screen removal, while operator gets the same field execution nav.
+// TestVisibleNavigationFor pins that the removed thing is the synthetic
+// Leadership module/route, not the CEO's Vaccination overview tab. CEO opens
+// Vaccination from the drawer and sees Overview/Calendar/Alerts/You; operators
+// keep the field execution bar.
 func TestVisibleNavigationFor(t *testing.T) {
-	leadershipWant := []domain.BootstrapNavigationItem{
-		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+	ceoVaccinationWant := []domain.BootstrapNavigationItem{
+		{Key: "overview", Label: "Overview", Href: "/vaccination"},
+		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -266,10 +277,10 @@ func TestVisibleNavigationFor(t *testing.T) {
 		want    []domain.BootstrapNavigationItem
 	}{
 		{
-			name:    "leadership lands in vaccination",
+			name:    "ceo vaccination module shows overview calendar alerts you",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
 			modules: []string{"vaccination", "counts"},
-			want:    leadershipWant,
+			want:    ceoVaccinationWant,
 		},
 		{
 			name:    "operator",
@@ -287,6 +298,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify"},
+				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
 		{
@@ -429,7 +441,7 @@ func TestBootstrapNavComposition(t *testing.T) {
 	t.Run("operator with single vaccination module gets shed queue, alerts, and you", func(t *testing.T) {
 		nav := visibleNavigationFor(operatorGrants, []string{"vaccination"}, "")
 		if len(nav) != 3 {
-			t.Fatalf("operator nav length=%d want 3 (vaccination + alerts + you)", len(nav))
+			t.Fatalf("operator nav length=%d want 3 (drives + alerts + you)", len(nav))
 		}
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
@@ -455,16 +467,16 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("leadership principal gets shared vaccination nav", func(t *testing.T) {
+	t.Run("preventive care leader keeps field vaccination bar", func(t *testing.T) {
 		nav := visibleNavigationFor(leadershipGrants, nil, "")
 		if len(nav) != 3 {
-			t.Fatalf("leadership nav length=%d want 3 (vaccination + alerts + you)", len(nav))
+			t.Fatalf("pc leader nav length=%d want 3 (drives + alerts + you)", len(nav))
 		}
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
-			t.Fatalf("first nav item=%#v want vaccination at /vaccination", nav[0])
+			t.Fatalf("first nav item=%#v want operator-style Drives at /vaccination", nav[0])
 		}
 		if nav[1].Key != "alerts" || nav[2].Key != "you" {
-			t.Fatalf("leadership nav should have alerts and you after vaccination; got %v", []string{nav[1].Key, nav[2].Key})
+			t.Fatalf("pc leader nav should have alerts and you after drives; got %v", []string{nav[1].Key, nav[2].Key})
 		}
 	})
 
