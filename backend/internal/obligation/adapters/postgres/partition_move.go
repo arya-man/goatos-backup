@@ -64,6 +64,16 @@ func (r *Repository) SyncPartitionMoveForGoat(ctx context.Context, tenantID, goa
 		if err := syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, batchIDs); err != nil {
 			return 0, err
 		}
+		// Re-binding members alone leaves both the old-partition arm (lost this goat) and the
+		// new-partition arm (gained it) with a stale animal_count/total_doses: the sync only rewrites
+		// membership rows, not the per-assignment counters. The grow-only
+		// reconcileDriveAssignmentCountersFromMembersTx (completeness gate ledger_animals >=
+		// animal_count) CANNOT correct the vacated arm, which SHRINKS 1->0, so recompute exactly from
+		// current members (including 0 for an emptied arm) so animal_count == count(distinct member
+		// goat) holds on BOTH arms after the move.
+		if err := recomputeDriveAssignmentCountersExactFromMembersTx(ctx, tx, tenant, batchIDs); err != nil {
+			return 0, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -135,4 +145,39 @@ WHERE tenant_id = $1::uuid
 		return nil, fmt.Errorf("obligation: partition move: batch id rows: %w", err)
 	}
 	return ids, nil
+}
+
+// recomputeDriveAssignmentCountersExactFromMembersTx resets animal_count/total_doses of every
+// drive-assignment row of the given batches to the EXACT current membership (count(distinct goat) /
+// count(*)), including 0 for an arm that a same-shed partition move emptied. Unlike
+// reconcileDriveAssignmentCountersFromMembersTx it has NO grow-only completeness gate, so it can
+// shrink the vacated arm; and unlike the cancel/missed prune it does not delete member rows -- the
+// partition move only re-binds them. Set-based, one statement, no per-goat loop.
+func recomputeDriveAssignmentCountersExactFromMembersTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	// projection-review: membership=vaccination_drive_assignment_members of the drive-assignment rows of ONE tenant's batch id list, LEFT-joined back so an emptied arm reads 0; group_key=assignment_id (vaccination_drive_assignments PK); join_cardinality=members are aggregated to at most one row per assignment_id before the join, so the UPDATE join is strictly 1:1 and no row is written twice; pagination=whole batch list recomputed in one set-based statement, no LIMIT truncates it; scope=explicit tenant + batch id list, no park/shed/cohort fan-out.
+	if _, err := tx.Exec(ctx, `
+UPDATE vaccination_drive_assignments vda
+SET animal_count = COALESCE(c.animals, 0),
+    total_doses = COALESCE(c.doses, 0),
+    updated_at = now()
+FROM (
+  SELECT s.assignment_id, agg.animals, agg.doses
+  FROM vaccination_drive_assignments s
+  LEFT JOIN LATERAL (
+    SELECT count(DISTINCT m.goat_id)::int AS animals, count(*)::int AS doses
+    FROM vaccination_drive_assignment_members m
+    WHERE m.tenant_id = $1 AND m.assignment_id = s.assignment_id
+  ) agg ON true
+  WHERE s.tenant_id = $1 AND s.batch_id = ANY($2::uuid[])
+) c
+WHERE vda.tenant_id = $1
+  AND vda.assignment_id = c.assignment_id
+  AND (vda.animal_count <> COALESCE(c.animals, 0) OR vda.total_doses <> COALESCE(c.doses, 0))`,
+		tenant, batchIDs); err != nil {
+		return fmt.Errorf("obligation: recompute drive assignment counters (exact) from membership: %w", err)
+	}
+	return nil
 }

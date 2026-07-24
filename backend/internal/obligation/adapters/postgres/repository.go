@@ -5836,6 +5836,16 @@ FROM unnest($3::text[]) AS ids(id)`, tenant, obligationMissedBatchRepairAction, 
 			return 0, fmt.Errorf("obligation: bulk missed batch repair audit: %w", err)
 		}
 	}
+	// Detaching these missed obligations from their batch (batch_id = NULL above) leaves their
+	// vaccination_drive_assignment_members rows behind, so a repaired-missed goat would still be
+	// counted on an operator's drive sheet and against drive capacity. Prune those member rows and
+	// reconcile the affected assignments' animal_count/total_doses from the remaining members (the
+	// same set-based cleanup the cancel/missed/reap paths use), inside this same transaction.
+	if len(ids) > 0 {
+		if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, ids); err != nil {
+			return 0, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit missed batch repair: %w", err)
 	}
