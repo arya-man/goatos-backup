@@ -253,6 +253,96 @@ the dashboard look clean.
   manifest, backup ID, deployed image digest, seed reconciliation output, DB
   invariant query output, job execution status, and final API/UI evidence.
 
+## STG Vaccination Seed Closeout Contract
+
+> **STG vaccination seed is not complete when commands finish.**
+> **It is complete only when the closeout gate passes.**
+
+STG seed is complete only after a full DB reseed + expected-schedule gate +
+integrity zeros. This exists so STG stops being "seed, discover bug, patch,
+reseed" every cycle. All checks read from the DB, never from command logs.
+
+### 1. Use the right seed mode
+
+- **Normal live behavior:** default mode, no CPT override. Live/default vaccine
+  pairing (same-day combos the matrix allows) must remain unchanged.
+- **CPT initial seed/catch-up validation:** enable the seed/catch-up mode only.
+  Do not let the CPT override leak into live/default scheduling.
+
+### 2. Run full reseed, not partial patching
+
+Never hand-patch bad rows. Run the whole sequence:
+
+1. Fresh DB + migrations.
+2. Seed HRMS/source roster.
+3. Seed vaccination rules.
+4. Run sweeper/closeout.
+5. Validate from the DB, not from logs.
+
+### 3. Mandatory vaccination integrity checks (all must be zero)
+
+- unbound obligations
+- wrong-vaccine memberships
+- duplicate memberships
+- `animal_count != distinct member goats`
+- cap `> 200` per operator/day
+- `NULL operator` drive rows
+- partition mismatch
+- goats bound to the wrong target/assignment
+
+### 4. Mandatory lifecycle checks
+
+Explicitly exercise and re-validate integrity after each:
+
+- new goat added
+- goat death/exit
+- goat moved between sheds
+- goat moved between partitions inside the same shed
+- missed/cancel/reap cleanup
+- date override / postponed drive
+- operator capacity changes
+
+### 5. Mandatory read-surface checks
+
+Calendar, Control Tower (CT), Action Center (AC), Workflows (WF), Protocol
+Adherence (PA), and Vaccination L1/L2/L3 must read through exact membership where
+possible — never random `LIMIT 1` assignment guessing.
+
+### 6. Expected schedule gate
+
+For CPT seed/catch-up:
+
+- ET+TT/PPR must match the expected plan in
+  `fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json`.
+- PPR must not appear on `2026-07-24` / `2026-07-25`.
+- If the rule schedules PPR after ET+TT for seed/catch-up, the anchor is the
+  ET+TT actual drive/completion date, not the raw obligation due date.
+- Other intentional same-day combos (FMD+HS, pox pairs) must stay allowed when
+  the matrix says same-day. See the CPT PPR deferral scope section above: PPR
+  deferral is a CPT validation override, not a global no-combo rule.
+
+### 7. Failure rule
+
+If any closeout check fails:
+
+- Do **not** promote STG.
+- Do **not** "accept close enough".
+- Record the failed SQL/result in `review_bugs_ledgers.md`.
+- Fix code or seed config, then rerun the full reseed (section 2), not a patch.
+
+### 8. Proof artifact
+
+The closeout must save and hand off:
+
+- commit SHA
+- seed command + env
+- expected-drive-schedule result
+- integrity SQL output
+- adult goat count and shed totals
+- pass/fail timestamp
+
+A UI screenshot is never a substitute for these DB artifacts.
+
 ## Login Seed Contract
 
 The STG reseed must also satisfy:

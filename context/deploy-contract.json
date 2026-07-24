@@ -58,6 +58,42 @@
     "bootstrap_must_pass": true,
     "seed_fail_condition": "FAIL unless Amit, Darshan, and Sagar appear as HRMS/vaccination operators with capacity, Chandrakant appears as director, and the 5 Mesha leadership users are SSO-only ceo_internal"
   },
+  "stg_vaccination_seed_closeout": {
+    "headline": "STG vaccination seed is complete only when the closeout gate passes, not when commands finish.",
+    "canonical_runbook": "docs/runbooks/staging-vaccination-clean-slate.md",
+    "runbook_section": "STG Vaccination Seed Closeout Contract",
+    "validate_from_db_not_logs": true,
+    "full_reseed_not_partial_patch": true,
+    "integrity_checks_must_be_zero": [
+      "unbound_obligations",
+      "wrong_vaccine_memberships",
+      "duplicate_memberships",
+      "animal_count_not_equal_distinct_member_goats",
+      "cap_over_200_per_operator_per_day",
+      "null_operator_drive_rows",
+      "partition_mismatch",
+      "goats_bound_to_wrong_target_or_assignment"
+    ],
+    "lifecycle_checks": [
+      "new_goat_added",
+      "goat_death_exit",
+      "goat_moved_between_sheds",
+      "goat_moved_between_partitions_same_shed",
+      "missed_cancel_reap_cleanup",
+      "date_override_postponed_drive",
+      "operator_capacity_changes"
+    ],
+    "read_surfaces_via_exact_membership": ["calendar", "control_tower", "action_center", "workflows", "protocol_adherence", "vaccination_l1_l2_l3"],
+    "expected_schedule_gate": {
+      "fixture": "fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json",
+      "ppr_absent_on": ["2026-07-24", "2026-07-25"],
+      "ppr_after_et_tt_anchor": "et_tt_actual_drive_or_completion_date",
+      "matrix_allowed_same_day_combos_preserved": true
+    },
+    "failure_blocks_stg_promotion": true,
+    "failure_logged_in": "review_bugs_ledgers.md",
+    "proof_artifacts": ["commit_sha", "seed_command_and_env", "expected_drive_schedule_result", "integrity_sql_output", "adult_goat_count_and_shed_totals", "pass_fail_timestamp"]
+  },
   "cpt_ppr_deferral_scope": {
     "headline": "PPR deferral to 2026-08-07 is a CPT initial validation override, not a permanent no-combo rule.",
     "is_global_vaccine_scheduling_rule": false,

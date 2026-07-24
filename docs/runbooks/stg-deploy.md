@@ -108,6 +108,25 @@ Canonical credentials and backend binding requirements live in:
 
 Do not invent random passwords during deploy, seed, or Android release tasks.
 
+## STG Vaccination Seed Closeout Contract
+
+> **STG vaccination seed is not complete when commands finish. It is complete
+> only when the closeout gate passes.**
+
+Do not promote STG on a "seed commands ran" basis. STG seed is complete only
+after a full DB reseed + expected-schedule gate + integrity zeros, all validated
+from the DB (not logs). Required checks — membership integrity, lifecycle
+mutations (add/death/exit/shed-move/partition-move/missed-cancel-reap/date-
+override/operator-cap), read surfaces (Calendar/CT/AC/WF/PA/Vaccination
+L1/L2/L3), and CPT seed/catch-up ET+TT/PPR behavior — plus the failure rule and
+proof artifacts live in:
+
+`docs/runbooks/staging-vaccination-clean-slate.md` → "STG Vaccination Seed
+Closeout Contract".
+
+Any closeout failure blocks STG promotion and must be logged in
+`review_bugs_ledgers.md` before a retry, which is a full reseed, not a patch.
+
 ## STG Login Seed Contract
 
 After reseed, verify login readiness using:
