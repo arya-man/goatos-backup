@@ -507,16 +507,44 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
         if (op?.shift_label != null && !/^(am|pm|rover)$/.test(shiftLabel)) pushSample(operatorRosterProblems, `${label}: shift_label must be am, pm, or rover`);
         if (shiftLabel === "pm") hasPMShift = true;
         if (op?.shift_start_minute != null && !(Number.isInteger(op.shift_start_minute) && op.shift_start_minute >= 0 && op.shift_start_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_start_minute must be 0..1439`);
-        if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute > 0 && op.shift_end_minute <= 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 1..1440`);
+        // BUG-011: minutes-of-day are 0..1439 on BOTH bounds. The DB CHECK
+        // (000035_vaccination_operator_assignment_config.sql:39-42) and the domain
+        // (vaccinationexecution/domain/operator_assignment.go Validate) both accept
+        // 0..1439; a source-valid 1440 used to pass here and then fail at the seed
+        // boundary, while an invalid 0 was rejected here but accepted downstream.
+        if (op?.shift_end_minute != null && !(Number.isInteger(op.shift_end_minute) && op.shift_end_minute >= 0 && op.shift_end_minute < 1440)) pushSample(operatorRosterProblems, `${label}: shift_end_minute must be 0..1439`);
       }
       const cap = contract?.operator_capacity?.default_animals_per_day;
       if (!(Number.isInteger(cap) && cap >= 1 && cap <= 100000)) pushSample(operatorRosterProblems, `default_animals_per_day must be an integer between 1 and 100000, got ${cap}`);
-      const activeOpsPerDay = contract?.operator_assignment_config?.active_operators_per_day;
+      const assignmentConfig = contract?.default_operator_assignment;
+      const activeOpsPerDay = assignmentConfig?.active_operators_per_day;
       if (activeOpsPerDay != null && !(Number.isInteger(activeOpsPerDay) && activeOpsPerDay >= 1 && activeOpsPerDay <= 3)) pushSample(operatorRosterProblems, `active_operators_per_day must be an integer between 1 and 3 when set, got ${activeOpsPerDay}`);
-      const defaultOpCode = String(contract?.operator_assignment_config?.default_operator_code || "").trim();
+      const defaultOpCode = String(assignmentConfig?.default_operator_code || "").trim();
       if (defaultOpCode && !/^vaccination_operator_[a-z0-9_]+$/.test(defaultOpCode)) pushSample(operatorRosterProblems, `default_operator_code must match vaccination_operator_<name> pattern, got ${defaultOpCode}`);
       if (defaultOpCode && !operatorCodes.has(defaultOpCode)) pushSample(operatorRosterProblems, `default_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${defaultOpCode}`);
-      if (contract?.operator_assignment_config && !hasPMShift) pushSample(operatorRosterProblems, "operator_assignment_config requires one pm shift operator for default-off fallback identity");
+      const fallbackOpCode = String(assignmentConfig?.fallback_operator_code || "").trim();
+      if (fallbackOpCode && !operatorCodes.has(fallbackOpCode)) pushSample(operatorRosterProblems, `fallback_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${fallbackOpCode}`);
+      const secondaryFallbackOpCode = String(assignmentConfig?.secondary_fallback_operator_code || "").trim();
+      if (secondaryFallbackOpCode && !operatorCodes.has(secondaryFallbackOpCode)) pushSample(operatorRosterProblems, `secondary_fallback_operator_code must refer to an operator declared in cpt-operator-roster.json, got ${secondaryFallbackOpCode}`);
+      if (assignmentConfig && !hasPMShift) pushSample(operatorRosterProblems, "default_operator_assignment requires one pm shift operator for default-off fallback identity");
+      if (assignmentConfig && Number.isInteger(activeOpsPerDay) && Number.isInteger(cap)) {
+        const examples = Array.isArray(contract?.weekly_capacity_examples) ? contract.weekly_capacity_examples : [];
+        for (const example of examples) {
+          const label = example?.weekday || example?.date || "weekly_capacity_examples row";
+          const availableCount = Array.isArray(example?.available_operators) ? example.available_operators.length : null;
+          const expectedRawCapacity = availableCount == null ? null : availableCount * cap;
+          if (expectedRawCapacity != null && example?.total_capacity_animals !== expectedRawCapacity) {
+            pushSample(operatorRosterProblems, `${label}: total_capacity_animals must equal available_operators.length * default_animals_per_day (${expectedRawCapacity}), got ${example?.total_capacity_animals}`);
+          }
+          if (example?.drive_assigned_operator_count !== activeOpsPerDay) {
+            pushSample(operatorRosterProblems, `${label}: drive_assigned_operator_count must equal default_operator_assignment.active_operators_per_day (${activeOpsPerDay}), got ${example?.drive_assigned_operator_count}`);
+          }
+          const expectedDriveCapacity = activeOpsPerDay * cap;
+          if (example?.drive_capacity_animals !== expectedDriveCapacity) {
+            pushSample(operatorRosterProblems, `${label}: drive_capacity_animals must equal active_operators_per_day * default_animals_per_day (${expectedDriveCapacity}), got ${example?.drive_capacity_animals}`);
+          }
+        }
+      }
     } catch (err) {
       pushSample(operatorRosterProblems, `unparseable cpt-operator-roster.json: ${err.message}`);
     }
@@ -524,8 +552,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   checks.push(makeCheck(
     "operator_roster_contract",
     operatorRosterProblems.length,
-    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed assignment config (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
-    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (1..1440), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional active_operators_per_day 1..3, default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when assignment config is present.",
+    `cpt-operator-roster.json (when present) is the authoritative operator-drive field capacity: equal per-person vaccination operators, manager tier, distinct valid week-offs, shift schedule fields, bounded default and optional per-person animal cap, and optional scheduler-consumed default_operator_assignment (active_operators_per_day, default_operator_code). shift_label is fallback identity only, not time-of-day vaccine scheduling: ${OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY}; assignment config is scheduler-consumed: ${OPERATOR_ASSIGNMENT_CONFIG_IS_SCHEDULER_CONSUMED}.`,
+    "Fix the operator-roster contract so every operator has code vaccination_operator_<name>, tier manager, can_execute_vaccination true, a distinct valid week_off, optional shift_label (am/pm/rover), optional shift_start_minute (0..1439) and shift_end_minute (0..1439), default_animals_per_day 1..100000, optional animal_cap_per_day 1..100000, optional default_operator_assignment.active_operators_per_day 1..3, default_operator_assignment.default_operator_code matching a declared vaccination_operator_<name>, and one pm shift operator when default_operator_assignment is present.",
     operatorRosterProblems,
   ));
 
@@ -588,3 +616,5 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+
+// 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.

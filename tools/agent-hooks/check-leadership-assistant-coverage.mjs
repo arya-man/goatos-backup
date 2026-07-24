@@ -54,11 +54,11 @@ function detectNewLeadershipSurfaces(files, readDiff = () => "") {
         continue;
       }
       // Match CREATE TABLE statements in the diff (with or without + prefix)
-      const tableMatches = diff.match(/CREATE TABLE\s+(\w+)/gi);
+      const tableMatches = diff.match(/CREATE TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\w+\.)?(\w+)/gi);
       if (tableMatches) {
         isClean = false; // found new table
         for (const m of tableMatches) {
-          const tableName = m.match(/CREATE TABLE\s+(\w+)/i)?.[1];
+          const tableName = m.match(/CREATE TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\w+\.)?(\w+)/i)?.[1];
           if (tableName) surfaces.add(`table:${tableName.toLowerCase()}`);
         }
       }

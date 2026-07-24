@@ -171,6 +171,10 @@ function selfTest() {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
   });
+  assert.deepEqual(pick(["fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json"]), {
+    common: true, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common"],
+  });
   assert.equal(pick([".github/workflows/ci.yml"]).full, true);
   assert.equal(pick(["unknown-runtime/file.xyz"]).full, true);
   assert.equal(verifyRequiredResults(

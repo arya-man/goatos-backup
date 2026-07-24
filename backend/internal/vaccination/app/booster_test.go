@@ -200,6 +200,93 @@ func TestScheduleNextDoseRepeatsYearlyAdultRule(t *testing.T) {
 	}
 }
 
+// matrixVaccineRule builds a rule shaped like a published CPT-matrix row: the
+// per-rule eligibility_json carries the row's own vaccine identity, exactly as
+// protocol publish materializes it (matrixRuleEligibilityJSON).
+func matrixVaccineRule(ruleID, doseCode, vaccineCode, vaccineType, pathogen, trigger string, sequence, offset, minGap int32, repeat string) protodomain.Rule {
+	return protodomain.Rule{
+		RuleID:      ruleID,
+		DoseCode:    doseCode,
+		Sequence:    sequence,
+		TriggerType: trigger,
+		OffsetDays:  offset,
+		MinGapDays:  minGap,
+		Repeat:      repeat,
+		EligibilityJSON: []byte(`{"eligibility":{"species":"goat","animal_stage":"all","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]},` +
+			`"vaccine":{"code":"` + vaccineCode + `","type":"` + vaccineType + `","pathogen_class":"` + pathogen + `"}}`),
+	}
+}
+
+// publishedCPTMatrixRules mirrors the real seeded CPT matrix (cmd/seed-vaccination-real):
+// ONE published protocol version carrying all 7 vaccines, whose rule sequences are
+// assigned from a single global counter, so every vaccine's revac row is followed by
+// the NEXT VACCINE's primary rows instead of being the end of "the series".
+func publishedCPTMatrixRules() []protodomain.Rule {
+	return []protodomain.Rule{
+		matrixVaccineRule("rule-et-tt-adult-w1", "et_tt_adult_w1", "ET+TT", "killed", "bacterial", "post_arrival", 3, 7, 0, "none"),
+		matrixVaccineRule("rule-et-tt-adult-w2", "et_tt_adult_w2", "ET+TT", "killed", "bacterial", "post_arrival", 4, 21, 21, "none"),
+		matrixVaccineRule("rule-et-tt-revac", "et_tt_revac", "ET+TT", "killed", "bacterial", "after_previous_completion", 5, 182, 182, "every_n_days"),
+		matrixVaccineRule("rule-ppr-kid-16w", "ppr_kid_16w", "PPR", "live", "viral", "birth_age", 6, 112, 0, "none"),
+		matrixVaccineRule("rule-ppr-adult-w1", "ppr_adult_w1", "PPR", "live", "viral", "post_arrival", 7, 7, 0, "none"),
+		matrixVaccineRule("rule-ppr-revac", "ppr_revac", "PPR", "live", "viral", "after_previous_completion", 8, 1095, 1095, "every_n_days"),
+		matrixVaccineRule("rule-fmd-kid-12w", "fmd_kid_12w", "FMD", "killed", "viral", "birth_age", 9, 84, 0, "none"),
+		matrixVaccineRule("rule-fmd-adult-w1", "fmd_adult_w1", "FMD", "killed", "viral", "post_arrival", 10, 63, 0, "none"),
+		matrixVaccineRule("rule-fmd-revac", "fmd_revac", "FMD", "killed", "viral", "after_previous_completion", 11, 274, 274, "every_n_days"),
+	}
+}
+
+// TestScheduleNextDoseRepeatsRevacInPublishedMultiVaccineMatrix pins the reported
+// requirement on the REAL published shape: completing a revac dose must schedule that
+// same vaccine's next revac at the rule's own authored interval (ET+TT 182, PPR 1095,
+// FMD 274). The repeat series is per VACCINE, not per protocol version — a following
+// row that belongs to a DIFFERENT vaccine must not end this vaccine's series.
+func TestScheduleNextDoseRepeatsRevacInPublishedMultiVaccineMatrix(t *testing.T) {
+	ctx := context.Background()
+	administered := time.Date(2026, time.July, 1, 8, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name        string
+		prevSeq     int32
+		wantRuleID  string
+		wantSeq     int32
+		wantGapDays int
+	}{
+		{name: "et_tt_revac repeats at 182", prevSeq: 5, wantRuleID: "rule-et-tt-revac", wantSeq: 5, wantGapDays: 182},
+		{name: "ppr_revac repeats at 1095", prevSeq: 8, wantRuleID: "rule-ppr-revac", wantSeq: 8, wantGapDays: 1095},
+		{name: "fmd_revac repeats at 274", prevSeq: 11, wantRuleID: "rule-fmd-revac", wantSeq: 11, wantGapDays: 274},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			proto := &boosterRuleReaderFake{rules: publishedCPTMatrixRules()}
+			obl := &boosterObligationWriterFake{}
+			svc := NewBoosterService(proto, obl)
+
+			scheduled, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+				TenantID:          "tenant-1",
+				ProtocolVersionID: "version-1",
+				GoatID:            "goat-1",
+				ScopeType:         "shed",
+				ScopeID:           "shed-1",
+				PrevSequence:      tc.prevSeq,
+				AdministeredAt:    administered,
+			})
+			if err != nil {
+				t.Fatalf("schedule next dose: %v", err)
+			}
+			if !scheduled || len(obl.inserted) != 1 {
+				t.Fatalf("scheduled=%v inserted=%d, want one repeat obligation for %s", scheduled, len(obl.inserted), tc.wantRuleID)
+			}
+			got := obl.inserted[0]
+			wantDue := businessDayStart(administered).AddDate(0, 0, tc.wantGapDays)
+			if got.RuleID != tc.wantRuleID || got.Sequence != tc.wantSeq || !got.DueAt.Equal(wantDue) {
+				t.Fatalf("inserted rule=%s sequence=%d due=%s, want rule=%s sequence=%d due=%s",
+					got.RuleID, got.Sequence, got.DueAt, tc.wantRuleID, tc.wantSeq, wantDue)
+			}
+		})
+	}
+}
+
 func TestScheduleNextDoseChecksAllRecentVaccinesForCrossGap(t *testing.T) {
 	ctx := context.Background()
 	proto := &boosterRuleReaderFake{

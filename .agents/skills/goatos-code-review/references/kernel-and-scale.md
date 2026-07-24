@@ -107,6 +107,34 @@ near-term retries/reminders (minutes-hours). Losing a task must never lose work.
    from the versioned active shed profile; verified completion atomically writes
    shed + stage + audit + per-animal outbox events; Vaccination rescopes open
    work and rechecks eligibility through real registered consumers.
+9. **Operator-cascade chain broken at any link.** Three separate blocking
+   violations, all machine-checked by `make cascade-event-wiring-guard`
+   (`tools/agent-hooks/check-cascade-event-wiring.mjs`); full write-up in
+   `docs/decisions/scale-anti-patterns.md` -> "Operator-cascade wiring
+   anti-patterns":
+   - **(A) Session-reserved capacity ignored at the SELECTION layer.** A
+     per-actor/day capacity read from the DB is only net of load committed by
+     PRIOR runs. Consuming `operator.Cap` without subtracting
+     `session.vaccinationOperatorLoad(tenantID, parkID, plannedDate, operatorID)`
+     lets a later due-group/rule-version in the SAME sweep re-read the cached
+     pre-session snapshot and over-select past the cap (real reseed: 221-223 vs a
+     200/operator/day cap). Fixing only the assignment-split layer is a band-aid;
+     selection is what bounds how much work enters the batch.
+   - **(B) Handler registered on a bus nothing real dispatches to.** Only
+     `backend/internal/kernelstages/bus.go` (`BuildDomainBus`) and
+     `backend/cmd/domain-event-consumer/main.go` are durable dispatch paths.
+     `backend/internal/bootstrap/api.go` and
+     `backend/internal/domainconsumer/wiring/bus.go` are not — the latter is
+     wired into no `cmd/*` binary at all. Every `Register(bus eventbus.Bus)` type
+     must be on BOTH durable buses. **A green E2E that builds its own bus proves
+     handler logic, never wiring** — demand an assertion against the production
+     bus builder (`backend/internal/kernelstages/bus_test.go` is the shape).
+   - **(C) Scheduling-relevant write with no cascade event.** A write that
+     changes operator cap / week-off / status / validity, tenant
+     `vaccination_capacity_config`, or `vaccination_operator_assignment_config`
+     must enqueue `vaccination.capacity.changed` / `vaccination.roster.changed`
+     to `outbox_messages` in the SAME transaction. Coverage is per WRITE PATH —
+     "the other endpoint already emits it" is not coverage.
 
 ## Legal-status transition review (obligation state machine)
 
@@ -710,6 +738,9 @@ start.
 - [ ] Idempotency key + fingerprint persisted in the write txn; `UNIQUE (tenant_id, idempotency_key)`; replay-safe; tests cover replay cases
 - [ ] Work claims are double-claim-safe (`FOR UPDATE SKIP LOCKED` / lease / advisory), NOT bare `FOR UPDATE`; stale claims reclaimable
 - [ ] Every new event consumer dedupes at-least-once redelivery + out-of-order via a processed-event identity; acks only after durable handling
+- [ ] Every `Register(bus eventbus.Bus)` handler is registered on BOTH durable buses (`internal/kernelstages/bus.go` AND `cmd/domain-event-consumer/main.go`); a test-built bus is not wiring proof — `make cascade-event-wiring-guard`
+- [ ] Every write that mutates a scheduler input (operator cap/week-off/status/validity, tenant capacity config, operator-assignment config) enqueues its cascade event in the SAME transaction; coverage is per write path, not per module
+- [ ] Any per-actor/day capacity consumed inside a sweep subtracts that session's already-reserved load for the same `(tenant, park, date, actor)` key at the SELECTION layer, not only at the later split layer
 - [ ] Sweepers/queries bounded: tenant/date filters, indexed, cursor resume, `LIMIT`, keyset pagination
 - [ ] No unbounded goroutines / full-herd in-memory loads
 - [ ] No N+1 per-animal queries: history/proof/compatibility/label reads are bulk per keyset page, not one round-trip per animal; per-run lookups cached per park/run

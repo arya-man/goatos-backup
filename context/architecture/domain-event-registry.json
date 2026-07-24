@@ -23,240 +23,695 @@
     "goat.obligations_canceled",
     "obligation.rescoped",
     "protocol.version.published",
-    "feed.direction.completed"
+    "feed.direction.completed",
+    "vaccination.capacity.changed",
+    "vaccination.roster.changed",
+    "vaccination.leave.changed"
   ],
   "events": [
     {
       "eventType": "goat.created",
-      "producer": "identity admin goat create",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/admin_goat_create.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
+      "producer": "identity admin goat create / procurement accepted-intake PC handoff",
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/admin_goat_create.go",
+        "backend/internal/procurement/adapters/postgres/goat_created_outbox.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go",
+          "notes": "GoatCreatedHandler.HandleEvent reads the payload key trusted_vaccination_history (written by the procurement producer) and routes it through GenerationService.ingestPreArrivalHistory (backend/internal/vaccination/app/prearrival_history.go), which reviews each supplier claim and persists it as accepted or rejected pre-arrival history before generation runs (BUG-017)."
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/internal/vaccination/adapters/postgres/generation_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/internal/vaccination/adapters/postgres/generation_integration_test.go",
+        "backend/internal/vaccination/adapters/postgres/prearrival_history_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.location.changed",
       "producer": "identity goat move/shifting",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go", "backend/internal/identity/adapters/postgres/goat_relocate.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}, {"module": "obligation", "file": "backend/internal/obligation/app/shift.go"}],
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/goat_lifecycle.go",
+        "backend/internal/identity/adapters/postgres/goat_relocate.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        },
+        {
+          "module": "obligation",
+          "file": "backend/internal/obligation/app/shift.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/internal/obligation/adapters/postgres/shift_integration_test.go", "backend/tests/e2e/story_shifting_vaccination_handoff_test.go", "backend/tests/e2e/story_shifting_vaccination_matrix_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/internal/obligation/adapters/postgres/shift_integration_test.go",
+        "backend/tests/e2e/story_shifting_vaccination_handoff_test.go",
+        "backend/tests/e2e/story_shifting_vaccination_matrix_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.stage_changed",
       "producer": "identity goat stage update / shifting reclassification",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go", "backend/internal/identity/adapters/postgres/goat_relocate.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/goat_lifecycle.go",
+        "backend/internal/identity/adapters/postgres/goat_relocate.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/tests/e2e/story_vaccrev_identity_recompute_test.go", "backend/internal/counts/adapters/postgres/approval_relocate_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/tests/e2e/story_vaccrev_identity_recompute_test.go",
+        "backend/internal/counts/adapters/postgres/approval_relocate_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.health.changed",
       "producer": "identity goat health update",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/goat_lifecycle.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/tests/e2e/story_q_sick_icu_location_defer_test.go", "backend/tests/e2e/story_ac_capacity_eligibility_exclusions_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/tests/e2e/story_q_sick_icu_location_defer_test.go",
+        "backend/tests/e2e/story_ac_capacity_eligibility_exclusions_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.reproductive.changed",
       "producer": "identity goat reproductive update",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/goat_lifecycle.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/tests/e2e/story_r_pregnancy_lactation_defer_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/tests/e2e/story_r_pregnancy_lactation_defer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.identity.changed",
       "producer": "identity goat fact correction",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/goat_lifecycle.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/tests/e2e/story_vaccrev_identity_recompute_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/tests/e2e/story_vaccrev_identity_recompute_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.exited",
       "producer": "identity goat exit",
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go"],
-      "consumers": [{"module": "obligation", "file": "backend/internal/obligation/app/cancel.go"}],
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/goat_lifecycle.go"
+      ],
+      "consumers": [
+        {
+          "module": "obligation",
+          "file": "backend/internal/obligation/app/cancel.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/internal/obligation/adapters/postgres/cancel_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/internal/obligation/adapters/postgres/cancel_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "vaccination.completed",
       "producer": "vaccination completion accept",
-      "producerFiles": ["backend/internal/vaccination/adapters/postgres/repository.go", "backend/internal/obligation/adapters/postgres/repository.go", "backend/internal/verification/adapters/postgres/repository.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/completed_handler.go"}],
+      "producerFiles": [
+        "backend/internal/vaccination/adapters/postgres/repository.go",
+        "backend/internal/obligation/adapters/postgres/repository.go",
+        "backend/internal/verification/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/completed_handler.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/vaccination/adapters/postgres/booster_integration_test.go", "backend/tests/e2e/story_ag_recurring_calendar_lifecycle_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/vaccination/adapters/postgres/booster_integration_test.go",
+        "backend/tests/e2e/story_ag_recurring_calendar_lifecycle_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "verification.item.pending",
       "producer": "generic verification item enqueue",
-      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
-      "consumers": [{"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "producerFiles": [
+        "backend/internal/verification/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        }
+      ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
-      "e2eProof": ["backend/internal/verification/adapters/postgres/repository_integration_test.go", "backend/internal/notificationbridge/verification_notify_consumer_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/verification/adapters/postgres/repository_integration_test.go",
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "verification.verdict.approved",
       "producer": "verifier approve verdict",
-      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
-      "consumers": [{"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "producerFiles": [
+        "backend/internal/verification/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        }
+      ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
-      "e2eProof": ["backend/internal/verification/app/service_test.go", "backend/internal/notificationbridge/verification_notify_consumer_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/verification/app/service_test.go",
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "verification.verdict.rework",
       "producer": "verifier reject verdict",
-      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/verification_handler.go"}, {"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "producerFiles": [
+        "backend/internal/verification/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/verification_handler.go"
+        },
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        }
+      ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
-      "e2eProof": ["backend/internal/vaccination/app/completion_test.go", "backend/internal/notificationbridge/verification_notify_consumer_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/vaccination/app/completion_test.go",
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "verification.item.closed",
       "producer": "scoped leadership drive closure",
-      "producerFiles": ["backend/internal/verification/adapters/postgres/repository.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/verification_handler.go"}, {"module": "notification", "file": "backend/internal/notificationbridge/verification_notify_consumer.go"}],
+      "producerFiles": [
+        "backend/internal/verification/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/verification_handler.go"
+        },
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        }
+      ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
-      "e2eProof": ["backend/internal/verification/app/service_test.go", "backend/internal/vaccination/app/completion_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/verification/app/service_test.go",
+        "backend/internal/vaccination/app/completion_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "obligation.missed",
       "producer": "obligation missed marker",
-      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
-      "consumers": [{"module": "calendar", "file": "backend/internal/calendar/app/missed_handler.go"}],
+      "producerFiles": [
+        "backend/internal/obligation/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "calendar",
+          "file": "backend/internal/calendar/app/missed_handler.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/obligation/adapters/postgres/complete_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/obligation/adapters/postgres/complete_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "goat.obligations_canceled",
       "producer": "goat lifecycle vaccination cancellation",
-      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/obligation/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/obligation/adapters/postgres/vaccination_cancel_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/obligation/adapters/postgres/vaccination_cancel_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "obligation.rescoped",
       "producer": "goat location shift obligation rescope",
-      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/obligation/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/obligation/adapters/postgres/shift_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/obligation/adapters/postgres/shift_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "obligation.in_progress",
       "producer": "obligation.Repository.MarkCompleted sibling in_progress trigger + vaccination Repository.recomputeObligationBatchStatusOnComplete twin (PEND-1: the first real completion in a multi-obligation drive flips its still-open siblings to in_progress)",
-      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go", "backend/internal/vaccination/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/obligation/adapters/postgres/repository.go",
+        "backend/internal/vaccination/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/obligation/adapters/postgres/inprogress_integration_test.go", "backend/internal/vaccination/adapters/postgres/pend1_sibling_inprogress_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/obligation/adapters/postgres/inprogress_integration_test.go",
+        "backend/internal/vaccination/adapters/postgres/pend1_sibling_inprogress_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "protocol.version.published",
       "producer": "protocol publish",
-      "producerFiles": ["backend/internal/protocol/adapters/postgres/repository.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
+      "producerFiles": [
+        "backend/internal/protocol/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
+      ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/protocol/adapters/postgres/repository_integration_test.go", "backend/internal/vaccination/adapters/postgres/generation_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/protocol/adapters/postgres/repository_integration_test.go",
+        "backend/internal/vaccination/adapters/postgres/generation_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "feed.direction.completed",
       "producer": "feed-direction shed-session completion (POST /feed-direction/complete): feeddirection.Repository.CompleteSession writes the canonical feed_direction_session_completions row, the audit row, and the transactional outbox message in one transaction, idempotent on both the request key and the shed-session natural key",
-      "producerFiles": ["backend/internal/feeddirection/adapters/postgres/completions.go"],
+      "producerFiles": [
+        "backend/internal/feeddirection/adapters/postgres/completions.go"
+      ],
       "consumers": [],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/feeddirection/adapters/postgres/completions_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/feeddirection/adapters/postgres/completions_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "vaccination.capacity.changed",
+      "producer": "vaccination-execution operator assignment config write (N/active-operators-per-day change), durable outbox enqueue",
+      "producerFiles": [
+        "backend/internal/vaccinationexecution/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "obligation",
+          "file": "backend/internal/obligation/app/operator_config_replan.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/obligation/app/operator_config_replan_test.go",
+        "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go",
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_config_cascade_outbox_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "vaccination.roster.changed",
+      "producer": "vaccination-execution operator assignment config write (default-operator change), durable outbox enqueue",
+      "producerFiles": [
+        "backend/internal/vaccinationexecution/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "obligation",
+          "file": "backend/internal/obligation/app/operator_config_replan.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/obligation/app/operator_config_replan_test.go",
+        "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go",
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_config_cascade_outbox_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "vaccination.leave.changed",
+      "producer": "workforce roster leave apply (shed-scoped absence add)",
+      "producerFiles": [
+        "backend/internal/workforce/adapters/postgres/roster_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "obligation",
+          "file": "backend/internal/obligation/app/operator_config_replan.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/obligation/app/operator_config_replan_test.go",
+        "backend/internal/obligation/adapters/postgres/operator_config_replan_leave_e2e_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     }
   ],
   "allowedHerdMutationWriters": [
-    {"path": "backend/internal/identity/adapters/postgres/admin_goat_create.go", "owner": "identity", "reason": "canonical goat create producer"},
-    {"path": "backend/internal/identity/adapters/postgres/goat_lifecycle.go", "owner": "identity", "reason": "canonical goat lifecycle/location/stage/health/reproductive/identity producer"},
-    {"path": "backend/internal/identity/adapters/postgres/goat_relocate.go", "owner": "identity", "reason": "canonical bulk shifting-execution relocation producer; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and the matching outbox_messages rows in the same transaction (enforced by outbox_messages_validate_event_tenant_trg), consumed by obligation/app/shift.go to re-scope shed-scoped vaccination obligations and by vaccination generation to recompute on the new management_stage"},
-    {"path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql", "owner": "identity", "reason": "sqlc source for identity lifecycle commands"},
-    {"path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql.go", "owner": "identity", "reason": "generated sqlc identity lifecycle commands"},
-    {"path": "backend/internal/procurement/adapters/postgres/repository.go", "owner": "procurement", "reason": "registered existing procurement intake/exit writer; future expansion must emit/bridge domain events"},
-    {"path": "backend/cmd/seed-vaccination-real/main.go", "owner": "seed", "reason": "idempotent local/source seed; closeout must include HRMS, stages, generation, and sweeper"}
+    {
+      "path": "backend/internal/identity/adapters/postgres/admin_goat_create.go",
+      "owner": "identity",
+      "reason": "canonical goat create producer"
+    },
+    {
+      "path": "backend/internal/identity/adapters/postgres/goat_lifecycle.go",
+      "owner": "identity",
+      "reason": "canonical goat lifecycle/location/stage/health/reproductive/identity producer"
+    },
+    {
+      "path": "backend/internal/identity/adapters/postgres/goat_relocate.go",
+      "owner": "identity",
+      "reason": "canonical bulk shifting-execution relocation producer; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and the matching outbox_messages rows in the same transaction (enforced by outbox_messages_validate_event_tenant_trg), consumed by obligation/app/shift.go to re-scope shed-scoped vaccination obligations and by vaccination generation to recompute on the new management_stage"
+    },
+    {
+      "path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql",
+      "owner": "identity",
+      "reason": "sqlc source for identity lifecycle commands"
+    },
+    {
+      "path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql.go",
+      "owner": "identity",
+      "reason": "generated sqlc identity lifecycle commands"
+    },
+    {
+      "path": "backend/internal/procurement/adapters/postgres/repository.go",
+      "owner": "procurement",
+      "reason": "registered existing procurement intake/exit writer; future expansion must emit/bridge domain events"
+    },
+    {
+      "path": "backend/cmd/seed-vaccination-real/main.go",
+      "owner": "seed",
+      "reason": "idempotent local/source seed; closeout must include HRMS, stages, generation, and sweeper"
+    }
   ],
   "futureFeatureContracts": [
     {
       "feature": "shifting",
-      "requiredEvents": ["goat.location.changed", "goat.stage_changed"],
-      "requiredConsumers": [
-        {"eventType": "goat.location.changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"},
-        {"eventType": "goat.location.changed", "module": "obligation", "file": "backend/internal/obligation/app/shift.go"},
-        {"eventType": "goat.stage_changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}
+      "requiredEvents": [
+        "goat.location.changed",
+        "goat.stage_changed"
       ],
-      "surfaces": ["backend", "frontend", "mobile"],
-      "e2eScenarios": ["same-stage shed move", "cross-stage shed move", "ICU/quarantine entry and exit", "stale event replay", "verified shifting completion atomically updates shed and operational stage then reschedules and rechecks vaccination"]
+      "requiredConsumers": [
+        {
+          "eventType": "goat.location.changed",
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        },
+        {
+          "eventType": "goat.location.changed",
+          "module": "obligation",
+          "file": "backend/internal/obligation/app/shift.go"
+        },
+        {
+          "eventType": "goat.stage_changed",
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "e2eScenarios": [
+        "same-stage shed move",
+        "cross-stage shed move",
+        "ICU/quarantine entry and exit",
+        "stale event replay",
+        "verified shifting completion atomically updates shed and operational stage then reschedules and rechecks vaccination"
+      ]
     },
     {
       "feature": "dead_birth",
-      "requiredEvents": ["goat.reproductive.changed"],
-      "requiredConsumers": [
-        {"eventType": "goat.reproductive.changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}
+      "requiredEvents": [
+        "goat.reproductive.changed"
       ],
-      "surfaces": ["backend", "frontend", "mobile"],
-      "e2eScenarios": ["dead offspring creates no vaccination obligation", "mother state triggers downstream checks"]
+      "requiredConsumers": [
+        {
+          "eventType": "goat.reproductive.changed",
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "e2eScenarios": [
+        "dead offspring creates no vaccination obligation",
+        "mother state triggers downstream checks"
+      ]
     },
     {
       "feature": "feed_direction",
-      "requiredEvents": ["goat.location.changed", "goat.stage_changed", "goat.health.changed", "goat.reproductive.changed", "protocol.version.published", "feed.direction.completed"],
+      "requiredEvents": [
+        "goat.location.changed",
+        "goat.stage_changed",
+        "goat.health.changed",
+        "goat.reproductive.changed",
+        "protocol.version.published",
+        "feed.direction.completed"
+      ],
       "requiredConsumers": [],
-      "surfaces": ["backend", "frontend", "mobile"],
-      "e2eScenarios": ["location/stage/health/reproductive changes recompute feed work", "offline mobile command converges through backend event", "operator marks a shed-session fed (optional video) -> feed.direction.completed produced -> serve path reports the row completed"]
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "e2eScenarios": [
+        "location/stage/health/reproductive changes recompute feed work",
+        "offline mobile command converges through backend event",
+        "operator marks a shed-session fed (optional video) -> feed.direction.completed produced -> serve path reports the row completed"
+      ]
     }
   ],
   "movementIntegrationContracts": [
     {
       "contract": "shifting_completion_to_vaccination",
       "status": "prospective_until_activation_path_exists",
-      "activationPaths": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
-      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
-      "requiredEvents": ["goat.location.changed", "goat.stage_changed"],
+      "activationPaths": [
+        "backend/internal/identity/adapters/postgres/goat_relocate.go"
+      ],
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/goat_relocate.go"
+      ],
+      "requiredEvents": [
+        "goat.location.changed",
+        "goat.stage_changed"
+      ],
       "requiredConsumers": [
-        {"eventType": "goat.location.changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"},
-        {"eventType": "goat.location.changed", "module": "obligation", "file": "backend/internal/obligation/app/shift.go"},
-        {"eventType": "goat.stage_changed", "module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}
+        {
+          "eventType": "goat.location.changed",
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        },
+        {
+          "eventType": "goat.location.changed",
+          "module": "obligation",
+          "file": "backend/internal/obligation/app/shift.go"
+        },
+        {
+          "eventType": "goat.stage_changed",
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go"
+        }
       ],
       "authoritativeProfile": {
         "source": "active destination shed_profiles row joined through animal_stage_lookup",
-        "snapshotAtAuthorization": ["destination_profile_id", "destination_profile_row_version"],
-        "evidenceFiles": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
-        "requiredTokens": ["shed_profiles", "animal_stage_lookup", "row_version", "destination_profile_id", "destination_profile_row_version"],
+        "snapshotAtAuthorization": [
+          "destination_profile_id",
+          "destination_profile_row_version"
+        ],
+        "evidenceFiles": [
+          "backend/internal/identity/adapters/postgres/goat_relocate.go"
+        ],
+        "requiredTokens": [
+          "shed_profiles",
+          "animal_stage_lookup",
+          "row_version",
+          "destination_profile_id",
+          "destination_profile_row_version"
+        ],
         "forbiddenPatterns": [
-          {"pattern": "SELECT\\s+DISTINCT\\s+management_stage\\s+FROM\\s+goats", "reason": "resident goats are observations, not destination shed configuration authority"}
+          {
+            "pattern": "SELECT\\s+DISTINCT\\s+management_stage\\s+FROM\\s+goats",
+            "reason": "resident goats are observations, not destination shed configuration authority"
+          }
         ]
       },
       "transactionEvidence": {
         "rule": "verified completion updates goat shed and operational stage and writes identity audit plus both outbox events in one transaction",
-        "evidenceFiles": ["backend/internal/identity/adapters/postgres/goat_relocate.go"],
-        "requiredTokens": ["goat_identity_events", "outbox_messages", "UPDATE goats", "management_stage"]
+        "evidenceFiles": [
+          "backend/internal/identity/adapters/postgres/goat_relocate.go"
+        ],
+        "requiredTokens": [
+          "goat_identity_events",
+          "outbox_messages",
+          "UPDATE goats",
+          "management_stage"
+        ]
       },
       "requiredProof": [
         {
           "file": "backend/tests/e2e/story_shifting_vaccination_handoff_test.go",
-          "mustContain": ["CompleteShifting", "goat.location.changed", "goat.stage_changed", "GoatShiftedHandler", "GoatRecheckHandler", "management_stage", "scope_id"]
+          "mustContain": [
+            "CompleteShifting",
+            "goat.location.changed",
+            "goat.stage_changed",
+            "GoatShiftedHandler",
+            "GoatRecheckHandler",
+            "management_stage",
+            "scope_id"
+          ]
         }
       ]
     }

@@ -267,7 +267,185 @@ FROM unnest(
 		tenant, batchIDs, plannedDates, operatorIDs, parkIDs, shedIDs, physicalSheds, partitions, animalCounts, vaccineRuleIDsJSON, totalDoses, statuses, warningsJSON); err != nil {
 		return fmt.Errorf("obligation: upsert drive assignments: %w", err)
 	}
+	// Membership must be recorded in the SAME transaction as the assignment rows: a drive row that
+	// stores only "80 animals" cannot be reduced by exactly one death/sale, and a split cell
+	// ("200 on Jul 24, 124 on Jul 25") cannot say WHICH goat is on which day.
+	if err := syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, dedupUUIDs(batchIDs)); err != nil {
+		return err
+	}
 	return nil
+}
+
+// zeroUUIDLiteral is the sentinel used by the assignment table's own partial-unique conflict key
+// for a NULL shed_id; the membership cell key must group by the identical expression so a
+// park-grain cell (shed_id IS NULL) forms exactly one cell instead of one cell per row.
+const zeroUUIDLiteral = "'00000000-0000-0000-0000-000000000000'::uuid"
+
+// syncVaccinationDriveAssignmentMembersTx recomputes the EXACT obligation/goat membership of every
+// vaccination_drive_assignments row belonging to batchIDs, inside the caller's transaction.
+//
+// Why this exists (the closed gap): a drive assignment row stores an aggregate `animal_count`, not
+// the identities behind it. When the planner splits one shed/partition cell across two operators or
+// two dates, the database knew "200 here, 124 there" but not WHICH goats. Every downstream exact
+// action -- remove one dead/sold goat from the one drive row that actually covers it, re-plan a cell
+// after a cap change, show a per-animal operator/date, hand an operator an exact drive list -- needs
+// per-goat truth.
+//
+// How membership is derived (deterministic, and the ONLY derivation available at this layer):
+// domain.DriveAssignment carries no obligation ids -- the app-layer split
+// (app.planVaccinationDriveAssignments) divides a cell purely by ANIMAL COUNT, so the caller does
+// not know which goat landed on which arm either. Membership is therefore derived from canonical
+// data with a stable rule:
+//
+//	cell key   = (batch_id, park_id, shed_id, physical_shed, partition_label, vaccine lane)
+//	             where the vaccine lane is the row's own sorted vaccine_rule_ids. The lane is part of
+//	             the key, not a filter applied once and forgotten: one shed/partition can hold two
+//	             assignment rows planning DIFFERENT vaccines (two operator arms on the same day), and
+//	             binding a goat's ET+TT obligation to the PPR row would make its exit/defer decrement
+//	             the wrong operator's route. An empty lane (cardinality 0) is the legacy unspecific
+//	             row and still admits the whole batch, as its own lane.
+//	candidates = the batch's non-canceled goat obligations whose scope shed matches the cell
+//	             (park-grain cells take the batch's non-shed-scoped obligations) and whose rule is
+//	             in the cell's vaccine_rule_ids
+//	goats      = candidates collapsed to distinct goat WITHIN a lane (the same unit animal_count counts)
+//	allocation = goats ranked by goat_id are handed to the cell's split rows ordered by
+//	             (planned_date, operator_id, assignment_id), each row taking exactly its own
+//	             animal_count; every obligation of a goat follows that goat.
+//
+// Consequences stated plainly rather than papered over:
+//   - count(DISTINCT goat_id) per assignment == that row's animal_count, EXCEPT when the declared
+//     counts and the batch's real obligation set disagree. Membership is total: goats beyond the
+//     declared total land on the cell's LAST split row rather than being orphaned, and a row whose
+//     animal_count exceeds the remaining candidates simply gets fewer. Membership never invents a
+//     goat to make a count agree.
+//   - The member grain is one row per OBLIGATION (a goat due two vaccines in one drive has two
+//     member rows), so the count that matches animal_count is DISTINCT goat_id, not row count.
+//
+// Idempotent/replay-safe: prune-then-insert scoped to these batches converges on the same rows for
+// an unchanged plan. Set-based only (no per-obligation statement) -- see make scale-guard.
+func syncVaccinationDriveAssignmentMembersTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	// Prune first: an obligation moving from one split row to another would otherwise collide on
+	// UNIQUE (tenant_id, obligation_id) before the stale row is gone.
+	if _, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignment_members m
+USING vaccination_drive_assignments vda
+WHERE m.tenant_id = $1
+  AND vda.tenant_id = $1
+  AND vda.assignment_id = m.assignment_id
+  AND vda.batch_id = ANY($2::uuid[])`, tenant, batchIDs); err != nil {
+		return fmt.Errorf("obligation: prune drive assignment members: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=the batch's non-canceled goat obligation_instances, matched to the drive cell (batch,park,shed,physical_shed,partition,vaccine_lane) that actually covers them; group_key=cell key + vaccine lane + goat_id rank vs each split row's animal_count window; join_cardinality=obligation->cell is collapsed with DISTINCT ON (obligation_id) so a row can belong to exactly one assignment (also enforced by UNIQUE (tenant_id, obligation_id)), and goat->obligation fan-out is intentional (member grain is obligation, animal_count is matched by count(DISTINCT goat_id) within one lane); pagination=whole batch recomputed in one set-based statement, no page or LIMIT can truncate membership; scope=explicit batch id list within one tenant.
+-- GRAIN PROOF (producer vs consumer, mandatory per AGENTS.md):
+--   producer unique key   = vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id,0), physical_shed, partition_label, COALESCE(operator_id,0)); its business lane is vaccine_rule_ids.
+--   consumer match key    = (batch_id, park_id, COALESCE(shed_id,0), physical_shed, partition_label, lane_key) + goat rank window -- identical column list plus the lane the producer row declares; nothing the producer distinguishes is dropped.
+--   row multiplicity      = split: 1 row per assignment. obl: exactly 1 row per obligation (DISTINCT ON) => obligation->assignment is N:1. goat_rank: 1 row per (cell,lane,goat) (SELECT DISTINCT) => alloc is 1:1 with (cell,lane,goat); final INSERT joins obl (N per goat) to alloc (1 per goat) = fan-out on the member grain only, never on the counters.
+--   cap/ratio key sets    = the animal_count running window (lo/hi) and the grank it is compared against BOTH range over the same key set (batch, park, shed, physical_shed, partition_label, lane_key); an assignment's animal_count is therefore never sized against another vaccine's goats.
+WITH a AS (
+  SELECT assignment_id, batch_id, park_id, shed_id, physical_shed, partition_label,
+         planned_date, operator_id, animal_count, vaccine_rule_ids,
+         -- The vaccine lane is part of the cell's identity, not decoration: two rows can share one
+         -- batch/park/shed/physical-shed/partition and plan DIFFERENT vaccines (different operator
+         -- arms on the same day). Sorted so that two rows declaring the same rule SET in a different
+         -- array order are one lane, not two lanes each claiming the whole cell.
+         COALESCE((SELECT array_agg(r ORDER BY r) FROM unnest(vaccine_rule_ids) AS r), '{}'::uuid[]) AS lane_key
+  FROM vaccination_drive_assignments
+  WHERE tenant_id = $1 AND batch_id = ANY($2::uuid[])
+), split AS (
+  SELECT a.*,
+    COALESCE(sum(a.animal_count) OVER w_ord, 0) - a.animal_count AS lo,
+    COALESCE(sum(a.animal_count) OVER w_ord, 0) AS hi,
+    row_number() OVER (
+      PARTITION BY a.batch_id, a.park_id, COALESCE(a.shed_id, `+zeroUUIDLiteral+`), a.physical_shed, a.partition_label, a.lane_key
+      ORDER BY a.planned_date DESC, a.operator_id DESC NULLS FIRST, a.assignment_id DESC) AS rn_last
+  FROM a
+  WINDOW w_ord AS (
+    PARTITION BY a.batch_id, a.park_id, COALESCE(a.shed_id, `+zeroUUIDLiteral+`), a.physical_shed, a.partition_label, a.lane_key
+    ORDER BY a.planned_date, a.operator_id NULLS LAST, a.assignment_id
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+), obl AS (
+  SELECT DISTINCT ON (oi.obligation_id)
+    oi.obligation_id, oi.target_id AS goat_id,
+    s.batch_id, s.park_id, s.shed_id, s.physical_shed, s.partition_label, s.lane_key
+  FROM obligation_instances oi
+  JOIN split s
+    ON s.batch_id = oi.batch_id
+   AND ((oi.scope_type = 'shed' AND s.shed_id = oi.scope_id)
+     OR (oi.scope_type <> 'shed' AND s.shed_id IS NULL))
+   AND (cardinality(s.vaccine_rule_ids) = 0 OR oi.rule_id = ANY(s.vaccine_rule_ids))
+  -- The animal's OWN physical placement. assignment_id is a random UUID, so ranking candidate
+  -- cells by it made the goat -> cell binding nondeterministic run to run whenever one batch/shed
+  -- held several cells that plan the same vaccine (different partition/operator/date). The goat's
+  -- shed partition is the stable business key for "where this animal actually is"; only when the
+  -- animal has no partition row do we fall back to the cell's own business keys.
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = oi.tenant_id
+   AND gsp.goat_id = oi.target_id
+  WHERE oi.tenant_id = $1
+    AND oi.batch_id = ANY($2::uuid[])
+    AND oi.target_type = 'goat'
+    AND oi.status <> 'canceled'
+  -- Lane tiebreak before assignment_id: when an obligation's rule is admitted by more than one lane
+  -- (a specific lane and a legacy unspecific one), the specific lane wins deterministically instead
+  -- of a random UUID picking the lane.
+  ORDER BY oi.obligation_id,
+           (gsp.partition_label IS NOT NULL AND s.partition_label = gsp.partition_label) DESC,
+           s.physical_shed, s.partition_label,
+           (cardinality(s.lane_key) > 0) DESC, s.lane_key, s.assignment_id
+), goat_rank AS (
+  SELECT d.*, dense_rank() OVER (
+    PARTITION BY d.batch_id, d.park_id, COALESCE(d.shed_id, `+zeroUUIDLiteral+`), d.physical_shed, d.partition_label, d.lane_key
+    ORDER BY d.goat_id) AS grank
+  FROM (
+    SELECT DISTINCT batch_id, park_id, shed_id, physical_shed, partition_label, lane_key, goat_id FROM obl
+  ) d
+), alloc AS (
+  SELECT g.batch_id, g.park_id, g.shed_id, g.physical_shed, g.partition_label, g.lane_key, g.goat_id, s.assignment_id
+  FROM goat_rank g
+  JOIN split s
+    ON s.batch_id = g.batch_id
+   AND s.park_id = g.park_id
+   AND COALESCE(s.shed_id, `+zeroUUIDLiteral+`) = COALESCE(g.shed_id, `+zeroUUIDLiteral+`)
+   AND s.physical_shed = g.physical_shed
+   AND s.partition_label = g.partition_label
+   AND s.lane_key = g.lane_key
+   AND ((g.grank > s.lo AND g.grank <= s.hi) OR (s.rn_last = 1 AND g.grank > s.hi))
+)
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+SELECT $1, al.assignment_id, o.obligation_id, o.goat_id
+FROM obl o
+JOIN alloc al
+  ON al.batch_id = o.batch_id
+ AND al.park_id = o.park_id
+ AND COALESCE(al.shed_id, `+zeroUUIDLiteral+`) = COALESCE(o.shed_id, `+zeroUUIDLiteral+`)
+ AND al.physical_shed = o.physical_shed
+ AND al.partition_label = o.partition_label
+ AND al.lane_key = o.lane_key
+ AND al.goat_id = o.goat_id
+ON CONFLICT (assignment_id, obligation_id) DO NOTHING`, tenant, batchIDs); err != nil {
+		return fmt.Errorf("obligation: write drive assignment members: %w", err)
+	}
+	return nil
+}
+
+func dedupUUIDs(values []pgtype.UUID) []pgtype.UUID {
+	seen := make(map[[16]byte]struct{}, len(values))
+	out := make([]pgtype.UUID, 0, len(values))
+	for _, value := range values {
+		if !value.Valid {
+			continue
+		}
+		if _, ok := seen[value.Bytes]; ok {
+			continue
+		}
+		seen[value.Bytes] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 // visitShotLockKeyArg is the stable advisory-lock key argument for one (tenant, target, date)
@@ -681,7 +859,10 @@ WHERE tenant_id = $1 AND park_id = $2`, tenant, park)
 		return nil, fmt.Errorf("obligation: operator shift config rows: %w", err)
 	}
 	if len(shifts) == 0 {
-		return operators, nil
+		// Config row exists but no shift rows: the resolver can't determine the
+		// default/cover operator, so we cannot honor the config. Fail closed rather
+		// than silently returning the unfiltered operator list (fail-open).
+		return nil, domain.ErrOperatorAssignmentConfigPresentButEmpty
 	}
 
 	leaveRows, err := r.pool.Query(ctx, `
@@ -720,6 +901,13 @@ WHERE tenant_id = $1
 		if operator, ok := byID[strings.TrimSpace(operatorID)]; ok {
 			filtered = append(filtered, operator)
 		}
+	}
+	if len(filtered) == 0 {
+		// Config present but the resolved operator(s) are not in the executable
+		// candidate set (all off/leave with no cover, or resolved-but-not-executable):
+		// fail closed so the sweeper defers this day instead of planning at base cap
+		// with a possibly-unassigned drive.
+		return nil, domain.ErrOperatorAssignmentConfigPresentButEmpty
 	}
 	return filtered, nil
 }

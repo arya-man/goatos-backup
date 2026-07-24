@@ -94,10 +94,34 @@ The committed CPT operator-drive rehearsal packet lives at
 generate open drive work only on `2026-07-23` or later. The packet includes
 `cpt-operator-roster.json`, which explicitly seeds Amit Kumar, Darshan Talwar,
 and Sagar Mahoor as equal vaccination operators at `200` unique animals per
-operator per day, plus Chandrakant as director-only monitoring scope. It also
-reuses the founder/CXO `ceo_internal` grant cohort documented in
+operator per day, plus Chandrakant as director-only monitoring scope. Its
+`default_operator_assignment` is scheduler-consumed: N=1, Darshan is the default
+drive operator, Sagar is the primary fallback when Darshan is unavailable or on
+weekly off, and Amit remains in HRMS as a secondary fallback rather than being
+removed from the roster. It also reuses the founder/CXO `ceo_internal` grant cohort documented in
 `docs/runbooks/auth.md`: `ravi@mesha.sg`, `manohark@mesha.sg`,
 `manju@mesha.sg`, `abhishek@mesha.sg`, and `aryaman@mesha.sg`.
+The packet also includes `expected-drive-schedules.json`, a machine-readable
+post-seed validation sample. For the discussed 2026-07-24 drive, the expected
+final input is one active operator/day, default Darshan, 200 animals/day,
+ET+TT-only on `2026-07-24`, and PPR moved to `2026-08-07`. That produces ET+TT
+rows of 200 animals on `2026-07-24` and 124 animals on `2026-07-25`, plus PPR
+rows of 200 animals on `2026-08-07` and 124 animals on `2026-08-08`. Darshan is
+available Friday/Saturday and off Sunday; dose counts must not inflate animal
+capacity. The roster's `weekly_capacity_examples.total_capacity_animals` is raw
+HRMS availability math (`available_operators.length * 200`, so 2 available
+operators = 400 and 3 available operators = 600). It is not the final drive
+assignment cap; with `active_operators_per_day=1`, the final scheduled drive cap
+is 200 unique animals/day.
+
+For local DB reseed proof, the packet's exhaustive contract is
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/LOCAL_DB_RESEED_VALIDATION.md`.
+Follow it before staging. It explicitly rejects the failure shapes observed in
+the 2026-07-24 validation attempt: stale checkout validation, throwaway
+two-operator roster overrides, Amit missing cap/shift config, Sagar week-off
+changed to Monday, PPR or other vaccine families mixed into the final
+`2026-07-24` ET+TT-only drive, planned operator/date rows over 200 distinct
+animals, and using post-cascade superseded empty batches as clean seed proof.
 
 Animal placement is seed truth too. In this build phase, source extracts can be
 incomplete, so seed/import must deterministically complete missing goat placement
@@ -317,6 +341,39 @@ GOATOS_ENV=local \
 GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
 make seed-vaccination-source-full
 ```
+
+For the CPT operator-drive rehearsal packet the canonical command is its own
+target — the committed packet stores raw source filenames under `raw/`, and this
+target performs the transformation into the normalized bundle every validator and
+seed command consumes:
+
+```bash
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
+GOATOS_ENV=local \
+GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
+make seed-vaccination-cpt-operator-drive
+```
+
+That target: (1) runs `seed-checkout-staleness-gate` — a reseed from a checkout
+that is not clean `origin/main` is refused BEFORE any DB mutation; (2)
+materializes `build/cpt-operator-drive-source` from `raw/` +
+`cpt-operator-roster.json` (gitignored, outside `fixtures/`, because it carries
+reviewed runtime staff names); (3) runs the DB-free source preflight; (4) seeds
+roster + vaccination + position duties; (5) runs `seed-closeout` with
+`GOATOS_EXPECTED_DRIVE_SCHEDULES` set.
+
+DB validation against
+`fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json`
+is no longer a manual step: `tools/dev/seed-closeout.sh` runs
+`check-expected-drive-schedules.mjs` against real rows and FAILS the closeout on a
+per-operator/day animal-cap breach, an operator fan-out beyond
+`active_operators_per_day`, a drive operator outside the contract, drive work
+before the contract business date, a CBE/Coimbatore park row, a superseded/empty
+shell batch presented as schedule, or a missing/mismatched operator shift config.
+Set `GOATOS_EXPECTED_DRIVE_VARIANT=<variant id>` to additionally compare the exact
+per-date rows of one named variant, after applying that variant's drive-policy
+input (the ET+TT-only/PPR-moved plan exists only after the date override; natural
+kernel interleaving is a mismatch report, not a seed defect).
 
 For an already-seeded database after additive migrations, do not rerun source
 seed just to fill derived tables. Apply the migrations, then run:
@@ -621,4 +678,6 @@ Do not push a seed change that bypasses these gates.
 
 <!-- Coupling review 2026-07-23: seed-roster-real gained an operator-roster overlay. When a source dir ships cpt-operator-roster.json it is the authoritative field capacity: the park's resolved seats are recast into equal per-person vaccination_operator_<name> positions (manager tier, not backup) with contract week-offs, the strict PC-manager/backup/park-head requirement is waived for that park, and seed-vaccination-source-full skips shed-manager seeding for the operator-roster park. The committed jun-26 fixture ships no such file, so its behavior is unchanged. -->
 <!-- Coupling review 2026-07-23: workforce_positions.vaccination_daily_animal_cap is now the HRMS source of truth for per-operator vaccination animal capacity. Operator-roster rehearsal sources may set animal_cap_per_day; seed-roster-real validates it and writes it to HRMS positions. Runtime scheduling must read that HRMS position cap before tenant/default capacity, so changing an operator's cap changes future drive assignment splitting without changing raw vaccination dates or fixture bytes. -->
-<!-- Coupling review 2026-07-23: migration 000035 introduces vaccination_operator_shift_config and vaccination_operator_assignment_config tables for operator shift scheduling (shift_label/shift_start_minute/shift_end_minute) and default assignment rules (active_operators_per_day, default_operator_code). These rows are consumed by the drive scheduler when selecting daily operators and do not change source fixture bytes, seed validation, or operator-roster contract schema verification; the validator and seed-roster-real accept and seed these fields when present in cpt-operator-roster.json. -->
+<!-- Coupling review 2026-07-23: migration 000035 introduces vaccination_operator_shift_config and vaccination_operator_assignment_config tables for operator shift scheduling (shift_label/shift_start_minute/shift_end_minute) and default assignment rules (default_operator_assignment.active_operators_per_day, default_operator_assignment.default_operator_code). These rows are consumed by the drive scheduler when selecting daily operators and do not change raw animal/vaccination source bytes; the validator and seed-roster-real accept and seed these fields when present in cpt-operator-roster.json. -->
+
+<!-- 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change. -->

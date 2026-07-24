@@ -81,9 +81,21 @@ func TestResolveProofRefsRequiresCompletedTaskBoundProof(t *testing.T) {
 		t.Fatalf("unexpected ref = %#v", refs[0])
 	}
 
+	// A shed-level video (shed_level_video) is captured against the task's own shed scope
+	// (scope_type='shed', scope_id=<the task's shed>). It is bound to the task when its scope
+	// matches the binding's scope — consistent with ShedCompletionReadiness, which accepts a
+	// shed-scoped proof for the same task. So this proof resolves rather than being rejected.
 	repo.proof.ScopeType = "shed"
 	repo.proof.ScopeID = proofTestShed
 	repo.proof.Metadata = map[string]any{"task_id": proofTestTask, "sop_task_id": proofTestTask}
+	if _, err := service.ResolveProofRefs(context.Background(), proofTestTenant, binding, []sopdomain.ProofReference{{ProofID: proofTestID}}); err != nil {
+		t.Fatalf("shed-scoped proof matching the binding scope should resolve, got err = %v", err)
+	}
+
+	// A proof scoped to a DIFFERENT shed than the binding is still unbound and rejected.
+	repo.proof.ScopeType = "shed"
+	repo.proof.ScopeID = proofTestID2 // any shed id that is not binding.ScopeID
+	repo.proof.SubjectID = nil        // isolate the scope-binding check from the subject check
 	if _, err := service.ResolveProofRefs(context.Background(), proofTestTenant, binding, []sopdomain.ProofReference{{ProofID: proofTestID}}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unbound proof error = %v, want ErrInvalid", err)
 	}

@@ -72,10 +72,21 @@ func (h *GoatCreatedHandler) Register(bus eventbus.Bus) {
 }
 
 // HandleEvent generates for the goat identified by the event Key (goat_id) within e.TenantID.
+//
+// BUG-017: a procured animal's `goat.created` payload carries the supplier-attested pre-arrival
+// vaccination card in `trusted_vaccination_history`. Those claims are reviewed and durably
+// persisted as accepted/rejected pre-arrival history FIRST, so generation — which is already
+// correct once history exists — sees the accepted anchors instead of scheduling the animal from
+// scratch and re-injecting doses it already received. Persisting (rather than passing the claims
+// through one generation run) is what keeps the suppression alive across the later
+// stage/location/health recheck passes.
 func (h *GoatCreatedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
 	asOf := e.OccurredAt
 	if asOf.IsZero() {
 		asOf = time.Now()
+	}
+	if err := h.gen.ingestPreArrivalHistory(ctx, e.TenantID, e.Key, e.ID, e.Payload, asOf); err != nil {
+		return err
 	}
 	_, err := h.gen.GenerateForGoat(ctx, e.TenantID, e.Key, asOf)
 	return err

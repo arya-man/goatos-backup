@@ -268,6 +268,13 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			_ = visitRelease(ctx)
 			return plannedDate, nil, nil, err
 		}
+		if driveOperatorCapacityExhausted(planner, capPlanner) {
+			// F1: operators were found but every one has 0 remaining capacity. Do NOT fall through to
+			// lockAndRefreshDriveCapacity or limitUnbatchedSelectionByDriveAnimals, which treat
+			// MaxGoatsPerDrive == 0 as "no cap configured" and would admit onto already-exhausted operators.
+			_ = visitRelease(ctx)
+			return plannedDate, nil, nil, nil
+		}
 		driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, plannedDate, capPlanner.MaxGoatsPerDrive, session)
 		if err != nil {
 			_ = visitRelease(ctx)
@@ -307,6 +314,13 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			if err != nil {
 				return plannedDate, nil, nil, err
 			}
+			if driveOperatorCapacityExhausted(planner, capPlanner) {
+				// F1: operators were found but every one has 0 remaining capacity. Do NOT fall through to
+				// lockAndRefreshDriveCapacity or limitUnbatchedSelectionByDriveAnimals, which treat
+				// MaxGoatsPerDrive == 0 as "no cap configured" and would admit onto already-exhausted operators.
+				probe = probe.AddDate(0, 0, 1)
+				continue
+			}
 			driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, &day, capPlanner.MaxGoatsPerDrive, session)
 			if err != nil {
 				return plannedDate, nil, nil, err
@@ -343,6 +357,12 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner, session)
 	if err != nil {
 		return bestDate, nil, nil, err
+	}
+	if driveOperatorCapacityExhausted(planner, capPlanner) {
+		// F1: operators were found but every one has 0 remaining capacity. Do NOT fall through to
+		// lockAndRefreshDriveCapacity or limitUnbatchedSelectionByDriveAnimals, which treat
+		// MaxGoatsPerDrive == 0 as "no cap configured" and would admit onto already-exhausted operators.
+		return plannedDate, nil, nil, nil
 	}
 	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, bestDate, capPlanner.MaxGoatsPerDrive, session)
 	if err != nil {
@@ -483,6 +503,13 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 	if err != nil {
 		_ = visitRelease(ctx)
 		return remaining, nil, plannedDate, false, true, err
+	}
+	if driveOperatorCapacityExhausted(planner, capPlanner) {
+		// F1: operators were found but every one has 0 remaining capacity. Do NOT fall through to
+		// lockAndRefreshDriveCapacity or limitParkSelectionByDriveAnimals, which treat
+		// MaxGoatsPerDrive == 0 as "no cap configured" and would admit onto already-exhausted operators.
+		_ = visitRelease(ctx)
+		return remaining, nil, plannedDate, false, true, nil
 	}
 	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, plannedDate, capPlanner.MaxGoatsPerDrive, session)
 	if err != nil {

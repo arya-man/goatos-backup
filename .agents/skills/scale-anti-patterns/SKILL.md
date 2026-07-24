@@ -86,6 +86,27 @@ summary below — open the canonical chapters and read the live detail.
 10. broad endpoint reused for narrow screen → call/build the endpoint whose
     contract matches the screen grain/window. Example: Full Schedule reads
     `/vaccination/schedule`, not the broad Calendar events union.
+11. per-actor capacity read from the DB and spent without subtracting what the
+    CURRENT run already reserved for the same `(tenant, park, date, actor)` key →
+    net the in-session reservation ledger at the SELECTION layer, not only at the
+    later split layer. A cached pre-run snapshot re-read by a second pass
+    over-selects past the cap (observed 221-223 vs a 200/operator/day cap).
+12. event handler registered on a bus nothing real dispatches to → register every
+    `Register(bus eventbus.Bus)` type on EVERY durable bus
+    (`backend/internal/kernelstages/bus.go` AND
+    `backend/cmd/domain-event-consumer/main.go`). `bootstrap/api.go` and
+    `domainconsumer/wiring/bus.go` are not production dispatch; a green E2E that
+    builds its own bus proves handler logic, never wiring.
+13. write that mutates scheduling-relevant state (operator cap, week-off,
+    status/validity, tenant capacity config, operator-assignment config) without
+    enqueuing its cascade event (`vaccination.capacity.changed` /
+    `vaccination.roster.changed`) in the SAME transaction → already-planned future
+    work keeps the stale config forever. Coverage is per WRITE PATH; "another
+    endpoint emits it" is not coverage.
+
+`make cascade-event-wiring-guard` (`tools/agent-hooks/check-cascade-event-wiring.mjs`)
+enforces 11-13 statically; see `docs/decisions/scale-anti-patterns.md` ->
+"Operator-cascade wiring anti-patterns".
 
 Genuinely-bounded case → annotate the exact line `// scale-guard:ignore: <reason>`;
 never disable the guard. The five named canonical screen reads are the ONLY

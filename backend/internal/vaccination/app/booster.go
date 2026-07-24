@@ -110,9 +110,30 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		}
 	}
 
+	// A repeat/revac row owns its OWN recurrence: once its vaccine's dose series has no
+	// higher-sequence row left, the completed dose starts the next cycle at the rule's
+	// authored interval. "The series" is per VACCINE, not per protocol version — the
+	// published CPT matrix is one version carrying every vaccine, with rule sequences
+	// drawn from a single global counter, so a revac row is followed by the NEXT
+	// VACCINE's primary rows. Testing `next == nil` version-wide therefore silenced the
+	// recurrence of every vaccine except the last one in the matrix. Resolved before the
+	// generic next-dose branch so cross-vaccine wave chaining (e.g. PPR -> Goat Pox
+	// second wave) is untouched for non-repeat rows.
+	repeatOnly, err := isTerminalRepeatRuleForItsVaccine(current, rules, in.PrevSequence)
+	if err != nil {
+		return false, err
+	}
+
 	candidate := next
 	var due time.Time
-	if next != nil && next.TriggerType == "after_previous_completion" {
+	if repeatOnly {
+		var ok bool
+		due, ok = repeatDueAfterCompletion(*current, in.AdministeredAt)
+		if !ok {
+			return false, nil
+		}
+		candidate = current
+	} else if next != nil && next.TriggerType == "after_previous_completion" {
 		gap := next.OffsetDays
 		if next.MinGapDays > gap {
 			gap = next.MinGapDays // enforce the minimum interval
@@ -217,6 +238,67 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		}
 	}
 	return applied, nil
+}
+
+// boosterRuleVaccineCode reads a rule's OWN vaccine identity from the per-rule
+// eligibility_json that protocol publish materializes for every matrix row
+// (matrixRuleEligibilityJSON). Returns "" for a legacy/plain rule that carries no
+// per-row vaccine metadata.
+func boosterRuleVaccineCode(rule protodomain.Rule) (string, error) {
+	_, vaccine, err := ruleGenerationContext(rule, genEligibility{}, vaccineProfile{})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(vaccine.Code), nil
+}
+
+// sameBoosterVaccineSeries reports whether a candidate rule belongs to the completed
+// rule's own vaccine series. When either side has no per-row vaccine identity (a legacy
+// single-vaccine protocol version), the whole version is one series, preserving the
+// pre-matrix behaviour.
+func sameBoosterVaccineSeries(current, candidate string) bool {
+	current = strings.TrimSpace(current)
+	candidate = strings.TrimSpace(candidate)
+	if current == "" || candidate == "" {
+		return true
+	}
+	return strings.EqualFold(current, candidate)
+}
+
+// isTerminalRepeatRuleForItsVaccine reports whether the just-completed rule is a
+// repeat/revac row (repeat = every_n_days | yearly) that has no higher-sequence row of
+// its OWN vaccine left — i.e. it is the end of that vaccine's dose series and therefore
+// owns the next cycle itself.
+func isTerminalRepeatRuleForItsVaccine(current *protodomain.Rule, rules []protodomain.Rule, prevSequence int32) (bool, error) {
+	if current == nil {
+		return false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(current.Repeat)) {
+	case "every_n_days", "yearly":
+	default:
+		return false, nil
+	}
+	currentVaccine, err := boosterRuleVaccineCode(*current)
+	if err != nil {
+		return false, err
+	}
+	if currentVaccine == "" {
+		// No per-row vaccine identity: fall back to the version-wide `next == nil` test.
+		return false, nil
+	}
+	for i := range rules {
+		if rules[i].Sequence <= prevSequence {
+			continue
+		}
+		candidateVaccine, err := boosterRuleVaccineCode(rules[i])
+		if err != nil {
+			return false, err
+		}
+		if sameBoosterVaccineSeries(currentVaccine, candidateVaccine) {
+			return false, nil // this vaccine's series continues
+		}
+	}
+	return true, nil
 }
 
 func repeatDueAfterCompletion(rule protodomain.Rule, administeredAt time.Time) (time.Time, bool) {

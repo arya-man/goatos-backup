@@ -1145,7 +1145,21 @@ WITH raw AS (
    AND vc.status <> 'reversed'
   WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'completed', 'missed', 'waived')
-    AND oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+    -- Index-usable SUPERSET of the effective-due-date window (BUG-036b). The serving predicate is
+    -- COALESCE(assignment_planned_at, batch_planned_date, oi.due_at) <= X, which is a predicate over
+    -- LEFT JOIN / LATERAL output and therefore NOT index-usable on its own; expressed alone it made
+    -- the planner Seq Scan the whole obligation table. Every arm below is a bare obligation_instances
+    -- column predicate so the driving scan stays on obligation_instances_due_window_idx /
+    -- obligation_instances_batch_idx.
+    AND (
+      oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+      OR oi.batch_id = ANY (ARRAY(
+        SELECT ob2.batch_id FROM obligation_batches ob2
+        WHERE ob2.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+      ))
+    )
+    AND COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at) <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
     AND (
       oi.status IN ('scheduled', 'due', 'in_progress', 'missed', 'waived')
       OR oi.due_at >= TIMESTAMPTZ '2026-06-10 00:00:00+00'
@@ -1313,6 +1327,38 @@ ORDER BY
   due_at ASC NULLS LAST,
   shed_uuid ASC
 LIMIT 200;"
+}
+
+# BUG-036a/b regression gate. Both the vaccinationexecution operations aggregate and the
+# process-integrity canonical aggregate bound their window on the EFFECTIVE execution date --
+# COALESCE(drive_assignment_planned_date, batch_planned_date, oi.due_at) -- whose first two arms come
+# from LEFT JOIN / LEFT JOIN LATERAL output. Expressed only that way the predicate is not SARGable,
+# the planner cannot prune obligation_instances, and the reads degraded to a full sequential scan
+# (measured 500001 rows touched / a 2.5s Seq Scan aggregate at the 500k envelope).
+# The fix is an index-usable SUPERSET pre-filter, proven here: the arms are bare obligation_instances
+# columns (due_at window + the batch-id set collected from the small planning tables), so the driving
+# scan rides obligation_instances_due_window_idx / obligation_instances_batch_idx and the exact
+# COALESCE bound runs afterwards only as a residual filter.
+validate_effective_due_window_superset_plan() {
+  explain_must_use_index "EffectiveDueWindowSuperset" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT oi.obligation_id
+FROM obligation_instances oi
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+  AND (
+    (oi.due_at <= TIMESTAMPTZ '2026-02-01 00:00:00+00'
+     AND oi.due_at >= TIMESTAMPTZ '2026-01-01 00:00:00+00')
+    OR oi.batch_id = ANY (ARRAY(
+      SELECT ob2.batch_id FROM obligation_batches ob2
+      WHERE ob2.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+        AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= TIMESTAMPTZ '2026-02-01 00:00:00+00'
+    ))
+  )
+  AND COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), oi.due_at) <= TIMESTAMPTZ '2026-02-01 00:00:00+00'
+"
 }
 
 validate_feed_review_queue_plan() {
@@ -1569,6 +1615,7 @@ validate_vaccination_fanout_plan
 validate_sop_failed_submission_fanouts_plan
 validate_parks_vaccination_base_join_plan
 validate_vaccination_process_integrity_base_join_plan
+validate_effective_due_window_superset_plan
 validate_feed_review_queue_plan
 validate_feed_shed_history_plan
 validate_procurement_source_entry_plans

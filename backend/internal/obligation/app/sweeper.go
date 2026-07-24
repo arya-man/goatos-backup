@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -352,13 +353,23 @@ func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, 
 	}
 	operators, err := s.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, planner.MaxGoatsPerDrive, session)
 	if err != nil {
+		if errors.Is(err, domain.ErrOperatorAssignmentConfigPresentButEmpty) {
+			// Config present but no executable operator: fail closed. Scale to 0 so
+			// driveOperatorCapacityExhausted fires and the sweeper defers this day,
+			// instead of planning at base cap. (This runs before
+			// limitUnbatchedSelectionByDriveAnimals, so the F1 "cap<=0 == unbounded"
+			// path is never reached.)
+			scaled := planner
+			scaled.MaxGoatsPerDrive = 0
+			return scaled, nil
+		}
 		return planner, err
 	}
 	if len(operators) == 0 {
 		return planner, nil
 	}
 	scaled := planner
-	scaled.MaxGoatsPerDrive = totalVaccinationOperatorCap(operators, planner.MaxGoatsPerDrive)
+	scaled.MaxGoatsPerDrive = totalVaccinationOperatorCap(tenantID, parkID, *date, operators, planner.MaxGoatsPerDrive, session)
 	return scaled, nil
 }
 
@@ -368,15 +379,32 @@ func (s *SweeperService) effectiveOperatorAnimalCap(ctx context.Context, tenantI
 	}
 	operators, err := s.availableVaccinationOperatorsForDrive(ctx, tenantID, parkID, *date, capPerOperator, session)
 	if err != nil {
+		if errors.Is(err, domain.ErrOperatorAssignmentConfigPresentButEmpty) {
+			// Config present but no executable operator: fail closed with zero usable cap.
+			return 0, nil
+		}
 		return capPerOperator, err
 	}
 	if len(operators) == 0 {
 		return capPerOperator, nil
 	}
-	return totalVaccinationOperatorCap(operators, capPerOperator), nil
+	return totalVaccinationOperatorCap(tenantID, parkID, *date, operators, capPerOperator, session), nil
 }
 
-func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallbackCap int32) int32 {
+// totalVaccinationOperatorCap sums each operator's REMAINING usable capacity for (tenantID,
+// parkID, plannedDate): the DB-queried Cap (already net of persisted/committed load from prior
+// sweeper runs) minus whatever THIS sweep session has already reserved for that operator on that
+// exact date via rememberVaccinationOperatorLoad. Without the session subtraction, a due-group
+// processed later in the same sweep (a different protocol version/rule -- e.g. sheep_pox after
+// blue_tongue) re-reads the SAME cached pre-session DB snapshot (see
+// SweepSession.cachedVaccinationOperators) and sees the operator's full un-reserved capacity
+// again, letting it select up to that amount on top of what an earlier due-group in this same
+// sweep already committed -- overshooting the true per-operator/day cap. This mirrors the
+// subtraction planVaccinationDriveAssignments already does at the assignment-split layer; this is
+// the same fix at the earlier SELECTION-limiting layer (operatorCapacityPlanner /
+// effectiveOperatorAnimalCap), which is what actually bounds how many obligations a due-group may
+// attach to a batch. See TestOperatorCapacityPlannerHonorsCrossVersionOperatorDayLoad.
+func totalVaccinationOperatorCap(tenantID, parkID string, plannedDate time.Time, operators []domain.DriveOperatorCapacity, fallbackCap int32, session *SweepSession) int32 {
 	// fallbackCap only applies when NO operators were found at all (callers already
 	// early-return on len(operators) == 0, but keep this defensive for direct callers).
 	// When operators WERE found but every one has 0 remaining capacity, the correct
@@ -387,9 +415,17 @@ func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallb
 	}
 	var total int32
 	for _, operator := range operators {
-		// Cap is remaining usable capacity (after persisted load). Use it directly; if it's 0, the operator is at capacity.
-		if operator.Cap > 0 {
-			total += operator.Cap
+		operatorID := strings.TrimSpace(operator.OperatorID)
+		// Cap is remaining usable capacity (after persisted load from a PRIOR sweep run). Subtract
+		// what this sweep session has already reserved for this operator/date so a later
+		// due-group/version in the same sweep sees the true remaining room, not the stale
+		// pre-session snapshot.
+		remaining := operator.Cap
+		if operatorID != "" {
+			remaining -= session.vaccinationOperatorLoad(tenantID, parkID, plannedDate, operatorID)
+		}
+		if remaining > 0 {
+			total += remaining
 		}
 	}
 	return total
@@ -1067,11 +1103,17 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			session.releaseClaims(claimChunk)
 			return batched, obligations, assignErr
 		}
-		driveAssignments := driveAssignmentsForUnbatched("pending", newBatch, selectedRows)
-		if _, assignErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, driveAssignments, session); assignErr != nil {
-			session.releaseClaims(claimChunk)
-			return batched, obligations, assignErr
-		}
+		// BUG-001: the cap-aware DISTRIBUTED plan is what must be persisted. This path used to
+		// compute it here on the PRE-attach candidate set and then throw the result away, and then
+		// rebuild the persisted rows from driveAssignmentsForUnbatched -- which stamps the batch's
+		// single ConductedBy operator on EVERY row, collapsing every operator split the planner
+		// produced. Distribution now runs exactly ONCE, below, on the rows that ACTUALLY attached,
+		// and its return value is the row set handed to the replace. Running it once also keeps the
+		// session's per-operator/day load bookkeeping (rememberVaccinationDriveAssignmentLoads)
+		// counted once, against real attached animal counts rather than the pre-attach candidates.
+		// The park path preserves the distributed rows the same way
+		// (park_consolidation.go: newBatch.DriveAssignments = distributed).
+		//
 		// F2 fix: do NOT set newBatch.DriveAssignments here. selectedRows is the PRE-attach
 		// candidate set, not what actually attaches -- createBatchWithAttachedIDs only attaches
 		// rows still eligible (batch_id IS NULL, status in scheduled/due/in_progress/missed) inside
@@ -1097,7 +1139,43 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		// re-replaces the identical set.
 		attachedRows := selectedUnbatchedRows(selectedRows, attachedIDs)
 		scopedAssignments := driveAssignmentsForUnbatched(batchID, newBatch, attachedRows)
-		if err := s.replaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, scopedAssignments); err != nil {
+		// projection-review: BUG-001 -- the persisted drive-assignment row set is the DISTRIBUTED
+		// plan's grain, not the batch's single-operator grain.
+		//
+		//   Producer unique columns : distributeVaccinationDriveAssignments output ->
+		//                             (batch_id, planned_date, park_id, shed_id, physical_shed,
+		//                              partition_label, operator_id)
+		//   Consumer match columns  : ReplaceVaccinationDriveAssignmentsForBatch -> DELETE by
+		//                             (tenant_id, batch_id) then INSERT on the SAME seven columns
+		//                             (unique index vaccination_drive_assignments_batch_shed_part_
+		//                             operator_uq, migration 000022). Identical column lists, so no
+		//                             two produced rows can collide and silently collapse.
+		//   Row multiplicity        : attachedRows = 1 row per ATTACHED obligation (the many side);
+		//                             driveAssignmentsForUnbatched PRE-AGGREGATES it to 1 row per
+		//                             (park, shed, physical shed, partition) over a de-duplicated
+		//                             animal-target set; distribution then fans ONE such bucket into
+		//                             1..N operator rows carrying DISJOINT animal slices, so
+		//                             sum(animal_count) over the output still equals the bucket's
+		//                             unique animal count (asserted end-to-end in
+		//                             TestShedFallbackPersistsDistributedOperatorSplit).
+		//   Numerator/denominator   : the operator cap check ranges over ONE key set on both sides --
+		//                             numerator = animals placed on operator O for
+		//                             (tenant, park=batch.ScopeID, plannedDate, O); denominator =
+		//                             that same operator's remaining cap read at the SAME
+		//                             (tenant, park, plannedDate, O) key via
+		//                             availableVaccinationOperatorsForDrive minus
+		//                             session.vaccinationOperatorLoad at that key.
+		//
+		// BUG-001: persist the DISTRIBUTED (cap-aware, per-operator) plan, not the single-operator
+		// rebuild. distributeVaccinationDriveAssignments returns the attached rows re-keyed by the
+		// operator/animal-count split the planner produced; when no operator list is available it
+		// returns the input unchanged, so the legacy single-operator shape still persists.
+		distributedAssignments, distributeErr := s.distributeVaccinationDriveAssignments(ctx, tenantID, newBatch, planner.MaxGoatsPerDrive, scopedAssignments, session)
+		if distributeErr != nil {
+			session.releaseClaims(claimChunk)
+			return batched, obligations, distributeErr
+		}
+		if err := s.replaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, distributedAssignments); err != nil {
 			session.releaseClaims(claimChunk)
 			return batched, obligations, err
 		}

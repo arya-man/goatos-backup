@@ -14,6 +14,34 @@ and page boundary independently.
    to the displayed group. Build both the event/card and its summary from that
    membership (for example, a drive/batch membership id). Do not reconstruct
    membership later from coincidentally-equal location/date fields.
+   **An aggregate plan row is not per-goat membership.** When binding a fact
+   back to a plan/assignment row, state the row's uniqueness grain and
+   reproduce every dimension of it in the predicate.
+   `vaccination_drive_assignments` is unique at batch + planned date + park +
+   shed + physical shed + `partition_label` + operator, and carries
+   `vaccine_rule_ids`; a lookup keyed on `tenant_id + batch_id + shed_id` with
+   `LIMIT 1` is deterministically wrong for mixed-vaccine or partitioned
+   batches. Reference implementation (Passport / Calendar list):
+   `cardinality(assignment.vaccine_rule_ids) = 0 OR oi.rule_id = ANY(...)` at
+   `backend/internal/obligation/adapters/postgres/sqlc/query.sql:48`. If the
+   producer can emit two rows the reader cannot tell apart (a partition split
+   across operators), `ORDER BY ... LIMIT 1` fabricates an answer; demand an
+   exact membership source instead.
+   **The same defect also lives in the `GROUP BY`.** A complete `WHERE` plus a
+   collapsed aggregation key is one clause over, not compliant: in BUG-027 the
+   split cohort deliberately spans several `planned_date` values, the numerator
+   `SUM(a.animal_count)` respects that, and the denominator
+   `GROUP BY a.operator_id` collapses capacity to one operator-day
+   (`backend/internal/processintegrity/adapters/postgres/repository.go:920` vs
+   `:938-948`), so two days of load are checked against one day of cap. Demand
+   the written proof, not the principle — the rule below has existed throughout
+   and five instances shipped regardless, so this is adherence, not coverage:
+   (a) producer unique columns and consumer match/group columns side by side;
+   (b) row multiplicity of each joined side; (c) for any ratio or cap check, the
+   key set each of numerator and denominator ranges over, shown identical. If
+   the author cannot write those three lines, do not approve. Both sub-shapes
+   and all five sites: `docs/decisions/scale-anti-patterns.md` -> "Read-model
+   grain is not the grain the consumer assumes".
 2. **Stable group key** — write the exact producer key and consumer join key
    side by side. Every component must have the same semantics and timezone.
    Derived execution dates, planned dates, window dates, and obligation due
@@ -117,7 +145,16 @@ Review checkpoints:
 - Bucket counts add up only because every bucket was multiplied by the same
   fan-out.
 - The fixture has one dimension row, one scope type, one date, or fewer rows
-  than the first page.
+  than the first page. For anything reading `vaccination_drive_assignments`
+  this specifically means: one vaccine in the batch, one partition in the shed,
+  or one date in the cohort proves nothing. The single-date fixture is what let
+  the `GROUP BY` sub-shape through a review that had already learned the
+  predicate sub-shape.
+- The predicate was fixed, so the aggregate is assumed fixed. Check the
+  `GROUP BY` and the compared-against key set separately.
+- A sibling surface (Passport, Calendar list) is correct, so the new surface is
+  assumed correct — they are separate hand-copied predicates until a parity
+  test proves one shared source.
 - The test asserts a non-null DTO but not the exact membership and counts.
 - A frontend fallback makes a missing backend summary look acceptable.
 - A diff-scoped guard reports no files because the relevant work is unstaged or

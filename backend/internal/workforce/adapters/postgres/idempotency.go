@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
@@ -27,6 +29,12 @@ type idemReservation struct {
 	// NO side effects and instead return the original result keyed by resultID.
 	proceed  bool
 	resultID string
+	// snapshot is the ORIGINAL response body recorded by the first call (idempotency_keys.
+	// result_snapshot). On a replay the caller must return THIS, not a fresh read of the record: the
+	// record is mutable, so a later unrelated edit would otherwise leak out under this key (BUG-037).
+	// Empty for keys written before migration 000043, where the caller falls back to a read by
+	// resultID.
+	snapshot []byte
 }
 
 // idemScopedKey namespaces a client idempotency key by tenant + operation so the global idempotency_keys
@@ -67,28 +75,106 @@ RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
 	}
 	// Already reserved: this is a replay. Compare the fingerprint and surface the original result.
 	var existingHash, resultID string
+	var snapshot []byte
 	if err := tx.QueryRow(ctx, `
-SELECT request_hash, COALESCE(result_id::text, '')
+SELECT request_hash, COALESCE(result_id::text, ''), result_snapshot
 FROM idempotency_keys
-WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &resultID); err != nil {
+WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &resultID, &snapshot); err != nil {
 		return idemReservation{}, err
 	}
 	if existingHash != fingerprint {
 		return idemReservation{}, ports.ErrIdempotencyConflict
 	}
-	return idemReservation{proceed: false, resultID: resultID}, nil
+	return idemReservation{proceed: false, resultID: resultID, snapshot: snapshot}, nil
 }
 
 // completeIdempotency marks the key completed with the produced result so future replays return it.
-func completeIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, resultType, resultID string) error {
+// snapshot is the response body this call produced, serialized in the SAME transaction as the side
+// effects. Persisting it (rather than only result_id) is what makes an exact replay return the
+// ORIGINAL result instead of the record's current state (BUG-037). Pass nil only for a result that
+// is genuinely immutable after creation.
+func completeIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, resultType, resultID string, snapshot any) error {
 	if strings.TrimSpace(key) == "" {
 		// No idempotency key; skip (not idempotent)
 		return nil
 	}
+	var encoded []byte
+	if snapshot != nil {
+		var err error
+		encoded, err = json.Marshal(snapshot)
+		if err != nil {
+			return err
+		}
+	}
 	scoped := idemScopedKey(tenantID, scope, key)
 	_, err := tx.Exec(ctx, `
 UPDATE idempotency_keys
-SET status = 'completed', result_type = $2, result_id = nullif($3::text, '')::uuid, completed_at = now()
-WHERE idempotency_key = $1`, scoped, resultType, resultID)
+SET status = 'completed', result_type = $2, result_id = nullif($3::text, '')::uuid,
+    result_snapshot = $4::jsonb, completed_at = now()
+WHERE idempotency_key = $1`, scoped, resultType, resultID, encoded)
 	return err
+}
+
+// txPosition reads one position INSIDE the write transaction, so the response recorded as the
+// idempotency snapshot is exactly the state this transaction produced -- not a post-commit re-read
+// that a concurrent writer could have already moved on from.
+func txPosition(ctx context.Context, tx pgx.Tx, tenantID, positionID string) (domain.Position, error) {
+	rows, err := tx.Query(ctx, positionSelectSQL(`
+WHERE p.tenant_id = $1::uuid AND p.position_id = $2::uuid
+LIMIT 1`), tenantID, positionID)
+	if err != nil {
+		return domain.Position{}, err
+	}
+	items, err := scanPositions(rows)
+	if err != nil {
+		return domain.Position{}, err
+	}
+	if len(items) == 0 {
+		return domain.Position{}, ports.ErrNotFound
+	}
+	return items[0], nil
+}
+
+// txLeave is the workforce_absences twin of txPosition.
+func txLeave(ctx context.Context, tx pgx.Tx, tenantID, absenceID string) (domain.StaffLeave, error) {
+	rows, err := tx.Query(ctx, leaveSelectSQL(`
+WHERE tenant_id = $1::uuid AND absence_id = $2::uuid
+LIMIT 1`), tenantID, absenceID)
+	if err != nil {
+		return domain.StaffLeave{}, err
+	}
+	items, err := scanLeaves(rows)
+	if err != nil {
+		return domain.StaffLeave{}, err
+	}
+	if len(items) == 0 {
+		return domain.StaffLeave{}, ports.ErrNotFound
+	}
+	return items[0], nil
+}
+
+// replayLeave decodes the ORIGINAL leave response recorded for an exact replay. ok is false for
+// pre-000043 keys with no snapshot, where the caller falls back to reading by result id.
+func replayLeave(res idemReservation) (domain.StaffLeave, bool, error) {
+	if len(res.snapshot) == 0 {
+		return domain.StaffLeave{}, false, nil
+	}
+	var leave domain.StaffLeave
+	if err := json.Unmarshal(res.snapshot, &leave); err != nil {
+		return domain.StaffLeave{}, false, err
+	}
+	return leave, true, nil
+}
+
+// replayPosition decodes the ORIGINAL position response recorded for an exact replay. ok is false for
+// pre-000043 keys with no snapshot, where the caller falls back to reading by result id.
+func replayPosition(res idemReservation) (domain.Position, bool, error) {
+	if len(res.snapshot) == 0 {
+		return domain.Position{}, false, nil
+	}
+	var pos domain.Position
+	if err := json.Unmarshal(res.snapshot, &pos); err != nil {
+		return domain.Position{}, false, err
+	}
+	return pos, true, nil
 }

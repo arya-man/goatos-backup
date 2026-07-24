@@ -97,10 +97,17 @@ func TestSweeperDefersStockAndTaskPastComboAlignIncludingRetryBatch(t *testing.T
 	// Retry fixture: version A's obligation is due Aug1 and ALREADY attached to a planned combo
 	// batch on Aug1 -- no sop_task_id, no stock reservation -- simulating a crash between
 	// CreateBatchWithObligations and finalization in an earlier run.
+	// Both obligations carry the rule's real 30-day due window. Combo alignment will not move a
+	// batch past its members' medical safe window (min(window_end)), so an obligation seeded with
+	// NO window_end collapses safe_end to its own due date and can never be clubbed forward --
+	// a fixture artifact, not the R2-04 behaviour under test.
+	retryWindowEnd := dayAug1.AddDate(0, 0, 30)
+	freshWindowEnd := dayAug5.AddDate(0, 0, 30)
 	retryOblID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: versionA, RuleID: ruleA,
 		TargetType: "goat", TargetID: retryGoat, ScopeType: "park", ScopeID: cbePark,
-		DueAt: dayAug1, Status: "scheduled", IdempotencyKey: "combo-defer-retry", Sequence: 1,
+		DueAt: dayAug1, WindowStart: &dayAug1, WindowEnd: &retryWindowEnd,
+		Status: "scheduled", IdempotencyKey: "combo-defer-retry", Sequence: 1,
 	})
 	if err != nil || !applied {
 		t.Fatalf("insert retry obligation: applied=%v err=%v", applied, err)
@@ -124,7 +131,8 @@ func TestSweeperDefersStockAndTaskPastComboAlignIncludingRetryBatch(t *testing.T
 	if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: versionB, RuleID: ruleB,
 		TargetType: "goat", TargetID: freshGoat, ScopeType: "park", ScopeID: cbePark,
-		DueAt: dayAug5, Status: "scheduled", IdempotencyKey: "combo-defer-fresh", Sequence: 1,
+		DueAt: dayAug5, WindowStart: &dayAug5, WindowEnd: &freshWindowEnd,
+		Status: "scheduled", IdempotencyKey: "combo-defer-fresh", Sequence: 1,
 	}); err != nil || !applied {
 		t.Fatalf("insert fresh obligation: applied=%v err=%v", applied, err)
 	}

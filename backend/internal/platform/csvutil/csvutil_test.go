@@ -4,15 +4,15 @@ import "testing"
 
 func TestSafeCellEscapesFormulaPrefixesAfterWhitespace(t *testing.T) {
 	cases := map[string]string{
-		"\t=1+1":       "'\t=1+1",
-		"\r+SUM(A:A)":  "'\r+SUM(A:A)",
-		"\n-42":        "'\n-42",
-		" @cmd":        "' @cmd",
-		" plain ":      " plain ",
-		"\tplain":      "\tplain",
-		"trailing   ":  "trailing   ",
-		"   ":          "   ",
-		"plain":        "plain",
+		"\t=1+1":      "'\t=1+1",
+		"\r+SUM(A:A)": "'\r+SUM(A:A)",
+		"\n-42":       "'\n-42",
+		" @cmd":       "' @cmd",
+		" plain ":     " plain ",
+		"\tplain":     "\tplain",
+		"trailing   ": "trailing   ",
+		"   ":         "   ",
+		"plain":       "plain",
 	}
 	for input, want := range cases {
 		if got := SafeCell(input); got != want {

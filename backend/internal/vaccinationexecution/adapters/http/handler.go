@@ -50,6 +50,11 @@ type Reader interface {
 	// OperatorAssignmentConfig backs the admin Config screen's read of the park's N-active-operators +
 	// default-operator config plus every operator's authored shift.
 	GetOperatorAssignmentConfig(ctx context.Context, tenantID, parkID string) (vaccexecapp.OperatorAssignmentConfigView, error)
+	// AuthorizedParkOptions returns the canonical Postgres-backed park vocabulary the caller may act
+	// in. parkIDs empty means "no park-scoped grant narrowing" (a tenant-wide actor), i.e. every
+	// active park of the tenant. Ids and labels are `locations` data compiled by the backend -- the
+	// park option list is never assembled or labelled in the frontend.
+	AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]vaccexecd.ParkOption, error)
 }
 
 // OperatorAssignmentConfigWriter is the write slice for the operator assignment admin screen.
@@ -1166,6 +1171,7 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 // operatorAssignmentConfigResponse is the wire shape for GET/PUT operator-assignment config: the N/
 // default config plus every operator's authored shift, so the admin Config screen renders in one call.
 type operatorAssignmentConfigResponse struct {
+	ParkID                string                    `json:"parkId"`
 	ActiveOperatorsPerDay int                       `json:"activeOperatorsPerDay"`
 	DefaultOperatorID     string                    `json:"defaultOperatorId"`
 	RowVersion            int64                     `json:"rowVersion"`
@@ -1176,10 +1182,48 @@ type operatorAssignmentConfigResponse struct {
 // every operator's authored shift. Read authority is enforced at the permission layer (config authority:
 // CEO/CXO). The drive scheduler consumes the saved row when selecting daily operators.
 func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Request) {
-	parkID := r.URL.Query().Get("park_id")
-	if !uuidutil.IsUUIDString(parkID) {
+	// BUG-019: park scope is BACKEND-owned. park_id is optional; when omitted the
+	// actor's own authorized park scope resolves it, and the resolved id is echoed
+	// in the response so the client scopes its roster reads to exactly one park
+	// instead of inferring a park from an unscoped roster's first row.
+	requested := strings.TrimSpace(r.URL.Query().Get("park_id"))
+	if requested != "" && !uuidutil.IsUUIDString(requested) {
 		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
 		return
+	}
+	parkID, ok := h.authorizedParkID(w, r, requested)
+	if !ok {
+		return
+	}
+	if parkID == "" {
+		// The caller's grants did not narrow to one park. Resolve the park vocabulary they may act
+		// in from canonical `locations` data before deciding: a tenant whose caller can only reach a
+		// single park is NOT ambiguous and stays zero-click; a genuinely multi-park caller is refused
+		// -- silently picking one would let a CEO save a default operator for park A while reading a
+		// roster blended across A+B+C -- but the refusal carries the backend-owned options so the
+		// client renders a selector instead of dead-ending.
+		grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+		var scopedParkIDs []string
+		if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
+			scopedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
+		}
+		parks, err := h.reader.AuthorizedParkOptions(r.Context(), tenantID(r), scopedParkIDs)
+		if err != nil {
+			h.internal(w, r, err)
+			return
+		}
+		if len(parks) == 1 {
+			parkID = parks[0].ParkID
+		} else {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				parkScopeAmbiguousEnvelope{
+					Code:           "park_scope_ambiguous",
+					Message:        parkScopeAmbiguousMessage(len(parks)),
+					TraceID:        traceID(r),
+					AvailableParks: append([]vaccexecd.ParkOption{}, parks...),
+				}, nil)
+			return
+		}
 	}
 	view, err := h.reader.GetOperatorAssignmentConfig(r.Context(), tenantID(r), parkID)
 	if err != nil {
@@ -1192,11 +1236,32 @@ func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, operatorAssignmentConfigResponse{
+		ParkID:                parkID,
 		ActiveOperatorsPerDay: view.Config.ActiveOperatorsPerDay,
 		DefaultOperatorID:     view.Config.DefaultOperatorID,
 		RowVersion:            view.Config.RowVersion,
 		Shifts:                view.Shifts,
 	})
+}
+
+// parkScopeAmbiguousEnvelope is the 409 body for GET /vaccination/operator-assignment/config when the
+// caller's authorized scope covers more than one park. It carries the BACKEND-OWNED park vocabulary
+// (canonical Postgres ids + labels) the caller may choose from, so admin-web renders a selector and
+// re-requests with park_id instead of assembling a park list of its own or dead-ending on an error.
+type parkScopeAmbiguousEnvelope struct {
+	Code           string                 `json:"code"`
+	Message        string                 `json:"message"`
+	TraceID        string                 `json:"trace_id"`
+	AvailableParks []vaccexecd.ParkOption `json:"availableParks"`
+}
+
+// parkScopeAmbiguousMessage is the user-facing disabled/blocked reason. Zero parks is a genuinely
+// different situation from several parks and must not be reported as "choose one".
+func parkScopeAmbiguousMessage(parkCount int) string {
+	if parkCount == 0 {
+		return "no active park is available for your access; ask an admin to grant a park scope"
+	}
+	return "your scope covers more than one park; choose the park to configure"
 }
 
 // updateOperatorAssignmentConfigRequest is the PUT body: N + default operator + the row_version the

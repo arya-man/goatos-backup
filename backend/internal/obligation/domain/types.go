@@ -1,7 +1,20 @@
 // Package domain holds the obligation (due-state) domain types.
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrOperatorAssignmentConfigPresentButEmpty signals that a park HAS a vaccination
+// operator-assignment config, but resolving it yielded zero executable operators for
+// the drive day (all off/leave with no cover, missing shift config, or the resolved
+// operator is not in the executable candidate set). Callers MUST fail closed
+// (defer/zero-capacity, no base-cap batch, no unassigned conducted_by) — they must NOT
+// treat this like "no config present" and fall back to base-capacity planning. This is
+// distinct from a genuinely absent config, which returns the operators unchanged with
+// a nil error. See docs/decisions/scale-anti-patterns.md "config-present must fail closed".
+var ErrOperatorAssignmentConfigPresentButEmpty = errors.New("obligation: operator assignment config present but no executable operator for drive day")
 
 // NewObligation is the input to generate one obligation instance. IdempotencyKey is the
 // deterministic key that makes generation a no-op on replay.

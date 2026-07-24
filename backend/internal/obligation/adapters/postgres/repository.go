@@ -114,6 +114,20 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
+	// Resolve the operator capacity of BOTH candidate landing dates (the original date for a
+	// restore/clear, the new date for a move) BEFORE opening the write transaction, so the re-plan
+	// never needs a second pooled connection while holding this transaction open.
+	originalCapacity, err := r.vaccinationOperatorCapacityForDate(ctx, override.TenantID, override.ParkID, original)
+	if err != nil {
+		return nil, err
+	}
+	nextCapacity := originalCapacity
+	if !next.Equal(original) {
+		nextCapacity, err = r.vaccinationOperatorCapacityForDate(ctx, override.TenantID, override.ParkID, next)
+		if err != nil {
+			return nil, err
+		}
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: begin vaccination drive date override tx: %w", err)
@@ -162,7 +176,7 @@ WHERE tenant_id = $1
   AND canceled_at IS NULL`, tenant, park, vaccineCode, original, createdBy, createdAt, reason); err != nil {
 				return nil, fmt.Errorf("obligation: cancel vaccination drive date override: %w", err)
 			}
-			if err := restoreVaccinationDriveAssignmentsForDateOverrideTx(ctx, tx, tenant, park, vaccineCode, original, businessDateOnly(activeOverrideDate)); err != nil {
+			if err := replanVaccinationDriveAssignmentsForDateMoveTx(ctx, tx, tenant, park, vaccineCode, businessDateOnly(activeOverrideDate), original, originalCapacity); err != nil {
 				return nil, err
 			}
 		}
@@ -188,7 +202,7 @@ LIMIT 1`, tenant, park, vaccineCode, original).Scan(&activeOverrideDate)
 	}
 	hasActiveOverride := err == nil
 	if hasActiveOverride && !businessDateOnly(activeOverrideDate).Equal(next) {
-		if err := restoreVaccinationDriveAssignmentsForDateOverrideTx(ctx, tx, tenant, park, vaccineCode, original, businessDateOnly(activeOverrideDate)); err != nil {
+		if err := replanVaccinationDriveAssignmentsForDateMoveTx(ctx, tx, tenant, park, vaccineCode, businessDateOnly(activeOverrideDate), original, originalCapacity); err != nil {
 			return nil, err
 		}
 	}
@@ -211,7 +225,7 @@ RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, ove
 		return nil, fmt.Errorf("obligation: upsert vaccination drive date override: %w", err)
 	}
 	if !hasActiveOverride || !businessDateOnly(activeOverrideDate).Equal(next) {
-		if err := splitVaccinationDriveAssignmentsForDateOverrideTx(ctx, tx, tenant, park, vaccineCode, original, next); err != nil {
+		if err := replanVaccinationDriveAssignmentsForDateMoveTx(ctx, tx, tenant, park, vaccineCode, original, next, nextCapacity); err != nil {
 			return nil, err
 		}
 	}
@@ -220,219 +234,6 @@ RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, ove
 	}
 	committed = true
 	return &out, nil
-}
-
-func restoreVaccinationDriveAssignmentsForDateOverrideTx(ctx context.Context, tx pgx.Tx, tenant, park pgtype.UUID, vaccineCode string, original, movedDate time.Time) error {
-	_, err := tx.Exec(ctx, `
-WITH moved_rules AS (
-  SELECT COALESCE(array_agg(DISTINCT rule_id ORDER BY rule_id), '{}'::uuid[]) AS rule_ids
-  FROM protocol_rule_dimensions
-  WHERE tenant_id = $1
-    AND lower(btrim(vaccine_code)) = lower(btrim($3))
-),
-affected AS (
-  SELECT
-    vda.assignment_id,
-    vda.batch_id,
-    vda.operator_id,
-    vda.park_id,
-    vda.shed_id,
-    vda.physical_shed,
-    vda.partition_label,
-    vda.animal_count,
-    vda.capacity_status,
-    vda.warnings,
-    ARRAY(
-      SELECT DISTINCT rule_id
-      FROM unnest(vda.vaccine_rule_ids) AS rule_ids(rule_id)
-      WHERE rule_id = ANY(moved_rules.rule_ids)
-      ORDER BY rule_id
-    ) AS restore_rule_ids,
-    ARRAY(
-      SELECT DISTINCT rule_id
-      FROM unnest(vda.vaccine_rule_ids) AS rule_ids(rule_id)
-      WHERE NOT (rule_id = ANY(moved_rules.rule_ids))
-      ORDER BY rule_id
-    ) AS remaining_rule_ids
-  FROM vaccination_drive_assignments vda
-  CROSS JOIN moved_rules
-  WHERE vda.tenant_id = $1
-    AND vda.park_id = $2
-    AND vda.planned_date = $5
-    AND vda.vaccine_rule_ids && moved_rules.rule_ids
-),
-restored AS (
-  INSERT INTO vaccination_drive_assignments (
-    tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
-    physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses
-  )
-  SELECT
-    $1,
-    affected.batch_id,
-    $4,
-    affected.operator_id,
-    affected.park_id,
-    affected.shed_id,
-    affected.physical_shed,
-    affected.partition_label,
-    affected.animal_count,
-    affected.capacity_status,
-    affected.warnings,
-    affected.restore_rule_ids,
-    affected.animal_count * cardinality(affected.restore_rule_ids)
-  FROM affected
-  WHERE cardinality(affected.restore_rule_ids) > 0
-  ON CONFLICT (
-    tenant_id,
-    batch_id,
-    planned_date,
-    park_id,
-    COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
-    physical_shed,
-    partition_label,
-    COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
-  )
-  DO UPDATE SET
-    vaccine_rule_ids = (
-      SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
-      FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
-    ),
-    animal_count = EXCLUDED.animal_count,
-    total_doses = EXCLUDED.animal_count * cardinality((
-      SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
-      FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
-    )),
-    capacity_status = EXCLUDED.capacity_status,
-    warnings = EXCLUDED.warnings,
-    updated_at = now()
-  RETURNING assignment_id
-),
-trimmed AS (
-  UPDATE vaccination_drive_assignments vda
-  SET vaccine_rule_ids = affected.remaining_rule_ids,
-      total_doses = vda.animal_count * cardinality(affected.remaining_rule_ids),
-      updated_at = now()
-  FROM affected
-  WHERE vda.assignment_id = affected.assignment_id
-    AND cardinality(affected.remaining_rule_ids) > 0
-  RETURNING affected.assignment_id
-)
-DELETE FROM vaccination_drive_assignments vda
-USING affected
-WHERE vda.assignment_id = affected.assignment_id
-  AND cardinality(affected.remaining_rule_ids) = 0`,
-		tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(original), businessDateOnly(movedDate))
-	if err != nil {
-		return fmt.Errorf("obligation: restore vaccination drive assignments for date override: %w", err)
-	}
-	return nil
-}
-
-func splitVaccinationDriveAssignmentsForDateOverrideTx(ctx context.Context, tx pgx.Tx, tenant, park pgtype.UUID, vaccineCode string, original, next time.Time) error {
-	tag, err := tx.Exec(ctx, `
-WITH moved_rules AS (
-  SELECT COALESCE(array_agg(DISTINCT rule_id ORDER BY rule_id), '{}'::uuid[]) AS rule_ids
-  FROM protocol_rule_dimensions
-  WHERE tenant_id = $1
-    AND lower(btrim(vaccine_code)) = lower(btrim($3))
-),
-affected AS (
-  SELECT
-    vda.assignment_id,
-    vda.batch_id,
-    vda.operator_id,
-    vda.park_id,
-    vda.shed_id,
-    vda.physical_shed,
-    vda.partition_label,
-    vda.animal_count,
-    vda.capacity_status,
-    vda.warnings,
-    ARRAY(
-      SELECT DISTINCT rule_id
-      FROM unnest(vda.vaccine_rule_ids) AS rule_ids(rule_id)
-      WHERE rule_id = ANY(moved_rules.rule_ids)
-      ORDER BY rule_id
-    ) AS moved_rule_ids,
-    ARRAY(
-      SELECT DISTINCT rule_id
-      FROM unnest(vda.vaccine_rule_ids) AS rule_ids(rule_id)
-      WHERE NOT (rule_id = ANY(moved_rules.rule_ids))
-      ORDER BY rule_id
-    ) AS remaining_rule_ids
-  FROM vaccination_drive_assignments vda
-  CROSS JOIN moved_rules
-  WHERE vda.tenant_id = $1
-    AND vda.park_id = $2
-    AND vda.planned_date = $4
-    AND vda.vaccine_rule_ids && moved_rules.rule_ids
-),
-remaining AS (
-  UPDATE vaccination_drive_assignments vda
-  SET vaccine_rule_ids = affected.remaining_rule_ids,
-      total_doses = vda.animal_count * cardinality(affected.remaining_rule_ids),
-      updated_at = now()
-  FROM affected
-  WHERE vda.assignment_id = affected.assignment_id
-    AND cardinality(affected.remaining_rule_ids) > 0
-  RETURNING affected.assignment_id
-),
-deleted AS (
-  DELETE FROM vaccination_drive_assignments vda
-  USING affected
-  WHERE vda.assignment_id = affected.assignment_id
-    AND cardinality(affected.remaining_rule_ids) = 0
-  RETURNING affected.assignment_id
-)
-INSERT INTO vaccination_drive_assignments (
-  tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
-  physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses
-)
-SELECT
-  $1,
-  affected.batch_id,
-  $5,
-  affected.operator_id,
-  affected.park_id,
-  affected.shed_id,
-  affected.physical_shed,
-  affected.partition_label,
-  affected.animal_count,
-  affected.capacity_status,
-  affected.warnings,
-  affected.moved_rule_ids,
-  affected.animal_count * cardinality(affected.moved_rule_ids)
-FROM affected
-WHERE cardinality(affected.moved_rule_ids) > 0
-ON CONFLICT (
-  tenant_id,
-  batch_id,
-  planned_date,
-  park_id,
-  COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
-  physical_shed,
-  partition_label,
-  COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
-)
-DO UPDATE SET
-  vaccine_rule_ids = (
-    SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
-    FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
-  ),
-  animal_count = EXCLUDED.animal_count,
-  total_doses = EXCLUDED.animal_count * cardinality((
-    SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
-    FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
-  )),
-  capacity_status = EXCLUDED.capacity_status,
-  warnings = EXCLUDED.warnings,
-  updated_at = now()`,
-		tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(original), businessDateOnly(next))
-	if err != nil {
-		return fmt.Errorf("obligation: split vaccination drive assignments for date override: %w", err)
-	}
-	_ = tag
-	return nil
 }
 
 func (r *Repository) ActiveVaccinationDriveDateOverride(ctx context.Context, tenantID, parkID, vaccineCode string, originalDate time.Time) (*domain.VaccineDriveDateOverride, error) {
@@ -712,6 +513,10 @@ func (r *Repository) deferOpenObligationByIdempotencyKey(ctx context.Context, te
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var obligationID, obligationStatus, oldBatchID, oldBatchStatus string
+	// BUG-033: the defer detaches the obligation from its planned batch, so the same transaction
+	// must also pull the held animal off the PLANNED DRIVE read model. That needs the obligation's
+	// own target/scope/rule coordinates, which is why they are read here under the same FOR UPDATE.
+	var targetType, targetID, scopeType, scopeID, ruleID string
 	var dueAt pgtype.Timestamptz
 	var rowVersion int32
 	err = tx.QueryRow(ctx, `
@@ -720,14 +525,20 @@ SELECT oi.obligation_id::text,
        COALESCE(oi.batch_id::text, '')::text AS batch_id,
        COALESCE(ob.status, '')::text AS batch_status,
        oi.due_at,
-       oi.row_version
+       oi.row_version,
+       oi.target_type,
+       COALESCE(oi.target_id::text, '')::text AS target_id,
+       COALESCE(oi.scope_type, '')::text AS scope_type,
+       COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       oi.rule_id::text
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
  AND ob.batch_id = oi.batch_id
 WHERE oi.tenant_id = $1
   AND oi.idempotency_key = $2
-FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &obligationStatus, &oldBatchID, &oldBatchStatus, &dueAt, &rowVersion)
+FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &obligationStatus, &oldBatchID, &oldBatchStatus, &dueAt, &rowVersion,
+		&targetType, &targetID, &scopeType, &scopeID, &ruleID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ObligationRef{}, false, ports.ErrNotFound
 	}
@@ -850,6 +661,43 @@ FROM reserved, repair
 WHERE tenant_id = $1
   AND batch_id = $2::uuid`, tenant, oldBatchID, obligationID, reason); err != nil {
 			return domain.ObligationRef{}, false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
+		}
+
+		// BUG-033 (P0, clinical): a defer for any of the four mandatory clinical states (sick,
+		// under_treatment, quarantine, icu) detaches the obligation from its planned batch above --
+		// so the animal is no longer part of that batch's planned work. The PLANNED DRIVE read model
+		// (vaccination_drive_assignments + its exact per-goat ledger) is what the operator day /
+		// shed / Calendar screens render, and NOTHING else re-derives it for a defer: the planner
+		// only rewrites assignments when it re-plans the batch. Left alone, a sick animal keeps
+		// occupying an operator's route and the shed's cap forever. Same shared primitive as the
+		// exit and re-scope paths (one primitive, three call sites), in the SAME transaction as the
+		// state change.
+		//
+		// DECREMENT ON DEFER, NO RE-INCREMENT ON RECOVERY. Defer is a HOLD, not a cancel -- the work
+		// comes back -- but it comes back UNPLANNED: the reopen path
+		// (reopenDeferredObligationByIdempotencyKey) restores status 'scheduled' and leaves batch_id
+		// NULL, and it does NOT re-increment obligation_batches.estimated_targets/planned_quantity
+		// either. The obligation therefore re-enters the sweeper's unbatched pool and is re-planned
+		// under the cap in force at that time. Re-attaching the animal to the OLD drive row on
+		// recovery would put it back on a route whose date and operator cap were computed WITHOUT
+		// it. So the two sides stay consistent: the batch counters and the drive read model are both
+		// released on defer and both restored only by the next plan. Recovery needs no drive write
+		// at all, which is why one fix greens both the defer and the recovery cells.
+		if targetType == "goat" && targetID != "" {
+			goatUUID, gerr := pgconv.UUID(targetID)
+			if gerr != nil {
+				return domain.ObligationRef{}, false, fmt.Errorf("obligation: defer target goat id: %w", gerr)
+			}
+			shedID := ""
+			if scopeType == "shed" {
+				shedID = scopeID
+			}
+			removals := map[driveAssignmentRemovalKey][]driveAssignmentRemovalDose{
+				{batchID: oldBatchID, shedID: shedID}: {{ruleID: ruleID, obligationID: obligationID}},
+			}
+			if err := removeGoatFromDriveAssignmentsTx(ctx, tx, tenant, goatUUID, removals); err != nil {
+				return domain.ObligationRef{}, false, err
+			}
 		}
 	}
 
@@ -3856,6 +3704,236 @@ func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 	return ids, nil
 }
 
+// driveAssignmentRemovalKey is the (batch, shed scope) bucket an exited animal held canceled
+// obligations in. It is deliberately NOT the assignment row's identity: the persisted uniqueness key
+// is (tenant, batch, planned_date, park, shed, physical_shed, partition_label, operator), so ONE
+// (batch, shed) can hold several assignment rows that differ by partition, operator, date, and
+// vaccine rules. removeGoatFromDriveAssignmentsTx therefore narrows from this bucket down to a
+// SINGLE row per bucket (see that function) instead of decrementing every sibling row.
+// An empty shedID means a park-scoped obligation, whose assignment row has shed_id IS NULL.
+type driveAssignmentRemovalKey struct {
+	batchID string
+	shedID  string
+}
+
+// driveAssignmentRemovalDose is one canceled obligation of the exiting animal: the vaccine rule it
+// carried (for the total_doses subtraction, which is a DISTINCT (target, rule) dose-key count) and
+// the obligation_id itself, which is the key into vaccination_drive_assignment_members -- the EXACT
+// per-goat drive membership ledger. The obligation_id is what makes the removal provable instead of
+// heuristic.
+type driveAssignmentRemovalDose struct {
+	ruleID       string
+	obligationID string
+}
+
+// driveAssignmentNilShedSentinel mirrors the COALESCE sentinel in the
+// vaccination_drive_assignments_batch_shed_part_operator_uq unique index, so a park-scoped
+// (shed_id IS NULL) row matches by the same rule the planner writes it under.
+const driveAssignmentNilShedSentinel = "00000000-0000-0000-0000-000000000000"
+
+// removeGoatFromDriveAssignmentsTx subtracts one exited animal (and its distinct doses) from the
+// persisted planned-drive read model, in the SAME transaction as the obligation cancellation, then
+// deletes any assignment row the exit emptied. Replay-safe: a re-delivered goat.exited finds no
+// still-open obligations, so removals is empty and nothing is decremented twice.
+//
+// GRAIN: vaccination_drive_assignments is an AGGREGATE row (one park/shed/partition/operator/date
+// bucket, animal_count + total_doses) and one (batch, shed) can hold MANY such rows -- the persisted
+// uniqueness key is (tenant, batch, planned_date, park, shed, physical_shed, partition_label,
+// operator). An exiting animal physically sits in exactly ONE of them.
+//
+// EXACT PATH (primary): vaccination_drive_assignment_members is the per-goat membership ledger the
+// scheduler writes -- obligation_id -> assignment_id for the exact animals a drive row covers. When
+// membership rows exist for the canceled obligations, this decrements EXACTLY those assignment rows
+// and deletes the membership rows. That is provable: a shed/partition split across two dates or two
+// operators ("200 on Jul 24, 124 on Jul 25") is identical on every other goat-bindable dimension, so
+// only membership can say which arm the dead animal was in.
+//
+// LEGACY FALLBACK (secondary): assignment rows planned BEFORE the membership ledger existed have no
+// member rows at all, and a bucket with zero membership coverage would otherwise never be
+// decremented -- a dead animal occupying an operator's route forever. For those buckets only (the
+// SQL excludes any (batch, shed) bucket where at least one canceled obligation IS a member), the old
+// heuristic still applies: narrow by the animal's own shed partition (goat_shed_partitions) and by
+// the rule_ids actually canceled for it, then subtract from exactly ONE row per bucket chosen
+// deterministically (most rule overlap, then earliest planned date, then assignment_id). This is
+// deterministic but NOT provable, and it exists solely for pre-migration data; once the scheduler has
+// written membership for a bucket, the exact path owns it.
+func removeGoatFromDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, goat pgtype.UUID, removals map[driveAssignmentRemovalKey][]driveAssignmentRemovalDose) error {
+	if len(removals) == 0 {
+		return nil
+	}
+	// One flattened (batch, shed, rule, obligation) tuple per canceled dose; the SQL regroups them so
+	// the per-row dose subtraction counts only the rules that row actually plans, and so the exact
+	// membership join has the obligation_ids to key on.
+	batchIDs := make([]string, 0, len(removals))
+	shedKeys := make([]string, 0, len(removals))
+	ruleIDArgs := make([]string, 0, len(removals))
+	obligationIDArgs := make([]string, 0, len(removals))
+	for key, doses := range removals {
+		shedKey := key.shedID
+		if strings.TrimSpace(shedKey) == "" {
+			shedKey = driveAssignmentNilShedSentinel
+		}
+		for _, dose := range doses {
+			batchIDs = append(batchIDs, key.batchID)
+			shedKeys = append(shedKeys, shedKey)
+			ruleIDArgs = append(ruleIDArgs, dose.ruleID)
+			obligationIDArgs = append(obligationIDArgs, dose.obligationID)
+		}
+	}
+	// The EXACT set of assignment rows THIS exit decremented, collected from the RETURNING clause of
+	// each decrementing statement. It is the only correct input to the delete-emptied-rows step
+	// below: a row this exit never touched cannot have been emptied by this exit.
+	touchedAssignmentIDs := make([]string, 0, len(removals))
+	collectTouched := func(rows pgx.Rows, err error) error {
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if scanErr := rows.Scan(&id); scanErr != nil {
+				return scanErr
+			}
+			touchedAssignmentIDs = append(touchedAssignmentIDs, id)
+		}
+		return rows.Err()
+	}
+	if len(batchIDs) > 0 {
+		// EXACT: decrement the assignment rows this animal is a PROVEN member of. One set-based
+		// statement over the canceled obligation_ids; no per-goat loop.
+		if err := collectTouched(tx.Query(ctx, `
+-- projection-review: membership=vaccination_drive_assignment_members rows for THIS tenant+goat whose obligation_id is one of the obligations just canceled -- the exact per-goat drive ledger, not an inferred bucket; group_key=assignment_id (one decrement per assignment row the animal is a member of); join_cardinality=members->assignment is many-to-ONE on the assignment PK and members is UNIQUE (tenant_id, obligation_id), so an obligation can sit in at most one assignment row and the animal can subtract at most one animal per row; total_doses subtracts count(DISTINCT rule_id) because total_doses is a DISTINCT (target, rule) dose-key count; pagination=n/a (single transactional write bounded by the exiting animal's own canceled obligations); scope=the assignment row's own park/shed/partition/operator/date, unchanged.
+WITH member AS (
+  SELECT m.assignment_id, count(DISTINCT o.rule_id)::int AS doses
+  FROM vaccination_drive_assignment_members m
+  JOIN obligation_instances o
+    ON o.tenant_id = m.tenant_id
+   AND o.obligation_id = m.obligation_id
+  WHERE m.tenant_id = $1
+    AND m.goat_id = $2
+    AND m.obligation_id = ANY($3::uuid[])
+  GROUP BY m.assignment_id
+)
+UPDATE vaccination_drive_assignments vda
+SET animal_count = GREATEST(0, vda.animal_count - 1),
+    total_doses = GREATEST(0, vda.total_doses - member.doses),
+    updated_at = now()
+FROM member
+WHERE vda.tenant_id = $1
+  AND vda.assignment_id = member.assignment_id
+RETURNING vda.assignment_id::text`,
+			tenant, goat, obligationIDArgs)); err != nil {
+			return fmt.Errorf("obligation: remove exited animal from drive assignment members: %w", err)
+		}
+		if err := collectTouched(tx.Query(ctx, `
+-- projection-review: membership=one (batch, shed scope, rule) tuple per obligation-rule canceled for the exiting animal, regrouped to one removal bucket per (batch, shed scope); group_key=(batch_id, COALESCE(shed_id, nil-uuid)) narrowed to ONE assignment_id per bucket via DISTINCT ON, so the aggregate row the animal actually sits in is the only row decremented; join_cardinality=removal->assignment is many-to-many by construction (the read model has no goat-level membership), so the join is collapsed by DISTINCT ON to at most ONE assignment row per bucket -- one exiting animal can therefore never subtract more than one animal in total per (batch, shed); pagination=n/a (single transactional write bounded by the exiting animal's own batches); scope=the assignment row's own park/shed/partition/operator/date, unchanged -- rows for other partitions, operators, dates, or vaccines are never touched.
+WITH removal_raw AS (
+  SELECT r.batch_id, r.shed_key, r.rule_id, r.obligation_id
+  FROM unnest($2::uuid[], $3::uuid[], $4::uuid[], $6::uuid[]) AS r(batch_id, shed_key, rule_id, obligation_id)
+),
+-- LEGACY FALLBACK ONLY: a (batch, shed) bucket where ANY canceled obligation has an exact
+-- vaccination_drive_assignment_members row was already decremented provably by the exact pass
+-- above; the heuristic must never touch it. Only pre-membership (legacy) buckets fall through.
+covered AS (
+  SELECT DISTINCT r.batch_id, r.shed_key
+  FROM removal_raw r
+  JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = $1
+   AND m.obligation_id = r.obligation_id
+),
+removal AS (
+  SELECT r.batch_id, r.shed_key, array_agg(DISTINCT r.rule_id) AS rule_ids
+  FROM removal_raw r
+  WHERE NOT EXISTS (
+    SELECT 1 FROM covered c
+    WHERE c.batch_id = r.batch_id AND c.shed_key = r.shed_key
+  )
+  GROUP BY r.batch_id, r.shed_key
+),
+goat_partition AS (
+  SELECT partition_label
+  FROM goat_shed_partitions
+  WHERE tenant_id = $1 AND goat_id = $5
+),
+matched AS (
+  SELECT
+    r.batch_id,
+    r.shed_key,
+    vda.assignment_id,
+    vda.planned_date,
+    (SELECT count(*) FROM unnest(vda.vaccine_rule_ids) AS planned(rule_id)
+      WHERE planned.rule_id = ANY(r.rule_ids))::int AS matched_rules,
+    cardinality(r.rule_ids)::int AS canceled_rules
+  FROM removal r
+  JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = $1
+   AND vda.batch_id = r.batch_id
+   AND COALESCE(vda.shed_id, '00000000-0000-0000-0000-000000000000'::uuid) = r.shed_key
+   AND vda.animal_count > 0
+   -- The animal's own partition when it is known; legacy animals without a partition row stay
+   -- eligible for every partition of their shed rather than silently never being removed.
+   AND (NOT EXISTS (SELECT 1 FROM goat_partition)
+        OR vda.partition_label = (SELECT partition_label FROM goat_partition))
+   -- The vaccine dimension: either the row plans one of the rules just canceled for this animal,
+   -- or the row predates vaccine_rule_ids (legacy '{}') and cannot be discriminated by vaccine.
+   AND (vda.vaccine_rule_ids && r.rule_ids OR cardinality(vda.vaccine_rule_ids) = 0)
+),
+candidate AS (
+  SELECT DISTINCT ON (m.batch_id, m.shed_key)
+    m.assignment_id,
+    CASE WHEN m.matched_rules > 0 THEN m.matched_rules ELSE m.canceled_rules END AS doses
+  FROM matched m
+  ORDER BY m.batch_id, m.shed_key, m.matched_rules DESC, m.planned_date, m.assignment_id
+)
+UPDATE vaccination_drive_assignments vda
+SET animal_count = GREATEST(0, vda.animal_count - 1),
+    total_doses = GREATEST(0, vda.total_doses - candidate.doses),
+    updated_at = now()
+FROM candidate
+WHERE vda.tenant_id = $1
+  AND vda.assignment_id = candidate.assignment_id
+RETURNING vda.assignment_id::text`,
+			tenant, batchIDs, shedKeys, ruleIDArgs, goat, obligationIDArgs)); err != nil {
+			return fmt.Errorf("obligation: remove exited animal from drive assignments: %w", err)
+		}
+		// The exact ledger must never keep a dead animal: drop the membership rows for the
+		// obligations just canceled. (Membership for an assignment row deleted below goes away via
+		// the assignment FK's ON DELETE CASCADE.) Set-based, one statement.
+		if _, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignment_members
+WHERE tenant_id = $1
+  AND goat_id = $2
+  AND obligation_id = ANY($3::uuid[])`, tenant, goat, obligationIDArgs); err != nil {
+			return fmt.Errorf("obligation: delete exited animal drive assignment members: %w", err)
+		}
+	}
+	if len(touchedAssignmentIDs) == 0 {
+		return nil
+	}
+	// A zero-animal assignment row is phantom planned work: it still renders as a drive on the
+	// shed/operator day screens and still names an operator for that date. Delete ONLY the rows THIS
+	// exit actually emptied.
+	//
+	// GRAIN: the row identity is assignment_id, NOT batch_id. batch_id is a coarser grain -- the
+	// persisted uniqueness key is (tenant, batch, planned_date, park, shed, physical_shed,
+	// partition_label, operator), so one batch legitimately holds MANY assignment rows. Deleting
+	// `batch_id = ANY(...) AND animal_count = 0` therefore also destroys sibling arms of the same
+	// batch that already stood at zero and that this exit never decremented -- a different partition,
+	// operator or date the exiting animal was never in -- taking their operator/date/partition record
+	// and (via the vaccination_drive_assignment_members assignment_id ON DELETE CASCADE) their exact
+	// per-goat membership ledger with them. touchedAssignmentIDs is the RETURNING output of this
+	// exit's own decrements, so only a row this exit drove to zero can be deleted here.
+	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=the assignment_ids RETURNED by this exit's own two decrementing UPDATEs (exact-member pass + legacy-fallback pass) -- the exact set of rows this exit subtracted an animal from; producer-unique=(assignment_id) [vaccination_drive_assignments PK], consumer-match=(tenant_id, assignment_id) -- the same stable row key, not the coarser batch_id; join_cardinality=touched-id list -> assignment is many-to-ONE on the PK and each UPDATE returns at most one row per assignment_id, so the delete predicate ranges over exactly the rows just decremented; numerator/denominator=n/a (no ratio or cap check; animal_count = 0 is evaluated on the same row whose animal_count this transaction wrote); pagination=n/a (single transactional write bounded by the exiting animal's own assignment rows); scope=only rows this exit emptied -- sibling arms of the same batch, including ones already at zero, are never in the key set.
+DELETE FROM vaccination_drive_assignments
+WHERE tenant_id = $1
+  AND assignment_id = ANY($2::uuid[])
+  AND animal_count = 0`, tenant, touchedAssignmentIDs); err != nil {
+		return fmt.Errorf("obligation: delete emptied drive assignments: %w", err)
+	}
+	return nil
+}
+
 // CancelOpenForGoat cancels a goat's open scheduled/due/in_progress/deferred/missed obligations
 // (SM-3 death/sale) and writes a 'canceled' status event for each, in one transaction. Idempotent: a
 // re-run finds no open rows and cancels nothing. Completed/accepted history is never touched.
@@ -3904,21 +3982,46 @@ WHERE tenant_id = $1
   AND target_type = 'goat'
   AND target_id = $2
   AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
-RETURNING obligation_id::text, COALESCE(batch_id::text, '')::text`, tenant, goat)
+RETURNING obligation_id::text, COALESCE(batch_id::text, '')::text, scope_type, COALESCE(scope_id::text, '')::text, rule_id::text`, tenant, goat)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel open for goat: %w", err)
 	}
 	defer rows.Close()
 	ids := make([]string, 0)
 	oldBatches := make(map[string]int)
+	// SM-3 must also remove the exited animal from the PLANNED drive read model
+	// (vaccination_drive_assignments), not only from obligation_instances: those rows are what the
+	// vaccination execution / shed / operator-day screens and Calendar render as planned work and
+	// as the operator's animal load for a date. Nothing else ever re-derives them for an exit, so a
+	// dead/sold animal would otherwise keep occupying drive capacity forever. We collect, per
+	// (batch, shed scope) bucket, the canceled obligations (id + rule) the animal held there --
+	// total_doses is a DISTINCT (target, rule) dose-key count -- and
+	// removeGoatFromDriveAssignmentsTx then resolves the EXACT assignment row(s) the animal was a
+	// member of via vaccination_drive_assignment_members, falling back to the legacy
+	// partition/rule heuristic only for buckets whose rows predate that membership ledger.
+	removedDoseRules := make(map[driveAssignmentRemovalKey][]driveAssignmentRemovalDose)
 	for rows.Next() {
-		var id, batchID string
-		if err := rows.Scan(&id, &batchID); err != nil {
+		var id, batchID, scopeType, scopeID, ruleID string
+		if err := rows.Scan(&id, &batchID, &scopeType, &scopeID, &ruleID); err != nil {
 			return 0, fmt.Errorf("obligation: scan canceled obligation: %w", err)
 		}
 		ids = append(ids, id)
 		if batchID != "" {
 			oldBatches[batchID]++
+			shedID := ""
+			if scopeType == "shed" {
+				shedID = scopeID
+			}
+			key := driveAssignmentRemovalKey{batchID: batchID, shedID: shedID}
+			// total_doses is a DISTINCT (target, rule) dose-key count, so two obligation rows for
+			// the same rule on the same animal remove exactly one dose, not two -- both the exact
+			// membership pass (count(DISTINCT rule_id)) and the legacy fallback
+			// (array_agg(DISTINCT rule_id)) de-duplicate the rule; the obligation_id is kept per
+			// row because it is the membership key.
+			removedDoseRules[key] = append(removedDoseRules[key], driveAssignmentRemovalDose{
+				ruleID:       ruleID,
+				obligationID: id,
+			})
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -4005,6 +4108,9 @@ WHERE tenant_id = $1
   AND batch_id = $2::uuid`, tenant, batchID, count, goatID, reason); err != nil {
 			return 0, fmt.Errorf("obligation: update canceled batch repair: %w", err)
 		}
+	}
+	if err := removeGoatFromDriveAssignmentsTx(ctx, tx, tenant, goat, removedDoseRules); err != nil {
+		return 0, err
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": reason})
 	for _, id := range ids {
@@ -4127,9 +4233,24 @@ func (r *Repository) ReScopeOpenForGoatShift(ctx context.Context, tenantID, goat
 }
 
 func reScopeOpenForGoatInTx(ctx context.Context, tx pgx.Tx, qtx *obligationdb.Queries, tenant pgtype.UUID, tenantID, goatID, scopeType, scopeID, idempotencySuffix string, occurredAt time.Time) (int, error) {
-	ids, oldBatches, err := reScopeOpenObligationsForGoat(ctx, tx, tenantID, goatID, scopeType, scopeID)
+	ids, oldBatches, driveRemovals, err := reScopeOpenObligationsForGoat(ctx, tx, tenantID, goatID, scopeType, scopeID)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: re-scope open for goat: %w", err)
+	}
+	// BUG-034: a shed shift is a RE-SCOPE, not an exit -- the animal keeps its obligation, but at a
+	// NEW shed. The transition and the read model it owns are one atomic transaction (AGENTS.md), so
+	// the OLD shed's planned drive loses the animal here, using the same shared primitive the exit
+	// path uses (never a hand-copied predicate). DESTINATION SIDE: nothing is written. The re-scoped
+	// obligation is left unbatched (batch_id = NULL) above, so it is not yet planned work anywhere;
+	// the destination shed's drive row is produced by the sweeper's next plan, under the destination
+	// operator's own cap for that date. Inventing a destination assignment row here would fabricate
+	// planned work the planner never scheduled and never capped.
+	goatUUID, err := pgconv.UUID(goatID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	if err := removeGoatFromDriveAssignmentsTx(ctx, tx, tenant, goatUUID, driveRemovals); err != nil {
+		return 0, err
 	}
 	for batchID, count := range oldBatches {
 		if _, err := tx.Exec(ctx, `
@@ -4302,7 +4423,7 @@ func syntheticShiftEventID(tenantID, goatID, scopeType, scopeID string, occurred
 // (held sick/ICU/quarantine) work is re-scoped alongside scheduled/due — symmetric with SM-3
 // CancelOpenObligationsForGoat — so a goat that shifts while held later reopens (on recovery) at its
 // CURRENT shed, not the stale pre-move one (otherwise SM-4 would batch the drive under the wrong shed).
-func reScopeOpenObligationsForGoat(ctx context.Context, tx pgx.Tx, tenantID, goatID, scopeType, scopeID string) ([]string, map[string]int, error) {
+func reScopeOpenObligationsForGoat(ctx context.Context, tx pgx.Tx, tenantID, goatID, scopeType, scopeID string) ([]string, map[string]int, map[driveAssignmentRemovalKey][]driveAssignmentRemovalDose, error) {
 	rows, err := tx.Query(ctx, `
 UPDATE obligation_instances
 SET scope_type = $3,
@@ -4317,55 +4438,90 @@ WHERE tenant_id = $1::uuid
   AND (scope_type IS DISTINCT FROM $3 OR scope_id IS DISTINCT FROM $4::uuid)
 RETURNING obligation_id::text`, tenantID, goatID, scopeType, scopeID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
 	ids := make([]string, 0)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
+	// The OLD scope/rule of every row we are about to detach must be captured BEFORE the UPDATE
+	// rewrites scope_id: those are the coordinates of the drive-assignment bucket the animal is
+	// leaving. `UPDATE ... RETURNING` yields POST-update values, so the pre-image is snapshotted in
+	// a CTE and joined back to the rows the UPDATE actually moved.
 	rows, err = tx.Query(ctx, `
-UPDATE obligation_instances oi
-SET scope_type = $3,
-    scope_id = $4::uuid,
-    batch_id = NULL,
-    row_version = oi.row_version + 1,
-    updated_at = now()
-FROM obligation_batches ob
-WHERE oi.tenant_id = $1::uuid
-  AND oi.target_type = 'goat'
-  AND oi.target_id = $2::uuid
-  AND oi.status IN ('scheduled', 'due', 'deferred')
-  AND oi.batch_id = ob.batch_id
-  AND ob.tenant_id = oi.tenant_id
-  AND ob.status = 'planned'
-  AND (oi.scope_type IS DISTINCT FROM $3 OR oi.scope_id IS DISTINCT FROM $4::uuid)
-RETURNING oi.obligation_id::text, ob.batch_id::text`, tenantID, goatID, scopeType, scopeID)
+WITH target AS (
+  SELECT oi.obligation_id,
+         oi.scope_type AS old_scope_type,
+         oi.scope_id   AS old_scope_id,
+         oi.rule_id,
+         ob.batch_id
+  FROM obligation_instances oi
+  JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.target_id = $2::uuid
+    AND oi.status IN ('scheduled', 'due', 'deferred')
+    AND ob.status = 'planned'
+    AND (oi.scope_type IS DISTINCT FROM $3 OR oi.scope_id IS DISTINCT FROM $4::uuid)
+),
+moved AS (
+  UPDATE obligation_instances oi
+  SET scope_type = $3,
+      scope_id = $4::uuid,
+      batch_id = NULL,
+      row_version = oi.row_version + 1,
+      updated_at = now()
+  FROM target t
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.obligation_id = t.obligation_id
+  RETURNING oi.obligation_id
+)
+SELECT m.obligation_id::text,
+       t.batch_id::text,
+       t.old_scope_type,
+       COALESCE(t.old_scope_id::text, '')::text,
+       t.rule_id::text
+FROM moved m
+JOIN target t ON t.obligation_id = m.obligation_id`, tenantID, goatID, scopeType, scopeID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
 	oldBatches := make(map[string]int)
+	// SM-2 must remove the moved animal from the OLD shed's PLANNED drive read model in the same
+	// transaction: nothing else re-derives vaccination_drive_assignments for a shift (the planner
+	// only rewrites assignments when it re-plans the batch), so the animal would otherwise stay on
+	// the old shed operator's route forever. Keyed by the obligation's OLD (batch, shed scope).
+	removals := make(map[driveAssignmentRemovalKey][]driveAssignmentRemovalDose)
 	for rows.Next() {
-		var id, batchID string
-		if err := rows.Scan(&id, &batchID); err != nil {
-			return nil, nil, err
+		var id, batchID, oldScopeType, oldScopeID, ruleID string
+		if err := rows.Scan(&id, &batchID, &oldScopeType, &oldScopeID, &ruleID); err != nil {
+			return nil, nil, nil, err
 		}
 		ids = append(ids, id)
 		oldBatches[batchID]++
+		shedID := ""
+		if oldScopeType == "shed" {
+			shedID = oldScopeID
+		}
+		key := driveAssignmentRemovalKey{batchID: batchID, shedID: shedID}
+		removals[key] = append(removals[key], driveAssignmentRemovalDose{ruleID: ruleID, obligationID: id})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return ids, oldBatches, nil
+	return ids, oldBatches, removals, nil
 }
 
 // MarkCompleted marks an obligation completed (SM-5) and writes a 'completed' status event, in one
@@ -4879,6 +5035,25 @@ func insertObligationMissedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obli
 // are locked with SKIP LOCKED and only scheduled/due rows, plus in_progress rows outside an active
 // in-progress batch, can transition.
 func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, missedBefore time.Time, limit int32) (int, error) {
+
+	// BUG-015 FIX: Before the normal sweep, reap stranded in_progress obligations
+	// Abandoned partial drives (operator crash before completion) strand their siblings in_progress indefinitely.
+	// Add a grace-window reaper: if a batch's last update was >12h ago and batch is not currently active in_progress,
+	// transition stranded in_progress siblings to missed.
+	//
+	// The grace window is anchored to WALL-CLOCK NOW, never to missedBefore. missedBefore is a
+	// caller-chosen DUE cutoff and is routinely set ahead of the current instant (a sweep asked to
+	// close out everything due through the end of a drive window). Deriving the staleness cutoff
+	// from it made "last touched" mean "last touched before an arbitrary future date", which reaped
+	// drives an operator was actively working seconds earlier -- it broke the PEND-1 in_progress
+	// protection proved by TestMarkCompletedFlipsOpenSiblingsToInProgressAndSparesThemFromMissedSweep.
+	// Staleness is a statement about real elapsed time since the last completion, so it uses now().
+	const graceWindow = 12 * time.Hour
+	reapBefore := time.Now().UTC().Add(-graceWindow)
+	if err := r.reapStrandedInProgress(ctx, tenantID, reapBefore, limit); err != nil {
+		// Log but don't fail: reaping is best-effort. Missing one sweep is recoverable.
+		_ = err
+	}
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -5106,6 +5281,124 @@ WHERE ob.tenant_id = $1
 		return 0, fmt.Errorf("obligation: commit missed: %w", err)
 	}
 	return len(ids), nil
+}
+
+// reapStrandedInProgress is the BUG-015 FIX: harvest in_progress obligations whose batch is stale (not actively worked).
+// An operator crash or abandonment during a multi-animal drive leaves siblings in_progress indefinitely.
+// This reaper marks them missed after a grace window (12h), using keyset-chunked FOR UPDATE SKIP LOCKED.
+// Idempotent: exact replay marks the same obligation missed with the same idempotency key.
+func (r *Repository) reapStrandedInProgress(ctx context.Context, tenantID string, reapBefore time.Time, limit int32) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if reapBefore.IsZero() {
+		reapBefore = time.Now().UTC()
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("obligation: begin in_progress reap tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `
+WITH candidate AS (
+  SELECT oi.obligation_id
+  FROM obligation_instances oi
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+    AND ob.batch_id = oi.batch_id
+  WHERE oi.tenant_id = $1
+    AND oi.status = 'in_progress'
+    -- Grace window alone detects stale work: batch.updated_at advances on every completion,
+    -- so MarkCompleted resets it continuously during active work. Only when work truly stops
+    -- (operator crash, abandonment) does the window elapse and trigger reap.
+    AND COALESCE(ob.updated_at, oi.updated_at) < $2
+  ORDER BY COALESCE(ob.updated_at, oi.updated_at) ASC, oi.obligation_id ASC
+  LIMIT $3
+  FOR UPDATE OF oi SKIP LOCKED
+)
+UPDATE obligation_instances oi
+SET status = 'missed',
+    batch_id = NULL,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM candidate c
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = c.obligation_id
+RETURNING oi.obligation_id::text`, tenant, pgconv.Timestamptz(reapBefore), limit)
+	if err != nil {
+		return fmt.Errorf("obligation: reap in_progress: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("obligation: scan reaped id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("obligation: reap in_progress rows: %w", err)
+	}
+	rows.Close()
+
+	// Emit missed events and audit for each reaped obligation
+	if len(ids) > 0 {
+		qtx := r.queries.WithTx(tx)
+		payload, _ := json.Marshal(map[string]string{"event": "missed"})
+		now := time.Now().UTC()
+		for _, id := range ids {
+			oid, err := pgconv.UUID(id)
+			if err != nil {
+				return fmt.Errorf("obligation: obligation id: %w", err)
+			}
+			// Use deterministic idempotency key so retries are safe
+			if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+				TenantID:       tenant,
+				ObligationID:   oid,
+				EventType:      "missed",
+				OccurredAt:     pgconv.Timestamptz(now),
+				Payload:        payload,
+				IdempotencyKey: id + ":missed:in_progress_grace_window",
+			}); err != nil {
+				return fmt.Errorf("obligation: reaped missed event: %w", err)
+			}
+			if err := insertObligationMissedOutbox(ctx, tx, tenantID, id, now); err != nil {
+				return err
+			}
+			if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+				TenantID:     tenantID,
+				ActorType:    "system",
+				Action:       "obligation.reaped_in_progress",
+				ResourceType: "obligation_instance",
+				ResourceID:   id,
+				ScopeType:    "obligation.status_event",
+				ScopeID:      id,
+				AfterState: map[string]any{
+					"status":              "missed",
+					"occurred_at":         now.Format(time.RFC3339Nano),
+					"grace_window_reason": "abandoned_drive_no_completion",
+				},
+				Metadata: map[string]any{
+					"source": "obligation_reap_in_progress_grace_window",
+				},
+				TraceID: "obligation.reaped_in_progress:" + id,
+			}); err != nil {
+				return fmt.Errorf("obligation: reaped audit: %w", err)
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 // RepairStaleMissedVaccinationBatchLinks detaches legacy missed vaccination rows that still carry a

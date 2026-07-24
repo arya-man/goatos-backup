@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -164,5 +166,75 @@ func TestValidateStrictRosterWaivesContractCoveredCenter(t *testing.T) {
 	st := stats{MappingRows: 3, PositionSlotsDefined: 3}
 	if err := validateStrictRoster(mappings, assignments, st, map[string]bool{"CPT": true}); err != nil {
 		t.Fatalf("strict validation rejected a contract-covered operator-roster center: %v", err)
+	}
+}
+
+// --- BUG-024: contract blocks must be consumed, never silently dropped ---
+
+const cptRosterFixture = "../../../fixtures/vaccination-cpt-operator-drive-2026-07-23"
+
+func TestLoadOperatorRosterConsumesDirectorsAndLeadership(t *testing.T) {
+	contract, err := loadOperatorRoster(cptRosterFixture)
+	if err != nil {
+		t.Fatalf("load committed CPT roster contract: %v", err)
+	}
+	if contract == nil {
+		t.Fatal("expected the committed CPT roster contract to load")
+	}
+	if len(contract.Directors) != 1 || contract.Directors[0].Code != "preventive_care_director_chandrakant" {
+		t.Fatalf("directors block dropped or wrong: %+v", contract.Directors)
+	}
+	if contract.Directors[0].CanExecuteVaccinaton {
+		t.Fatal("director must not declare execution capacity")
+	}
+	if contract.LeadershipFullAccess == nil {
+		t.Fatal("leadership_full_access block dropped")
+	}
+	if got := len(contract.LeadershipFullAccess.Emails); got != 5 {
+		t.Fatalf("leadership_full_access.emails = %d, want 5", got)
+	}
+	if contract.LeadershipFullAccess.GrantRole != "ceo_internal" {
+		t.Fatalf("grant_role = %q, want ceo_internal", contract.LeadershipFullAccess.GrantRole)
+	}
+}
+
+func TestLoadOperatorRosterRejectsUnconsumedBlock(t *testing.T) {
+	dir := t.TempDir()
+	raw, err := os.ReadFile(cptRosterFixture + "/cpt-operator-roster.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	// A future contract block nobody seeds must be a loud failure, not a silent drop.
+	generic["shed_operator_overrides"] = []any{map[string]any{"shed": "Gandhi", "operator": "x"}}
+	out, err := json.Marshal(generic)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(dir+"/cpt-operator-roster.json", out, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err = loadOperatorRoster(dir)
+	if err == nil {
+		t.Fatal("expected an unconsumed contract block to be a hard error")
+	}
+	if !strings.Contains(err.Error(), "shed_operator_overrides") {
+		t.Fatalf("error must name the unconsumed block, got: %v", err)
+	}
+}
+
+func TestLoadOperatorRosterRejectsDirectorWithExecutionCapacity(t *testing.T) {
+	dir := t.TempDir()
+	raw, _ := os.ReadFile(cptRosterFixture + "/cpt-operator-roster.json")
+	var generic map[string]any
+	_ = json.Unmarshal(raw, &generic)
+	generic["directors"].([]any)[0].(map[string]any)["can_execute_vaccination"] = true
+	out, _ := json.Marshal(generic)
+	_ = os.WriteFile(dir+"/cpt-operator-roster.json", out, 0o600)
+	if _, err := loadOperatorRoster(dir); err == nil || !strings.Contains(err.Error(), "can_execute_vaccination") {
+		t.Fatalf("expected director execution-capacity rejection, got: %v", err)
 	}
 }

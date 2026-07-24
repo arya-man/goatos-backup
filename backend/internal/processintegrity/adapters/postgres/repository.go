@@ -550,7 +550,152 @@ asof_terminal AS (
 capacity_cfg AS (
   SELECT COALESCE((SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = $1::uuid), 200)::int AS max_per_day
 ),
--- projection-review: membership=obligation_instances after tenant/category/date filtering, optionally decorated with one generated drive-assignment row for the same batch+shed; group_key=obligation_id at raw grain before grouped CTE collapses to park/shed/batch/rule/date; join_cardinality=vaccination_drive_assignments is keyed by batch plus exact shed/partition, so it decorates the obligation's own shed assignment without multiplying obligation membership; pagination=raw feeds grouped/all_rows keyset and full-window aggregates, no page-local count; scope=park/shed/protocol/owner/category filters remain explicit downstream.
+due_window_batches AS (
+  -- SARGABLE PRE-FILTER SOURCE for the effective-due-date window in raw. The serving predicates are
+  --   COALESCE(vda.assignment_planned_at, ob.planned_date_ist, oi.due_at) >= $4  (lower, optional)
+  --   COALESCE(vda.assignment_planned_at, ob.planned_date_ist, oi.due_at) <= $5  (upper)
+  -- whose first two arms are LEFT JOIN / LEFT JOIN LATERAL outputs. A predicate over a join output is
+  -- not index-usable, so the planner had to materialize EVERY obligation row of the tenant before it
+  -- could filter -- a full 500k Seq Scan of obligation_instances (BUG-036b, 2.5s).
+  -- An obligation's effective date differs from oi.due_at ONLY when a batch or a drive assignment
+  -- overrides it. Both override sources reach the obligation either through oi.batch_id (ob.batch_id =
+  -- oi.batch_id, and the LATERAL's legacy fallback keys on assignment.batch_id = oi.batch_id) or
+  -- through an exact vaccination_drive_assignment_members row. Collecting those keys from the SMALL
+  -- planning tables turns the window bound into a bare-column predicate the indexes can serve.
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  WHERE ob.tenant_id = $1::uuid
+    AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $5::timestamptz
+  UNION
+  SELECT assignment.batch_id
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+    AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $5::timestamptz
+),
+due_window_members AS (
+  -- The EXACT membership override path (migration 000040): an obligation whose own assignment arm is
+  -- planned at/below the window top, regardless of its batch's own planned_date or its due_at.
+  SELECT vdam.obligation_id
+  FROM vaccination_drive_assignment_members vdam
+  JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = vdam.tenant_id
+   AND assignment.assignment_id = vdam.assignment_id
+  WHERE vdam.tenant_id = $1::uuid
+    AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $5::timestamptz
+),
+legacy_binding_obligations AS (
+  -- Driving set for the LEGACY (pre-000040, no-membership-row) drive-assignment fallback only, so the
+  -- binding below is one SET operation instead of a per-row LATERAL probe. Bounded three ways:
+  --   * oi.batch_id IS NOT NULL -- the legacy fallback keys on assignment.batch_id = oi.batch_id, so a
+  --     batchless obligation can never bind through it (rides obligation_instances_batch_idx);
+  --   * no membership row -- an obligation with one resolves through the EXACT arm instead;
+  --   * the same index-usable due-window superset raw applies.
+  -- It is a strict superset of raw's legacy membership (raw narrows further on the protocol joins and
+  -- the exact effective-date bounds) and the binding is LEFT JOINed, so extra rows can only be
+  -- discarded, never surface.
+  SELECT
+    oi.obligation_id,
+    oi.batch_id,
+    oi.rule_id,
+    CASE
+      WHEN g.shed_id IS NOT NULL THEN g.shed_id
+      WHEN oi.target_type = 'shed' THEN oi.target_id
+      WHEN oi.scope_type = 'shed' THEN oi.scope_id
+      ELSE NULL
+    END AS binding_shed_id,
+    COALESCE(gsp.partition_label, 'whole') AS binding_partition_label
+  FROM obligation_instances oi
+  LEFT JOIN goats g
+    ON oi.target_type = 'goat'
+   AND g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    AND oi.batch_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignment_members vdam
+      WHERE vdam.tenant_id = oi.tenant_id
+        AND vdam.obligation_id = oi.obligation_id
+    )
+    AND (
+      (oi.due_at <= $5::timestamptz AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz))
+      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
+      OR oi.obligation_id = ANY (ARRAY(SELECT obligation_id FROM due_window_members))
+    )
+),
+assignment_binding AS (
+  -- ONE winning drive-assignment arm per obligation, resolved set-based. Replaces a correlated
+  -- LEFT JOIN LATERAL ... LIMIT 1 that probed vaccination_drive_assignments once per obligation row
+  -- (an N+1 fan-out that dominated the plan cost at the 500k envelope). The two arms are DISJOINT --
+  -- EXACT covers obligations that HAVE a membership row, LEGACY covers those that do not -- and the
+  -- ORDER BY reproduces the retired LATERAL's ranking exactly (own rule_id, then own shed partition,
+  -- then earliest planned_date / partition / operator / assignment id), so the winner is unchanged.
+  SELECT DISTINCT ON (cand.obligation_id)
+    cand.obligation_id,
+    cand.assignment_id,
+    cand.operator_id,
+    cand.assignment_planned_at,
+    cand.assignment_is_exact
+  FROM (
+    -- EXACT PATH (migration 000040): membership names the arm outright, and
+    -- (tenant_id, obligation_id) is UNIQUE, so this arm is strictly 1:1 -- no ranking needed.
+    SELECT
+      vdam.obligation_id,
+      assignment.assignment_id,
+      assignment.operator_id,
+      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      true AS assignment_is_exact,
+      0 AS rule_rank,
+      0 AS partition_rank,
+      assignment.planned_date,
+      assignment.partition_label
+    FROM vaccination_drive_assignment_members vdam
+    JOIN vaccination_drive_assignments assignment
+      ON assignment.tenant_id = vdam.tenant_id
+     AND assignment.assignment_id = vdam.assignment_id
+    WHERE vdam.tenant_id = $1::uuid
+    UNION ALL
+    -- LEGACY FALLBACK: deterministic ranked representative for arms with no persisted membership.
+    SELECT
+      w.obligation_id,
+      assignment.assignment_id,
+      assignment.operator_id,
+      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at,
+      false AS assignment_is_exact,
+      CASE
+        WHEN w.rule_id = ANY(assignment.vaccine_rule_ids) THEN 0
+        WHEN cardinality(assignment.vaccine_rule_ids) = 0 THEN 1
+        ELSE 2
+      END AS rule_rank,
+      CASE
+        WHEN assignment.partition_label = w.binding_partition_label THEN 0
+        WHEN assignment.partition_label = 'whole' THEN 1
+        ELSE 2
+      END AS partition_rank,
+      assignment.planned_date,
+      assignment.partition_label
+    FROM legacy_binding_obligations w
+    JOIN vaccination_drive_assignments assignment
+      ON assignment.tenant_id = $1::uuid
+     AND assignment.batch_id = w.batch_id
+     AND assignment.shed_id = w.binding_shed_id
+  ) cand
+  ORDER BY
+    cand.obligation_id,
+    cand.rule_rank,
+    cand.partition_rank,
+    cand.planned_date ASC,
+    cand.partition_label ASC,
+    cand.operator_id ASC NULLS LAST,
+    cand.assignment_id ASC
+),
+-- projection-review: membership=obligation_instances after tenant/category/date filtering, optionally decorated with one generated drive-assignment row for the same batch+shed; group_key=obligation_id at raw grain before grouped CTE collapses to park/shed/batch/rule/date; join_cardinality=vaccination_drive_assignments is bound EXACTLY via vaccination_drive_assignment_members (tenant_id, obligation_id) which is UNIQUE, so at most one assignment decorates each obligation and obligation membership cannot fan out; only obligations with NO membership row (legacy, pre-000040) fall back to the set-based assignment_binding CTE's ranked legacy arm (DISTINCT ON per obligation, reproducing the retired LIMIT 1 LATERAL's ranking exactly) ranked on rule_id (vaccine_rule_ids) then goat_shed_partitions partition_label (1:1 by PK (tenant_id, goat_id)), where the pick is a DETERMINISTIC REPRESENTATIVE (earliest planned_date, then lowest operator_id) and the capacity facts are aggregated over the full split cohort in the enriched CTE so the split stays explicit; pagination=raw feeds grouped/all_rows keyset and full-window aggregates, no page-local count; scope=park/shed/protocol/owner/category filters remain explicit downstream.
 raw AS (
   SELECT
     oi.obligation_id,
@@ -578,6 +723,8 @@ raw AS (
     ob.sop_task_id AS batch_sop_task_id,
     COALESCE(vda.operator_id, ob.conducted_by) AS conducted_by,
     vda.assignment_planned_at,
+    vda.assignment_id,
+    COALESCE(vda.assignment_is_exact, false) AS assignment_is_exact,
     ob.created_at AS batch_created_at,
     st.task_id,
     st.row_version AS task_row_version,
@@ -631,28 +778,36 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  -- Canonical per-goat shed partition (1:1 by PK (tenant_id, goat_id)); the drive-assignment binding
+  -- below matches it against vaccination_drive_assignments.partition_label.
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
-  LEFT JOIN LATERAL (
-    SELECT
-      assignment.operator_id,
-      (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
-    FROM vaccination_drive_assignments assignment
-    WHERE assignment.tenant_id = oi.tenant_id
-      AND assignment.batch_id = oi.batch_id
-      AND assignment.shed_id = CASE
-        WHEN g.shed_id IS NOT NULL THEN g.shed_id
-        WHEN oi.target_type = 'shed' THEN oi.target_id
-        WHEN oi.scope_type = 'shed' THEN oi.scope_id
-        ELSE NULL
-      END
-    ORDER BY assignment.planned_date ASC,
-             assignment.partition_label ASC,
-             assignment.operator_id ASC NULLS LAST,
-             assignment.assignment_id ASC
-    LIMIT 1
-  ) vda ON true
+  -- Strong drive-assignment binding. (tenant, batch, shed) alone is NOT an identity: one batch's work
+  -- for one shed is legitimately split across several assignment rows that differ in vaccine
+  -- (vaccine_rule_ids), shed partition (partition_label), operator, planned_date, animal_count and
+  -- capacity_status. Taking the arbitrary earliest row bound Control Tower / Action Center / Protocol
+  -- Adherence / Workflow drilldown to the WRONG operator and WRONG execution date. The obligation's own
+  -- identity keys are its rule_id and its goat's physical partition (goat_shed_partitions), so both are
+  -- ranked exactly first. Ranking (not filtering) keeps the legacy fallback intact: pre-000029 rows carry
+  -- an empty vaccine_rule_ids, and an unpartitioned goat with only partitioned assignments still resolves
+  -- deterministically instead of silently losing its assignment date.
+  -- EXACT per-goat drive membership (migration 000040). vaccination_drive_assignment_members maps an
+  -- obligation to the ONE assignment arm that actually covers its goat. (tenant_id, obligation_id) is
+  -- UNIQUE, so this join is strictly 1:0..1 and cannot multiply obligation membership.
+  LEFT JOIN vaccination_drive_assignment_members vdam
+    ON vdam.tenant_id = oi.tenant_id
+   AND vdam.obligation_id = oi.obligation_id
+  -- Set-based drive-assignment binding (see assignment_binding). This was a correlated
+  -- LEFT JOIN LATERAL ... LIMIT 1 -- one index probe into vaccination_drive_assignments per
+  -- obligation row, an N+1 fan-out that dominated the plan cost at the 500k envelope. The CTE
+  -- resolves the SAME winning arm with the SAME ranking, once, as a single set operation.
+  LEFT JOIN assignment_binding vda
+    ON vda.obligation_id = oi.obligation_id
   LEFT JOIN sop_tasks st
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
@@ -672,6 +827,21 @@ raw AS (
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    -- INDEX-USABLE SUPERSET of the two effective-due-date bounds below. Every arm is a bare
+    -- obligation_instances column predicate, so the planner can ride
+    -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) and
+    -- obligation_instances_batch_idx (tenant_id, batch_id, status) instead of scanning the table.
+    -- The override key lists are materialized as InitPlan ARRAYs (not correlated IN-subqueries)
+    -- precisely so they stay constants the indexes can be probed with.
+    -- Superset proof: if the effective date is inside [$4, $5] but oi.due_at is not, the date was
+    -- moved by a batch or an assignment, so the obligation is reachable through due_window_batches or
+    -- due_window_members. No qualifying row is dropped; the exact bounds still run afterwards.
+    AND (
+      (oi.due_at <= $5::timestamptz AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz))
+      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
+      OR oi.obligation_id = ANY (ARRAY(SELECT obligation_id FROM due_window_members))
+    )
+    -- Exact effective-due-date bounds (unchanged, authoritative).
     AND ($4::timestamptz IS NULL OR COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) >= $4::timestamptz)
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $5::timestamptz
     AND (
@@ -805,6 +975,12 @@ grouped AS (
     MAX(jsonb_array_length(COALESCE(located.proof_refs, '[]'::jsonb)))::int AS proof_count,
     MAX(located.submitted_at) AS latest_evidence_at,
     (ARRAY_AGG(located.rejection_reason ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.rejection_reason IS NOT NULL AND located.rejection_reason <> ''))[1] AS latest_rejection_reason,
+    -- Distinct drive assignments this grain's obligations actually bound to. Deduplicated by
+    -- assignment_id so the capacity rollup below cannot fan out per obligation.
+    ARRAY_REMOVE(ARRAY_AGG(DISTINCT located.assignment_id), NULL)::uuid[] AS drive_assignment_ids,
+    -- True only when EVERY bound obligation in this grain resolved through exact membership; the
+    -- capacity rollup below then describes exactly those arms instead of the legacy split cohort.
+    COALESCE(BOOL_AND(located.assignment_is_exact) FILTER (WHERE located.assignment_id IS NOT NULL), false) AS drive_membership_exact,
     (ARRAY_AGG(located.conducted_by::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.conducted_by IS NOT NULL))[1] AS explicit_conducted_by,
     (ARRAY_AGG(located.assigned_to::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.assigned_to IS NOT NULL))[1] AS assigned_to,
     (ARRAY_AGG(located.verified_by::text ORDER BY located.verified_at DESC NULLS LAST) FILTER (WHERE located.verified_by IS NOT NULL))[1] AS verified_by,
@@ -840,10 +1016,15 @@ grouped AS (
   GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
     CASE WHEN located.batch_id IS NULL THEN (located.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date ELSE NULL END
 ),
+-- projection-review: membership=grouped grains decorated with the capacity facts of the drive assignments they bound to; group_key=grouped grain (park/shed/batch/rule/protocol/business-date) unchanged, assignment rollup keyed on the DISTINCT drive_assignment_ids array -- used verbatim when drive_membership_exact (every bound obligation resolved through vaccination_drive_assignment_members, so the arms ARE the animal's own), and otherwise expanded to its same-partition split cohort (same batch/shed/partition_label/vaccine_rule_ids) by the drive_split lateral, which ARRAY_AGGs DISTINCT assignment_ids so the cohort cannot contain a duplicate; join_cardinality=drive_assignment lateral aggregates assignment rows by PK (assignment_id = ANY(cohort_ids)) so each assignment contributes exactly once regardless of how many obligations bound to it or how many split arms exist, and drive_operator_capacity pre-collapses to one row per DISTINCT operator before summing caps so a two-assignment/one-operator grain cannot double count; pagination=both laterals are per-grain rollups, independent of the LIST keyset/limit; scope=tenant-scoped ($1) and reachable only through the already scope-filtered grouped grains.
 enriched AS (
   SELECT
     grouped.*,
     grouped.explicit_conducted_by AS conducted_by,
+    drive_assignment.assigned_animals AS drive_assigned_animals,
+    drive_assignment.assigned_operators AS drive_assigned_operators,
+    drive_assignment.assignment_capacity_status AS drive_assignment_capacity_status,
+    drive_operator_capacity.operator_cap AS drive_assigned_operator_cap,
     COALESCE(loa.usable_for_vaccination, true) AS usable_for_vaccination,
     COALESCE(loa.is_quarantine, false) AS is_quarantine,
     COALESCE(loa.is_icu, false) AS is_icu
@@ -851,6 +1032,88 @@ enriched AS (
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = $1::uuid
    AND loa.location_id = grouped.shed_uuid
+  -- Same-partition split cohort. The operator drive planner can hand ONE partition of ONE shed on ONE
+  -- batch to SEVERAL operators/dates (operator_drive_planner.go splitLatestSafeGroupAcrossOperators /
+  -- splitOversizedBlockAcrossOperators emit one assignment per capacity chunk of the SAME work block,
+  -- tagged 'forced_partition_split'). LEGACY ROWS ONLY: for obligations with no
+  -- vaccination_drive_assignment_members row, those split arms are indistinguishable on the existing
+  -- columns, so the per-obligation LATERAL stays a DETERMINISTIC representative (earliest planned_date,
+  -- then lowest operator_id) and the capacity facts are aggregated over the WHOLE cohort -- the split is
+  -- explicit (two operators, full assigned load, worst capacity status) instead of one arm silently
+  -- presented as authoritative. When migration-000040 membership IS present (drive_membership_exact),
+  -- this expansion is skipped entirely and the facts describe the animal's OWN operator-day arm.
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(ARRAY_AGG(DISTINCT a.assignment_id), grouped.drive_assignment_ids)::uuid[] AS cohort_ids
+    FROM vaccination_drive_assignments a
+    WHERE a.tenant_id = $1::uuid
+      AND cardinality(grouped.drive_assignment_ids) > 0
+      -- EXACT membership needs no cohort expansion: the bound ids ARE the animal's own arms. Zero rows
+      -- here makes ARRAY_AGG NULL, so the COALESCE falls back to grouped.drive_assignment_ids verbatim.
+      AND NOT grouped.drive_membership_exact
+      AND EXISTS (
+        SELECT 1
+        FROM vaccination_drive_assignments bound
+        WHERE bound.tenant_id = $1::uuid
+          AND bound.assignment_id = ANY(grouped.drive_assignment_ids)
+          AND bound.batch_id IS NOT DISTINCT FROM a.batch_id
+          AND bound.shed_id IS NOT DISTINCT FROM a.shed_id
+          AND bound.partition_label = a.partition_label
+          AND bound.vaccine_rule_ids = a.vaccine_rule_ids
+      )
+  ) drive_split ON true
+  -- Real assigned-load source: the bound assignment rows themselves (plus their split siblings), not the
+  -- obligation expectation.
+  LEFT JOIN LATERAL (
+    SELECT
+      COALESCE(SUM(a.animal_count), 0)::int AS assigned_animals,
+      COUNT(DISTINCT a.operator_id)::int AS assigned_operators,
+      (ARRAY_AGG(a.capacity_status ORDER BY
+        CASE a.capacity_status
+          WHEN 'over_cap_required' THEN 0
+          WHEN 'capacity_action' THEN 1
+          ELSE 2
+        END))[1] AS assignment_capacity_status
+    FROM vaccination_drive_assignments a
+    WHERE a.tenant_id = $1::uuid
+      AND cardinality(COALESCE(drive_split.cohort_ids, '{}'::uuid[])) > 0
+      AND a.assignment_id = ANY(drive_split.cohort_ids)
+  ) drive_assignment ON true
+  -- Real operator-day capacity source: workforce_positions.vaccination_daily_animal_cap for the operator
+  -- actually assigned, on that assignment's own planned_date -- same precedence the drive planner uses in
+  -- AvailableVaccinationOperatorsForDrive (per-position cap, else tenant vaccination_capacity_config, else
+  -- the 200 floor). The former tenant-wide default reported a capacity ceiling the assigned operator did
+  -- not have.
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(SUM(operator_day.daily_cap), 0)::int AS operator_cap
+    FROM (
+      -- Capacity grain is one OPERATOR-DAY, not one operator. The planner can split the same
+      -- batch/shed/partition/vaccine cohort across multiple DATES for the SAME operator; each of
+      -- those dates is a separate day of that operator's capacity. Grouping by operator alone (and
+      -- collapsing the dates with MIN) counted a two-date split as a single operator-day, so
+      -- CT/PA/WF/AC showed assigned animals spanning both dates against the cap of only one --
+      -- a systematic UNDER-report of available capacity. DISTINCT (operator, planned_date) is the
+      -- correct cardinality; the outer SUM then adds one daily_cap per operator-day.
+      SELECT DISTINCT a.operator_id, a.planned_date
+      FROM vaccination_drive_assignments a
+      WHERE a.tenant_id = $1::uuid
+        AND cardinality(COALESCE(drive_split.cohort_ids, '{}'::uuid[])) > 0
+        AND a.assignment_id = ANY(drive_split.cohort_ids)
+        AND a.operator_id IS NOT NULL
+    ) assigned
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(
+        (SELECT MAX(wp.vaccination_daily_animal_cap)
+           FROM workforce_positions wp
+          WHERE wp.tenant_id = $1::uuid
+            AND wp.workforce_member_id = assigned.operator_id
+            AND wp.status = 'active'
+            AND wp.valid_from <= assigned.planned_date + interval '1 day'
+            AND (wp.valid_to IS NULL OR wp.valid_to > assigned.planned_date)),
+        (SELECT max_per_day FROM capacity_cfg),
+        200
+      )::int AS daily_cap
+    ) operator_day
+  ) drive_operator_capacity ON true
 ),
 stateful AS (
   SELECT
@@ -1205,18 +1468,31 @@ all_rows AS (
     window_start,
     window_end,
     expected_count,
+    -- Capacity facts come from the bound assignment rows (persisted capacity_status / animal_count /
+    -- operator-day cap). Only when this grain bound to no assignment at all does it fall back to the
+    -- obligation expectation against the tenant capacity config.
     CASE
       WHEN work_state = 'deferred' THEN 'medical_defer'
       WHEN work_state IN ('completed', 'ok') THEN 'within_cap'
+      WHEN drive_assignment_capacity_status IN ('over_cap_required', 'capacity_action') THEN 'over_cap_required'
+      WHEN drive_assignment_capacity_status IS NOT NULL THEN 'within_cap'
       WHEN COALESCE(window_end, due_at) <= $10::timestamptz
-       AND expected_animals > (SELECT max_per_day FROM capacity_cfg) THEN 'over_cap_required'
+       AND expected_animals > COALESCE(NULLIF(drive_assigned_operator_cap, 0), (SELECT max_per_day FROM capacity_cfg)) THEN 'over_cap_required'
       WHEN expected_animals > 0 THEN 'within_cap'
       ELSE 'not_planned'
     END AS drive_capacity_state,
     expected_animals::int AS drive_animals_required,
-    CASE WHEN conducted_by IS NOT NULL OR assigned_to IS NOT NULL THEN expected_animals::int ELSE 0 END AS drive_animals_assigned,
-    (SELECT max_per_day FROM capacity_cfg)::int AS drive_operator_cap,
-    CASE WHEN conducted_by IS NOT NULL OR assigned_to IS NOT NULL THEN 1 ELSE 0 END::int AS drive_available_operators,
+    CASE
+      WHEN cardinality(drive_assignment_ids) > 0 THEN COALESCE(drive_assigned_animals, 0)::int
+      WHEN conducted_by IS NOT NULL OR assigned_to IS NOT NULL THEN expected_animals::int
+      ELSE 0
+    END AS drive_animals_assigned,
+    COALESCE(NULLIF(drive_assigned_operator_cap, 0), (SELECT max_per_day FROM capacity_cfg))::int AS drive_operator_cap,
+    CASE
+      WHEN COALESCE(drive_assigned_operators, 0) > 0 THEN drive_assigned_operators::int
+      WHEN conducted_by IS NOT NULL OR assigned_to IS NOT NULL THEN 1
+      ELSE 0
+    END::int AS drive_available_operators,
     COALESCE(window_end, due_at) AS drive_latest_safe_date,
     CASE
       WHEN work_state = 'deferred' THEN COALESCE(blocker_reason, 'medical_defer')

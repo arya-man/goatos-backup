@@ -139,6 +139,14 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 					return err
 				}
 				effectiveDriveCap = effectiveCap
+				// F1: if original cap was configured (maxDriveCells > 0) but effective cap is <=0
+				// (operators exhausted), treat target date as fail-closed: do not lock/move.
+				if maxDriveCells > 0 && effectiveDriveCap <= 0 {
+					if err := release(ctx); err != nil {
+						return err
+					}
+					continue
+				}
 				rel, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, batch.ParkID, target, effectiveCap, session)
 				if err != nil {
 					_ = release(ctx)

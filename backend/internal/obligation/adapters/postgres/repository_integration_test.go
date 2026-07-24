@@ -440,9 +440,15 @@ func TestCreateBatchWithObligationsRecordsHoldOnlyForAttachedRows(t *testing.T) 
 	repo := NewRepository(pool, 5*time.Second)
 	versionID := mustVersionOf(t, ctx, pool)
 	ruleID := mustRuleOf(t, ctx, pool)
+	// obligation_instances_dup_guard is UNIQUE (tenant, version, rule, target_type, target_id,
+	// due_at) -- one obligation per animal per vaccine rule per due date, regardless of sequence.
+	// The second member of this batch must therefore be a SECOND GOAT, which is also what the
+	// production partial-attach path sees.
+	const secondGoatID = "3b000000-0000-4000-8000-000000000001"
+	seedCapacityGoatInPark(t, ctx, pool, secondGoatID, cbePark)
 	secondObligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		TargetType: "goat", TargetID: secondGoatID, ScopeType: "park", ScopeID: cbePark,
 		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
 		IdempotencyKey: "obl-partial-hold-canceled", Sequence: 2,
 	})
