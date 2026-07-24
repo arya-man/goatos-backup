@@ -244,3 +244,29 @@ The CPT seed must satisfy the STG login seed contract:
 
 The roster owns field operator/director identity. STG seed must also verify
 Firebase email/password and backend role binding for them.
+
+## Canonical STG Personnel Rule (9 people total)
+
+Canonical source: `docs/runbooks/stg-login-seed-contract.md`.
+
+9 STG people total: **5 Mesha leadership (Google SSO only, `ceo_internal`, NO
+password, NO vaccination capacity)** + **4 field users (Firebase email/password,
+password `<FirstName>@2026`)**.
+
+| Person | Auth | Role | Adds vaccination capacity? |
+|---|---|---|---|
+| Amit Kumar | Firebase `Amit@2026` | operator | **yes** |
+| Darshan Talwar | Firebase `Darshan@2026` | operator, default vaccination operator | **yes** |
+| Sagar Mahoor | Firebase `Sagar@2026` | operator, fallback vaccination operator | **yes** |
+| Chandrakant | Firebase `Chandra@2026` | **director** | **no** |
+| 5 Mesha leadership | Google SSO only | `ceo_internal` | **no** |
+
+- ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
+  Chandrakant is director and must NOT add capacity; the 5 SSO leadership users
+  are `ceo_internal` SSO-only and must NOT add capacity.
+- For the 4 field users, Firebase allowlist alone / Firebase user existing is NOT
+  enough: backend grant AND `/app/bootstrap` context must pass.
+
+> **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
+> operators with capacity, Chandrakant appears as director, and the 5 Mesha
+> leadership users are SSO-only `ceo_internal`.

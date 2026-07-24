@@ -1,5 +1,34 @@
 # STG Operator Login Credentials
 
+> **Canonical STG personnel rule:** `docs/runbooks/stg-login-seed-contract.md`.
+> This file only carries the field-user credential detail; the full 9-person
+> contract (5 SSO leadership + 4 field) lives in the canonical runbook.
+
+## Canonical STG Personnel Rule (9 people total)
+
+9 STG people total: **5 Mesha leadership (Google SSO only, `ceo_internal`, NO
+password, NO vaccination capacity)** + **4 field users (Firebase email/password,
+password `<FirstName>@2026`)**.
+
+Field roles and vaccination capacity:
+
+| Person | Firebase password | Role | Adds vaccination capacity? |
+|---|---|---|---|
+| Amit Kumar | `Amit@2026` | operator | **yes** |
+| Darshan Talwar | `Darshan@2026` | operator, default vaccination operator | **yes** |
+| Sagar Mahoor | `Sagar@2026` | operator, fallback vaccination operator | **yes** |
+| Chandrakant | `Chandra@2026` | **director** | **no** |
+
+- ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
+- Chandrakant is director; the 5 SSO leadership users are `ceo_internal` SSO-only.
+  Neither adds vaccination operator capacity.
+- Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
+  backend grant AND `/app/bootstrap` context must pass for all 4 field users.
+
+> **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
+> operators with capacity, Chandrakant appears as director, and the 5 Mesha
+> leadership users are SSO-only `ceo_internal`.
+
 ## STG Temporary Password Convention
 
 For STG operator/director testing accounts, use this fixed temporary password format:
