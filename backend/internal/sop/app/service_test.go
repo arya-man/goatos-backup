@@ -1657,11 +1657,13 @@ func (f *fakeSubmissionHook) OnTaskSubmitted(context.Context, string, domain.Tas
 }
 
 type fakeProofValidator struct {
-	calls    int
-	binding  domain.ProofBinding
-	refs     []domain.ProofReference
-	resolved []domain.ProofReference
-	err      error
+	calls           int
+	binding         domain.ProofBinding
+	refs            []domain.ProofReference
+	resolved        []domain.ProofReference
+	err             error
+	retentionCalls  int
+	retentionPolicy string
 }
 
 func (f *fakeProofValidator) ResolveProofRefs(_ context.Context, _ string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error) {
@@ -1672,4 +1674,11 @@ func (f *fakeProofValidator) ResolveProofRefs(_ context.Context, _ string, bindi
 		return nil, f.err
 	}
 	return f.resolved, nil
+}
+
+func (f *fakeProofValidator) ApplyRetentionPolicy(_ context.Context, _ string, refs []domain.ProofReference, policy string, _ time.Time) error {
+	f.retentionCalls++
+	f.retentionPolicy = policy
+	f.refs = refs
+	return f.err
 }

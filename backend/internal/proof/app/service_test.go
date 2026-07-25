@@ -136,6 +136,21 @@ func TestResolveProofRefsFetchesProofsInBulk(t *testing.T) {
 	}
 }
 
+func TestRetentionExpiryPolicyWindows(t *testing.T) {
+	acceptedAt := time.Date(2026, time.July, 25, 4, 30, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+	got := retentionExpiry("operational_90d", acceptedAt)
+	if got == nil {
+		t.Fatal("operational_90d returned nil expiry")
+	}
+	want := time.Date(2026, time.October, 22, 23, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("operational_90d expiry = %s, want %s", got.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+	if got := retentionExpiry("legal_hold", acceptedAt); got != nil {
+		t.Fatalf("legal_hold expiry = %v, want nil", got)
+	}
+}
+
 func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 	pending := baseProof()
 	pending.UploadState = "pending"
@@ -341,6 +356,18 @@ func (r *fakeProofRepo) CompleteProof(_ context.Context, in domain.CompleteUploa
 	out.SizeBytes = in.SizeBytes
 	out.UploadState = "completed"
 	return out, nil
+}
+
+func (r *fakeProofRepo) ApplyRetention(context.Context, string, []string, string, *time.Time) (int, error) {
+	return 0, nil
+}
+
+func (r *fakeProofRepo) PurgeExpired(context.Context, time.Time, int) (int, error) {
+	return 0, nil
+}
+
+func (r *fakeProofRepo) PurgeAbandonedUploads(context.Context, time.Time, int) (int, error) {
+	return 0, nil
 }
 
 type fakeProofStorage struct {

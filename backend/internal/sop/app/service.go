@@ -42,6 +42,7 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 
 type ProofValidator interface {
 	ResolveProofRefs(ctx context.Context, tenantID string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error)
+	ApplyRetentionPolicy(ctx context.Context, tenantID string, refs []domain.ProofReference, policy string, acceptedAt time.Time) error
 }
 
 type TaskReviewFanout interface {
@@ -581,6 +582,11 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	cmd.SubmissionItems = buildSubmissionItemsWithDraftScans(version.FormDSL, cmd.Body.Answers, scanCaptures)
 	cmd.MovementPayload = buildMovementPayload(task, cmd.Body)
 	cmd.SubmissionFanoutRequired = s.submission != nil && submissionFanoutNeeded(task) && cmd.TaskState == "accepted"
+	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
+		if err := s.proofs.ApplyRetentionPolicy(ctx, cmd.TenantID, cmd.Body.ProofRefs, stringValue(version.ProofPolicy, "retention_policy"), s.now()); err != nil {
+			return nil, mapRepoErr(err)
+		}
+	}
 	submission, updatedTask, replay, err := s.repo.SubmitTask(ctx, cmd)
 	if err != nil {
 		return nil, mapRepoErr(err)

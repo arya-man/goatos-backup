@@ -11,6 +11,7 @@ import (
 
 	domainconsumerpg "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
+	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
 )
 
 const defaultProcessedEventRetention = 14 * 24 * time.Hour
@@ -118,6 +119,45 @@ WHERE k.idempotency_key = expired.idempotency_key`, before, tenant, s.limit)
 	}
 	if s.logger != nil {
 		s.logger.Info("idempotency_key_sweep_stage_complete", "deleted", tag.RowsAffected(), "before", before.Format(time.RFC3339))
+	}
+	return nil
+}
+
+// ProofRetentionSweeperStage deletes completed proof rows past their retention
+// boundary and abandoned upload registrations whose direct/chunked upload never
+// completed. Object-store lifecycle rules still own physical media deletion.
+type ProofRetentionSweeperStage struct {
+	repo   *proofpg.Repository
+	limit  int
+	logger *slog.Logger
+}
+
+func NewProofRetentionSweeperStage(deps Deps) *ProofRetentionSweeperStage {
+	limit := intEnv("GOATOS_PROOF_RETENTION_SWEEPER_LIMIT", 1000)
+	if limit < 1 || limit > 5000 {
+		limit = 1000
+	}
+	return &ProofRetentionSweeperStage{
+		repo:   proofpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout),
+		limit:  limit,
+		logger: deps.Logger,
+	}
+}
+
+func (s *ProofRetentionSweeperStage) Name() string { return "proof-retention-sweeper" }
+
+func (s *ProofRetentionSweeperStage) Run(ctx context.Context) error {
+	before := time.Now().UTC()
+	expired, err := s.repo.PurgeExpired(ctx, before, s.limit)
+	if err != nil {
+		return fmt.Errorf("delete expired proof artifacts: %w", err)
+	}
+	abandoned, err := s.repo.PurgeAbandonedUploads(ctx, before, s.limit)
+	if err != nil {
+		return fmt.Errorf("delete abandoned proof uploads: %w", err)
+	}
+	if s.logger != nil {
+		s.logger.Info("proof_retention_sweep_stage_complete", "expired", expired, "abandoned_uploads", abandoned, "before", before.Format(time.RFC3339))
 	}
 	return nil
 }
