@@ -311,7 +311,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
 
   // Persist operator count and default operator to backend
   const persistOperatorConfig = async () => {
-    if (!parkId || !assignmentConfig) {
+    if (!parkId || !defaultOperator) {
       showToast('Configuration not ready. Please refresh.');
       return;
     }
@@ -332,6 +332,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         rowVersion,
       });
       if (result.data) {
+        setAssignmentConfig(result.data);
         setRowVersion(result.data.rowVersion);
         setSelectedOperatorIds(result.data.selectedOperatorIds ?? nextSelected);
         showToast(`<b style="color:var(--brand)">Saved</b> · ${operatorCount} operator${operatorCount !== 1 ? 's' : ''}/day assigned`);
