@@ -609,15 +609,8 @@ class SubmitViewModel @Inject constructor(
         val itemId = outboxItemId
         when {
             itemId != null -> viewModelScope.launch {
-                // Do not byte-replay a known-invalid shed payload forever. The replacement is
-                // built from Room + SavedState and retains the stable task/row idempotency key.
-                when (syncRepository.deleteOutboxItem(itemId)) {
-                    is AppResult.Ok -> {
-                        statusJob?.cancel()
-                        statusJob = null
-                        outboxItemId = null
-                        submit()
-                    }
+                when (syncRepository.retry(itemId)) {
+                    is AppResult.Ok -> Unit
                     is AppResult.Err -> _state.update {
                         it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
                     }
@@ -1254,7 +1247,7 @@ class SubmitViewModel @Inject constructor(
         syncStatus = syncStatus.name,
     )
 
-    private companion object {
+    internal companion object {
         // SavedStateHandle keys — survive process death so the idempotency key + enqueued row id
         // + draft answers are never lost to a ViewModel recreation (which would otherwise double-
         // submit or silently drop the operator's in-progress form).
@@ -1267,7 +1260,8 @@ class SubmitViewModel @Inject constructor(
 
         fun stableSubmissionKey(task: TaskSummaryDto): String = "shed-submit:${submissionScope(task)}"
 
-        fun submissionScope(task: TaskSummaryDto): String = "${task.taskId}:rv:${task.rowVersion}"
+        fun submissionScope(task: TaskSummaryDto): String =
+            "${task.taskId}:scope:${task.scopeId.ifBlank { task.taskId }}:rv:${task.rowVersion}"
 
         fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {
             "submitted", "needs_review", "accepted", "verified", "closed", "completed" -> true
