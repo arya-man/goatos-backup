@@ -213,6 +213,13 @@ verification -> read-model chain from
 `context/architecture/operational-kernel.md`. The end goal is always process
 integrity: was the expected process followed, where broken, who owns next action,
 what evidence proves it, and what alert/escalation fired when a deadline crossed.
+For vaccination FCM, do not stop at "an alert exists": each rule must name its
+trigger, audience source, cadence/SLA, message summary, and tap route. Routine
+day-start/afternoon nudges are field-scoped; the 19:30 IST due-today checkpoint
+adds PC director/CEO leadership only when scheduled sheds are still not
+submitted. Proof submission sends role-specific rows: verifier devices deep-link
+to video review, leadership devices deep-link to Vaccination overview. Run
+`make fcm-recipient-routing-guard` before landing notification changes.
 For any backend/frontend/mobile CRUD, import, mobile offline write, domain event,
 or future module such as shifting, dead birth, or feed direction, also load
 `context/architecture/domain-event-integration-contract.md` and keep
