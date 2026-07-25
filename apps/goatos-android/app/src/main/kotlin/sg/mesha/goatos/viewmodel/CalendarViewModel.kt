@@ -88,31 +88,56 @@ class CalendarViewModel @Inject constructor(
         .cachedIn(viewModelScope)
 
     // Upstream Room flows, lifecycle-aware via WhileSubscribed(5_000)
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val weekOverviewResource: StateFlow<Resource<CalendarEventListResponseDto>> =
-        repo.observeEvents(
-            dateFrom = weekRange.dateFrom,
-            dateTo = weekRange.dateTo,
-            includeDateMarkers = true,
-            limit = 1,
-        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
+        _monthFilters
+            .flatMapLatest { filters ->
+                repo.observeEvents(
+                    parkId = filters.parkId,
+                    shedId = filters.shedId,
+                    status = filters.status,
+                    dateFrom = weekRange.dateFrom,
+                    dateTo = weekRange.dateTo,
+                    includeDateMarkers = true,
+                    vaccine = filters.vaccine,
+                    includeFilterOptions = true,
+                    limit = 1,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val monthMetadataResource: StateFlow<Resource<CalendarEventListResponseDto>> =
         _monthQuery
-            .flatMapLatest { query -> repo.observeScheduleMetadata(query) }
+            .flatMapLatest { query ->
+                repo.observeEvents(
+                    parkId = query.parkId,
+                    shedId = query.shedId,
+                    status = query.status,
+                    dateFrom = query.dateFrom,
+                    dateTo = query.dateTo,
+                    vaccine = query.vaccine,
+                    includeFilterOptions = true,
+                    limit = CALENDAR_PAGE_SIZE,
+                )
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     // Selected day resource is special because it changes based on user selection
     // flatMapLatest automatically cancels old collection and starts new when selectedDay changes
     @OptIn(ExperimentalCoroutinesApi::class)
     private val selectedDayResource: StateFlow<Resource<CalendarEventListResponseDto>> =
-        _selectedDay.flatMapLatest { selectedDay ->
-            repo.observeEvents(
-                dateFrom = selectedDay.toString(),
-                dateTo = selectedDay.toString(),
-                limit = CALENDAR_PAGE_SIZE,
-            )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
+        combine(_selectedDay, _monthFilters) { selectedDay, filters -> selectedDay to filters }
+            .flatMapLatest { (selectedDay, filters) ->
+                repo.observeEvents(
+                    parkId = filters.parkId,
+                    shedId = filters.shedId,
+                    status = filters.status,
+                    dateFrom = selectedDay.toString(),
+                    dateTo = selectedDay.toString(),
+                    vaccine = filters.vaccine,
+                    limit = CALENDAR_PAGE_SIZE,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     // Transient flags
     private val _selectedDayLoadingMore = MutableStateFlow(false)
@@ -163,20 +188,43 @@ class CalendarViewModel @Inject constructor(
         _selectedDayLoadingMore.value = false
         _refreshInFlight.value = true
         _refreshError.value = null
+        val filters = _monthFilters.value
 
         val requests = listOf(
             async {
                 repo.refreshEvents(
+                    parkId = filters.parkId,
+                    shedId = filters.shedId,
+                    status = filters.status,
                     dateFrom = weekRange.dateFrom,
                     dateTo = weekRange.dateTo,
                     includeDateMarkers = true,
+                    vaccine = filters.vaccine,
+                    includeFilterOptions = true,
                     limit = 1,
                 )
             },
             async {
+                val range = monthRange(filters)
                 repo.refreshEvents(
+                    parkId = filters.parkId,
+                    shedId = filters.shedId,
+                    status = filters.status,
+                    dateFrom = range.dateFrom,
+                    dateTo = range.dateTo,
+                    vaccine = filters.vaccine,
+                    includeFilterOptions = true,
+                    limit = CALENDAR_PAGE_SIZE,
+                )
+            },
+            async {
+                repo.refreshEvents(
+                    parkId = filters.parkId,
+                    shedId = filters.shedId,
+                    status = filters.status,
                     dateFrom = _selectedDay.value.toString(),
                     dateTo = _selectedDay.value.toString(),
+                    vaccine = filters.vaccine,
                     limit = CALENDAR_PAGE_SIZE,
                 )
             },
@@ -234,6 +282,7 @@ class CalendarViewModel @Inject constructor(
             status = filters.status?.takeIf(String::isNotBlank),
         )
         activateMonth()
+        refresh()
     }
 
     private fun selectDay(dateKey: String) {
@@ -241,10 +290,15 @@ class CalendarViewModel @Inject constructor(
         if (date == _selectedDay.value) return
         _selectedDay.value = date
         _selectedDayLoadingMore.value = false
+        val filters = _monthFilters.value
         viewModelScope.launch {
             val result = repo.refreshEvents(
+                parkId = filters.parkId,
+                shedId = filters.shedId,
+                status = filters.status,
                 dateFrom = date.toString(),
                 dateTo = date.toString(),
+                vaccine = filters.vaccine,
                 limit = CALENDAR_PAGE_SIZE,
             )
             _offline.value = result.isFailure
@@ -255,11 +309,16 @@ class CalendarViewModel @Inject constructor(
     private fun loadMoreSelectedDay() = viewModelScope.launch {
         val cursor = selectedDayResource.value.data?.nextCursor ?: return@launch
         _selectedDayLoadingMore.value = true
+        val filters = _monthFilters.value
         // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
         val result = repo.appendEvents(
             cursor = cursor,
+            parkId = filters.parkId,
+            shedId = filters.shedId,
+            status = filters.status,
             dateFrom = _selectedDay.value.toString(),
             dateTo = _selectedDay.value.toString(),
+            vaccine = filters.vaccine,
             limit = CALENDAR_PAGE_SIZE,
         )
         _offline.value = result.isFailure
@@ -292,6 +351,9 @@ class CalendarViewModel @Inject constructor(
         // appended page (bounded keyset window) — no ViewModel-side accumulation.
         val dayItems = selectedDay.data?.items.orEmpty()
             .sortedBy { it.currentScheduleDate }
+        val filterOptions = week.data?.filterOptions
+            ?: month.data?.filterOptions
+            ?: selectedDay.data?.filterOptions
 
         return base.copy(
             eyebrow = "Vaccination",
@@ -322,8 +384,9 @@ class CalendarViewModel @Inject constructor(
             monthWeekdayLabels = emptyList(),
             monthDays = emptyList(),
             monthHint = "",
+            monthFallbackItems = month.data?.items.orEmpty().map { it.toCalendarItem() },
             monthFilters = monthFilters,
-            monthFilterOptions = month.data?.filterOptions?.toUi() ?: CalendarMonthFilterOptions(),
+            monthFilterOptions = filterOptions?.toUi() ?: CalendarMonthFilterOptions(),
             monthEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank {
                 "No vaccination drives match these filters"
             } ?: "No vaccination drives match these filters",

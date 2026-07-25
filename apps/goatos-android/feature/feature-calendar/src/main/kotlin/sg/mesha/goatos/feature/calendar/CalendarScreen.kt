@@ -129,7 +129,13 @@ fun CalendarScreen(
             .background(MeshaColors.PageBg)
             .padding(horizontal = Gutter),
     ) {
-        item { CalendarHeader(state, onEvent) }
+        item {
+            CalendarHeader(
+                state = state,
+                onEvent = onEvent,
+                onOpenFilters = { showMonthFilters = true },
+            )
+        }
         state.errorMessage?.let { message ->
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
@@ -166,14 +172,13 @@ fun CalendarScreen(
                 state = state,
                 monthItems = monthItems,
                 onEvent = onEvent,
-                onOpenFilters = { showMonthFilters = true },
             )
             null -> Unit
         }
         item { Spacer(Modifier.size(24.dp)) }
     }
 
-    if (showMonthFilters && selected?.kind == CalendarSegmentKind.Month) {
+    if (showMonthFilters) {
         MonthFilterSheet(
             state = state,
             onDismiss = { showMonthFilters = false },
@@ -202,8 +207,13 @@ fun CalendarScreen(
  * [MeshaScreenHeader], driven by the shell's backend-composed L0 membership.
  */
 @Composable
-private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> Unit) {
+private fun CalendarHeader(
+    state: CalendarUiState,
+    onEvent: (CalendarEvent) -> Unit,
+    onOpenFilters: () -> Unit,
+) {
     val window = state.windowLabel
+    val activeFilterCount = state.monthFilters.secondaryFilterCount
     MeshaScreenHeader(
         // Static screen chrome — localized client-side (the VM values are the English module
         // name/title; the visible chrome must follow the app locale).
@@ -232,6 +242,16 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
             )
         },
         actions = {
+            HeaderIconButton(
+                onClick = onOpenFilters,
+                icon = MeshaIcons.Filter,
+                contentDescription = if (activeFilterCount > 0) {
+                    "${stringResource(R.string.calendar_filters)} ($activeFilterCount)"
+                } else {
+                    stringResource(R.string.calendar_filters)
+                },
+            )
+            Spacer(Modifier.size(8.dp))
             SyncIconButton(
                 isSyncing = state.isRefreshing,
                 onSync = { onEvent(CalendarEvent.Refresh) },
@@ -857,8 +877,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
     state: CalendarUiState,
     monthItems: LazyPagingItems<CalendarItem>?,
     onEvent: (CalendarEvent) -> Unit,
-    onOpenFilters: () -> Unit,
 ) {
+    val fallbackItems = state.monthFallbackItems
     item {
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
@@ -877,17 +897,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.W600,
                     modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-            TextButton(onClick = onOpenFilters) {
-                val count = state.monthFilters.secondaryFilterCount
-                Text(
-                    text = if (count > 0) {
-                        "${stringResource(R.string.calendar_filters)} ($count)"
-                    } else {
-                        stringResource(R.string.calendar_filters)
-                    },
-                    fontWeight = FontWeight.W800,
                 )
             }
         }
@@ -916,6 +925,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                 label = stringResource(R.string.calendar_month_load_error),
                 actionLabel = stringResource(R.string.calendar_retry),
                 onAction = monthItems::retry,
+            )
+        }
+
+        monthItems.itemCount == 0 && fallbackItems.isNotEmpty() -> items(
+            fallbackItems,
+            key = { item -> item.id },
+        ) { item ->
+            EventCard(
+                item = item,
+                showScheduleContext = true,
+                onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) },
             )
         }
 

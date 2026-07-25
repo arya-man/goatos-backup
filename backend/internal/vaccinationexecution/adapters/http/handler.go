@@ -599,6 +599,14 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.OpenOnly = openOnly
 	}
+	if raw := query.Get("include_filter_options"); raw != "" {
+		includeFilterOptions, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_include_filter_options", "include_filter_options must be true or false")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.IncludeFilterOptions = includeFilterOptions
+	}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := vaccexecd.DecodeExecutionCursor(raw)
 		if err != nil {
@@ -625,6 +633,13 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 			n = maxExecutionLimit
 		}
 		q.Limit = n
+	}
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
+		q.AuthorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
+		if q.AuthorizedParkIDs == nil {
+			q.AuthorizedParkIDs = []string{}
+		}
 	}
 	if !h.applyExecutionParkScope(w, r, &q) {
 		return vaccexecd.ExecutionQuery{}, false

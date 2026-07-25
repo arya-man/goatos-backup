@@ -197,6 +197,7 @@ data class CalendarUiState(
     val monthWeekdayLabels: List<String> = emptyList(),
     val monthDays: List<CalendarMonthDay> = emptyList(),
     val monthHint: String = "",
+    val monthFallbackItems: List<CalendarItem> = emptyList(),
     val monthFilters: CalendarMonthFilters = CalendarMonthFilters(year = 2026, month = 1),
     val monthFilterOptions: CalendarMonthFilterOptions = CalendarMonthFilterOptions(),
     val monthEmptyLabel: String = "",
