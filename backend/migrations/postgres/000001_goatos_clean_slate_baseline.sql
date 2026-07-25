@@ -16521,6 +16521,7 @@ CREATE TABLE IF NOT EXISTS public.vaccination_operator_assignment_config (
   park_id uuid NOT NULL,
   active_operators_per_day integer NOT NULL DEFAULT 1,
   default_operator_id uuid NOT NULL,
+  selected_operator_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
   row_version bigint NOT NULL DEFAULT 1,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -16535,6 +16536,9 @@ CREATE TABLE IF NOT EXISTS public.vaccination_operator_assignment_config (
     FOREIGN KEY (default_operator_id)
     REFERENCES public.workforce_members (workforce_member_id)
 );
+
+ALTER TABLE public.vaccination_operator_assignment_config
+  ADD COLUMN IF NOT EXISTS selected_operator_ids uuid[] NOT NULL DEFAULT '{}'::uuid[];
 
 CREATE INDEX IF NOT EXISTS vaccination_operator_assignment_config_tenant_park_idx
   ON public.vaccination_operator_assignment_config (tenant_id, park_id);

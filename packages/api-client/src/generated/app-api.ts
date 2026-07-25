@@ -4494,6 +4494,11 @@ export interface components {
              */
             defaultOperatorId: string;
             /**
+             * @description Explicit operators selected for parallel mode. When empty, the backend falls back to roster order.
+             * @maxItems 3
+             */
+            selectedOperatorIds?: string[];
+            /**
              * Format: int64
              * @description Optimistic-concurrency token; required on PUT to avoid clobbering a concurrent admin edit.
              */
@@ -4506,6 +4511,8 @@ export interface components {
             activeOperatorsPerDay: number;
             /** Format: uuid */
             defaultOperatorId: string;
+            /** @maxItems 3 */
+            selectedOperatorIds?: string[];
             /**
              * Format: int64
              * @description The rowVersion last read by the admin; 0 when authoring a config for this park for the first time.

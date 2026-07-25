@@ -1559,7 +1559,7 @@ SELECT
   grouped.proof_submitted_count,
   grouped.batch_status,
   grouped.task_state,
-  COALESCE(grouped.operator_name, grouped.assignment_operator_name) AS operator_name,
+  COALESCE(grouped.operator_name, grouped.assignment_operator_name, scoped_operator.display_name) AS operator_name,
   park_head.display_name AS park_head_name,
   verifier.display_name AS verifier_name,
   grouped.usable_for_vaccination,
@@ -1604,6 +1604,21 @@ LEFT JOIN LATERAL (
            wm.updated_at DESC, wm.workforce_member_id DESC
   LIMIT 1
 ) verifier ON true
+LEFT JOIN LATERAL (
+  SELECT wm.display_name
+  FROM workforce_members wm
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.status = 'active'
+    AND $15::text <> ''
+    AND (
+      wm.workforce_member_id = NULLIF($15::text, '')::uuid
+      OR wm.user_id = NULLIF($15::text, '')::uuid
+    )
+  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($15::text, '')::uuid THEN 0 ELSE 1 END,
+           wm.updated_at DESC,
+           wm.workforce_member_id DESC
+  LIMIT 1
+) scoped_operator ON grouped.operator_name IS NULL AND grouped.assignment_operator_name IS NULL
 WHERE NOT $11::boolean
    OR (grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key) > ($12::int, $13::bigint, $14::text)
 ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
@@ -3172,7 +3187,10 @@ LIMIT $4;
 // RowVersion does not match the currently stored row (optimistic concurrency: reject, never clobber).
 
 const operatorAssignmentConfigSQL = `
-SELECT active_operators_per_day, default_operator_id, row_version
+SELECT active_operators_per_day,
+       default_operator_id,
+       ARRAY(SELECT operator_id::text FROM unnest(selected_operator_ids) AS operator_id),
+       row_version
 FROM vaccination_operator_assignment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid;`
 
@@ -3183,7 +3201,7 @@ func (r *Repository) OperatorAssignmentConfig(ctx context.Context, tenantID, par
 	defer cancel()
 	cfg := domain.OperatorAssignmentConfig{ParkID: parkID}
 	err := r.pool.QueryRow(ctx, operatorAssignmentConfigSQL, tenantID, parkID).
-		Scan(&cfg.ActiveOperatorsPerDay, &cfg.DefaultOperatorID, &cfg.RowVersion)
+		Scan(&cfg.ActiveOperatorsPerDay, &cfg.DefaultOperatorID, &cfg.SelectedOperatorIDs, &cfg.RowVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.OperatorAssignmentConfig{}, false, nil
 	}
@@ -3268,10 +3286,10 @@ FOR UPDATE`, tenantID, cfg.ParkID).Scan(&prevN, &prevDefault); err != nil {
 		// Insert: new config for this park
 		err := tx.QueryRow(ctx, `
 INSERT INTO vaccination_operator_assignment_config
-  (tenant_id, park_id, active_operators_per_day, default_operator_id, row_version, updated_at)
-VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 1, now())
+  (tenant_id, park_id, active_operators_per_day, default_operator_id, selected_operator_ids, row_version, updated_at)
+VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5::uuid[], 1, now())
 ON CONFLICT (tenant_id, park_id) DO NOTHING
-RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID).Scan(&newVersion)
+RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.SelectedOperatorIDs).Scan(&newVersion)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
 		}
@@ -3285,10 +3303,11 @@ RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.De
 UPDATE vaccination_operator_assignment_config
 SET active_operators_per_day = $3,
     default_operator_id = $4::uuid,
+    selected_operator_ids = $5::uuid[],
     row_version = row_version + 1,
     updated_at = now()
-WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND row_version = $5
-RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.RowVersion).Scan(&newVersion)
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND row_version = $6
+RETURNING row_version;`, tenantID, cfg.ParkID, cfg.ActiveOperatorsPerDay, cfg.DefaultOperatorID, cfg.SelectedOperatorIDs, cfg.RowVersion).Scan(&newVersion)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.OperatorAssignmentConfig{}, ports.ErrOperatorAssignmentConfigConflict
 		}
@@ -3391,6 +3410,129 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' 
 	}
 
 	return cfg, nil
+}
+
+// ReassignPlannedDrives applies an operator config change to already-planned open drive work
+// immediately. For one-operator mode every open planned row moves to the default operator. For
+// parallel mode the first N available roster operators for that drive date are selected, skipping
+// week-off, and existing assignment rows are distributed across them.
+func (r *Repository) ReassignPlannedDrives(ctx context.Context, tenantID, parkID, defaultOperatorID string, selectedOperatorIDs []string, activeOperatorsPerDay int, effectiveFrom time.Time) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	effectiveDate := biztime.BusinessDayStart(effectiveFrom).Format("2006-01-02")
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination execution: begin planned drive reassignment tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+WITH target_assignments AS (
+  SELECT
+    vda.assignment_id,
+    vda.batch_id,
+    vda.planned_date,
+    row_number() OVER (
+      PARTITION BY vda.planned_date
+      ORDER BY vda.physical_shed, vda.partition_label, vda.assignment_id
+    ) AS assignment_rank
+  FROM obligation_batches ob
+  JOIN vaccination_drive_assignments vda
+    ON vda.tenant_id = ob.tenant_id
+   AND vda.batch_id = ob.batch_id
+  WHERE ob.tenant_id = $1::uuid
+    AND ob.status = 'planned'
+    AND vda.park_id = $2::uuid
+    AND vda.planned_date >= $6::date
+),
+selected_operators AS (
+  SELECT
+    ta.assignment_id,
+    ta.batch_id,
+    selected.operator_id
+  FROM target_assignments ta
+  JOIN LATERAL (
+    SELECT ranked.operator_id
+    FROM (
+      SELECT
+        osc.operator_id,
+        count(*) OVER () AS available_count,
+        row_number() OVER (
+          ORDER BY
+            COALESCE(array_position($4::uuid[], osc.operator_id), 999),
+            CASE WHEN $5::int = 1 AND osc.operator_id = $3::uuid THEN 0 ELSE 1 END,
+            CASE osc.shift_label WHEN 'am' THEN 0 WHEN 'rover' THEN 1 WHEN 'pm' THEN 2 ELSE 3 END,
+            osc.operator_id
+        ) AS roster_rank
+      FROM vaccination_operator_shift_config osc
+      JOIN workforce_members wm
+        ON wm.tenant_id = osc.tenant_id
+       AND wm.workforce_member_id = osc.operator_id
+       AND wm.status = 'active'
+      WHERE osc.tenant_id = $1::uuid
+        AND osc.park_id = $2::uuid
+        AND (
+          osc.week_off_weekday IS NULL
+          OR osc.week_off_weekday <> lower(to_char(ta.planned_date::timestamp, 'FMDay'))
+        )
+    ) ranked
+    WHERE ranked.roster_rank = ((ta.assignment_rank - 1) % GREATEST(ranked.available_count, 1)) + 1
+    ORDER BY ranked.roster_rank
+    LIMIT 1
+  ) selected ON true
+),
+updated_batches AS (
+  UPDATE obligation_batches ob
+  SET conducted_by = CASE WHEN $5::int = 1 THEN $3::uuid ELSE ob.conducted_by END,
+      updated_at = now(),
+      row_version = row_version + 1
+  FROM (
+    SELECT DISTINCT batch_id FROM selected_operators
+  ) tb
+  WHERE ob.tenant_id = $1::uuid
+    AND ob.batch_id = tb.batch_id
+    AND $5::int = 1
+    AND ob.conducted_by IS DISTINCT FROM $3::uuid
+  RETURNING ob.batch_id
+),
+updated_assignments AS (
+  UPDATE vaccination_drive_assignments vda
+  SET operator_id = so.operator_id,
+      updated_at = now()
+  FROM selected_operators so
+  WHERE vda.tenant_id = $1::uuid
+    AND vda.assignment_id = so.assignment_id
+    AND vda.operator_id IS DISTINCT FROM so.operator_id
+  RETURNING vda.assignment_id
+)
+SELECT 'batch' AS kind, count(*)::bigint FROM updated_batches
+UNION ALL
+SELECT 'assignment' AS kind, count(*)::bigint FROM updated_assignments;
+`, tenantID, parkID, defaultOperatorID, selectedOperatorIDs, activeOperatorsPerDay, effectiveDate)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination execution: reassign planned drives: %w", err)
+	}
+	defer rows.Close()
+
+	var changed int64
+	for rows.Next() {
+		var kind string
+		var n int64
+		if err := rows.Scan(&kind, &n); err != nil {
+			return 0, fmt.Errorf("vaccination execution: scan planned drive reassignment: %w", err)
+		}
+		if kind == "assignment" {
+			changed = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("vaccination execution: iterate planned drive reassignment: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("vaccination execution: commit planned drive reassignment tx: %w", err)
+	}
+	return changed, nil
 }
 
 // authorizedParkOptionsSQL reads the tenant's active parks from canonical `locations`, optionally
