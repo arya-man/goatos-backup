@@ -5,10 +5,7 @@ import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
-import {
-  TONE_SWATCH,
-  type Tone,
-} from "./process-integrity";
+import { TONE_SWATCH, type Tone } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { actionDriveLabel, actionWorkTitle } from "./work-board";
 import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";

@@ -567,7 +567,8 @@ LEFT JOIN LATERAL (
     AND g.shed_id = effective.shed_id
     AND (
       effective.partition_label = 'whole'
-      OR COALESCE(gsp.partition_label, 'whole') = effective.partition_label
+      OR regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
     )
     AND (
       oi.status = 'completed'

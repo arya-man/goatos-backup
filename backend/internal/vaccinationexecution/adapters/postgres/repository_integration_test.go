@@ -112,13 +112,15 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 		}
 	}
 	for name, sql := range map[string]string{
-		"execution": vaccinationExecutionSQL,
-		"roster":    scanRosterSQL,
+		"execution":         vaccinationExecutionSQL,
+		"roster":            scanRosterSQL,
+		"drive assignments": driveAssignmentsSQL,
 	} {
 		if !strings.Contains(sql, "LEFT JOIN goat_shed_partitions gsp") {
 			t.Fatalf("%s operator-scoped read must join goat_shed_partitions", name)
 		}
-		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") {
+		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") &&
+			!strings.Contains(sql, "regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')") {
 			t.Fatalf("%s operator-scoped read must bind assignments to the goat partition with Part N/N normalization", name)
 		}
 	}
