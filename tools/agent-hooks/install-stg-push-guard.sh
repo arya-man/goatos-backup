@@ -9,6 +9,8 @@
 #      to refs/heads/main unless `make ci-local` recorded a SHA-bound receipt for the exact
 #      commit. Scoped receipts are revalidated against the exact remote-main base and full
 #      classifier-selected job set. See docs/runbooks/local-release-evidence.md.
+#      Set GOATOS_BYPASS_LOCAL_CI=1 for an explicit one-command bypass of only this
+#      evidence guard; the direct-stg promotion guard still runs.
 # Historically this file only installed guard 1; the name is kept so `make ai-setup` /
 # `make stg-promotion-guard-install` keep working, but it is now a general push-guard installer.
 set -euo pipefail

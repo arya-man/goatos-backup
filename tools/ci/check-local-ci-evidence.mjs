@@ -16,6 +16,9 @@
 //   current remote main or has no matching green receipt. Claude/Codex agent hooks
 //   also block direct main-push commands and route agents through `make land-main`.
 //
+// Bypass: set GOATOS_BYPASS_LOCAL_CI=1 for an explicit one-command bypass of the
+// local-CI evidence gate. This does not bypass the separate staging promotion guard.
+//
 // Modes: --record <sha> | --verify | --pre-push | --agent-hook | --self-test
 // Deterministic, offline. No network.
 
@@ -79,6 +82,14 @@ function isMainDestination(token) {
     value.endsWith(":main") ||
     value.endsWith(`:${MAIN_REF}`)
   );
+}
+
+function localCiBypassEnabled() {
+  return process.env.GOATOS_BYPASS_LOCAL_CI === "1";
+}
+
+function commandHasLocalCiBypass(command) {
+  return /\bGOATOS_BYPASS_LOCAL_CI=1\b/.test(command);
 }
 
 export function commandAttemptsDirectMainPush(command) {
@@ -270,6 +281,10 @@ function verify() {
 }
 
 function prePush() {
+  if (localCiBypassEnabled()) {
+    console.error("local-ci-evidence: GOATOS_BYPASS_LOCAL_CI=1; bypassing exact-SHA local-CI receipt gate for this push");
+    return;
+  }
   const payload = readFileSync(0, "utf8"); // stdin
   const { blocked, reasons } = evaluatePush({
     pushLines: payload.split("\n"),
@@ -289,6 +304,11 @@ function prePush() {
 function agentHook() {
   const command = commandFromHookPayload(readFileSync(0, "utf8"));
   if (!commandAttemptsDirectMainPush(command)) return;
+  if (localCiBypassEnabled() || commandHasLocalCiBypass(command)) {
+    console.error("GOATOS MAIN LANDING LOCAL-CI BYPASS ENABLED");
+    console.error("Proceeding because GOATOS_BYPASS_LOCAL_CI=1 was explicit on this command.");
+    return;
+  }
   console.error("GOATOS MAIN LANDING BLOCKED FOR AGENT");
   console.error("Codex and Claude must run `make land-main`; it refreshes and rebases origin/main before CI, reruns CI if main moves, then pushes the exact green SHA.");
   process.exit(2);
@@ -322,6 +342,9 @@ function selfTest() {
   if (evaluatePush({ pushLines: [`refs/heads/feature ${sha} refs/heads/feature ${other}`], receipt: null }).blocked) throw new Error("self-test: non-main push should not be gated");
   // deleting main (zero local sha) -> allowed
   if (evaluatePush({ pushLines: [`(delete) ${ZERO_SHA} ${MAIN_REF} ${other}`], receipt: null }).blocked) throw new Error("self-test: main delete should not be gated");
+  if (!commandHasLocalCiBypass("GOATOS_BYPASS_LOCAL_CI=1 git mesha-push HEAD:main")) {
+    throw new Error("self-test: direct main push bypass marker was not detected");
+  }
 
   for (const command of [
     "git mesha-push main",
