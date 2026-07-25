@@ -442,6 +442,7 @@ const driveAssignmentsSQL = `
 WITH assignment_vaccines AS (
   SELECT
     vda.tenant_id,
+    vda.assignment_id,
     vda.batch_id,
     COALESCE(override.original_drive_date, vda.planned_date) AS original_planned_date,
     COALESCE(override.override_date, vda.planned_date) AS effective_planned_date,
@@ -486,6 +487,8 @@ effective_assignments AS (
   SELECT
     effective_planned_date AS planned_date,
     MIN(original_planned_date) AS original_planned_date,
+    assignment_id,
+    batch_id,
     operator_id,
     park_id,
     shed_id,
@@ -503,7 +506,7 @@ effective_assignments AS (
       ELSE MAX(total_doses)
     END::int AS total_doses
   FROM assignment_vaccines
-  GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
+  GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
 )
 SELECT
   effective.planned_date,
@@ -519,15 +522,18 @@ SELECT
   CASE
     WHEN effective.batch_status IN ('planned', 'in_progress')
      AND effective.planned_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
-    THEN effective.animal_count
+    THEN GREATEST(0, effective.animal_count - assignment_progress.done_animals)
     ELSE 0
   END AS due_animals,
-  CASE WHEN effective.batch_status = 'completed' THEN effective.animal_count ELSE 0 END AS done_animals,
+  CASE
+    WHEN effective.batch_status = 'completed' THEN effective.animal_count
+    ELSE LEAST(effective.animal_count, assignment_progress.done_animals)
+  END AS done_animals,
   0 AS deferred_animals,
   CASE
     WHEN effective.batch_status IN ('planned', 'in_progress')
      AND effective.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
-    THEN effective.animal_count
+    THEN GREATEST(0, effective.animal_count - assignment_progress.done_animals)
     ELSE 0
   END AS overdue_animals,
   COALESCE(effective.vaccine_keys, ARRAY[]::text[]),
@@ -544,6 +550,36 @@ JOIN locations park
   ON park.tenant_id = $1::uuid
  AND park.location_id = effective.park_id
  AND park.location_type = 'park'
+LEFT JOIN LATERAL (
+  SELECT COUNT(DISTINCT oi.target_id)::int AS done_animals
+  FROM obligation_instances oi
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = effective.shed_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.batch_id = effective.batch_id
+    AND oi.target_type = 'goat'
+    AND g.shed_id = effective.shed_id
+    AND (
+      effective.partition_label = 'whole'
+      OR COALESCE(gsp.partition_label, 'whole') = effective.partition_label
+    )
+    AND (
+      oi.status = 'completed'
+      OR EXISTS (
+        SELECT 1
+        FROM vaccination_completions vc
+        WHERE vc.tenant_id = oi.tenant_id
+          AND vc.obligation_id = oi.obligation_id
+          AND vc.status = 'accepted'
+      )
+    )
+) assignment_progress ON true
 WHERE effective.planned_date >= $2::date
   AND effective.planned_date < $3::date
 ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_label
