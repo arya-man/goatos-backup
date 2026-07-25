@@ -68,3 +68,23 @@ test("BUG-020: remaining Saved toasts follow a backend write", () => {
     );
   }
 });
+
+test("missing authored assignment config can still save the first rowVersion-0 config", () => {
+  const persistMatch = source.match(/const persistOperatorConfig = async \(\) => \{(?<body>[\s\S]*?)\n  \};/);
+  assert.ok(persistMatch?.groups?.body, "expected persistOperatorConfig body in the screen");
+  const body = persistMatch.groups.body;
+  assert.ok(
+    !/if\s*\([^)]*assignmentConfig/.test(body),
+    "saving must not be gated on assignmentConfig; null config is the first-write state",
+  );
+  assert.match(
+    body,
+    /rowVersion,/,
+    "the save request must pass the current rowVersion through so rowVersion 0 can create the config",
+  );
+  assert.match(
+    body,
+    /setAssignmentConfig\(result\.data\)/,
+    "after creating the first config, the returned config must become the editable assignmentConfig",
+  );
+});
