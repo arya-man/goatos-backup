@@ -204,9 +204,22 @@ func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, p
 		if len(snippet) > 256 {
 			snippet = snippet[:256]
 		}
+		if isInvalidFCMRecipientResponse(resp.StatusCode, responseBody) {
+			return nil, fmt.Errorf("%w: notification webhook status %d: %s", ports.ErrInvalidRecipient, resp.StatusCode, strings.TrimSpace(string(snippet)))
+		}
 		return nil, fmt.Errorf("notification webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 	return responseBody, nil
+}
+
+func isInvalidFCMRecipientResponse(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound && statusCode != http.StatusBadRequest {
+		return false
+	}
+	text := strings.ToLower(string(body))
+	return strings.Contains(text, "notregistered") ||
+		strings.Contains(text, "unregistered") ||
+		strings.Contains(text, "registration-token-not-registered")
 }
 
 func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {

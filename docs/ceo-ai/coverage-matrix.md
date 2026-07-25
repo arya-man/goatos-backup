@@ -113,6 +113,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /operations/audit/summary | api + view:audit_activity_summary | "What changed" summary; API tier executor wired (operations_audit_summary tool, via operationsaudit.Service.Summary) |
 | GET /operations/dlq | api + view:ops_exception_queue | Failed-event queue (see gap G5) |
 | GET /operations/kernel-health | api + view:ops_exception_queue | System integrity (see gap G5); API tier executor wired (operations_kernel_health tool, via processintegrity.Service.ControlTower with OnlyBrokenOrAtRisk) |
+| func:SuppressInvalidRecipient | EXCLUDED | Notification delivery hygiene only: clears FCM tokens that Firebase reports as invalid and suppresses queued rows for that exact token. Leadership delivery health remains covered by `ceo_ai.notification_delivery_health` / `mesha_notification_delivery_health`; this function is not a leadership read surface. |
 | GET /workflows/{row_id} | EXCLUDED | Row-level workflow detail |
 | GET /protocols | api | Protocol/schedule definitions |
 | GET /protocols/versions/{id}, /protocols/animal-stages | EXCLUDED | Protocol version / reference taxonomy |
