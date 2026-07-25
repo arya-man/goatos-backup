@@ -42,10 +42,13 @@ export function findingsForSources({ host, shell, test }) {
   const chrome = functionSlice(shell, "isTopLevelRoute");
   const calendarTarget = functionSlice(host, "calendarTargetRoute");
 
-  if (!/currentRoute\s*!=\s*null\s*&&\s*currentRoute\s+in\s+topLevelRoutes/.test(chrome)) {
+  const hasExactRouteMembership =
+    /currentRoute\s*!=\s*null\s*&&\s*currentRoute\s+in\s+topLevelRoutes/.test(chrome) ||
+    /currentRoute\?\.routeBase\(\)\s+in\s+topLevelRoutes/.test(chrome);
+  if (!hasExactRouteMembership) {
     findings.push(
-      "top-level chrome must use exact route membership: " +
-        "`currentRoute != null && currentRoute in topLevelRoutes`",
+      "top-level chrome must use exact route membership, optionally after stripping Compose query args: " +
+        "`currentRoute?.routeBase() in topLevelRoutes`",
     );
   }
   if (/\b(?:startsWith|contains|substringBefore|removePrefix)\s*\(/.test(chrome)) {
@@ -175,7 +178,7 @@ function selfTest() {
         CompositionLocalProvider(LocalDrawerOpener provides drawerOpener) { content() }
       }
       internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
-        currentRoute != null && currentRoute in topLevelRoutes
+        currentRoute?.routeBase() in topLevelRoutes
     `,
     test: `
       assertFalse(Routes.CALENDAR_DRIVE, isTopLevelRoute(Routes.CALENDAR_DRIVE, roots))
