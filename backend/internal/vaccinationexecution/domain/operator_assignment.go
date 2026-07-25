@@ -24,10 +24,11 @@ import (
 // (vaccination_operator_assignment_config). RowVersion is the optimistic-concurrency token for admin
 // edits; a stale RowVersion on update is rejected as a conflict.
 type OperatorAssignmentConfig struct {
-	ParkID                string `json:"parkId"`
-	ActiveOperatorsPerDay int    `json:"activeOperatorsPerDay"`
-	DefaultOperatorID     string `json:"defaultOperatorId"`
-	RowVersion            int64  `json:"rowVersion"`
+	ParkID                string   `json:"parkId"`
+	ActiveOperatorsPerDay int      `json:"activeOperatorsPerDay"`
+	DefaultOperatorID     string   `json:"defaultOperatorId"`
+	SelectedOperatorIDs   []string `json:"selectedOperatorIds,omitempty"`
+	RowVersion            int64    `json:"rowVersion"`
 }
 
 var (
@@ -50,6 +51,9 @@ func (c OperatorAssignmentConfig) Validate(defaultOperatorIsKnownShiftOperator b
 	}
 	if !defaultOperatorIsKnownShiftOperator {
 		return "unknown_default_operator", "default operator must have a shift config row for this park", false
+	}
+	if len(c.SelectedOperatorIDs) > MaxActiveOperatorsPerDay {
+		return "too_many_selected_operators", fmt.Sprintf("selected operators cannot exceed %d", MaxActiveOperatorsPerDay), false
 	}
 	return "", "", true
 }
@@ -191,6 +195,12 @@ func ResolveOperatorsForDriveDay(businessDate time.Time, cfg OperatorAssignmentC
 
 	def := cfg.DefaultOperatorID
 	reason := ReasonFallbackShiftOrder
+	for _, operatorID := range cfg.SelectedOperatorIDs {
+		add(operatorID)
+	}
+	if len(selected) > 0 {
+		reason = ReasonDefaultAvailable
+	}
 	if def != "" && available(def) {
 		add(def)
 		reason = ReasonDefaultAvailable

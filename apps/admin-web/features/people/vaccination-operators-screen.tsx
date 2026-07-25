@@ -121,6 +121,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   const [commonCap, setCommonCap] = useState(200);
   const [operatorCount, setOperatorCount] = useState(1);
   const [defaultOperator, setDefaultOperator] = useState<string>('');
+  const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
   const [assignmentConfig, setAssignmentConfig] = useState<VaccinationOperatorAssignmentConfig | null>(null);
   // Park scope as RESOLVED BY THE BACKEND (BUG-019) — never inferred from row data.
   const [parkId, setParkId] = useState<string | null>(null);
@@ -207,6 +208,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
           setOperatorCount(config.activeOperatorsPerDay);
           // Store as workforce_member_id (from config), not position_id
           setDefaultOperator(config.defaultOperatorId);
+          setSelectedOperatorIds(config.selectedOperatorIds ?? []);
         }
 
         const pos = (result.positions as Position[]) ?? [];
@@ -220,7 +222,10 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
           // THIS park. operatorsList/orderedOps filter out backup slots, so a
           // backup-slot default would highlight the wrong operator.
           const firstNonBackupOp = pos.find((p) => !p.is_backup_slot);
-          if (firstNonBackupOp?.workforce_member_id) setDefaultOperator(firstNonBackupOp.workforce_member_id);
+          if (firstNonBackupOp?.workforce_member_id) {
+            setDefaultOperator(firstNonBackupOp.workforce_member_id);
+            setSelectedOperatorIds([firstNonBackupOp.workforce_member_id]);
+          }
         }
 
         // Map leaves from backend by workforce_member_id
@@ -310,15 +315,22 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     setConfigSaving(true);
     try {
       const api = getAdminApi();
+      const nextSelected = normalizeSelectedOperators(
+        operatorCount === 1 ? [defaultOperator] : selectedOperatorIds,
+        operatorCount,
+        defaultOperator
+      );
       const result = await api.putVaccinationOperatorAssignmentConfig({
         parkId,
         activeOperatorsPerDay: operatorCount,
         defaultOperatorId: defaultOperator,
+        selectedOperatorIds: nextSelected,
         rowVersion,
       });
       if (result.data) {
         setRowVersion(result.data.rowVersion);
-        showToast(`<b style="color:var(--brand)">Saved</b> · ${operatorCount} operator${operatorCount !== 1 ? 's' : ''}/day, default set`);
+        setSelectedOperatorIds(result.data.selectedOperatorIds ?? nextSelected);
+        showToast(`<b style="color:var(--brand)">Saved</b> · ${operatorCount} operator${operatorCount !== 1 ? 's' : ''}/day assigned`);
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to save';
@@ -333,6 +345,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
             setRowVersion(refreshResult.data.rowVersion);
             setOperatorCount(refreshResult.data.activeOperatorsPerDay);
             setDefaultOperator(refreshResult.data.defaultOperatorId);
+            setSelectedOperatorIds(refreshResult.data.selectedOperatorIds ?? []);
           }
         } catch (reloadErr) {
           console.error('Failed to reload config:', reloadErr);
@@ -402,6 +415,38 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   };
 
   const operatorsList = useMemo(() => positions.filter((p) => !p.is_backup_slot), [positions]);
+  const operatorMemberIds = useMemo(
+    () => operatorsList.map((op) => op.workforce_member_id).filter((id): id is string => !!id),
+    [operatorsList]
+  );
+
+  const normalizeSelectedOperators = useCallback((ids: string[], count: number, fallbackDefault: string): string[] => {
+    const available = new Set(operatorMemberIds);
+    const next = ids.filter((id, index) => available.has(id) && ids.indexOf(id) === index).slice(0, count);
+    if ((count === 1 || next.length === 0) && fallbackDefault && available.has(fallbackDefault) && !next.includes(fallbackDefault)) {
+      next.unshift(fallbackDefault);
+    }
+    for (const id of operatorMemberIds) {
+      if (next.length >= count) break;
+      if (!next.includes(id)) next.push(id);
+    }
+    return next.slice(0, count);
+  }, [operatorMemberIds]);
+
+  const changeOperatorCount = (count: number) => {
+    setOperatorCount(count);
+    setSelectedOperatorIds((current) => normalizeSelectedOperators(current, count, defaultOperator));
+  };
+
+  const toggleSelectedOperator = (operatorId: string) => {
+    setSelectedOperatorIds((current) => {
+      if (current.includes(operatorId)) {
+        return current.filter((id) => id !== operatorId);
+      }
+      if (current.length >= operatorCount) return current;
+      return [...current, operatorId];
+    });
+  };
 
   // Get shift for an operator by workforce_member_id
   const getShiftForOperator = (workforceMemberId: string): VaccinationOperatorShift | undefined => {
@@ -414,19 +459,14 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
   const firstName = (op?: Position): string => (op?.person_display_name ?? 'Operator').split(' ')[0];
 
   const orderedOps = useMemo(() => {
-    // For N=1, default is from backend config (stored as workforce_member_id)
-    // For N>1, just use the roster order
-    if (operatorCount !== 1) {
-      return [...operatorsList];
-    }
-
-    // Map defaultOperator (workforce_member_id) to Position
-    const defaultPos = operatorsList.find((op) => op.workforce_member_id === defaultOperator);
-    if (!defaultPos) return [...operatorsList];
-
-    const rest = operatorsList.filter((op) => op.position_id !== defaultPos.position_id);
-    return [defaultPos, ...rest];
-  }, [operatorsList, operatorCount, defaultOperator]);
+    const pinnedIds = operatorCount === 1 ? [defaultOperator] : selectedOperatorIds;
+    const pinned = pinnedIds
+      .map((id) => operatorsList.find((op) => op.workforce_member_id === id))
+      .filter((op): op is Position => !!op);
+    const pinnedPositionIds = new Set(pinned.map((op) => op.position_id));
+    const rest = operatorsList.filter((op) => !pinnedPositionIds.has(op.position_id));
+    return [...pinned, ...rest];
+  }, [operatorsList, operatorCount, defaultOperator, selectedOperatorIds]);
 
   const weeklyPlan = useMemo(() => {
     // Map a recurring weekday to its next real occurrence (today or forward within 7 days),
@@ -959,7 +999,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               <label>Active operators / day</label>
               <select
                 value={operatorCount}
-                onChange={(e) => setOperatorCount(parseInt(e.target.value, 10))}
+                onChange={(e) => changeOperatorCount(parseInt(e.target.value, 10))}
                 disabled={configSaving}
                 title="Drives the live preview below."
               >
@@ -972,10 +1012,13 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
               <label>Default operator</label>
               <select
                 value={defaultOperator}
-                onChange={(e) => setDefaultOperator(e.target.value)}
+                onChange={(e) => {
+                  setDefaultOperator(e.target.value);
+                  if (operatorCount === 1) setSelectedOperatorIds([e.target.value]);
+                }}
                 disabled={operatorCount !== 1 || configSaving}
                 aria-disabled={operatorCount !== 1 || configSaving}
-                title={operatorCount !== 1 ? 'Only available when active operators = 1' : 'CEO default. Drives the live preview.'}
+                title={operatorCount !== 1 ? 'Parallel mode uses the selected operator cards below.' : 'CEO default. Drives the live preview.'}
               >
                 {operatorsList.map((op) => (
                   <option key={op.position_id} value={op.workforce_member_id ?? op.position_id}>
@@ -1002,6 +1045,32 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
             Live preview of the assignment logic from the roster + week-offs. Configure and save active-operators
             and default operator settings to the backend.
           </div>
+          {operatorCount !== 1 ? (
+            <div className="selectgrid" style={{ marginTop: '12px' }}>
+              {operatorsList.map((op) => {
+                const operatorId = op.workforce_member_id ?? '';
+                const checked = selectedOperatorIds.includes(operatorId);
+                const disabled = configSaving || (!checked && selectedOperatorIds.length >= operatorCount);
+                return (
+                  <button
+                    key={op.position_id}
+                    type="button"
+                    className={`pickop${checked ? ' on' : ''}`}
+                    disabled={disabled}
+                    aria-pressed={checked}
+                    onClick={() => operatorId && toggleSelectedOperator(operatorId)}
+                    title={disabled && !checked ? `Already selected ${operatorCount} operators` : `Toggle ${op.person_display_name ?? 'operator'}`}
+                  >
+                    <span className="av">{(op.person_display_name ?? 'OP')[0]}</span>
+                    <span>
+                      <b>{firstName(op)}</b>
+                      <small>off: {WEEK_LABELS[weekOffOf(op)] ?? '—'}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           <div className="uline" style={{ marginTop: '14px' }}>
             {operatorCount === 1 ? 'Fallback chain — first available wins' : `Parallel — up to ${operatorCount}/day run together`}
           </div>
@@ -1022,7 +1091,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
             ))}
           </div>
           <div className="banner" style={{ marginTop: '10px', display: operatorCount !== 1 ? 'block' : 'none' }}>
-            <b>Parallel mode:</b> up to {operatorCount} available operators run together. No single default; week-off/leave just drops that operator&apos;s slice for the day.
+            <b>Parallel mode:</b> selected operators run together. Week-off/leave drops that operator&apos;s slice for the day and the roster fills the open slot.
           </div>
           <div className="uline" style={{ marginTop: '20px' }}>
             Weekly assignment preview — who runs the drive each day
