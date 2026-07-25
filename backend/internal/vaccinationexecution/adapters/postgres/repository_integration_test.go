@@ -725,6 +725,50 @@ WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date
 	}
 }
 
+func TestDriveAssignmentsSeededDoneOneToManyPageBoundaryScheduledDateParkScopeStatusMatrixUsesCompletedObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "seeded done obligation",
+		`UPDATE obligation_instances
+		    SET status='completed', completed_at=TIMESTAMPTZ '2026-07-24 09:00:00+00'
+		  WHERE tenant_id=$1 AND obligation_id=$2`,
+		testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "seeded accepted completion",
+		`UPDATE vaccination_completions
+		    SET status='accepted', verified_at=TIMESTAMPTZ '2026-07-24 09:10:00+00'
+		  WHERE tenant_id=$1 AND completion_id=$2`,
+		testTenant, testComplete)
+	execProjectionSQL(t, ctx, pool, "past drive assignment without member ledger",
+		`INSERT INTO vaccination_drive_assignments (
+		   tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed,
+		   partition_label, animal_count, vaccine_rule_ids, total_doses
+		 ) VALUES ($1,$2,DATE '2026-07-24',$3,$4,$5,'Gandhi','whole',1,ARRAY[$6::uuid],1)`,
+		testTenant, testBatch, testOperator, testPark, testShed, testRule)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments: %v", err)
+	}
+	row := driveAssignmentRowFor(rows, "2026-07-24", "Gandhi")
+	if row == nil {
+		t.Fatalf("missing Gandhi row: %#v", rows)
+	}
+	if row.DoneAnimals != 1 || row.OverdueAnimals != 0 || row.DueAnimals != 0 {
+		t.Fatalf("seeded done row buckets done/overdue/due=%d/%d/%d, want 1/0/0; row=%#v",
+			row.DoneAnimals, row.OverdueAnimals, row.DueAnimals, row)
+	}
+}
+
 func TestScanRosterUsesExactTaskIdentityCursorAndPinnedOptions(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
