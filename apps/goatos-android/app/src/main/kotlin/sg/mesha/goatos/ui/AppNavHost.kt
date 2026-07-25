@@ -141,12 +141,22 @@ object Routes {
     const val VERIFY_ITEM_ARG = "itemId"
     const val VERIFY_CATEGORY_ARG = "category"
     const val VERIFY_ACTION_ARG = "actionMode"
+    const val VERIFY_PARK_ARG = "parkId"
+    const val VERIFY_SHED_ARG = "shedId"
 
-    fun verifyDetailRoute(itemId: String, category: String?, actionMode: Boolean = false): String {
+    fun verifyDetailRoute(
+        itemId: String,
+        category: String?,
+        actionMode: Boolean = false,
+        parkId: String? = null,
+        shedId: String? = null,
+    ): String {
         val args = listOfNotNull(
             VERIFY_ITEM_ARG to itemId,
             category?.takeIf { it.isNotBlank() }?.let { VERIFY_CATEGORY_ARG to it },
             VERIFY_ACTION_ARG to actionMode.toString(),
+            parkId?.takeIf { it.isNotBlank() }?.let { VERIFY_PARK_ARG to it },
+            shedId?.takeIf { it.isNotBlank() }?.let { VERIFY_SHED_ARG to it },
         )
         val base = if (actionMode) VERIFY_ACTION_DETAIL else VERIFY_DETAIL
         return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -773,7 +783,15 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(Routes.verifyDetailRoute(event.itemId, event.category, actionMode = state.isActionQueue)) { launchSingleTop = true }
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = state.isActionQueue,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -791,7 +809,15 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(Routes.verifyDetailRoute(event.itemId, event.category, actionMode = true)) { launchSingleTop = true }
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = true,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -801,11 +827,15 @@ fun AppNavHost(
         composable(
             route = "${Routes.VERIFY_DETAIL}?${Routes.VERIFY_ITEM_ARG}={${Routes.VERIFY_ITEM_ARG}}" +
                 "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}" +
-                "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+                "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
+                "&${Routes.VERIFY_PARK_ARG}={${Routes.VERIFY_PARK_ARG}}" +
+                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}",
             arguments = listOf(
                 navArgument(Routes.VERIFY_ITEM_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
+                navArgument(Routes.VERIFY_PARK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) {
             val vm: VerifyDetailViewModel = hiltViewModel()
@@ -829,11 +859,15 @@ fun AppNavHost(
         composable(
             route = "${Routes.VERIFY_ACTION_DETAIL}?${Routes.VERIFY_ITEM_ARG}={${Routes.VERIFY_ITEM_ARG}}" +
                 "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}" +
-                "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
+                "&${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
+                "&${Routes.VERIFY_PARK_ARG}={${Routes.VERIFY_PARK_ARG}}" +
+                "&${Routes.VERIFY_SHED_ARG}={${Routes.VERIFY_SHED_ARG}}",
             arguments = listOf(
                 navArgument(Routes.VERIFY_ITEM_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = true },
+                navArgument(Routes.VERIFY_PARK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) {
             val vm: VerifyDetailViewModel = hiltViewModel()

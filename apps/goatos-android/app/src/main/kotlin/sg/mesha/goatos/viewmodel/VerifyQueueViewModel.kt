@@ -169,6 +169,11 @@ class VerifyQueueViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyQueueUiState())
 
     init {
+        viewModelScope.launch {
+            observedResource.collect { resource ->
+                clearStaleLocationFilters(resource.data ?: return@collect)
+            }
+        }
         refresh()
     }
 
@@ -290,6 +295,21 @@ class VerifyQueueViewModel @Inject constructor(
         return "Close saved locally; waiting for backend sync."
     }
 
+    private fun clearStaleLocationFilters(data: VerificationQueueResponseDto) {
+        val selectedPark = _selectedParkId.value
+        if (selectedPark != null && data.filterOptions.parks.orEmpty().none { it.id == selectedPark }) {
+            _selectedParkId.value = null
+            _selectedShedId.value = null
+            refresh()
+            return
+        }
+        val selectedShed = _selectedShedId.value
+        if (selectedShed != null && data.filterOptions.sheds.orEmpty().none { it.id == selectedShed }) {
+            _selectedShedId.value = null
+            refresh()
+        }
+    }
+
     /** `value = null` ("All") always leads, followed by every distinct category the backend has
      *  returned. `label = null` on the "All" entry tells the Screen to substitute its own
      *  localized chrome string; every other label is the raw backend category key, humanized
@@ -334,9 +354,6 @@ private fun locationOptions(
     raw.filter { (id, _) -> id.isNotBlank() }
         .distinctBy { (id, _) -> id }
         .forEach { (id, label) -> options += VerifyLocationFilterOption(value = id, label = label.ifBlank { id }) }
-    if (selected != null && options.none { it.value == selected }) {
-        options += VerifyLocationFilterOption(value = selected, label = selected)
-    }
     return options
 }
 

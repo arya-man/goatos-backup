@@ -291,6 +291,9 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	obligationID := "00000000-0000-4000-8000-000000000210"
 	itemID := "00000000-0000-4000-8000-000000000211"
 	completionID := "00000000-0000-4000-8000-000000000212"
+	parkID := "00000000-0000-4000-8000-000000000213"
+	shedID := "00000000-0000-4000-8000-000000000214"
+	otherShedID := "00000000-0000-4000-8000-000000000215"
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -329,6 +332,7 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 			RefID:        goatID,
 		},
 		MediaRefs: []string{"proof-close-submission"}, CapturedAt: time.Now().In(biztime.DefaultLocation()),
+		ParkID: &parkID, ShedID: &shedID,
 		IdempotencyKey: "vaccination:submission:" + submissionID + ":goat",
 	})
 	if err != nil {
@@ -348,6 +352,24 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	}
 	if len(closures) != 1 || closures[0].BatchID != batchID || !closures[0].Ready {
 		t.Fatalf("closures=%+v, want ready batch %s", closures, batchID)
+	}
+	shedClosures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: true, ShedID: shedID,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures with shed filter: %v", err)
+	}
+	if len(shedClosures) != 1 || shedClosures[0].BatchID != batchID {
+		t.Fatalf("shed-filtered closures=%+v, want ready batch %s", shedClosures, batchID)
+	}
+	otherShedClosures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: true, ShedID: otherShedID,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures with other shed filter: %v", err)
+	}
+	if len(otherShedClosures) != 0 {
+		t.Fatalf("other-shed closures=%+v, want none", otherShedClosures)
 	}
 	if _, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
 		TenantID: tenantID, BatchID: batchID, ActorID: actorID,
@@ -394,6 +416,93 @@ WHERE tenant_id=$1::uuid
 	}
 	if outboxCount != 1 {
 		t.Fatalf("vaccination.completed outbox count = %d, want 1", outboxCount)
+	}
+
+	replayKey := "vaccination-batch-close-replay-repairs-open-item"
+	if _, err := pool.Exec(ctx, `
+UPDATE verification_items
+SET closed_by = NULL,
+    closed_at = NULL,
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND item_id = $2::uuid;
+UPDATE vaccination_completions
+SET status = 'recorded',
+    verified_by = NULL,
+    verified_at = NULL,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND completion_id = $3::uuid;
+UPDATE obligation_instances
+SET status = 'in_progress',
+    completed_at = NULL,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND obligation_id = $4::uuid;
+UPDATE obligation_batches
+SET status = 'in_progress',
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND batch_id = $5::uuid;
+UPDATE sop_submission_items
+SET state = 'needs_review',
+    accepted_at = NULL,
+    accepted_by = NULL
+WHERE tenant_id = $1::uuid
+  AND item_id = $6::uuid;
+UPDATE sop_submissions
+SET state = 'submitted',
+    accepted_at = NULL,
+    accepted_by = NULL
+WHERE tenant_id = $1::uuid
+  AND submission_id = $7::uuid;
+UPDATE sop_tasks
+SET state = 'submitted',
+    accepted_at = NULL,
+    accepted_by = NULL
+WHERE tenant_id = $1::uuid
+  AND task_id = $8::uuid`,
+		tenantID, created.Item.ItemID, completionID, obligationID, batchID, itemID, submissionID, taskID); err != nil {
+		t.Fatalf("reset closed state for replay repair: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status, result_type, result_id, completed_at)
+VALUES ($1, $2::uuid, 'verification.close-vaccination-batch', $3, 'completed', 'vaccination_batch', $4::uuid, now())`,
+		scopedIdempotencyKey(tenantID, "verification.close-vaccination-batch", replayKey),
+		tenantID,
+		requestFingerprint(batchID, actorID),
+		batchID); err != nil {
+		t.Fatalf("seed completed close idempotency key: %v", err)
+	}
+	if _, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
+		TenantID: tenantID, BatchID: batchID, ActorID: actorID, IdempotencyKey: replayKey,
+	}); err != nil {
+		t.Fatalf("CloseVaccinationBatch replay with completed idempotency key should repair open item: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT vc.status, oi.status, ob.status, si.state, ss.state, st.state
+FROM vaccination_completions vc
+JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+JOIN obligation_batches ob ON ob.tenant_id = vc.tenant_id AND ob.batch_id = vc.batch_id
+JOIN sop_submission_items si ON si.tenant_id = vc.tenant_id AND si.item_id = vc.sop_submission_item_id
+JOIN sop_submissions ss ON ss.tenant_id = si.tenant_id AND ss.submission_id = si.submission_id
+JOIN sop_tasks st ON st.tenant_id = si.tenant_id AND st.task_id = si.task_id
+WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
+		tenantID, completionID).Scan(
+		&completionStatus,
+		&obligationStatus,
+		&batchStatus,
+		&submissionItemState,
+		&submissionState,
+		&taskState,
+	); err != nil {
+		t.Fatalf("read replay-repaired completion state: %v", err)
+	}
+	if completionStatus != "accepted" || obligationStatus != "completed" || batchStatus != "completed" ||
+		submissionItemState != "accepted" || submissionState != "accepted" || taskState != "accepted" {
+		t.Fatalf("replay-repaired states completion/obligation/batch/submission_item/submission/task = %s/%s/%s/%s/%s/%s, want accepted/completed/completed/accepted/accepted/accepted",
+			completionStatus, obligationStatus, batchStatus, submissionItemState, submissionState, taskState)
 	}
 }
 
