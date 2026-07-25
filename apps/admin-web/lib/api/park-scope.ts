@@ -12,6 +12,7 @@ import type { AppApiComponents } from '@goatos/api-client';
 export type ParkScopeOption = AppApiComponents['schemas']['VaccinationParkScopeOption'];
 
 export const PARK_SCOPE_AMBIGUOUS_CODE = 'park_scope_ambiguous';
+export const OPERATOR_ASSIGNMENT_CONFIG_NOT_FOUND_CODE = 'not_found';
 
 /** Thrown by the client passthrough for a 409 `park_scope_ambiguous`. Carries the backend's options. */
 export class ParkScopeAmbiguousError extends Error {
@@ -33,4 +34,23 @@ export function parkScopeAmbiguousFromBody(status: number, body: unknown): ParkS
   const parks = Array.isArray(envelope.availableParks) ? (envelope.availableParks as ParkScopeOption[]) : [];
   const message = typeof envelope.message === 'string' ? envelope.message : 'Choose a park to continue.';
   return new ParkScopeAmbiguousError(message, parks);
+}
+
+/** Thrown by the client passthrough when a park has no authored operator-assignment config yet. */
+export class OperatorAssignmentConfigNotFoundError extends Error {
+  readonly code = OPERATOR_ASSIGNMENT_CONFIG_NOT_FOUND_CODE;
+
+  constructor(message = 'No operator assignment config authored for this park yet.') {
+    super(message);
+    this.name = 'OperatorAssignmentConfigNotFoundError';
+  }
+}
+
+/** Narrow an unknown error body into the no-authored-config case. */
+export function operatorAssignmentConfigNotFoundFromBody(status: number, body: unknown): OperatorAssignmentConfigNotFoundError | null {
+  if (status !== 404 || typeof body !== 'object' || body === null) return null;
+  const envelope = body as { code?: unknown; message?: unknown };
+  if (envelope.code !== OPERATOR_ASSIGNMENT_CONFIG_NOT_FOUND_CODE) return null;
+  const message = typeof envelope.message === 'string' ? envelope.message : undefined;
+  return new OperatorAssignmentConfigNotFoundError(message);
 }

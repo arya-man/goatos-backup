@@ -2,7 +2,7 @@
 // This is a thin wrapper around fetch that calls the backend admin API endpoints.
 
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents } from '@goatos/api-client';
-import { parkScopeAmbiguousFromBody } from './park-scope';
+import { operatorAssignmentConfigNotFoundFromBody, parkScopeAmbiguousFromBody } from './park-scope';
 
 /**
  * getAdminApi returns a client-side API object that can fetch roster and other admin endpoints.
@@ -98,6 +98,8 @@ export function getAdminApi() {
         // render the backend-owned selector instead of dead-ending on a thrown message.
         const ambiguous = parkScopeAmbiguousFromBody(response.status, await response.clone().json().catch(() => null));
         if (ambiguous) throw ambiguous;
+        const notFound = operatorAssignmentConfigNotFoundFromBody(response.status, await response.clone().json().catch(() => null));
+        if (notFound) throw notFound;
         throw new Error(`Failed to fetch vaccination operator assignment config: ${response.statusText}`);
       }
       const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
