@@ -147,7 +147,7 @@ WHERE tenant_id = $1::uuid
 	tag, err := tx.Exec(ctx, `
 UPDATE notification_requests
 SET status = 'suppressed',
-    failure_reason = COALESCE(NULLIF(failure_reason, ''), $3),
+    failure_reason = $3,
     next_attempt_at = NULL,
     lease_token = NULL,
     leased_at = NULL,

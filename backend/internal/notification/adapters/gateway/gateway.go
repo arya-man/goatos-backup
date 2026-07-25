@@ -204,22 +204,9 @@ func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, p
 		if len(snippet) > 256 {
 			snippet = snippet[:256]
 		}
-		if isInvalidFCMRecipientResponse(resp.StatusCode, responseBody) {
-			return nil, fmt.Errorf("%w: notification webhook status %d: %s", ports.ErrInvalidRecipient, resp.StatusCode, strings.TrimSpace(string(snippet)))
-		}
 		return nil, fmt.Errorf("notification webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 	return responseBody, nil
-}
-
-func isInvalidFCMRecipientResponse(statusCode int, body []byte) bool {
-	if statusCode != http.StatusNotFound && statusCode != http.StatusBadRequest {
-		return false
-	}
-	text := strings.ToLower(string(body))
-	return strings.Contains(text, "notregistered") ||
-		strings.Contains(text, "unregistered") ||
-		strings.Contains(text, "registration-token-not-registered")
 }
 
 func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
@@ -309,6 +296,9 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		"Authorization": "Bearer " + token,
 	})
 	if err != nil {
+		if isInvalidFCMRecipientResponse(err) {
+			return ports.DeliveryResult{}, fmt.Errorf("%w: %v", ports.ErrInvalidRecipient, err)
+		}
 		return ports.DeliveryResult{}, err
 	}
 	var acknowledgement struct {
@@ -320,6 +310,18 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		}
 	}
 	return ports.DeliveryResult{ProviderMessageID: strings.TrimSpace(acknowledgement.Name)}, nil
+}
+
+func isInvalidFCMRecipientResponse(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return (strings.Contains(text, "notification webhook status 404") ||
+		strings.Contains(text, "notification webhook status 400")) &&
+		(strings.Contains(text, "notregistered") ||
+			strings.Contains(text, "unregistered") ||
+			strings.Contains(text, "registration-token-not-registered"))
 }
 
 func setFCMTarget(message map[string]any, recipientRef, defaultTopic string) error {

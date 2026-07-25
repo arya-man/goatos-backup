@@ -636,6 +636,54 @@ WHERE tenant_id = $1::uuid
   AND payload ->> 'trace_id' = $3`, 1, testTenantID, requestID, requestTraceID)
 }
 
+func TestNotificationRepositorySuppressInvalidRecipientOverwritesStaleFailureReason(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 7, 25, 15, 30, 0, 0, time.UTC)
+	token := "dead-fcm-token-review"
+	reason := "invalid FCM recipient: NotRegistered"
+	var requestID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, target_id, notification_type, channel,
+  recipient_ref, title, body, status, idempotency_key, request_fingerprint, context,
+  delivery_attempts, failure_reason, next_attempt_at, trace_id, requested_at
+) VALUES (
+  $1::uuid, 'verification:item-1', 'verification_item', NULL, 'verification_pending', 'push_fcm',
+  $2, 'Video verification waiting', '12 goats vaccinated; video is waiting for verification.',
+  'failed', 'invalid-recipient-overwrite', 'invalid-recipient-overwrite:fingerprint', '{}'::jsonb,
+  1, 'previous transient timeout', $3::timestamptz, 'trace-invalid-recipient-overwrite',
+  TIMESTAMPTZ '2026-07-25 15:00:00+00'
+)
+RETURNING notification_request_id::text`, testTenantID, token, now.Add(time.Minute)).Scan(&requestID); err != nil {
+		t.Fatalf("seed push notification: %v", err)
+	}
+
+	suppressed, err := repo.SuppressInvalidRecipient(ctx, testTenantID, token, reason, now)
+	if err != nil {
+		t.Fatalf("SuppressInvalidRecipient: %v", err)
+	}
+	if suppressed != 1 {
+		t.Fatalf("suppressed rows=%d want 1", suppressed)
+	}
+	var status, failureReason string
+	var nextAttemptCleared bool
+	if err := pool.QueryRow(ctx, `
+SELECT status, COALESCE(failure_reason, ''), next_attempt_at IS NULL
+FROM notification_requests
+WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
+		testTenantID, requestID).Scan(&status, &failureReason, &nextAttemptCleared); err != nil {
+		t.Fatalf("query suppressed notification: %v", err)
+	}
+	if status != "suppressed" || failureReason != reason || !nextAttemptCleared {
+		t.Fatalf("suppressed notification status=%q failure=%q nextCleared=%t, want suppressed/%q/true",
+			status, failureReason, nextAttemptCleared, reason)
+	}
+}
+
 // seedCalendarEvent is a deliberate no-op now: calendar_event_projections and the
 // calendar_event_identities identity table its trigger fed (and the notification_requests/
 // calendar_snoozes FKs that validated against calendar_event_identities) are all retired by the
