@@ -8,11 +8,13 @@ package bootstrap
 import (
 	"context"
 	"testing"
+	"time"
 
 	locationsdomain "github.com/vgoats/goatos/backend/internal/locations/domain"
 	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
 	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
+	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // --- fakes ---
@@ -66,6 +68,16 @@ type fakeProcurementLoadLister struct {
 func (f *fakeProcurementLoadLister) ListLoads(ctx context.Context, q procurementdomain.LoadQuery) (procurementdomain.LoadListResult, error) {
 	f.captured = q
 	return procurementdomain.LoadListResult{}, nil
+}
+
+type fakeVaccinationShedSummaryLister struct {
+	captured vaccexecd.ShedSummaryQuery
+	response vaccexecd.ShedSummaryResponse
+}
+
+func (f *fakeVaccinationShedSummaryLister) ShedSummary(ctx context.Context, q vaccexecd.ShedSummaryQuery) (vaccexecd.ShedSummaryResponse, error) {
+	f.captured = q
+	return f.response, nil
 }
 
 // --- tests ---
@@ -174,6 +186,46 @@ func TestProcurementReader_StatusReachesQuery_NoParkField(t *testing.T) {
 	// procurementdomain.LoadQuery has no park field at all, so there is
 	// nothing further to assert -- this documents the limitation rather than
 	// faking scoping the pipeline cannot honor.
+}
+
+func TestVaccinationReader_UsesCanonicalShedSummary(t *testing.T) {
+	fakeSvc := &fakeVaccinationShedSummaryLister{
+		response: vaccexecd.ShedSummaryResponse{Rows: []vaccexecd.ShedSummaryRow{{
+			ParkName: "Channapatna",
+			ShedName: "Godel 1",
+			Animals:  120,
+			Due:      120,
+			Done:     0,
+			Status:   vaccexecd.ShedStatusDue,
+		}}},
+	}
+	reader := buildVaccinationReader(fakeSvc)
+
+	facts, err := reader(context.Background(), "tenant-1", map[string]any{
+		"as_of":   "2026-07-25",
+		"shed_id": "shed-uuid-godel-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fakeSvc.captured.TenantID != "tenant-1" {
+		t.Fatalf("tenant = %q, want tenant-1", fakeSvc.captured.TenantID)
+	}
+	if fakeSvc.captured.ShedID == nil || *fakeSvc.captured.ShedID != "shed-uuid-godel-1" {
+		t.Fatal("shed_id did NOT reach vaccination ShedSummary query")
+	}
+	if got := fakeSvc.captured.AsOf.Format("2006-01-02"); got != "2026-07-25" {
+		t.Fatalf("as_of = %s, want 2026-07-25", got)
+	}
+	if fakeSvc.captured.DueBefore.Sub(fakeSvc.captured.AsOf) != 45*24*time.Hour {
+		t.Fatalf("due horizon = %s, want 45d", fakeSvc.captured.DueBefore.Sub(fakeSvc.captured.AsOf))
+	}
+	if len(facts) < 2 {
+		t.Fatalf("expected summary + row facts, got %+v", facts)
+	}
+	if facts[0].Label != "Vaccination summary" || facts[0].Value == "" {
+		t.Fatalf("missing summary fact: %+v", facts[0])
+	}
 }
 
 // TestLocationsParkResolver_ExactNameMatch exercises the resolver used by

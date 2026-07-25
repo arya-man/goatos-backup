@@ -480,6 +480,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 
 	for _, exec := range readToolExecs {
 		switch exec.Spec().Name {
+		case "vaccination_shed_summary":
+			ceoreadtools.SetVaccinationDataReader(readToolExecs, buildVaccinationReader(vaccExecService))
 		case "procurement_source_entry_loads":
 			ceoreadtools.SetProcurementDataReader(exec, buildProcurementReader(procurementService))
 		case "admin_roster_coverage":
