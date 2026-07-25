@@ -63,9 +63,20 @@ var defaultStarters = []string{
 	"How many active goats and sheep do we have?",
 	"What vaccinations are overdue by park?",
 	"How many vaccinations are due today?",
-	"Which sheds are behind on vaccination?",
-	"Plot vaccination overdue by park",
-	"Chart vaccinations due today by park",
+	"Which operators are overloaded on vaccination drives?",
+	"What vaccines need pickup today?",
+	"What feed direction is pending today?",
+	"Which shifting movements are pending?",
+	"What procurement loads need attention?",
+	"What source-entry health issues exist?",
+	"What SOP execution is blocked?",
+	"What verification items are waiting?",
+	"Where are sheds over capacity?",
+	"What workforce coverage gaps exist?",
+	"What operation exceptions are open?",
+	"What inventory stock needs reorder?",
+	"Summarize the operations audit anomalies.",
+	"Plot vaccination overdue by park.",
 }
 
 // ConversationHandler serves the thread + starters surface.

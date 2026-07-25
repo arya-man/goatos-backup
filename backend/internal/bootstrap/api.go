@@ -461,16 +461,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	ceoTraceStore := ceoobs.NewPostgresTraceStore(pool, cfg.Postgres.QueryTimeout)
 	ceoVertex := ceoai.NewVertexProvider(ctx, log)
 
-	// Build read tool executors. counts_breakdown and feed_direction_today do
-	// NOT have a wired in-process reader here (no direct DB call from this
-	// tier yet); their planner-routed API tool name now matches the executor
-	// registered under it (fixed P1-1: planner and registry.go both agree on
-	// "feed_direction_today"), and when the reader is unwired the executor
-	// reports it via ToolResult.Err instead of silently returning empty. The
-	// orchestrator's runtime fallback (app/fallback.go) retries that same
-	// question through Cube (active_animals) or the MCP Toolbox
-	// (mesha_count_by_scope / mesha_feed_direction_summary) so a question
-	// never dead-ends on an unwired API executor (P1-2, P1-3).
+	// Build read tool executors. feed_direction_today does not yet have a
+	// direct DB reader in this tier, so the orchestrator's runtime fallback
+	// retries the same question through the MCP Toolbox.
 	readToolExecs := ceoreadtools.NewToolExecutors()
 
 	// Wire in-process readers for operational domains. The reader functions
@@ -480,6 +473,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 
 	for _, exec := range readToolExecs {
 		switch exec.Spec().Name {
+		case "counts_breakdown":
+			ceoreadtools.SetCountsDataReader(exec, buildCountsReader(herdRegisterService, parkResolver))
 		case "vaccination_shed_summary":
 			ceoreadtools.SetVaccinationDataReader(readToolExecs, buildVaccinationReader(vaccExecService))
 		case "procurement_source_entry_loads":
