@@ -43,8 +43,9 @@ Field roles and vaccination capacity:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
   context must pass — for the 4 field users AND the 5 leadership users (leadership
   profile via `ensureLeadershipMember`).
-- The maintainer sets the Firebase passwords (console / Admin SDK); agents seed
-  grants + profiles + docs, not login passwords.
+- STG reseed sets the Firebase passwords with
+  `make seed-stg-firebase-password-users`; backend grants/profiles are then
+  materialized by `make seed-stg-9-person-login`.
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
 > operators with capacity, Chandrakant appears as director, Jyothi has verifier

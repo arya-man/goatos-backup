@@ -37,17 +37,29 @@ A STG seed is **INCOMPLETE** until:
 4. `docs/runbooks/stg-9-person-login-verification.md` has been run for the
    UID-backed accounts, plus the Jyothi verifier sign-in/grant check passes.
 
+`make seed-stg-firebase-password-users` is the required STG credential step. It
+sets the documented Firebase email/password credential for all 10 STG people
+against `goatos-stg`, fails if any Firebase user is missing, and fails if any
+leadership account is not already linked to the `google.com` provider. Backend
+grant materialization depends on the committed Firebase UID table, so this step
+must not create replacement Firebase users during seed.
+
 `make seed-stg-9-person-login` (backend/cmd/seed-stg-login-grants) is the
 permanent, idempotent command that materializes step 1 and 2 directly for the
-original 9 UID-backed accounts — it does not wait for a claim event. It is wired
-as a required final step of `make seed-vaccination-source-full` and
-`make seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg`. Run
-`make verify-stg-9-person-login` afterward for step 3. Jyothi is an additional
-CPT verifier account without a committed Firebase UID; her verifier grant is
-seeded by the CPT roster into `auth_pending_email_grants` and becomes active on
-first verified sign-in through `/auth/session-events`. Do not consider a STG seed
-done on pending-grant output alone unless that exception is explicitly the
-Jyothi UID-less verifier lane and her sign-in check has been run.
+original 9 UID-backed accounts — it does not wait for a claim event. Both
+commands are wired as required final steps of `make seed-vaccination-source-full`
+and `make seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg`, in this
+order: Firebase passwords first, DB grant/profile materialization second, and
+`make seed-stg-postflight` third. Postflight verifies login grants plus the
+cloud-facing wiring that must be true after seed: GCS proof storage, FCM
+notification config, and CEO AI/chatbot secrets/runtime env. Run
+`make verify-stg-9-person-login` afterward for the human bootstrap checklist.
+Jyothi is an additional CPT verifier account without a committed Firebase UID;
+her verifier grant is seeded by the CPT roster into `auth_pending_email_grants`
+and becomes active on first verified sign-in through `/auth/session-events`. Do
+not consider a STG seed done on pending-grant output alone unless that exception
+is explicitly the Jyothi UID-less verifier lane and her sign-in check has been
+run.
 
 ## Canonical STG Personnel Rule (10 people total)
 
@@ -74,10 +86,10 @@ email/password) + 4 field users (Firebase email/password) + 1 proof verifier
   | Abhishek | `Abhishek@2026` |
   | Aryaman | `Aryaman@2026` |
 
-- These are **STG throwaway credentials only**. The Firebase email/password
-  provider must be added to each leadership account in the `goatos-stg`
-  Firebase project (Authentication → Users); the SSO (`google.com`) provider
-  stays as well.
+- These are **STG throwaway credentials only**. The STG seed runs
+  `make seed-stg-firebase-password-users`, which sets the Firebase
+  email/password credential for each existing leadership account in the
+  `goatos-stg` Firebase project. The SSO (`google.com`) provider stays linked.
 - Do **NOT** count them as vaccination operators.
 - Seed is complete only when the `ceo_internal` grant is ACTIVE, an active
   `workforce_members` profile exists (see mandatory section above), and
@@ -204,9 +216,9 @@ Agents must not invent random passwords (use `<FirstName>@2026`).
 Agents must not confuse leadership users with field Android users for the
 vaccination-operator capacity rules (leadership never add operator capacity).
 
-> Credential-setting boundary: the actual Firebase password for each account is
-> set by the maintainer (Firebase console / Admin SDK). Agents seed grants,
-> profiles, and docs — they do not set login passwords.
+> Credential-setting boundary: STG reseed sets the documented throwaway
+> passwords through `make seed-stg-firebase-password-users`. Production
+> credentials and any password rotations still require maintainer approval.
 
 ## Required Seed Verification
 
