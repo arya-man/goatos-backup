@@ -136,6 +136,11 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
         value = var.project_id
       }
 
+      env {
+        name  = "GOATOS_FCM_DEFAULT_TOPIC"
+        value = "goatos-stg-all"
+      }
+
       # NOTE: the near-term Cloud Tasks path (GOATOS_CLOUD_TASKS_* +
       # GOATOS_NOTIFICATION_DISPATCHER_RUN_URL) is intentionally OMITTED. That
       # optimization invoked the retired notification-dispatcher Job for

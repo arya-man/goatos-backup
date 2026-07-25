@@ -140,6 +140,30 @@ locals {
         "kernel_worker",
       ]
     }
+    mesha_ceo_readonly_db_url = {
+      secret_id = "mesha-ceo-readonly-db-url"
+      accessors = [
+        "api",
+      ]
+    }
+    mesha_cube_readonly_db_url = {
+      secret_id = "mesha-cube-readonly-db-url"
+      accessors = [
+        "api",
+      ]
+    }
+    mesha_cube_api_secret = {
+      secret_id = "mesha-cube-api-secret"
+      accessors = [
+        "api",
+      ]
+    }
+    mesha_mcp_toolset = {
+      secret_id = "mesha-mcp-toolset"
+      accessors = [
+        "api",
+      ]
+    }
   }
 
   secret_accessor_bindings = merge([

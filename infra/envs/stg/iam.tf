@@ -29,6 +29,12 @@ resource "google_project_iam_member" "kernel_worker_fcm_sender" {
   member  = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
+resource "google_project_iam_member" "api_vertex_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.runtime["api"].email}"
+}
+
 # The near-term Cloud Tasks enqueuer (which invoked the retired
 # notification-dispatcher job for sub-minute delivery) is gone: notifications
 # now drain via the kernel worker's 1-minute fast-lane stage. No Cloud Tasks
