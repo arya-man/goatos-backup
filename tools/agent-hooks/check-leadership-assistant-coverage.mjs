@@ -48,6 +48,9 @@ function detectNewLeadershipSurfaces(files, readDiff = () => "") {
   for (const f of files) {
     if (f.startsWith("backend/migrations/postgres/") && f.endsWith(".sql")) {
       const diff = readDiff(f);
+      if (/Collapsed clean-slate baseline generated from migrations 000001\.\.000046/.test(diff)) {
+        continue;
+      }
       // If diff is too short or empty, it's unclear
       if (!diff || diff.length < 5) {
         isClean = false;

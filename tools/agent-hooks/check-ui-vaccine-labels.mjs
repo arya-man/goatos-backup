@@ -80,7 +80,7 @@ function allowedMapperLines(source) {
   let inMapper = false;
   let braceDepth = 0;
   lines.forEach((line, index) => {
-    if (/fun\s+humanizeVaccineLabel\s*\(/.test(line) || /function\s+displayVaccine/.test(line)) {
+    if (/fun\s+(?:calendarCategoryLabel|humanizeVaccineLabel)\s*\(/.test(line) || /function\s+displayVaccine/.test(line)) {
       inMapper = true;
       braceDepth = 0;
     }

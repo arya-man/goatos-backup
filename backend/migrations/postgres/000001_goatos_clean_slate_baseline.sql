@@ -1,4 +1,13 @@
 -- +goose Up
+-- +goose NO TRANSACTION
+
+-- Collapsed clean-slate baseline generated from migrations 000001..000046.
+-- This repository seeds disposable fresh environments, so historical deltas are folded into one baseline.
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000001_goatos_clean_slate_baseline.sql
+-- -----------------------------------------------------------------------------
 -- GoatOS clean-slate baseline generated from the verified final schema at 44ed6330.
 -- This disposable-project baseline replaces the historical incremental migration chain.
 
@@ -12401,7 +12410,5007 @@ WHERE sv.sop_version_id = rewritten.sop_version_id;
 
 SELECT pg_catalog.set_config('search_path', 'public', false);
 
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000002_vaccination_capacity_overflow_policy.sql
+-- -----------------------------------------------------------------------------
+-- Keep already-created databases compatible with the vaccination capacity enum rename.
+-- Clean-slate DBs get this from the baseline; dev/stg DBs that already applied the baseline
+-- need a forward migration instead of relying on edited historical SQL.
+
+-- Drop old constraint first to allow the update.
+ALTER TABLE vaccination_capacity_config
+  DROP CONSTRAINT IF EXISTS vaccination_capacity_config_overflow_check;
+
+-- Now update rows to the new enum value.
+UPDATE vaccination_capacity_config
+SET overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap'
+WHERE overflow_policy = 'split_within_safe_window_then_mark_needs_review';
+
+-- Add the new constraint on the updated value.
+ALTER TABLE vaccination_capacity_config
+  ADD CONSTRAINT vaccination_capacity_config_overflow_check
+  CHECK (overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap');
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000003_r50_forward_compatibility.sql
+-- -----------------------------------------------------------------------------
+-- +goose NO TRANSACTION
+-- seed-migration-guard:ignore owner=ravi issue=R50-015 reason=lock-safety-refactor-of-existing-CHECK-constraints-no-new-seed-data-or-read-model expiry=2026-10-31
+-- R50-015 P0 fix: this migration was previously wrapped in goose's default single
+-- transaction. Even though the CHECK-constraint deltas below already used the
+-- DROP CONSTRAINT + ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT pattern,
+-- wrapping all three steps in ONE transaction defeats the purpose of NOT VALID:
+-- Postgres locks are held at their strongest level for the lifetime of the
+-- transaction, not the statement. DROP CONSTRAINT acquires ACCESS EXCLUSIVE on the
+-- hot table; inside a single transaction that ACCESS EXCLUSIVE lock is still held
+-- (it never downgrades) while VALIDATE CONSTRAINT performs its full-table scan,
+-- so concurrent inserts/updates on notification_requests / obligation_status_events
+-- are blocked for the entire scan duration -- exactly the outage NOT VALID is
+-- supposed to avoid. `-- +goose NO TRANSACTION` makes goose apply every statement
+-- below in its own autocommit transaction, so each ACCESS EXCLUSIVE catalog-only
+-- lock (DROP CONSTRAINT, ADD CONSTRAINT ... NOT VALID, CREATE TABLE, ADD COLUMN)
+-- is acquired and released in milliseconds, and each VALIDATE CONSTRAINT then only
+-- ever needs to hold the much weaker SHARE UPDATE EXCLUSIVE lock (which permits
+-- concurrent reads AND writes, only blocking other DDL) for the duration of its
+-- scan. Every statement in this file is already idempotent/re-runnable (IF EXISTS /
+-- IF NOT EXISTS / DO $$ existence checks), which is required for NO TRANSACTION
+-- migrations: a failure partway through does not roll back earlier statements, so a
+-- retry must be a safe no-op for everything that already applied.
+-- Forward-compatibility catch-up for dev/stg databases that already applied the ORIGINAL
+-- 000001 clean-slate baseline before it was edited in place by later commits. Every
+-- statement below is idempotent/re-runnable: a database that already has a delta (via the
+-- edited baseline, via a clean install, or via a prior partial run of this migration) is
+-- left unchanged, and one that is missing a delta is caught up to match the current
+-- baseline shape exactly. Does NOT include the vaccination_capacity_config overflow_policy
+-- rename -- that delta is already covered by 000002_vaccination_capacity_overflow_policy.sql.
+
+-- 1) notification_requests.notification_type: allow the verification lifecycle values that
+--    the edited baseline added ('verification_approved', 'verification_closed').
+--    Lock-safe on hot table: NOT VALID + concurrent VALIDATE for hot tables (notification_requests).
+--    Bounded lock_timeout so a lock-contended DROP/ADD/VALIDATE fails fast (statement error,
+--    retried on the next migration run) instead of hanging indefinitely behind a long-lived
+--    reader/writer transaction.
+SET lock_timeout = '5s';
+
+ALTER TABLE notification_requests
+  DROP CONSTRAINT IF EXISTS notification_requests_type_check;
+
+ALTER TABLE notification_requests
+  ADD CONSTRAINT notification_requests_type_check
+  CHECK ((notification_type = ANY (ARRAY[
+    'reminder'::text,
+    'nudge'::text,
+    'escalation'::text,
+    'verification_pending'::text,
+    'verification_approved'::text,
+    'verification_closed'::text,
+    'rework'::text,
+    'advance_notice'::text,
+    'due_today'::text
+  ]))) NOT VALID;
+
+ALTER TABLE notification_requests
+  VALIDATE CONSTRAINT notification_requests_type_check;
+
+-- 2) SOP RFID scan-capture tables (goat-scan proof capture + attempt audit trail). These are
+--    wholly new tables added by the edited baseline; an old-baseline database has neither.
+CREATE TABLE IF NOT EXISTS public.sop_task_scan_captures (
+    capture_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    field_key text NOT NULL,
+    tag text NOT NULL,
+    normalized_tag text NOT NULL,
+    goat_id uuid,
+    obligation_id uuid,
+    captured_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    captured_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_scan_captures_pkey PRIMARY KEY (capture_id),
+    CONSTRAINT sop_task_scan_captures_field_key_check CHECK ((btrim(field_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_normalized_tag_check CHECK ((btrim(normalized_tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_tag_check CHECK ((btrim(tag) <> ''::text))
+);
+
+CREATE TABLE IF NOT EXISTS public.sop_task_scan_attempts (
+    attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    field_key text NOT NULL,
+    tag text NOT NULL,
+    normalized_tag text NOT NULL,
+    goat_id uuid,
+    obligation_id uuid,
+    outcome text NOT NULL,
+    tag_role text DEFAULT 'unknown'::text NOT NULL,
+    reason text,
+    captured_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    captured_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_scan_attempts_pkey PRIMARY KEY (attempt_id),
+    CONSTRAINT sop_task_scan_attempts_field_key_check CHECK ((btrim(field_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_normalized_tag_check CHECK ((btrim(normalized_tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_outcome_check CHECK ((outcome = ANY (ARRAY['accepted'::text, 'duplicate'::text, 'not_due'::text, 'unknown'::text]))),
+    CONSTRAINT sop_task_scan_attempts_tag_check CHECK ((btrim(tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_tag_role_check CHECK ((tag_role = ANY (ARRAY['primary'::text, 'secondary'::text, 'unknown'::text])))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sop_task_scan_captures_idempotency_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS sop_task_scan_captures_task_field_tag_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, field_key, normalized_tag);
+CREATE INDEX IF NOT EXISTS sop_task_scan_captures_task_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, captured_at, capture_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sop_task_scan_attempts_idempotency_unique_idx ON public.sop_task_scan_attempts USING btree (tenant_id, idempotency_key);
+CREATE INDEX IF NOT EXISTS sop_task_scan_attempts_task_goat_idx ON public.sop_task_scan_attempts USING btree (tenant_id, task_id, goat_id, captured_at, attempt_id);
+CREATE INDEX IF NOT EXISTS sop_task_scan_attempts_task_idx ON public.sop_task_scan_attempts USING btree (tenant_id, task_id, captured_at, attempt_id);
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_captures_goat_id_fkey') THEN
+    ALTER TABLE ONLY public.sop_task_scan_captures
+      ADD CONSTRAINT sop_task_scan_captures_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_captures_task_id_fkey') THEN
+    ALTER TABLE ONLY public.sop_task_scan_captures
+      ADD CONSTRAINT sop_task_scan_captures_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_captures_tenant_id_fkey') THEN
+    ALTER TABLE ONLY public.sop_task_scan_captures
+      ADD CONSTRAINT sop_task_scan_captures_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_attempts_goat_id_fkey') THEN
+    ALTER TABLE ONLY public.sop_task_scan_attempts
+      ADD CONSTRAINT sop_task_scan_attempts_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_attempts_task_id_fkey') THEN
+    ALTER TABLE ONLY public.sop_task_scan_attempts
+      ADD CONSTRAINT sop_task_scan_attempts_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sop_task_scan_attempts_tenant_id_fkey') THEN
+    ALTER TABLE ONLY public.sop_task_scan_attempts
+      ADD CONSTRAINT sop_task_scan_attempts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+  END IF;
+END $$;
+
+-- 3) vaccination_capacity_config.overflow_policy rename: already covered by
+--    000002_vaccination_capacity_overflow_policy.sql. Intentionally skipped here.
+
+-- 4) verification_items: subject_label / closed_by / closed_at columns plus their CHECKs,
+--    added by the edited baseline for the verification-closure workflow.
+ALTER TABLE verification_items ADD COLUMN IF NOT EXISTS subject_label text;
+ALTER TABLE verification_items ADD COLUMN IF NOT EXISTS closed_by uuid;
+ALTER TABLE verification_items ADD COLUMN IF NOT EXISTS closed_at timestamp with time zone;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'verification_items_subject_label_check') THEN
+    ALTER TABLE verification_items
+      ADD CONSTRAINT verification_items_subject_label_check
+      CHECK (((subject_label IS NULL) OR (btrim(subject_label) <> ''::text)));
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'verification_items_closed_pair_check') THEN
+    ALTER TABLE verification_items
+      ADD CONSTRAINT verification_items_closed_pair_check
+      CHECK (((closed_by IS NULL) = (closed_at IS NULL)));
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'verification_items_closed_approved_check') THEN
+    ALTER TABLE verification_items
+      ADD CONSTRAINT verification_items_closed_approved_check
+      CHECK (((closed_at IS NULL) OR (status = 'approved'::text)));
+  END IF;
+END $$;
+
+-- 5) outbox_messages verification idempotency index: add 'verification.item.closed' to the
+--    partial predicate so closure events get outbox idempotency coverage.
+--    Handled concurrently in 000004_r50_forward_compat_concurrent_indexes.sql for hot-table safety.
+
+-- 6) verification_items leadership closure queue: approved-and-not-yet-closed items, scoped
+--    for the leadership review queue.
+--    Handled concurrently in 000004_r50_forward_compat_concurrent_indexes.sql for large-table safety.
+
+-- 7) Vaccination goat-scan SOP: MOVED TO 000006_r50_vaccination_sop_dml.sql for lock safety.
+--    This step (step 7) is heavy DML that rewrites form_dsl/proof_policy for vaccination.drive /
+--    vaccination.session SOP versions. Keeping it in this transaction with fast DDL would hold
+--    ACCESS EXCLUSIVE locks on hot tables for the duration of the long UPDATE. Moved to a
+--    separate migration to release DDL locks quickly (R50-015 P0).
+
+-- 8) obligation_status_events.event_type: allow 'in_progress' so MarkInProgress (PEND-1: the
+--    obligation_instances/obligation_batches 'in_progress' writer that was missing entirely,
+--    which left MarkMissedBefore's in_progress-batch safety guard permanently dead) can record a
+--    durable per-obligation status event when SOP-submit-time capture begins, mirroring
+--    MarkCompleted's existing event pattern.
+--    Lock-safe on hot table: NOT VALID + concurrent VALIDATE for hot tables (obligation_status_events).
+--    Bounded lock_timeout (see notification_requests comment above for rationale).
+SET lock_timeout = '5s';
+
+ALTER TABLE obligation_status_events
+  DROP CONSTRAINT IF EXISTS obligation_status_events_type_check;
+
+ALTER TABLE obligation_status_events
+  ADD CONSTRAINT obligation_status_events_type_check
+  CHECK ((event_type = ANY (ARRAY[
+    'scheduled'::text,
+    'became_due'::text,
+    'dispatched'::text,
+    'in_progress'::text,
+    'completed'::text,
+    'missed'::text,
+    'waived'::text,
+    'escalated'::text,
+    'escalation_acknowledged'::text,
+    'escalation_resolved'::text,
+    'canceled'::text,
+    'deferred'::text,
+    'rescoped'::text
+  ]))) NOT VALID;
+
+ALTER TABLE obligation_status_events
+  VALIDATE CONSTRAINT obligation_status_events_type_check;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000004_r50_forward_compat_concurrent_indexes.sql
+-- -----------------------------------------------------------------------------
+-- +goose NO TRANSACTION
+-- Item 5: Rebuild the outbox verification idempotency index with 'verification.item.closed' predicate.
+-- Lock-safe on hot table outbox_messages: CREATE UNIQUE INDEX CONCURRENTLY with the NEW predicate (step 1),
+-- ensuring ON CONFLICT always has a valid target, then DROP the old narrower index CONCURRENTLY (step 2).
+-- This eliminates the 42P10 window. (R50-015 P0)
+--
+-- Dedup guard (judge Finding 2): the rebuilt index adds 'verification.item.closed' to the partial
+-- predicate, widening which rows it covers. A forward-compat database that already has duplicate
+-- (tenant_id, idempotency_key) rows among the now-covered event types would make the CREATE UNIQUE INDEX
+-- CONCURRENTLY fail on populated tables. Keep the earliest row per (tenant_id, idempotency_key) among
+-- predicate-covered rows and delete the rest. This is a one-way, non-reversible cleanup scoped to:
+-- (a) event types covered by the new predicate, (b) rows created in the last 7 days, (c) batches of
+-- up to 10000 rows per statement. Ordinary non-covered rows and rows with NULL idempotency_key are
+-- never touched.
+WITH duplicate_rows AS (
+  SELECT dupe.outbox_id
+  FROM public.outbox_messages dupe
+  WHERE dupe.idempotency_key IS NOT NULL
+    AND dupe.created_at > now() - '7 days'::interval
+    AND dupe.event_type = ANY (ARRAY[
+      'verification.item.pending'::text,
+      'verification.verdict.approved'::text,
+      'verification.verdict.rework'::text,
+      'verification.item.closed'::text
+    ])
+    -- Keep the EARLIEST (tenant_id, idempotency_key) row per group; a row is a duplicate-to-delete
+    -- iff an earlier row EXISTS. (Bug fix: this was NOT EXISTS, which selected the earliest row
+    -- itself for deletion and left every later duplicate — so 3 dupes left 2 and the CREATE UNIQUE
+    -- INDEX CONCURRENTLY below still failed 42P10.)
+    AND EXISTS (
+      SELECT 1
+      FROM public.outbox_messages keep
+      WHERE keep.tenant_id = dupe.tenant_id
+        AND keep.idempotency_key = dupe.idempotency_key
+        AND keep.idempotency_key IS NOT NULL
+        AND keep.event_type = ANY (ARRAY[
+          'verification.item.pending'::text,
+          'verification.verdict.approved'::text,
+          'verification.verdict.rework'::text,
+          'verification.item.closed'::text
+        ])
+        AND (keep.created_at, keep.outbox_id) < (dupe.created_at, dupe.outbox_id)
+    )
+  LIMIT 10000
+)
+DELETE FROM public.outbox_messages
+WHERE outbox_id IN (SELECT outbox_id FROM duplicate_rows);
+
+-- ROOT-CAUSE FIX for R50-015 P0: drop the _v2 index ONLY IF it is INVALID (a leftover from a prior
+-- CONCURRENTLY that failed partway). A VALID _v2 from a fully-successful prior attempt must be KEPT:
+-- unconditionally dropping it would, on a retry where the OLD index is already gone, leave NO
+-- ON CONFLICT arbiter and break every write (42P10 "no unique or exclusion constraint matching the
+-- ON CONFLICT specification"). Invariant: the old index is dropped ONLY after _v2 is valid, so
+-- whenever _v2 is invalid the old index still exists as the arbiter — this conditional drop never
+-- opens a no-arbiter window. A non-CONCURRENT drop is safe here: an invalid index serves no reads.
+-- +goose StatementBegin
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = 'outbox_messages_verification_idempotency_idx_v2'
+      AND n.nspname = 'public'
+      AND NOT i.indisvalid
+  ) THEN
+    DROP INDEX IF EXISTS public.outbox_messages_verification_idempotency_idx_v2;
+  END IF;
+END
+$$;
+-- +goose StatementEnd
+
+-- Create the NEW unique index CONCURRENTLY with the widened predicate. Using a distinct name (_v2)
+-- to avoid naming conflict with the old index during the transition. ON CONFLICT (tenant_id, idempotency_key)
+-- will find either index on these columns; once the new one is live, writers are safe.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS outbox_messages_verification_idempotency_idx_v2
+  ON public.outbox_messages USING btree (tenant_id, idempotency_key)
+  WHERE (event_type = ANY (ARRAY[
+    'verification.item.pending'::text,
+    'verification.verdict.approved'::text,
+    'verification.verdict.rework'::text,
+    'verification.item.closed'::text
+  ]));
+
+-- Now that the new index is live, drop the old (narrower) index CONCURRENTLY. No 42P10 window.
+DROP INDEX CONCURRENTLY IF EXISTS public.outbox_messages_verification_idempotency_idx;
+
+-- Item 6: Create the leadership closure queue index.
+-- Lock-safe on potentially large table verification_items: CREATE INDEX CONCURRENTLY.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS verification_items_leadership_queue_idx
+  ON public.verification_items USING btree (tenant_id, park_id, source_submission_id, captured_at, item_id)
+  WHERE ((status = 'approved'::text) AND (closed_at IS NULL));
+
+-- Item 7 (PEND-1/R50-006 root-cause fix): obligation_status_events_idempotency_idx was only ever a
+-- plain (non-unique) index, so InsertDeferredObligation's
+-- `INSERT ... ON CONFLICT (tenant_id, idempotency_key) DO NOTHING` had no matching arbiter
+-- constraint and errored (SQLSTATE 42P10) on every call -- every deferred obligation insert was
+-- broken. Swap it for a real UNIQUE index so that self-healing ON CONFLICT actually works.
+-- Lock-safe on hot table obligation_status_events: CREATE UNIQUE INDEX CONCURRENTLY with the new
+-- unique constraint (step 1), then DROP the old (plain, non-unique) index CONCURRENTLY (step 2).
+-- This eliminates the 42P10 window. (R50-015 P0)
+--
+-- A forward-compat database that ran against the OLD plain (non-unique) index may have duplicate
+-- (tenant_id, idempotency_key) rows. Dedup (judge Finding 2) before CREATE UNIQUE INDEX CONCURRENTLY
+-- so the index creation cannot fail/come back INVALID. Keep the earliest row per (tenant_id, idempotency_key)
+-- and delete the rest. This is a one-way, non-reversible cleanup scoped to: (a) rows created in the
+-- last 30 days, (b) batches of up to 10000 rows per statement. Rows with NULL idempotency_key are
+-- never touched.
+WITH duplicate_rows AS (
+  SELECT dupe.obligation_event_id
+  FROM public.obligation_status_events dupe
+  WHERE dupe.idempotency_key IS NOT NULL
+    AND dupe.recorded_at > now() - '30 days'::interval
+    -- Keep the EARLIEST row per (tenant_id, idempotency_key); delete a row iff an earlier row EXISTS.
+    -- (Same P0 fix as the outbox dedup above: NOT EXISTS deleted the earliest and kept the later
+    -- duplicates, so the CREATE UNIQUE INDEX CONCURRENTLY below still failed 42P10.)
+    AND EXISTS (
+      SELECT 1
+      FROM public.obligation_status_events keep
+      WHERE keep.tenant_id = dupe.tenant_id
+        AND keep.idempotency_key = dupe.idempotency_key
+        AND keep.idempotency_key IS NOT NULL
+        AND (keep.recorded_at, keep.obligation_event_id) < (dupe.recorded_at, dupe.obligation_event_id)
+    )
+  LIMIT 10000
+)
+-- seed-migration-guard:ignore owner=ravi issue=R50-015 reason=one-time-dedup-cleanup-before-unique-index-rebuild-no-new-seed-data expiry=2026-10-31
+DELETE FROM public.obligation_status_events
+WHERE obligation_event_id IN (SELECT obligation_event_id FROM duplicate_rows);
+
+-- ROOT-CAUSE FIX for R50-015 P0: Before attempting CREATE, drop any leftover INVALID index from
+-- a prior failed attempt. If a prior CREATE INDEX CONCURRENTLY failed partway, Postgres leaves an
+-- INVALID index. On retry, CREATE ... IF NOT EXISTS sees the invalid index "exists" and skips
+-- rebuilding, then DROP removes the working OLD index, leaving the table with ONLY an invalid
+-- unique index that breaks all writes. Dropping the invalid _v2 first ensures it will be properly
+-- rebuilt, and ensures a valid target exists before we drop the old index. Idempotent: noop if _v2
+-- doesn't exist.
+-- R50-015 P0 (same fix as the outbox _v2 above): drop _v2 ONLY IF invalid; a valid _v2 must be
+-- kept so a retry (with the old index already gone) never leaves a no-arbiter 42P10 window.
+-- +goose StatementBegin
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = 'obligation_status_events_idempotency_idx_v2'
+      AND n.nspname = 'public'
+      AND NOT i.indisvalid
+  ) THEN
+    DROP INDEX IF EXISTS public.obligation_status_events_idempotency_idx_v2;
+  END IF;
+END
+$$;
+-- +goose StatementEnd
+
+-- Create the new UNIQUE index CONCURRENTLY using a distinct name (_v2) to avoid naming conflict
+-- with the old (non-unique) index. ON CONFLICT (tenant_id, idempotency_key) will find the unique
+-- index on these columns; once the new one is live, writers are safe from 42P10.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS obligation_status_events_idempotency_idx_v2
+  ON public.obligation_status_events USING btree (tenant_id, idempotency_key);
+
+-- Now that the new unique index is live, drop the old (plain, non-unique) index CONCURRENTLY.
+-- No 42P10 window.
+DROP INDEX CONCURRENTLY IF EXISTS public.obligation_status_events_idempotency_idx;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000005_drop_stage_review.sql
+-- -----------------------------------------------------------------------------
+-- no-mismatch-review-queue:ignore: owner=ravi issue=goatos-r50-closure scope=legacy_stage_review_feature_removal expiry=2026-08-31
+DROP TABLE IF EXISTS public.vaccination_stage_review_items CASCADE;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000006_r50_vaccination_sop_dml.sql
+-- -----------------------------------------------------------------------------
+-- Vaccination SOP form_dsl/proof_policy rewrite (moved from 000003 for lock safety).
+--
+-- Heavy DML that rewrites form_dsl/proof_policy for vaccination.drive / vaccination.session
+-- SOP versions from batch-level proof to per-goat-row proof capture. This was originally
+-- in 000003_r50_forward_compatibility.sql but has been separated to release DDL locks quickly
+-- on hot tables (000003 now holds locks only for fast DDL/table creates). (R50-015 P0)
+--
+-- Guarded by subject_scope so a clean install (already migrated inside 000001's own tail),
+-- a prior run of 000003, or a run of this migration is a no-op when already applied.
+
+WITH vaccination_sops AS (
+  SELECT sv.sop_version_id
+  FROM public.sop_versions sv
+  JOIN public.sop_definitions sd
+    ON sd.tenant_id = sv.tenant_id
+   AND sd.sop_id = sv.sop_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
+    AND COALESCE(sv.proof_policy ->> 'subject_scope', '') <> 'goat'
+),
+rewritten AS (
+  SELECT
+    sv.sop_version_id,
+    jsonb_set(
+      jsonb_set(
+        sv.form_dsl,
+        '{fields}',
+        COALESCE((
+          SELECT jsonb_agg(
+            CASE
+              WHEN field ->> 'key' = 'goat_ids' THEN
+                jsonb_set(
+                  field,
+                  '{description}',
+                  to_jsonb('Scan each goat RFID exactly when the vaccine is given. The scan timestamp is the vaccination timestamp.'::text),
+                  true
+                )
+              ELSE field
+            END
+            ORDER BY ordinal
+          )
+          FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'fields', '[]'::jsonb))
+            WITH ORDINALITY AS entries(field, ordinal)
+          WHERE field ->> 'key' NOT IN (
+            'shed_video', 'vial_lot_video', 'administration_video',
+            'extra_video_1', 'extra_video_1_caption', 'extra_video_2', 'extra_video_2_caption'
+          )
+        ), '[]'::jsonb),
+        true
+      ),
+      '{rules}',
+      COALESCE((
+        SELECT jsonb_agg(rule ORDER BY ordinal)
+        FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'rules', '[]'::jsonb))
+          WITH ORDINALITY AS entries(rule, ordinal)
+        WHERE COALESCE(rule ->> 'field', '') NOT IN (
+          'shed_video', 'vial_lot_video', 'administration_video',
+          'extra_video_1_caption', 'extra_video_2_caption'
+        )
+      ), '[]'::jsonb),
+      true
+    ) || jsonb_build_object(
+      'goat_row_proof',
+      jsonb_build_object(
+        'subject_scope', 'goat',
+        'capture_source', 'in_app_camera',
+        'minimum_clips', 1,
+        'maximum_clips', 5,
+        'one_clip_covers_same_handling_vaccines', true
+      )
+    ) AS form_dsl
+  FROM public.sop_versions sv
+  JOIN vaccination_sops ids ON ids.sop_version_id = sv.sop_version_id
+)
+UPDATE public.sop_versions sv
+SET form_dsl = rewritten.form_dsl,
+    proof_policy = jsonb_build_object(
+      'types', jsonb_build_array('video'),
+      'required', true,
+      'subject_scope', 'goat',
+      'expected_subjects', jsonb_build_array('goat'),
+      'minimum_count', 1,
+      'minimum_count_per_subject', 1,
+      'maximum_count_per_subject', 5,
+      'capture_source', 'in_app_camera',
+      'one_clip_covers_same_handling_vaccines', true,
+      'verify_capability', 'proof.verify',
+      'verify_before_apply', true,
+      'retention_policy', 'operational_90d'
+    ),
+    updated_at = now()
+FROM rewritten
+WHERE sv.sop_version_id = rewritten.sop_version_id;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000007_r50_vaccination_shed_ack_dml.sql
+-- -----------------------------------------------------------------------------
+-- Vaccination shed completion = acknowledgement, not a manual medical form (R50-shed-ack).
+--
+-- The operator already does the real work at ANIMAL level: scan each goat's RFID + attach one
+-- live camera proof clip per goat row (mig 000006). Shed completion is only a final
+-- acknowledgement that every expected animal in the shed has been scanned and proofed — there is
+-- nothing left to fill in manually. This migration strips the remaining manual-medical-form
+-- fields (vaccine batch, cold chain, dose, route/site, administered-at, adverse reaction) and
+-- their block/required rules from the vaccination.drive / vaccination.session SOP versions'
+-- form_dsl. `administered_at` becomes a server-derived value (submit time), never an operator
+-- answer; `dose_ml_given` / `route_site` are no longer collected; `cold_chain_verified` no
+-- longer gates submission; `adverse_reaction[_notes]` is no longer a form field (adverse events
+-- are handled via the existing problem-report path, tracked separately from the acknowledgement).
+--
+-- Idempotent: guarded on presence of 'cold_chain_verified' in the SOP version's fields, so a
+-- clean install (already stripped by 000001's own tail rewrite) or a prior run of this migration
+-- is a no-op.
+
+WITH vaccination_sops AS (
+  SELECT sv.sop_version_id
+  FROM public.sop_versions sv
+  JOIN public.sop_definitions sd
+    ON sd.tenant_id = sv.tenant_id
+   AND sd.sop_id = sv.sop_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
+    AND EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'fields', '[]'::jsonb)) AS f(field)
+      WHERE field ->> 'key' IN (
+        'vaccine_lot_id', 'cold_chain_verified', 'dose_ml_given', 'route_site',
+        'administered_at', 'adverse_reaction', 'adverse_reaction_notes'
+      )
+    )
+),
+rewritten AS (
+  SELECT
+    sv.sop_version_id,
+    jsonb_set(
+      jsonb_set(
+        sv.form_dsl,
+        '{fields}',
+        COALESCE((
+          SELECT jsonb_agg(field ORDER BY ordinal)
+          FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'fields', '[]'::jsonb))
+            WITH ORDINALITY AS entries(field, ordinal)
+          WHERE field ->> 'key' NOT IN (
+            'vaccine_lot_id', 'cold_chain_verified', 'dose_ml_given', 'route_site',
+            'administered_at', 'adverse_reaction', 'adverse_reaction_notes'
+          )
+        ), '[]'::jsonb),
+        true
+      ),
+      '{rules}',
+      COALESCE((
+        SELECT jsonb_agg(rule ORDER BY ordinal)
+        FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'rules', '[]'::jsonb))
+          WITH ORDINALITY AS entries(rule, ordinal)
+        WHERE COALESCE(rule ->> 'field', '') NOT IN (
+          'cold_chain_verified', 'adverse_reaction_notes'
+        )
+        AND COALESCE(rule -> 'when' ->> 'field', '') NOT IN (
+          'cold_chain_verified', 'adverse_reaction'
+        )
+      ), '[]'::jsonb),
+      true
+    ) AS form_dsl
+  FROM public.sop_versions sv
+  JOIN vaccination_sops ids ON ids.sop_version_id = sv.sop_version_id
+)
+UPDATE public.sop_versions sv
+SET form_dsl = rewritten.form_dsl,
+    updated_at = now()
+FROM rewritten
+WHERE sv.sop_version_id = rewritten.sop_version_id;
+
+-- Relax vaccination_completions NOT NULL constraints that assumed a filled manual answer.
+-- administered_at keeps a server-side default (submit/scan time) so it is never actually NULL in
+-- practice, but the column no longer needs to reject a NULL insert if a caller derives it later
+-- in the same transaction. Lock-safe: SET NOT NULL is being dropped (cheap catalog-only change,
+-- does not require a table scan); adverse_reaction/cold_chain_verified already default false and
+-- are left as-is since they are booleans with harmless defaults, not fillable answers anymore.
+ALTER TABLE public.vaccination_completions
+  ALTER COLUMN administered_at DROP NOT NULL,
+  ALTER COLUMN administered_at SET DEFAULT now();
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000008_obligation_batches_sop_task_idx.sql
+-- -----------------------------------------------------------------------------
+-- +goose NO TRANSACTION
+-- Covering index for the batch lookup in ShedCompletionSummary (and shedCompletionVaccineBreakdown):
+--   SELECT ... FROM obligation_batches ob WHERE ob.tenant_id = $1 AND ob.sop_task_id = $2
+-- No existing obligation_batches index leads with (tenant_id, sop_task_id) -- the closest,
+-- obligation_batches_scope_idx, leads with (tenant_id, scope_type, scope_id, status) and does not
+-- cover a sop_task_id equality probe -- so the read planned a sequential scan on obligation_batches.
+-- Add a partial index keyed on (tenant_id, sop_task_id) so the shed-completion read is an index
+-- probe. Partial on sop_task_id IS NOT NULL because planned batches carry a NULL sop_task_id until
+-- a task is materialized; only task-linked rows are ever probed here, keeping the index small.
+--
+-- Lock-safe: CREATE INDEX CONCURRENTLY (cannot run inside a transaction -- hence NO TRANSACTION),
+-- IF NOT EXISTS so re-runs / forward-compat databases are a no-op. Mirrors the 000004 concurrent
+-- index pattern.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS obligation_batches_sop_task_idx
+  ON public.obligation_batches USING btree (tenant_id, sop_task_id)
+  WHERE (sop_task_id IS NOT NULL);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000009_counts_approval_requests.sql
+-- -----------------------------------------------------------------------------
+-- P1: Baseline → Forward migration. Move counts_approval_requests table definition from 000001
+-- to this forward migration so environments that already ran 000001 still get the table.
+-- This migration includes P1 improvements: uniqueness constraint for shifting_event_id with
+-- status='approved' to prevent multiple approved requests for the same shifting event.
+
+-- Name: counts_approval_requests; Type: TABLE; Schema: public; Owner: -
+
+-- counts_approval_requests: the Counts module's lifecycle approval workflow.
+--
+-- Maintainer decision (2026-07-19), superseding the previous apply-on-submit behaviour of
+-- POST /app/counts/{birth,death,shifting}-events:
+--
+--   * BIRTH and DEATH are PENDING UNTIL APPROVED. Submitting one must NOT mutate `goats` and must
+--     NOT emit goat.created / goat.exited. A kid's vaccination obligations are therefore generated
+--     only on approval, and a death's open obligations are cancelled only on approval.
+--   * SHIFTING already lands pending (shifting_events.authorization_state = 'pending'), so its
+--     approval request LINKS to the existing row rather than duplicating the payload.
+--   * Approver authority is per request_type: park_head decides shifting, ceo_internal decides
+--     birth and death, operators decide nothing (permissions.CountsApproveShifting /
+--     permissions.CountsApproveLifecycle).
+--
+-- Why the payload is stored here rather than applied eagerly: birth and death have no pending
+-- representation anywhere else. `goats` is the APPLIED state, so a pending birth cannot be a goats
+-- row without becoming visible to the herd register, the census, and the vaccination generator. The
+-- validated request body is therefore held verbatim as JSONB and replayed through the SAME guarded
+-- identity service command on approval (identity CreateAdminGoat / CriticalDeathExit) -- never a
+-- bypass, so the dead+died critical-death guardrail is still enforced at apply time.
+--
+-- Grain: ONE row per submitted request. Not a projection, not a read model -- this is canonical
+-- source state (the request and its decision), so it is rebuilt by nothing and owned here.
+
+CREATE TABLE IF NOT EXISTS public.counts_approval_requests (
+    approval_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    request_type text NOT NULL,
+
+    -- Birth/death carry their validated submit body verbatim; shifting carries a small descriptor
+    -- (the movement itself lives in shifting_events, referenced below) so the approvals list can be
+    -- rendered without a join.
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+
+    -- Set for request_type='shifting' only: the already-written pending shifting_events row this
+    -- request authorizes. Enforced by counts_approval_requests_shifting_link_check below.
+    shifting_event_id uuid,
+
+    -- Set for request_type='death' only: the animal the request would exit. Denormalised from
+    -- payload so the pending list and the duplicate-open guard do not have to parse JSONB.
+    subject_goat_id uuid,
+
+    status text DEFAULT 'pending'::text NOT NULL,
+
+    raised_by_user_id uuid NOT NULL,
+    raised_at timestamp with time zone DEFAULT now() NOT NULL,
+
+    decided_by_user_id uuid,
+    decided_at timestamp with time zone,
+    decision_reason text,
+
+    -- What the approval actually produced, recorded in the SAME transaction as the status flip.
+    -- birth/death -> ('goat', <goat_id>); shifting -> ('shifting_event', <shifting_event_id>).
+    -- A non-null pair is the proof that an 'approved' row's effect committed; it is also what makes
+    -- a second approve a no-op replay instead of a second application.
+    applied_result_type text,
+    applied_result_id uuid,
+
+    -- Submit-time idempotency (the operator's write). Mirrors the shifting_events convention:
+    -- the key identifies the request, the fingerprint identifies the payload, so an exact replay
+    -- returns the original row and a same-key/different-payload replay is a conflict.
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+
+    -- Decision-time idempotency (the approver's write). Approve/reject are themselves mutating
+    -- writes and carry the full contract, so they need their own key/fingerprint pair rather than
+    -- reusing the submit key.
+    decision_idempotency_key text,
+    decision_request_fingerprint text,
+
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+
+    CONSTRAINT counts_approval_requests_type_check
+        CHECK ((request_type = ANY (ARRAY['birth'::text, 'death'::text, 'shifting'::text]))),
+    CONSTRAINT counts_approval_requests_status_check
+        CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
+    CONSTRAINT counts_approval_requests_payload_object_check
+        CHECK ((jsonb_typeof(payload) = 'object'::text)),
+
+    -- A shifting request MUST point at its shifting_events row; birth/death MUST NOT. This is what
+    -- keeps "approve" able to dispatch on request_type without trusting the payload.
+    CONSTRAINT counts_approval_requests_shifting_link_check
+        CHECK (((request_type = 'shifting'::text) = (shifting_event_id IS NOT NULL))),
+    -- Only a death names a subject animal up front (a birth CREATES its animal on approval).
+    CONSTRAINT counts_approval_requests_subject_goat_check
+        CHECK (((subject_goat_id IS NULL) OR (request_type = 'death'::text))),
+
+    -- Reject requires a reason -- enforced in the DB, not only in Go (same rule as
+    -- verification_items_reject_reason_check).
+    CONSTRAINT counts_approval_requests_reject_reason_check
+        CHECK (((status <> 'rejected'::text) OR ((decision_reason IS NOT NULL) AND (btrim(decision_reason) <> ''::text)))),
+    -- A decided row must record WHO decided and WHEN; a pending row must record neither.
+    CONSTRAINT counts_approval_requests_decision_shape_check
+        CHECK ((((status = 'pending'::text) AND (decided_by_user_id IS NULL) AND (decided_at IS NULL))
+             OR ((status <> 'pending'::text) AND (decided_by_user_id IS NOT NULL) AND (decided_at IS NOT NULL)))),
+    -- An APPROVED row must carry the applied result. This is the schema-level half of the atomic
+    -- transition rule: a row cannot read 'approved' without naming the effect that committed with it.
+    CONSTRAINT counts_approval_requests_applied_result_check
+        CHECK ((((status = 'approved'::text) AND (applied_result_type IS NOT NULL) AND (applied_result_id IS NOT NULL))
+             OR ((status <> 'approved'::text) AND (applied_result_type IS NULL) AND (applied_result_id IS NULL)))),
+
+    CONSTRAINT counts_approval_requests_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT counts_approval_requests_fingerprint_check CHECK ((btrim(request_fingerprint) <> ''::text)),
+    CONSTRAINT counts_approval_requests_row_version_check CHECK ((row_version >= 1)),
+
+    PRIMARY KEY (approval_request_id),
+    UNIQUE (tenant_id, approval_request_id)
+);
+
+-- P1: Completion fan-out uniqueness constraint. Only one approved request per shifting event.
+-- Partial unique index: only applies to approved shifting requests.
+CREATE UNIQUE INDEX IF NOT EXISTS counts_approval_requests_approved_shifting_unique
+  ON public.counts_approval_requests (tenant_id, shifting_event_id)
+  WHERE (status = 'approved'::text) AND (shifting_event_id IS NOT NULL);
+
+-- P1: ListPending scope filtering index for park-scoped approvers.
+-- Index on (tenant_id, status, request_type, raised_at DESC, approval_request_id DESC)
+-- for pending-list filtering.
+CREATE INDEX IF NOT EXISTS counts_approval_requests_pending_queue_idx
+  ON public.counts_approval_requests (tenant_id, status, request_type, raised_at DESC, approval_request_id DESC)
+  WHERE (status = 'pending'::text);
+
+-- Status-queue index for decided history.
+CREATE INDEX IF NOT EXISTS counts_approval_requests_status_queue_idx
+  ON public.counts_approval_requests (tenant_id, status, request_type, raised_at DESC, approval_request_id DESC);
+
+-- Idempotency key uniqueness index.
+CREATE UNIQUE INDEX IF NOT EXISTS counts_approval_requests_idempotency_unique
+  ON public.counts_approval_requests (tenant_id, idempotency_key);
+
+-- Open-shifting uniqueness constraint: only one pending request per shifting event.
+CREATE UNIQUE INDEX IF NOT EXISTS counts_approval_requests_open_shifting_unique
+  ON public.counts_approval_requests (tenant_id, shifting_event_id)
+  WHERE ((status = 'pending'::text) AND (shifting_event_id IS NOT NULL));
+
+-- Foreign key: shifting_event_id references shifting_events.
+ALTER TABLE ONLY public.counts_approval_requests
+    ADD CONSTRAINT counts_approval_requests_shifting_event_fkey
+    FOREIGN KEY (tenant_id, shifting_event_id) REFERENCES public.shifting_events(tenant_id, shifting_event_id) ON DELETE RESTRICT;
+
+-- P0 (review): shifting completion/cancellation columns on the PRE-EXISTING shifting_events table.
+-- shifting_execution.go writes event_status='applied' with applied_at/applied_by (completion) and
+-- event_status='canceled' with canceled_at/canceled_by/cancel_reason (cancellation), each with its
+-- own execution-time idempotency key + fingerprint. shifting_events pre-dates this PR on main and
+-- never had these columns, so completion/cancellation would fail at runtime ("column does not
+-- exist"). Add them here as a FORWARD migration (not a baseline edit) so fresh AND already-migrated
+-- environments converge. Additive + nullable, so existing rows are unaffected.
+ALTER TABLE public.shifting_events
+    ADD COLUMN IF NOT EXISTS applied_at timestamp with time zone,
+    ADD COLUMN IF NOT EXISTS applied_by uuid,
+    ADD COLUMN IF NOT EXISTS canceled_at timestamp with time zone,
+    ADD COLUMN IF NOT EXISTS canceled_by uuid,
+    ADD COLUMN IF NOT EXISTS cancel_reason text,
+    ADD COLUMN IF NOT EXISTS completion_idempotency_key text,
+    ADD COLUMN IF NOT EXISTS completion_request_fingerprint text,
+    ADD COLUMN IF NOT EXISTS cancel_idempotency_key text,
+    ADD COLUMN IF NOT EXISTS cancel_request_fingerprint text;
+
+-- Shape checks: an 'applied' event must carry applied_at (and only 'applied' may); a 'canceled'
+-- event must carry canceled_at/by + a non-empty reason (and only 'canceled' may); and an event may
+-- only be 'applied' once it was authorized. Guarded so a re-run of this migration is a no-op.
+--
+-- Added NOT VALID (no full-table scan / no ACCESS EXCLUSIVE validation lock on the hot
+-- shifting_events table) and DELIBERATELY LEFT NOT VALID. A NOT VALID CHECK is still enforced on
+-- every subsequent INSERT/UPDATE -- it only skips the one-time scan of PRE-EXISTING rows -- and the
+-- completion/cancel columns these checks cover are brand new here (all NULL, no 'applied'/'canceled'
+-- row exists), so every existing row already satisfies them and the checks are effectively fully
+-- valid for all data. A separate `VALIDATE CONSTRAINT` is intentionally NOT issued: the
+-- migration-safety guard (validate-postgres-migrations) forbids a direct VALIDATE on the hot
+-- shifting_events table, which must go through an explicitly reviewed concurrent rollout. If a future
+-- backfill ever writes rows that predate these columns, validate them in that reviewed rollout, not
+-- here.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_shape_check') THEN
+        ALTER TABLE public.shifting_events
+            ADD CONSTRAINT shifting_events_applied_shape_check
+            CHECK ((((event_status = 'applied'::text) AND (applied_at IS NOT NULL))
+                 OR ((event_status <> 'applied'::text) AND (applied_at IS NULL) AND (applied_by IS NULL)))) NOT VALID;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_canceled_shape_check') THEN
+        ALTER TABLE public.shifting_events
+            ADD CONSTRAINT shifting_events_canceled_shape_check
+            CHECK ((((event_status = 'canceled'::text) AND (canceled_at IS NOT NULL) AND (canceled_by IS NOT NULL)
+                     AND (cancel_reason IS NOT NULL) AND (btrim(cancel_reason) <> ''::text))
+                 OR ((event_status <> 'canceled'::text) AND (canceled_at IS NULL) AND (canceled_by IS NULL)
+                     AND (cancel_reason IS NULL)))) NOT VALID;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifting_events_applied_requires_authorization_check') THEN
+        ALTER TABLE public.shifting_events
+            ADD CONSTRAINT shifting_events_applied_requires_authorization_check
+            CHECK (((event_status <> 'applied'::text) OR (authorization_state = 'authorized'::text))) NOT VALID;
+    END IF;
+END $$;
+-- +goose StatementEnd
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000010_department_module_grants.sql
+-- -----------------------------------------------------------------------------
+-- P0 (rebase recovery): create public.department_module_grants.
+--
+-- The counts/nav PR originally added this table to the 000001 baseline. When the branch was rebased
+-- onto a main whose baseline had been independently rewritten, the auto-merge of 000001 dropped the
+-- table -- so bootstrap_copy.go composes nav LIVE from department_module_grants
+-- (ListGrantedModuleKeys), but no migration created it, and every non-leadership operator's
+-- /app/bootstrap would fail or compose a blank bottom bar. This restores it as a FORWARD migration
+-- (departments and workforce_members.department_id already exist in the current baseline), so fresh
+-- AND already-migrated environments converge. Additive only.
+--
+-- department_module_grants: the module side of "a person's job = role x granted modules".
+-- Canonical rule: docs/decisions/role-module-nav-composition.md. module_key is deliberately NOT an
+-- enum: the moduleNavRegistry in bootstrap_copy.go is the semantic source of truth for which module
+-- keys mean anything; an unrecognised key simply contributes no nav. Adding a module is a registry
+-- entry plus a grant row, never a schema migration. The CHECK only enforces the shared code shape.
+
+CREATE TABLE IF NOT EXISTS public.department_module_grants (
+    department_module_grant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    department_id uuid NOT NULL,
+    module_key text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT department_module_grants_module_key_check CHECK ((module_key ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT department_module_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+);
+
+-- Guarded so a re-run (or a base that already had the table) is a no-op.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'department_module_grants_pkey') THEN
+        ALTER TABLE ONLY public.department_module_grants
+            ADD CONSTRAINT department_module_grants_pkey PRIMARY KEY (department_module_grant_id);
+    END IF;
+    -- One row per (tenant, department, module); re-granting is an idempotent upsert.
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'department_module_grants_tenant_department_module_key') THEN
+        ALTER TABLE ONLY public.department_module_grants
+            ADD CONSTRAINT department_module_grants_tenant_department_module_key
+            UNIQUE (tenant_id, department_id, module_key);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'department_module_grants_department_id_fkey') THEN
+        ALTER TABLE ONLY public.department_module_grants
+            ADD CONSTRAINT department_module_grants_department_id_fkey
+            FOREIGN KEY (tenant_id, department_id)
+            REFERENCES public.departments(tenant_id, department_id) ON DELETE CASCADE;
+    END IF;
+END $$;
+-- +goose StatementEnd
+
+-- Serves ListGrantedModuleKeys (the two-key /app/bootstrap lookup).
+CREATE INDEX IF NOT EXISTS department_module_grants_tenant_department_active_idx
+    ON public.department_module_grants USING btree (tenant_id, department_id)
+    INCLUDE (module_key) WHERE (status = 'active'::text);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000011_feed_ration_config.sql
+-- -----------------------------------------------------------------------------
+-- Feed ration configuration tables (the authored grid behind daily feed quantity).
+--
+-- WHY A FORWARD MIGRATION (not an edit to the 000001 baseline):
+-- clean-slate databases get 000001 verbatim, but dev/stg databases have already applied and
+-- checksum-tracked it. Editing historical SQL would leave those databases silently missing the
+-- feed ration schema. Same rule that produced 000002.
+--
+-- ---------------------------------------------------------------------------
+-- THE MODEL
+-- ---------------------------------------------------------------------------
+-- Feed quantity for one shed row is:
+--
+--   quantity = head_count x grams_per_head x shed_factor        (split across sessions)
+--
+-- and the ration lookup key is:
+--
+--   ration_group = (goats.age_band = 'kid') ? 'Kid' : breed_to_group(goats.breed)
+--   tag          = goats.management_stage
+--   rate         = (park, ration_group, tag, feed_item) -> grams_per_head
+--
+-- Two properties of that key drive this schema and are easy to get wrong:
+--
+--   1. FOR KIDS THE BREED IS IGNORED. The source workbook literally stores the string 'Kid' in
+--      its breed column, so every kid of every breed shares one ration group. feed_ration_groups
+--      therefore maps ADULT breed labels only; the 'Kid' group is selected by age band upstream
+--      and never resolved through the breed map.
+--
+--   2. RATES ARE PARK-SCOPED. CBE and CPT agree on 75 of 77 group/tag rows and genuinely differ
+--      on 2 (Osmanabadi/Non-Pregnant and Malai/Non-Pregnant). A tenant-global rate table would
+--      quietly feed one of the two parks the wrong ration, so park_id is part of the natural key
+--      of feed_ration_rates rather than an optional override dimension.
+--
+-- The breed -> ration_group map also carries a real merge: Beetal and Sirohi are two live breeds
+-- that share ONE ration group, 'Beetal/Sirohi'. That is why the mapping is a table (data) and not
+-- an identity function over goats.breed (code).
+--
+-- ---------------------------------------------------------------------------
+-- CONFIGURED ZERO IS NOT MISSING CONFIGURATION  (the safety-critical rule here)
+-- ---------------------------------------------------------------------------
+-- A rate of 0 is a REAL, AUTHORED business value: K0 and K1 kids are on milk and are correctly
+-- fed 0 g of every solid feed item. A rate that was never authored is a DIFFERENT state, and the
+-- two must never collapse, because the consequences are opposite:
+--
+--   rate = 0        -> feed nothing. Correct. Proceed.
+--   rate not found  -> we do not know what to feed this group/tag. BLOCK and surface the gap.
+--
+-- If "no row" were allowed to read as 0, an unconfigured shed would silently be fed nothing and
+-- the operator would see a clean, complete-looking feed sheet. That is a starvation path, not a
+-- display bug. So the distinction is structural, not conventional:
+--
+--   * grams_per_head is NOT NULL and has NO DEFAULT. A row therefore always carries an authored
+--     number, and 0 is one of the legal authored numbers.
+--   * ABSENCE OF A ROW is the only representation of "not configured". There is no sentinel
+--     value, no nullable rate, and no default-to-zero anywhere in this schema.
+--   * The read path must treat a zero-row lookup as a BLOCKING gap. It must not COALESCE, must
+--     not LEFT JOIN a missing rate to 0, and must not fall back to another park's rate.
+--
+-- The same rule applies to feed_shed_factors.multiplier and feed_experiment_config.absolute_kg.
+--
+-- ---------------------------------------------------------------------------
+-- NORMALIZATION
+-- ---------------------------------------------------------------------------
+-- Live goats.management_stage is free text off the source sheet and carries real separator and
+-- case variants of the SAME tag: 'ICU- kid' (42 rows) vs 'ICU-Kid' (27), 'F2- Male' (8) vs
+-- 'F2-Male' (453). Joining a stored tag to a live stage on raw equality would miss those rows --
+-- and a missed rate lookup here is the blocking state described above, so 8 animals would stall
+-- a shed's feed sheet for a purely cosmetic difference.
+--
+-- feed_config_norm() is the single definition of the join key. It is the counts module's
+-- countAliasNorm / feedGrainNormSQL (backend/internal/counts/adapters/postgres) widened by one
+-- character class: countAliasNorm collapses whitespace runs to '_', which unifies
+-- 'Milking Warmup' but NOT 'ICU- kid' vs 'ICU-Kid', because the hyphen survives and leaves
+-- 'icu-_kid' <> 'icu-kid'. Folding runs of [whitespace _ -] to a single '_' unifies both while
+-- keeping every one of the 31 live tags, 7 ration groups, and 10 feed items distinct (verified
+-- against the source grid: zero collisions).
+--
+-- It is applied on BOTH sides by construction:
+--   * stored side  -- the *_key columns are GENERATED ALWAYS ... STORED over the label, so the
+--                     database, not the caller, computes them. There is exactly one normalizer
+--                     and a writer cannot bypass it.
+--   * lookup side  -- callers wrap the raw live value: feed_config_norm(g.management_stage).
+--     The function is IMMUTABLE, so that predicate is index-eligible.
+--
+-- feed_config_norm is idempotent (its output is already lowercase and '_'-joined), so applying it
+-- to an already-normalized key is a no-op rather than a second transform.
+
+CREATE FUNCTION feed_config_norm(value text) RETURNS text
+    LANGUAGE sql
+    IMMUTABLE
+    PARALLEL SAFE
+    RETURNS NULL ON NULL INPUT
+    AS $$
+      SELECT lower(regexp_replace(btrim(value), '[\s_-]+', '_', 'g'))
+    $$;
+
+COMMENT ON FUNCTION feed_config_norm(text) IS
+  'Canonical feed-config join key: trim, casefold, collapse runs of whitespace/underscore/hyphen to a single underscore. Widened twin of counts.countAliasNorm; must be applied to BOTH the stored label and the live lookup value.';
+
+
+-- ---------------------------------------------------------------------------
+-- 1. feed_ration_groups -- breed label -> ration group
+-- ---------------------------------------------------------------------------
+-- Adult breeds only. Carries the Beetal + Sirohi -> 'Beetal/Sirohi' merge, which is exactly why
+-- this is data rather than an identity mapping over goats.breed. Kids bypass this table
+-- entirely (see the FOR KIDS THE BREED IS IGNORED note above).
+CREATE TABLE feed_ration_groups (
+    ration_group_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           uuid NOT NULL REFERENCES tenants (tenant_id),
+    breed_label         text NOT NULL,
+    breed_key           text GENERATED ALWAYS AS (feed_config_norm(breed_label)) STORED,
+    ration_group_label  text NOT NULL,
+    ration_group_key    text GENERATED ALWAYS AS (feed_config_norm(ration_group_label)) STORED,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_ration_groups_breed_label_not_blank CHECK (btrim(breed_label) <> ''),
+    CONSTRAINT feed_ration_groups_group_label_not_blank CHECK (btrim(ration_group_label) <> '')
+);
+
+CREATE UNIQUE INDEX feed_ration_groups_natural_key_uidx
+    ON feed_ration_groups (tenant_id, breed_key);
+
+CREATE INDEX feed_ration_groups_group_idx
+    ON feed_ration_groups (tenant_id, ration_group_key);
+
+COMMENT ON TABLE feed_ration_groups IS
+  'Maps a live goats.breed label to its ration group. Adult breeds only -- kids resolve to the fixed ''Kid'' group by age band and never consult this table. Carries the Beetal/Sirohi merge.';
+
+
+-- ---------------------------------------------------------------------------
+-- 2. feed_shed_tags -- tenant-scoped tag vocabulary
+-- ---------------------------------------------------------------------------
+-- The authored vocabulary the ration grid is indexed by, matched against live
+-- goats.management_stage. applies_to records whether a tag belongs to the kid course or the
+-- adult course; the two sets are disjoint in the source grid (17 kid, 14 adult, 31 total).
+CREATE TABLE feed_shed_tags (
+    shed_tag_id    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id      uuid NOT NULL REFERENCES tenants (tenant_id),
+    shed_tag_label text NOT NULL,
+    shed_tag_key   text GENERATED ALWAYS AS (feed_config_norm(shed_tag_label)) STORED,
+    applies_to     text NOT NULL,
+    display_order  integer NOT NULL DEFAULT 0,
+    status         text NOT NULL DEFAULT 'active',
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_shed_tags_label_not_blank CHECK (btrim(shed_tag_label) <> ''),
+    CONSTRAINT feed_shed_tags_applies_to_check CHECK (applies_to = ANY (ARRAY['adult'::text, 'kid'::text])),
+    CONSTRAINT feed_shed_tags_status_check CHECK (status = ANY (ARRAY['active'::text, 'retired'::text]))
+);
+
+CREATE UNIQUE INDEX feed_shed_tags_natural_key_uidx
+    ON feed_shed_tags (tenant_id, shed_tag_key);
+
+COMMENT ON TABLE feed_shed_tags IS
+  'Authored shed-tag vocabulary the ration grid is indexed by, matched against live goats.management_stage via feed_config_norm. applies_to splits the kid course from the adult course.';
+
+
+-- ---------------------------------------------------------------------------
+-- 3. feed_item_catalog -- the feed items themselves
+-- ---------------------------------------------------------------------------
+-- Nutritional/handling attributes are NULLABLE on purpose: unlike a ration rate, an unknown
+-- energy value does not silently under-feed an animal, it just means an energy rollup cannot be
+-- computed for that item. That is a reportable gap, not a feeding decision.
+CREATE TABLE feed_item_catalog (
+    feed_item_id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    feed_item_label    text NOT NULL,
+    feed_item_key      text GENERATED ALWAYS AS (feed_config_norm(feed_item_label)) STORED,
+    energy_kcal_per_kg numeric(10, 3),
+    dry_matter_factor  numeric(6, 4),
+    wastage_factor     numeric(6, 4),
+    display_order      integer NOT NULL DEFAULT 0,
+    status             text NOT NULL DEFAULT 'active',
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_item_catalog_label_not_blank CHECK (btrim(feed_item_label) <> ''),
+    CONSTRAINT feed_item_catalog_energy_check CHECK (energy_kcal_per_kg IS NULL OR energy_kcal_per_kg >= 0),
+    CONSTRAINT feed_item_catalog_dry_matter_check CHECK (dry_matter_factor IS NULL OR (dry_matter_factor > 0 AND dry_matter_factor <= 1)),
+    CONSTRAINT feed_item_catalog_wastage_check CHECK (wastage_factor IS NULL OR (wastage_factor >= 0 AND wastage_factor < 1)),
+    CONSTRAINT feed_item_catalog_status_check CHECK (status = ANY (ARRAY['active'::text, 'retired'::text]))
+);
+
+CREATE UNIQUE INDEX feed_item_catalog_natural_key_uidx
+    ON feed_item_catalog (tenant_id, feed_item_key);
+
+COMMENT ON TABLE feed_item_catalog IS
+  'Feed items and their nutritional/handling attributes. Attributes are nullable because a missing energy value blocks only a rollup, never a feeding decision -- unlike feed_ration_rates.grams_per_head, which is NOT NULL.';
+
+
+-- ---------------------------------------------------------------------------
+-- 4. feed_ration_rates -- THE EDITABLE GRID
+-- ---------------------------------------------------------------------------
+-- (tenant, park, ration_group, shed_tag, feed_item) -> grams per head per day.
+--
+-- Effective-dated: a rate change CLOSES the current row (valid_to = the day the change takes
+-- effect) and OPENS a new one, so "what were we feeding Osmanabadi/Pregnant at CBE last March"
+-- stays answerable. An in-place UPDATE of grams_per_head would destroy that audit trail and is
+-- not the intended edit path.
+--
+-- grams_per_head is NOT NULL with NO DEFAULT: 0 is authored ("K0 kids are on milk"), and absence
+-- of a row is the ONLY encoding of "not configured", which the read path must treat as blocking.
+-- See the CONFIGURED ZERO block at the top of this migration.
+CREATE TABLE feed_ration_rates (
+    ration_rate_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    park_id            uuid NOT NULL,
+    ration_group_label text NOT NULL,
+    ration_group_key   text GENERATED ALWAYS AS (feed_config_norm(ration_group_label)) STORED,
+    shed_tag_label     text NOT NULL,
+    shed_tag_key       text GENERATED ALWAYS AS (feed_config_norm(shed_tag_label)) STORED,
+    feed_item_label    text NOT NULL,
+    feed_item_key      text GENERATED ALWAYS AS (feed_config_norm(feed_item_label)) STORED,
+    grams_per_head     numeric(12, 3) NOT NULL,
+    valid_from         date NOT NULL DEFAULT CURRENT_DATE,
+    valid_to           date,
+    source_system      text NOT NULL DEFAULT 'manual',
+    created_by         uuid,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_ration_rates_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_ration_rates_group_label_not_blank CHECK (btrim(ration_group_label) <> ''),
+    CONSTRAINT feed_ration_rates_tag_label_not_blank CHECK (btrim(shed_tag_label) <> ''),
+    CONSTRAINT feed_ration_rates_item_label_not_blank CHECK (btrim(feed_item_label) <> ''),
+    -- >= 0, NOT > 0: zero is a legitimate authored rate (milk-fed kids).
+    CONSTRAINT feed_ration_rates_grams_check CHECK (grams_per_head >= 0),
+    CONSTRAINT feed_ration_rates_window_check CHECK (valid_to IS NULL OR valid_to > valid_from)
+);
+
+-- Natural key including valid_from: one authored rate per key per effective date.
+CREATE UNIQUE INDEX feed_ration_rates_natural_key_uidx
+    ON feed_ration_rates (tenant_id, park_id, ration_group_key, shed_tag_key, feed_item_key, valid_from);
+
+-- At most ONE open (current) rate per key. Without this, two open rows would make the lookup
+-- ambiguous and a feed sheet non-deterministic.
+CREATE UNIQUE INDEX feed_ration_rates_open_row_uidx
+    ON feed_ration_rates (tenant_id, park_id, ration_group_key, shed_tag_key, feed_item_key)
+    WHERE valid_to IS NULL;
+
+-- Hot read: resolve every feed item's rate for one (park, ration_group, shed_tag) in one indexed
+-- scan of the currently-open rows. This is the access pattern the daily feed sheet runs per shed.
+CREATE INDEX feed_ration_rates_current_lookup_idx
+    ON feed_ration_rates (tenant_id, park_id, ration_group_key, shed_tag_key)
+    INCLUDE (feed_item_key, grams_per_head)
+    WHERE valid_to IS NULL;
+
+-- As-of read: the same lookup for a historical business date (audit / back-dated recompute).
+CREATE INDEX feed_ration_rates_asof_lookup_idx
+    ON feed_ration_rates (tenant_id, park_id, ration_group_key, shed_tag_key, valid_from DESC);
+
+COMMENT ON TABLE feed_ration_rates IS
+  'The editable ration grid: (tenant, park, ration_group, shed_tag, feed_item) -> grams per head per day. Park-scoped because CBE and CPT genuinely differ. Effective-dated so a rate change is auditable rather than destructive.';
+COMMENT ON COLUMN feed_ration_rates.grams_per_head IS
+  'Authored grams per head per day. NOT NULL with no default: 0 means "authored as zero" (milk-fed K0/K1 kids) and a MISSING ROW means "not configured" -- a blocking gap the read path must surface, never COALESCE to 0.';
+COMMENT ON COLUMN feed_ration_rates.valid_to IS
+  'NULL = currently in force. A rate change closes this row and inserts a new one; it does not UPDATE grams_per_head in place.';
+
+
+-- ---------------------------------------------------------------------------
+-- 5. feed_shed_factors -- per-shed multiplier
+-- ---------------------------------------------------------------------------
+-- The third term of head_count x grams_per_head x shed_factor. Effective-dated for the same
+-- audit reason as the rates. Default 1.0 applies to a row being INSERTED without an explicit
+-- multiplier -- it is NOT a fallback for a missing row. A shed with no factor row is treated as
+-- 1.0 by the read path, which is safe (it cannot zero out a ration); a factor of 0 must be
+-- authored explicitly.
+CREATE TABLE feed_shed_factors (
+    shed_factor_id  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       uuid NOT NULL REFERENCES tenants (tenant_id),
+    park_id         uuid NOT NULL,
+    shed_id         uuid NOT NULL,
+    feed_item_label text NOT NULL,
+    feed_item_key   text GENERATED ALWAYS AS (feed_config_norm(feed_item_label)) STORED,
+    multiplier      numeric(8, 4) NOT NULL DEFAULT 1.0,
+    valid_from      date NOT NULL DEFAULT CURRENT_DATE,
+    valid_to        date,
+    created_by      uuid,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_shed_factors_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_shed_factors_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_shed_factors_item_label_not_blank CHECK (btrim(feed_item_label) <> ''),
+    CONSTRAINT feed_shed_factors_multiplier_check CHECK (multiplier >= 0),
+    CONSTRAINT feed_shed_factors_window_check CHECK (valid_to IS NULL OR valid_to > valid_from)
+);
+
+CREATE UNIQUE INDEX feed_shed_factors_natural_key_uidx
+    ON feed_shed_factors (tenant_id, park_id, shed_id, feed_item_key, valid_from);
+
+CREATE UNIQUE INDEX feed_shed_factors_open_row_uidx
+    ON feed_shed_factors (tenant_id, park_id, shed_id, feed_item_key)
+    WHERE valid_to IS NULL;
+
+CREATE INDEX feed_shed_factors_current_lookup_idx
+    ON feed_shed_factors (tenant_id, park_id, shed_id)
+    INCLUDE (feed_item_key, multiplier)
+    WHERE valid_to IS NULL;
+
+COMMENT ON TABLE feed_shed_factors IS
+  'Per-shed, per-feed-item multiplier -- the shed_factor term of head_count x grams_per_head x shed_factor. Effective-dated. A missing row reads as 1.0 (safe); a 0 multiplier must be authored explicitly.';
+
+
+-- ---------------------------------------------------------------------------
+-- 6. feed_session_templates -- how the daily quantity is split across sessions
+-- ---------------------------------------------------------------------------
+-- The daily quantity computed above is divided across the park's feeding sessions by
+-- split_fraction. The fractions for one park are expected to sum to 1.0; that is a cross-row
+-- invariant a table CHECK cannot express, so it is enforced by the writer (the seed command
+-- validates it) and must be re-validated by any future session-template editor.
+CREATE TABLE feed_session_templates (
+    session_template_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           uuid NOT NULL REFERENCES tenants (tenant_id),
+    park_id             uuid NOT NULL,
+    session_no          integer NOT NULL,
+    session_label       text NOT NULL,
+    split_fraction      numeric(6, 4) NOT NULL,
+    display_order       integer NOT NULL DEFAULT 0,
+    status              text NOT NULL DEFAULT 'active',
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_session_templates_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_session_templates_session_no_check CHECK (session_no >= 1),
+    CONSTRAINT feed_session_templates_label_not_blank CHECK (btrim(session_label) <> ''),
+    CONSTRAINT feed_session_templates_split_check CHECK (split_fraction > 0 AND split_fraction <= 1),
+    CONSTRAINT feed_session_templates_status_check CHECK (status = ANY (ARRAY['active'::text, 'retired'::text]))
+);
+
+CREATE UNIQUE INDEX feed_session_templates_natural_key_uidx
+    ON feed_session_templates (tenant_id, park_id, session_no);
+
+CREATE INDEX feed_session_templates_park_order_idx
+    ON feed_session_templates (tenant_id, park_id, display_order, session_no);
+
+COMMENT ON TABLE feed_session_templates IS
+  'Per-park feeding-session ordering and the fraction of the daily quantity each session carries. split_fraction across a park''s active sessions is expected to sum to 1.0 -- a cross-row invariant enforced by the writer, not by a CHECK.';
+
+
+-- ---------------------------------------------------------------------------
+-- 7. feed_conversions -- inter-feed substitution matrix
+-- ---------------------------------------------------------------------------
+-- ratio = how many kg of to_item replace 1 kg of from_item. Directional: A->B and B->A are two
+-- rows and are NOT required to be reciprocal, because a substitution is a nutritional judgement
+-- rather than arithmetic.
+CREATE TABLE feed_conversions (
+    conversion_id   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       uuid NOT NULL REFERENCES tenants (tenant_id),
+    from_item_label text NOT NULL,
+    from_item_key   text GENERATED ALWAYS AS (feed_config_norm(from_item_label)) STORED,
+    to_item_label   text NOT NULL,
+    to_item_key     text GENERATED ALWAYS AS (feed_config_norm(to_item_label)) STORED,
+    ratio           numeric(12, 6) NOT NULL,
+    notes           text,
+    status          text NOT NULL DEFAULT 'active',
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_conversions_from_label_not_blank CHECK (btrim(from_item_label) <> ''),
+    CONSTRAINT feed_conversions_to_label_not_blank CHECK (btrim(to_item_label) <> ''),
+    -- A substitution must actually substitute: ratio 0 would silently drop the feed.
+    CONSTRAINT feed_conversions_ratio_check CHECK (ratio > 0),
+    CONSTRAINT feed_conversions_not_self CHECK (feed_config_norm(from_item_label) <> feed_config_norm(to_item_label)),
+    CONSTRAINT feed_conversions_status_check CHECK (status = ANY (ARRAY['active'::text, 'retired'::text]))
+);
+
+CREATE UNIQUE INDEX feed_conversions_natural_key_uidx
+    ON feed_conversions (tenant_id, from_item_key, to_item_key);
+
+CREATE INDEX feed_conversions_from_idx
+    ON feed_conversions (tenant_id, from_item_key)
+    WHERE status = 'active';
+
+COMMENT ON TABLE feed_conversions IS
+  'Directional inter-feed substitution matrix: kg of to_item that replace 1 kg of from_item. A->B and B->A are separate rows and need not be reciprocal.';
+
+
+-- ---------------------------------------------------------------------------
+-- 8. feed_experiment_config -- hand-entered experiment sheds
+-- ---------------------------------------------------------------------------
+-- Experiment sheds are NOT computed from the ration grid. An operator hand-enters ABSOLUTE kg
+-- per feed item for the whole shed, so absolute_kg is a shed total, NOT a per-head rate, and
+-- head_count is informational only -- it must never be multiplied into absolute_kg. That is the
+-- single most important distinction between this table and feed_ration_rates.
+--
+-- Grain is (tenant, park, shed, feed_item). head_count and experiment_category describe the SHED
+-- and are therefore repeated across that shed's item rows; a writer must keep them consistent
+-- for a given shed (no single-column CHECK can express a cross-row invariant).
+--
+-- absolute_kg follows the same zero-vs-missing rule as grams_per_head: NOT NULL, no default,
+-- 0 means "authored as zero" and a missing row means "not configured" (blocking).
+CREATE TABLE feed_experiment_config (
+    experiment_config_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id            uuid NOT NULL REFERENCES tenants (tenant_id),
+    park_id              uuid NOT NULL,
+    shed_id              uuid NOT NULL,
+    feed_item_label      text NOT NULL,
+    feed_item_key        text GENERATED ALWAYS AS (feed_config_norm(feed_item_label)) STORED,
+    absolute_kg          numeric(12, 3) NOT NULL,
+    head_count           integer,
+    experiment_category  text NOT NULL,
+    notes                text,
+    status               text NOT NULL DEFAULT 'active',
+    created_by           uuid,
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    updated_at           timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_experiment_config_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_experiment_config_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_experiment_config_item_label_not_blank CHECK (btrim(feed_item_label) <> ''),
+    CONSTRAINT feed_experiment_config_category_not_blank CHECK (btrim(experiment_category) <> ''),
+    CONSTRAINT feed_experiment_config_absolute_kg_check CHECK (absolute_kg >= 0),
+    CONSTRAINT feed_experiment_config_head_count_check CHECK (head_count IS NULL OR head_count >= 0),
+    CONSTRAINT feed_experiment_config_status_check CHECK (status = ANY (ARRAY['active'::text, 'retired'::text]))
+);
+
+CREATE UNIQUE INDEX feed_experiment_config_natural_key_uidx
+    ON feed_experiment_config (tenant_id, park_id, shed_id, feed_item_key);
+
+CREATE INDEX feed_experiment_config_shed_lookup_idx
+    ON feed_experiment_config (tenant_id, park_id, shed_id)
+    INCLUDE (feed_item_key, absolute_kg)
+    WHERE status = 'active';
+
+COMMENT ON TABLE feed_experiment_config IS
+  'Hand-entered experiment sheds. absolute_kg is a SHED TOTAL in kg, never a per-head rate; head_count is informational and must not be multiplied into it.';
+COMMENT ON COLUMN feed_experiment_config.absolute_kg IS
+  'Absolute kg for the whole shed. NOT NULL with no default: 0 means "authored as zero", a missing row means "not configured" and must block rather than read as 0.';
+COMMENT ON COLUMN feed_experiment_config.head_count IS
+  'Informational shed head count. NOT a multiplier -- absolute_kg is already the shed total.';
+
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000012_feed_schedule_config.sql
+-- -----------------------------------------------------------------------------
+-- Feed schedule configuration: the CLOCK that drives daily feed dispatch, plus the write ledger
+-- that makes the authored feed config editable from the app under the mandatory idempotency
+-- contract.
+--
+-- WHY A FORWARD MIGRATION (not an edit to 000003):
+-- the migrator is forward-only. 000003 has already been applied and checksum-tracked on dev, so
+-- editing it would leave those databases silently missing everything below. Same rule that
+-- produced 000002 and 000003.
+--
+-- ---------------------------------------------------------------------------
+-- 1. feed_schedule_config -- WHEN the day's feed direction happens
+-- ---------------------------------------------------------------------------
+-- 000003 answered "how much"; this answers "when". One row per (tenant, park, workflow) carries
+-- three clock times:
+--
+--   direction_time   -- when the day's packing direction is ISSUED to the shed.
+--   correction_time  -- when emergency-shifting corrections are BATCHED and reissued.
+--   transport_time   -- the deadline after which a correction can no longer reach the shed.
+--
+-- WHY THIS IS PER-WORKFLOW AND NOT ONE GLOBAL SETTING
+-- ---------------------------------------------------
+-- The 'normal' and 'experiment' workflows genuinely run on different clocks: normal packing is
+-- directed first thing in the morning (07:00), while experiment sheds are hand-entered and are
+-- directed in the afternoon (14:00). A single tenant- or park-global direction_time would have to
+-- pick one of the two, and whichever it picked would issue the other workflow's direction at the
+-- wrong hour every single day. So `workflow` is part of the natural key, not a filter column.
+--
+-- WHY CORRECTIONS ARE BATCHED AT A FIXED TIME, NOT FIRED ON APPROVAL
+-- ------------------------------------------------------------------
+-- MAINTAINER DECISION: an emergency shifting approved during the day does NOT immediately reissue
+-- that shed's direction. Corrections accumulate and are reissued ONCE, at correction_time (14:00).
+--
+-- The alternative -- fire-on-approval -- was rejected because it races: three approvals in one
+-- morning produce three amended directions for the same shed, arriving in whatever order the
+-- consumer happens to process them, and the shed staff cannot tell which sheet is current. One
+-- amended direction per shed per day is unambiguous by construction. correction_time is therefore
+-- a business decision stored as config, not a scheduling implementation detail.
+--
+-- transport_time is the point past which a correction is pointless: the feed has left. It is
+-- NULLABLE because a park that has not yet declared its transport cutoff has no honest value for
+-- it, and inventing one would make a late correction look deliverable. NULL means "no declared
+-- cutoff", which the read path must treat as "unknown", never as "no deadline".
+--
+-- TIME SEMANTICS -- these are INDIA BUSINESS CALENDAR (Asia/Kolkata) LOCAL times
+-- ------------------------------------------------------------------------------
+-- Per AGENTS.md, every business meaning derived from an instant converts to Asia/Kolkata first;
+-- UTC never defines a Goat OS business day. These columns are `time` (time WITHOUT time zone) and
+-- carry NO offset on purpose. 07:00 means seven in the morning at the park, on whatever date the
+-- reader is scheduling, forever -- it is a recurring wall-clock rule, not an instant.
+--
+-- Storing `timetz` or a UTC-shifted 01:30 would be actively wrong here: it would bind a recurring
+-- business rule to a fixed offset, and it would make the stored value unreadable to the operator
+-- who authored "7 AM". The consumer combines (business date, this local time, Asia/Kolkata) to get
+-- the instant. Do not add a UTC offset column.
+CREATE TABLE feed_schedule_config (
+    feed_schedule_config_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id               uuid NOT NULL REFERENCES tenants (tenant_id),
+    park_id                 uuid NOT NULL,
+    workflow                text NOT NULL,
+    direction_time          time NOT NULL,
+    correction_time         time NOT NULL,
+    transport_time          time,
+    valid_from              date NOT NULL DEFAULT CURRENT_DATE,
+    valid_to                date,
+    created_by              uuid,
+    created_at              timestamptz NOT NULL DEFAULT now(),
+    updated_at              timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_schedule_config_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_schedule_config_workflow_check CHECK (workflow = ANY (ARRAY['normal'::text, 'experiment'::text])),
+    -- A correction amends a direction that was already issued, so it cannot precede it. Equality is
+    -- legal and is the live experiment case (direction 14:00, correction 14:00): the first
+    -- direction of the day already carries that day's approved corrections.
+    CONSTRAINT feed_schedule_config_correction_order_check CHECK (correction_time >= direction_time),
+    -- Transport is the deadline a correction races; a cutoff before the correction batch would make
+    -- every correction dead on arrival.
+    CONSTRAINT feed_schedule_config_transport_order_check CHECK (transport_time IS NULL OR transport_time >= correction_time),
+    CONSTRAINT feed_schedule_config_window_check CHECK (valid_to IS NULL OR valid_to > valid_from)
+);
+
+-- Natural key including valid_from: one authored clock per (park, workflow) per effective date.
+CREATE UNIQUE INDEX feed_schedule_config_natural_key_uidx
+    ON feed_schedule_config (tenant_id, park_id, workflow, valid_from);
+
+-- At most ONE open (current) clock per (park, workflow). Two open rows would make "when do we issue
+-- today's direction" ambiguous, and the dispatcher would pick one arbitrarily.
+CREATE UNIQUE INDEX feed_schedule_config_open_row_uidx
+    ON feed_schedule_config (tenant_id, park_id, workflow)
+    WHERE valid_to IS NULL;
+
+-- Hot read: the dispatcher resolves one (park, workflow) clock per tick. Covering, so the current
+-- row is answered from the index.
+CREATE INDEX feed_schedule_config_current_lookup_idx
+    ON feed_schedule_config (tenant_id, park_id, workflow)
+    INCLUDE (direction_time, correction_time, transport_time)
+    WHERE valid_to IS NULL;
+
+-- As-of read: the same lookup for a historical business date (audit / back-dated recompute).
+CREATE INDEX feed_schedule_config_asof_lookup_idx
+    ON feed_schedule_config (tenant_id, park_id, workflow, valid_from DESC);
+
+COMMENT ON TABLE feed_schedule_config IS
+  'Per (tenant, park, workflow) feed dispatch clock: when the day''s direction is issued, when emergency-shifting corrections are batched and reissued, and the transport cutoff after which a correction cannot land. Per-workflow because normal (07:00) and experiment (14:00) genuinely differ. Effective-dated.';
+COMMENT ON COLUMN feed_schedule_config.workflow IS
+  'Which dispatch workflow this clock governs: ''normal'' (grid-computed sheds) or ''experiment'' (hand-entered sheds). Part of the natural key -- the two run on different cutoffs.';
+COMMENT ON COLUMN feed_schedule_config.direction_time IS
+  'LOCAL Asia/Kolkata wall-clock time the day''s packing direction is issued. No UTC offset is stored: this is a recurring business-calendar rule, not an instant. Combine with the business date in Asia/Kolkata to get the instant.';
+COMMENT ON COLUMN feed_schedule_config.correction_time IS
+  'LOCAL Asia/Kolkata wall-clock time at which approved emergency-shifting corrections are BATCHED and the amended direction is reissued. Maintainer decision: batched at a fixed time rather than fired on approval, so a shed receives at most one amended direction per day instead of several racing ones.';
+COMMENT ON COLUMN feed_schedule_config.transport_time IS
+  'LOCAL Asia/Kolkata wall-clock deadline after which a correction can no longer reach the shed. NULLABLE: NULL means the park has not declared a cutoff and must read as UNKNOWN, never as "no deadline".';
+COMMENT ON COLUMN feed_schedule_config.valid_to IS
+  'NULL = currently in force. A clock change closes this row and inserts a new one; it does not UPDATE the times in place.';
+
+
+-- ---------------------------------------------------------------------------
+-- 2. feed_config_write_log -- the idempotency + audit ledger for authored edits
+-- ---------------------------------------------------------------------------
+-- 000003's config tables are now EDITABLE from the app (/feed-config/* write routes), and
+-- AGENTS.md makes idempotency a mandatory write-path contract: every mutating endpoint persists a
+-- client idempotency key AND a request fingerprint in the SAME transaction as its side effects,
+-- returns the original result for an exact replay without rerunning them, and rejects a
+-- same-key/different-payload replay.
+--
+-- WHY A LEDGER TABLE RATHER THAN idempotency_key COLUMNS ON EACH CONFIG TABLE
+-- ---------------------------------------------------------------------------
+-- counts carries idempotency_key/request_fingerprint on the written row itself (see
+-- count_projection_exception_resolutions), which works because one write produces exactly one new
+-- row. An effective-dated config edit does not: superseding a rate CLOSES an existing row and
+-- INSERTS a new one, so the write's identity spans two rows and belongs to neither. Hanging the
+-- key off the new row would also lose the key entirely for the "unchanged" outcome, which writes
+-- no row at all and must still replay identically.
+--
+-- So the ledger records the WRITE, not the row: one entry per accepted authored edit, carrying the
+-- key, the fingerprint, what the edit did, and which rows it produced/closed. That makes replay a
+-- single indexed lookup and gives the config surface an audit trail of who changed what and when,
+-- which the config tables' own created_by cannot express for a supersede.
+--
+-- The ledger row is written INSIDE the same transaction as the close/insert. There is no
+-- "best-effort afterwards" path: an entry that exists is proof the side effects committed.
+CREATE TABLE feed_config_write_log (
+    feed_config_write_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id            uuid NOT NULL REFERENCES tenants (tenant_id),
+    -- Which authored surface was edited. Part of the audit record, NOT of the idempotency key:
+    -- uniqueness is (tenant, key) alone, so one client key can never mean two different writes.
+    write_kind           text NOT NULL,
+    idempotency_key      text NOT NULL,
+    request_fingerprint  text NOT NULL,
+    -- What the edit actually did, using the same vocabulary as seed-feed-ration's reconciliation:
+    --   inserted   -- no open row existed; a first authored value was created.
+    --   superseded -- an open row authored on an EARLIER day was closed and a new one opened.
+    --   corrected  -- an open row authored TODAY was corrected in place (a same-day re-author
+    --                 cannot be given a window without violating valid_to > valid_from).
+    --   unchanged  -- the authored value already matched; no row was written.
+    outcome              text NOT NULL,
+    -- The row now in force after this write. NULL only for 'unchanged' writes that matched a row
+    -- the caller did not address by id.
+    result_row_id        uuid,
+    -- The row this write closed, for 'superseded'. NULL otherwise -- this is what makes the
+    -- effective-dated history walkable from the ledger.
+    superseded_row_id    uuid,
+    -- The business date (Asia/Kolkata) the edit took effect on -- the new row's valid_from and the
+    -- closed row's valid_to. Stored so the ledger is readable without joining the config tables.
+    effective_from       date NOT NULL,
+    actor_ref            text NOT NULL,
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_config_write_log_kind_check CHECK (write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text])),
+    CONSTRAINT feed_config_write_log_outcome_check CHECK (outcome = ANY (ARRAY['inserted'::text, 'superseded'::text, 'corrected'::text, 'unchanged'::text])),
+    CONSTRAINT feed_config_write_log_idem_check CHECK ((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text)),
+    CONSTRAINT feed_config_write_log_actor_check CHECK (btrim(actor_ref) <> ''::text),
+    -- A supersede must name BOTH ends of the window it created, or the history it claims to
+    -- preserve cannot be reconstructed.
+    CONSTRAINT feed_config_write_log_supersede_shape_check CHECK (
+        (outcome <> 'superseded'::text) OR (result_row_id IS NOT NULL AND superseded_row_id IS NOT NULL)
+    ),
+    CONSTRAINT feed_config_write_log_insert_shape_check CHECK (
+        (outcome NOT IN ('inserted'::text, 'corrected'::text)) OR result_row_id IS NOT NULL
+    )
+);
+
+-- THE idempotency index. Its violation is how a concurrent duplicate is detected: the second
+-- transaction's INSERT fails on this constraint, re-reads the committed entry, and returns the
+-- original result instead of applying the edit twice.
+CREATE UNIQUE INDEX feed_config_write_log_idempotency_uidx
+    ON feed_config_write_log (tenant_id, idempotency_key);
+
+-- Audit read: "what was edited on this surface recently", newest first.
+CREATE INDEX feed_config_write_log_kind_recent_idx
+    ON feed_config_write_log (tenant_id, write_kind, created_at DESC);
+
+COMMENT ON TABLE feed_config_write_log IS
+  'Idempotency + audit ledger for authored feed-config edits. One entry per accepted write, written in the SAME transaction as the effective-dated close/insert it describes. Exists as a ledger rather than as key columns on each config table because a supersede spans two rows and an unchanged write spans none.';
+COMMENT ON COLUMN feed_config_write_log.request_fingerprint IS
+  'Stable hash of the canonical client request. An exact replay hashes identically and returns the original result; a same-key/different-payload replay hashes differently and is rejected as a conflict.';
+COMMENT ON COLUMN feed_config_write_log.outcome IS
+  'inserted | superseded | corrected | unchanged -- the same three-way reconciliation seed-feed-ration performs, so the UI and the seed cannot disagree about what an edit means.';
+
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000013_feed_session_template_items.sql
+-- -----------------------------------------------------------------------------
+-- Two defects found by running /feed-direction/preview against live seeded data. Both are about
+-- the same thing: WHICH feed items a direction row is allowed to name.
+--
+-- WHY A FORWARD MIGRATION (not an edit to 000003):
+-- the migrator is forward-only. 000001-000004 are applied and checksum-tracked on dev/stg, so
+-- editing historical SQL would leave those databases silently missing everything below. Same rule
+-- that produced 000002, 000003, and 000004.
+--
+-- ===========================================================================
+-- DEFECT 1 -- the direction generated feed nobody packs
+-- ===========================================================================
+-- 000003 modelled feed_session_templates as (park, session_no, session_label, split_fraction) and
+-- stopped there. It recorded HOW MUCH of the day each session carries, but never WHICH feed items
+-- that session actually consists of. With no such declaration, the generator had only one list of
+-- items to walk -- the whole feed_item_catalog -- so every shed row asked for every feed item in
+-- the tenant.
+--
+-- That is wrong on the live grid for a specific reason. Hybrid, COFS, Hedge Lucerne and Dry Maize
+-- are not four feeds that are all served; they are inter-feed SUBSTITUTION alternatives (that is
+-- what feed_conversions exists for). Exactly one roughage is fed. Walking the catalog produced,
+-- on one real CBE run, 112 blocked cells (28 each for the four alternatives, which are legitimately
+-- unauthored for ~12 of the 77 group/tag rows) plus 619 kg of "Hybrid" that no packer has a bag
+-- for. Both symptoms are the same root cause: the catalog is the tenant's VOCABULARY of feeds, not
+-- any park's RECIPE for a session.
+--
+-- The source workbook has always carried the recipe. Its `Template` tab declares, per farm per
+-- session, exactly five numbered feed slots:
+--
+--   CBE / CPT, Session 1 and 2:
+--     Feed 1 Concentrate | Feed 2 Dry Masoor Bhusa | Feed 3 Mesha Concentrate Goat
+--     Feed 4 Mesha Concentrate Sheep | Feed 5 Baking Soda
+--
+-- feed_session_template_items below is that tab. The generator now emits ONLY the items declared
+-- for the park+session it is generating, in slot_no order.
+--
+-- THIS DOES NOT WEAKEN THE BLOCKED-VS-ZERO RULE. Read 000003's CONFIGURED ZERO block again: it
+-- governs what happens when a REQUESTED item has no authored rate, and that is unchanged. A slot
+-- that IS declared but whose (park, group, tag, item) cell has no currently-open rate still blocks
+-- loudly and still contributes no number. What changed is only which items are requested:
+--
+--   declared slot, authored rate      -> resolved (0 is a legal authored rate)
+--   declared slot, NO authored rate   -> BLOCKED, exactly as before   <-- unchanged
+--   catalog item, never declared      -> not requested, so absent entirely -- not blocked,
+--                                        because nobody ever said this park feeds it
+--
+-- The last line is the fix, and it is a narrowing of the QUESTION, not a softening of the ANSWER.
+-- "This park does not feed Hybrid" and "this park feeds Hybrid but nobody said how much" are
+-- different states and must not render identically; before this migration they did, and the real
+-- gaps were buried under 112 cells of noise.
+--
+-- WHY THE SLOTS HANG OFF THE SESSION AND NOT OFF THE PARK
+-- -------------------------------------------------------
+-- Both live parks currently declare the same five slots in both sessions, so a park-level list
+-- would fit today's data. It is modelled per session anyway because the workbook models it per
+-- session: the Template tab has a row per session precisely so a farm CAN feed concentrate in the
+-- morning and roughage in the evening. Collapsing that to a park list would make the first such
+-- change a migration instead of a config edit, and would silently split the wrong feed across the
+-- wrong session in the meantime.
+--
+-- The experiment workbook's Template tab declares a DIFFERENT five (Mesha Concentrate Goat |
+-- Mesha Concentrate Sheep | RGS Concentrate | Vijay Concentrate | Dry Masoor Bhusa). This table
+-- represents that shape fine -- it is just another (park, session) slot set. It is deliberately
+-- NOT seeded: feed_experiment_config has no source rows yet, and seeding a recipe for sheds that
+-- do not exist would author config nobody can trace to a farm decision. Experiment sheds also do
+-- not consult this table at all -- their hand-entered cells ARE their complete item list (see
+-- domain.ExperimentPlanner), which is why the generator scopes slots per planner rather than
+-- globally.
+--
+-- EFFECTIVE-DATED, like feed_ration_rates and feed_schedule_config. Changing what a session
+-- consists of is a real farm decision with a date, and "what were we packing for CBE session 2 in
+-- March" must stay answerable. A change CLOSES the current row (valid_to = the day the change
+-- takes effect) and OPENS a new one; it is not an in-place UPDATE of feed_item_label.
+CREATE TABLE feed_session_template_items (
+    session_template_item_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id                uuid NOT NULL REFERENCES tenants (tenant_id),
+    park_id                  uuid NOT NULL,
+    session_no               integer NOT NULL,
+    -- The workbook's "Feed 1..Feed 5" column position. It is the PACKING ORDER, not a mere display
+    -- hint: the direction sheet and the packing worklist both render items in this sequence, so a
+    -- packer's bags come out in the order the sheet lists them.
+    slot_no                  integer NOT NULL,
+    feed_item_label          text NOT NULL,
+    feed_item_key            text GENERATED ALWAYS AS (feed_config_norm(feed_item_label)) STORED,
+    status                   text NOT NULL DEFAULT 'active',
+    valid_from               date NOT NULL DEFAULT CURRENT_DATE,
+    valid_to                 date,
+    created_by               uuid,
+    created_at               timestamptz NOT NULL DEFAULT now(),
+    updated_at               timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_session_template_items_park_fk
+        FOREIGN KEY (tenant_id, park_id) REFERENCES locations (tenant_id, location_id),
+    -- A slot for a session that does not exist is unusable: it declares an item for a share of the
+    -- day that has no split_fraction, so it could never be given a quantity. Unlike the label FKs
+    -- this schema deliberately omits (rates do not FK the catalog either -- an authored label is
+    -- allowed to name a feed the catalog has not caught up with, and a missing rate is what blocks,
+    -- not a missing catalog row), this one is a structural impossibility rather than a data gap.
+    CONSTRAINT feed_session_template_items_session_fk
+        FOREIGN KEY (tenant_id, park_id, session_no)
+        REFERENCES feed_session_templates (tenant_id, park_id, session_no),
+    CONSTRAINT feed_session_template_items_session_no_check CHECK (session_no >= 1),
+    CONSTRAINT feed_session_template_items_slot_no_check CHECK (slot_no >= 1),
+    CONSTRAINT feed_session_template_items_item_label_not_blank CHECK (btrim(feed_item_label) <> ''),
+    CONSTRAINT feed_session_template_items_status_check
+        CHECK (status = ANY (ARRAY['active'::text, 'retired'::text])),
+    CONSTRAINT feed_session_template_items_window_check
+        CHECK (valid_to IS NULL OR valid_to > valid_from)
+);
+
+-- Natural key including valid_from: one authored item per (park, session, slot) per effective date.
+CREATE UNIQUE INDEX feed_session_template_items_natural_key_uidx
+    ON feed_session_template_items (tenant_id, park_id, session_no, slot_no, valid_from);
+
+-- At most ONE open (current) row per slot. Two open rows would make "what is Feed 3 of CBE session
+-- 1" ambiguous and the packing order non-deterministic.
+CREATE UNIQUE INDEX feed_session_template_items_open_slot_uidx
+    ON feed_session_template_items (tenant_id, park_id, session_no, slot_no)
+    WHERE valid_to IS NULL;
+
+-- The SAME feed item may not occupy two live slots of one session. This is not tidiness: the
+-- generator emits one line per declared slot, so a duplicate would print the shed's concentrate
+-- twice and the packer would fill two bags of it. Retiring a slot frees the item to be re-declared
+-- elsewhere, which is why status is in the predicate.
+CREATE UNIQUE INDEX feed_session_template_items_open_item_uidx
+    ON feed_session_template_items (tenant_id, park_id, session_no, feed_item_key)
+    WHERE valid_to IS NULL AND status = 'active';
+
+-- Hot read: the whole park's slot set for one business date, in one indexed scan, once per
+-- generation request. Covering, so the recipe is answered from the index.
+CREATE INDEX feed_session_template_items_current_lookup_idx
+    ON feed_session_template_items (tenant_id, park_id, session_no, slot_no)
+    INCLUDE (feed_item_label, feed_item_key)
+    WHERE valid_to IS NULL AND status = 'active';
+
+-- As-of read: the same lookup for a historical business date (audit / back-dated regeneration).
+CREATE INDEX feed_session_template_items_asof_lookup_idx
+    ON feed_session_template_items (tenant_id, park_id, session_no, valid_from DESC);
+
+COMMENT ON TABLE feed_session_template_items IS
+  'The source workbook''s Template tab: which feed items each (park, session) actually consists of, in packing-slot order. The generator emits ONLY these items -- feed_item_catalog is the tenant''s feed VOCABULARY, not any park''s session RECIPE. Narrowing which items are requested does NOT weaken 000003''s blocked-vs-zero rule: a declared slot with no authored rate still blocks.';
+COMMENT ON COLUMN feed_session_template_items.slot_no IS
+  'The workbook''s Feed 1..Feed 5 position. Packing order, not a display hint: the direction sheet and the packing worklist both render items in this sequence.';
+COMMENT ON COLUMN feed_session_template_items.feed_item_label IS
+  'The authored feed name, joined to feed_ration_rates.feed_item_label through the generated feed_item_key. A declared item whose (park, group, tag, item) cell has no currently-open rate BLOCKS the shed -- it is never fed 0.';
+COMMENT ON COLUMN feed_session_template_items.valid_to IS
+  'NULL = currently in force. Changing what a session consists of closes this row and inserts a new one; it does not UPDATE feed_item_label in place.';
+
+
+-- ===========================================================================
+-- DEFECT 2 -- feed item labels were spreadsheet column headers, not feed names
+-- ===========================================================================
+-- The catalog and the grid were loaded straight from the source VALIDATION sheet's column headers,
+-- which read "Concentrate Per Goat", "Dry Masoor Bhusa Per Goat", "Hybrid Per Goat", and so on.
+-- "Per Goat" is that sheet's UNIT descriptor -- it tells a reader the column holds a per-head
+-- figure -- and it is not part of any feed's name. Nobody at the farm orders "Baking Soda Per
+-- Goat"; they order baking soda.
+--
+-- The unit is already carried separately and correctly by the app contract ("Grams / head / day"),
+-- so the suffix was pure duplication in the one place it does damage: a packing sheet, where the
+-- line an operator reads must be the name on the sack.
+--
+-- WHY THE RENAME IS A DATA MIGRATION AND NOT A CODE-SIDE DISPLAY TRIM
+-- -------------------------------------------------------------------
+-- feed_item_key is GENERATED ALWAYS from feed_item_label, and it is the JOIN KEY between the
+-- catalog, the ration grid, the shed factors, the substitution matrix, and (from today) the session
+-- slots. Trimming the suffix at render time would leave the stored keys as
+-- 'concentrate_per_goat' while the new session slots key on 'concentrate' -- every rate lookup
+-- would miss, and per 000003's rule a missed lookup BLOCKS. Renaming the label is therefore the
+-- only way to move the key, and the label must move in every table that carries one, in the same
+-- transaction, or the grid orphans itself.
+--
+-- Goose runs this file in a single transaction, so the statements below either all land or none
+-- do; there is no window in which the catalog is renamed and the rates are not.
+--
+-- SAFE BY CONSTRUCTION: the strip is applied uniformly to every table's copy of the label, so two
+-- items that were distinct stay distinct. All ten live labels remain distinct after the strip
+-- (Concentrate, Mesha Concentrate Goat, Mesha Concentrate Sheep, Dry Masoor Bhusa, Toor Dal Bhusa
+-- Pellet, Hybrid, COFS, Hedge Lucerne, Dry Maize, Baking Soda). If some other database did hold a
+-- pair that collides under the strip, the natural-key unique indexes reject the UPDATE and this
+-- migration fails -- which is the correct outcome, because silently merging two feeds' rates would
+-- be a feeding error, not a naming one.
+--
+-- The pattern is anchored to the END of the label and requires whitespace before "per", so the
+-- genuine names are untouched: "Mesha Concentrate Goat" and "Mesha Concentrate Sheep" do not end in
+-- "Per Goat", and "Toor Dal Bhusa Pellet" contains neither word.
+--
+-- SCALE BOUNDARY (row-count assumption, do not remove without re-checking the live count):
+-- each regexp UPDATE below runs unconditionally over its WHOLE table (WHERE is a value predicate
+-- on feed_item_label, not a bounded key range), and all five run inside ONE goose transaction, so
+-- the row locks are held for the combined duration of all five statements. This is safe today
+-- because every table here is a small authored catalog/config table -- feed_ration_rates is the
+-- largest at ~770 rows, and the other four are lower still (three are empty in production). At
+-- that size a full-table regexp UPDATE completes in milliseconds and the lock window is
+-- negligible.
+--
+-- This stops being safe once any of these tables crosses roughly 1,000 rows: a full-table rewrite
+-- at that size starts to hold row/page locks long enough to contend with concurrent writers on a
+-- live tenant. If a future migration needs to re-run a bulk label rewrite on a table past that
+-- size, split it out of this single-transaction DO block into its own batched migration -- chunk
+-- by primary-key range or `ctid`, commit each batch, and re-check the strip's collision safety
+-- per batch (two labels that were distinct pre-strip must stay distinct) -- rather than adding a
+-- sixth statement to this pattern.
+
+-- +goose StatementBegin
+DO $$
+DECLARE
+    -- Anchored at end-of-string; requires at least one space before 'per'. Case-insensitive so a
+    -- hand-authored 'per goat' is caught too.
+    strip_pattern CONSTANT text := '[[:space:]]+per[[:space:]]+goat[[:space:]]*$';
+BEGIN
+    -- 1. The catalog -- the vocabulary itself.
+    UPDATE feed_item_catalog
+    SET feed_item_label = regexp_replace(feed_item_label, strip_pattern, '', 'i'),
+        updated_at = now()
+    WHERE feed_item_label ~* strip_pattern
+      AND btrim(regexp_replace(feed_item_label, strip_pattern, '', 'i')) <> '';
+
+    -- 2. The ration grid -- carries the same string, so the same rename, or every rate orphans.
+    UPDATE feed_ration_rates
+    SET feed_item_label = regexp_replace(feed_item_label, strip_pattern, '', 'i'),
+        updated_at = now()
+    WHERE feed_item_label ~* strip_pattern
+      AND btrim(regexp_replace(feed_item_label, strip_pattern, '', 'i')) <> '';
+
+    -- 3-5. The remaining tables that carry a feed_item_label. They hold no rows today (they are
+    -- authored in-app and have no source data yet), but they are renamed in the same transaction
+    -- anyway: leaving them out would make the completeness of this migration depend on the
+    -- accident of those tables being empty, and the first authored shed factor under an old label
+    -- would join to nothing.
+    UPDATE feed_shed_factors
+    SET feed_item_label = regexp_replace(feed_item_label, strip_pattern, '', 'i'),
+        updated_at = now()
+    WHERE feed_item_label ~* strip_pattern
+      AND btrim(regexp_replace(feed_item_label, strip_pattern, '', 'i')) <> '';
+
+    UPDATE feed_experiment_config
+    SET feed_item_label = regexp_replace(feed_item_label, strip_pattern, '', 'i'),
+        updated_at = now()
+    WHERE feed_item_label ~* strip_pattern
+      AND btrim(regexp_replace(feed_item_label, strip_pattern, '', 'i')) <> '';
+
+    UPDATE feed_conversions
+    SET from_item_label = regexp_replace(from_item_label, strip_pattern, '', 'i'),
+        to_item_label = regexp_replace(to_item_label, strip_pattern, '', 'i'),
+        updated_at = now()
+    WHERE (from_item_label ~* strip_pattern OR to_item_label ~* strip_pattern)
+      AND btrim(regexp_replace(from_item_label, strip_pattern, '', 'i')) <> ''
+      AND btrim(regexp_replace(to_item_label, strip_pattern, '', 'i')) <> '';
+END
+$$;
+-- +goose StatementEnd
+
+-- POST-CONDITION: no rate may be orphaned by the rename. Every feed_ration_rates.feed_item_key must
+-- still resolve to a feed_item_catalog row of the same tenant. This is asserted rather than assumed
+-- because an orphaned rate is invisible at write time and only surfaces later as a blocked shed --
+-- the exact failure mode 000003 exists to prevent. Failing the migration is the loud alternative.
+-- +goose StatementBegin
+DO $$
+DECLARE
+    orphans bigint;
+BEGIN
+    SELECT count(*) INTO orphans
+    FROM feed_ration_rates r
+    WHERE NOT EXISTS (
+        SELECT 1 FROM feed_item_catalog c
+        WHERE c.tenant_id = r.tenant_id AND c.feed_item_key = r.feed_item_key
+    );
+    IF orphans > 0 THEN
+        RAISE EXCEPTION
+            'feed item rename orphaned % feed_ration_rates row(s): a rate key no longer resolves to a feed_item_catalog row', orphans;
+    END IF;
+END
+$$;
+-- +goose StatementEnd
+
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000014_feed_experiment_write_kind.sql
+-- -----------------------------------------------------------------------------
+-- Experiment sheds become AUTHORABLE. Until now feed_experiment_config existed (migration 000003)
+-- and the generator honoured it (domain.ExperimentPlanner), but nothing could write it: the module
+-- had no endpoint, the seed had no source rows, and the write ledger could not even record such an
+-- edit. This migration opens the last of those three.
+--
+-- WHY A FORWARD MIGRATION (not an edit to 000004):
+-- the migrator is forward-only. 000001-000005 are applied and checksum-tracked on dev/stg, so
+-- editing historical SQL would leave those databases with a ledger that rejects every experiment
+-- edit while the API happily accepts one. Same rule that produced 000002-000005.
+--
+-- ===========================================================================
+-- WHAT THIS UNBLOCKS, AND WHY IT IS A CORRECTNESS FIX RATHER THAN A FEATURE
+-- ===========================================================================
+-- Membership in feed_experiment_config IS what makes a shed an experiment shed -- there is no
+-- separate flag (see ExperimentPlanner.Applies). With the table empty, EVERY shed fell through to
+-- NormalPlanner and was fed head_count x grams_per_head x shed_factor off the ration grid.
+--
+-- For the 34 sheds the farm actually runs as experiments that is the wrong arithmetic, not merely
+-- the wrong label: their real feed is hand-entered ABSOLUTE kg per shed, and the source workbook
+-- writes them into normal Feed Direction as EMPTY placeholders precisely so nobody computes them
+-- per head. Measured against the workbook's own Feed Direction tab for 2026-07-20, feeding those
+-- 34 sheds from the per-head grid inflated CBE's concentrate total from 182.0 kg to 398.8 kg --
+-- about 2.2x. Excluding them, per-shed parity is already good (42 of 46 CBE sheds within 0.35 kg),
+-- so the ration maths was never the defect; the missing experiment rows were.
+--
+-- ===========================================================================
+-- THE CHANGE: one more write_kind
+-- ===========================================================================
+-- feed_config_write_log is the idempotency ledger EVERY authored feed-config write commits inside
+-- its own transaction (see 000004 and feedconfig/adapters/postgres.runWrite). Its write_kind CHECK
+-- is a closed vocabulary, so an experiment edit would fail the ledger insert -- and because the
+-- ledger row and the side effect share one transaction, that failure correctly rolls the whole edit
+-- back. The API would return a 500 on every experiment write. Widening the vocabulary is therefore
+-- a precondition of the endpoint, not a cosmetic addition.
+--
+-- ONE kind covers both experiment writes ('experiment_config'):
+--
+--   * authoring one (park, shed, feed_item) cell -- absolute kg, informational head count, arm;
+--   * switching a whole shed between the experiment and the normal grid, which is implemented as a
+--     status flip on that shed's rows rather than a DELETE, so the authored quantities survive a
+--     withdraw-and-restore and the audit trail keeps the numbers that were in force.
+--
+-- They are one kind because they are one authoring surface with one identity space; the ledger's
+-- result_row_id and outcome already distinguish what an individual edit did.
+--
+-- NO NEW INDEX. The experiment listing reads
+--   WHERE tenant_id = $1 AND park_id = $2 [AND status = $3] ORDER BY shed_id, feed_item_key
+-- which is served by feed_experiment_config_natural_key_uidx
+-- (tenant_id, park_id, shed_id, feed_item_key) -- leading columns match the predicate and the sort
+-- is a prefix-ordered walk of the same index. The read is also bounded by construction: it is one
+-- park's hand-authored sheds (34 rows x 5 items across BOTH live parks today), and the service
+-- rejects an offset past 5000.
+--
+-- NOT CHANGED, deliberately: feed_experiment_config is NOT effective-dated, unlike feed_ration_rates
+-- / feed_shed_factors / feed_schedule_config. An experiment quantity is a hand-entered figure for a
+-- running trial, corrected in place while the trial runs, rather than a standing rule whose past
+-- values must stay reconstructable to explain an old feed sheet. Adding valid_from/valid_to here
+-- would imply an audit guarantee this table does not make; the write ledger records who changed
+-- what and when, which is the guarantee it does make.
+
+-- feed_config_write_log is an append-only, unboundedly-growing idempotency ledger (every authored
+-- feed-config write commits a row here). A plain DROP + ADD CONSTRAINT re-validates the widened
+-- CHECK against every existing row under an ACCESS EXCLUSIVE lock -- a full-table scan that blocks
+-- reads/writes on the ledger for its duration and gets worse every day the ledger grows. Split it:
+-- add the new CHECK NOT VALID (enforced on every subsequent INSERT immediately, no scan, brief
+-- ACCESS EXCLUSIVE just to add the constraint metadata), then VALIDATE CONSTRAINT separately, which
+-- takes only SHARE UPDATE EXCLUSIVE (blocks other DDL, not reads/writes) while it scans existing
+-- rows. Unlike shifting_events (see 000007), feed_config_write_log has no forbid on direct
+-- VALIDATE from validate-postgres-migrations -- it is a narrower, purely-additive ledger table, so
+-- validating in the same migration is safe and keeps the constraint fully enforced immediately
+-- rather than leaving it silently NOT VALID indefinitely.
+ALTER TABLE feed_config_write_log
+    DROP CONSTRAINT feed_config_write_log_kind_check;
+
+ALTER TABLE feed_config_write_log
+    ADD CONSTRAINT feed_config_write_log_kind_check
+    CHECK (write_kind = ANY (ARRAY[
+        'ration_rate'::text,
+        'shed_factor'::text,
+        'schedule_config'::text,
+        'experiment_config'::text
+    ])) NOT VALID;
+
+ALTER TABLE feed_config_write_log
+    VALIDATE CONSTRAINT feed_config_write_log_kind_check;
+
+COMMENT ON COLUMN feed_config_write_log.write_kind IS
+  'Which authored feed-config surface this ledger row describes. ''experiment_config'' covers both authoring an experiment shed''s absolute-kg cell and switching a shed between the experiment workflow and the normal ration grid -- one authoring surface, one identity space.';
+
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000015_feed_direction_issues.sql
+-- -----------------------------------------------------------------------------
+-- Feed-direction ISSUES: the FROZEN, issued feed sheet and its lifecycle.
+--
+-- WHY A FORWARD MIGRATION (not an edit to 000003-000006):
+-- the migrator is forward-only. 000003-000006 have already been applied and checksum-tracked on
+-- dev/stg, so editing any of them would leave those databases silently missing everything below.
+-- Same rule that produced 000002 through 000006.
+--
+-- ---------------------------------------------------------------------------
+-- WHY THIS EXISTS -- Feed Direction stops being a live calculator
+-- ---------------------------------------------------------------------------
+-- Until now /feed-direction/preview LIVE-COMPUTED a sheet for ANY target_date on every request:
+-- the projection is "live herd + approved-but-unexecuted shiftings" and nothing is dated into the
+-- future, so asking for tomorrow, next week, or three months out all returned the same confident
+-- number. Three defects followed: (1) tomorrow's sheet was viewable now as if it had been issued;
+-- (2) a PAST sheet could not be retrieved, because nothing was ever stored; (3) the 14:00
+-- correction the business runs had nothing to correct, because no issued artifact existed.
+--
+-- Feed for day D is produced on D-1, per (park, workflow), on the clock already stored in
+-- feed_schedule_config (000004): direction_time ISSUES the sheet (generate once, freeze immutably),
+-- correction_time AMENDS it (recompute, diff, persist the affected sheds only), transport_time
+-- LOCKS it (no further change; later changes roll to the next feed day). This migration is the
+-- durable record those three transitions write. The issue IS the operational-kernel
+-- expected-process record: what sheet was promised, whether it was amended, and the evidence.
+--
+-- ---------------------------------------------------------------------------
+-- 1. feed_direction_issues -- the issued sheet HEADER, one live row per (tenant, park, day, workflow)
+-- ---------------------------------------------------------------------------
+-- Per-workflow because 000004's dispatch clock is per-workflow: normal packing is directed at
+-- 07:00 and the hand-entered experiment sheds at 14:00, so a park-day's full sheet is composed of
+-- up to TWO issues that can be issued at different instants. The read path unions them.
+--
+-- The row is MUTATED IN PLACE across its lifecycle (issued -> amended -> locked): issued_at,
+-- amended_at and locked_at accumulate on the one row, and amendment_count counts the corrections.
+-- There is never more than one live issue per (tenant, park, feed_day, workflow) -- the partial
+-- unique index below is that guarantee.
+--
+-- IDEMPOTENCY (AGENTS.md mandatory write-path contract). The worker re-runs the same issue/amend/
+-- lock safely: idempotency_key is the stable operation identity ("issue:{tenant}:{park}:{day}:
+-- {workflow}") and request_fingerprint == generation_input_fingerprint is the hash of the herd +
+-- config the sheet was generated from. An EXACT re-issue (same key, same fingerprint) is a no-op
+-- replay that returns the original and runs no side effects. A re-issue with a DIFFERENT fingerprint
+-- is a legitimate fresh issue ONLY while state='issued' and nothing downstream has consumed the
+-- sheet -- the service replaces the frozen rows in place. Once state is 'amended' or 'locked' a
+-- plain re-issue with changed inputs is REJECTED: a correction or the transport lock has already
+-- acted on the issued document, and changing it now must go through Amend, not a silent re-Issue.
+CREATE TABLE feed_direction_issues (
+    feed_direction_issue_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id                   uuid NOT NULL REFERENCES tenants (tenant_id),
+    park_id                     uuid NOT NULL,
+    feed_day                    date NOT NULL,
+    workflow                    text NOT NULL,
+    state                       text NOT NULL DEFAULT 'issued',
+    -- Lifecycle instants. Business meaning is Asia/Kolkata (AGENTS.md); the service stamps them
+    -- from a business-calendar clock, never from SQL now(). issued_at is always present; the other
+    -- two fill in as the sheet is amended and then locked.
+    issued_at                   timestamptz NOT NULL,
+    amended_at                  timestamptz,
+    locked_at                   timestamptz,
+    -- Hash of the herd + config the sheet was generated from. A re-issue with an identical
+    -- fingerprint is a no-op; an amend compares this against a fresh recompute to tell whether
+    -- anything actually changed before writing a single row.
+    generation_input_fingerprint text NOT NULL,
+    -- The idempotency envelope. request_fingerprint == generation_input_fingerprint by construction
+    -- (the request that produces an issue IS its generation inputs); it is stored under the contract
+    -- name too so the replay/conflict logic reads the same as every other module's write path.
+    idempotency_key             text NOT NULL,
+    request_fingerprint         text NOT NULL,
+    -- Provenance, mirroring the counts projection snapshots' source_contract/version columns.
+    source_contract             text NOT NULL,
+    source_contract_version     text NOT NULL,
+    amendment_count             integer NOT NULL DEFAULT 0,
+    generated_by                text NOT NULL,
+    created_at                  timestamptz NOT NULL DEFAULT now(),
+    updated_at                  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_direction_issues_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES locations (tenant_id, location_id),
+    CONSTRAINT feed_direction_issues_workflow_check CHECK (workflow = ANY (ARRAY['normal'::text, 'experiment'::text])),
+    CONSTRAINT feed_direction_issues_state_check CHECK (state = ANY (ARRAY['issued'::text, 'amended'::text, 'locked'::text])),
+    -- The lifecycle instants must exist for the state that implies them: an 'amended' sheet has an
+    -- amended_at, a 'locked' sheet has a locked_at. A sheet locked without an intervening amend has
+    -- a null amended_at, which is correct.
+    CONSTRAINT feed_direction_issues_amended_shape_check CHECK (state <> 'amended' OR amended_at IS NOT NULL),
+    CONSTRAINT feed_direction_issues_locked_shape_check CHECK (state <> 'locked' OR locked_at IS NOT NULL),
+    CONSTRAINT feed_direction_issues_amendment_count_check CHECK (amendment_count >= 0),
+    CONSTRAINT feed_direction_issues_fingerprint_check CHECK (btrim(generation_input_fingerprint) <> ''),
+    CONSTRAINT feed_direction_issues_idem_check CHECK ((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text)),
+    CONSTRAINT feed_direction_issues_source_check CHECK ((btrim(source_contract) <> ''::text) AND (btrim(source_contract_version) <> ''::text)),
+    CONSTRAINT feed_direction_issues_generated_by_check CHECK (btrim(generated_by) <> ''::text)
+);
+
+-- ONE LIVE ISSUE per (tenant, park, feed_day, workflow). Partial on the live state set so that a
+-- future archival/superseded state can be added without colliding with this guarantee; today every
+-- legal state is live, so this is effectively the natural key.
+CREATE UNIQUE INDEX feed_direction_issues_live_uidx
+    ON feed_direction_issues (tenant_id, park_id, feed_day, workflow)
+    WHERE state IN ('issued', 'amended', 'locked');
+
+-- THE idempotency index. Its violation is how a concurrent duplicate is detected: the second
+-- transaction's INSERT fails here, re-reads the committed row, and returns the original result
+-- instead of issuing twice.
+CREATE UNIQUE INDEX feed_direction_issues_idempotency_uidx
+    ON feed_direction_issues (tenant_id, idempotency_key);
+
+-- Serving read: resolve every workflow's issue for one park + feed day in one indexed lookup. The
+-- read path unions the (at most two) rows and reports their aggregated lifecycle.
+CREATE INDEX feed_direction_issues_serve_idx
+    ON feed_direction_issues (tenant_id, park_id, feed_day);
+
+COMMENT ON TABLE feed_direction_issues IS
+  'The issued feed-direction sheet header, one live row per (tenant, park, feed_day, workflow), mutated in place across issued -> amended -> locked. The durable operational-kernel record of what feed sheet was promised for a day and how it changed. Per-workflow because the 000004 dispatch clock is per-workflow.';
+COMMENT ON COLUMN feed_direction_issues.state IS
+  'issued (frozen on generation) | amended (a correction batch changed some sheds) | locked (transport cutoff passed; no further change). Mutated in place; the *_at columns accumulate.';
+COMMENT ON COLUMN feed_direction_issues.generation_input_fingerprint IS
+  'Hash of the herd + config the sheet was generated from. Equal fingerprint => a re-issue is a no-op and an amend has nothing to change. Stored so change detection never re-reads the whole sheet.';
+
+
+-- ---------------------------------------------------------------------------
+-- 2. feed_direction_issue_rows -- the FROZEN sheet, the WHOLE generated scope
+-- ---------------------------------------------------------------------------
+-- The complete generated scope for the issue, NOT a page: past reads and pagination both serve
+-- STORED rows, so the whole park-day must be here. One row per generated CELL -- (grain, session,
+-- feed_item) -- which is the same grain the live DirectionRow.Items carries, denormalized flat so
+-- the read path can reconstruct the exact DirectionRows and re-run the tested whole-scope summary.
+--
+-- BLOCKED-VS-ZERO IS PRESERVED STRUCTURALLY, EXACTLY AS THE GENERATOR ENCODES IT. quantity_kg is
+-- NULL if and only if the cell is blocked (no authored ration); a stored 0.000 is an AUTHORED zero
+-- (milk-fed kids), a real feeding instruction. The two are opposite states with opposite
+-- consequences and the CHECK below makes them un-collapsible at the schema level: a blocked cell
+-- MUST carry a reason code and no quantity, a resolved cell MUST carry a quantity and no reason.
+--
+-- THE GRAIN DISCRIMINATOR IS IN THE NATURAL KEY. A shed can hold several ration grains (two breeds
+-- sharing a ration group, e.g. Beetal + Sojat), so (shed_id, session_no, feed_item) alone is NOT
+-- unique within an issue. shed_tag_key and breed_key -- generated by the same feed_config_norm()
+-- the generator groups grains by -- complete the key so multi-grain sheds never collide.
+CREATE TABLE feed_direction_issue_rows (
+    feed_direction_issue_row_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id                   uuid NOT NULL REFERENCES tenants (tenant_id),
+    feed_direction_issue_id     uuid NOT NULL REFERENCES feed_direction_issues (feed_direction_issue_id) ON DELETE CASCADE,
+    park_id                     uuid NOT NULL,
+    park_label                  text NOT NULL,
+    shed_id                     uuid NOT NULL,
+    shed_label                  text NOT NULL,
+    -- The authored tag the animals resolved onto (raw source text on a blocked row). Its norm key
+    -- matches the grain group key the generator used, which is what makes the natural key exact.
+    shed_tag                    text NOT NULL DEFAULT '',
+    shed_tag_key                text GENERATED ALWAYS AS (feed_config_norm(shed_tag)) STORED,
+    breed                       text NOT NULL DEFAULT '',
+    breed_key                   text GENERATED ALWAYS AS (feed_config_norm(breed)) STORED,
+    ration_group                text NOT NULL DEFAULT '',
+    experiment_arm              text NOT NULL DEFAULT '',
+    session_no                  integer NOT NULL,
+    session_label               text NOT NULL DEFAULT '',
+    head_count                  bigint NOT NULL,
+    -- True for the experiment workflow, whose authored kg is already a shed total: head_count must
+    -- never be multiplied into the quantity. Carried through so no reader or rollup ever does.
+    head_count_informational    boolean NOT NULL,
+    workflow                    text NOT NULL,
+    feed_item_label             text NOT NULL,
+    feed_item_key               text GENERATED ALWAYS AS (feed_config_norm(feed_item_label)) STORED,
+    -- NULL IFF BLOCKED. A stored 0.000 is an authored zero, not a gap. See the CHECK below.
+    quantity_kg                 numeric(12, 3),
+    -- The authored rate / multiplier this quantity came from, echoed for the operator. NULL on a
+    -- blocked cell and on every experiment cell (which authors absolute kg with no per-head rate).
+    grams_per_head              numeric(12, 3),
+    shed_factor                 numeric(8, 4),
+    -- Set IFF blocked, mirroring domain.BlockedReason: a machine-stable code plus the operator
+    -- sentence that names the exact missing coordinate.
+    blocked_reason_code         text,
+    blocked_reason_detail       text,
+    -- The (grain, session) session total, summing RESOLVED cells only -- denormalized onto every
+    -- cell of the grain so a row reconstructs without a second pass. Partial when the row is blocked.
+    session_total_kg            numeric(12, 3) NOT NULL,
+    overdue_pending             boolean NOT NULL,
+    -- Generation order, so the frozen sheet reconstructs byte-for-byte: row_seq orders the grain
+    -- rows, item_seq orders the cells within a row.
+    row_seq                     integer NOT NULL,
+    item_seq                    integer NOT NULL,
+    -- An amendment marks ONLY the cells it changed, so the UI can show exactly what moved.
+    amended                     boolean NOT NULL DEFAULT false,
+    amended_at                  timestamptz,
+    created_at                  timestamptz NOT NULL DEFAULT now(),
+    updated_at                  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT feed_direction_issue_rows_workflow_check CHECK (workflow = ANY (ARRAY['normal'::text, 'experiment'::text])),
+    -- BLOCKED-VS-ZERO, enforced structurally: blocked iff no quantity and a reason present; resolved
+    -- iff a quantity is present and no reason. A stored 0.000 is therefore necessarily resolved.
+    CONSTRAINT feed_direction_issue_rows_blocked_shape_check CHECK (
+        (quantity_kg IS NULL AND blocked_reason_code IS NOT NULL)
+        OR (quantity_kg IS NOT NULL AND blocked_reason_code IS NULL)
+    ),
+    CONSTRAINT feed_direction_issue_rows_seq_check CHECK (row_seq >= 0 AND item_seq >= 0),
+    CONSTRAINT feed_direction_issue_rows_amended_shape_check CHECK (amended = false OR amended_at IS NOT NULL)
+);
+
+-- Natural key: the grain cell inside an issue. shed_tag_key + breed_key are the grain discriminator
+-- that keeps a multi-grain shed's identically-named feed items from colliding.
+CREATE UNIQUE INDEX feed_direction_issue_rows_natural_key_uidx
+    ON feed_direction_issue_rows (tenant_id, feed_direction_issue_id, shed_id, session_no, shed_tag_key, breed_key, feed_item_key);
+
+-- Serving read: load one issue's whole scope in generation order for reconstruction, and narrow to
+-- a shed for the shed filter. Ordered so the frozen sheet comes back exactly as it was written.
+CREATE INDEX feed_direction_issue_rows_serve_idx
+    ON feed_direction_issue_rows (tenant_id, feed_direction_issue_id, shed_id, row_seq, item_seq);
+
+COMMENT ON TABLE feed_direction_issue_rows IS
+  'The FROZEN feed-direction sheet: the whole generated scope for an issue (not a page), one row per (grain, session, feed_item) cell. Read paths serve these stored rows; the whole-scope summary is recomputed over them so it stays invariant to page size. Blocked-vs-zero is preserved: quantity_kg NULL iff blocked.';
+COMMENT ON COLUMN feed_direction_issue_rows.quantity_kg IS
+  'The frozen packable quantity in kg. NULL IFF blocked (no authored ration -- surfaced as a gap); a stored 0.000 is an AUTHORED zero and a real feeding instruction. The blocked_shape CHECK makes the two un-collapsible.';
+COMMENT ON COLUMN feed_direction_issue_rows.amended IS
+  'True on a cell an amendment changed. An amend marks only the rows it moved, so the UI can show what a correction did without diffing the whole sheet.';
+
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000016_shifting_taxonomy_governing_docs.sql
+-- -----------------------------------------------------------------------------
+-- Shifting-event taxonomy realigned to the GOVERNING product docs (maintainer decision 2026-07-20,
+-- "Governing docs win"). The Shifting Reports / Feed-Shiftings-Count source documents define:
+--
+--   * Priority: High / Low            (was: normal / high / emergency)
+--   * Category: Growth / Health / Breeding / Delivery
+--                                      (was: routine / high_priority / pregnancy / warmup /
+--                                            medical / quarantine / other)
+--
+-- The prior free-mixed vocabulary is retired. This forward migration remaps every existing
+-- shifting_events row to the governing values and swaps the CHECK constraints. shifting_events is a
+-- bounded operational table (one row per authored movement), so a validated constraint swap is
+-- lock-safe here; it is not one of the large import/goat/event/obligation tables.
+--
+-- Value mapping (documented so the remap is auditable and the code paths agree):
+--
+--   PRIORITY   old 'emergency' -> 'high'   (fast lane: keeps the 1-day feed-follow lead + the
+--                                            documented high-priority source-ration bridge)
+--              old 'high'      -> 'high'    (queue-order signal folds into the fast lane)
+--              old 'normal'    -> 'low'     (standard 2-day feed-follow lead)
+--
+--   CATEGORY   old 'routine'       -> 'growth'
+--              old 'high_priority' -> 'growth'
+--              old 'other'         -> 'growth'
+--              old 'warmup'        -> 'breeding'   (reproductive-readiness prep)
+--              old 'pregnancy'     -> 'breeding'
+--              old 'medical'       -> 'health'
+--              old 'quarantine'    -> 'health'
+--              ('delivery' is a new governing category for birth/K0-driven moves; no legacy row maps
+--               to it, but it is a valid selectable value going forward.)
+--
+-- Order matters: DROP the old CHECKs first (the new values violate the OLD allow-list), UPDATE the
+-- data, then ADD the governing CHECKs.
+
+-- Lock-safe constraint re-definition (validate-hot-index-migrations): DROP the old CHECK, remap the
+-- data, ADD the governing CHECK as NOT VALID (no full-table ACCESS EXCLUSIVE scan on ADD), then
+-- VALIDATE it as a separate statement (SHARE UPDATE EXCLUSIVE, does not block writes). shifting_events
+-- is bounded, but the safe pattern is used regardless so the guard's hot-table contract holds.
+ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_priority_check;
+ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_category_check;
+
+UPDATE public.shifting_events
+SET priority = CASE priority
+        WHEN 'emergency' THEN 'high'
+        WHEN 'high'      THEN 'high'
+        WHEN 'normal'    THEN 'low'
+        ELSE 'low'
+    END
+WHERE priority NOT IN ('high', 'low');
+
+UPDATE public.shifting_events
+SET category = CASE category
+        WHEN 'routine'       THEN 'growth'
+        WHEN 'high_priority' THEN 'growth'
+        WHEN 'other'         THEN 'growth'
+        WHEN 'warmup'        THEN 'breeding'
+        WHEN 'pregnancy'     THEN 'breeding'
+        WHEN 'medical'       THEN 'health'
+        WHEN 'quarantine'    THEN 'health'
+        ELSE 'growth'
+    END
+WHERE category NOT IN ('growth', 'health', 'breeding', 'delivery');
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_priority_check
+    CHECK ((priority = ANY (ARRAY['high'::text, 'low'::text]))) NOT VALID;
+ALTER TABLE public.shifting_events VALIDATE CONSTRAINT shifting_events_priority_check;
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_category_check
+    CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text]))) NOT VALID;
+ALTER TABLE public.shifting_events VALIDATE CONSTRAINT shifting_events_category_check;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000017_calendar_exception_due_index.sql
+-- -----------------------------------------------------------------------------
+-- +goose NO TRANSACTION
+-- Keep Calendar's bounded exception catch-up path index-selective.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_obligation_instances_calendar_exceptions_due
+ON public.obligation_instances (tenant_id, status, due_at)
+WHERE batch_id IS NULL
+  AND status IN ('missed', 'in_progress', 'deferred');
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000018_retire_admin_rbac_role.sql
+-- -----------------------------------------------------------------------------
+-- Retire the legacy RBAC role_key 'admin'.
+--
+-- Product/API route names such as /admin/* and the admin-web application name
+-- remain unchanged. This migration only removes the grantable RBAC role. CEO/CXO
+-- top access is represented exclusively by role='ceo_internal'.
+
+-- user_scope_grants: collapse admin into ceo_internal, avoiding unique/FK drift
+-- when a user already has the equivalent ceo_internal grant for the same scope.
+UPDATE user_scope_grants admin_grant
+SET status = 'revoked',
+    valid_to = coalesce(admin_grant.valid_to, now())
+WHERE admin_grant.role = 'admin'
+  AND EXISTS (
+    SELECT 1
+    FROM user_scope_grants ceo_grant
+    WHERE ceo_grant.tenant_id = admin_grant.tenant_id
+      AND ceo_grant.user_id = admin_grant.user_id
+      AND ceo_grant.role = 'ceo_internal'
+      AND ceo_grant.scope_type = admin_grant.scope_type
+      AND ceo_grant.scope_id = admin_grant.scope_id
+      AND ceo_grant.status = admin_grant.status
+      AND ceo_grant.valid_from = admin_grant.valid_from
+      AND ceo_grant.valid_to IS NOT DISTINCT FROM admin_grant.valid_to
+  );
+
+UPDATE user_scope_grants
+SET role = 'ceo_internal'
+WHERE role = 'admin';
+
+-- Pending email grants: same collapse, but include the email identity in the
+-- duplicate test because active uniqueness is per email + role + scope.
+UPDATE auth_pending_email_grants admin_grant
+SET status = 'revoked',
+    valid_to = coalesce(admin_grant.valid_to, now()),
+    updated_at = now(),
+    metadata = coalesce(admin_grant.metadata, '{}'::jsonb)
+      || jsonb_build_object('retired_role', 'admin', 'replacement_role', 'ceo_internal')
+WHERE admin_grant.role = 'admin'
+  AND admin_grant.status = 'active'
+  AND admin_grant.valid_to IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM auth_pending_email_grants ceo_grant
+    WHERE ceo_grant.tenant_id = admin_grant.tenant_id
+      AND ceo_grant.normalized_email = admin_grant.normalized_email
+      AND ceo_grant.role = 'ceo_internal'
+      AND ceo_grant.scope_type = admin_grant.scope_type
+      AND ceo_grant.scope_id = admin_grant.scope_id
+      AND ceo_grant.status = 'active'
+      AND ceo_grant.valid_to IS NULL
+  );
+
+UPDATE auth_pending_email_grants
+SET role = 'ceo_internal',
+    updated_at = now(),
+    metadata = coalesce(metadata, '{}'::jsonb)
+      || jsonb_build_object('retired_role', 'admin', 'replacement_role', 'ceo_internal')
+WHERE role = 'admin';
+
+-- Historical escalations that targeted the old role now target CEO/CXO.
+UPDATE obligation_escalations
+SET escalated_to_role = 'ceo_internal'
+WHERE escalated_to_role = 'admin';
+
+ALTER TABLE obligation_escalations
+  DROP CONSTRAINT IF EXISTS obligation_escalations_role_check;
+
+ALTER TABLE obligation_escalations
+  ADD CONSTRAINT obligation_escalations_role_check
+  CHECK (
+    escalated_to_role IS NULL OR
+    escalated_to_role = ANY (ARRAY[
+      'park_head'::text,
+      'pc_director'::text,
+      'operator'::text,
+      'verifier'::text,
+      'ceo_internal'::text
+    ])
+  );
+
+DELETE FROM org_role_catalog
+WHERE role_key = 'admin';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000019_retire_admin_workforce_hint.sql
+-- -----------------------------------------------------------------------------
+-- Retire the old workforce display hint. CEO/CXO staff use primary_role_hint='cxo'.
+-- This is display/bootstrap metadata only; RBAC grants remain role='ceo_internal'.
+
+ALTER TABLE workforce_members
+  DROP CONSTRAINT IF EXISTS workforce_members_role_hint_check;
+
+UPDATE workforce_members
+SET primary_role_hint = 'cxo',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE primary_role_hint = 'admin';
+
+ALTER TABLE workforce_members
+  ADD CONSTRAINT workforce_members_role_hint_check
+  CHECK (
+    primary_role_hint = ANY (ARRAY[
+      'operator'::text,
+      'park_head'::text,
+      'pc_director'::text,
+      'verifier'::text,
+      'supervisor'::text,
+      'cxo'::text,
+      'other'::text
+    ])
+  );
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000020_vaccination_drive_assignments.sql
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.vaccination_drive_assignments (
+  assignment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
+  batch_id uuid NOT NULL,
+  planned_date date NOT NULL,
+  operator_id uuid,
+  park_id uuid NOT NULL,
+  shed_id uuid,
+  physical_shed text NOT NULL,
+  partition_label text NOT NULL DEFAULT 'whole',
+  animal_count integer NOT NULL,
+  capacity_status text NOT NULL DEFAULT 'within_cap',
+  warnings jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT vaccination_drive_assignments_pkey PRIMARY KEY (assignment_id),
+  CONSTRAINT vaccination_drive_assignments_animals_check CHECK (animal_count >= 0),
+  CONSTRAINT vaccination_drive_assignments_capacity_check CHECK (capacity_status = ANY (ARRAY['within_cap'::text, 'over_cap_required'::text, 'capacity_action'::text])),
+  CONSTRAINT vaccination_drive_assignments_warnings_array_check CHECK (jsonb_typeof(warnings) = 'array'),
+  CONSTRAINT vaccination_drive_assignments_tenant_batch_fk FOREIGN KEY (tenant_id, batch_id) REFERENCES public.obligation_batches(tenant_id, batch_id) ON DELETE CASCADE,
+  CONSTRAINT vaccination_drive_assignments_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id),
+  CONSTRAINT vaccination_drive_assignments_tenant_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id),
+  CONSTRAINT vaccination_drive_assignments_operator_fk FOREIGN KEY (operator_id) REFERENCES public.workforce_members(workforce_member_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS vaccination_drive_assignments_batch_shed_part_uq
+  ON public.vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label);
+
+CREATE INDEX IF NOT EXISTS vaccination_drive_assignments_operator_day_idx
+  ON public.vaccination_drive_assignments (tenant_id, operator_id, planned_date)
+  WHERE operator_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS vaccination_drive_assignments_park_day_idx
+  ON public.vaccination_drive_assignments (tenant_id, park_id, planned_date);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000021_vaccination_shed_level_video_sop.sql
+-- -----------------------------------------------------------------------------
+-- Vaccination proof mode is SOP-controlled. Current Mesha staging/default SOP uses one shed-level
+-- video bundle (1 mandatory, up to 5 total) captured from camera or gallery on the shed submit
+-- screen. Per-goat video remains a valid SOP mode; this migration changes the published
+-- vaccination defaults, it does not delete the per-goat code path.
+
+WITH vaccination_sops AS (
+  SELECT sv.sop_version_id
+  FROM public.sop_versions sv
+  JOIN public.sop_definitions sd
+    ON sd.tenant_id = sv.tenant_id
+   AND sd.sop_id = sv.sop_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
+),
+rewritten AS (
+  SELECT
+    sv.sop_version_id,
+    (
+      jsonb_set(
+        jsonb_set(
+          (sv.form_dsl - 'goat_row_proof') || jsonb_build_object(
+            'shed_video',
+            jsonb_build_object(
+              'subject_scope', 'shed',
+              'capture_source', 'in_app_camera',
+              'allowed_capture_sources', jsonb_build_array('in_app_camera', 'gallery_picker'),
+              'minimum_clips', 1,
+              'maximum_clips', 5
+            )
+          ),
+          '{fields}',
+          COALESCE((
+            SELECT jsonb_agg(field ORDER BY ordinal)
+            FROM (
+              SELECT field, ordinal
+              FROM jsonb_array_elements(COALESCE(sv.form_dsl -> 'fields', '[]'::jsonb))
+                WITH ORDINALITY AS entries(field, ordinal)
+              WHERE field ->> 'key' <> 'goat_row_proof'
+                AND field ->> 'key' <> 'shed_video'
+                AND field ->> 'key' <> 'goat_ids'
+              UNION ALL
+              SELECT jsonb_build_object(
+                'key', 'goat_ids',
+                'label', 'Goats vaccinated',
+                'type', 'goat_scan',
+                'required', true,
+                'repeat', true,
+                'description', 'Scan each goat RFID exactly when the vaccine is given. The scan timestamp is the vaccination timestamp.'
+              ), 9998
+              UNION ALL
+              SELECT jsonb_build_object(
+                'key', 'shed_video',
+                'label', 'Shed proof videos',
+                'type', 'video_proof',
+                'required', true,
+                'repeat', true,
+                'proof_subject', 'shed',
+                'help_text', 'Add 1 required shed-level video before submit; camera or gallery allowed, up to 5 videos.'
+              ), 9999
+            ) fields
+          ), '[]'::jsonb),
+          true
+        ),
+        '{rules}',
+        COALESCE((sv.form_dsl -> 'rules'), '[]'::jsonb),
+        true
+      )
+    ) AS form_dsl
+  FROM public.sop_versions sv
+  JOIN vaccination_sops ids ON ids.sop_version_id = sv.sop_version_id
+)
+UPDATE public.sop_versions sv
+SET form_dsl = rewritten.form_dsl,
+    proof_policy = jsonb_build_object(
+      'types', jsonb_build_array('video'),
+      'required', true,
+      'proof_mode', 'shed_level_video',
+      'subject_scope', 'shed',
+      'expected_subjects', jsonb_build_array('shed'),
+      'minimum_count', 1,
+      'maximum_count', 5,
+      'maximum_count_per_subject', 5,
+      'capture_source', 'in_app_camera',
+      'allowed_capture_sources', jsonb_build_array('in_app_camera', 'gallery_picker'),
+      'verify_capability', 'proof.verify',
+      'verify_before_apply', true,
+      'retention_policy', 'operational_90d'
+    ),
+    compatibility = jsonb_set(
+      COALESCE(sv.compatibility, '{}'::jsonb),
+      '{supported_proof_actions}',
+      jsonb_build_array('video.capture', 'video.pick'),
+      true
+    ),
+    updated_at = now()
+FROM rewritten
+WHERE sv.sop_version_id = rewritten.sop_version_id;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000022_vaccination_drive_assignment_operator_grain.sql
+-- -----------------------------------------------------------------------------
+DROP INDEX IF EXISTS public.vaccination_drive_assignments_batch_shed_part_uq;
+
+CREATE UNIQUE INDEX IF NOT EXISTS vaccination_drive_assignments_batch_shed_part_operator_uq
+  ON public.vaccination_drive_assignments (
+    tenant_id,
+    batch_id,
+    planned_date,
+    park_id,
+    COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    physical_shed,
+    partition_label,
+    COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  );
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000023_goat_shed_partitions.sql
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS goat_shed_partitions (
+  tenant_id uuid NOT NULL,
+  goat_id uuid NOT NULL,
+  shed_id uuid NOT NULL,
+  partition_label text NOT NULL DEFAULT 'whole',
+  source_shed_name text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, goat_id),
+  CONSTRAINT goat_shed_partitions_goat_fk
+    FOREIGN KEY (tenant_id, goat_id)
+    REFERENCES goats (tenant_id, goat_id)
+    ON DELETE CASCADE,
+  CONSTRAINT goat_shed_partitions_shed_fk
+    FOREIGN KEY (tenant_id, shed_id)
+    REFERENCES locations (tenant_id, location_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT goat_shed_partitions_partition_nonblank
+    CHECK (btrim(partition_label) <> ''),
+  CONSTRAINT goat_shed_partitions_source_nonblank
+    CHECK (btrim(source_shed_name) <> '')
+);
+
+CREATE INDEX IF NOT EXISTS goat_shed_partitions_shed_partition_idx
+  ON goat_shed_partitions (tenant_id, shed_id, partition_label);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000024_ceo_ai_reporting_schema.sql
+-- -----------------------------------------------------------------------------
+-- +goose StatementBegin
+-- ===========================================================================
+-- ceo_ai reporting schema — the governed, business-language read surface the
+-- Mesha leadership assistant (CEO/CXO chatbot) reads from.
+--
+-- WHY THIS EXISTS
+-- The assistant is READ-ONLY and must never see raw normalized tables or hold
+-- an app-user credential. This schema is the stable contract (docs/ceo-ai/
+-- mcp-toolbox-plan.md → "Reporting Schema Coverage Contract"): every
+-- leadership-relevant Mesha domain is exposed as exactly one business-language
+-- view here, consumed by MCP Toolbox curated tools (docs/ceo-ai/
+-- mcp-toolbox-tools.yaml) and the guarded read-only SQL fallback.
+--
+-- CONTRACT RULES honored below
+--  * Every contract column maps to a REAL source column/derivation, or is a
+--    typed NULL / 0 with an explicit `-- TODO(source):` note. No silent gaps.
+--  * Tenant-scoped: every view carries tenant_id and the caller filters on it.
+--    The tenant predicate MUST reach the base scans. Where a view LEFT JOINs a
+--    pre-aggregated measure onto a spine, PG canNOT derive the measure's
+--    tenant_id by equivalence (nullable side of the outer join), so such shapes
+--    would Seq-Scan all tenants. counts_movement_daily was rebuilt to a single
+--    UNION ALL event stream aggregated on tenant_id (the driving relation) so the
+--    predicate pushes into every branch scan — see its inline note.
+--  * Aggregate / leadership grain — no per-animal row dumps except
+--    animal_current_scope, which is the canonical per-animal base the
+--    aggregate tools GROUP over (it never leaves the DB as raw rows; tools
+--    aggregate it, per the toolbox statements).
+--  * Scale posture (HONEST): these are leadership REPORTING reads served at the
+--    current 5k-50k canonical-read envelope
+--    (docs/decisions/operational-kernel-5k-50k-scale-envelope.md), NOT
+--    compute-on-write projections. EXPLAIN at the local seed shows:
+--      - counts_movement_daily / mortality_base / feed_adherence: the tenant
+--        predicate pushes to the base scans (per-TENANT work), bounded by the
+--        envelope; a Seq Scan of the tenant's own rows is expected here.
+--      - vaccination_shed_status / action_center_current: a per-tenant Seq Scan
+--        of that tenant's shed obligation_instances (they read a large fraction
+--        of the tenant's open+done obligations, so the planner does not use the
+--        scope index). This is an ACCEPTED reporting-read plan at 5k-50k; it is
+--        NOT certified at the 1-5M bar. Before 1-5M certification these must earn
+--        a compute-on-write projection or a proven partial index — do not read
+--        this header as a "single grouped scan, verified" guarantee (it is not).
+--  * India business calendar: every business date is derived at Asia/Kolkata,
+--    never UTC (AGENTS.md time semantics).
+--  * Vaccine labels are HUMAN (ET+TT, PPR · Booster, …). Raw dose_code tokens
+--    never surface — they resolve through ceo_ai.vaccine_label_map.
+--
+-- GRANTS to mesha_ceo_readonly / mesha_cube_readonly are applied at the END of
+-- this migration inside a guarded DO-block (IF the role exists). No role and no
+-- password live in this migration; roles are created by
+-- tools/dev/setup-ceo-ai-local-role.sh and by Secret-Manager-backed runtime.
+-- ===========================================================================
+
+CREATE SCHEMA IF NOT EXISTS ceo_ai;
+-- +goose StatementEnd
+
+-- ---------------------------------------------------------------------------
+-- Vaccine display-label map — the ONLY bridge from raw dose_code tokens to the
+-- human labels the assistant is allowed to speak. Closes the discovery-judge
+-- vaccine_label gap: vaccination_dose_pickup.vaccine_label derives through this
+-- table, never from a raw code or protocol family token. Seeded from the known
+-- Preventive Care families; an unmapped code yields NULL (surfaced as
+-- "unspecified vaccine", never a raw token).
+-- ---------------------------------------------------------------------------
+-- +goose StatementBegin
+CREATE TABLE IF NOT EXISTS ceo_ai.vaccine_label_map (
+    family_prefix text PRIMARY KEY,   -- dose_code family prefix, e.g. 'et_tt'
+    vaccine_label text NOT NULL,      -- human label, e.g. 'ET+TT'
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+INSERT INTO ceo_ai.vaccine_label_map (family_prefix, vaccine_label) VALUES
+    ('et_tt',      'ET+TT'),
+    ('ppr',        'PPR'),
+    ('blue_tongue','Blue Tongue'),
+    ('goat_pox',   'Goat Pox'),
+    ('sheep_pox',  'Sheep Pox'),
+    ('fmd',        'FMD'),
+    ('hs',         'HS')
+ON CONFLICT (family_prefix) DO NOTHING;
+-- +goose StatementEnd
+
+-- Resolve a raw dose_code to a human label (with a "· Booster" suffix for the
+-- revac/booster dose). Returns NULL for an unmapped family so callers can say
+-- "unspecified vaccine" rather than leak a code. STABLE + no table dependency
+-- beyond the map, so it is safe inside the read-only views.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION ceo_ai.vaccine_label_for(p_dose_code text)
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $fn$
+    SELECT CASE
+        WHEN m.vaccine_label IS NULL THEN NULL
+        WHEN p_dose_code LIKE '%revac%' OR p_dose_code LIKE '%booster%'
+            THEN m.vaccine_label || ' · Booster'
+        ELSE m.vaccine_label
+    END
+    FROM ceo_ai.vaccine_label_map m
+    WHERE p_dose_code LIKE m.family_prefix || '%'
+    ORDER BY length(m.family_prefix) DESC
+    LIMIT 1;
+$fn$;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 1. ceo_ai.animal_current_scope — per-animal base (the aggregate tools GROUP
+--    over this; it is never returned as raw rows).
+-- ===========================================================================
+-- projection-review: membership=canonical goats/obligation_instances/shifting rows filtered to the current tenant; group_key=(tenant_id, shed_id|scope_id|batch_id|business_day) per view — every COUNT/SUM below groups on the same key it is later joined on; join_cardinality=all COUNT/SUM CTEs (occ, obl, anim, dose_pickup, counts_movement_daily deltas) pre-aggregate the many-side to one row per group_key BEFORE the outer LEFT JOIN to sheds/locations, so no fan-out double-counts (owner/backup seats join 1:1 on shed_id); pagination=these are bounded per-shed / per-batch / per-day reporting views read tenant-scoped by Cube and the MCP toolbox with LIMIT at the call site, never whole-tenant unpaginated raw-row reads; scope=explicit park_id/shed_id/scope_id columns preserved on every row so leadership scope (park→shed→cohort) and the vaccination status matrix (due/done/missed via COUNT FILTER on status) resolve without collapsing distinct scopes. Adversarial grain proof: backend/internal/ceoai/reporting/reporting_views_test.go (Postgres-gated).
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.animal_current_scope AS
+SELECT
+    g.tenant_id                                   AS tenant_id,
+    g.goat_id                                     AS animal_id,
+    g.park_id                                     AS park_id,
+    pk.name                                       AS park_label,
+    g.shed_id                                     AS shed_id,
+    sh.name                                       AS shed_label,
+    g.species                                     AS species,
+    g.management_stage                            AS management_stage,
+    g.lifecycle_status                            AS lifecycle_status,
+    g.sex                                         AS sex,
+    COALESCE(b.canonical_name, g.breed)           AS breed,
+    -- age at Asia/Kolkata business day; dob preferred, approx_dob fallback
+    (((now() AT TIME ZONE 'Asia/Kolkata')::date) - COALESCE(g.dob, g.approx_dob))::int
+                                                  AS age_days
+FROM goats g
+LEFT JOIN locations pk ON pk.location_id = g.park_id
+LEFT JOIN locations sh ON sh.location_id = g.shed_id
+LEFT JOIN breeds    b  ON b.breed_id     = g.breed_id;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 2. ceo_ai.shed_capacity_current — occupancy vs capacity per shed.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.shed_capacity_current AS
+WITH occ AS (
+    SELECT tenant_id, shed_id, COUNT(*)::bigint AS animals
+    FROM goats
+    WHERE shed_id IS NOT NULL
+      AND lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+    GROUP BY tenant_id, shed_id
+),
+owner_seat AS (
+    SELECT wp.tenant_id, wp.scope_id AS shed_id, wm.display_name AS owner_label
+    FROM workforce_positions wp
+    JOIN workforce_members wm ON wm.workforce_member_id = wp.workforce_member_id
+    WHERE wp.scope_type = 'shed' AND wp.is_backup_slot = false
+      AND wp.status = 'active'
+      AND now() >= wp.valid_from AND now() < COALESCE(wp.valid_to, 'infinity'::timestamptz)
+),
+backup_seat AS (
+    SELECT wp.tenant_id, wp.scope_id AS shed_id, wm.display_name AS backup_label
+    FROM workforce_positions wp
+    JOIN workforce_members wm ON wm.workforce_member_id = wp.workforce_member_id
+    WHERE wp.scope_type = 'shed' AND wp.is_backup_slot = true
+      AND wp.status = 'active'
+      AND now() >= wp.valid_from AND now() < COALESCE(wp.valid_to, 'infinity'::timestamptz)
+)
+SELECT
+    s.tenant_id                                   AS tenant_id,
+    pk.name                                       AS park_label,
+    s.name                                        AS shed_label,
+    COALESCE(occ.animals, 0)                      AS animals,
+    sp.capacity                                   AS capacity,
+    (sp.capacity - COALESCE(occ.animals, 0))      AS variance,
+    CASE
+        WHEN sp.capacity IS NULL THEN 'unknown_capacity'
+        WHEN COALESCE(occ.animals, 0) > sp.capacity THEN 'over_capacity'
+        WHEN COALESCE(occ.animals, 0) = sp.capacity THEN 'at_capacity'
+        ELSE 'under_capacity'
+    END                                           AS status,
+    o.owner_label                                 AS owner_label,
+    bk.backup_label                               AS backup_label
+FROM locations s
+LEFT JOIN locations     pk ON pk.location_id = s.parent_location_id
+LEFT JOIN shed_profiles sp ON sp.location_id = s.location_id
+LEFT JOIN occ         ON occ.tenant_id = s.tenant_id AND occ.shed_id = s.location_id
+LEFT JOIN owner_seat  o  ON o.tenant_id  = s.tenant_id AND o.shed_id  = s.location_id
+LEFT JOIN backup_seat bk ON bk.tenant_id = s.tenant_id AND bk.shed_id = s.location_id
+WHERE s.location_type = 'shed';
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 3. ceo_ai.vaccination_shed_status — due/done/overdue + ownership per shed.
+--    Obligations are shed-scoped (scope_type='shed'). Aggregate ONCE.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.vaccination_shed_status AS
+WITH obl AS (
+    SELECT
+        tenant_id,
+        scope_id AS shed_id,
+        COUNT(*) FILTER (WHERE status IN ('scheduled','due','in_progress'))                          AS due,
+        COUNT(*) FILTER (WHERE status IN ('completed','accepted'))                                    AS done,
+        COUNT(*) FILTER (WHERE status IN ('scheduled','due','in_progress','missed')
+                          AND window_end < (now() AT TIME ZONE 'Asia/Kolkata')::date)                 AS overdue,
+        MIN(due_at) FILTER (WHERE status IN ('scheduled','due','in_progress'))                        AS next_due,
+        COUNT(DISTINCT batch_id) FILTER (WHERE batch_id IS NOT NULL)                                  AS planned_sessions
+    FROM obligation_instances
+    WHERE scope_type = 'shed'
+    GROUP BY tenant_id, scope_id
+),
+anim AS (
+    SELECT tenant_id, shed_id, SUM(animal_count) FILTER (WHERE usable_for_vaccination)::bigint AS animals
+    FROM vaccination_eligibility_rollups
+    GROUP BY tenant_id, shed_id
+),
+owner_seat AS (
+    SELECT wp.tenant_id, wp.scope_id AS shed_id, wm.display_name AS manager_label
+    FROM workforce_positions wp
+    JOIN workforce_members wm ON wm.workforce_member_id = wp.workforce_member_id
+    WHERE wp.scope_type = 'shed' AND wp.is_backup_slot = false AND wp.status = 'active'
+      AND now() >= wp.valid_from AND now() < COALESCE(wp.valid_to, 'infinity'::timestamptz)
+),
+backup_seat AS (
+    SELECT wp.tenant_id, wp.scope_id AS shed_id, wm.display_name AS backup_label
+    FROM workforce_positions wp
+    JOIN workforce_members wm ON wm.workforce_member_id = wp.workforce_member_id
+    WHERE wp.scope_type = 'shed' AND wp.is_backup_slot = true AND wp.status = 'active'
+      AND now() >= wp.valid_from AND now() < COALESCE(wp.valid_to, 'infinity'::timestamptz)
+)
+SELECT
+    s.tenant_id                                                    AS tenant_id,
+    pk.name                                                        AS park_label,
+    s.name                                                         AS shed_label,
+    COALESCE(anim.animals, 0)                                      AS animals,
+    COALESCE(obl.due, 0)                                           AS due,
+    COALESCE(obl.done, 0)                                          AS done,
+    COALESCE(obl.planned_sessions, 0)                              AS planned_sessions,
+    (obl.next_due AT TIME ZONE 'Asia/Kolkata')::date              AS next_due_date,
+    om.manager_label                                               AS manager_label,
+    bk.backup_label                                                AS backup_label,
+    CASE
+        WHEN COALESCE(obl.overdue, 0) > 0 THEN 'overdue'
+        WHEN COALESCE(obl.due, 0)     > 0 THEN 'due'
+        WHEN COALESCE(obl.done, 0)    > 0 THEN 'complete'
+        ELSE 'no_work_due'
+    END                                                           AS status
+FROM locations s
+LEFT JOIN locations   pk ON pk.location_id = s.parent_location_id
+LEFT JOIN obl         ON obl.tenant_id  = s.tenant_id AND obl.shed_id  = s.location_id
+LEFT JOIN anim        ON anim.tenant_id = s.tenant_id AND anim.shed_id = s.location_id
+LEFT JOIN owner_seat  om ON om.tenant_id = s.tenant_id AND om.shed_id = s.location_id
+LEFT JOIN backup_seat bk ON bk.tenant_id = s.tenant_id AND bk.shed_id = s.location_id
+WHERE s.location_type = 'shed';
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 4. ceo_ai.vaccination_dose_pickup — doses to pick per business day / park /
+--    shed / vaccine. Batches are park-scoped drives; obligations shed-scoped.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.vaccination_dose_pickup AS
+WITH obl AS (
+    SELECT
+        oi.tenant_id,
+        oi.batch_id,
+        oi.scope_id AS shed_id,
+        oi.rule_id,
+        COUNT(*) FILTER (WHERE oi.status IN ('scheduled','due','in_progress'))                       AS animals_due,
+        COUNT(*) FILTER (WHERE oi.status IN ('scheduled','due','in_progress','missed')
+                          AND oi.window_end < (now() AT TIME ZONE 'Asia/Kolkata')::date)             AS animals_overdue
+    FROM obligation_instances oi
+    WHERE oi.scope_type = 'shed' AND oi.batch_id IS NOT NULL
+    GROUP BY oi.tenant_id, oi.batch_id, oi.scope_id, oi.rule_id
+)
+SELECT
+    ob.tenant_id                                                   AS tenant_id,
+    bt.planned_date                                                AS business_date,
+    pk.name                                                        AS park_label,
+    sh.name                                                        AS shed_label,
+    -- HUMAN label only; NULL (never a raw dose_code) when family unmapped.
+    ceo_ai.vaccine_label_for(pr.dose_code)                         AS vaccine_label,
+    bt.reserved_quantity                                           AS doses_to_pick,
+    ob.animals_due                                                 AS animals_due,
+    ob.animals_overdue                                             AS animals_overdue,
+    ownm.display_name                                              AS owner_label,
+    bkm.display_name                                               AS backup_label,
+    CASE
+        WHEN ob.animals_overdue > 0 THEN 'catch_up_overdue'
+        WHEN ob.animals_due     > 0 THEN 'pick_and_administer'
+        ELSE 'no_action'
+    END                                                           AS next_action
+FROM obl ob
+JOIN obligation_batches bt ON bt.tenant_id = ob.tenant_id AND bt.batch_id = ob.batch_id
+LEFT JOIN locations      sh ON sh.location_id = ob.shed_id
+LEFT JOIN locations      pk ON pk.location_id = sh.parent_location_id
+LEFT JOIN protocol_rules pr ON pr.rule_id = ob.rule_id
+-- drive conductor (batch.conducted_by is a user_id → workforce_members.user_id)
+LEFT JOIN workforce_members ownm ON ownm.tenant_id = bt.tenant_id AND ownm.user_id = bt.conducted_by
+-- backup: active backup seat at the shed
+LEFT JOIN LATERAL (
+    SELECT wm.display_name
+    FROM workforce_positions wp
+    JOIN workforce_members wm ON wm.workforce_member_id = wp.workforce_member_id
+    WHERE wp.tenant_id = ob.tenant_id AND wp.scope_type = 'shed' AND wp.scope_id = ob.shed_id
+      AND wp.is_backup_slot = true AND wp.status = 'active'
+      AND now() >= wp.valid_from AND now() < COALESCE(wp.valid_to, 'infinity'::timestamptz)
+    LIMIT 1
+) bkm ON true;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 5. ceo_ai.feed_direction_current — issued feed-direction cells (directive).
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.feed_direction_current AS
+SELECT
+    r.tenant_id                                   AS tenant_id,
+    i.feed_day                                    AS feed_day,
+    r.park_label                                  AS park_label,
+    r.shed_label                                  AS shed_label,
+    r.workflow                                    AS workflow,
+    r.session_no                                  AS session_no,
+    r.feed_item_label                             AS feed_item_label,
+    r.quantity_kg                                 AS quantity_kg,
+    -- blocked = missing config / gate, NEVER zero. NULL reason means not blocked.
+    r.blocked_reason_code                         AS blocked_reason,
+    COALESCE(r.amended, false)                    AS amended
+FROM feed_direction_issue_rows r
+JOIN feed_direction_issues i
+  ON i.feed_direction_issue_id = r.feed_direction_issue_id;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 6. ceo_ai.counts_movement_daily — per business-day births/deaths/shifts.
+-- ===========================================================================
+-- +goose StatementBegin
+-- SCALE: the tenant predicate MUST push into every base-table scan. An earlier
+-- shape pre-aggregated each measure into its own CTE and LEFT JOINed them onto a
+-- UNION `keys` spine; the outer `WHERE tenant_id = $1` then sat ABOVE the
+-- aggregation/UNION barrier and, because the measure CTEs were on the nullable
+-- side of LEFT JOINs, PG could not derive `births.tenant_id = $1` by equivalence,
+-- so it Seq-Scanned goats/shifting_events for ALL tenants per request. This shape
+-- fixes that: every measure is one tagged branch of a single UNION ALL event
+-- stream (the DRIVING, non-nullable relation), and the outer aggregation groups
+-- on tenant_id. A predicate on tenant_id therefore pushes below the GROUP BY,
+-- into each UNION ALL branch, and below each branch's own GROUP BY (tenant_id is
+-- a grouping key there too) — reaching the base scans as `<table>.tenant_id = $1`.
+-- The locations LEFT JOINs are the small dimension side and never widen scope.
+--
+-- SCALE EXCEPTION (5k-50k envelope, disclosed): the tenant predicate pushes down,
+-- but the requested date window does NOT. `event_date` is an expression-derived
+-- grouping key (COALESCE(entry_date, created_at::date), exited_at::date,
+-- applied_at::date), so an outer `WHERE event_date >= now()-Nd` sits ABOVE each
+-- branch's GROUP BY and cannot push into the base goats/shifting scans. Every read
+-- therefore re-aggregates the tenant's FULL births/deaths/shift history and filters
+-- the window afterward — bounded per tenant, unbounded over time. This is accepted
+-- ONLY under docs/decisions/operational-kernel-5k-50k-scale-envelope.md at the
+-- current envelope (same class as the vaccination_shed_status / action_center
+-- tenant-scoped scans). To carry this view past the envelope, add a materialized
+-- per-(tenant,shed,event_date) rollup maintained on write (birth/death/shift events)
+-- so the date filter becomes an indexed range scan, and add a query-plan proof at
+-- the ~500k-row upper bound. Do NOT widen the window or add read-time caps to mask it.
+CREATE OR REPLACE VIEW ceo_ai.counts_movement_daily AS
+WITH events AS (
+    SELECT tenant_id, shed_id, event_date,
+           births, 0::bigint AS deaths, 0::bigint AS transfers_out,
+           0::bigint AS shifts_in, 0::bigint AS shifts_out, 0::bigint AS approvals_pending
+    FROM (
+        SELECT tenant_id, shed_id,
+               (COALESCE(entry_date, (created_at AT TIME ZONE 'Asia/Kolkata')::date)) AS event_date,
+               COUNT(*)::bigint AS births
+        FROM goats
+        WHERE origin_type = 'birth'
+        GROUP BY 1,2,3
+    ) b
+    UNION ALL
+    SELECT tenant_id, shed_id, event_date,
+           0, deaths, 0, 0, 0, 0
+    FROM (
+        SELECT tenant_id, shed_id,
+               (exited_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date,
+               COUNT(*)::bigint AS deaths
+        FROM goats
+        WHERE exited_at IS NOT NULL AND exit_reason = 'died'
+        GROUP BY 1,2,3
+    ) d
+    UNION ALL
+    SELECT tenant_id, shed_id, event_date,
+           0, 0, transfers_out, 0, 0, 0
+    FROM (
+        -- cross-park exit is terminal (transferred/sold); attribute to source shed.
+        SELECT se.tenant_id, se.source_shed_id AS shed_id,
+               (se.applied_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date,
+               SUM(im.head_count)::bigint AS transfers_out
+        FROM shifting_events se
+        JOIN shifting_event_impacts im ON im.shifting_event_id = se.shifting_event_id
+        WHERE se.applied_at IS NOT NULL AND se.event_status = 'completed'
+          AND se.category IN ('transfer','sale','exit')
+        GROUP BY 1,2,3
+    ) t
+    UNION ALL
+    SELECT tenant_id, shed_id, event_date,
+           0, 0, 0, shifts_in, 0, 0
+    FROM (
+        SELECT se.tenant_id, se.destination_shed_id AS shed_id,
+               (se.applied_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date,
+               SUM(im.head_count)::bigint AS shifts_in
+        FROM shifting_events se
+        JOIN shifting_event_impacts im ON im.shifting_event_id = se.shifting_event_id
+        WHERE se.applied_at IS NOT NULL AND se.event_status = 'completed'
+        GROUP BY 1,2,3
+    ) si
+    UNION ALL
+    SELECT tenant_id, shed_id, event_date,
+           0, 0, 0, 0, shifts_out, 0
+    FROM (
+        SELECT se.tenant_id, se.source_shed_id AS shed_id,
+               (se.applied_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date,
+               SUM(im.head_count)::bigint AS shifts_out
+        FROM shifting_events se
+        JOIN shifting_event_impacts im ON im.shifting_event_id = se.shifting_event_id
+        WHERE se.applied_at IS NOT NULL AND se.event_status = 'completed'
+        GROUP BY 1,2,3
+    ) so
+    UNION ALL
+    SELECT tenant_id, shed_id, event_date,
+           0, 0, 0, 0, 0, approvals_pending
+    FROM (
+        SELECT ca.tenant_id, se.source_shed_id AS shed_id,
+               (ca.raised_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date,
+               COUNT(*)::bigint AS approvals_pending
+        FROM counts_approval_requests ca
+        LEFT JOIN shifting_events se ON se.shifting_event_id = ca.shifting_event_id
+        WHERE ca.status = 'pending'
+        GROUP BY 1,2,3
+    ) a
+)
+SELECT
+    e.tenant_id                                   AS tenant_id,
+    e.event_date                                  AS event_date,
+    pk.name                                       AS park_label,
+    sh.name                                       AS shed_label,
+    SUM(e.births)::bigint                         AS births,
+    SUM(e.deaths)::bigint                         AS deaths,
+    SUM(e.transfers_out)::bigint                  AS transfers_out,
+    SUM(e.shifts_in)::bigint                      AS shifts_in,
+    SUM(e.shifts_out)::bigint                     AS shifts_out,
+    SUM(e.approvals_pending)::bigint              AS approvals_pending
+FROM events e
+LEFT JOIN locations sh ON sh.location_id = e.shed_id
+LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+GROUP BY e.tenant_id, e.event_date, e.shed_id, sh.name, pk.name;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 7. ceo_ai.procurement_pipeline — one row per load with stage + animal rollup.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.procurement_pipeline AS
+WITH lg AS (
+    SELECT tenant_id, load_id,
+           COUNT(*)::bigint AS animals,
+           COUNT(*) FILTER (WHERE current_state = 'rejected' OR selection_state = 'rejected')::bigint AS rejected
+    FROM procurement_load_goats
+    GROUP BY tenant_id, load_id
+),
+vpend AS (
+    SELECT tenant_id, load_id,
+           COUNT(*) FILTER (WHERE review_status IN ('pending','unreviewed','needs_review'))::bigint AS vaccination_pending
+    FROM procurement_hf_vaccination_evidence
+    GROUP BY tenant_id, load_id
+)
+SELECT
+    l.tenant_id                                   AS tenant_id,
+    COALESCE(pt.display_name, loc.name)           AS source_label,
+    -- No stored human load label column; derive a stable short code from load_id
+    -- + purchase_date. TODO(source): add procurement_loads.load_code if the
+    -- business wants a curated batch label.
+    ('Load ' || left(l.load_id::text, 8) ||
+        COALESCE(' · ' || to_char(l.purchase_date, 'DD Mon'), '')) AS batch_label,
+    l.status                                      AS current_stage,
+    COALESCE(lg.animals, 0)                        AS animals,
+    COALESCE(vpend.vaccination_pending, 0)         AS vaccination_pending,
+    COALESCE(lg.rejected, 0)                        AS rejected,
+    l.created_at                                  AS entered_at
+FROM procurement_loads l
+LEFT JOIN parties   pt  ON pt.party_id     = l.source_party_id
+LEFT JOIN locations loc ON loc.location_id = l.source_location_id
+LEFT JOIN lg    ON lg.tenant_id    = l.tenant_id AND lg.load_id    = l.load_id
+LEFT JOIN vpend ON vpend.tenant_id = l.tenant_id AND vpend.load_id = l.load_id;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 8. ceo_ai.source_entry_health_status — intake variance + health per load.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.source_entry_health_status AS
+WITH hc AS (
+    SELECT tenant_id, load_id,
+           COUNT(*) FILTER (WHERE health_state IN ('blocked','failed','sick','quarantine'))::bigint AS health_blockers
+    FROM procurement_source_health_checks
+    GROUP BY tenant_id, load_id
+),
+ev AS (
+    SELECT tenant_id, load_id,
+           COUNT(*)::bigint AS evidence_total,
+           COUNT(*) FILTER (WHERE review_status IN ('pending','unreviewed','needs_review'))::bigint AS evidence_pending
+    FROM procurement_hf_vaccination_evidence
+    GROUP BY tenant_id, load_id
+)
+SELECT
+    l.tenant_id                                   AS tenant_id,
+    ('Load ' || left(l.load_id::text, 8) ||
+        COALESCE(' · ' || to_char(l.purchase_date, 'DD Mon'), '')) AS load_label,
+    COALESCE(pt.display_name, loc.name)           AS source_label,
+    COALESCE(air.expected_count, l.expected_count) AS animals_expected,
+    air.arrived_count                             AS animals_received,
+    air.matched_count                             AS animals_accepted,
+    air.rejected_count                            AS animals_rejected,
+    COALESCE(hc.health_blockers, 0)               AS health_blockers,
+    CASE
+        WHEN ev.evidence_total IS NULL OR ev.evidence_total = 0 THEN 'no_evidence'
+        WHEN ev.evidence_pending > 0 THEN 'evidence_pending'
+        ELSE 'evidence_complete'
+    END                                           AS evidence_status
+FROM procurement_loads l
+LEFT JOIN parties   pt  ON pt.party_id     = l.source_party_id
+LEFT JOIN locations loc ON loc.location_id = l.source_location_id
+LEFT JOIN arrival_intake_reviews air ON air.tenant_id = l.tenant_id AND air.load_id = l.load_id
+LEFT JOIN hc ON hc.tenant_id = l.tenant_id AND hc.load_id = l.load_id
+LEFT JOIN ev ON ev.tenant_id = l.tenant_id AND ev.load_id = l.load_id;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 9. ceo_ai.ops_exception_queue — cross-module open exceptions (UNION).
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.ops_exception_queue AS
+-- counts projection exceptions
+SELECT
+    cpe.tenant_id                                 AS tenant_id,
+    'counts'                                      AS area,
+    cpe.severity                                  AS severity,
+    cpe.status                                    AS status,
+    pk.name                                       AS park_label,
+    sh.name                                       AS shed_label,
+    cpe.exception_type                            AS title,
+    cpe.created_at                                AS opened_at,
+    cpe.owner_ref                                 AS owner_label,
+    cpe.count_projection_exception_id::text       AS source_id
+FROM count_projection_exceptions cpe
+LEFT JOIN locations sh ON sh.location_id = cpe.shed_id
+LEFT JOIN locations pk ON pk.location_id = cpe.park_id
+WHERE cpe.status NOT IN ('resolved','closed')
+UNION ALL
+-- vaccination/obligation escalations
+SELECT
+    oe.tenant_id                                  AS tenant_id,
+    'vaccination'                                 AS area,
+    CASE oe.level WHEN 0 THEN 'low' WHEN 1 THEN 'medium' WHEN 2 THEN 'high' ELSE 'critical' END AS severity,
+    oe.status                                     AS status,
+    NULL::text                                    AS park_label,   -- TODO(source): escalation carries no park; obligation scope join is heavy, deferred
+    NULL::text                                    AS shed_label,   -- TODO(source): see above
+    COALESCE(oe.reason, 'obligation_escalation')  AS title,
+    oe.opened_at                                  AS opened_at,
+    oe.escalated_to_role                          AS owner_label,
+    oe.escalation_id::text                        AS source_id
+FROM obligation_escalations oe
+WHERE oe.status NOT IN ('resolved','closed','acknowledged')
+UNION ALL
+-- blocked feed cells
+SELECT
+    fr.tenant_id                                  AS tenant_id,
+    'feed'                                        AS area,
+    'medium'                                      AS severity,
+    'blocked'                                     AS status,
+    fr.park_label                                 AS park_label,
+    fr.shed_label                                 AS shed_label,
+    COALESCE(fr.blocked_reason_code, 'feed_blocked') AS title,
+    fr.created_at                                 AS opened_at,
+    NULL::text                                    AS owner_label,  -- TODO(source): feed rows carry no owner; owner is the shed position
+    fr.feed_direction_issue_row_id::text          AS source_id
+FROM feed_direction_issue_rows fr
+WHERE fr.blocked_reason_code IS NOT NULL
+UNION ALL
+-- rejected verification items
+SELECT
+    vi.tenant_id                                  AS tenant_id,
+    COALESCE(vi.vertical, 'verification')         AS area,
+    'high'                                        AS severity,
+    vi.status                                     AS status,
+    pk.name                                       AS park_label,
+    sh.name                                       AS shed_label,
+    COALESCE(vi.subject_label, vi.category, 'verification_rejected') AS title,
+    vi.captured_at                                AS opened_at,
+    NULL::text                                    AS owner_label,  -- TODO(source): operator identity is sensitive; expose role/label upstream only
+    vi.item_id::text                              AS source_id
+FROM verification_items vi
+LEFT JOIN locations sh ON sh.location_id = vi.shed_id
+LEFT JOIN locations pk ON pk.location_id = vi.park_id
+WHERE vi.status = 'rejected';
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 10. ceo_ai.sop_execution_status — SOP task execution status.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.sop_execution_status AS
+SELECT
+    t.tenant_id                                   AS tenant_id,
+    COALESCE(t.task_type, 'sop')                  AS area,
+    CASE WHEN t.scope_type = 'park' THEN loc.name END AS park_label,
+    CASE WHEN t.scope_type = 'shed' THEN loc.name END AS shed_label,
+    t.title                                       AS task_label,
+    t.state                                       AS status,
+    t.due_at                                      AS due_at,
+    COALESCE(sub.accepted_at, t.verified_at)      AS completed_at,
+    vm.display_name                               AS verifier_label
+FROM sop_tasks t
+LEFT JOIN locations loc ON loc.location_id = t.scope_id
+LEFT JOIN LATERAL (
+    SELECT accepted_at FROM sop_submissions s
+    WHERE s.tenant_id = t.tenant_id AND s.task_id = t.task_id AND s.accepted_at IS NOT NULL
+    ORDER BY s.accepted_at DESC LIMIT 1
+) sub ON true
+LEFT JOIN workforce_members vm ON vm.tenant_id = t.tenant_id AND vm.user_id = t.verified_by;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 11. ceo_ai.verification_queue_status — verification counts per scope/area.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.verification_queue_status AS
+SELECT
+    vi.tenant_id                                                        AS tenant_id,
+    COALESCE(vi.vertical, 'verification')                               AS area,
+    pk.name                                                            AS park_label,
+    sh.name                                                            AS shed_label,
+    COUNT(*) FILTER (WHERE vi.status = 'pending')::bigint               AS pending,
+    COUNT(*) FILTER (WHERE vi.status = 'rejected')::bigint              AS rejected,
+    COUNT(*) FILTER (WHERE vi.status IN ('accepted','verified'))::bigint AS accepted,
+    MIN(vi.captured_at) FILTER (WHERE vi.status = 'pending')            AS oldest_pending_at,
+    NULL::text                                                         AS owner_label  -- TODO(source): owner is the shed position holder; operator_id is sensitive
+FROM verification_items vi
+LEFT JOIN locations sh ON sh.location_id = vi.shed_id
+LEFT JOIN locations pk ON pk.location_id = vi.park_id
+GROUP BY vi.tenant_id, COALESCE(vi.vertical, 'verification'), pk.name, sh.name;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 12. ceo_ai.inventory_stock_position — stock on hand per item/location.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.inventory_stock_position AS
+WITH stock AS (
+    SELECT s.tenant_id, s.item_id, s.location_id,
+           SUM(s.quantity_in_stock)::numeric        AS stock_on_hand,
+           MAX(s.quantity_unit)                     AS unit,
+           MAX(s.updated_at)                        AS last_updated_at
+    FROM inventory_stock s
+    WHERE s.status IS DISTINCT FROM 'retired'
+    GROUP BY s.tenant_id, s.item_id, s.location_id
+),
+last_recon AS (
+    SELECT tenant_id, item_id, location_id, MAX(occurred_at) AS last_reconciled_at
+    FROM inventory_stock_movements
+    WHERE movement_type IN ('reconcile','adjust','adjustment','count')
+    GROUP BY tenant_id, item_id, location_id
+)
+SELECT
+    st.tenant_id                                  AS tenant_id,
+    it.name                                       AS item_label,
+    it.category                                   AS category,
+    st.stock_on_hand                              AS stock_on_hand,
+    COALESCE(st.unit, it.base_unit)               AS unit,
+    COALESCE(pk.name, loc.name)                   AS park_label,
+    -- TODO(source): no reorder_point/min_level column exists on inventory_items
+    -- or inventory_stock. reorder_flag is a typed NULL until a reorder-threshold
+    -- config column is added; the assistant must say "reorder level not configured".
+    NULL::boolean                                 AS reorder_flag,
+    COALESCE(lr.last_reconciled_at, st.last_updated_at) AS last_reconciled_at
+FROM stock st
+JOIN inventory_items it ON it.item_id = st.item_id
+LEFT JOIN locations loc ON loc.location_id = st.location_id
+LEFT JOIN locations pk  ON pk.location_id  = loc.parent_location_id
+LEFT JOIN last_recon lr ON lr.tenant_id = st.tenant_id AND lr.item_id = st.item_id AND lr.location_id = st.location_id;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 13. ceo_ai.workforce_coverage_status — coverage per park/role.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.workforce_coverage_status AS
+WITH active_absence AS (
+    SELECT tenant_id, workforce_member_id, replacement_member_id
+    FROM workforce_absences
+    WHERE status = 'approved'
+      AND now() >= starts_at AND now() < COALESCE(ends_at, 'infinity'::timestamptz)
+),
+work_load AS (
+    -- open assigned SOP tasks per member (bounded aggregate)
+    SELECT tenant_id, assigned_to AS user_scope_member,
+           COUNT(*) FILTER (WHERE state NOT IN ('completed','verified','canceled'))::bigint AS active_work_count,
+           COUNT(*) FILTER (WHERE state NOT IN ('completed','verified','canceled')
+                             AND due_at < now())::bigint AS overdue_work_count
+    FROM sop_tasks
+    WHERE assigned_to IS NOT NULL
+    GROUP BY tenant_id, assigned_to
+)
+SELECT
+    wm.tenant_id                                  AS tenant_id,
+    loc.name                                      AS park_label,
+    COALESCE(rc.label, wm.primary_role_hint)      AS role_label,
+    wm.display_name                               AS owner_label,
+    rep.display_name                              AS backup_label,
+    CASE
+        WHEN aa.workforce_member_id IS NULL THEN 'present'
+        WHEN aa.replacement_member_id IS NOT NULL THEN 'covered_by_backup'
+        ELSE 'uncovered_absence'
+    END                                           AS coverage_status,
+    COALESCE(wl.active_work_count, 0)             AS active_work_count,
+    COALESCE(wl.overdue_work_count, 0)            AS overdue_work_count
+FROM workforce_members wm
+LEFT JOIN locations        loc ON loc.location_id = wm.primary_location_id
+LEFT JOIN org_role_catalog rc  ON rc.role_key     = wm.primary_role_hint
+LEFT JOIN active_absence   aa  ON aa.tenant_id = wm.tenant_id AND aa.workforce_member_id = wm.workforce_member_id
+LEFT JOIN workforce_members rep ON rep.workforce_member_id = aa.replacement_member_id
+LEFT JOIN work_load        wl  ON wl.tenant_id = wm.tenant_id AND wl.user_scope_member = wm.user_id
+WHERE wm.status = 'active';
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 14. ceo_ai.action_center_current — cross-module actionable items (UNION).
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.action_center_current AS
+-- open vaccination obligations that are due/overdue (shed-scoped)
+SELECT
+    oi.tenant_id                                  AS tenant_id,
+    'vaccination'                                 AS area,
+    CASE WHEN oi.window_end < (now() AT TIME ZONE 'Asia/Kolkata')::date THEN 'high' ELSE 'medium' END AS severity,
+    pk.name                                       AS park_label,
+    sh.name                                       AS shed_label,
+    COALESCE(ceo_ai.vaccine_label_for(pr.dose_code), 'Vaccination') AS title,
+    om.display_name                               AS owner_label,
+    NULL::text                                    AS backup_label, -- TODO(source): backup seat lookup is per-shed; use vaccination_shed_status for backup
+    oi.due_at                                     AS due_at,
+    oi.status                                     AS status
+FROM obligation_instances oi
+LEFT JOIN locations      sh ON sh.location_id = oi.scope_id
+LEFT JOIN locations      pk ON pk.location_id = sh.parent_location_id
+LEFT JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
+LEFT JOIN LATERAL (
+    SELECT wm.display_name
+    FROM workforce_positions wp
+    JOIN workforce_members wm ON wm.workforce_member_id = wp.workforce_member_id
+    WHERE wp.tenant_id = oi.tenant_id AND wp.scope_type = 'shed' AND wp.scope_id = oi.scope_id
+      AND wp.is_backup_slot = false AND wp.status = 'active'
+      AND now() >= wp.valid_from AND now() < COALESCE(wp.valid_to, 'infinity'::timestamptz)
+    LIMIT 1
+) om ON true
+WHERE oi.scope_type = 'shed' AND oi.status IN ('scheduled','due','in_progress','missed')
+UNION ALL
+-- pending count-change approvals
+SELECT
+    ca.tenant_id                                  AS tenant_id,
+    'counts'                                      AS area,
+    'medium'                                      AS severity,
+    NULL::text                                    AS park_label, -- TODO(source): approval carries no direct park; via shifting_event only
+    NULL::text                                    AS shed_label,
+    COALESCE(ca.request_type, 'count_approval')   AS title,
+    NULL::text                                    AS owner_label, -- TODO(source): raised_by_user_id is a user; role/label mapping deferred
+    NULL::text                                    AS backup_label,
+    ca.raised_at                                  AS due_at,
+    ca.status                                     AS status
+FROM counts_approval_requests ca
+WHERE ca.status = 'pending';
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- 15. ceo_ai.audit_activity_summary — audit activity per business day/area.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.audit_activity_summary AS
+SELECT
+    al.tenant_id                                                AS tenant_id,
+    (al.created_at AT TIME ZONE 'Asia/Kolkata')::date           AS business_date,
+    COALESCE(al.resource_type, al.scope_type, 'general')        AS area,
+    -- actor identity is sensitive: surface actor_type (user/system) not personal
+    -- name. TODO(source): map to role via workforce_members when a role-only
+    -- label is required; keep PII out of the answer.
+    COALESCE(al.actor_type, 'system')                           AS actor_label,
+    al.action                                                   AS action_label,
+    -- TODO(source): audit_log has no explicit result column; success/failure
+    -- lives implicitly in after_state/metadata jsonb. Typed NULL until a
+    -- first-class outcome field exists.
+    (al.metadata->>'result')                                    AS result,
+    COUNT(*)::bigint                                            AS count,
+    MAX(al.created_at)                                          AS last_activity_at
+FROM audit_log al
+GROUP BY al.tenant_id,
+         (al.created_at AT TIME ZONE 'Asia/Kolkata')::date,
+         COALESCE(al.resource_type, al.scope_type, 'general'),
+         COALESCE(al.actor_type, 'system'),
+         al.action,
+         (al.metadata->>'result');
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- COVERAGE-GAP VIEWS demanded by the discovery judge
+-- ===========================================================================
+
+-- 16. ceo_ai.mortality_base — deaths + active population per business day/park,
+--     the base the governed Cube mortality_rate metric divides over.
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.mortality_base AS
+WITH deaths AS (
+    SELECT g.tenant_id, g.park_id,
+           (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date,
+           COUNT(*)::bigint AS deaths
+    FROM goats g
+    WHERE g.exited_at IS NOT NULL AND g.exit_reason IN ('death','dead','mortality')
+    GROUP BY g.tenant_id, g.park_id, (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date
+),
+pop AS (
+    SELECT tenant_id, park_id, COUNT(*)::bigint AS active_population
+    FROM goats
+    WHERE lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+    GROUP BY tenant_id, park_id
+)
+SELECT
+    d.tenant_id                                   AS tenant_id,
+    d.event_date                                  AS event_date,
+    pk.name                                       AS park_label,
+    d.deaths                                      AS deaths,
+    COALESCE(pop.active_population, 0)            AS active_population
+FROM deaths d
+LEFT JOIN locations pk ON pk.location_id = d.park_id
+LEFT JOIN pop ON pop.tenant_id = d.tenant_id AND pop.park_id IS NOT DISTINCT FROM d.park_id;
+-- +goose StatementEnd
+
+-- 17. ceo_ai.feed_adherence — directed vs actual fed per feed day / shed.
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.feed_adherence AS
+WITH directed AS (
+    SELECT r.tenant_id, i.feed_day, r.shed_id,
+           SUM(r.quantity_kg)::numeric AS directed_kg,
+           COUNT(*) FILTER (WHERE r.blocked_reason_code IS NOT NULL)::bigint AS blocked_cells
+    FROM feed_direction_issue_rows r
+    JOIN feed_direction_issues i ON i.feed_direction_issue_id = r.feed_direction_issue_id
+    GROUP BY r.tenant_id, i.feed_day, r.shed_id
+),
+fed AS (
+    SELECT tenant_id, shed_id,
+           (fed_at AT TIME ZONE 'Asia/Kolkata')::date AS feed_day,
+           SUM(quantity_fed)::numeric AS fed_kg
+    FROM feed_direction_completions
+    WHERE status IN ('accepted','verified','completed')
+    GROUP BY tenant_id, shed_id, (fed_at AT TIME ZONE 'Asia/Kolkata')::date
+)
+SELECT
+    d.tenant_id                                   AS tenant_id,
+    d.feed_day                                    AS feed_day,
+    pk.name                                       AS park_label,
+    sh.name                                       AS shed_label,
+    d.directed_kg                                 AS directed_kg,
+    COALESCE(f.fed_kg, 0)                          AS fed_kg,
+    (COALESCE(f.fed_kg, 0) - d.directed_kg)       AS variance_kg,
+    (d.blocked_cells > 0)                          AS blocked
+FROM directed d
+LEFT JOIN locations sh ON sh.location_id = d.shed_id
+LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+LEFT JOIN fed f ON f.tenant_id = d.tenant_id AND f.shed_id = d.shed_id AND f.feed_day = d.feed_day;
+-- +goose StatementEnd
+
+-- 18. ceo_ai.notification_delivery_health — reminder/escalation delivery
+--     reliability per business day/channel.
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.notification_delivery_health AS
+SELECT
+    nr.tenant_id                                                        AS tenant_id,
+    (nr.requested_at AT TIME ZONE 'Asia/Kolkata')::date                 AS business_date,
+    nr.channel                                                          AS channel,
+    nr.notification_type                                                AS notification_type,
+    COUNT(*)::bigint                                                    AS requested,
+    COUNT(*) FILTER (WHERE nr.status IN ('sent','delivered','read'))::bigint AS sent,
+    COUNT(*) FILTER (WHERE nr.status = 'failed')::bigint               AS failed,
+    COUNT(*) FILTER (WHERE nr.status IN ('pending','queued','retrying'))::bigint AS pending,
+    MIN(nr.requested_at) FILTER (WHERE nr.status IN ('pending','queued','retrying')) AS oldest_pending_at
+FROM notification_requests nr
+GROUP BY nr.tenant_id,
+         (nr.requested_at AT TIME ZONE 'Asia/Kolkata')::date,
+         nr.channel, nr.notification_type;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- Read-only SQL fallback stub — MUST NOT run dynamic SQL until the backend
+-- validator + audit logging land (docs/ceo-ai/mcp-toolbox-plan.md). Fails loud.
+-- ===========================================================================
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION ceo_ai.run_readonly_sql(sql text, tenant uuid)
+RETURNS SETOF jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ceo_ai, pg_temp
+AS $rs$
+BEGIN
+    RAISE EXCEPTION 'ceo_ai.run_readonly_sql: implement through the Mesha backend SQL validator first (SELECT-only, ceo_ai.* allowlist, mandatory tenant filter, LIMIT<=100)';
+END;
+$rs$;
+-- deny the dynamic-SQL fallback to everyone by default; the backend calls it
+-- only after its validator lands and an explicit grant is added.
+REVOKE ALL ON FUNCTION ceo_ai.run_readonly_sql(text, uuid) FROM PUBLIC;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- GUARDED GRANTS — apply only if the read-only roles exist. No role creation,
+-- no passwords here (that is tools/dev/setup-ceo-ai-local-role.sh + Secret
+-- Manager). Idempotent: safe to re-run.
+-- ===========================================================================
+-- +goose StatementBegin
+DO $grants$
+DECLARE
+    r text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            EXECUTE format('REVOKE ALL ON SCHEMA public FROM %I', r);
+            EXECUTE format('GRANT USAGE ON SCHEMA ceo_ai TO %I', r);
+            EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA ceo_ai TO %I', r);
+            EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA ceo_ai GRANT SELECT ON TABLES TO %I', r);
+            -- fallback exec is denied until the backend validator lands
+            EXECUTE format('REVOKE ALL ON FUNCTION ceo_ai.run_readonly_sql(text, uuid) FROM %I', r);
+        END IF;
+    END LOOP;
+END;
+$grants$;
+-- +goose StatementEnd
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000025_ceo_ai_assistant_tables.sql
+-- -----------------------------------------------------------------------------
+-- ===========================================================================
+-- ceo_ai assistant app-owned tables (public schema) — the durable state the
+-- Mesha leadership assistant backend writes: audit/trace, conversation threads,
+-- messages, feedback, response cache, and a persisted rate-limit window.
+--
+-- These are APP-OWNED (written by the Go backend service, NOT by the read-only
+-- roles). mesha_ceo_readonly / mesha_cube_readonly have NO access to public
+-- (REVOKE ALL ON SCHEMA public, per 000020 + setup script) — the assistant
+-- reads business data only through ceo_ai.* views and writes its own state here
+-- with the normal app credential.
+--
+-- Design honors AGENTS.md: keyset-friendly indexes (no OFFSET), tenant-scoped,
+-- idempotency/soft-delete + retention where the plan requires it, jsonb for
+-- step traces / tool calls / citations (INTERNAL only — never returned in the
+-- leadership chat answer, per the internal-tracking rule).
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- ceo_ai_assistant_audit — one tamper-evident row per assistant request.
+-- Internal/admin-only. Holds the step trace + review verdict for the debug
+-- surface; NEVER surfaced in the user chat answer.
+-- ---------------------------------------------------------------------------
+CREATE TABLE ceo_ai_assistant_audit (
+    audit_id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    actor_id           uuid,                         -- authenticated leadership user (sensitive)
+    actor_role         text,                         -- e.g. ceo_internal
+    conversation_id    uuid,                         -- FK added after ceo_ai_conversations exists
+    request_id         text NOT NULL,                -- correlation id returned to the client
+    question_hash      text NOT NULL,                -- sha256 of normalized question (no raw PII in indexes)
+    question_redacted  text,                         -- redacted question text for debug
+    route_tier         text,                         -- cube | mesha_api | mcp_toolbox | sql_fallback
+    tool_called        text,                         -- resolved tool / metric / view name
+    generated_sql_hash text,                         -- hash of validated fallback SQL (when used)
+    source_views       text[] NOT NULL DEFAULT '{}', -- ceo_ai.* views touched
+    row_count          integer,
+    latency_ms         integer,
+    status             text NOT NULL DEFAULT 'ok',   -- ok | rejected | error | over_budget | degraded
+    rejection_reason   text,
+    step_trace         jsonb NOT NULL DEFAULT '[]'::jsonb, -- INTERNAL plan/route/exec timeline
+    review_verdict     text,                         -- optional MESHA_AI_REVIEW verdict (pass/flag)
+    model_version      text,
+    prompt_version     text,
+    created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+-- keyset browse of the internal audit log (newest-first), tenant-scoped.
+CREATE INDEX ceo_ai_assistant_audit_tenant_created_idx
+    ON ceo_ai_assistant_audit (tenant_id, created_at DESC, audit_id DESC);
+CREATE INDEX ceo_ai_assistant_audit_request_idx
+    ON ceo_ai_assistant_audit (tenant_id, request_id);
+CREATE INDEX ceo_ai_assistant_audit_conversation_idx
+    ON ceo_ai_assistant_audit (conversation_id, created_at DESC)
+    WHERE conversation_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- ceo_ai_conversations — durable threads (create/list/resume/archive + purge).
+-- ---------------------------------------------------------------------------
+CREATE TABLE ceo_ai_conversations (
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    actor_id           uuid NOT NULL,                -- owning leadership user
+    title              text,                         -- derived from first question; renamable
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    archived_at        timestamptz,                  -- soft-archive (user hide)
+    retention_expires_at timestamptz                 -- hard-purge boundary (retention policy)
+);
+
+-- keyset list of a user's active threads, newest-updated first.
+CREATE INDEX ceo_ai_conversations_owner_idx
+    ON ceo_ai_conversations (tenant_id, actor_id, updated_at DESC, id DESC)
+    WHERE archived_at IS NULL;
+-- purge scan by retention boundary.
+CREATE INDEX ceo_ai_conversations_retention_idx
+    ON ceo_ai_conversations (retention_expires_at)
+    WHERE retention_expires_at IS NOT NULL;
+
+-- backfill the audit FK now that the table exists.
+ALTER TABLE ceo_ai_assistant_audit
+    ADD CONSTRAINT ceo_ai_assistant_audit_conversation_fk
+    FOREIGN KEY (conversation_id) REFERENCES ceo_ai_conversations (id) ON DELETE SET NULL;
+
+-- ---------------------------------------------------------------------------
+-- ceo_ai_messages — the turn-by-turn message history for a thread.
+-- tool_calls + citations are jsonb: citations MAY be shown to the user
+-- (structured provenance chips), tool_calls are INTERNAL only.
+-- ---------------------------------------------------------------------------
+CREATE TABLE ceo_ai_messages (
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id    uuid NOT NULL REFERENCES ceo_ai_conversations (id) ON DELETE CASCADE,
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    role               text NOT NULL,                -- user | assistant | system
+    content            text NOT NULL,
+    tool_calls         jsonb NOT NULL DEFAULT '[]'::jsonb, -- INTERNAL routing/exec detail
+    citations          jsonb NOT NULL DEFAULT '[]'::jsonb, -- user-visible provenance
+    source             text,                         -- resolved source surface for assistant turns
+    mode               text,                         -- governed | operational | exploratory
+    request_id         text,                         -- links to ceo_ai_assistant_audit.request_id
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ceo_ai_messages_role_chk CHECK (role IN ('user','assistant','system'))
+);
+
+-- ordered keyset read of a thread's messages (required index from the spec).
+CREATE INDEX ceo_ai_messages_conversation_created_idx
+    ON ceo_ai_messages (conversation_id, created_at, id);
+
+-- ---------------------------------------------------------------------------
+-- ceo_ai_feedback — thumbs + reason on an assistant message, for eval mining.
+-- ---------------------------------------------------------------------------
+CREATE TABLE ceo_ai_feedback (
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id         uuid NOT NULL REFERENCES ceo_ai_messages (id) ON DELETE CASCADE,
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    actor_id           uuid NOT NULL,
+    rating             smallint NOT NULL,            -- +1 thumbs up, -1 thumbs down
+    reason             text,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ceo_ai_feedback_rating_chk CHECK (rating IN (-1, 1)),
+    -- one feedback per (message, actor); a re-vote updates it.
+    CONSTRAINT ceo_ai_feedback_message_actor_unique UNIQUE (message_id, actor_id)
+);
+
+CREATE INDEX ceo_ai_feedback_tenant_created_idx
+    ON ceo_ai_feedback (tenant_id, created_at DESC, id DESC);
+
+-- ---------------------------------------------------------------------------
+-- ceo_ai_response_cache — semantic/response cache keyed by tenant + question
+-- hash + as_of bucket. Never crosses tenants.
+-- ---------------------------------------------------------------------------
+CREATE TABLE ceo_ai_response_cache (
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    question_hash      text NOT NULL,                -- sha256(normalized question + as_of bucket)
+    answer             jsonb NOT NULL,               -- cached composed answer + metadata
+    source_views       text[] NOT NULL DEFAULT '{}',
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    expires_at         timestamptz NOT NULL,         -- TTL / as_of-day rollover invalidation
+    CONSTRAINT ceo_ai_response_cache_tenant_hash_unique UNIQUE (tenant_id, question_hash)
+);
+
+-- sweep expired cache rows.
+CREATE INDEX ceo_ai_response_cache_expiry_idx
+    ON ceo_ai_response_cache (expires_at);
+
+-- ---------------------------------------------------------------------------
+-- ceo_ai_rate_limit — persisted per-(tenant, actor) fixed-window request
+-- counter so caps survive a process restart (the in-Go token bucket resets on
+-- restart). Backend increments count within the current window_start bucket.
+-- ---------------------------------------------------------------------------
+CREATE TABLE ceo_ai_rate_limit (
+    tenant_id          uuid NOT NULL REFERENCES tenants (tenant_id),
+    actor_id           uuid NOT NULL,
+    window_start       timestamptz NOT NULL,         -- truncated window bucket start
+    count              integer NOT NULL DEFAULT 0,
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, actor_id, window_start)
+);
+
+-- prune old windows.
+CREATE INDEX ceo_ai_rate_limit_window_idx
+    ON ceo_ai_rate_limit (window_start);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000026_ceo_ai_conversation_idempotency.sql
+-- -----------------------------------------------------------------------------
+-- ===========================================================================
+-- ceo_ai_conversations idempotent-create key.
+--
+-- 000021 shipped ceo_ai_conversations without an idempotency key. The assistant
+-- persistence layer's create path is required to be replay-safe (a retried
+-- POST /conversations must return the original thread, never fork a second one),
+-- which needs a stable per-(tenant, actor) key plus a partial unique index.
+--
+-- Additive + lock-safe: ADD COLUMN of a nullable text is a metadata-only change
+-- (no table rewrite), and the table is new so the unique index build is trivial.
+-- NULLs stay distinct under the partial index, so keyless creates never collide;
+-- only a keyed (tenant, actor, key) create is deduplicated on replay.
+-- ===========================================================================
+
+ALTER TABLE ceo_ai_conversations
+    ADD COLUMN IF NOT EXISTS idempotency_key text;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ceo_ai_conversations_idem_uq
+    ON ceo_ai_conversations (tenant_id, actor_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000027_ceo_ai_operator_views.sql
+-- -----------------------------------------------------------------------------
+-- +goose StatementBegin
+-- ===========================================================================
+-- ceo_ai OPERATOR-GRAIN DRIVE reporting — the governed, business-language
+-- read surface for the OPERATOR-BASED DRIVE model.
+--
+-- WHY THIS EXISTS
+-- Main moved DRIVE planning to an OPERATOR grain: drives are planned
+-- by operator animal CAPACITY, work is assigned at OPERATOR grain, and proof is
+-- shed-level video. The prior ceo_ai reporting views (migration 000023) answer
+-- the SHED question (which sheds are due/overdue). They carry NO operator
+-- dimension, so the leadership assistant could not answer "which operators are
+-- behind", "who is overloaded", "operator assignments today", or "how many
+-- animals is <operator> assigned". This view closes that gap over the REAL new
+-- operator tables.
+--
+-- SOURCE (operator model, learned from main):
+--   * public.drive_assignments (one row per batch, operator, park, shed grain).
+--     Columns used: tenant_id, operator_id, park_id, shed_id,
+--     physical_shed, partition_label, animal_count, capacity_status, batch_id,
+--     planned_date. operator_id FK → workforce_members(workforce_member_id).
+--   * public.obligation_batches — batch_id status tells whether the assigned
+--     work is done vs still open. Each assignment row references exactly ONE batch
+--     (assignment→batch is 1:1), so joining batch status never fans out.
+--   * public.capacity_config — tenant-scoped max_per_day is the
+--     animal CAP one operator handles on one business date (the unit
+--     the OperatorPlanner consumes).
+--   * public.workforce_members — operator display label.
+--
+-- GRAIN: one row per (tenant_id, operator_id, planned_date, park_id, shed_id).
+-- This preserves BOTH the operator dimension AND the park→shed scope leadership
+-- filters on. Capacity/utilization are a per-operator-per-DAY concept, so a
+-- day-level window carries the operator's whole-day assigned total and the
+-- utilization ratio onto every shed row (capacity is NOT summed across sheds —
+-- summing a per-day cap across shed rows would multiply it; the Cube measure
+-- uses MAX(daily_capacity) at the operator-day grouping to avoid that trap).
+--
+-- SCALE: vaccination_drive_assignments is a DRIVE-PLAN table (bounded by
+-- operators × business days × sheds in the planning window), NOT a per-animal
+-- table, so this is a bounded reporting read at the 5k-50k envelope
+-- (docs/decisions/operational-kernel-5k-50k-scale-envelope.md). The tenant
+-- predicate pushes into the base scan because tenant_id is a GROUP BY key, and
+-- vaccination_drive_assignments_operator_day_idx (tenant_id, operator_id,
+-- planned_date) covers the operator/day access.
+--
+-- IST business calendar: "overdue" compares planned_date to the Asia/Kolkata
+-- business day, never a UTC instant.
+-- ===========================================================================
+
+-- projection-review: membership=canonical vaccination_drive_assignments rows filtered to the current tenant (operator_id NOT NULL); group_key=(tenant_id, operator_id, planned_date, park_id, shed_id) — every SUM/FILTER below groups on the same key; join_cardinality=assignment→obligation_batches is 1:1 on (tenant_id,batch_id) so the batch-status FILTER never double-counts animal_count, and workforce_members/locations/capacity_config are 1:1 dimension joins on their keys (max_per_day is tenant-constant, joined 1:1); pagination=drive-plan table bounded by operators×days×sheds, read tenant-scoped with LIMIT at the Cube/toolbox call site; scope=explicit park_id/shed_id + operator_id preserved on every row so leadership scope (operator→park→shed→day) and the capacity/overdue matrix resolve without collapsing operators or sheds. daily_capacity is per-operator-per-day (NOT additive across sheds); utilization is computed from a per-(operator,day) window sum, and the Cube twin aggregates capacity with MAX not SUM. Adversarial grain proof: backend/internal/ceoai/reporting/operator_views_test.go (Postgres-gated).
+CREATE OR REPLACE VIEW ceo_ai.vaccination_operator_status AS
+WITH assigned AS (
+    SELECT
+        a.tenant_id,
+        a.operator_id,
+        a.park_id,
+        a.shed_id,
+        a.planned_date,
+        COALESCE(SUM(a.animal_count), 0)::bigint                                            AS assigned_animals,
+        COALESCE(SUM(a.animal_count) FILTER (WHERE b.status IN ('planned','in_progress')), 0)::bigint AS due,
+        COALESCE(SUM(a.animal_count) FILTER (WHERE b.status = 'completed'), 0)::bigint       AS done,
+        COALESCE(SUM(a.animal_count) FILTER (
+            WHERE b.status IN ('planned','in_progress')
+              AND a.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+        ), 0)::bigint                                                                        AS overdue,
+        bool_or(a.capacity_status IN ('over_cap_required','capacity_action'))               AS any_over_cap
+    FROM public.vaccination_drive_assignments a
+    LEFT JOIN public.obligation_batches b
+      ON b.tenant_id = a.tenant_id AND b.batch_id = a.batch_id
+    WHERE a.operator_id IS NOT NULL
+    GROUP BY a.tenant_id, a.operator_id, a.park_id, a.shed_id, a.planned_date
+),
+cap AS (
+    -- tenant-wide per-operator-per-day animal cap (only 'tenant' scope is honored
+    -- by the planner today; see vaccinationexecution/domain/capacity.go).
+    SELECT tenant_id, max_per_day
+    FROM public.vaccination_capacity_config
+    WHERE capacity_scope = 'tenant'
+)
+SELECT
+    s.tenant_id                                                            AS tenant_id,
+    s.operator_id                                                          AS operator_id,
+    wm.display_name                                                        AS operator_label,
+    s.park_id                                                             AS park_id,
+    pk.name                                                                AS park_label,
+    s.shed_id                                                             AS shed_id,
+    sh.name                                                                AS shed_label,
+    s.planned_date                                                        AS planned_date,
+    s.assigned_animals                                                     AS assigned_animals,
+    s.due                                                                  AS due,
+    s.done                                                                 AS done,
+    s.overdue                                                              AS overdue,
+    COALESCE(cap.max_per_day, 200)                                         AS daily_capacity,
+    -- the operator's WHOLE-day assigned total (across every shed that day), the
+    -- correct numerator for a per-operator-per-day utilization ratio.
+    SUM(s.assigned_animals) OVER (
+        PARTITION BY s.tenant_id, s.operator_id, s.planned_date
+    )                                                                     AS operator_day_assigned,
+    ROUND(
+        (SUM(s.assigned_animals) OVER (
+            PARTITION BY s.tenant_id, s.operator_id, s.planned_date
+        ))::numeric / NULLIF(COALESCE(cap.max_per_day, 200), 0), 3
+    )                                                                     AS utilization,
+    CASE
+        WHEN s.overdue > 0 THEN 'catch_up_overdue'
+        WHEN (SUM(s.assigned_animals) OVER (
+                 PARTITION BY s.tenant_id, s.operator_id, s.planned_date))
+             > COALESCE(cap.max_per_day, 200) THEN 'rebalance_overloaded'
+        WHEN s.due > 0 THEN 'run_drive'
+        WHEN s.done > 0 AND s.due = 0 THEN 'completed'
+        ELSE 'no_action'
+    END                                                                   AS next_action
+FROM assigned s
+LEFT JOIN public.workforce_members wm ON wm.workforce_member_id = s.operator_id
+LEFT JOIN public.locations         pk ON pk.location_id = s.park_id
+LEFT JOIN public.locations         sh ON sh.location_id = s.shed_id
+LEFT JOIN cap ON cap.tenant_id = s.tenant_id;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- GUARDED GRANTS — re-apply the ceo_ai SELECT grant for the new view if the
+-- read-only roles exist (idempotent; mirrors migration 000023). ALTER DEFAULT
+-- PRIVILEGES from 000023 already covers objects created afterward, but an
+-- explicit grant here keeps this migration self-contained and safe to re-run.
+-- ===========================================================================
+-- +goose StatementBegin
+DO $grants$
+DECLARE
+    r text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            EXECUTE format('GRANT SELECT ON ceo_ai.vaccination_operator_status TO %I', r);
+        END IF;
+    END LOOP;
+END;
+$grants$;
+-- +goose StatementEnd
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000028_vaccination_drive_date_overrides.sql
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.vaccination_drive_date_overrides (
+  override_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  tenant_id uuid NOT NULL,
+  park_id uuid NOT NULL,
+  vaccine_code text NOT NULL,
+  original_drive_date date NOT NULL,
+  override_date date NOT NULL,
+  reason text NOT NULL,
+  created_by uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  canceled_at timestamp with time zone,
+  canceled_by uuid,
+  cancel_reason text,
+  CONSTRAINT vaccination_drive_date_overrides_pkey PRIMARY KEY (override_id),
+  CONSTRAINT vaccination_drive_date_overrides_vaccine_code_not_blank CHECK (btrim(vaccine_code) <> ''),
+  CONSTRAINT vaccination_drive_date_overrides_reason_not_blank CHECK (btrim(reason) <> ''),
+  CONSTRAINT vaccination_drive_date_overrides_postpone_check CHECK (override_date > original_drive_date),
+  CONSTRAINT vaccination_drive_date_overrides_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS vaccination_drive_date_overrides_active_uq
+  ON public.vaccination_drive_date_overrides (tenant_id, park_id, (lower(btrim(vaccine_code))), original_drive_date)
+  WHERE canceled_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS vaccination_drive_date_overrides_lookup_idx
+  ON public.vaccination_drive_date_overrides (tenant_id, park_id, original_drive_date, (lower(btrim(vaccine_code))))
+  WHERE canceled_at IS NULL;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000029_vaccination_drive_assignment_dose_summary.sql
+-- -----------------------------------------------------------------------------
+ALTER TABLE vaccination_drive_assignments
+  ADD COLUMN IF NOT EXISTS vaccine_rule_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
+  ADD COLUMN IF NOT EXISTS total_doses integer NOT NULL DEFAULT 0;
+
+ALTER TABLE vaccination_drive_assignments
+  DROP CONSTRAINT IF EXISTS vaccination_drive_assignments_total_doses_check,
+  ADD CONSTRAINT vaccination_drive_assignments_total_doses_check
+    CHECK (total_doses >= 0);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000030_ceo_ai_cube_source_views.sql
+-- -----------------------------------------------------------------------------
+-- +goose StatementBegin
+-- ===========================================================================
+-- ceo_ai CUBE SOURCE views — governed, business-language read surfaces that the
+-- Cube Core semantic layer reads FROM, so Cube never touches raw public tables.
+--
+-- WHY THIS EXISTS
+-- Cube Core connects to Postgres as the `mesha_cube_readonly` role, which by
+-- design has `REVOKE ALL ON SCHEMA public` and SELECT on `ceo_ai.*` ONLY
+-- (tools/dev/setup-ceo-ai-local-role.sh). But five Cube models still ran inline
+-- SQL `FROM obligation_instances / goats / feed_direction_completions /
+-- procurement_loads / sop_tasks` — raw public tables. Inline-SQL cubes execute
+-- with the connecting role's own privileges (no view-owner indirection), so
+-- every such query failed with `permission denied for table obligation_instances`
+-- and the leadership assistant returned `cube: could not be retrieved.`
+--
+-- FIX (matches migration 000027, which already repointed the operator cube):
+-- expose one thin passthrough view per cube at the SAME row grain and with the
+-- SAME column names the cube models already select. These views are owned by the
+-- migration role, so Postgres runs them with owner rights (default view
+-- behavior, security_invoker off) and the read-only Cube role can SELECT them
+-- without any grant on public. The measure FORMULAS live in the Cube models and
+-- are unchanged; only the FROM source moves from raw public to ceo_ai.*.
+--
+-- GRAIN (unchanged, one row per):
+--   ceo_ai.vaccination_obligations_base  -> obligation_instances (per obligation)
+--   ceo_ai.animals_base                  -> goats               (per goat)
+--   ceo_ai.feed_completions_base         -> feed_direction_completions (per completion)
+--   ceo_ai.procurement_loads_base        -> procurement_loads   (per load)
+--   ceo_ai.workforce_tasks_base          -> sop_tasks           (per task)
+--
+-- IST business calendar: business-day columns convert to Asia/Kolkata first,
+-- never the UTC instant, identical to the cube inline SQL they replace.
+-- ===========================================================================
+
+CREATE OR REPLACE VIEW ceo_ai.vaccination_obligations_base AS
+SELECT
+    o.obligation_id                                    AS obligation_id,
+    o.tenant_id                                        AS tenant_id,
+    o.status                                           AS status,
+    o.due_at                                           AS due_at,
+    o.completed_at                                     AS completed_at,
+    o.scope_id                                         AS shed_id,
+    sh.name                                            AS shed_label,
+    sh.parent_location_id                              AS park_id,
+    pk.name                                            AS park_label,
+    g.species                                          AS species,
+    (o.due_at AT TIME ZONE 'Asia/Kolkata')::date       AS due_business_day,
+    (o.completed_at AT TIME ZONE 'Asia/Kolkata')::date AS completed_business_day
+FROM obligation_instances o
+LEFT JOIN locations sh ON sh.location_id = o.scope_id
+LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
+LEFT JOIN goats    g  ON g.goat_id      = o.target_id;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.animals_base AS
+SELECT
+    g.goat_id                                          AS goat_id,
+    g.tenant_id                                        AS tenant_id,
+    g.species                                          AS species,
+    g.lifecycle_status                                 AS lifecycle_status,
+    g.management_stage                                 AS management_stage,
+    g.park_id                                          AS park_id,
+    pk.name                                            AS park_label,
+    g.shed_id                                          AS shed_id,
+    sh.name                                            AS shed_label,
+    g.entry_date                                       AS entry_date,
+    (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date    AS exit_business_day,
+    g.exit_reason                                      AS exit_reason
+FROM goats g
+LEFT JOIN locations pk ON pk.location_id = g.park_id
+LEFT JOIN locations sh ON sh.location_id = g.shed_id;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.feed_completions_base AS
+SELECT
+    c.completion_id                                    AS completion_id,
+    c.tenant_id                                        AS tenant_id,
+    c.shed_id                                          AS shed_id,
+    sh.name                                            AS shed_label,
+    sh.parent_location_id                              AS park_id,
+    pk.name                                            AS park_label,
+    c.quantity_fed                                     AS quantity_fed,
+    c.head_count                                       AS head_count,
+    c.status                                           AS status,
+    (c.fed_at AT TIME ZONE 'Asia/Kolkata')::date       AS fed_business_day
+FROM feed_direction_completions c
+LEFT JOIN locations sh ON sh.location_id = c.shed_id
+LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.procurement_loads_base AS
+SELECT
+    pl.load_id                                         AS load_id,
+    pl.tenant_id                                       AS tenant_id,
+    pl.status                                          AS status,
+    pl.expected_count                                  AS expected_count,
+    pl.source_location_id                              AS source_location_id,
+    loc.name                                           AS source_label,
+    (pl.purchase_date)                                 AS purchase_date,
+    (pl.created_at AT TIME ZONE 'Asia/Kolkata')::date  AS entered_business_day
+FROM procurement_loads pl
+LEFT JOIN locations loc ON loc.location_id = pl.source_location_id;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE OR REPLACE VIEW ceo_ai.workforce_tasks_base AS
+SELECT
+    t.task_id                                          AS task_id,
+    t.tenant_id                                        AS tenant_id,
+    t.state                                            AS state,
+    t.task_type                                        AS task_type,
+    t.assigned_to                                      AS operator_id,
+    t.scope_id                                         AS scope_id,
+    sh.name                                            AS shed_label,
+    sh.parent_location_id                              AS park_id,
+    pk.name                                            AS park_label,
+    t.verified_at                                      AS verified_at,
+    (t.due_at AT TIME ZONE 'Asia/Kolkata')::date       AS due_business_day
+FROM sop_tasks t
+LEFT JOIN locations sh ON sh.location_id = t.scope_id
+LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- GUARDED GRANTS — grant SELECT on the new cube source views to the read-only
+-- roles if they exist (idempotent; mirrors migration 000027).
+-- ===========================================================================
+-- +goose StatementBegin
+DO $grants$
+DECLARE
+    r text;
+    v text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            FOREACH v IN ARRAY ARRAY[
+                'ceo_ai.vaccination_obligations_base',
+                'ceo_ai.animals_base',
+                'ceo_ai.feed_completions_base',
+                'ceo_ai.procurement_loads_base',
+                'ceo_ai.workforce_tasks_base'
+            ] LOOP
+                EXECUTE format('GRANT SELECT ON %s TO %I', v, r);
+            END LOOP;
+        END IF;
+    END LOOP;
+END;
+$grants$;
+-- +goose StatementEnd
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000031_assistant_roles_public_read.sql
+-- -----------------------------------------------------------------------------
+-- +goose StatementBegin
+-- ===========================================================================
+-- Full read (SELECT) on schema public for the leadership-assistant read-only
+-- DB roles.
+--
+-- MAINTAINER DECISION 2026-07-23: the leadership assistant is an INTERNAL,
+-- CEO/CXO-only, READ-ONLY chat. It should not hit a permission wall on current
+-- public tables. The prior boundary (ceo_ai.* SELECT only, public
+-- revoked) caused governed Cube metrics that read public tables to fail with
+-- `permission denied for table ...`. Per the maintainer, remove that schema
+-- restriction: grant the assistant roles SELECT on ALL current public tables.
+-- Future tables are covered by ALTER DEFAULT PRIVILEGES FOR ROLE <owner>, applied
+-- per current table owner by tools/dev/grant-assistant-public-read.sh (a brand-new
+-- owner role needs a re-run). Access stays READ-ONLY — only SELECT is
+-- granted and the roles carry `default_transaction_read_only = on`; no INSERT/
+-- UPDATE/DELETE/DDL is granted. This supersedes the "Cube never reads raw
+-- Postgres" restriction for these two read-only roles only.
+--
+-- ORDERING (P1): this is GUARDED with IF EXISTS. A role that does NOT yet exist
+-- when this migration runs receives NO grant here. Cloud Deploy running the
+-- migration ALONE does not guarantee the grant lands. Create the Cloud SQL
+-- readonly roles BEFORE migrating, or re-apply afterward (idempotent) with:
+--     make grant-assistant-public-read   (tools/dev/grant-assistant-public-read.sh)
+-- The local path (tools/dev/setup-ceo-ai-local-role.sh) creates the roles then
+-- grants in the correct order already.
+--
+-- DEFAULT PRIVILEGES SCOPE (P2): ALTER DEFAULT PRIVILEGES below covers only
+-- tables created by the SAME role that executes this migration. This assumes all
+-- schema migrations run as one owner (the migration role). Tables later created
+-- by a DIFFERENT owner do NOT auto-grant SELECT and need a re-run of the grant
+-- command above.
+-- ===========================================================================
+DO $grants$
+DECLARE
+    r text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', r);
+            EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', r);
+            EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO %I', r);
+        END IF;
+    END LOOP;
+END;
+$grants$;
+-- +goose StatementEnd
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000032_workforce_position_vaccination_cap.sql
+-- -----------------------------------------------------------------------------
+ALTER TABLE public.workforce_positions
+  ADD COLUMN IF NOT EXISTS vaccination_daily_animal_cap integer;
+
+ALTER TABLE public.workforce_positions
+  DROP CONSTRAINT IF EXISTS workforce_positions_vaccination_daily_animal_cap_check,
+  ADD CONSTRAINT workforce_positions_vaccination_daily_animal_cap_check
+    CHECK (vaccination_daily_animal_cap IS NULL OR vaccination_daily_animal_cap BETWEEN 1 AND 100000);
+
+COMMENT ON COLUMN public.workforce_positions.vaccination_daily_animal_cap IS
+  'Optional HRMS-authored vaccination animal capacity for this operator seat. Null means use vaccination_capacity_config.max_per_day.';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000033_rescope_shed_proof_artifacts_to_shed.sql
+-- -----------------------------------------------------------------------------
+-- Re-scope proof artifacts from the old contract (scope_type='task', subject_type='shed')
+-- to the new shed scope (scope_type='shed', scope_id=subject_id) to ensure that shed-level
+-- shed-level proof videos are counted correctly by the shed readiness queries.
+--
+-- The old contract stored proof rows with:
+--   scope_type='task' (parent sop_task_id) and subject_type='shed' (the shed_id)
+-- The new contract scopes them directly:
+--   scope_type='shed' and scope_id=subject_id (the shed_id)
+--
+-- This UPDATE is idempotent and lock-safe (no DDL, no constraints added). Only rows that need
+-- re-scoping are updated (filtered by the WHERE clause); re-running is harmless.
+--
+-- seed-migration-guard:ignore owner=ravi issue=shed-proof-scope-review-followup reason=no-seed-impact: a fresh seed writes shed proofs at scope_type='shed' already (client sends shed scope), so this back-compat re-scope matches zero fresh-seeded rows; it only repairs pre-existing task-scoped shed proofs on already-populated envs expiry=2026-10-31
+
+UPDATE public.proof_artifacts
+   SET scope_type = 'shed',
+       scope_id   = subject_id
+ WHERE scope_type = 'task'
+   AND subject_type = 'shed'
+   AND subject_id IS NOT NULL
+   AND scope_id <> subject_id;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000034_drop_ceo_ai_feedback.sql
+-- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS ceo_ai_feedback;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000035_vaccination_operator_assignment_config.sql
+-- -----------------------------------------------------------------------------
+-- Persist the vaccination operator shift + N-active-operators-per-day default assignment config.
+-- The admin config screen authors these rows, and the drive/obligation scheduler consumes them
+-- when choosing the operator set for each business day.
+
+CREATE TABLE IF NOT EXISTS public.vaccination_operator_assignment_config (
+  tenant_id uuid NOT NULL,
+  park_id uuid NOT NULL,
+  active_operators_per_day integer NOT NULL DEFAULT 1,
+  default_operator_id uuid NOT NULL,
+  row_version bigint NOT NULL DEFAULT 1,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT vaccination_operator_assignment_config_pkey PRIMARY KEY (tenant_id, park_id),
+  CONSTRAINT vaccination_operator_assignment_config_n_check
+    CHECK (active_operators_per_day >= 1 AND active_operators_per_day <= 3),
+  CONSTRAINT vaccination_operator_assignment_config_row_version_check
+    CHECK (row_version >= 1),
+  CONSTRAINT vaccination_operator_assignment_config_park_fk
+    FOREIGN KEY (park_id) REFERENCES public.locations (location_id),
+  CONSTRAINT vaccination_operator_assignment_config_default_operator_fk
+    FOREIGN KEY (default_operator_id)
+    REFERENCES public.workforce_members (workforce_member_id)
+);
+
+CREATE INDEX IF NOT EXISTS vaccination_operator_assignment_config_tenant_park_idx
+  ON public.vaccination_operator_assignment_config (tenant_id, park_id);
+
+CREATE TABLE IF NOT EXISTS public.vaccination_operator_shift_config (
+  operator_id uuid NOT NULL,
+  tenant_id uuid NOT NULL,
+  park_id uuid NOT NULL,
+  shift_start_minute integer NOT NULL,
+  shift_end_minute integer NOT NULL,
+  shift_label text NOT NULL,
+  week_off_weekday text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT vaccination_operator_shift_config_pkey PRIMARY KEY (tenant_id, operator_id, park_id),
+  CONSTRAINT vaccination_operator_shift_config_start_minute_check
+    CHECK (shift_start_minute >= 0 AND shift_start_minute <= 1439),
+  CONSTRAINT vaccination_operator_shift_config_end_minute_check
+    CHECK (shift_end_minute >= 0 AND shift_end_minute <= 1439),
+  CONSTRAINT vaccination_operator_shift_config_label_check
+    CHECK (shift_label IN ('am', 'pm', 'rover')),
+  CONSTRAINT vaccination_operator_shift_config_week_off_check
+    CHECK (week_off_weekday IS NULL OR week_off_weekday IN
+      ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')),
+  CONSTRAINT vaccination_operator_shift_config_park_fk
+    FOREIGN KEY (park_id) REFERENCES public.locations (location_id),
+  CONSTRAINT vaccination_operator_shift_config_operator_fk
+    FOREIGN KEY (operator_id)
+    REFERENCES public.workforce_members (workforce_member_id)
+);
+
+CREATE INDEX IF NOT EXISTS vaccination_operator_shift_config_tenant_park_idx
+  ON public.vaccination_operator_shift_config (tenant_id, park_id);
+
+COMMENT ON TABLE public.vaccination_operator_assignment_config IS
+  'N active operators/day + CEO-set default operator per park. Consumed by the drive scheduler when planning daily operator assignment.';
+COMMENT ON TABLE public.vaccination_operator_shift_config IS
+  'Per-operator shift window (minutes-of-day) + week-off weekday, per park. Consumed by the drive scheduler when resolving default/PM/shift fallback.';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000036_operator_config_replan_watermarks.sql
+-- -----------------------------------------------------------------------------
+-- Idempotency dedupe table for the operator-config auto-cascade consumer
+-- (backend/internal/obligation/app/operator_config_replan.go). On
+-- vaccination.capacity.changed / vaccination.roster.changed / vaccination.leave.changed, the consumer
+-- claims a row here keyed by (tenant_id, event_id) BEFORE calling the existing
+-- RecomputeFutureVaccinationDrives release path. A replay of the SAME event_id is a no-op (ON CONFLICT
+-- DO NOTHING => 0 rows affected => consumer returns without re-invoking recompute), matching the
+-- watermark-claim-in-tx pattern used by obligation_goat_shift_watermarks for goat.location.changed.
+CREATE TABLE IF NOT EXISTS public.obligation_operator_config_replan_watermarks (
+  tenant_id uuid NOT NULL,
+  event_id text NOT NULL,
+  park_id uuid NOT NULL,
+  event_type text NOT NULL,
+  processed_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT obligation_operator_config_replan_watermarks_pkey PRIMARY KEY (tenant_id, event_id)
+);
+
+CREATE INDEX IF NOT EXISTS obligation_operator_config_replan_watermarks_park_idx
+  ON public.obligation_operator_config_replan_watermarks (tenant_id, park_id);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000037_operator_config_replan_watermark_status.sql
+-- -----------------------------------------------------------------------------
+-- Add status column to operator_config_replan_watermarks to track pending/succeeded state.
+-- The two-phase watermark pattern: claim as 'pending' before recompute, mark 'succeeded' only
+-- if recompute succeeds. On retry/redelivery, if status != 'succeeded', retry recompute.
+-- This makes the consumer durable and idempotent: exactly-once effect, at-least-once attempt.
+ALTER TABLE public.obligation_operator_config_replan_watermarks
+ADD COLUMN status text DEFAULT 'pending' NOT NULL;
+
+-- Index to support querying pending events (not yet fully processed)
+CREATE INDEX IF NOT EXISTS obligation_operator_config_replan_watermarks_status_idx
+  ON public.obligation_operator_config_replan_watermarks (tenant_id, status)
+  WHERE status = 'pending';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000038_cascade_outbox_idempotency_index.sql
+-- -----------------------------------------------------------------------------
+-- +goose NO TRANSACTION
+-- CONCURRENTLY cannot run inside a transaction; hot table => NO TRANSACTION.
+
+-- Dedup guard: a populated database could already hold duplicate
+-- (tenant_id, idempotency_key) rows among the cascade event types (rows written
+-- before this index existed). A CREATE UNIQUE INDEX CONCURRENTLY would fail on
+-- such rows. Keep the earliest row per (tenant_id, event_type, idempotency_key)
+-- among the covered event types and delete the rest. One-way, non-reversible,
+-- scoped to the covered event types only.
+-- +goose StatementBegin
+DO $$
+BEGIN
+  DELETE FROM public.outbox_messages dupe
+  USING (
+    SELECT outbox_id
+    FROM (
+      SELECT outbox_id,
+             row_number() OVER (
+               PARTITION BY tenant_id, event_type, idempotency_key
+               ORDER BY created_at ASC, outbox_id ASC
+             ) AS rn
+      FROM public.outbox_messages
+      WHERE idempotency_key IS NOT NULL
+        AND event_type = ANY (ARRAY[
+          'vaccination.capacity.changed'::text,
+          'vaccination.roster.changed'::text,
+          'vaccination.leave.changed'::text
+        ])
+    ) ranked
+    WHERE ranked.rn > 1
+  ) losers
+  WHERE dupe.outbox_id = losers.outbox_id;
+END
+$$;
+-- +goose StatementEnd
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS outbox_messages_capacity_changed_idempotency_idx
+  ON public.outbox_messages USING btree (tenant_id, idempotency_key)
+  WHERE (event_type = 'vaccination.capacity.changed');
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS outbox_messages_roster_changed_idempotency_idx
+  ON public.outbox_messages USING btree (tenant_id, idempotency_key)
+  WHERE (event_type = 'vaccination.roster.changed');
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS outbox_messages_leave_changed_idempotency_idx
+  ON public.outbox_messages USING btree (tenant_id, idempotency_key)
+  WHERE (event_type = 'vaccination.leave.changed');
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000039_outbox_validate_cascade_aggregates.sql
+-- -----------------------------------------------------------------------------
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  config_family_key text;
+BEGIN
+  IF NEW.aggregate_type = 'verification_item' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM verification_items
+      WHERE tenant_id = NEW.tenant_id
+        AND item_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'verification item outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'count_base_anchor' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM count_base_anchors
+      WHERE tenant_id = NEW.tenant_id
+        AND base_count_anchor_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'count base anchor outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'shifting_event' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM shifting_events
+      WHERE tenant_id = NEW.tenant_id
+        AND shifting_event_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'shifting event outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'count_projection_exception' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM count_projection_exceptions
+      WHERE tenant_id = NEW.tenant_id
+        AND count_projection_exception_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'count projection exception outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'admin_ui_config_family' THEN
+    config_family_key := COALESCE(NEW.payload->>'family_key', NEW.payload #>> '{payload,family_key}');
+    IF NOT EXISTS (
+      SELECT 1
+      FROM admin_ui_config_family_revisions
+      WHERE tenant_id = NEW.tenant_id
+        AND family_key = config_family_key
+    ) THEN
+      RAISE EXCEPTION 'admin ui config family outbox aggregate % does not exist for tenant %', config_family_key, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'calendar_notification' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM notification_requests
+      WHERE tenant_id = NEW.tenant_id
+        AND notification_request_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'calendar notification outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'calendar_snooze' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM calendar_snoozes
+      WHERE tenant_id = NEW.tenant_id
+        AND snooze_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'calendar snooze outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'obligation_escalation' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM obligation_escalations
+      WHERE tenant_id = NEW.tenant_id
+        AND escalation_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'obligation escalation outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'obligation_instance' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM obligation_instances
+      WHERE tenant_id = NEW.tenant_id
+        AND obligation_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'obligation instance outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'protocol_version' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM protocol_versions
+      WHERE tenant_id = NEW.tenant_id
+        AND protocol_version_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'protocol version outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'correction_request' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM identity_correction_requests
+      WHERE tenant_id = NEW.tenant_id
+        AND correction_request_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'correction request outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'absence' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM workforce_absences
+      WHERE tenant_id = NEW.tenant_id
+        AND absence_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'absence outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'park' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM locations
+      WHERE tenant_id = NEW.tenant_id
+        AND location_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'park outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM goat_identity_events
+    WHERE tenant_id = NEW.tenant_id
+      AND identity_event_id = NEW.event_id
+  ) THEN
+    RAISE EXCEPTION 'outbox event % does not exist for tenant %', NEW.event_id, NEW.tenant_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000040_vaccination_drive_assignment_members.sql
+-- -----------------------------------------------------------------------------
+-- seed-fixture-guard:ignore: operational membership written only by the scheduler
+-- (visit_shot_lock upsert / drive-date replan) and cascade-deleted with its parent
+-- assignment or obligation. It is never authored as seed data and never rebuilt by
+-- seed closeout -- a fresh seed populates it through the normal sweeper producer
+-- path -- so it carries no seed-data contract and needs no fixture/manifest/runbook
+-- companions.
+-- Exact drive membership: which obligations (one goat x one rule) a drive
+-- assignment row actually covers. Without this, a split shed/partition row
+-- ("200 on Jul 24, 124 on Jul 25") only stores counts, so a death/sale/cull
+-- cannot be attributed to the exact assignment row. Operational membership
+-- written by the scheduler; NOT a seeded catalog and NOT a rebuildable
+-- projection.
+CREATE TABLE IF NOT EXISTS public.vaccination_drive_assignment_members (
+  tenant_id uuid NOT NULL,
+  assignment_id uuid NOT NULL,
+  obligation_id uuid NOT NULL,
+  goat_id uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT vaccination_drive_assignment_members_pkey PRIMARY KEY (assignment_id, obligation_id),
+  CONSTRAINT vaccination_drive_assignment_members_tenant_obligation_uq UNIQUE (tenant_id, obligation_id),
+  CONSTRAINT vaccination_drive_assignment_members_assignment_fk FOREIGN KEY (assignment_id)
+    REFERENCES public.vaccination_drive_assignments(assignment_id) ON DELETE CASCADE,
+  CONSTRAINT vaccination_drive_assignment_members_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id)
+    REFERENCES public.obligation_instances(tenant_id, obligation_id) ON DELETE CASCADE,
+  CONSTRAINT vaccination_drive_assignment_members_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id)
+    REFERENCES public.goats(tenant_id, goat_id)
+);
+
+CREATE INDEX IF NOT EXISTS vaccination_drive_assignment_members_tenant_goat_idx
+  ON public.vaccination_drive_assignment_members (tenant_id, goat_id);
+
+CREATE INDEX IF NOT EXISTS vaccination_drive_assignment_members_tenant_assignment_idx
+  ON public.vaccination_drive_assignment_members (tenant_id, assignment_id);
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000041_vaccination_prearrival_history_entries.sql
+-- -----------------------------------------------------------------------------
+SET lock_timeout = '5s';
+
+CREATE TABLE IF NOT EXISTS public.vaccination_prearrival_history_entries (
+    entry_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    source_system text NOT NULL DEFAULT 'procurement_pc_handoff',
+    source_event_id text NOT NULL,
+    protocol_version_id uuid,
+    rule_id uuid,
+    vaccine_code text NOT NULL,
+    dose_code text NOT NULL,
+    sequence integer NOT NULL DEFAULT 0,
+    administered_at timestamptz NOT NULL,
+    schedule_path text NOT NULL,
+    review_status text NOT NULL,
+    rejection_reason text,
+    reviewed_by uuid,
+    reviewed_at timestamptz NOT NULL,
+    claim jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT vaccination_prearrival_history_status_check
+        CHECK (review_status IN ('accepted', 'rejected')),
+    CONSTRAINT vaccination_prearrival_history_path_check
+        CHECK (schedule_path IN ('kid', 'adult_procurement')),
+    -- A rejected entry MUST carry a reason: a durable sink with no reason is the
+    -- silent-drop defect one column over.
+    CONSTRAINT vaccination_prearrival_history_rejected_reason_check
+        CHECK (review_status <> 'rejected' OR nullif(btrim(rejection_reason), '') IS NOT NULL),
+    -- An accepted entry MUST resolve to a published protocol rule; unresolved
+    -- history can never be matched to a dose and would silently suppress nothing
+    -- or, worse, everything.
+    CONSTRAINT vaccination_prearrival_history_accepted_rule_check
+        CHECK (review_status <> 'accepted'
+               OR (protocol_version_id IS NOT NULL
+                   AND rule_id IS NOT NULL
+                   AND nullif(btrim(vaccine_code), '') IS NOT NULL
+                   AND nullif(btrim(dose_code), '') IS NOT NULL)),
+    CONSTRAINT vaccination_prearrival_history_claim_object_check
+        CHECK (jsonb_typeof(claim) = 'object')
+);
+
+-- Write-path idempotency: a stable per-claim key plus the semantic payload
+-- fingerprint. Exact replay conflicts on this index and returns the original row;
+-- a same-key/different-payload replay is rejected by the writer after comparing
+-- request_fingerprint.
+CREATE UNIQUE INDEX IF NOT EXISTS vaccination_prearrival_history_idempotency_idx
+    ON public.vaccination_prearrival_history_entries (tenant_id, idempotency_key);
+
+-- Generation read path: accepted anchors for a page of goats, newest first.
+CREATE INDEX IF NOT EXISTS vaccination_prearrival_history_accepted_goat_idx
+    ON public.vaccination_prearrival_history_entries (tenant_id, goat_id, administered_at DESC)
+    WHERE review_status = 'accepted';
+
+-- Operator surfacing of the rejected sink (never silently dropped).
+CREATE INDEX IF NOT EXISTS vaccination_prearrival_history_rejected_idx
+    ON public.vaccination_prearrival_history_entries (tenant_id, reviewed_at DESC)
+    WHERE review_status = 'rejected';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000042_idempotency_result_snapshot.sql
+-- -----------------------------------------------------------------------------
+-- BUG-037: an exact idempotent replay must return the ORIGINAL result, not a fresh read of the
+-- record's CURRENT state. idempotency_keys only stored result_type/result_id, so every replay path
+-- re-read the row by id -- which, for a MUTABLE record (workforce_positions bumps row_version on
+-- every edit), hands the caller whatever the row looks like now. A replay of update A that happened
+-- before unrelated updates B and C returned B/C's state under A's key.
+--
+-- result_snapshot stores the response body produced by the FIRST call, written inside the same
+-- transaction as the side effects, so a replay can return it verbatim with no re-read and no
+-- re-execution. Nullable jsonb with no default: PostgreSQL records this as a catalog-only change
+-- (no table rewrite, no full-table lock held while writing), so it is safe on a hot shared table.
+-- Rows written before this migration keep result_snapshot NULL and fall back to the previous
+-- read-by-result_id behaviour.
+SET lock_timeout = '5s';
+
+ALTER TABLE public.idempotency_keys
+  ADD COLUMN IF NOT EXISTS result_snapshot jsonb;
+
+COMMENT ON COLUMN public.idempotency_keys.result_snapshot IS
+  'Response body produced by the first call for this key, persisted in the same transaction as the side effects so an exact replay returns the original result instead of the record''s current state (BUG-037).';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000043_ceo_ai_prearrival_history_views.sql
+-- -----------------------------------------------------------------------------
+-- +goose StatementBegin
+-- ===========================================================================
+-- ceo_ai PRE-ARRIVAL VACCINATION HISTORY reporting — supplier-claim trust
+-- quality as a leadership read surface.
+--
+-- WHY THIS EXISTS
+-- Migration 000041 added public.vaccination_prearrival_history_entries: the
+-- reviewed pre-arrival vaccination history channel for PROCURED animals. Every
+-- supplier-attested claim that arrives on the procurement PC handoff is
+-- machine-validated against the published protocol and persisted either as
+-- review_status='accepted' (it becomes real history and suppresses a re-dose)
+-- or review_status='rejected' with a mandatory rejection_reason.
+--
+-- That accepted/rejected split is a genuine LEADERSHIP signal, not internal
+-- plumbing: it answers "how many procured animals arrived with vaccination
+-- history we could trust", "what share of supplier vaccination claims did we
+-- reject", and "why are we rejecting them" — i.e. supplier data quality and
+-- avoided re-injection. It is therefore covered here rather than excluded.
+--
+-- SOURCE: public.vaccination_prearrival_history_entries only (plus no joins —
+-- the table already carries every reporting dimension). Human vaccine labels
+-- are NOT available on this table; vaccine_code is the raw protocol code, so it
+-- is deliberately NOT exposed as a business label column here (the assistant
+-- must not print raw config tokens). See the typed placeholder below.
+--
+-- GRAIN: one row per
+--   (tenant_id, reviewed_date_ist, source_system, schedule_path,
+--    review_status, rejection_reason).
+-- rejection_reason is NULL for accepted rows (accepted rows carry no reason by
+-- CHECK constraint), so the accepted and rejected buckets never collapse.
+--
+-- SCALE: bounded by procured animals × claims per animal (a procurement-volume
+-- table, not a per-animal-per-day table), read tenant-scoped with a LIMIT at
+-- the toolbox/SQL call site, and the tenant predicate pushes into the base scan
+-- because tenant_id is the leading GROUP BY key.
+--
+-- IST business calendar: reviewed_date_ist buckets reviewed_at on the
+-- Asia/Kolkata business day, never a UTC instant.
+-- ===========================================================================
+
+-- projection-review: membership=all vaccination_prearrival_history_entries rows for the tenant (accepted + rejected; nothing is filtered out, so the rejected sink stays visible); group_key=(tenant_id, reviewed_date_ist, source_system, schedule_path, review_status, rejection_reason) — every count below groups on exactly that key; join_cardinality=NO joins, single base table, so no fan-out is possible; pagination=procurement-volume table, bounded, read tenant-scoped with LIMIT at the Toolbox/SQL-fallback call site; scope=tenant + review status + schedule path + reason preserved on every row so "accepted vs rejected share" and "why were claims rejected" resolve without collapsing buckets. distinct_animals uses count(DISTINCT goat_id) inside the same group, so an animal with several claims in one bucket is counted once for the animal metric while claims stays per-claim.
+CREATE OR REPLACE VIEW ceo_ai.vaccination_prearrival_history_review AS
+SELECT
+    e.tenant_id                                                   AS tenant_id,
+    (e.reviewed_at AT TIME ZONE 'Asia/Kolkata')::date             AS reviewed_date_ist,
+    e.source_system                                               AS source_system,
+    e.schedule_path                                               AS schedule_path,
+    e.review_status                                               AS review_status,
+    e.rejection_reason                                            AS rejection_reason,
+    count(*)::bigint                                              AS claims,
+    count(DISTINCT e.goat_id)::bigint                             AS distinct_animals,
+    min((e.administered_at AT TIME ZONE 'Asia/Kolkata')::date)    AS earliest_administered_date,
+    max((e.administered_at AT TIME ZONE 'Asia/Kolkata')::date)    AS latest_administered_date,
+    NULL::text -- TODO(no source yet): vaccine_label — this table stores the raw
+               -- protocol vaccine_code only; the human label lives on the
+               -- published protocol rule and is not joinable at this grain
+               -- without fanning the review buckets out per vaccine. Leadership
+               -- answers therefore stay at the trust/quality grain, and raw
+               -- config tokens are never surfaced.
+                                                                  AS vaccine_label
+FROM public.vaccination_prearrival_history_entries e
+GROUP BY 1, 2, 3, 4, 5, 6;
+-- +goose StatementEnd
+
+-- ===========================================================================
+-- GUARDED GRANTS — idempotent SELECT grant for the read-only reporting roles
+-- if they exist (mirrors migrations 000023 / 000027).
+-- ===========================================================================
+-- +goose StatementBegin
+DO $grants$
+DECLARE
+    r text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            EXECUTE format('GRANT SELECT ON ceo_ai.vaccination_prearrival_history_review TO %I', r);
+        END IF;
+    END LOOP;
+END;
+$grants$;
+-- +goose StatementEnd
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000044_vaccination_operator_capacity_overrides.sql
+-- -----------------------------------------------------------------------------
+-- Date-scoped vaccination operator capacity exceptions. The normal cap remains
+-- on workforce_positions/vaccination_capacity_config; this table is for explicit
+-- operational exceptions such as the one-time CPT seed catch-up day.
+-- seed-fixture-guard:ignore: operational date-scoped scheduler override table;
+-- rows are created only from an explicit operator-roster contract block, not
+-- authored as raw HRMS/vaccination source rows in the full fixture.
+
+CREATE TABLE IF NOT EXISTS public.vaccination_operator_capacity_overrides (
+  tenant_id uuid NOT NULL,
+  park_id uuid NOT NULL,
+  operator_id uuid NOT NULL,
+  capacity_date date NOT NULL,
+  max_animals integer NOT NULL,
+  reason text NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT vaccination_operator_capacity_overrides_pkey
+    PRIMARY KEY (tenant_id, park_id, operator_id, capacity_date),
+  CONSTRAINT vaccination_operator_capacity_overrides_max_check CHECK (max_animals >= 1),
+  CONSTRAINT vaccination_operator_capacity_overrides_reason_not_blank CHECK (btrim(reason) <> ''),
+  CONSTRAINT vaccination_operator_capacity_overrides_park_fk
+    FOREIGN KEY (park_id) REFERENCES public.locations (location_id),
+  CONSTRAINT vaccination_operator_capacity_overrides_operator_fk
+    FOREIGN KEY (operator_id) REFERENCES public.workforce_members (workforce_member_id)
+);
+
+CREATE INDEX IF NOT EXISTS vaccination_operator_capacity_overrides_lookup_idx
+  ON public.vaccination_operator_capacity_overrides (tenant_id, park_id, capacity_date, operator_id);
+
+COMMENT ON TABLE public.vaccination_operator_capacity_overrides IS
+  'Explicit date-scoped vaccination operator animal-cap exceptions. Normal caps stay on HRMS positions; planner reads this table only for the matching operator/date.';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000045_vaccination_capacity_config_animal_shot_cap.sql
+-- -----------------------------------------------------------------------------
+-- Editable animal shot-cap override on the tenant's vaccination_capacity_config row. NULL means "no
+-- override, use the published rule_dsl drive_policy.max_shots_per_animal_per_drive / code default"
+-- (domain.DefaultMaxShotsPerAnimalPerDrive). A non-null value is a tenant-wide admin override enforced
+-- by the obligation sweeper's same-day shot cap and honored ahead of the DSL value. Lock-safe: a bare
+-- ADD COLUMN with a NULL default takes only a brief metadata lock, no table rewrite/scan.
+--
+-- No seed companion: the column defaults NULL and the planner falls back to the published rule_dsl /
+-- code default, so existing vaccination-config / HRMS seed correctly leaves it unset.
+-- seed-fixture-guard:ignore: nullable shot-cap override column, default NULL falls back to rule_dsl/default; HRMS/config seed fixtures carry no value for it and need no companion update
+-- seed-migration-guard:ignore owner=ravi issue=caps-editable reason=nullable-shot-cap-override-defaults-null-planner-falls-back-to-rule_dsl-so-seed-leaves-it-unset expiry=2026-10-31
+ALTER TABLE public.vaccination_capacity_config
+  ADD COLUMN IF NOT EXISTS max_shots_per_animal_per_drive integer
+  CONSTRAINT vaccination_capacity_config_max_shots_check
+    CHECK (max_shots_per_animal_per_drive IS NULL OR max_shots_per_animal_per_drive >= 1);
+
+COMMENT ON COLUMN public.vaccination_capacity_config.max_shots_per_animal_per_drive IS
+  'Admin-editable override of the same-day per-animal shot cap. NULL = fall back to the published rule_dsl drive_policy value / code default (domain.DefaultMaxShotsPerAnimalPerDrive).';
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000046_proof_artifact_retention.sql
+-- -----------------------------------------------------------------------------
+-- +goose NO TRANSACTION
+-- seed-migration-guard:ignore owner=ravi issue=proof-retention-policy reason=no-seed-impact: adds runtime proof_artifacts retention bookkeeping; seed SOP proof_policy already carries retention_policy and no fixture/source shape change is needed expiry=2026-10-31
+ALTER TABLE proof_artifacts
+  ADD COLUMN IF NOT EXISTS retention_policy text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS retention_expires_at timestamptz,
+  ADD COLUMN IF NOT EXISTS upload_expires_at timestamptz;
+
+-- seed-migration-guard:ignore owner=ravi issue=proof-retention-policy reason=no-seed-impact: constrains the runtime retention_policy values added above; no seed fixture/source shape change is needed expiry=2026-10-31
+SET lock_timeout = '5s';
+ALTER TABLE proof_artifacts
+  ADD CONSTRAINT proof_artifacts_retention_policy_check
+  CHECK (retention_policy = ANY (ARRAY[''::text, 'operational_90d'::text, 'standard_1y'::text, 'critical_7y'::text, 'legal_hold'::text])) NOT VALID;
+
+-- seed-migration-guard:ignore owner=ravi issue=proof-retention-policy reason=no-seed-impact: validates runtime retention_policy values only; no seed fixture/source shape change is needed expiry=2026-10-31
+SET lock_timeout = '5s';
+ALTER TABLE proof_artifacts
+  VALIDATE CONSTRAINT proof_artifacts_retention_policy_check;
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS proof_artifacts_retention_expiry_idx
+  ON proof_artifacts (retention_expires_at, tenant_id, proof_id)
+  WHERE retention_expires_at IS NOT NULL;
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS proof_artifacts_abandoned_upload_idx
+  ON proof_artifacts (upload_expires_at, tenant_id, proof_id)
+  WHERE upload_state IN ('pending', 'uploading')
+    AND upload_expires_at IS NOT NULL;
+
+
+-- -----------------------------------------------------------------------------
+-- Collapsed from 000046_validate_vaccination_batch_outbox.sql
+-- -----------------------------------------------------------------------------
+-- Vaccination drive ready/closed events are emitted with aggregate_type='vaccination_batch'.
+-- The outbox validator must validate them against obligation_batches instead of falling through
+-- to the legacy goat_identity_events fallback, which rejects the deterministic drive event_id.
+-- seed-fixture-guard:ignore: trigger-only validation fix; no seed data shape changes
+-- seed-migration-guard:ignore owner=ravi issue=verification-drive-events reason=trigger-only-outbox-aggregate-validation-fix-no-seed-impact expiry=2026-10-31
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  config_family_key text;
+BEGIN
+  IF NEW.aggregate_type = 'verification_item' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM verification_items
+      WHERE tenant_id = NEW.tenant_id
+        AND item_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'verification item outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'vaccination_batch' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM obligation_batches
+      WHERE tenant_id = NEW.tenant_id
+        AND batch_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'vaccination batch outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'count_base_anchor' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM count_base_anchors
+      WHERE tenant_id = NEW.tenant_id
+        AND base_count_anchor_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'count base anchor outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'shifting_event' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM shifting_events
+      WHERE tenant_id = NEW.tenant_id
+        AND shifting_event_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'shifting event outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'count_projection_exception' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM count_projection_exceptions
+      WHERE tenant_id = NEW.tenant_id
+        AND count_projection_exception_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'count projection exception outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'admin_ui_config_family' THEN
+    config_family_key := COALESCE(NEW.payload->>'family_key', NEW.payload #>> '{payload,family_key}');
+    IF NOT EXISTS (
+      SELECT 1
+      FROM admin_ui_config_family_revisions
+      WHERE tenant_id = NEW.tenant_id
+        AND family_key = config_family_key
+    ) THEN
+      RAISE EXCEPTION 'admin ui config family outbox aggregate % does not exist for tenant %', config_family_key, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'calendar_notification' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM notification_requests
+      WHERE tenant_id = NEW.tenant_id
+        AND notification_request_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'calendar notification outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'calendar_snooze' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM calendar_snoozes
+      WHERE tenant_id = NEW.tenant_id
+        AND snooze_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'calendar snooze outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'obligation_escalation' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM obligation_escalations
+      WHERE tenant_id = NEW.tenant_id
+        AND escalation_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'obligation escalation outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'obligation_instance' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM obligation_instances
+      WHERE tenant_id = NEW.tenant_id
+        AND obligation_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'obligation instance outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'protocol_version' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM protocol_versions
+      WHERE tenant_id = NEW.tenant_id
+        AND protocol_version_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'protocol version outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'correction_request' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM identity_correction_requests
+      WHERE tenant_id = NEW.tenant_id
+        AND correction_request_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'correction request outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'absence' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM workforce_absences
+      WHERE tenant_id = NEW.tenant_id
+        AND absence_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'absence outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'park' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM locations
+      WHERE tenant_id = NEW.tenant_id
+        AND location_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'park outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM goat_identity_events
+    WHERE tenant_id = NEW.tenant_id
+      AND identity_event_id = NEW.event_id
+  ) THEN
+    RAISE EXCEPTION 'outbox event % does not exist for tenant %', NEW.event_id, NEW.tenant_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
+
+
 -- +goose Down
+-- +goose NO TRANSACTION
+
+DROP SCHEMA IF EXISTS ceo_ai CASCADE;
 DROP SCHEMA IF EXISTS analytics CASCADE;
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO public;

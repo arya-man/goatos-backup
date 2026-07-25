@@ -584,7 +584,7 @@ private fun shortDateLabel(date: LocalDate): String =
  *   not operator-facing stock labels; _booster remains meaningful copy.
  * - Unknown tokens are Title-Cased with underscores replaced by spaces.
  */
-private fun humanizeVaccineLabel(raw: String): String {
+internal fun humanizeVaccineLabel(raw: String): String {
     val trimmedRaw = raw.trim()
     if (trimmedRaw.contains("ET+TT") ||
         trimmedRaw.contains("Blue Tongue", ignoreCase = true) ||

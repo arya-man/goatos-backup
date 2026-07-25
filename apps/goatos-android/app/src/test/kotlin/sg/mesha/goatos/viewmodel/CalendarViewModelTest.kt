@@ -181,10 +181,21 @@ class CalendarViewModelTest {
         val item = CalendarEventDto(
             eventId = "calendar:task",
             eventType = "vaccination_proof_verification",
-            vaccineName = "Preventive Care Vaccination Matrix",
+            vaccineName = "Preventive Care Vaccination Matrix", // Raw input verifies hidden config label.
         ).toCalendarItem()
 
         assertNull(item.categoryLabel)
+    }
+
+    @Test
+    fun `calendar maps raw vaccine tokens before rendering category chip`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:task",
+            eventType = "vaccination_proof_verification",
+            vaccineName = "et_tt_adult_w2", // Raw input verifies mapper.
+        ).toCalendarItem()
+
+        assertEquals("ET+TT", item.categoryLabel)
     }
 
     @Test
