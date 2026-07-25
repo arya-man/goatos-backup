@@ -16,7 +16,7 @@
 //                                   -> <out>/attendance-jun-26.json
 //                                   -> <out>/timetable-goats-team-v1.json
 //                                   -> <out>/roster-name-mapping.jun26-review.csv
-//                                   -> <out>/shed-manager-mapping.jul11-vaccination.csv (header only)
+//                                   -> <out>/shed-manager-mapping.jul11-vaccination.csv
 //
 // The HRMS files are DERIVED from the roster contract, never hand-authored, so the
 // contract stays the single source of truth for who the CPT operators are, their
@@ -30,6 +30,7 @@
 // CPT invariant (fixtures/.../README.md + LOCAL_DB_RESEED_VALIDATION.md), enforced here:
 //   - Channapatna (CPT) only; CBE/Coimbatore rows are never synthesized;
 //   - Amit Kumar / Darshan Talwar / Sagar Mahoor are EQUAL vaccination operators;
+//   - every CPT physical shed gets Darshan as manager and Sagar as backup;
 //   - Chandrakant is director-only monitoring (no operator seat, no field capacity);
 //   - business/as-of date 2026-07-24.
 
@@ -71,6 +72,28 @@ function fail(message) {
 function titleCase(value) {
   const text = String(value ?? "").trim();
   return text ? text[0].toUpperCase() + text.slice(1).toLowerCase() : "";
+}
+
+function seedLocationCode(name) {
+  let code = String(name ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  while (code.includes("__")) code = code.replaceAll("__", "_");
+  code = code.replace(/^_+|_+$/g, "");
+  return code || "UNKNOWN";
+}
+
+function shedCode(farm, shed) {
+  const slug = seedLocationCode(shed);
+  return `${seedLocationCode(farm)}_SHED_${slug === "UNKNOWN" ? "SHED" : slug}`;
+}
+
+function normalizeShedPartitionName(raw) {
+  const name = String(raw ?? "").trim().replace(/\s+/g, " ");
+  if (!name) return { physical: "", partition: "whole" };
+  const partMatch = /^(.*?)\s*-\s*Part\s+(\d+)$/i.exec(name);
+  if (partMatch) return { physical: partMatch[1].trim(), partition: `Part ${partMatch[2]}` };
+  const numberMatch = /^(.*?)\s+(\d+)$/.exec(name);
+  if (numberMatch) return { physical: numberMatch[1].trim(), partition: numberMatch[2] };
+  return { physical: name, partition: "whole" };
 }
 
 function csv(rows) {
@@ -181,6 +204,51 @@ function buildRosterCSV(seats, park) {
   return csv(rows);
 }
 
+function buildShedManagerCSV(park, manager, backup) {
+  const rawPath = path.join(packetDir, "raw", "CPT-Adult-goats.json");
+  const goats = JSON.parse(fs.readFileSync(rawPath, "utf8")).values;
+  const header = goats[0].map((value) => String(value ?? "").trim().toLowerCase());
+  const farmIndex = header.indexOf("farm");
+  const shedIndex = header.indexOf("shed");
+  if (farmIndex < 0 || shedIndex < 0) fail("CPT-Adult-goats.json must include farm and shed columns");
+
+  const byShed = new Map();
+  for (const row of goats.slice(1)) {
+    const farm = String(row[farmIndex] ?? "").trim();
+    const rawShed = String(row[shedIndex] ?? "").trim();
+    if (!farm || !rawShed) continue;
+    const { physical } = normalizeShedPartitionName(rawShed);
+    if (!physical) continue;
+    const key = `${farm}\u0000${physical}`;
+    const current = byShed.get(key) ?? { farm, physical, goats: 0 };
+    current.goats += 1;
+    byShed.set(key, current);
+  }
+
+  const rows = [MANAGER_HEADER];
+  for (const shed of [...byShed.values()].sort((a, b) => a.physical.localeCompare(b.physical))) {
+    rows.push([
+      shedCode(shed.farm, shed.physical),
+      shed.physical,
+      park,
+      manager.code,
+      manager.display_name,
+      "reviewed",
+      "cpt-operator-roster.default_operator_assignment",
+      "REVIEWED",
+      "false",
+      "shed_manager",
+      backup.code,
+      backup.display_name,
+      "shed_backup_manager",
+      "cpt-operator-roster.default_operator_assignment.fallback_operator_code",
+      String(shed.goats),
+      "CPT vaccination shed ownership: Darshan manager, Sagar backup fallback",
+    ]);
+  }
+  return csv(rows);
+}
+
 function main() {
   const args = process.argv.slice(2);
   const outIndex = args.indexOf("--out");
@@ -199,6 +267,10 @@ function main() {
   const { contract, park, operators } = readContract();
   const directors = Array.isArray(contract.directors) ? contract.directors : [];
   const seats = REQUIRED_CENTER_SEATS.map((seat, index) => ({ seat, operator: operators[index] }));
+  const manager = operators.find((operator) => operator.code === "vaccination_operator_darshan");
+  const backup = operators.find((operator) => operator.code === "vaccination_operator_sagar");
+  if (!manager) fail("cpt-operator-roster.json must declare vaccination_operator_darshan for shed manager ownership");
+  if (!backup) fail("cpt-operator-roster.json must declare vaccination_operator_sagar for shed backup ownership");
 
   fs.mkdirSync(outDir, { recursive: true });
   copyRaw("CPT-Adult-goats.json", "goats.json", "rfid", outDir);
@@ -216,9 +288,7 @@ function main() {
     JSON.stringify(buildTimetable(seats, park), null, 2) + "\n",
   );
   fs.writeFileSync(path.join(outDir, "roster-name-mapping.jun26-review.csv"), buildRosterCSV(seats, park));
-  // Header only, zero rows: shed vaccination ownership for this rehearsal derives from the
-  // operator roster (equal operators), not from a shed->manager mapping.
-  fs.writeFileSync(path.join(outDir, "shed-manager-mapping.jul11-vaccination.csv"), csv([MANAGER_HEADER]));
+  fs.writeFileSync(path.join(outDir, "shed-manager-mapping.jul11-vaccination.csv"), buildShedManagerCSV(park, manager, backup));
 
   console.log(
     `materialize-source: park=${park} operators=${operators.length} directors=${directors.length} out=${outDir}`,
