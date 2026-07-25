@@ -408,11 +408,14 @@ stamps, and abandoned pending/uploading proof rows. `func:ApplyRetention`,
 `func:BackfillSubmissionRetention`, `func:PurgeExpired`,
 `func:PurgeAbandonedUploads`, and `func:ApplyRetentionPolicy` are internal proof
 repository/application helpers that attach or repair SOP proof-policy retention
-windows and delete expired runtime proof rows. They add NO leadership KPI, table,
-read API route, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership
-assistant read surface remains unchanged. Physical media deletion remains owned
-by object-store lifecycle configuration, not a leadership assistant read path.
-Explicit documented exclusion — no coverage-matrix mapping required.
+windows and delete expired runtime proof rows. Migration
+`000046_proof_artifact_retention` adds only retention/upload-expiry metadata and
+indexes on `proof_artifacts`; those columns are lifecycle plumbing, not a CEO
+chat answer source. They add NO leadership KPI, table, read API route, Cube
+metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read
+surface remains unchanged. Physical media deletion remains owned by object-store
+lifecycle configuration, not a leadership assistant read path. Explicit
+documented exclusion — no coverage-matrix mapping required.
 
 ## Pre-arrival vaccination history: covered table + excluded write/repair surfaces (2026-07-24)
 
