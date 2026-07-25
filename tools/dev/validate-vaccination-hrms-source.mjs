@@ -474,19 +474,21 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     const row = managers[index];
     const park = cell(row, managerColumns, "park_code");
     const rawShed = cell(row, managerColumns, "shed_name");
-    const shed = rawShed.trim();
-    const key = `${park}\0${shed}`;
     const count = Number(cell(row, managerColumns, "goat_count"));
     const manager = cell(row, managerColumns, "manager_code");
     const backup = cell(row, managerColumns, "backup_manager_code");
+    const usesOperatorRosterOwnership =
+      operatorRosterOwnership &&
+      park === operatorRosterOwnership.park &&
+      manager === operatorRosterOwnership.manager.code &&
+      backup === operatorRosterOwnership.backup.code;
+    const shed = usesOperatorRosterOwnership ? rawShed.trim() : normalizeShedPartitionName(rawShed).physical;
+    const key = `${park}\0${shed}`;
     const managerSeat = rosterSeatByCode.get(manager);
     const backupSeat = rosterSeatByCode.get(backup);
     const aggregate = managerSheds.get(key) ?? { count: 0, manager, backup };
     const operatorRosterOwned =
-      operatorRosterOwnership &&
-      park === operatorRosterOwnership.park &&
-      manager === operatorRosterOwnership.manager.code &&
-      backup === operatorRosterOwnership.backup.code &&
+      usesOperatorRosterOwnership &&
       cell(row, managerColumns, "manager_name") === operatorRosterOwnership.manager.display_name &&
       cell(row, managerColumns, "backup_manager_name") === operatorRosterOwnership.backup.display_name;
     const timetableOwned =
