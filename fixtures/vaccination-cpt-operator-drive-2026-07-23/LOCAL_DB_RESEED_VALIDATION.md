@@ -219,6 +219,12 @@ packet and must stay guarded before any STG seed:
 - **210 is not the normal cap:** standing operator cap remains 200. The only
   allowed 210 is Darshan on `2026-07-25` for the ET+TT seed catch-up row declared
   in `seed_catchup_overrides`.
+- **Shed/partition grouping is enforceable:** normal planner output must keep a
+  physical shed or partition whole when that unit fits within the 200 animal cap.
+  Splitting is valid only when the unit itself exceeds cap, health/death/sale/shift
+  state removes animals from the work set, operator availability/date movement
+  forces it, or an explicit seed catch-up override says so. The DB proof fails
+  unnecessary fragmentation.
 - **False-green exact-row checks:** a proof that only finds
   `2026-07-25 / Darshan / ET+TT / 210` is insufficient. It must also prove there
   are no extra ET+TT W2 rows on later dates and no duplicate open goat+dose
